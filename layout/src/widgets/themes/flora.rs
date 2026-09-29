@@ -3118,7 +3118,6 @@ pub(crate) fn pagination_skin() -> crate::widgets::pagination::PaginationSkin {
     crate::widgets::pagination::PaginationSkin {
         theme: super::UiTheme::Flora,
         button: pagination_button,
-        restyle: pagination_colours,
     }
 }
 
@@ -3196,28 +3195,6 @@ fn pagination_button(
     };
     v.extend(kit::focus_shadow_ring(ring, DARK_GLOW));
     CssPropertyWithConditionsVec::from_vec(v)
-}
-
-/// The fill and ink a click restyles a flora pagination button with.
-fn pagination_colours(
-    face: crate::widgets::pagination::PageFace,
-    dark: bool,
-) -> (StyleBackgroundContentVec, ColorU) {
-    use crate::widgets::pagination::PageFace;
-    let fill = |list: Vec<StyleBackgroundContent>| StyleBackgroundContentVec::from_vec(list);
-    match (face, dark) {
-        (PageFace::Current, _) => (fill(selected_stone()), LIGHT_ON_ACC),
-        (PageFace::Neutral, false) => (fill(vec![RAISED_FACE_LIGHT]), LIGHT_INK),
-        (PageFace::Neutral, true) => (fill(vec![RAISED_FACE_DARK]), DARK_INK),
-        (PageFace::Disabled, false) => (
-            fill(vec![StyleBackgroundContent::Color(LIGHT_DISBG)]),
-            LIGHT_DISTX,
-        ),
-        (PageFace::Disabled, true) => (
-            fill(vec![StyleBackgroundContent::Color(DARK_DISBG)]),
-            DARK_DISTX,
-        ),
-    }
 }
 
 /// Renders a [`crate::widgets::pagination::Pagination`] in the flora theme.

@@ -1,8 +1,10 @@
 //! Pagination widget — a page-number navigator: `Prev`, a joined row of
 //! page-number buttons, then `Next`. A near-clone of
 //! [`crate::widgets::segmented::Segmented`] (a joined button bar whose clicked
-//! item is derived from sibling position and whose active item is live-restyled
-//! via `set_css_property`), specialised to page navigation.
+//! item is derived from sibling position and whose buttons are live-restyled
+//! with the style a build on the new page gives them -
+//! `CallbackInfo::set_node_inline_style`, so the cascade keeps picking the
+//! mode's colours), specialised to page navigation.
 //!
 //! State is `{ current_page, total_pages }` (`current_page` is 1-based). Clicking
 //! a page button selects it; clicking `Prev`/`Next` steps one page within
@@ -389,17 +391,6 @@ pub(crate) fn button_style(
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
-/// Whether the window renders dark - the cascade's own rule
-/// (`LayoutWindow::dynamic_selector_context`): `AZ_MODE` pins it, else the
-/// window's theme. The live restyle writes plain overrides, which win over
-/// the dark twins, so it has to pick the theme's colours itself.
-fn renders_dark(info: &CallbackInfo) -> bool {
-    azul_css::dynamic_selector::mode_pinned_by_env().map_or_else(
-        || info.get_current_window_state().theme == azul_core::window::WindowTheme::DarkMode,
-        |t| t == azul_css::dynamic_selector::ThemeCondition::Dark,
-    )
-}
-
 /// What a pagination button shows, for its colours: the current page, a
 /// `Prev` / `Next` at the end it cannot go past, or any other button.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -424,9 +415,11 @@ impl PageFace {
     }
 }
 
-/// What a theme supplies for a pagination bar: every button's style, and
-/// the fill and ink a click restyle writes. Built by
-/// `themes::flat::pagination_skin` / `themes::flora::pagination_skin`.
+/// What a theme supplies for a pagination bar: every button's style. Built
+/// by `themes::flat::pagination_skin` / `themes::flora::pagination_skin`. A
+/// click restyles each button with the same function
+/// (`CallbackInfo::set_node_inline_style`), so a clicked bar is the bar
+/// built on its new page - in every mode.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PaginationSkin {
     pub theme: UiTheme,
@@ -434,11 +427,6 @@ pub(crate) struct PaginationSkin {
     /// the states - for its face and whether it is the first (`Prev`,
     /// left-rounded) or last (`Next`, right-rounded) of the bar.
     pub button: fn(PageFace, bool, bool) -> CssPropertyWithConditionsVec,
-    /// The fill and ink the click restyle writes for a face, by day
-    /// (`false`) or by night (`true`). A `set_css_property` override outranks
-    /// every inline declaration, dark twins included, so the restyle picks the
-    /// mode's colours itself.
-    pub restyle: fn(PageFace, bool) -> (StyleBackgroundContentVec, ColorU),
 }
 
 /// The skin `theme` draws pagination bars with.
@@ -462,28 +450,13 @@ fn follow_button(face: PageFace, is_first: bool, is_last: bool) -> CssPropertyWi
 
 /// The skin an UNPINNED pagination bar is built with, so it follows the app
 /// theme: `structure`'s theme (its marker goes on the bar, so the click
-/// restyle writes that theme's colours) and every button in BOTH themes'
-/// blocks.
+/// restyle writes that theme's buttons - a theme switch rebuilds the DOM)
+/// and every button in BOTH themes' blocks.
 #[must_use]
-pub(crate) fn follow_skin(structure: UiTheme) -> PaginationSkin {
+pub(crate) const fn follow_skin(structure: UiTheme) -> PaginationSkin {
     PaginationSkin {
         theme: structure,
         button: follow_button,
-        restyle: skin_for(structure).restyle,
-    }
-}
-
-/// The flat theme's restyle colours - the established palette: white paper
-/// and the fixed accent by day, the desktop's button face by night (the
-/// accent page keeps its accent).
-#[must_use]
-pub(crate) fn established_colours(face: PageFace, dark: bool) -> (StyleBackgroundContentVec, ColorU) {
-    match (face, dark) {
-        (PageFace::Current, _) => (ACCENT_BG, ACTIVE_TEXT),
-        (PageFace::Neutral, false) => (NEUTRAL_BG, NEUTRAL_TEXT),
-        (PageFace::Disabled, false) => (NEUTRAL_BG, DISABLED_TEXT),
-        (PageFace::Neutral, true) => (system_palette::BUTTON_FACE, system_palette::BUTTON_TEXT),
-        (PageFace::Disabled, true) => (system_palette::BUTTON_FACE, system_palette::SECONDARY_TEXT),
     }
 }
 
@@ -761,10 +734,11 @@ extern "C" fn on_page_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
     };
 
     // Live-restyle: active page gets the accent face; Prev/Next show the
-    // muted disabled look at their bounds; everything else is neutral - in the
-    // theme the bar was BUILT in (its marker class) and the mode the window
-    // renders in.
-    let dark = renders_dark(&info);
+    // muted disabled look at their bounds; everything else is neutral - each
+    // button the style the bar BUILT on the new page gives it (light face,
+    // dark twins, states), in the theme it was built in (its marker class).
+    // The cascade, not this handler, picks the mode's colours - now and after
+    // a light / dark switch.
     let theme = style_kit::theme_of_classes(info.get_node_classes(parent).as_ref());
     let skin = skin_for(theme);
     for (i, node) in buttons.iter().enumerate() {
@@ -777,12 +751,7 @@ extern "C" fn on_page_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
         } else {
             PageFace::of(i == new_page, false)
         };
-        let (bg, text) = (skin.restyle)(face, dark);
-        info.set_css_property(*node, CssProperty::const_background_content(bg));
-        info.set_css_property(
-            *node,
-            CssProperty::const_text_color(StyleTextColor { inner: text }),
-        );
+        info.set_node_inline_style(*node, (skin.button)(face, i == 0, i == n - 1));
     }
 
     result
@@ -1213,44 +1182,43 @@ mod autotest_generated {
         (update, recorded)
     }
 
-    /// Decodes a live-restyle transaction into `(node index, background, text)`
-    /// triples — the handler pushes exactly one background and one colour write per
-    /// button, in that order.
-    fn restyle(changes: &[CallbackChange]) -> Vec<(usize, ColorU, ColorU)> {
-        assert_eq!(
-            changes.len() % 2,
-            0,
-            "a restyle pass writes background+colour in pairs"
-        );
-        let decode = |c: &CallbackChange| -> (usize, CssProperty) {
-            match c {
-                CallbackChange::ChangeNodeCssProperties {
+    /// Every button style a live-restyle transaction wrote
+    /// (`set_node_inline_style`), as `(node index, style)` in order. The
+    /// restyle pins no value: any other change is a bug.
+    fn inline_writes(changes: &[CallbackChange]) -> Vec<(usize, CssPropertyWithConditionsVec)> {
+        changes
+            .iter()
+            .map(|c| match c {
+                CallbackChange::SetNodeInlineStyle {
                     dom_id,
                     node_id,
-                    properties,
+                    style,
                 } => {
                     assert_eq!(*dom_id, DomId::ROOT_ID, "restyle must stay in the root DOM");
-                    assert_eq!(
-                        properties.as_ref().len(),
-                        1,
-                        "set_css_property writes exactly one property per change"
-                    );
-                    (node_id.index(), properties.as_ref()[0].clone())
+                    (node_id.index(), style.clone())
                 }
                 other => panic!("unexpected change pushed by on_page_click: {other:?}"),
-            }
-        };
-        changes
-            .chunks(2)
-            .map(|pair| {
-                let (bg_node, bg_prop) = decode(&pair[0]);
-                let (fg_node, fg_prop) = decode(&pair[1]);
-                assert_eq!(bg_node, fg_node, "both writes must target the same button");
-                let bg = background_color(&[bg_prop])
-                    .expect("the first write of each pair is the background");
-                let fg =
-                    text_color(&[fg_prop]).expect("the second write of each pair is the colour");
-                (bg_node, bg, fg)
+            })
+            .collect()
+    }
+
+    /// Decodes a live-restyle transaction into `(node index, background, text)`
+    /// triples - one per button: the LIGHT resting face (the unconditional
+    /// declarations) of the style the click wrote it. Its dark twins and
+    /// states travel in the same style.
+    fn restyle(changes: &[CallbackChange]) -> Vec<(usize, ColorU, ColorU)> {
+        inline_writes(changes)
+            .into_iter()
+            .map(|(node, style)| {
+                let resting: Vec<CssProperty> = style
+                    .as_ref()
+                    .iter()
+                    .filter(|p| p.apply_if.as_ref().is_empty())
+                    .map(|p| p.property.clone())
+                    .collect();
+                let bg = background_color(&resting).expect("every button has a resting background");
+                let fg = text_color(&resting).expect("every button has a resting ink");
+                (node, bg, fg)
             })
             .collect()
     }
@@ -2547,50 +2515,63 @@ mod autotest_generated {
         );
     }
 
-    /// The click restyle writes the colours of the theme the bar was BUILT in
+    /// The click restyle writes the buttons of the theme the bar was BUILT in
     /// (read back from its marker class): a flora pager must not be repainted
-    /// in flat's white and blue on the first click.
+    /// in flat's white and blue on the first click. Each button takes the
+    /// whole style a flora build on the new page gives it.
     #[test]
     fn a_click_on_a_flora_pagination_restyles_in_flora_s_colours() {
         use crate::widgets::themes::{flora, theme_checks as tc, UiTheme};
 
         let (styled, state) = flatten(Pagination::create(1, 3).with_theme(UiTheme::Flora));
         let (_, changes) = run_click(Some(styled), page_node(2), state);
-        let writes: Vec<(usize, CssProperty)> = changes
-            .iter()
-            .map(|c| match c {
-                CallbackChange::ChangeNodeCssProperties {
-                    node_id,
-                    properties,
-                    ..
-                } => (node_id.index(), properties.as_ref()[0].clone()),
-                other => panic!("unexpected change: {other:?}"),
-            })
-            .collect();
-        let bg_of = |node: usize| {
-            writes
+        let built = Pagination::create(2, 3).with_theme(UiTheme::Flora).dom();
+        let written = inline_writes(&changes);
+        assert_eq!(written.len(), 5, "Prev, three pages, Next");
+        for ((node, style), button) in written.iter().zip(built.children.as_ref()) {
+            let want: Vec<(CssProperty, azul_css::dynamic_selector::DynamicSelectorVec)> = button
+                .root
+                .style
+                .iter_inline_properties()
+                .map(|(p, c)| (p.clone(), c.clone()))
+                .collect();
+            let got: Vec<(CssProperty, azul_css::dynamic_selector::DynamicSelectorVec)> = style
+                .as_ref()
                 .iter()
-                .find(|(n, p)| *n == node && matches!(p, CssProperty::BackgroundContent(_)))
-                .map(|(_, p)| tc::bg_layers(p))
-        };
-        let ink_of = |node: usize| {
-            writes.iter().find_map(|(n, p)| match p {
-                CssProperty::TextColor(v) if *n == node => v.get_property().map(|c| c.inner),
-                _ => None,
-            })
-        };
+                .map(|p| (p.property.clone(), p.apply_if.clone()))
+                .collect();
+            assert_eq!(got, want, "button node {node} takes the flora build's style");
+        }
 
-        let page1 = bg_of(page_node(1)).expect("page 1 is restyled");
-        assert!(
-            page1 == vec![flora::RAISED_FACE_LIGHT] || page1 == vec![flora::RAISED_FACE_DARK],
-            "a page that is no longer current goes back to flora paper: {page1:?}"
-        );
-        let page2 = bg_of(page_node(2)).expect("page 2 is restyled");
-        assert!(
-            matches!(page2.first(), Some(StyleBackgroundContent::LinearGradient(_))),
-            "the new current page is the sunken stone: {page2:?}"
-        );
-        assert_eq!(ink_of(page_node(2)), Some(flora::LIGHT_ON_ACC));
+        // ...which is flora paper and the sunken stone, with their night faces.
+        let node = |n: usize| {
+            let style = written
+                .iter()
+                .find(|(i, _)| *i == n)
+                .map(|(_, s)| s.clone())
+                .expect("restyled");
+            Dom::create_div().with_css_props(style)
+        };
+        for dark in [false, true] {
+            let page1 = tc::background(&node(page_node(1)), dark).map(|p| tc::bg_layers(&p));
+            assert_eq!(
+                page1,
+                Some(vec![if dark {
+                    flora::RAISED_FACE_DARK
+                } else {
+                    flora::RAISED_FACE_LIGHT
+                }]),
+                "dark={dark}: a page that is no longer current goes back to flora paper"
+            );
+            let page2 = tc::background(&node(page_node(2)), dark)
+                .map(|p| tc::bg_layers(&p))
+                .unwrap_or_default();
+            assert!(
+                matches!(page2.first(), Some(StyleBackgroundContent::LinearGradient(_))),
+                "dark={dark}: the new current page is the sunken stone: {page2:?}"
+            );
+        }
+        assert_eq!(tc::text_color(&node(page_node(2)), false), Some(flora::LIGHT_ON_ACC));
 
         // A flat pager still writes flat's plain accent.
         let (styled, state) = flatten(Pagination::create(1, 3).with_theme(UiTheme::Flat));
@@ -2601,31 +2582,27 @@ mod autotest_generated {
     }
 
     /// An UNPINNED pager follows the app theme, and so does its click
-    /// restyle: built for flora, it repaints in flora's colours (the marker
+    /// restyle: built for flora, it repaints in flora's buttons (the marker
     /// on the bar is the theme it was built for).
     #[test]
     fn a_click_on_an_unpinned_pagination_built_for_flora_restyles_in_flora_s_colours() {
-        use crate::widgets::themes::flora;
+        use crate::widgets::themes::{flora, theme_checks as tc};
 
         let (styled, state) = {
             let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
             flatten(Pagination::create(1, 3))
         };
         let (_, changes) = run_click(Some(styled), page_node(2), state);
-        let ink = changes.iter().find_map(|c| match c {
-            CallbackChange::ChangeNodeCssProperties {
-                node_id,
-                properties,
-                ..
-            } if node_id.index() == page_node(2) => {
-                properties.as_ref().iter().find_map(|p| match p {
-                    CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
-                    _ => None,
-                })
-            }
-            _ => None,
-        });
-        assert_eq!(ink, Some(flora::LIGHT_ON_ACC), "the new current page wears flora's stone ink");
+        let page2 = inline_writes(&changes)
+            .into_iter()
+            .find(|(n, _)| *n == page_node(2))
+            .map(|(_, style)| style)
+            .expect("page 2 is restyled");
+        assert_eq!(
+            tc::text_color(&Dom::create_div().with_css_props(page2), false),
+            Some(flora::LIGHT_ON_ACC),
+            "the new current page wears flora's stone ink"
+        );
     }
 }
 

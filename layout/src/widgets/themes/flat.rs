@@ -3517,7 +3517,6 @@ pub(crate) fn pagination_skin() -> crate::widgets::pagination::PaginationSkin {
     crate::widgets::pagination::PaginationSkin {
         theme: super::UiTheme::Flat,
         button: pagination_button,
-        restyle: crate::widgets::pagination::established_colours,
     }
 }
 
