@@ -107,6 +107,10 @@ pub struct VideoWidgetState {
     /// "no signal" poster in it. Adopted from every rebuild (see
     /// [`merge_video_state`]).
     pub theme: UiTheme,
+    /// Whether the widget was built UNPINNED, following the app theme: the
+    /// poster then carries every theme's block (`@theme(..)`) and `theme`
+    /// is only the structure it was built in. Adopted from every rebuild.
+    pub follows_app_theme: bool,
 }
 
 /// The runtime-installed streaming decode worker every video picks up when it
@@ -153,7 +157,7 @@ pub struct VideoWidget {
     pub on_mount: OptionVideoMount,
     /// Optional hook fired with every [`VideoStatus`] the decoder reports.
     pub on_status: OptionOnVideoStatus,
-    /// The widget theme, or `None` for the default (`UiTheme::Flat`). The
+    /// The widget theme, or `None` to follow the app theme (`AppConfig::with_theme`). The
     /// picture is the source's own; the theme draws the widget's chrome - the
     /// "no signal" poster shown until the first frame. A DOM-level choice:
     /// switching it rebuilds the widget.
@@ -174,8 +178,8 @@ impl VideoWidget {
         }
     }
 
-    /// Pick the widget theme. Unset (`None`), the widget renders in the
-    /// default theme (`UiTheme::default()`, flat).
+    /// Pick the widget theme. Unset (`None`), the widget follows the
+    /// app theme (`AppConfig::with_theme`, flat by default).
     #[inline]
     pub const fn set_theme(&mut self, theme: UiTheme) {
         self.theme = OptionUiTheme::Some(theme);
@@ -279,13 +283,16 @@ impl VideoWidget {
     /// from the `on_mount` hook, never from here: building the `Dom` only
     /// describes the UI.
     ///
-    /// Rendering goes through the theme modules (as `Button::dom` does);
-    /// `UiTheme::default()` is flat.
+    /// Rendering goes through the theme modules (as `Button::dom` does).
+    /// Unpinned (`theme: None`), the widget follows the APP theme: built in
+    /// the structure (and marker) of the theme its DOM is built for, its
+    /// poster carrying every theme's block.
     #[must_use]
     pub fn dom(self) -> Dom {
         match self.theme.into_option() {
             Some(UiTheme::Flora) => crate::widgets::themes::flora::video(self),
-            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::video(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::video(self),
+            None => self.build_in(UiTheme::current(), true),
         }
     }
 
@@ -294,6 +301,12 @@ impl VideoWidget {
     /// the render callback draws the poster in it.
     #[must_use]
     pub(crate) fn build(self, theme: UiTheme) -> Dom {
+        self.build_in(theme, false)
+    }
+
+    /// [`Self::build`] in the structure of `theme`; `follows_app_theme`: the
+    /// poster carries every theme's block rather than `theme`'s alone.
+    fn build_in(self, theme: UiTheme, follows_app_theme: bool) -> Dom {
         let state = VideoWidgetState {
             config: self.config,
             started: false,
@@ -309,6 +322,7 @@ impl VideoWidget {
             on_mount: self.on_mount,
             setup: VideoSetup::new(),
             theme,
+            follows_app_theme,
         };
         let dataset = RefAny::new(state);
         let vv_data = dataset.clone();
@@ -353,6 +367,21 @@ fn poster_style(theme: UiTheme) -> azul_css::dynamic_selector::CssPropertyWithCo
     match theme {
         UiTheme::Flat => crate::widgets::themes::flat::video_poster_style(),
         UiTheme::Flora => crate::widgets::themes::flora::video_poster_style(),
+    }
+}
+
+/// The poster of a widget state: its theme's, or - built unpinned - every
+/// theme's block of it (`themes::flat::follow_props`).
+fn state_poster_style(
+    s: &VideoWidgetState,
+) -> azul_css::dynamic_selector::CssPropertyWithConditionsVec {
+    if s.follows_app_theme {
+        crate::widgets::themes::flat::follow_props(
+            poster_style(UiTheme::Flat).as_slice(),
+            poster_style(UiTheme::Flora).as_slice(),
+        )
+    } else {
+        poster_style(s.theme)
     }
 }
 
@@ -406,7 +435,7 @@ extern "C" fn video_widget_render(
                         // indistinguishable from a black video — the shipped
                         // azul-video "black frame" bug. A dead pipeline must be
                         // visibly dead. Drawn in the widget's theme.
-                        OptionDom::Some(Dom::create_div().with_css_props(poster_style(s.theme)))
+                        OptionDom::Some(Dom::create_div().with_css_props(state_poster_style(&s)))
                     },
                     |img| OptionDom::Some(frame_image(img.clone())),
                 )
@@ -857,6 +886,7 @@ extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> R
             old_g.on_mount = new_g.on_mount.clone();
             // The app's theme is adopted like its config: the poster follows it.
             old_g.theme = new_g.theme;
+            old_g.follows_app_theme = new_g.follows_app_theme;
             true
         } else {
             // Foreign / mismatched payloads (one side is not this widget's
@@ -1325,6 +1355,7 @@ mod autotest_generated {
             on_mount: OptionVideoMount::None,
             setup: VideoSetup::new(),
             theme: crate::widgets::themes::UiTheme::Flat,
+            follows_app_theme: false,
         }
     }
 

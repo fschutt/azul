@@ -87,9 +87,13 @@ Recipe: scripts/T1_APP_THEME_2026_09_29.md §4. Nothing is compiled here (house 
   renders both themes' bars and merges them under `UiTheme::current()`; `render_bar()` merges
   the same way (`follow_bar`); 13 autotest `render_bar` mechanics pins now pin `FLAT`)
 
+- video: RED 96a6ed0db, impl: see git log (`VideoWidgetState.follows_app_theme: bool` appended
+  (Rust-only struct), adopted by `merge_video_state`; unpinned `dom()` = `build_in(current(),
+  true)`; the render callback's poster = `follow_props(flat, flora)` when following)
+
 ## IN PROGRESS
 
-- video
+- combobox (theme option + flora look + follow)
 
 ## NEXT
 
