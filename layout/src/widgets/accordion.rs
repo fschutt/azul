@@ -1581,3 +1581,241 @@ mod autotest_generated {
         );
     }
 }
+
+/// The theme option: which look an accordion renders in, and what each look
+/// is.
+#[cfg(test)]
+mod theme_tests {
+    use azul_css::{
+        dynamic_selector::PseudoStateType,
+        props::{basic::pixel::PixelValue, style::BoxShadowClipMode},
+    };
+
+    use super::*;
+    use crate::widgets::{
+        theme_probe,
+        themes::{flora, OptionUiTheme, UiTheme},
+    };
+
+    fn accordion(theme: UiTheme) -> Dom {
+        Accordion::new(AccordionSectionVec::from_vec(alloc::vec![
+            AccordionSection::new("Open section", Dom::create_p_with_text("Body text"))
+                .with_open(true),
+            AccordionSection::new("Closed section", Dom::create_p_with_text("Body text")),
+        ]))
+        .with_theme(theme)
+        .dom()
+    }
+
+    fn sections(dom: &Dom) -> &[Dom] {
+        dom.children.as_ref()
+    }
+
+    fn header(section: &Dom) -> &Dom {
+        &section.children.as_ref()[0]
+    }
+
+    fn body(section: &Dom) -> &Dom {
+        &section.children.as_ref()[1]
+    }
+
+    fn declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, c)| CssPropertyWithConditions {
+                property: p.clone(),
+                apply_if: c.clone(),
+            })
+            .collect()
+    }
+
+    /// The `(light, dark)` value `pick` finds among the declarations for
+    /// exactly `state`.
+    fn in_state<T>(
+        node: &Dom,
+        state: PseudoStateType,
+        pick: impl Fn(&CssProperty) -> Option<T>,
+    ) -> (Option<T>, Option<T>) {
+        let mut light = None;
+        let mut dark = None;
+        for d in declarations(node) {
+            if d.pseudo_state_conditions() != [state] {
+                continue;
+            }
+            let Some(v) = pick(&d.property) else {
+                continue;
+            };
+            if d.is_dark_twin() {
+                dark = Some(v);
+            } else {
+                light = Some(v);
+            }
+        }
+        (light, dark)
+    }
+
+    /// A shadow's colour, and whether it is drawn inside the box.
+    fn shadow(p: &CssProperty) -> Option<(ColorU, bool)> {
+        match p {
+            CssProperty::BoxShadowTop(v)
+            | CssProperty::BoxShadowRight(v)
+            | CssProperty::BoxShadowBottom(v)
+            | CssProperty::BoxShadowLeft(v) => v.get_property().map(|s| {
+                let s = s.as_ref();
+                (s.color, s.clip_mode == BoxShadowClipMode::Inset)
+            }),
+            _ => None,
+        }
+    }
+
+    fn bg(p: &CssProperty) -> Option<Vec<StyleBackgroundContent>> {
+        match p {
+            CssProperty::BackgroundContent(v) => v.get_property().map(|v| v.as_ref().to_vec()),
+            _ => None,
+        }
+    }
+
+    fn ink(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn top_edge(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn radius(p: &CssProperty) -> Option<PixelValue> {
+        match p {
+            CssProperty::BorderTopLeftRadius(v) => v.get_property().map(|r| r.inner),
+            _ => None,
+        }
+    }
+
+    fn last<T>(props: &[CssProperty], f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
+        props.iter().rev().find_map(f)
+    }
+
+    #[test]
+    fn an_accordion_without_a_theme_renders_flat() {
+        let plain = Accordion::create();
+        assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+        assert_eq!(
+            theme_probe::unconditional(&plain.clone().dom()),
+            theme_probe::unconditional(&plain.with_theme(UiTheme::Flat).dom())
+        );
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let mut set = Accordion::create();
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(Accordion::create().with_theme(UiTheme::Flora), set);
+    }
+
+    #[test]
+    fn a_flat_header_rings_inside_its_panel_on_focus_and_lights_under_the_pointer() {
+        let dom = accordion(UiTheme::Flat);
+        for s in sections(&dom) {
+            let (light, dark) = in_state(header(s), PseudoStateType::Focus, shadow);
+            assert!(
+                light.is_some_and(|(_, inset)| inset) && dark.is_some_and(|(_, inset)| inset),
+                "a keyboard stop needs a ring, drawn inside: the panel clips its edges"
+            );
+            let (hl, hd) = in_state(header(s), PseudoStateType::Hover, bg);
+            assert!(hl.is_some() && hd.is_some(), "no hover face, or none at night");
+        }
+    }
+
+    #[test]
+    fn a_flora_accordion_is_a_leaf_ruled_in_flora_s_hairline() {
+        let dom = accordion(UiTheme::Flora);
+        let rest = theme_probe::unconditional(&dom);
+        assert_eq!(
+            last(&rest, bg),
+            Some(alloc::vec![StyleBackgroundContent::Color(flora::LIGHT_SUR)])
+        );
+        assert_eq!(last(&rest, top_edge), Some(flora::LIGHT_BD));
+        assert_eq!(last(&rest, ink), Some(flora::LIGHT_INK));
+        assert_eq!(last(&rest, radius), Some(PixelValue::const_px(3)));
+        let dark = theme_probe::dark(&dom);
+        assert_eq!(
+            last(&dark, bg),
+            Some(alloc::vec![StyleBackgroundContent::Color(flora::DARK_SUR)])
+        );
+        assert_eq!(last(&dark, top_edge), Some(flora::DARK_BD));
+        assert_eq!(last(&dark, ink), Some(flora::DARK_INK));
+    }
+
+    #[test]
+    fn a_flora_header_is_raised_paper_that_lifts_under_the_pointer() {
+        let dom = accordion(UiTheme::Flora);
+        for s in sections(&dom) {
+            let h = header(s);
+            assert_eq!(
+                last(&theme_probe::unconditional(h), bg),
+                Some(alloc::vec![flora::RAISED_FACE_LIGHT])
+            );
+            assert_eq!(
+                last(&theme_probe::dark(h), bg),
+                Some(alloc::vec![flora::RAISED_FACE_DARK])
+            );
+            assert_eq!(
+                in_state(h, PseudoStateType::Hover, bg),
+                (
+                    Some(alloc::vec![flora::HOVER_FACE_LIGHT]),
+                    Some(alloc::vec![flora::HOVER_FACE_DARK])
+                )
+            );
+            assert_eq!(
+                in_state(h, PseudoStateType::Hover, ink),
+                (Some(flora::LIGHT_QT), Some(flora::DARK_QT)),
+                "flora.css `.faq-question:hover`: the brass accent"
+            );
+            assert_eq!(
+                in_state(h, PseudoStateType::Focus, shadow),
+                (
+                    Some((flora::LIGHT_ACC, true)),
+                    Some((flora::DARK_GLOW, true))
+                ),
+                "flora's focus colour, inside the panel"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_accordion_keeps_the_headers_behaviour_and_the_bodies_geometry() {
+        let flora = accordion(UiTheme::Flora);
+        let flat = accordion(UiTheme::Flat);
+        for (a, b) in sections(&flora).iter().zip(sections(&flat)) {
+            assert!(header(a).root.get_tab_index().is_some(), "a keyboard stop");
+            assert_eq!(header(a).root.get_callbacks().as_ref().len(), 1, "the toggle");
+            assert_eq!(
+                header(a).root.get_accessibility_info().map(|i| i.role),
+                header(b).root.get_accessibility_info().map(|i| i.role)
+            );
+            assert_eq!(
+                theme_probe::unconditional(body(a)),
+                theme_probe::unconditional(body(b)),
+                "the open / closed geometry the click handler tweens"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_accordion_carries_the_flora_theme_marker() {
+        let dom = accordion(UiTheme::Flora);
+        assert!(dom
+            .root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == "__azul-theme-flora")));
+    }
+}

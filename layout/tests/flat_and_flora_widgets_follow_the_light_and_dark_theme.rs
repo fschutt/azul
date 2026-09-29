@@ -497,3 +497,27 @@ fn breadcrumbs_read_in_both_themes_in_both_looks() {
         .collect();
     assert_follow_the_theme(widgets);
 }
+
+#[test]
+fn accordions_hold_readable_text_in_both_themes_in_both_looks() {
+    use azul_layout::widgets::accordion::{Accordion, AccordionSection, AccordionSectionVec};
+    let widgets = LOOKS
+        .iter()
+        .map(|(look, theme)| {
+            (
+                format!("{look} accordion + text"),
+                Accordion::new(AccordionSectionVec::from_vec(vec![
+                    AccordionSection::new("Open section", Dom::create_p_with_text("Body text"))
+                        .with_open(true),
+                    AccordionSection::new(
+                        "Closed section",
+                        Dom::create_p_with_text("Body text"),
+                    ),
+                ]))
+                .with_theme(*theme)
+                .dom(),
+            )
+        })
+        .collect();
+    assert_follow_the_theme(widgets);
+}
