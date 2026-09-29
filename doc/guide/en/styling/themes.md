@@ -308,8 +308,8 @@ A few escape hatches when the discovery isn't enough:
   the cascade for that node.
 - **Subtree override via component CSS**: stack a second `Css` via
   `Dom::style(css)`. Later rule blocks win at equal
-  `(priority, specificity)`. See [DOM › Component-level
-  stylesheets](../dom.md#component-level-stylesheets).
+  `(priority, specificity)`. See [Styling › Two ways to attach
+  styles](../styling.md#two-ways-to-attach-styles).
 
 ## Controlling end-user customization
 

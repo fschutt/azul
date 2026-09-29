@@ -129,7 +129,7 @@ let _ = Dom::create_body()
 > the mutating twin for when you are not chaining.
 
 Matching and inheritance happen once after `layout()` returns, in a single
-cascade pass. [The DOM page](dom.md#component-level-stylesheets)
+cascade pass. [Where styles meet the DOM](#where-styles-meet-the-dom)
 walks through the timing.
 
 [scope]: https://developer.mozilla.org/en-US/docs/Web/CSS/@scope
@@ -349,8 +349,8 @@ parse via `with_css` or `Css::from_string` is "free" in the sense that it
 is one parse and one push onto a list. Selector matching and inheritance
 happen once after you return.
 
-See [The DOM](dom.md#component-level-stylesheets)
-for the per-frame walkthrough, and [Layout](layout.md) for how the
+See [Layout › Adding stylesheets](layout.md#adding-stylesheets) for what
+attaching a stylesheet does internally, and [Layout](layout.md) for how the
 cascaded properties feed the formatting algorithms.
 
 Sub-pages cover the catalogue of properties, the platform integration,
