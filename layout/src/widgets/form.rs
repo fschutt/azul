@@ -1740,6 +1740,27 @@ mod tests {
         assert_eq!(submitted(&log).len(), 1, "HTML's implicit submission");
     }
 
+    /// The FFI face of `collect_form_data`: any plain callback - a raw
+    /// `<form>`'s own Submit handler, a button's click - reads the form its
+    /// node sits in through `CallbackInfo`, which the bindings expose.
+    #[test]
+    fn a_callback_reads_the_form_its_node_sits_in_through_callback_info() {
+        let log = RefAny::new(Log::default());
+        let sd = StyledDom::create_from_dom(sample_form(&log).dom());
+        let user = named(&sd, "user");
+        let (data, _) = run(sd, dom_node(user), None, |mut info| {
+            info.get_form_data(dom_node(user))
+        });
+        let data = data.into_option().expect("the field sits in a form");
+        assert_eq!(
+            data.get("user".into())
+                .into_option()
+                .map(|s| s.as_str().to_string()),
+            Some("ann".to_string())
+        );
+        assert!(submitted(&log).is_empty(), "reading is not submitting");
+    }
+
     #[test]
     fn a_submit_button_outside_a_form_does_nothing() {
         let dom = Button::create_submit("Send".into()).dom();
