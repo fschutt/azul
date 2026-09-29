@@ -1105,6 +1105,82 @@ pub mod wire {
         }
     }
 
+    // ---- the app's identity, once, for every platform ----
+
+    /// Where an [`AppIdentity`]'s id came from.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum AppIdSource {
+        /// Nobody named the app: the id is derived from the executable's name.
+        Executable,
+        /// The platform named it: a bundle's `CFBundleIdentifier`, `FLATPAK_ID`, the Android
+        /// package. (An `AppConfig::app_id` would be this too - a proposal, not built.)
+        Declared,
+    }
+
+    /// Who the app is, to every OS service that keys something on it: the
+    /// notification permission (a bundle id), the toast registration (an
+    /// AUMID), the `.desktop` file a server or a compositor matches (the
+    /// `desktop-entry` hint, the Wayland `app_id`, the X11 `WM_CLASS`).
+    ///
+    /// ONE value, each platform's form projected from it, so the shells can
+    /// no longer derive the same app under different names.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct AppIdentity {
+        /// Reverse-DNS: `com.azul.azwidgets`, or what the platform declared.
+        pub id: String,
+        /// The executable's file name, without its directory or `.exe`:
+        /// `AzWidgets`. Empty when it could not be read.
+        pub exe_name: String,
+        pub source: AppIdSource,
+    }
+
+    impl AppIdentity {
+        /// Nobody named the app: `com.azul.<executable name>`.
+        #[must_use]
+        pub fn from_executable(exe_path: &str) -> Self {
+            let _ = exe_path;
+            Self {
+                id: String::new(),
+                exe_name: String::new(),
+                source: AppIdSource::Executable,
+            }
+        }
+
+        /// The platform (or, one day, the app) named it.
+        #[must_use]
+        pub fn declared(id: &str, exe_path: &str) -> Self {
+            let _ = (id, exe_path);
+            Self::from_executable("")
+        }
+
+        /// `CFBundleIdentifier`: letters, digits, `-` and `.` only.
+        #[must_use]
+        pub fn apple_bundle_id(&self) -> String {
+            String::new()
+        }
+
+        /// The Windows AppUserModelID.
+        #[must_use]
+        pub fn windows_aumid(&self) -> String {
+            String::new()
+        }
+
+        /// The freedesktop `desktop-entry` hint, and the default Wayland
+        /// `app_id` and X11 `WM_CLASS` instance - one string, because a
+        /// server and a compositor must find the same `.desktop` file.
+        #[must_use]
+        pub fn desktop_entry(&self) -> String {
+            String::new()
+        }
+
+        /// What a person reads: the Windows toast's `DisplayName`, the
+        /// freedesktop `app_name`.
+        #[must_use]
+        pub fn display_name(&self) -> String {
+            String::new()
+        }
+    }
+
     // ---- Android (NotificationManager, PendingIntent extras) ----
 
     /// The intent action key of a tap on the notification's body.

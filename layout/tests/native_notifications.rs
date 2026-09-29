@@ -1430,4 +1430,90 @@ mod platforms {
         marker.launch_finished();
         assert!(marker.launched_app("n"));
     }
+
+    // ---- one app identity ----
+
+    #[test]
+    fn an_unnamed_app_is_known_by_one_id_derived_from_its_executable() {
+        let app = wire::AppIdentity::from_executable("/usr/bin/AzWidgets");
+        assert_eq!(app.source, wire::AppIdSource::Executable);
+        assert_eq!(app.exe_name, "AzWidgets");
+        assert_eq!(app.id, "com.azul.azwidgets");
+        assert_eq!(
+            app.apple_bundle_id(),
+            "com.azul.azwidgets",
+            "what `azul-doc bundle macos` writes as CFBundleIdentifier"
+        );
+        assert_eq!(
+            app.windows_aumid(),
+            "com.azul.azwidgets",
+            "the toast AUMID is the same id, not a second derivation"
+        );
+        assert_eq!(
+            app.desktop_entry(),
+            "AzWidgets",
+            "an unnamed app's .desktop file, Wayland app_id and WM_CLASS are its executable's name"
+        );
+        assert_eq!(app.display_name(), "AzWidgets");
+    }
+
+    #[test]
+    fn a_windows_executable_is_named_without_its_directory_or_extension() {
+        let app = wire::AppIdentity::from_executable("C:\\Program Files\\Az\\AzWidgets.exe");
+        assert_eq!(app.exe_name, "AzWidgets");
+        assert_eq!(app.id, "com.azul.azwidgets");
+        assert_eq!(app.windows_aumid(), "com.azul.azwidgets");
+        assert_eq!(app.display_name(), "AzWidgets");
+        assert_eq!(
+            wire::AppIdentity::from_executable("C:\\x\\TOOL.EXE").exe_name,
+            "TOOL"
+        );
+    }
+
+    #[test]
+    fn a_derived_id_uses_only_lowercase_letters_digits_and_dashes() {
+        assert_eq!(
+            wire::AppIdentity::from_executable("my_app 2").id,
+            "com.azul.my-app-2"
+        );
+        assert_eq!(
+            wire::AppIdentity::from_executable("/opt/azul-paint").id,
+            "com.azul.azul-paint"
+        );
+        assert_eq!(wire::AppIdentity::from_executable("__").id, "com.azul.app");
+        let unknown = wire::AppIdentity::from_executable("");
+        assert_eq!(unknown.id, "com.azul.app");
+        assert_eq!(unknown.desktop_entry(), "azul");
+        assert_eq!(unknown.display_name(), "Azul");
+    }
+
+    #[test]
+    fn a_declared_id_is_the_desktop_entry_so_server_compositor_and_portal_agree() {
+        // A Flatpak: `FLATPAK_ID` names the app, its .desktop file is
+        // `<id>.desktop`, and the portal attributes notifications to that id.
+        let app = wire::AppIdentity::declared("org.example.Widgets", "/app/bin/widgets");
+        assert_eq!(app.source, wire::AppIdSource::Declared);
+        assert_eq!(app.id, "org.example.Widgets");
+        assert_eq!(app.desktop_entry(), "org.example.Widgets");
+        assert_eq!(app.windows_aumid(), "org.example.Widgets");
+        assert_eq!(app.apple_bundle_id(), "org.example.Widgets");
+        assert_eq!(app.display_name(), "widgets");
+    }
+
+    #[test]
+    fn each_platform_gets_only_the_characters_it_accepts() {
+        let app = wire::AppIdentity::declared("org.example.my_app", "/app/bin/my_app");
+        assert_eq!(
+            app.apple_bundle_id(),
+            "org.example.my-app",
+            "a CFBundleIdentifier has no underscore"
+        );
+        assert_eq!(app.windows_aumid(), "org.example.my_app");
+        let blank = wire::AppIdentity::declared("", "/usr/bin/Tool");
+        assert_eq!(
+            blank.id, "com.azul.tool",
+            "an empty declaration is no declaration"
+        );
+        assert_eq!(blank.source, wire::AppIdSource::Executable);
+    }
 }

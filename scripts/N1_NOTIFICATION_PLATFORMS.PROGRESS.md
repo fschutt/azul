@@ -5,19 +5,19 @@ Branch `wt/n1-notification-platforms`, based on `0a326afe5`. House rules:
 
 ## DONE
 
-(none yet)
+- A. iOS `launched_app` (item 1): RED `715dc1f72`, fix `77740437b`. `wire::LaunchResponseMarker`;
+  `notifications::refresh_permission` renamed `app_became_active` (macOS + iOS delegates call it).
+  Tests: `layout/tests/native_notifications.rs` `mod platforms` (appended at the END).
 
 ## IN PROGRESS
-
-- A. iOS `launched_app` (item 1): `wire::LaunchResponseMarker` (pure), RED tests appended to
-  `layout/tests/native_notifications.rs` (new `mod platforms` at the END of the file).
-
-## NEXT (in this order, each a RED commit then a fix commit)
 
 - B. One app identity (item 4): `wire::AppIdentity` (pure) + `dll/src/desktop/app_identity.rs`
   (`current()`, the one function every shell calls); Windows AUMID, Linux desktop-entry +
   app_name, Wayland app_id default, the bundle step's default bundle id all read it. The ABI
   field `AppConfig::app_id` is a PROPOSAL in the report only.
+
+## NEXT (in this order, each a RED commit then a fix commit)
+
 - C. Windows COM activator (item 3): `wire::toast_activator_clsid`, `wire::guid_string`,
   `wire::toast_activator_registry`, `wire::launched_by_toast_activation`; windows.rs
   `#[implement(INotificationActivationCallback)]` + `IClassFactory`, `CoRegisterClassObject`
