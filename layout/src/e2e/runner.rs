@@ -4517,7 +4517,9 @@ fn run_e2e_test_keeping_runner(
         response_tx: tx,
     };
     let mut app_data = RefAny::new(());
-    let component_map = Arc::new(Mutex::new(ComponentMap::default()));
+    // The app's debug server starts with the builtin library (the palette's
+    // HTML elements); the in-crate runner must see the same map.
+    let component_map = Arc::new(Mutex::new(ComponentMap::with_builtin()));
     let callback_changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
 
     // First dispatch: RunE2eTests sets up the continuation and runs it until the
