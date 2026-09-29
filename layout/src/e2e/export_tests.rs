@@ -523,7 +523,8 @@ fn export_code_writes_a_project_with_the_document_its_components_and_a_build_fil
         assert!(paths.contains(&want), "{want} in {paths:?}");
     }
     // A library filter that matches nothing leaves only the app.
-    let only_app: Vec<&str> = value(&result, 6)["files"]
+    let listing = value(&result, 6);
+    let only_app: Vec<&str> = listing["files"]
         .as_array()
         .expect("files")
         .iter()
