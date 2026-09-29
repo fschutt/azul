@@ -3394,3 +3394,65 @@ fn segmented_colours(selected: bool, dark: bool) -> (StyleBackgroundContentVec, 
 pub fn segmented(s: crate::widgets::segmented::Segmented) -> Dom {
     s.build(segmented_skin())
 }
+
+// ==== split_pane ====
+//
+// A flora divider is a CHANNEL between two leaves: the toolbar strip
+// (`--fl-strip`, by night the night strip) between two `--fl-bd` hairlines on
+// its long sides, drawn inside the bar (border-box) so the thickness the drag
+// arithmetic subtracts is still the rendered one. It lifts to `--fl-hB` under
+// the pointer, sinks to `--fl-pT` while dragged, and is ringed on focus with an
+// inset ring that fills the channel - the accent by day, the glow by night.
+
+/// Renders a [`crate::widgets::split_pane::SplitPane`] in the flora theme.
+#[must_use]
+pub fn split_pane(sp: crate::widgets::split_pane::SplitPane) -> Dom {
+    use super::style_kit as kit;
+    use crate::widgets::split_pane::{self as s, SplitDirection};
+    type P = CssPropertyWithConditions;
+
+    let (size, cursor, edges) = match sp.split_pane_state.inner.direction {
+        SplitDirection::Horizontal => (
+            CssProperty::const_width(LayoutWidth::const_px(s::DIVIDER_THICKNESS)),
+            StyleCursor::ColResize,
+            kit::Edges {
+                top: false,
+                right: true,
+                bottom: false,
+                left: true,
+            },
+        ),
+        SplitDirection::Vertical => (
+            CssProperty::const_height(LayoutHeight::const_px(s::DIVIDER_THICKNESS)),
+            StyleCursor::RowResize,
+            kit::Edges {
+                top: true,
+                right: false,
+                bottom: true,
+                left: false,
+            },
+        ),
+    };
+    let mut divider = vec![
+        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        P::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        })),
+        P::simple(size),
+        P::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+        P::simple(CssProperty::const_cursor(cursor)),
+        // The containing block of the sash.
+        P::simple(CssProperty::const_position(LayoutPosition::Relative)),
+    ];
+    divider.extend(kit::border(edges, 1, LIGHT_BD, DARK_BD));
+    divider.extend(kit::themed_bg(LIGHT_STRIP, DARK_STRIP));
+    // States last: a resting dark twin matches in every state.
+    divider.extend(kit::hover_bg(LIGHT_HB, DARK_HB));
+    divider.extend(kit::active_bg(LIGHT_PT, DARK_PT));
+    divider.extend(kit::focus_shadow_ring(LIGHT_ACC, DARK_GLOW));
+
+    sp.build(s::SplitPaneSkin {
+        theme: super::UiTheme::Flora,
+        divider: CssPropertyWithConditionsVec::from_vec(divider),
+    })
+}

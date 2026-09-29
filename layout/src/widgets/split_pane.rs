@@ -77,7 +77,11 @@ use azul_css::{
     AzString,
 };
 
-use crate::{callbacks::CallbackInfo, solver3::layout_tree::LayoutNodeId};
+use crate::{
+    callbacks::CallbackInfo,
+    solver3::layout_tree::LayoutNodeId,
+    widgets::themes::{style_kit, OptionUiTheme, UiTheme},
+};
 
 static SPLIT_PANE_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-split-pane"))];
@@ -140,6 +144,10 @@ pub struct SplitPane {
     pub second: Dom,
     /// Style for the outer container.
     pub container_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme, or `None` for the default (`UiTheme::Flat`). A
+    /// theme is a DOM-level choice: it picks the skin the divider is built
+    /// from, so switching it rebuilds the pane.
+    pub theme: OptionUiTheme,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -179,8 +187,9 @@ impl Default for SplitPaneState {
 }
 
 // ---- dimensions / limits ----
-/// Divider thickness in logical px.
-const DIVIDER_THICKNESS: isize = 6;
+/// Divider thickness in logical px - every theme's divider has it (the drag
+/// arithmetic subtracts it).
+pub(crate) const DIVIDER_THICKNESS: isize = 6;
 /// How far (logical px) from the divider centre a press still grabs it:
 /// half the sash (`DIVIDER_THICKNESS + 2 * SASH_REACH`).
 const GRAB_THRESHOLD: f32 = 9.0;
@@ -316,8 +325,9 @@ fn pane_style(grow: f32) -> CssPropertyWithConditionsVec {
 
 /// Builds the divider's style: fixed thickness, no grow/shrink, a resize cursor
 /// matching the drag axis, and a visible fill. The cross-axis size is left to the
-/// flex default (stretch), so the divider spans the container.
-fn divider_style(dir: SplitDirection) -> CssPropertyWithConditionsVec {
+/// flex default (stretch), so the divider spans the container. The flat
+/// theme's resting divider.
+pub(crate) fn divider_style(dir: SplitDirection) -> CssPropertyWithConditionsVec {
     let (size_prop, cursor) = match dir {
         SplitDirection::Horizontal => (
             CssProperty::const_width(LayoutWidth::const_px(DIVIDER_THICKNESS)),
@@ -381,6 +391,17 @@ fn sash_style(dir: SplitDirection) -> CssPropertyWithConditionsVec {
     ])
 }
 
+/// What a theme supplies for a split pane: the divider's style, built for
+/// the pane's direction (`themes::flat::split_pane` /
+/// `themes::flora::split_pane`). The container, the panes and the sash are
+/// layout only, the same in every theme.
+pub(crate) struct SplitPaneSkin {
+    pub theme: UiTheme,
+    /// The divider - the focusable splitter, so it owes the focus ring - at
+    /// [`DIVIDER_THICKNESS`] along the drag axis.
+    pub divider: CssPropertyWithConditionsVec,
+}
+
 impl SplitPane {
     /// Creates a split pane with the two child `Dom`s, split 50/50.
     #[must_use]
@@ -398,7 +419,23 @@ impl SplitPane {
             // No opinion: `resolved_container_style` derives it from the
             // direction when the DOM is built.
             container_style: OptionCssPropertyWithConditionsVec::None,
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the pane renders in the default
+    /// theme (`UiTheme::default()`, flat).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// Sets the first-pane fraction, clamped into `[MIN_RATIO, MAX_RATIO]`.
@@ -492,8 +529,21 @@ impl SplitPane {
         self
     }
 
+    /// Renders the pane. Rendering goes through the theme modules (as
+    /// `Button::dom` does): each hands [`Self::build`] its skin.
+    /// `UiTheme::default()` is flat.
     #[must_use]
     pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::split_pane(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::split_pane(self),
+        }
+    }
+
+    /// Renders the pane with `skin` styling its divider - what
+    /// `themes::flat::split_pane` / `themes::flora::split_pane` call.
+    #[must_use]
+    pub(crate) fn build(self, skin: SplitPaneSkin) -> Dom {
         // Resolved before the children are moved out below; the resolver reads
         // the direction off `self`.
         let container_css = self.resolved_container_style();
@@ -569,7 +619,7 @@ impl SplitPane {
         // role hid both panes' content from a screen reader.
         let divider = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(SPLIT_PANE_DIVIDER_CLASS))
-            .with_css_props(divider_style(direction))
+            .with_css_props(skin.divider)
             .with_callbacks(divider_callbacks.into())
             .with_tab_index(TabIndex::Auto)
             .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
@@ -595,8 +645,10 @@ impl SplitPane {
             .with_css_props(pane_style(1.0 - ratio))
             .with_children(vec![self.second].into());
 
+        let mut classes: Vec<IdOrClass> = SPLIT_PANE_CLASS.to_vec();
+        classes.push(style_kit::marker(skin.theme));
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(SPLIT_PANE_CLASS))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(container_css)
             .with_callbacks(callbacks.into())
             // The callbacks' state is also the container's DATASET, so the
@@ -1079,6 +1131,21 @@ mod autotest_generated {
         d.root
             .style
             .iter_inline_properties()
+            .map(|(p, _)| p.clone())
+            .collect()
+    }
+
+    /// A node's declarations WITHOUT the interactive-state rules the theme
+    /// appends after its resting style (hover, press, focus).
+    fn resting_properties(d: &Dom) -> Vec<CssProperty> {
+        d.root
+            .style
+            .iter_inline_properties()
+            .filter(|(_, c)| {
+                !c.as_ref().iter().any(|s| {
+                    matches!(s, azul_css::dynamic_selector::DynamicSelector::PseudoState(_))
+                })
+            })
             .map(|(p, _)| p.clone())
             .collect()
     }
@@ -2061,7 +2128,11 @@ mod autotest_generated {
         let dom = plain(SplitDirection::Horizontal).dom();
         assert_eq!(
             dom_classes(&dom),
-            vec!["__azul-native-split-pane".to_string()]
+            vec![
+                "__azul-native-split-pane".to_string(),
+                // The marker of the theme that drew it (flat, the default).
+                "__azul-theme-flat".to_string(),
+            ]
         );
         // The tab stop is the divider (the separator), not the container.
         assert_eq!(dom.root.get_tab_index(), None);
@@ -2138,9 +2209,9 @@ mod autotest_generated {
         for dir in BOTH_DIRECTIONS {
             let dom = plain(dir).dom();
             assert_eq!(
-                inline_properties(child(&dom, 1)),
+                resting_properties(child(&dom, 1)),
                 properties(&divider_style(dir)),
-                "{dir:?}"
+                "{dir:?}: the flat divider rests as divider_style (its states follow)"
             );
         }
     }

@@ -3628,3 +3628,31 @@ fn segmented_segment(selected: bool, is_first: bool, is_last: bool) -> CssProper
 pub fn segmented(s: crate::widgets::segmented::Segmented) -> Dom {
     s.build(segmented_skin())
 }
+
+// ==== split_pane ====
+//
+// Flat is the established divider: a 6px #adb5bd bar, the desktop's separator
+// in the dark. What it adds is the focus it never showed - the divider is the
+// splitter's keyboard handle (Tab, then the arrows) - so on focus the whole bar
+// lights in `FIELD_RING` / `DARK_ACC` and carries an inset ring of the same
+// colour: on a 6px bar a ring alone would be two hairlines.
+
+/// Renders a [`crate::widgets::split_pane::SplitPane`] in the flat theme.
+#[must_use]
+pub fn split_pane(sp: crate::widgets::split_pane::SplitPane) -> Dom {
+    use super::style_kit as kit;
+    use crate::widgets::split_pane as s;
+
+    let mut divider = s::divider_style(sp.split_pane_state.inner.direction).into_library_owned_vec();
+    // States last: the resting dark twin matches in every state.
+    divider.extend(CssPropertyWithConditions::themed_on_focus(
+        kit::bg(FIELD_RING),
+        kit::bg(DARK_ACC),
+    ));
+    divider.extend(kit::focus_shadow_ring(FIELD_RING, DARK_ACC));
+
+    sp.build(s::SplitPaneSkin {
+        theme: super::UiTheme::Flat,
+        divider: CssPropertyWithConditionsVec::from_vec(divider),
+    })
+}
