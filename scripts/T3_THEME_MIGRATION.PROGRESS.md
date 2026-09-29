@@ -45,14 +45,17 @@ Recipe: scripts/T1_APP_THEME_2026_09_29.md §4. Nothing is compiled here (house 
   `resolved_container_style` = the card the render carries; 8 autotest pins on the flat card /
   flat child styles now pin `with_theme(Flat)`)
 
+- pagination: RED eae92e842, impl: see git log (`pagination::{follow_skin, follow_button}`; the
+  restyle stays the structure theme's (marker); 7 autotest DOM-style pins now pin
+  `with_theme(Flat)`; new: an unpinned bar built for flora restyles in flora's colours)
+
 ## IN PROGRESS
 
-- pagination
+- segmented
 
 ## NEXT
 
-
-pagination, segmented, stepper, number_input, progressbar, slider, spinner, switch, text_area,
+segmented, stepper, number_input, progressbar, slider, spinner, switch, text_area,
 text_input, video, combobox (+ theme option + flora look), file_input (same), then the six
 single-look widgets (ribbon, quick_access, statusbar, tabs, titlebar, tree_view).
 

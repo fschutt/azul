@@ -106,7 +106,7 @@ pub struct Pagination {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub container_style: OptionCssPropertyWithConditionsVec,
-    /// The widget theme, or `None` for the default (`UiTheme::Flat`). A
+    /// The widget theme, or `None` to follow the app theme (`AppConfig::with_theme`). A
     /// theme is a DOM-level choice: it picks the skin the buttons are built
     /// from (and the colours a click restyles them with), so switching it
     /// rebuilds the bar.
@@ -450,6 +450,29 @@ pub(crate) fn skin_for(theme: UiTheme) -> PaginationSkin {
     }
 }
 
+/// One button in BOTH themes' blocks (`themes::flat::follow_props`) - the
+/// `button` of an unpinned bar's skin.
+#[must_use]
+fn follow_button(face: PageFace, is_first: bool, is_last: bool) -> CssPropertyWithConditionsVec {
+    crate::widgets::themes::flat::follow_props(
+        (skin_for(UiTheme::Flat).button)(face, is_first, is_last).as_slice(),
+        (skin_for(UiTheme::Flora).button)(face, is_first, is_last).as_slice(),
+    )
+}
+
+/// The skin an UNPINNED pagination bar is built with, so it follows the app
+/// theme: `structure`'s theme (its marker goes on the bar, so the click
+/// restyle writes that theme's colours) and every button in BOTH themes'
+/// blocks.
+#[must_use]
+pub(crate) fn follow_skin(structure: UiTheme) -> PaginationSkin {
+    PaginationSkin {
+        theme: structure,
+        button: follow_button,
+        restyle: skin_for(structure).restyle,
+    }
+}
+
 /// The flat theme's restyle colours - the established palette: white paper
 /// and the fixed accent by day, the desktop's button face by night (the
 /// accent page keeps its accent).
@@ -484,8 +507,8 @@ impl Pagination {
         }
     }
 
-    /// Pick the widget theme. Unset (`None`), the bar renders in the default
-    /// theme (`UiTheme::default()`, flat).
+    /// Pick the widget theme. Unset (`None`), the bar follows the app theme
+    /// (`AppConfig::with_theme`, flat by default).
     #[inline]
     pub const fn set_theme(&mut self, theme: UiTheme) {
         self.theme = OptionUiTheme::Some(theme);
@@ -561,13 +584,16 @@ impl Pagination {
     }
 
     /// Renders the bar. Rendering goes through the theme modules (as
-    /// `Button::dom` does): each hands [`Self::build`] its skin.
-    /// `UiTheme::default()` is flat.
+    /// `Button::dom` does): each hands [`Self::build`] its skin. Unpinned
+    /// (`theme: None`), the bar follows the APP theme: built in the
+    /// structure of the theme its DOM is built for, carrying every theme's
+    /// blocks (`follow_skin`).
     #[must_use]
     pub fn dom(self) -> Dom {
         match self.theme.into_option() {
             Some(UiTheme::Flora) => crate::widgets::themes::flora::pagination(self),
-            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::pagination(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::pagination(self),
+            None => self.build(follow_skin(UiTheme::current())),
         }
     }
 
@@ -829,7 +855,8 @@ mod autotest_generated {
 
     #[test]
     fn dom_appends_the_dark_twins_after_the_light_face() {
-        let dom = Pagination::create(2, 3).dom();
+        // The flat bar (an unpinned bar carries every theme's blocks).
+        let dom = Pagination::create(2, 3).with_theme(UiTheme::Flat).dom();
         let children = dom.children.as_ref();
         for (i, (active, disabled, first)) in [
             (false, false, true),
@@ -1886,7 +1913,9 @@ mod autotest_generated {
     fn dom_marks_exactly_the_current_page_active() {
         for total in [1usize, 2, 5, 12] {
             for current in 1..=total {
-                let dom = Pagination::create(current, total).dom();
+                let dom = Pagination::create(current, total)
+                    .with_theme(UiTheme::Flat)
+                    .dom();
                 let children = dom.children.as_ref();
 
                 let active: Vec<usize> = (0..children.len())
@@ -1912,7 +1941,9 @@ mod autotest_generated {
     fn dom_mutes_prev_at_the_first_page_and_next_at_the_last() {
         let total = 5;
         for current in 1..=total {
-            let dom = Pagination::create(current, total).dom();
+            let dom = Pagination::create(current, total)
+                .with_theme(UiTheme::Flat)
+                .dom();
             let children = dom.children.as_ref();
 
             let prev = text_color(&inline_props(&children[0]));
@@ -1945,7 +1976,7 @@ mod autotest_generated {
     #[test]
     fn dom_rounds_only_the_two_outer_ends_of_the_bar() {
         let total = 4;
-        let dom = Pagination::create(1, total).dom();
+        let dom = Pagination::create(1, total).with_theme(UiTheme::Flat).dom();
         let children = dom.children.as_ref();
         let r = PAGE_RADIUS as f32;
 
@@ -1980,7 +2011,8 @@ mod autotest_generated {
 
     #[test]
     fn dom_carries_the_container_style_and_the_button_styles_verbatim() {
-        let p = Pagination::create(2, 3);
+        // The flat bar (an unpinned bar carries every theme's blocks).
+        let p = Pagination::create(2, 3).with_theme(UiTheme::Flat);
         let dom = p.dom();
         assert_eq!(
             inline_props(&dom),
@@ -2029,7 +2061,7 @@ mod autotest_generated {
     fn dom_of_a_hand_zeroed_total_has_only_prev_and_next() {
         // `total_pages` is a pub field: zeroing it must yield an inert two-button
         // bar, not an empty/negative range or a panic.
-        let mut p = Pagination::create(1, 3);
+        let mut p = Pagination::create(1, 3).with_theme(UiTheme::Flat);
         p.pagination_state.inner.total_pages = 0;
         let dom = p.dom();
         let children = dom.children.as_ref();
@@ -2045,7 +2077,7 @@ mod autotest_generated {
     fn dom_of_an_out_of_range_current_page_marks_nothing_active() {
         // Reachable only by writing the pub field directly. The bar must still
         // render deterministically instead of indexing out of bounds.
-        let mut p = Pagination::create(1, 4);
+        let mut p = Pagination::create(1, 4).with_theme(UiTheme::Flat);
         p.pagination_state.inner.current_page = 99;
         let dom = p.dom();
         let children = dom.children.as_ref();
