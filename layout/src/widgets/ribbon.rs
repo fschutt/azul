@@ -6342,3 +6342,262 @@ mod tests {
         }
     }
 }
+
+/// The ribbon's flora look (W5a): flora's toolbar strip over a leaf, the
+/// selected tab cut as the sunken accent stone, controls that are bare paper
+/// until the pointer lifts them - on exactly the flat ribbon's metrics.
+#[cfg(test)]
+mod flora_tests {
+    use azul_css::{dynamic_selector::PseudoStateType, props::property::CssPropertyType, StringVec};
+
+    use super::*;
+    use crate::widgets::themes::{flora, theme_checks as tc};
+
+    extern "C" fn noop(_: RefAny, _: CallbackInfo) -> Update {
+        Update::DoNothing
+    }
+
+    /// A ribbon with every part a look paints: the application button, a
+    /// selected and an unselected tab, a large, a small and a toggled button,
+    /// a separator, a dialog launcher and a gallery with a selected cell.
+    fn fixture() -> Ribbon {
+        let cells: Vec<RibbonGalleryCell> = (0..3)
+            .map(|i| RibbonGalleryCell::new(Dom::create_div(), AzString::from(format!("Style {i}"))))
+            .collect();
+        let clipboard = RibbonGroup::new("Clipboard".into())
+            .with_item(RibbonItem::LargeButton(
+                RibbonButton::new("content_paste".into(), "Paste".into())
+                    .with_arrow(RibbonArrow::Split),
+            ))
+            .with_item(RibbonItem::Column(
+                RibbonColumn::new()
+                    .with_item(RibbonItem::SmallButton(RibbonButton::new(
+                        "content_cut".into(),
+                        "Cut".into(),
+                    )))
+                    .with_item(RibbonItem::SmallButton(
+                        RibbonButton::new("format_bold".into(), "".into()).with_toggled(true),
+                    )),
+            ))
+            .with_item(RibbonItem::Separator)
+            .with_launcher(
+                RefAny::new(0u8),
+                noop as crate::widgets::button::ButtonOnClickCallbackType,
+            );
+        let styles = RibbonGroup::new("Styles".into()).with_item(RibbonItem::Gallery(
+            RibbonGallery::new(cells.into()).with_selected(1),
+        ));
+        Ribbon::new(RibbonTabVec::from_vec(vec![
+            RibbonTab::new("HOME".into())
+                .with_group(clipboard)
+                .with_group(styles),
+            RibbonTab::new("INSERT".into()),
+        ]))
+        .with_app_button(RibbonAppButton::new("FILE".into()))
+    }
+
+    fn ribbon(theme: UiTheme) -> Dom {
+        fixture().with_theme(theme).dom()
+    }
+
+    /// The adaptive, desktop and touch chromes of the fixture in `theme`.
+    fn every_chrome(theme: UiTheme) -> [(&'static str, Dom); 3] {
+        [
+            ("adaptive", fixture().with_theme(theme).dom()),
+            ("desktop", fixture().with_theme(theme).dom_desktop()),
+            ("mobile", fixture().with_theme(theme).dom_mobile()),
+        ]
+    }
+
+    fn node<'a>(dom: &'a Dom, class: &str) -> &'a Dom {
+        tc::find(dom, class).unwrap_or_else(|| panic!("the ribbon renders a {class}"))
+    }
+
+    /// `node`'s background in the light or dark mode and `state` (`None`: at
+    /// rest), as its layers.
+    fn face(node: &Dom, dark: bool, state: Option<PseudoStateType>) -> Vec<StyleBackgroundContent> {
+        tc::resolve(node, CssPropertyType::BackgroundContent, dark, state)
+            .map(|p| tc::bg_layers(&p))
+            .unwrap_or_default()
+    }
+
+    fn fill(color: ColorU) -> Vec<StyleBackgroundContent> {
+        vec![StyleBackgroundContent::Color(color)]
+    }
+
+    /// Every button of the fixture, in tree order: Paste, Cut, the toggled
+    /// Bold, the launcher, then the gallery's three spinner buttons.
+    fn buttons(dom: &Dom) -> Vec<&Dom> {
+        tc::find_all(dom, "__azul-native-button")
+    }
+
+    #[test]
+    fn a_flora_ribbon_is_flora_s_toolbar_strip_over_a_leaf_in_both_modes() {
+        let dom = ribbon(UiTheme::Flora);
+        let bar = node(&dom, "__azul-native-ribbon-tabbar");
+        let content = node(&dom, "__azul-native-ribbon-content");
+        for (dark, strip, leaf) in [
+            (false, flora::LIGHT_STRIP, flora::LIGHT_SUR),
+            (true, flora::DARK_STRIP, flora::DARK_SUR),
+        ] {
+            assert_eq!(face(&dom, dark, None), fill(strip), "the chrome (dark: {dark})");
+            assert_eq!(face(bar, dark, None), fill(strip), "the tab strip (dark: {dark})");
+            assert_eq!(face(content, dark, None), fill(leaf), "the content leaf (dark: {dark})");
+        }
+    }
+
+    #[test]
+    fn a_flora_ribbon_s_selected_tab_is_the_sunken_accent_stone_and_the_others_lift_under_the_pointer(
+    ) {
+        let dom = ribbon(UiTheme::Flora);
+        let active = node(&dom, "__azul-native-ribbon-tab-active");
+        let tabs = tc::find_all(&dom, "__azul-native-ribbon-tab");
+        let other = tabs
+            .iter()
+            .find(|t| !tc::has_class(t, "__azul-native-ribbon-tab-active"))
+            .expect("an unselected tab");
+        for (dark, soft, hover) in [
+            (false, flora::LIGHT_SOFT1, flora::HOVER_FACE_LIGHT),
+            (true, flora::DARK_SOFT1, flora::HOVER_FACE_DARK),
+        ] {
+            assert_eq!(
+                face(active, dark, None),
+                flora::selected_stone(),
+                "the selected tab is the sunken stone, its own colour (dark: {dark})"
+            );
+            assert_eq!(tc::text_color(active, dark), Some(flora::LIGHT_ON_ACC));
+            assert_eq!(tc::text_color(other, dark), Some(soft), "an unselected tab (dark: {dark})");
+            assert_eq!(
+                face(other, dark, Some(PseudoStateType::Hover)),
+                vec![hover],
+                "an unselected tab lifts to the hover face (dark: {dark})"
+            );
+        }
+    }
+
+    #[test]
+    fn the_flora_application_button_is_the_accent_stone_written_on_accent() {
+        let dom = ribbon(UiTheme::Flora);
+        let app = node(&dom, "__azul-native-ribbon-appbutton");
+        for dark in [false, true] {
+            assert_eq!(
+                face(app, dark, None).first(),
+                Some(&StyleBackgroundContent::Color(flora::LIGHT_ACC)),
+                "a stone is its own colour in both modes (dark: {dark})"
+            );
+            assert_eq!(tc::text_color(app, dark), Some(flora::LIGHT_ON_ACC));
+        }
+    }
+
+    #[test]
+    fn a_flora_ribbon_button_is_bare_paper_that_lifts_under_the_pointer_and_rings_on_focus() {
+        let dom = ribbon(UiTheme::Flora);
+        let paste = buttons(&dom)[0];
+        for (dark, hover, pressed) in [
+            (false, flora::HOVER_FACE_LIGHT, flora::PRESSED_FACE_LIGHT),
+            (true, flora::HOVER_FACE_DARK, flora::PRESSED_FACE_DARK),
+        ] {
+            assert_eq!(
+                face(paste, dark, None),
+                fill(ColorU::TRANSPARENT),
+                "at rest the strip shows through (dark: {dark})"
+            );
+            assert_eq!(face(paste, dark, Some(PseudoStateType::Hover)), vec![hover]);
+            assert_eq!(face(paste, dark, Some(PseudoStateType::Active)), vec![pressed]);
+            assert!(tc::has_focus_ring(paste, dark), "a Tab stop is ringed (dark: {dark})");
+        }
+        assert_eq!(tc::focus_ring_color(paste, false), Some(flora::LIGHT_ACC));
+        assert_eq!(tc::focus_ring_color(paste, true), Some(flora::DARK_GLOW));
+    }
+
+    #[test]
+    fn a_toggled_flora_button_is_pushed_in_paper() {
+        let dom = ribbon(UiTheme::Flora);
+        let bold = buttons(&dom)[2];
+        assert_eq!(face(bold, false, None), vec![flora::PRESSED_FACE_LIGHT]);
+        assert_eq!(face(bold, true, None), vec![flora::PRESSED_FACE_DARK]);
+    }
+
+    #[test]
+    fn the_flora_ribbon_keeps_every_theme_invariant_in_every_chrome() {
+        for (chrome, dom) in every_chrome(UiTheme::Flora) {
+            tc::assert_theme_invariants(&format!("flora ribbon ({chrome})"), &dom);
+        }
+    }
+
+    /// Flora repaints the ribbon; it does not re-measure it. The ribbon's
+    /// layout was measured for its heights, paddings and borders (the 68px
+    /// item row, the 26px strip), so the flora look keeps every one of them.
+    #[test]
+    fn a_flora_ribbon_keeps_every_metric_of_the_flat_ribbon() {
+        let flat = every_chrome(UiTheme::Flat);
+        let flora_chromes = every_chrome(UiTheme::Flora);
+        for ((chrome, a), (_, b)) in flat.iter().zip(flora_chromes.iter()) {
+            let moved = flora::chrome_metric_findings(a, b);
+            assert!(
+                moved.is_empty(),
+                "the flora ribbon ({chrome}) moves:\n  {}",
+                moved.join("\n  ")
+            );
+        }
+    }
+
+    #[test]
+    fn a_part_the_caller_set_wins_over_the_flora_look() {
+        let own = CssPropertyWithConditionsVec::from_vec(vec![Cond::simple(P::const_font_size(
+            StyleFontSize::const_px(99),
+        ))]);
+        let mut r = fixture().with_theme(UiTheme::Flora);
+        r.style.large_button_style = OptionCssPropertyWithConditionsVec::Some(own);
+        let dom = r.dom();
+        let paste = buttons(&dom)[0];
+        assert_eq!(
+            paste
+                .root
+                .style
+                .iter_inline_properties()
+                .map(|(p, _)| p.clone())
+                .collect::<Vec<_>>(),
+            vec![P::const_font_size(StyleFontSize::const_px(99))],
+            "the caller's part reaches the button verbatim"
+        );
+    }
+
+    #[test]
+    fn a_pinned_ribbon_builds_its_buttons_and_its_unpinned_embedded_widgets_in_its_theme() {
+        let marker = |t: UiTheme| match t {
+            UiTheme::Flat => style_kit::FLAT_CLASS,
+            UiTheme::Flora => style_kit::FLORA_CLASS,
+        };
+        let combo = |label: &str| ComboBox::new(StringVec::from_vec(vec![AzString::from(label)]));
+        for (theme, other) in [(UiTheme::Flat, UiTheme::Flora), (UiTheme::Flora, UiTheme::Flat)] {
+            let tab = RibbonTab::new("t".into()).with_group(
+                RibbonGroup::new("g".into())
+                    .with_item(RibbonItem::SmallButton(RibbonButton::new(
+                        "format_bold".into(),
+                        "".into(),
+                    )))
+                    .with_item(RibbonItem::Combo(combo("a")))
+                    .with_item(RibbonItem::Combo(combo("b").with_theme(other))),
+            );
+            let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab]))
+                .with_theme(theme)
+                .dom();
+            assert!(tc::has_class(&dom, marker(theme)), "the root carries its theme marker");
+            assert!(
+                tc::has_class(buttons(&dom)[0], marker(theme)),
+                "a ribbon button is built in the ribbon's theme"
+            );
+            let combos = tc::find_all(&dom, "__azul-native-combobox");
+            assert_eq!(combos.len(), 2);
+            assert!(
+                tc::has_class(combos[0], marker(theme)),
+                "an embedded widget with no theme of its own is built in the ribbon's"
+            );
+            assert!(
+                tc::has_class(combos[1], marker(other)),
+                "an embedded widget the caller pinned keeps its pin"
+            );
+        }
+    }
+}

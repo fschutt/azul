@@ -580,3 +580,77 @@ fn date_pickers_and_their_calendars_read_in_both_themes_in_both_looks_in_every_m
     }
     assert_follow_the_theme(widgets);
 }
+
+/// The Office chrome (W5a): the ribbon, the quick-access title band and the
+/// status bar, each in both looks - text reads and dark twins pair on every
+/// part a look paints.
+#[test]
+fn ribbons_title_bands_and_status_bars_read_in_both_themes_in_both_looks() {
+    use azul_layout::widgets::{
+        quick_access::QuickAccessBar,
+        ribbon::{
+            Ribbon, RibbonAppButton, RibbonButton, RibbonColumn, RibbonGallery, RibbonGalleryCell,
+            RibbonGroup, RibbonItem, RibbonTab, RibbonTabVec,
+        },
+        statusbar::{
+            StatusBar, StatusBarSegment, StatusBarSegmentVec, StatusBarViewSwitcher,
+            StatusBarZoom,
+        },
+    };
+    let ribbon = || {
+        let cells: Vec<RibbonGalleryCell> = (0..3)
+            .map(|i| {
+                RibbonGalleryCell::new(Dom::create_div(), AzString::from(format!("Style {i}")))
+            })
+            .collect();
+        Ribbon::new(RibbonTabVec::from_vec(vec![
+            RibbonTab::new(AzString::from("HOME"))
+                .with_group(
+                    RibbonGroup::new(AzString::from("Clipboard"))
+                        .with_item(RibbonItem::LargeButton(RibbonButton::new(
+                            AzString::from("content_paste"),
+                            AzString::from("Paste"),
+                        )))
+                        .with_item(RibbonItem::Column(
+                            RibbonColumn::new()
+                                .with_item(RibbonItem::SmallButton(RibbonButton::new(
+                                    AzString::from("content_cut"),
+                                    AzString::from("Cut"),
+                                )))
+                                .with_item(RibbonItem::SmallButton(
+                                    RibbonButton::new(
+                                        AzString::from("format_bold"),
+                                        AzString::from("Bold"),
+                                    )
+                                    .with_toggled(true),
+                                )),
+                        )),
+                )
+                .with_group(RibbonGroup::new(AzString::from("Styles")).with_item(
+                    RibbonItem::Gallery(RibbonGallery::new(cells.into()).with_selected(1)),
+                )),
+            RibbonTab::new(AzString::from("INSERT")),
+        ]))
+        .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
+    };
+    let status_bar = || {
+        StatusBar::new(StatusBarSegmentVec::from_vec(vec![
+            StatusBarSegment::new(AzString::from("PAGE 1 OF 1")),
+            StatusBarSegment::new(AzString::from("ENGLISH"))
+                .with_icon(AzString::from("spellcheck")),
+        ]))
+        .with_views(StatusBarViewSwitcher::office_2013())
+        .with_zoom(StatusBarZoom::office_2013())
+    };
+    let title_band = || QuickAccessBar::office_2013(AzString::from("Document1 - AzWriter"));
+    let mut widgets = Vec::new();
+    for (look, theme) in LOOKS {
+        widgets.push((format!("{look} ribbon"), ribbon().with_theme(theme).dom()));
+        widgets.push((format!("{look} status bar"), status_bar().with_theme(theme).dom()));
+        widgets.push((
+            format!("{look} quick access band"),
+            title_band().with_theme(theme).dom(),
+        ));
+    }
+    assert_follow_the_theme(widgets);
+}

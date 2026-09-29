@@ -5300,3 +5300,83 @@ pub(crate) fn combobox_skin() -> crate::widgets::combobox::ComboBoxSkin {
 pub fn combobox(c: crate::widgets::combobox::ComboBox) -> Dom {
     c.build(combobox_skin())
 }
+
+// ==== chrome (ribbon, quick_access, statusbar) ====
+//
+// The three Office-style chrome widgets - the ribbon, the quick-access title
+// band and the status bar - have one look each that their palette structs
+// (`RibbonTheme`, `QuickAccessTheme`, `StatusBarTheme`) describe: the flat
+// look, the Office one. Their flora look REPAINTS that chrome and never
+// re-measures it: every part keeps the flat part's geometry (the ribbon's
+// 68px item row, the 26px tab strip, the 23px status bar were measured for
+// those numbers) and takes flora's paint - flora's surfaces, hairlines, ink,
+// paper faces and stones, each with its night value.
+
+/// Every property that places or sizes a chrome box: what a look of the
+/// ribbon, the quick-access band or the status bar must leave where the flat
+/// look measured it.
+#[cfg(test)]
+pub(crate) const CHROME_METRICS: &[CssPropertyType] = &[
+    CssPropertyType::Display,
+    CssPropertyType::FlexDirection,
+    CssPropertyType::FlexGrow,
+    CssPropertyType::FlexShrink,
+    CssPropertyType::FlexWrap,
+    CssPropertyType::AlignItems,
+    CssPropertyType::JustifyContent,
+    CssPropertyType::BoxSizing,
+    CssPropertyType::Width,
+    CssPropertyType::Height,
+    CssPropertyType::MinWidth,
+    CssPropertyType::PaddingTop,
+    CssPropertyType::PaddingRight,
+    CssPropertyType::PaddingBottom,
+    CssPropertyType::PaddingLeft,
+    CssPropertyType::MarginTop,
+    CssPropertyType::MarginRight,
+    CssPropertyType::MarginBottom,
+    CssPropertyType::MarginLeft,
+    CssPropertyType::BorderTopWidth,
+    CssPropertyType::BorderRightWidth,
+    CssPropertyType::BorderBottomWidth,
+    CssPropertyType::BorderLeftWidth,
+    CssPropertyType::FontSize,
+    CssPropertyType::FontFamily,
+    CssPropertyType::TextAlign,
+    CssPropertyType::Position,
+    CssPropertyType::Top,
+    CssPropertyType::Left,
+    CssPropertyType::ZIndex,
+    CssPropertyType::OverflowX,
+    CssPropertyType::OverflowY,
+    CssPropertyType::WhiteSpace,
+];
+
+/// Every [`CHROME_METRICS`] property the `flora` build of a chrome widget
+/// resolves differently from its `flat` build (at rest, in the light mode),
+/// node by node - empty when flora repainted the chrome without moving it.
+#[cfg(test)]
+pub(crate) fn chrome_metric_findings(flat: &Dom, flora: &Dom) -> Vec<String> {
+    use super::theme_checks as tc;
+    let (a, b) = (tc::nodes(flat), tc::nodes(flora));
+    if a.len() != b.len() {
+        return alloc::vec![alloc::format!(
+            "{} nodes flat, {} flora: the two looks must build the same tree",
+            a.len(),
+            b.len()
+        )];
+    }
+    let mut out = Vec::new();
+    for ((path, x), (_, y)) in a.iter().zip(b.iter()) {
+        for ty in CHROME_METRICS {
+            let (was, is) = (
+                tc::resolve(x, *ty, false, None),
+                tc::resolve(y, *ty, false, None),
+            );
+            if was != is {
+                out.push(alloc::format!("{path}: {ty:?} is {was:?} flat, {is:?} flora"));
+            }
+        }
+    }
+    out
+}

@@ -2111,3 +2111,161 @@ mod tests {
         }
     }
 }
+
+/// The status bar's flora look (W5a): flora's toolbar strip closed by a
+/// hairline along its top, status text in soft ink, controls that are bare
+/// paper until the pointer lifts them, the active view pushed in - on exactly
+/// the flat bar's metrics.
+#[cfg(test)]
+mod flora_tests {
+    use azul_css::{
+        dynamic_selector::{DynamicSelector, PseudoStateType, ThemeCondition},
+        props::property::CssPropertyType,
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, theme_checks as tc};
+
+    /// A bar with every part a look paints: an inert and an icon segment,
+    /// the view switcher (the middle view active) and the zoom cluster.
+    fn fixture() -> StatusBar {
+        StatusBar::new(StatusBarSegmentVec::from_vec(vec![
+            StatusBarSegment::new(AzString::from("PAGE 1 OF 1")),
+            StatusBarSegment::new(AzString::from("ENGLISH"))
+                .with_icon(AzString::from("spellcheck")),
+        ]))
+        .with_views(StatusBarViewSwitcher::office_2013())
+        .with_zoom(StatusBarZoom::office_2013())
+    }
+
+    fn bar(theme: UiTheme) -> Dom {
+        fixture().with_theme(theme).dom()
+    }
+
+    fn node<'a>(dom: &'a Dom, class: &str) -> &'a Dom {
+        tc::find(dom, class).unwrap_or_else(|| panic!("the status bar renders a {class}"))
+    }
+
+    /// `node`'s background in the light or dark mode and `state` (`None`: at
+    /// rest), as its layers.
+    fn face(node: &Dom, dark: bool, state: Option<PseudoStateType>) -> Vec<StyleBackgroundContent> {
+        tc::resolve(node, CssPropertyType::BackgroundContent, dark, state)
+            .map(|p| tc::bg_layers(&p))
+            .unwrap_or_default()
+    }
+
+    fn fill(color: ColorU) -> Vec<StyleBackgroundContent> {
+        vec![StyleBackgroundContent::Color(color)]
+    }
+
+    #[test]
+    fn a_flora_status_bar_is_flora_s_toolbar_strip_under_a_hairline_in_both_modes() {
+        let dom = bar(UiTheme::Flora);
+        for (dark, strip, ink, rule) in [
+            (false, flora::LIGHT_STRIP, flora::LIGHT_SOFT1, flora::LIGHT_BD),
+            (true, flora::DARK_STRIP, flora::DARK_SOFT1, flora::DARK_BD),
+        ] {
+            assert_eq!(face(&dom, dark, None), fill(strip), "the strip (dark: {dark})");
+            assert_eq!(tc::text_color(&dom, dark), Some(ink), "status ink (dark: {dark})");
+            let hairline = tc::resolve(&dom, CssPropertyType::BoxShadowTop, dark, None)
+                .and_then(|p| tc::shadow_color_and_reach(&p))
+                .map(|(color, _)| color);
+            assert_eq!(hairline, Some(rule), "a hairline closes the strip (dark: {dark})");
+        }
+    }
+
+    #[test]
+    fn a_flora_segment_writes_in_soft_ink_and_lifts_under_the_pointer() {
+        let dom = bar(UiTheme::Flora);
+        let segment = node(&dom, "__azul-native-statusbar-segment");
+        let label = &segment.children.as_ref()[0];
+        for (dark, ink, hover) in [
+            (false, flora::LIGHT_SOFT1, flora::HOVER_FACE_LIGHT),
+            (true, flora::DARK_SOFT1, flora::HOVER_FACE_DARK),
+        ] {
+            assert_eq!(tc::text_color(label, dark), Some(ink), "segment text (dark: {dark})");
+            assert_eq!(face(segment, dark, None), fill(ColorU::TRANSPARENT));
+            assert_eq!(face(segment, dark, Some(PseudoStateType::Hover)), vec![hover]);
+        }
+    }
+
+    #[test]
+    fn the_active_flora_view_is_pushed_in_paper_and_every_view_rings_on_focus() {
+        let dom = bar(UiTheme::Flora);
+        let views = node(&dom, "__azul-native-statusbar-views").children.as_ref();
+        assert_eq!(views.len(), 3);
+        for (dark, pressed) in [
+            (false, flora::PRESSED_FACE_LIGHT),
+            (true, flora::PRESSED_FACE_DARK),
+        ] {
+            assert_eq!(face(&views[1], dark, None), vec![pressed], "the active view (dark: {dark})");
+            for view in [&views[0], &views[2]] {
+                assert_eq!(face(view, dark, None), fill(ColorU::TRANSPARENT));
+            }
+            for view in views {
+                assert!(tc::has_focus_ring(view, dark), "a view is ringed (dark: {dark})");
+            }
+        }
+    }
+
+    #[test]
+    fn the_flora_zoom_slider_runs_on_a_hairline_rail_under_a_paper_thumb() {
+        let dom = bar(UiTheme::Flora);
+        let rail = node(&dom, "__azul-native-statusbar-zoom-rail");
+        let tick = node(&dom, "__azul-native-statusbar-zoom-tick");
+        for (dark, rule) in [(false, flora::LIGHT_BD3), (true, flora::DARK_BD3)] {
+            assert_eq!(face(rail, dark, None), fill(rule), "the rail (dark: {dark})");
+            assert_eq!(face(tick, dark, None), fill(rule), "the 100% tick (dark: {dark})");
+        }
+        let thumb = node(&dom, "__azul-native-slider-thumb");
+        assert_eq!(
+            face(thumb, false, None).first(),
+            Some(&flora::RAISED_FACE_LIGHT),
+            "the thumb is raised paper"
+        );
+    }
+
+    #[test]
+    fn the_flora_status_bar_keeps_every_theme_invariant() {
+        tc::assert_theme_invariants("flora status bar", &bar(UiTheme::Flora));
+    }
+
+    /// Flora repaints the bar; it does not re-measure it (the zoom thumb's
+    /// travel and the 23px row are the flat bar's numbers).
+    #[test]
+    fn a_flora_status_bar_keeps_every_metric_of_the_flat_one() {
+        let moved = flora::chrome_metric_findings(&bar(UiTheme::Flat), &bar(UiTheme::Flora));
+        assert!(moved.is_empty(), "the flora status bar moves:\n  {}", moved.join("\n  "));
+    }
+
+    #[test]
+    fn a_pinned_status_bar_builds_its_buttons_and_its_slider_in_its_theme() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let marker = match theme {
+                UiTheme::Flat => style_kit::FLAT_CLASS,
+                UiTheme::Flora => style_kit::FLORA_CLASS,
+            };
+            let dom = bar(theme);
+            assert!(tc::has_class(&dom, marker), "the root carries its theme marker");
+            let views = node(&dom, "__azul-native-statusbar-views").children.as_ref();
+            for view in views {
+                assert!(tc::has_class(view, marker), "a view button is built in the bar's theme");
+            }
+            // An unpinned button or slider would carry every theme's
+            // `@theme(<name>)` block: a pinned bar carries none anywhere.
+            let mut blocks = Vec::new();
+            for (path, n) in tc::nodes(&dom) {
+                for (_, conds) in n.root.style.iter_inline_properties() {
+                    let in_block = conds
+                        .as_ref()
+                        .iter()
+                        .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Custom(_))));
+                    if in_block {
+                        blocks.push(path.clone());
+                    }
+                }
+            }
+            assert!(blocks.is_empty(), "{theme:?}: theme blocks at {blocks:?}");
+        }
+    }
+}

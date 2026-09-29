@@ -1517,3 +1517,137 @@ mod tests {
         }));
     }
 }
+
+/// The title band's flora look (W5a): flora's recessed desk band, the title
+/// in flora's intro ink, keys that are bare paper until the pointer lifts
+/// them, a close key that warms to clay - on exactly the flat band's metrics.
+#[cfg(test)]
+mod flora_tests {
+    use azul_css::{
+        dynamic_selector::{DynamicSelector, PseudoStateType, ThemeCondition},
+        props::property::CssPropertyType,
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, theme_checks as tc};
+
+    /// The Office band: save / undo / redo, the customize chevron, the
+    /// title, help, and the three window controls.
+    fn band(theme: UiTheme) -> Dom {
+        QuickAccessBar::office_2013(AzString::from("Document1 - AzWriter"))
+            .with_theme(theme)
+            .dom()
+    }
+
+    /// `node`'s background in the light or dark mode and `state` (`None`: at
+    /// rest), as its layers.
+    fn face(node: &Dom, dark: bool, state: Option<PseudoStateType>) -> Vec<StyleBackgroundContent> {
+        tc::resolve(node, CssPropertyType::BackgroundContent, dark, state)
+            .map(|p| tc::bg_layers(&p))
+            .unwrap_or_default()
+    }
+
+    fn fill(color: ColorU) -> Vec<StyleBackgroundContent> {
+        vec![StyleBackgroundContent::Color(color)]
+    }
+
+    /// The band's keys in tree order: save, undo, redo, help, minimize,
+    /// maximize, close.
+    fn keys(dom: &Dom) -> Vec<&Dom> {
+        tc::find_all(dom, "__azul-native-button")
+    }
+
+    #[test]
+    fn a_flora_title_band_is_flora_s_recessed_desk_with_the_title_in_intro_ink() {
+        let dom = band(UiTheme::Flora);
+        let title = tc::find(&dom, "__azul-native-quick-access-title").expect("a title");
+        for (dark, desk, intro) in [
+            (false, flora::LIGHT_DESK, flora::LIGHT_INTRO),
+            (true, flora::DARK_DESK, flora::DARK_INTRO),
+        ] {
+            assert_eq!(face(&dom, dark, None), fill(desk), "the band (dark: {dark})");
+            assert_eq!(tc::text_color(title, dark), Some(intro), "the title (dark: {dark})");
+        }
+    }
+
+    #[test]
+    fn flora_band_keys_are_bare_paper_that_lift_under_the_pointer_and_ring_on_focus() {
+        let dom = band(UiTheme::Flora);
+        let keys = keys(&dom);
+        assert_eq!(keys.len(), 7);
+        let save_glyph = &keys[0].children.as_ref()[0];
+        for (dark, hover, icon) in [
+            (false, flora::HOVER_FACE_LIGHT, flora::LIGHT_ICON),
+            (true, flora::HOVER_FACE_DARK, flora::DARK_ICON),
+        ] {
+            assert_eq!(tc::text_color(save_glyph, dark), Some(icon), "glyph ink (dark: {dark})");
+            for key in &keys[..6] {
+                assert_eq!(face(key, dark, None), fill(ColorU::TRANSPARENT));
+                assert_eq!(face(key, dark, Some(PseudoStateType::Hover)), vec![hover]);
+            }
+            for key in &keys {
+                assert!(tc::has_focus_ring(key, dark), "every key is ringed (dark: {dark})");
+            }
+        }
+    }
+
+    #[test]
+    fn the_flora_close_key_warms_to_clay_under_the_pointer() {
+        let dom = band(UiTheme::Flora);
+        let close = *keys(&dom).last().expect("a close key");
+        assert_eq!(face(close, false, None), fill(ColorU::TRANSPARENT));
+        assert_eq!(
+            face(close, false, Some(PseudoStateType::Hover)),
+            fill(flora::STONE_CLAY.soft),
+            "clay's soft wash by day"
+        );
+        assert_eq!(
+            face(close, true, Some(PseudoStateType::Hover)),
+            fill(flora::STONE_CLAY.deep),
+            "clay's deep by night"
+        );
+    }
+
+    #[test]
+    fn the_flora_title_band_keeps_every_theme_invariant() {
+        tc::assert_theme_invariants("flora quick access band", &band(UiTheme::Flora));
+    }
+
+    /// Flora repaints the band; it does not re-measure it (the 28px band and
+    /// the 34px window controls are the flat band's numbers).
+    #[test]
+    fn a_flora_title_band_keeps_every_metric_of_the_flat_one() {
+        let moved = flora::chrome_metric_findings(&band(UiTheme::Flat), &band(UiTheme::Flora));
+        assert!(moved.is_empty(), "the flora band moves:\n  {}", moved.join("\n  "));
+    }
+
+    #[test]
+    fn a_pinned_title_band_builds_its_keys_in_its_theme() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let marker = match theme {
+                UiTheme::Flat => style_kit::FLAT_CLASS,
+                UiTheme::Flora => style_kit::FLORA_CLASS,
+            };
+            let dom = band(theme);
+            assert!(tc::has_class(&dom, marker), "the root carries its theme marker");
+            for key in keys(&dom) {
+                assert!(tc::has_class(key, marker), "a key is built in the band's theme");
+            }
+            // An unpinned key would carry every theme's `@theme(<name>)`
+            // block: a pinned band carries none anywhere.
+            let mut blocks = Vec::new();
+            for (path, n) in tc::nodes(&dom) {
+                for (_, conds) in n.root.style.iter_inline_properties() {
+                    let in_block = conds
+                        .as_ref()
+                        .iter()
+                        .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Custom(_))));
+                    if in_block {
+                        blocks.push(path.clone());
+                    }
+                }
+            }
+            assert!(blocks.is_empty(), "{theme:?}: theme blocks at {blocks:?}");
+        }
+    }
+}
