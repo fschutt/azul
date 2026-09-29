@@ -4702,9 +4702,54 @@ pub fn alert(a: crate::widgets::alert::Alert) -> Dom {
 }
 
 // ==== card ====
+//
+// flora.css names the card's surface itself: --fl-sur is "a leaf laid on the
+// page: cards, panels". A flora card is that leaf in a --fl-bd hairline, at
+// the house's largest radius (--fl-r2, 5px - "nothing is rounder than 5"),
+// lifted off the page by a warm shadow a little deeper than an alert's
+// (--fl-shadow-2's near half), and it writes the content it holds in --fl-ink.
+// At night every one of those takes its night value. A card takes no focus.
 
-/// The flora card.
+/// The near half of `--fl-shadow-2`: `0 2px 5px rgba(48, 45, 38, 0.16)`; at
+/// night `rgba(0, 0, 0, 0.5)`.
+const CARD_LEAF_SHADOW_LIGHT: ColorU = ColorU::new(48, 45, 38, 41);
+const CARD_LEAF_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 128);
+
+/// The flora card's box, after the card's own flex-grow.
+fn flora_card_style() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+
+    let mut style = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+            LayoutFlexDirection::Column,
+        )),
+    ];
+    style.extend(decl::padding(14, 14, 14, 14));
+    style.extend(decl::radius(5));
+    style.extend(decl::border(1));
+    style.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
+    style.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    style.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    style.extend(decl::themed_shadow(
+        2,
+        5,
+        CARD_LEAF_SHADOW_LIGHT,
+        CARD_LEAF_SHADOW_DARK,
+    ));
+    style
+}
+
+/// The flora card: a leaf on the page.
 #[must_use]
 pub fn card(c: crate::widgets::card::Card) -> Dom {
-    super::flat::card(c)
+    static FLORA_CARD_CLASSES: &[IdOrClass] = &[
+        Class(AzString::from_const_str("__azul-native-card")),
+        Class(AzString::from_const_str("__azul-theme-flora")),
+    ];
+    crate::widgets::card::build(
+        c,
+        &flora_card_style(),
+        IdOrClassVec::from_const_slice(FLORA_CARD_CLASSES),
+    )
 }
