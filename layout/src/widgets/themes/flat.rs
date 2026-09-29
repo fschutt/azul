@@ -4550,3 +4550,28 @@ pub(crate) fn tab_content_look() -> crate::widgets::tabs::TabContentLook {
         marker: None,
     }
 }
+
+// ==== titlebar ====
+//
+// The flat titlebar is the NATIVE one, unchanged: no fill of its own (the
+// window shows through, as behind a transparent native bar) unless the
+// desktop stated a titlebar colour, the platform's title colour (with a dark
+// twin for the light default), the platform's line (macOS: one device pixel
+// of #D0D0D0, #000000 at night), `:backdrop` dimming where the desktop gives
+// it, and the desktop's hover colours on the window controls.
+
+/// Flat's titlebar look: the bar's native paint, from its colour fields.
+#[must_use]
+pub(crate) fn titlebar_look(
+    bar: &crate::widgets::titlebar::Titlebar,
+    show_buttons: bool,
+) -> crate::widgets::titlebar::TitlebarLook {
+    use crate::widgets::titlebar::{flat_control_hover, TitlebarLook};
+    TitlebarLook {
+        container: bar.build_container_style(show_buttons),
+        title: bar.build_title_style(show_buttons),
+        button: flat_control_hover(bar.button_hover_color),
+        close: flat_control_hover(bar.close_hover_color),
+        marker: None,
+    }
+}

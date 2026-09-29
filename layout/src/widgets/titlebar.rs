@@ -194,6 +194,17 @@ pub struct Titlebar {
     /// (`box-sizing: border-box`), as AppKit's 28pt band includes its
     /// separator, so a line never makes the bar taller.
     pub separator_width: f32,
+    /// The widget theme this bar is PINNED to (`with_theme`), or `None` to
+    /// follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
+    ///
+    /// A theme decides the bar's paint - its fill, ink, line colour and the
+    /// controls' hover faces - never its metrics: height, font, padding,
+    /// centring, the line's width and the drag region are the platform's in
+    /// every theme. The colour fields above are the FLAT look's (the native
+    /// one, filled from the desktop by `from_system_style`); flora draws its
+    /// own window chrome.
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
 impl Titlebar {
@@ -225,7 +236,23 @@ impl Titlebar {
             separator_color: DEFAULT_SEPARATOR_COLOR,
             separator_color_inactive: OptionColorU::None,
             separator_width: DEFAULT_SEPARATOR_WIDTH,
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
+    }
+
+    /// Pin the widget theme: the bar keeps this look whatever the app theme
+    /// is. Unset (`None`), it follows the app theme.
+    #[inline]
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// FFI-compatible alias for [`Titlebar::new`].
@@ -339,6 +366,7 @@ impl Titlebar {
             separator_color: tm.separator_color,
             separator_color_inactive: tm.separator_color_inactive,
             separator_width: separator_width_of(tm),
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
 
@@ -380,6 +408,7 @@ impl Titlebar {
             separator_color: tm.separator_color,
             separator_color_inactive: tm.separator_color_inactive,
             separator_width: separator_width_of(tm),
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
 
@@ -439,9 +468,90 @@ impl Titlebar {
         self
     }
 
-    /// Build inline CSS for the container div.
+    /// Build inline CSS for the container div: the FLAT look - the
+    /// platform's (or the desktop's) own background, line and dimming.
+    pub(crate) fn build_container_style(&self, show_buttons: bool) -> CssPropertyWithConditionsVec {
+        self.container_style_painted(
+            show_buttons,
+            self.flat_background(),
+            self.flat_line(),
+            Vec::new(),
+        )
+    }
+
+    /// The flat bar's fill: the platform's titlebar colour when one was
+    /// stated, and the dimmed one for when focus leaves.
+    fn flat_background(&self) -> Vec<CssPropertyWithConditions> {
+        let mut props = Vec::with_capacity(2);
+        // The titlebar's own background, when the platform stated one. Emitted
+        // as a normal declaration so an app's `.with_css("background: …")`
+        // still overrides it — the widget supplies the native default, it does
+        // not take the decision away.
+        if let OptionColorU::Some(bg) = self.background_color {
+            props.push(CssPropertyWithConditions::simple(
+                CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(vec![
+                    StyleBackgroundContent::Color(bg),
+                ])),
+            ));
+        }
+        // …and the dimmed one for when focus leaves. `:backdrop` is the
+        // pseudo-class for exactly that (`DynamicSelectorContext::window_focused`
+        // drives it), so this needs no focus plumbing of its own — it is a
+        // conditional declaration like `:hover`.
+        if let OptionColorU::Some(bg) = self.background_inactive {
+            props.push(CssPropertyWithConditions::with_single_condition(
+                CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(vec![
+                    StyleBackgroundContent::Color(bg),
+                ])),
+                &[DynamicSelector::PseudoState(PseudoStateType::Backdrop)],
+            ));
+        }
+        props
+    }
+
+    /// The flat line's colour: the platform's, with its dark twin when it is
+    /// the macOS default, and the `:backdrop` colour. Empty without a line.
+    fn flat_line(&self) -> Vec<CssPropertyWithConditions> {
+        let mut props = Vec::with_capacity(3);
+        let OptionColorU::Some(line) = self.separator_color else {
+            return props;
+        };
+        props.push(CssPropertyWithConditions::simple(
+            CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: line }),
+        ));
+        // The default (macOS light) line carries its dark twin, like the
+        // default title colour: a bar built without a desktop to ask must
+        // not draw a light-grey rule on a dark window.
+        if line == MACOS_SEPARATOR_LIGHT {
+            props.push(CssPropertyWithConditions::dark_theme(
+                CssProperty::const_border_bottom_color(StyleBorderBottomColor {
+                    inner: MACOS_SEPARATOR_DARK,
+                }),
+            ));
+        }
+        // Pushed after the twin: an unfocused dark window takes the
+        // `:backdrop` colour, not the twin (last match wins).
+        if let OptionColorU::Some(dim) = self.separator_color_inactive {
+            props.push(CssPropertyWithConditions::with_single_condition(
+                CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: dim }),
+                &[DynamicSelector::PseudoState(PseudoStateType::Backdrop)],
+            ));
+        }
+        props
+    }
+
+    /// The bar's inline CSS in some look: the bar's METRICS - the same in
+    /// every theme - with the look's `background` and `ink` where the fill
+    /// goes, and its `line` colour inside the line (drawn only when the bar
+    /// has one: a `separator_color` and a positive `separator_width`).
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-    fn build_container_style(&self, show_buttons: bool) -> CssPropertyWithConditionsVec {
+    pub(crate) fn container_style_painted(
+        &self,
+        show_buttons: bool,
+        background: Vec<CssPropertyWithConditions>,
+        line: Vec<CssPropertyWithConditions>,
+        ink: Vec<CssPropertyWithConditions>,
+    ) -> CssPropertyWithConditionsVec {
         let mut props = Vec::with_capacity(8);
         // The BAR centres the title's line box on its midline, in both modes.
         // That is the line AppKit centres the traffic lights on (y = 14 in a
@@ -478,35 +588,15 @@ impl Titlebar {
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_height(LayoutHeight::const_px(self.height as isize)),
         ));
-        // The titlebar's own background, when the platform stated one. Emitted
-        // as a normal declaration so an app's `.with_css("background: …")`
-        // still overrides it — the widget supplies the native default, it does
-        // not take the decision away.
-        if let OptionColorU::Some(bg) = self.background_color {
-            props.push(CssPropertyWithConditions::simple(
-                CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(vec![
-                    StyleBackgroundContent::Color(bg),
-                ])),
-            ));
-        }
-        // …and the dimmed one for when focus leaves. `:backdrop` is the
-        // pseudo-class for exactly that (`DynamicSelectorContext::window_focused`
-        // drives it), so this needs no focus plumbing of its own — it is a
-        // conditional declaration like `:hover`.
-        if let OptionColorU::Some(bg) = self.background_inactive {
-            props.push(CssPropertyWithConditions::with_single_condition(
-                CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(vec![
-                    StyleBackgroundContent::Color(bg),
-                ])),
-                &[DynamicSelector::PseudoState(PseudoStateType::Backdrop)],
-            ));
-        }
+        // The look's fill (flat: the platform's titlebar colour and its
+        // `:backdrop` dimming) and ink.
+        props.extend(background);
+        props.extend(ink);
         // The line under the bar. Border-box sizing: the bar's `height`
         // INCLUDES the line, as AppKit's 28pt band includes its separator, so
-        // a line never makes the bar taller than the platform's.
-        if let (OptionColorU::Some(line), true) =
-            (self.separator_color, self.separator_width > 0.0)
-        {
+        // a line never makes the bar taller than the platform's. Whether there
+        // is a line, and how wide, is the platform's; its colour is the look's.
+        if self.separator_color.is_some() && self.separator_width > 0.0 {
             props.push(CssPropertyWithConditions::simple(
                 CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox),
             ));
@@ -520,27 +610,7 @@ impl Titlebar {
                     inner: BorderStyle::Solid,
                 }),
             ));
-            props.push(CssPropertyWithConditions::simple(
-                CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: line }),
-            ));
-            // The default (macOS light) line carries its dark twin, like the
-            // default title colour: a bar built without a desktop to ask must
-            // not draw a light-grey rule on a dark window.
-            if line == MACOS_SEPARATOR_LIGHT {
-                props.push(CssPropertyWithConditions::dark_theme(
-                    CssProperty::const_border_bottom_color(StyleBorderBottomColor {
-                        inner: MACOS_SEPARATOR_DARK,
-                    }),
-                ));
-            }
-            // Pushed after the twin: an unfocused dark window takes the
-            // `:backdrop` colour, not the twin (last match wins).
-            if let OptionColorU::Some(dim) = self.separator_color_inactive {
-                props.push(CssPropertyWithConditions::with_single_condition(
-                    CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: dim }),
-                    &[DynamicSelector::PseudoState(PseudoStateType::Backdrop)],
-                ));
-            }
+            props.extend(line);
         }
         // Titlebar should show grab cursor and prevent text selection
         props.push(CssPropertyWithConditions::simple(
@@ -581,19 +651,16 @@ impl Titlebar {
         CssPropertyWithConditionsVec::from_vec(props)
     }
 
-    /// Build inline CSS for the title text node.
-    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-    fn build_title_style(&self, show_buttons: bool) -> CssPropertyWithConditionsVec {
-        let font_family = StyleFontFamilyVec::from_vec(vec![StyleFontFamily::SystemType(
-            SystemFontType::TitleBold,
-        )]);
-        let mut props = Vec::with_capacity(10);
-        props.push(CssPropertyWithConditions::simple(
-            CssProperty::const_font_size(StyleFontSize::const_px(self.font_size as isize)),
-        ));
-        props.push(CssPropertyWithConditions::simple(
-            CssProperty::const_font_family(font_family),
-        ));
+    /// Build inline CSS for the title text node: the FLAT look - the
+    /// platform's (or the desktop's) title colour and its dimming.
+    pub(crate) fn build_title_style(&self, show_buttons: bool) -> CssPropertyWithConditionsVec {
+        self.title_style_painted(show_buttons, self.flat_title_ink())
+    }
+
+    /// The flat title's ink: the resolved title colour, its dark twin when it
+    /// is the light default, and the `:backdrop` dimming.
+    fn flat_title_ink(&self) -> Vec<CssPropertyWithConditions> {
+        let mut props = Vec::with_capacity(3);
         // Use resolved title color from SystemStyle (adapts to dark mode)
         // The dimmed title for an unfocused window, same `:backdrop` mechanism
         // as the container's background above. Pushed BEFORE the active colour
@@ -620,6 +687,30 @@ impl Titlebar {
                 }),
             ));
         }
+        props
+    }
+
+    /// The title's inline CSS in some look: the title's METRICS - the
+    /// platform's font (`system:title:bold` at the platform size), centring,
+    /// clipping - the same in every theme, with the look's `ink` where the
+    /// colour goes.
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+    pub(crate) fn title_style_painted(
+        &self,
+        show_buttons: bool,
+        ink: Vec<CssPropertyWithConditions>,
+    ) -> CssPropertyWithConditionsVec {
+        let font_family = StyleFontFamilyVec::from_vec(vec![StyleFontFamily::SystemType(
+            SystemFontType::TitleBold,
+        )]);
+        let mut props = Vec::with_capacity(10);
+        props.push(CssPropertyWithConditions::simple(
+            CssProperty::const_font_size(StyleFontSize::const_px(self.font_size as isize)),
+        ));
+        props.push(CssPropertyWithConditions::simple(
+            CssProperty::const_font_family(font_family),
+        ));
+        props.extend(ink);
         // In CSD mode the title does NOT grow. Growing was what put it off
         // centre: a title that eats the space the buttons left over is
         // centred in THAT, so `text-align: center` landed it half the button
@@ -692,24 +783,22 @@ impl Titlebar {
         // An overlay the size of its buttons, on top of the app's own chrome:
         // no line under it.
         self.separator_color = OptionColorU::None;
-        let container_style = self.build_container_style(true);
+        let look = TitlebarLook::of(&self, true);
         // `None`: this overlay is sized to its buttons, not to a bar, so the
         // button block claims no share of anything.
-        let button_container = build_button_container(
-            buttons,
-            self.button_hover_color,
-            self.close_hover_color,
-            None,
-        );
-        let container_classes = IdOrClassVec::from_vec(vec![
+        let button_container = button_container_painted(buttons, &look, None);
+        let mut container_classes = vec![
             Class("csd-titlebar".into()),
             Class("csd-controls-only".into()),
             Class("__azul-native-titlebar".into()),
-        ]);
+        ];
+        if let Some(marker) = look.marker {
+            container_classes.push(Class(marker.into()));
+        }
         let _ = button_side;
         Dom::create_div()
-            .with_ids_and_classes(container_classes)
-            .with_css_props(container_style)
+            .with_ids_and_classes(IdOrClassVec::from_vec(container_classes))
+            .with_css_props(look.container)
             .with_child(button_container)
     }
 
@@ -731,9 +820,11 @@ impl Titlebar {
         #[derive(Debug, Clone, Copy)]
         struct DragMarker;
 
-        // Build styles BEFORE moving self.title
-        let title_style = self.build_title_style(show_buttons);
-        let container_style = self.build_container_style(show_buttons);
+        // Build styles BEFORE moving self.title. The look is the pinned
+        // theme's, or - unpinned - both themes' in their `@theme` blocks.
+        let look = TitlebarLook::of(&self, show_buttons);
+        let title_style = look.title.clone();
+        let container_style = look.container.clone();
 
         // ── Title node with drag callbacks ──
         let title_classes = IdOrClassVec::from_vec(vec![Class("csd-title".into())]);
@@ -771,23 +862,21 @@ impl Titlebar {
 
         // ── Button container (CSD mode only) ──
         let button_container = if show_buttons {
-            Some(build_button_container(
-                buttons,
-                self.button_hover_color,
-                self.close_hover_color,
-                Some(button_side),
-            ))
+            Some(button_container_painted(buttons, &look, Some(button_side)))
         } else {
             None
         };
 
         // ── Root ──
-        let container_classes = IdOrClassVec::from_vec(vec![
+        let mut container_classes = vec![
             Class("csd-titlebar".into()),
             Class("__azul-native-titlebar".into()),
-        ]);
+        ];
+        if let Some(marker) = look.marker {
+            container_classes.push(Class(marker.into()));
+        }
         let mut root = Dom::create_div()
-            .with_ids_and_classes(container_classes)
+            .with_ids_and_classes(IdOrClassVec::from_vec(container_classes))
             .with_css_props(container_style);
 
         // Three blocks, not two. The buttons take one end; an EMPTY block of
@@ -1031,7 +1120,82 @@ extern "C" fn render_maximize_icon(
     VirtualViewReturn::with_dom(interior, rect, rect)
 }
 
-/// Build the `.csd-buttons` container with close/min/max button DOM nodes.
+/// What a theme gives a titlebar: the bar, the title, a window control and
+/// the close control (which hovers in its own colour), and the marker class
+/// the bar carries (`None` for flat). The metrics inside `container` and
+/// `title` are the platform's in every look; the nodes, their classes, the
+/// drag, double-click and window-control callbacks are the widget's.
+#[derive(Debug, Clone)]
+pub(crate) struct TitlebarLook {
+    /// The bar.
+    pub(crate) container: CssPropertyWithConditionsVec,
+    /// The title block.
+    pub(crate) title: CssPropertyWithConditionsVec,
+    /// The minimize and maximize controls.
+    pub(crate) button: CssPropertyWithConditionsVec,
+    /// The close control.
+    pub(crate) close: CssPropertyWithConditionsVec,
+    /// The theme marker class on the bar, if the look has one.
+    pub(crate) marker: Option<&'static str>,
+}
+
+impl TitlebarLook {
+    /// `bar`'s look in its pinned theme, or - unpinned - the look that
+    /// follows the app theme: every part carries both themes' declarations,
+    /// each theme's in its `@theme(<name>)` block
+    /// (`theme_blocks::follow_props`), and the bar the marker of the theme
+    /// the DOM is built for. `show_buttons` is the CSD row (vs title-only).
+    pub(crate) fn of(bar: &Titlebar, show_buttons: bool) -> Self {
+        use crate::widgets::themes::{flat, flora, theme_blocks::follow_props, UiTheme};
+        match bar.theme.into_option() {
+            Some(UiTheme::Flat) => flat::titlebar_look(bar, show_buttons),
+            Some(UiTheme::Flora) => flora::titlebar_look(bar, show_buttons),
+            None => {
+                let a = flat::titlebar_look(bar, show_buttons);
+                let b = flora::titlebar_look(bar, show_buttons);
+                let both = |x: &CssPropertyWithConditionsVec, y: &CssPropertyWithConditionsVec| {
+                    follow_props(x.as_ref(), y.as_ref())
+                };
+                Self {
+                    container: both(&a.container, &b.container),
+                    title: both(&a.title, &b.title),
+                    button: both(&a.button, &b.button),
+                    close: both(&a.close, &b.close),
+                    marker: match UiTheme::current() {
+                        UiTheme::Flat => a.marker,
+                        UiTheme::Flora => b.marker,
+                    },
+                }
+            }
+        }
+    }
+}
+
+/// The flat look's hover background for a window control, as an inline
+/// `:hover` declaration: the desktop's colour when it stated one. Emitted
+/// per button rather than as one class rule because CLOSE has its own colour
+/// on Breeze and Windows alike (red), and the others do not.
+pub(crate) fn flat_control_hover(c: OptionColorU) -> CssPropertyWithConditionsVec {
+    match c {
+        // Built by the theme module, which pairs the compositor's colour
+        // with a dark twin. The twin is not redundant: azul's dark mode is
+        // its own CSS condition rather than a reflection of the desktop's,
+        // so a decoration colour reported for a light desktop is not
+        // automatically right when the app renders dark.
+        OptionColorU::Some(c) => CssPropertyWithConditionsVec::from_vec(
+            crate::widgets::themes::flat::hover_bg_pair(c).to_vec(),
+        ),
+        // Nothing stated: declare nothing, so an app's own `.csd-button`
+        // styling keeps full control.
+        OptionColorU::None => CssPropertyWithConditionsVec::from_vec(Vec::new()),
+    }
+}
+
+/// Build the `.csd-buttons` container with close/min/max button DOM nodes,
+/// in the FLAT look (`hover` / `close_hover`: the desktop's hover colours) -
+/// the tests' way in to the controls; the bar builds them from its look
+/// ([`button_container_painted`]).
+#[cfg(test)]
 #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
                                              // pixel/coord path or to avoid churning call sites for
                                              // a perf-neutral change)
@@ -1041,28 +1205,29 @@ fn build_button_container(
     close_hover: OptionColorU,
     fills_its_side: Option<TitlebarButtonSide>,
 ) -> Dom {
+    let look = TitlebarLook {
+        container: CssPropertyWithConditionsVec::from_vec(Vec::new()),
+        title: CssPropertyWithConditionsVec::from_vec(Vec::new()),
+        button: flat_control_hover(hover),
+        close: flat_control_hover(close_hover),
+        marker: None,
+    };
+    button_container_painted(buttons, &look, fills_its_side)
+}
+
+/// The `.csd-buttons` container with the close/min/max button DOM nodes,
+/// each control styled with `look`'s `button` (`close` for close).
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
+                                             // pixel/coord path or to avoid churning call sites for
+                                             // a perf-neutral change)
+fn button_container_painted(
+    buttons: &TitlebarButtons,
+    look: &TitlebarLook,
+    fills_its_side: Option<TitlebarButtonSide>,
+) -> Dom {
     use azul_core::{
         callbacks::{CoreCallback, CoreCallbackData},
         dom::{EventFilter, HoverEventFilter},
-    };
-
-    // The hover background a control takes, as an inline `:hover` declaration.
-    // Emitted per button rather than as one class rule because CLOSE has its
-    // own colour on Breeze and Windows alike (red), and the others do not.
-    let hover_style = |c: OptionColorU| -> CssPropertyWithConditionsVec {
-        match c {
-            // Built by the theme module, which pairs the compositor's colour
-            // with a dark twin. The twin is not redundant: azul's dark mode is
-            // its own CSS condition rather than a reflection of the desktop's,
-            // so a decoration colour reported for a light desktop is not
-            // automatically right when the app renders dark.
-            OptionColorU::Some(c) => CssPropertyWithConditionsVec::from_vec(
-                crate::widgets::themes::flat::hover_bg_pair(c).to_vec(),
-            ),
-            // Nothing stated: declare nothing, so an app's own `.csd-button`
-            // styling keeps full control.
-            OptionColorU::None => CssPropertyWithConditionsVec::from_vec(Vec::new()),
-        }
     };
 
     let mut children = Vec::new();
@@ -1076,7 +1241,7 @@ fn build_button_container(
         children.push(
             Dom::create_div()
                 .with_ids_and_classes(classes)
-                .with_css_props(hover_style(hover))
+                .with_css_props(look.button.clone())
                 .with_child(Dom::create_icon("system:window-minimize,minimize"))
                 .with_callbacks(
                     vec![CoreCallbackData {
@@ -1101,7 +1266,7 @@ fn build_button_container(
         children.push(
             Dom::create_div()
                 .with_ids_and_classes(classes)
-                .with_css_props(hover_style(hover))
+                .with_css_props(look.button.clone())
                 .with_child(maximize_icon_view(
                     AzString::from_const_str("system:window-maximize,maximize"),
                     AzString::from_const_str("system:window-restore,restore"),
@@ -1130,7 +1295,7 @@ fn build_button_container(
         children.push(
             Dom::create_div()
                 .with_ids_and_classes(classes)
-                .with_css_props(hover_style(close_hover))
+                .with_css_props(look.close.clone())
                 .with_child(Dom::create_icon(
                     "system:titlebar-close,system:window-close,close",
                 ))
@@ -3007,7 +3172,12 @@ mod autotest_generated {
     #[test]
     fn dom_puts_the_container_and_title_styles_on_the_right_nodes() {
         let t = tb("caption");
-        let dom = t.clone().dom();
+        // Pinned to flat: the expected lists are the flat look's, which an
+        // unpinned bar carries inside its `@theme(flat)` block.
+        let dom = t
+            .clone()
+            .with_theme(crate::widgets::themes::UiTheme::Flat)
+            .dom();
 
         assert_eq!(inline_props(&dom), expected_container(&t, false));
         assert_eq!(inline_props(title_node(&dom)), expected_title(&t, false));
@@ -3370,8 +3540,10 @@ mod autotest_generated {
     #[test]
     fn dom_with_buttons_uses_the_csd_container_and_title_styles() {
         let t = tb("x");
+        // Pinned to flat: the expected lists are the flat look's.
         let dom = t
             .clone()
+            .with_theme(crate::widgets::themes::UiTheme::Flat)
             .dom_with_buttons(&TitlebarButtons::default(), TitlebarButtonSide::Right);
 
         assert_eq!(inline_props(&dom), expected_container(&t, true));

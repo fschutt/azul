@@ -237,9 +237,22 @@ fn a_csd_titlebars_title_sits_on_the_line_of_its_controls() {
 /// mode, #000000 in dark mode (measured through AppKit, reference section
 /// 4.1). The widget had no separator at all, so the bar ran into the content
 /// with nothing between them.
+///
+/// The injected bar follows the app theme (W5b): it carries the flat look
+/// and the flora look, each in its `@theme(<name>)` block. This is the
+/// NATIVE look, so it reads the bar at rest under the default app theme,
+/// flat: the unconditional declarations and flat's block.
 #[test]
 fn the_macos_titlebar_has_no_fill_and_the_system_separator() {
-    use azul_css::props::{basic::color::ColorU, property::CssProperty, style::BorderStyle};
+    use azul_css::{
+        dynamic_selector::{DynamicSelector, ThemeCondition},
+        props::{basic::color::ColorU, property::CssProperty, style::BorderStyle},
+    };
+    let at_rest_under_flat = |conditions: &[DynamicSelector]| {
+        conditions.iter().all(|c| {
+            matches!(c, DynamicSelector::Theme(ThemeCondition::Custom(name)) if name.as_str() == "flat")
+        })
+    };
 
     for (style, line) in [
         (
@@ -254,7 +267,7 @@ fn the_macos_titlebar_has_no_fill_and_the_system_separator() {
             .root
             .style
             .iter_inline_properties()
-            .filter(|(_, conditions)| conditions.as_ref().is_empty())
+            .filter(|(_, conditions)| at_rest_under_flat(conditions.as_ref()))
             .map(|(p, _)| p.clone())
             .collect();
 

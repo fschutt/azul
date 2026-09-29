@@ -6188,3 +6188,16 @@ pub(crate) fn tab_content_look() -> crate::widgets::tabs::TabContentLook {
         marker: Some(super::style_kit::FLORA_CLASS),
     }
 }
+
+// ==== titlebar ====
+//
+// PLACEHOLDER until the flora titlebar lands: the flat look.
+
+/// Flora's titlebar look.
+#[must_use]
+pub(crate) fn titlebar_look(
+    bar: &crate::widgets::titlebar::Titlebar,
+    show_buttons: bool,
+) -> crate::widgets::titlebar::TitlebarLook {
+    super::flat::titlebar_look(bar, show_buttons)
+}
