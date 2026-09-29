@@ -873,7 +873,7 @@ impl CssPropertyCache {
                     d.margin_right
                 );
                 let n_props = self.css_props.get_slice(i).len();
-                let n_inline = nd.style.iter_inline_properties().count();
+                let n_inline = self.inline_properties(nd, i).count();
                 cascade_debug!(
                     "node[{}] css_props={} entries, inline={} entries",
                     i,
@@ -934,9 +934,13 @@ impl CssPropertyCache {
             // In CASCADE ORDER, later overwriting earlier: a lower theme rank
             // (`@theme(xyz:pink)` over `@theme(xyz)` over no block) applies
             // later, source order among equals - the declaration
-            // `Css::winning_inline_property` picks on the slow path wins here.
-            nd.style
-                .inline_properties_in_cascade_order(rank, &mut inline_in_order);
+            // `azul_css::css::winning_inline_in` picks on the slow path wins
+            // here - over the inline style AS RESOLVED (`var()` substituted).
+            azul_css::css::inline_in_cascade_order(
+                self.inline_properties(nd, i),
+                &rank,
+                &mut inline_in_order,
+            );
             for &(prop, conds) in &inline_in_order {
                 // Apply when the conditions hold for the RESTING state:
                 // pseudo-state conditions must be Normal, and every other

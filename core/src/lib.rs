@@ -409,6 +409,9 @@ pub mod path_parser;
 pub mod physical_key;
 /// Per-node resolved CSS property cache, the layout engine's read path.
 pub mod prop_cache;
+/// Cascade-level custom properties: every node's `--name` variables and its
+/// `var()` / `env()` references, resolved under the live context.
+pub mod custom_property_cascade;
 /// Type-erased, ref-counted smart pointer with runtime borrow checking.
 pub mod refany;
 /// Resource management: font/image loading, caching, and garbage collection.

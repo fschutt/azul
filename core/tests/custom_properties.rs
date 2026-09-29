@@ -113,7 +113,11 @@ fn an_inline_var_follows_the_mode_across_two_stylesheets_without_a_dom_rebuild()
     assert_eq!(color(&sd, 1), rgb(0, 0, 0), "light: the light definition");
 
     sd.set_dynamic_selector_context(ctx(ThemeCondition::Dark));
-    assert_eq!(color(&sd, 1), rgb(255, 255, 255), "dark: the dark definition");
+    assert_eq!(
+        color(&sd, 1),
+        rgb(255, 255, 255),
+        "dark: the dark definition"
+    );
 
     sd.set_dynamic_selector_context(ctx(ThemeCondition::Light));
     assert_eq!(color(&sd, 1), rgb(0, 0, 0), "and back, on the same DOM");
@@ -141,10 +145,17 @@ fn a_root_definition_in_one_stylesheet_reaches_a_consumer_in_another() {
     let dom = Dom::create_body().with_child(Dom::create_div().with_class("v".into()));
     let with_var = styled(
         dom.clone(),
-        sheets(&[":root { --boxw: 150px; }", ".v { width: var(--boxw, 10px); }"]),
+        sheets(&[
+            ":root { --boxw: 150px; }",
+            ".v { width: var(--boxw, 10px); }",
+        ]),
         ThemeCondition::Light,
     );
-    let direct = styled(dom, sheets(&[".v { width: 150px; }"]), ThemeCondition::Light);
+    let direct = styled(
+        dom,
+        sheets(&[".v { width: 150px; }"]),
+        ThemeCondition::Light,
+    );
     assert_eq!(width(&with_var, 1), width(&direct, 1));
 }
 
@@ -158,7 +169,11 @@ fn a_definition_in_the_same_string_still_reaches_its_consumer() {
         Css::from_string(":root{--boxw:150px} .v{width:var(--boxw)}".into()),
         ThemeCondition::Light,
     );
-    let direct = styled(dom, Css::from_string(".v{width:150px}".into()), ThemeCondition::Light);
+    let direct = styled(
+        dom,
+        Css::from_string(".v{width:150px}".into()),
+        ThemeCondition::Light,
+    );
     assert_eq!(width(&with_var, 1), width(&direct, 1));
 }
 
@@ -204,8 +219,16 @@ fn a_panel_definition_beats_root_and_a_sibling_subtree_still_sees_root() {
         ".leaf { color: var(--fg, #00ff00); }",
     ]);
     let sd = styled(dom, css, ThemeCondition::Light);
-    assert_eq!(color(&sd, 2), rgb(0, 0, 255), "inside the panel: the panel's");
-    assert_eq!(color(&sd, 4), rgb(255, 0, 0), "the sibling subtree: :root's");
+    assert_eq!(
+        color(&sd, 2),
+        rgb(0, 0, 255),
+        "inside the panel: the panel's"
+    );
+    assert_eq!(
+        color(&sd, 4),
+        rgb(255, 0, 0),
+        "the sibling subtree: :root's"
+    );
 }
 
 // ---------------------------------------------------------------- fallbacks
@@ -225,11 +248,19 @@ fn a_fallback_may_itself_read_a_variable() {
         sheets(&[":root { --accent: #0000ff; }"]),
         ThemeCondition::Light,
     );
-    assert_eq!(color(&sd, 1), rgb(0, 0, 255), "the fallback's variable is defined");
+    assert_eq!(
+        color(&sd, 1),
+        rgb(0, 0, 255),
+        "the fallback's variable is defined"
+    );
 
     let dom = Dom::create_body().with_child(inline("color: var(--nope, var(--gone, #ff0000));"));
     let sd = styled(dom, Css::empty(), ThemeCondition::Light);
-    assert_eq!(color(&sd, 1), rgb(255, 0, 0), "neither is: the innermost literal");
+    assert_eq!(
+        color(&sd, 1),
+        rgb(255, 0, 0),
+        "neither is: the innermost literal"
+    );
 }
 
 /// A definition may read another variable; the reference resolves where the
@@ -315,9 +346,15 @@ fn a_background_var_with_a_system_fallback_follows_the_mode() {
     ]);
     let bg = CssPropertyType::BackgroundContent;
     let mut sd = styled(dom, css, ThemeCondition::Dark);
-    assert_eq!(slow(&sd, 1, StyledNodeState::default(), bg), parsed(bg, "#272822"));
+    assert_eq!(
+        slow(&sd, 1, StyledNodeState::default(), bg),
+        parsed(bg, "#272822")
+    );
     sd.set_dynamic_selector_context(ctx(ThemeCondition::Light));
-    assert_eq!(slow(&sd, 1, StyledNodeState::default(), bg), parsed(bg, "#fafafa"));
+    assert_eq!(
+        slow(&sd, 1, StyledNodeState::default(), bg),
+        parsed(bg, "#fafafa")
+    );
 
     // Undefined: the `system:` fallback, still a reference for the getters.
     let sd = styled(
@@ -341,7 +378,11 @@ fn a_background_var_with_a_system_fallback_follows_the_mode() {
 fn an_inline_conditional_definition_follows_the_mode_with_an_empty_stylesheet() {
     let dom = inline("--fg: #000000; @theme(dark) { --fg: #ffffff; }")
         .with_child(inline("color: var(--fg, #ff0000);"));
-    let mut sd = styled(Dom::create_body().with_child(dom), Css::empty(), ThemeCondition::Light);
+    let mut sd = styled(
+        Dom::create_body().with_child(dom),
+        Css::empty(),
+        ThemeCondition::Light,
+    );
     assert_eq!(color(&sd, 2), rgb(0, 0, 0));
     sd.set_dynamic_selector_context(ctx(ThemeCondition::Dark));
     assert_eq!(color(&sd, 2), rgb(255, 255, 255));
@@ -352,7 +393,11 @@ fn an_inline_conditional_definition_follows_the_mode_with_an_empty_stylesheet() 
 #[test]
 fn a_var_consumer_in_a_star_rule_resolves_per_node() {
     let dom = Dom::create_body()
-        .with_child(Dom::create_div().with_class("panel".into()).with_child(Dom::create_div()))
+        .with_child(
+            Dom::create_div()
+                .with_class("panel".into())
+                .with_child(Dom::create_div()),
+        )
         .with_child(Dom::create_div());
     let css = sheets(&[
         "* { color: var(--fg, #ff0000); }",

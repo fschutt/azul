@@ -2375,20 +2375,10 @@ impl Css {
     pub fn winning_inline_property<'a>(
         &'a self,
         property_type: CssPropertyType,
-        mut applies: impl FnMut(&DynamicSelectorVec) -> bool,
+        applies: impl FnMut(&DynamicSelectorVec) -> bool,
         rank: impl Fn(&[DynamicSelector]) -> usize,
     ) -> Option<&'a CssProperty> {
-        let mut best: Option<(usize, &'a CssProperty)> = None;
-        for (prop, conds) in self.iter_inline_properties() {
-            if prop.get_type() != property_type || !applies(conds) {
-                continue;
-            }
-            let r = rank(conds.as_slice());
-            if best.map_or(true, |(b, _)| r <= b) {
-                best = Some((r, prop));
-            }
-        }
-        best.map(|(_, p)| p)
+        winning_inline_in(self.iter_inline_properties(), property_type, applies, rank)
     }
 
     /// This inline style's `(declaration, conditions)` pairs in CASCADE
@@ -2404,16 +2394,7 @@ impl Css {
         rank: impl Fn(&[DynamicSelector]) -> usize,
         out: &mut Vec<(&'a CssProperty, &'a DynamicSelectorVec)>,
     ) {
-        out.clear();
-        out.extend(self.iter_inline_properties());
-        if out
-            .iter()
-            .any(|(_, conds)| has_app_theme_condition(conds.as_slice()))
-        {
-            // Stable: source order among equal ranks. A HIGHER rank (less
-            // specific, outside every block last of all) applies first.
-            out.sort_by_key(|(_, conds)| core::cmp::Reverse(rank(conds.as_slice())));
-        }
+        inline_in_cascade_order(self.iter_inline_properties(), rank, out);
     }
 
     pub fn rules(&self) -> core::slice::Iter<'_, CssRuleBlock> {
@@ -4712,5 +4693,50 @@ mod autotest_generated {
                 r.path
             );
         }
+    }
+}
+
+/// [`Css::winning_inline_property`] over any `(declaration, conditions)`
+/// stream - the cascade's readers pass the node's inline style AS RESOLVED
+/// (`CssPropertyCache::inline_properties`: `var()` references substituted),
+/// so the rank decides over the values that will actually paint. Among the
+/// declarations of `property_type` that `applies`, the lowest `rank` wins,
+/// the LAST in source order among equals.
+pub fn winning_inline_in<'a>(
+    items: impl Iterator<Item = (&'a CssProperty, &'a DynamicSelectorVec)>,
+    property_type: CssPropertyType,
+    mut applies: impl FnMut(&DynamicSelectorVec) -> bool,
+    rank: impl Fn(&[DynamicSelector]) -> usize,
+) -> Option<&'a CssProperty> {
+    let mut best: Option<(usize, &'a CssProperty)> = None;
+    for (prop, conds) in items {
+        if prop.get_type() != property_type || !applies(conds) {
+            continue;
+        }
+        let r = rank(conds.as_slice());
+        if best.map_or(true, |(b, _)| r <= b) {
+            best = Some((r, prop));
+        }
+    }
+    best.map(|(_, p)| p)
+}
+
+/// [`Css::inline_properties_in_cascade_order`] over any `(declaration,
+/// conditions)` stream (see [`winning_inline_in`]): into `out`, cleared
+/// first, weakest first - applied in turn, later overwriting earlier.
+pub fn inline_in_cascade_order<'a>(
+    items: impl Iterator<Item = (&'a CssProperty, &'a DynamicSelectorVec)>,
+    rank: impl Fn(&[DynamicSelector]) -> usize,
+    out: &mut Vec<(&'a CssProperty, &'a DynamicSelectorVec)>,
+) {
+    out.clear();
+    out.extend(items);
+    if out
+        .iter()
+        .any(|(_, conds)| has_app_theme_condition(conds.as_slice()))
+    {
+        // Stable: source order among equal ranks. A HIGHER rank (less
+        // specific, outside every block last of all) applies first.
+        out.sort_by_key(|(_, conds)| core::cmp::Reverse(rank(conds.as_slice())));
     }
 }

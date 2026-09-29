@@ -365,6 +365,7 @@ mod autotest_generated {
             NodeChangeSet::CHILDREN_CHANGED,
             NodeChangeSet::IMAGE_CHANGED,
             NodeChangeSet::CONTENTEDITABLE,
+            NodeChangeSet::CUSTOM_PROPERTIES,
             NodeChangeSet::INLINE_STYLE_PAINT,
             NodeChangeSet::STYLED_STATE,
             NodeChangeSet::CALLBACKS,

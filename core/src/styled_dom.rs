@@ -1826,7 +1826,15 @@ impl StyledDom {
             .downcast_mut()
             .retained_author_css
             .clone();
-        if css.is_empty() {
+        // An empty sheet has nothing to re-match - unless the nodes' own
+        // styles define or read custom properties, which only the cascade's
+        // variable pass resolves (an inserted node's `var()` included).
+        if css.is_empty()
+            && !crate::custom_property_cascade::needs_variable_pass(
+                &css,
+                self.node_data.as_container().internal,
+            )
+        {
             return;
         }
         self.restyle(css);
@@ -2086,9 +2094,8 @@ impl StyledDom {
                 ).collect();
                 let keys_inline: Vec<CssPropertyType> = {
                     use azul_css::dynamic_selector::DynamicSelector;
-                    node_data[*node_id]
-                        .style
-                        .iter_inline_properties()
+                    css_property_cache
+                        .inline_properties(&node_data[*node_id], node_id.index())
                         .filter_map(|(prop, conds)| {
                             let matches = conds.as_slice().iter().any(|c| {
                                 matches!(c, DynamicSelector::PseudoState(pst) if *pst == pseudo_state_type)
@@ -2505,11 +2512,18 @@ impl StyledDom {
             .as_ref()
             .iter()
             .any(azul_css::css::CssRuleBlock::depends_on_dynamic_context);
-        if author_conditional {
-            // Full: author cascade + the tail. (`restyle_retained` is a no-op
-            // for an empty sheet, but an empty sheet has no conditional
-            // rules, so this arm is never reached with one.)
-            self.restyle_retained();
+        // Custom properties are resolved by the author cascade too (its
+        // variable pass), so a node's OWN conditional `--name` definition or
+        // `env()` needs the full re-run even with an EMPTY author sheet -
+        // which `restyle_retained` would skip.
+        let variables_conditional = self.get_css_property_cache().variables_depend_on_context;
+        if author_conditional || variables_conditional {
+            // Full: author cascade (variables included) + the tail.
+            let css = self
+                .get_css_property_cache()
+                .retained_author_css
+                .clone();
+            self.restyle(css);
             return;
         }
         let needs_recascade = theme_changed

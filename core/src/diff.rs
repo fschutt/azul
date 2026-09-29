@@ -85,6 +85,16 @@ impl NodeChangeSet {
     /// Accessibility info changed.
     pub const ACCESSIBILITY: u32 = 0b0001_0000_0000_0000;
 
+    // --- Changes that affect the node's whole SUBTREE ---
+
+    /// A custom-property (`--name`) definition in the node's own style
+    /// changed. Every descendant may read it through `var()` - including
+    /// layout properties - so the change is not the node's alone: without
+    /// this flag a definition-only change reported nothing, and a display
+    /// list patch spliced the readers' stale items (design §9.1 pitfall 11,
+    /// "a rice edit repaints half the window").
+    pub const CUSTOM_PROPERTIES: u32 = 0b0010_0000_0000_0000;
+
     // --- Composite masks ---
 
     /// Any change that requires a layout pass.
@@ -94,9 +104,12 @@ impl NodeChangeSet {
         | Self::INLINE_STYLE_LAYOUT
         | Self::CHILDREN_CHANGED
         | Self::IMAGE_CHANGED
-        | Self::CONTENTEDITABLE;
+        | Self::CONTENTEDITABLE
+        | Self::CUSTOM_PROPERTIES;
 
     /// Any change that requires a paint/display-list update (but not layout).
+    /// (`CUSTOM_PROPERTIES` is a layout change: a relayout repaints anyway,
+    /// and the two masks stay disjoint.)
     pub const AFFECTS_PAINT: u32 = Self::INLINE_STYLE_PAINT | Self::STYLED_STATE;
 
     #[must_use]
@@ -166,6 +179,56 @@ pub struct ExtendedDiffResult {
     /// Each entry: (`old_node_id`, `new_node_id`, `what_changed`).
     /// Only contains entries for nodes that were matched.
     pub node_changes: Vec<(NodeId, NodeId, NodeChangeSet)>,
+}
+
+/// The declarations of a node's own style that are not static properties:
+/// its `var()` / `env()` references and its custom-property definitions,
+/// each with its rule's conditions, in declaration order.
+#[allow(clippy::type_complexity)] // two parallel (declaration, conditions) lists
+fn non_static_declarations(
+    node: &NodeData,
+) -> (
+    Vec<(
+        &azul_css::css::DynamicCssProperty,
+        &azul_css::dynamic_selector::DynamicSelectorVec,
+    )>,
+    Vec<(
+        &azul_css::css::CssCustomProperty,
+        &azul_css::dynamic_selector::DynamicSelectorVec,
+    )>,
+) {
+    use azul_css::css::CssDeclaration;
+    let mut refs = Vec::new();
+    let mut defs = Vec::new();
+    for rule in node.style.rules.as_ref() {
+        for d in rule.declarations.as_ref() {
+            match d {
+                CssDeclaration::Static(_) => {}
+                CssDeclaration::Dynamic(r) => refs.push((r, &rule.conditions)),
+                CssDeclaration::CustomProperty(c) => defs.push((c, &rule.conditions)),
+            }
+        }
+    }
+    (refs, defs)
+}
+
+/// Hash a node's own style for the change fingerprints: every declaration
+/// with its rule's condition count. A static property hashes exactly as the
+/// old static-only walk did; `var()` references and custom-property
+/// definitions count too, or a definition-only change fingerprinted as "no
+/// change" and its readers kept their stale values.
+fn hash_inline_style<H: core::hash::Hasher>(style: &azul_css::css::Css, h: &mut H) {
+    use azul_css::css::CssDeclaration;
+    for rule in style.rules.as_ref() {
+        let conditions = rule.conditions.as_slice().len();
+        for d in rule.declarations.as_ref() {
+            match d {
+                CssDeclaration::Static(p) => p.hash(h),
+                other => other.hash(h),
+            }
+            conditions.hash(h);
+        }
+    }
 }
 
 /// Compare two matched `NodeData` instances field-by-field and return
@@ -292,6 +355,22 @@ pub fn compute_node_changes(
             if !old_matched[i] {
                 mark(*old_type, &mut has_layout, &mut has_paint);
             }
+        }
+
+        // The declarations the static view above skips. A `var()` / `env()`
+        // reference is a property of THIS node: added, removed or changed,
+        // it counts as its property type. A custom-property definition feeds
+        // every descendant that reads it: its own flag, whole-subtree scope.
+        let (old_refs, old_defs) = non_static_declarations(old_node);
+        let (new_refs, new_defs) = non_static_declarations(new_node);
+        for (d, _) in new_refs.iter().filter(|r| !old_refs.contains(r)) {
+            mark(d.default_value.get_type(), &mut has_layout, &mut has_paint);
+        }
+        for (d, _) in old_refs.iter().filter(|r| !new_refs.contains(r)) {
+            mark(d.default_value.get_type(), &mut has_layout, &mut has_paint);
+        }
+        if old_defs != new_defs {
+            changes.insert(NodeChangeSet::CUSTOM_PROPERTIES);
         }
 
         if has_layout {
@@ -2114,6 +2193,12 @@ impl ChangeAccumulator {
             return RelayoutScope::Full;
         }
 
+        // CUSTOM_PROPERTIES → Full: any descendant may read the variable,
+        // layout properties included.
+        if change_set.contains(NodeChangeSet::CUSTOM_PROPERTIES) {
+            return RelayoutScope::Full;
+        }
+
         // INLINE_STYLE_LAYOUT → could be IfcOnly, SizingOnly, or Full
         // We need to check individual properties for the exact scope.
         // For now, we use SizingOnly as a conservative default since
@@ -2278,10 +2363,7 @@ impl NodeDataFingerprint {
         // condition vec length).
         let inline_css_hash = {
             let mut h = crate::hash::DefaultHasher::new();
-            for (prop, conds) in node.style.iter_inline_properties() {
-                prop.hash(&mut h);
-                conds.as_slice().len().hash(&mut h);
-            }
+            hash_inline_style(&node.style, &mut h);
             h.finish()
         };
 
@@ -2601,10 +2683,7 @@ pub fn fingerprint_dom(dom: &crate::dom::Dom) -> (DomFingerprints, PreCascadeTra
         use core::hash::{Hash, Hasher};
         let mut h = crate::hash::DefaultHasher::new();
 
-        for (prop, conds) in dom.root.style.iter_inline_properties() {
-            prop.hash(&mut h);
-            conds.as_slice().len().hash(&mut h);
-        }
+        hash_inline_style(&dom.root.style, &mut h);
 
         // Attached .with_css() sheets — subtree-scoped by construction, so
         // they belong to THIS node's style identity.
