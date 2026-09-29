@@ -83,6 +83,27 @@ use crate::{
 /// The class of the form node.
 pub const FORM_CLASS: &str = "__azul-native-form";
 
+/// The form node's structure, the same in every theme (R5): its content
+/// stacked in a column. Each theme's skin (the gap between the controls)
+/// comes after it, so the merge (`themes::theme_blocks`) declares it once,
+/// outside every `@theme` block.
+#[must_use]
+pub(crate) fn base_form() -> Vec<azul_css::dynamic_selector::CssPropertyWithConditions> {
+    use azul_css::{
+        dynamic_selector::CssPropertyWithConditions,
+        props::{
+            layout::{LayoutDisplay, LayoutFlexDirection},
+            property::CssProperty,
+        },
+    };
+    alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+            LayoutFlexDirection::Column,
+        )),
+    ]
+}
+
 /// One named value of a [`FormData`].
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]

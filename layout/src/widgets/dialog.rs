@@ -1371,14 +1371,45 @@ pub(crate) fn backdrop_style(color: ColorU) -> CssPropertyWithConditionsVec {
     ])
 }
 
-/// The dialog panel: a bordered, rounded surface in the window's own colours.
-pub(crate) static DIALOG_PANEL_STYLE: &[CssPropertyWithConditions] = &[
+// ---- the structure: the same in every theme (R5) ----
+//
+// A part's layout - position, display, flex, cursor, user-select - is the
+// dialog's, not a theme's: every theme's skin (`themes::flat::dialog_skin`,
+// `themes::flora::dialog_skin`) comes AFTER its base, so the merge
+// (`themes::theme_blocks::follow_props`) declares the base once, outside
+// every `@theme` block. The close row, the content and the backdrop are one
+// style for every theme already (below, and `backdrop_style`).
+
+/// The panel's structure: a column that never grows, and the containing
+/// block the "×" is placed in.
+pub(crate) static DIALOG_PANEL_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,
     )),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+];
+
+/// The title row's structure: it keeps its height, and its text is not
+/// selectable.
+pub(crate) static DIALOG_TITLE_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// The "×" close button's structure: taken out of the flow (a skin places
+/// it in the panel's top-right corner), a pointer target, a glyph that is
+/// not selectable.
+pub(crate) static DIALOG_CLOSE_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// The dialog panel: flat's skin of it (after [`DIALOG_PANEL_BASE`]) - a
+/// bordered, rounded surface in the window's own colours.
+pub(crate) static DIALOG_PANEL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(
         PANEL_MIN_WIDTH,
     ))),
@@ -1472,10 +1503,10 @@ pub(crate) static DIALOG_PANEL_STYLE: &[CssPropertyWithConditions] = &[
     system_palette::DARK_WINDOW_BACKGROUND,
 ];
 
-/// The title row: larger, dark text; the right padding keeps it clear of
-/// the absolutely-positioned "×".
+/// The title row: flat's skin of it (after [`DIALOG_TITLE_BASE`]) - larger,
+/// dark text; the right padding keeps it clear of the absolutely-positioned
+/// "×".
 pub(crate) static DIALOG_TITLE_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TITLE_COLOR,
@@ -1488,7 +1519,6 @@ pub(crate) static DIALOG_TITLE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
         LayoutPaddingBottom::const_px(12),
     )),
-    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
 ];
 
 /// With no title: an empty row as tall as the close button, so the button
@@ -1500,10 +1530,9 @@ pub(crate) static DIALOG_CLOSE_ROW_STYLE: &[CssPropertyWithConditions] = &[
     ))),
 ];
 
-/// The "×" close button: absolutely positioned in the panel's top-right
-/// corner.
+/// The "×" close button: flat's skin of it (after [`DIALOG_CLOSE_BASE`]) -
+/// placed in the panel's top-right corner.
 pub(crate) static DIALOG_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
     CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop::const_px(8))),
     CssPropertyWithConditions::simple(CssProperty::const_right(LayoutRight::const_px(12))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(22))),
@@ -1511,8 +1540,6 @@ pub(crate) static DIALOG_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
         inner: CLOSE_COLOR,
     })),
     system_palette::DARK_SECONDARY_TEXT,
-    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
 ];
 
 /// The content wrapper: takes the remaining height.

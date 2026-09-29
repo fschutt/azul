@@ -2025,12 +2025,8 @@ const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_
 const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 
+/// Flora's trigger skin, after `drop_down::DROPDOWN_WRAPPER_BASE` (R5).
 const FLORA_DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineFlex)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
     CssPropertyWithConditions::simple(CssProperty::const_padding_left(
@@ -2123,8 +2119,8 @@ const FLORA_DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
     )),
 ];
 
+/// Flora's label skin, after `drop_down::DROPDOWN_LABEL_BASE` (R5).
 const FLORA_DROPDOWN_LABEL_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(10),
     )),
@@ -2136,9 +2132,9 @@ const FLORA_DROPDOWN_LABEL_STYLE: &[CssPropertyWithConditions] = &[
     })),
 ];
 
+/// Flora's arrow skin, after `drop_down::DROPDOWN_ARROW_BASE` (R5).
 const FLORA_DROPDOWN_ARROW_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: LIGHT_INK,
     })),
@@ -2176,9 +2172,14 @@ pub fn drop_down(dd: crate::widgets::drop_down::DropDown) -> Dom {
 
     let refany = RefAny::new(dd);
 
+    // Every part: the widget's structure (R5), then flora's skin.
+    use crate::widgets::drop_down::{
+        DROPDOWN_ARROW_BASE, DROPDOWN_LABEL_BASE, DROPDOWN_WRAPPER_BASE,
+    };
+
     Dom::create_div()
-        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-            FLORA_DROPDOWN_WRAPPER_STYLE,
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(
+            [DROPDOWN_WRAPPER_BASE, FLORA_DROPDOWN_WRAPPER_STYLE].concat(),
         ))
         .with_ids_and_classes(IdOrClassVec::from_const_slice(DROPDOWN_CLASS))
         .with_tab_index(TabIndex::Auto)
@@ -2200,14 +2201,16 @@ pub fn drop_down(dd: crate::widgets::drop_down::DropDown) -> Dom {
         )
         .with_children(DomVec::from_vec(vec![
             crate::widgets::widget_p_chrome()
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                    FLORA_DROPDOWN_LABEL_STYLE,
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(
+                    [DROPDOWN_LABEL_BASE, FLORA_DROPDOWN_LABEL_STYLE].concat(),
                 ))
                 .with_children(DomVec::from_vec(vec![
                     Dom::create_text_do_not_use_without_block_level_wrapper(selected_text),
                 ])),
             Dom::create_icon(AzString::from_const_str("arrow_drop_down")).with_css_props(
-                CssPropertyWithConditionsVec::from_const_slice(FLORA_DROPDOWN_ARROW_STYLE),
+                CssPropertyWithConditionsVec::from_vec(
+                    [DROPDOWN_ARROW_BASE, FLORA_DROPDOWN_ARROW_STYLE].concat(),
+                ),
             ),
         ]))
 }
@@ -2912,17 +2915,16 @@ pub(crate) fn dialog_skin() -> crate::widgets::dialog::DialogSkin {
     use crate::widgets::dialog as d;
     type P = CssPropertyWithConditions;
 
+    // Every part: the dialog's structure (R5), then flora's skin.
+    //
     // The leaf. Same box as flat's panel (280..520 px wide, 20px inset).
-    let mut panel = vec![
-        P::simple(CssProperty::const_position(LayoutPosition::Relative)),
-        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        P::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
-        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    let mut panel = d::DIALOG_PANEL_BASE.to_vec();
+    panel.extend([
         P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(280))),
         P::simple(CssProperty::const_max_width(LayoutMaxWidth::const_px(520))),
         P::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
         P::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
-    ];
+    ]);
     panel.extend(kit::padding(20, 20, 20, 20));
     panel.extend(kit::border(kit::Edges::ALL, 1, LIGHT_BD2, DARK_BD2));
     panel.extend(kit::radius(5));
@@ -2931,28 +2933,25 @@ pub(crate) fn dialog_skin() -> crate::widgets::dialog::DialogSkin {
     panel.extend(kit::drop_shadow(6, 14, DIALOG_SHADOW_LIGHT, DIALOG_SHADOW_DARK));
 
     // The heading, ruled off.
-    let mut title = vec![
-        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    let mut title = d::DIALOG_TITLE_BASE.to_vec();
+    title.extend([
         kit::font_size(17),
         kit::weight(StyleFontWeight::W600),
         P::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
         P::simple(CssProperty::const_margin_bottom(LayoutMarginBottom::const_px(12))),
-        P::simple(CssProperty::user_select(StyleUserSelect::None)),
-    ];
+    ]);
     // The right inset keeps the heading clear of the absolutely-placed close.
     title.extend(kit::padding(0, 28, 10, 0));
     title.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
     title.extend(kit::border(kit::Edges::BOTTOM, 1, LIGHT_SEP, DARK_SEP));
 
     // The quiet close.
-    let mut close = vec![
-        P::simple(CssProperty::const_position(LayoutPosition::Absolute)),
+    let mut close = d::DIALOG_CLOSE_BASE.to_vec();
+    close.extend([
         P::simple(CssProperty::const_top(LayoutTop::const_px(8))),
         P::simple(CssProperty::const_right(LayoutRight::const_px(10))),
         kit::font_size(20),
-        P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-        P::simple(CssProperty::user_select(StyleUserSelect::None)),
-    ];
+    ]);
     close.extend(kit::padding(0, 5, 0, 5));
     close.extend(kit::radius(3));
     close.extend(kit::themed_ink(LIGHT_QT, DARK_QT));
@@ -4036,15 +4035,9 @@ pub fn text_input_invalid_ring(dark: bool) -> Vec<CssProperty> {
 /// control.
 #[must_use]
 pub fn datetime_local(date: Dom, time: Dom) -> Dom {
-    let mut style: Vec<CssPropertyWithConditions> = vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Row,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_align_items(
-            LayoutAlignItems::Center,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
+    // The widget's structure (R5), then flora's skin.
+    let mut style: Vec<CssPropertyWithConditions> = crate::widgets::datetime_local::base_row();
+    style.extend([
         CssPropertyWithConditions::simple(CssProperty::ColumnGap(LayoutColumnGapValue::Exact(
             LayoutColumnGap {
                 inner: PixelValue::const_px(6),
@@ -4104,7 +4097,7 @@ pub fn datetime_local(date: Dom, time: Dom) -> Dom {
                 inner: BorderStyle::Solid,
             },
         )),
-    ];
+    ]);
     style.extend(CssPropertyWithConditions::themed(
         CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(&[
             StyleBackgroundContent::Color(LIGHT_FLD),
@@ -4149,17 +4142,16 @@ pub fn form(children: azul_core::dom::DomVec) -> Dom {
         .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(AzString::from_const_str(
             crate::widgets::form::FORM_CLASS,
         ))]))
-        .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
-            CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-            CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-                LayoutFlexDirection::Column,
-            )),
-            CssPropertyWithConditions::simple(CssProperty::RowGap(LayoutRowGapValue::Exact(
-                LayoutRowGap {
+        .with_css_props(CssPropertyWithConditionsVec::from_vec({
+            // The widget's structure (R5), then flora's airier gap.
+            let mut style = crate::widgets::form::base_form();
+            style.push(CssPropertyWithConditions::simple(CssProperty::RowGap(
+                LayoutRowGapValue::Exact(LayoutRowGap {
                     inner: PixelValue::const_px(10),
-                },
-            ))),
-        ]))
+                }),
+            )));
+            style
+        }))
         .with_children(children)
 }
 
@@ -4320,21 +4312,15 @@ pub fn badge(b: crate::widgets::badge::Badge) -> Dom {
 // flat rule's 4px, which is as much of the house's slowness as a separator
 // can carry.
 
-/// The flora rule for one orientation: geometry first, then the colour with
-/// its night twin.
+/// The flora rule for one orientation: the widget's structure (R5), then the
+/// geometry, then the colour with its night twin.
 fn flora_divider_style(
     orientation: crate::widgets::divider::DividerOrientation,
 ) -> Vec<CssPropertyWithConditions> {
     use crate::widgets::divider::DividerOrientation;
 
-    let mut style = vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
-        // Span the parent's cross axis, never grow along the main one.
-        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Stretch)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
-    ];
+    // Span the parent's cross axis, never grow along the main one.
+    let mut style = crate::widgets::divider::DIVIDER_BASE.to_vec();
     match orientation {
         DividerOrientation::Horizontal => {
             style.push(CssPropertyWithConditions::simple(CssProperty::const_height(

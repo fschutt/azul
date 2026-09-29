@@ -72,12 +72,19 @@ const DIVIDER_DARK_BG_ITEMS: &[StyleBackgroundContent] =
 const DIVIDER_DARK_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(DIVIDER_DARK_BG_ITEMS);
 
-static DIVIDER_STYLE_HORIZONTAL: &[CssPropertyWithConditions] = &[
+/// The rule's structure, the same in every theme and both orientations (R5):
+/// a block that stretches across its parent's cross axis - the full width of
+/// a column, the full height of a row - and never grows along the main one.
+/// Every theme's skin (the thickness, the air, the colour) comes after it.
+pub(crate) static DIVIDER_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
-    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(1))),
-    // Stretch across the parent's cross axis so the rule spans the full width.
     CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Stretch)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+];
+
+/// Flat's horizontal rule after [`DIVIDER_BASE`]: 1px tall, 4px of air.
+static DIVIDER_SKIN_HORIZONTAL: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(1))),
     CssPropertyWithConditions::simple(CssProperty::const_margin_top(LayoutMarginTop::const_px(4))),
     CssPropertyWithConditions::simple(CssProperty::const_margin_bottom(
         LayoutMarginBottom::const_px(4),
@@ -86,12 +93,9 @@ static DIVIDER_STYLE_HORIZONTAL: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(DIVIDER_DARK_BG)),
 ];
 
-static DIVIDER_STYLE_VERTICAL: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
+/// Flat's vertical rule after [`DIVIDER_BASE`]: 1px wide, 4px of air.
+static DIVIDER_SKIN_VERTICAL: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(1))),
-    // Stretch across the parent's cross axis so the rule spans the full height.
-    CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Stretch)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(
         4,
     ))),
@@ -129,17 +133,14 @@ impl Divider {
     /// that could still describe the other axis.
     #[must_use]
     pub fn resolved_divider_style(&self) -> CssPropertyWithConditionsVec {
-        self.divider_style
-            .clone()
-            .into_option()
-            .unwrap_or_else(|| match self.orientation {
-                DividerOrientation::Horizontal => {
-                    CssPropertyWithConditionsVec::from_const_slice(DIVIDER_STYLE_HORIZONTAL)
-                }
-                DividerOrientation::Vertical => {
-                    CssPropertyWithConditionsVec::from_const_slice(DIVIDER_STYLE_VERTICAL)
-                }
-            })
+        self.divider_style.clone().into_option().unwrap_or_else(|| {
+            let skin = match self.orientation {
+                DividerOrientation::Horizontal => DIVIDER_SKIN_HORIZONTAL,
+                DividerOrientation::Vertical => DIVIDER_SKIN_VERTICAL,
+            };
+            // The widget's structure, then flat's rule.
+            CssPropertyWithConditionsVec::from_vec([DIVIDER_BASE, skin].concat())
+        })
     }
 
     /// Sets the orientation.
@@ -896,7 +897,7 @@ mod autotest_generated {
         // An explicit style is the caller's answer and is honoured rather than
         // healed — that is what `Some` means.
         d.divider_style = OptionCssPropertyWithConditionsVec::Some(
-            CssPropertyWithConditionsVec::from_const_slice(DIVIDER_STYLE_HORIZONTAL),
+            Divider::create().resolved_divider_style(),
         );
         d.set_orientation(DividerOrientation::Vertical);
         assert_eq!(
@@ -1202,7 +1203,7 @@ mod autotest_generated {
         let desynced = Divider {
             orientation: DividerOrientation::Vertical, theme: crate::widgets::themes::OptionUiTheme::None,
             divider_style: OptionCssPropertyWithConditionsVec::Some(
-                CssPropertyWithConditionsVec::from_const_slice(DIVIDER_STYLE_HORIZONTAL),
+                Divider::create().resolved_divider_style(),
             ),
         };
         let rendered = inline_properties(&desynced.dom());

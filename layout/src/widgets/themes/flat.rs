@@ -1592,12 +1592,8 @@ const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
 /// dark surface; the rules that use it now pair it with `system:separator`.
 const FLAT_BORDER_NORMAL: ColorU = LIGHT_BD;
 
+/// Flat's trigger skin, after `drop_down::DROPDOWN_WRAPPER_BASE` (R5).
 const FLAT_DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineFlex)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
     CssPropertyWithConditions::simple(CssProperty::const_padding_left(
@@ -1674,8 +1670,8 @@ const FLAT_DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
     system_palette::DARK_TEXT,
 ];
 
+/// Flat's label skin, after `drop_down::DROPDOWN_LABEL_BASE` (R5).
 const FLAT_DROPDOWN_LABEL_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(8),
     )),
@@ -1685,9 +1681,9 @@ const FLAT_DROPDOWN_LABEL_STYLE: &[CssPropertyWithConditions] = &[
     system_palette::DARK_TEXT,
 ];
 
+/// Flat's arrow skin, after `drop_down::DROPDOWN_ARROW_BASE` (R5).
 const FLAT_DROPDOWN_ARROW_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: LIGHT_FG,
     })),
@@ -1723,9 +1719,14 @@ pub fn drop_down(dd: crate::widgets::drop_down::DropDown) -> Dom {
 
     let refany = RefAny::new(dd);
 
+    // Every part: the widget's structure (R5), then flat's skin.
+    use crate::widgets::drop_down::{
+        DROPDOWN_ARROW_BASE, DROPDOWN_LABEL_BASE, DROPDOWN_WRAPPER_BASE,
+    };
+
     Dom::create_div()
-        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-            FLAT_DROPDOWN_WRAPPER_STYLE,
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(
+            [DROPDOWN_WRAPPER_BASE, FLAT_DROPDOWN_WRAPPER_STYLE].concat(),
         ))
         .with_ids_and_classes(IdOrClassVec::from_const_slice(DROPDOWN_CLASS))
         .with_tab_index(TabIndex::Auto)
@@ -1747,14 +1748,16 @@ pub fn drop_down(dd: crate::widgets::drop_down::DropDown) -> Dom {
         )
         .with_children(DomVec::from_vec(vec![
             crate::widgets::widget_p_chrome()
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                    FLAT_DROPDOWN_LABEL_STYLE,
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(
+                    [DROPDOWN_LABEL_BASE, FLAT_DROPDOWN_LABEL_STYLE].concat(),
                 ))
                 .with_children(DomVec::from_vec(vec![
                     Dom::create_text_do_not_use_without_block_level_wrapper(selected_text),
                 ])),
             Dom::create_icon(AzString::from_const_str("arrow_drop_down")).with_css_props(
-                CssPropertyWithConditionsVec::from_const_slice(FLAT_DROPDOWN_ARROW_STYLE),
+                CssPropertyWithConditionsVec::from_vec(
+                    [DROPDOWN_ARROW_BASE, FLAT_DROPDOWN_ARROW_STYLE].concat(),
+                ),
             ),
         ]))
 }
@@ -3442,7 +3445,9 @@ pub(crate) fn dialog_skin() -> crate::widgets::dialog::DialogSkin {
     use super::style_kit as kit;
     use crate::widgets::dialog as d;
 
-    let mut close = d::DIALOG_CLOSE_STYLE.to_vec();
+    // Every part: the dialog's structure (R5), then flat's skin.
+    let mut close = d::DIALOG_CLOSE_BASE.to_vec();
+    close.extend_from_slice(d::DIALOG_CLOSE_STYLE);
     close.extend(kit::radius(3));
     close.extend(kit::ring_slot());
     // States last: a resting dark twin matches in every state.
@@ -3451,8 +3456,12 @@ pub(crate) fn dialog_skin() -> crate::widgets::dialog::DialogSkin {
 
     d::DialogSkin {
         theme: super::UiTheme::Flat,
-        panel: CssPropertyWithConditionsVec::from_const_slice(d::DIALOG_PANEL_STYLE),
-        title: CssPropertyWithConditionsVec::from_const_slice(d::DIALOG_TITLE_STYLE),
+        panel: CssPropertyWithConditionsVec::from_vec(
+            [d::DIALOG_PANEL_BASE, d::DIALOG_PANEL_STYLE].concat(),
+        ),
+        title: CssPropertyWithConditionsVec::from_vec(
+            [d::DIALOG_TITLE_BASE, d::DIALOG_TITLE_STYLE].concat(),
+        ),
         close_row: CssPropertyWithConditionsVec::from_const_slice(d::DIALOG_CLOSE_ROW_STYLE),
         close: CssPropertyWithConditionsVec::from_vec(close),
         content: CssPropertyWithConditionsVec::from_const_slice(d::DIALOG_CONTENT_STYLE),
@@ -4030,15 +4039,9 @@ fn outline_pairs(light: ColorU, dark: ColorU) -> Vec<CssPropertyWithConditions> 
 /// held together by a hairline outline so the pair reads as ONE control.
 #[must_use]
 pub fn datetime_local(date: Dom, time: Dom) -> Dom {
-    let mut style: Vec<CssPropertyWithConditions> = vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Row,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_align_items(
-            LayoutAlignItems::Center,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
+    // The widget's structure (R5), then flat's skin.
+    let mut style: Vec<CssPropertyWithConditions> = crate::widgets::datetime_local::base_row();
+    style.extend([
         CssPropertyWithConditions::simple(CssProperty::ColumnGap(LayoutColumnGapValue::Exact(
             LayoutColumnGap {
                 inner: PixelValue::const_px(8),
@@ -4056,7 +4059,7 @@ pub fn datetime_local(date: Dom, time: Dom) -> Dom {
         CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
             LayoutPaddingBottom::const_px(2),
         )),
-    ];
+    ]);
     style.extend(outline_pairs(LIGHT_BD, system_palette::SEPARATOR));
 
     Dom::create_div()
@@ -4078,17 +4081,16 @@ pub fn form(children: azul_core::dom::DomVec) -> Dom {
         .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(AzString::from_const_str(
             crate::widgets::form::FORM_CLASS,
         ))]))
-        .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
-            CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-            CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-                LayoutFlexDirection::Column,
-            )),
-            CssPropertyWithConditions::simple(CssProperty::RowGap(LayoutRowGapValue::Exact(
-                LayoutRowGap {
+        .with_css_props(CssPropertyWithConditionsVec::from_vec({
+            // The widget's structure (R5), then flat's gap.
+            let mut style = crate::widgets::form::base_form();
+            style.push(CssPropertyWithConditions::simple(CssProperty::RowGap(
+                LayoutRowGapValue::Exact(LayoutRowGap {
                     inner: PixelValue::const_px(8),
-                },
-            ))),
-        ]))
+                }),
+            )));
+            style
+        }))
         .with_children(children)
 }
 

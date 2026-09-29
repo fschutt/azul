@@ -34,6 +34,33 @@ use crate::{
 /// The class of the row holding the date part and the time part.
 pub const DATETIME_LOCAL_CLASS: &str = "__azul-native-datetime-local";
 
+/// The row's structure, the same in every theme (R5): the date part and the
+/// time part side by side, centred on one line, the row hugging them (so a
+/// part's popup lines up with it, not with a full-width flex line). Each
+/// theme's skin (gap, padding, outline) comes after it, so the merge
+/// (`themes::theme_blocks`) declares it once, outside every `@theme` block.
+#[must_use]
+pub(crate) fn base_row() -> alloc::vec::Vec<azul_css::dynamic_selector::CssPropertyWithConditions>
+{
+    use azul_css::{
+        dynamic_selector::CssPropertyWithConditions,
+        props::{
+            layout::{LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection},
+            property::CssProperty,
+        },
+    };
+    alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+            LayoutFlexDirection::Row,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_align_items(
+            LayoutAlignItems::Center,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
+    ]
+}
+
 /// Callback type invoked when the date part or the time part changes; it is
 /// handed the COMBINED state.
 pub type DateTimeLocalPickerOnChangeCallbackType =

@@ -281,6 +281,34 @@ impl DropDown {
 }
 
 // ============================================================================
+// The structure: the same in every theme (R5)
+// ============================================================================
+//
+// A part's layout is the widget's, not a theme's: `themes::flat::drop_down`
+// and `themes::flora::drop_down` put their skin AFTER these, so the merge
+// (`themes::theme_blocks`) declares them once, outside every `@theme` block.
+
+/// The trigger's structure: an inline row that centres its label and arrow,
+/// never grows, and is a pointer target.
+pub(crate) static DROPDOWN_WRAPPER_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineFlex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+];
+
+/// The selected label's structure: it takes the trigger's free width.
+pub(crate) static DROPDOWN_LABEL_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+];
+
+/// The arrow's structure: it keeps its own width.
+pub(crate) static DROPDOWN_ARROW_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+];
+
+// ============================================================================
 // Internal callback data types
 // ============================================================================
 
