@@ -233,7 +233,11 @@ twins treat R1's surface; fix 3 exposes R6; symptom (a) is R3; the startup-on-da
   `paint_defaults_fingerprint` and the `last_dynamic_context` equality. Test: the uncommitted
   `a_theme_switch_recolours_the_retained_dom` plus a variant through
   `regenerate_display_list_for_dom`.
-- **I6 — The theme is paint-only.** Node rects are identical under both themes and across a
+- **I6 — The colour scheme is paint-only.** (Corrected 2026-09-29: "theme" in this document
+  means light/dark. A *theme-chain* switch, `flat` → `flora` → `abc-base`, is NOT paint-only: it
+  recreates the DOM and may change layout, see
+  `scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md` §7.1.) Node rects are
+  identical under both colour schemes and across a
   switch: the uncommitted `the_theme_does_not_change_layout` and
   `a_theme_switch_in_one_window_does_not_change_layout` (window.rs diff) — commit them; add a
   debug assertion that a compact *rebuild* equals a fresh build tier by tier.
