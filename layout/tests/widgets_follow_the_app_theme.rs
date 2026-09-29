@@ -561,3 +561,22 @@ fn sliders_follow_the_app_theme() {
         });
     }
 }
+
+/// Flat's and flora's switch are one look today (`themes::flat::switch` ==
+/// `themes::flora::switch`), so this is a guard, green before and after the
+/// migration: the moment flora's switch gets a look of its own, an unpinned
+/// switch must carry it.
+#[test]
+fn switches_follow_the_app_theme() {
+    use azul_layout::widgets::switch::Switch;
+    for checked in [false, true] {
+        assert_follows_the_app_theme(&format!("switch checked={checked}"), |t| {
+            pinned(
+                Switch::create(checked).with_accessibility_name("Wi-Fi"),
+                t,
+                Switch::with_theme,
+            )
+            .dom()
+        });
+    }
+}
