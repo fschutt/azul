@@ -341,9 +341,7 @@ pub(crate) fn build(bc: Breadcrumb, look: &BreadcrumbLook) -> Dom {
 
     // A crumb's declarations: its base first, then the theme's skin.
     let part = |base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
-        let mut style = base.to_vec();
-        style.extend(skin.iter().cloned());
-        CssPropertyWithConditionsVec::from_vec(style)
+        CssPropertyWithConditionsVec::from_vec(crate::widgets::themes::decl::on_base(base, skin))
     };
     {
         let count = bc.labels.as_ref().len();
@@ -1180,9 +1178,7 @@ mod autotest_generated {
         base: &[CssPropertyWithConditions],
         skin: &[CssPropertyWithConditions],
     ) -> Vec<CssPropertyWithConditions> {
-        let mut style = base.to_vec();
-        style.extend_from_slice(skin);
-        style
+        crate::widgets::themes::decl::on_base(base, skin)
     }
 
     #[test]

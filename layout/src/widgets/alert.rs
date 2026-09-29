@@ -622,9 +622,9 @@ pub(crate) fn build(alert: Alert, look: &AlertLook) -> Dom {
 
         // A part's declarations: its base first, then the theme's skin.
         let part = |base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
-            let mut style = base.to_vec();
-            style.extend(skin.iter().cloned());
-            CssPropertyWithConditionsVec::from_vec(style)
+            CssPropertyWithConditionsVec::from_vec(crate::widgets::themes::decl::on_base(
+                base, skin,
+            ))
         };
 
         let message = crate::widgets::widget_p_with_text(alert.message)

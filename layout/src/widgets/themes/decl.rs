@@ -456,3 +456,25 @@ pub(crate) fn letter_spacing_em(em: f32) -> CssPropertyWithConditions {
         inner: PixelValue::em(em),
     }))
 }
+
+// ==== R5-A: a part's base, then its skin ====
+
+/// A widget part's declarations: its BASE - the structure, the same in every
+/// theme, declared once in the widget's own file - then a theme's SKIN (its
+/// paint and metrics). Base first: the structure both looks share then leads
+/// both orders, and the merge (`theme_blocks`) declares it once, outside
+/// every `@theme` block, so it also holds under a theme no widget knows.
+///
+/// For the parts of ONE list, before the merge. Stacking two parts a merge
+/// already went through (a base part and a state part) is
+/// `theme_blocks::stack_parts`'s job.
+#[must_use]
+pub(crate) fn on_base(
+    base: &[CssPropertyWithConditions],
+    skin: &[CssPropertyWithConditions],
+) -> Vec<CssPropertyWithConditions> {
+    let mut part = Vec::with_capacity(base.len() + skin.len());
+    part.extend_from_slice(base);
+    part.extend_from_slice(skin);
+    part
+}

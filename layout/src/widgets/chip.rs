@@ -580,8 +580,7 @@ pub(crate) fn build(chip: Chip, look: &ChipLook) -> Dom {
         let remove_name = AzString::from(alloc::format!("Remove {}", chip.label.as_str()));
 
         // The label: its base first, then the theme's skin.
-        let mut label_style = CHIP_LABEL_STYLE.to_vec();
-        label_style.extend(look.label.iter().cloned());
+        let mut label_style = crate::widgets::themes::decl::on_base(CHIP_LABEL_STYLE, &look.label);
         if has_on_click {
             label_style.extend(look.label_focus.iter().cloned());
         }
@@ -620,8 +619,7 @@ pub(crate) fn build(chip: Chip, look: &ChipLook) -> Dom {
 
         if chip.removable {
             // The "x": its base first, then the theme's skin.
-            let mut remove_style = CHIP_REMOVE_BASE.to_vec();
-            remove_style.extend(look.remove.iter().cloned());
+            let remove_style = crate::widgets::themes::decl::on_base(CHIP_REMOVE_BASE, &look.remove);
             let remove = crate::widgets::widget_p_with_text(AzString::from_const_str("\u{00D7}"))
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CHIP_REMOVE_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_vec(remove_style))
@@ -1769,7 +1767,10 @@ mod autotest_generated {
         // The "x" as `build` lays it: its base, then the flat skin.
         for (name, style) in [
             ("label", CHIP_LABEL_STYLE.to_vec()),
-            ("remove", [CHIP_REMOVE_BASE, CHIP_REMOVE_STYLE].concat()),
+            (
+                "remove",
+                crate::widgets::themes::decl::on_base(CHIP_REMOVE_BASE, CHIP_REMOVE_STYLE),
+            ),
         ] {
             let vec = CssPropertyWithConditionsVec::from_vec(style);
             for p in vec.as_ref() {
@@ -1801,8 +1802,10 @@ mod autotest_generated {
     #[test]
     fn the_remove_affordance_is_styled_as_a_clickable_target() {
         // The "x" as `build` lays it: its base, then the flat skin.
-        let remove =
-            CssPropertyWithConditionsVec::from_vec([CHIP_REMOVE_BASE, CHIP_REMOVE_STYLE].concat());
+        let remove = CssPropertyWithConditionsVec::from_vec(crate::widgets::themes::decl::on_base(
+            CHIP_REMOVE_BASE,
+            CHIP_REMOVE_STYLE,
+        ));
         let props = properties(&remove);
         assert!(
             props.contains(&CssProperty::const_cursor(StyleCursor::Pointer)),

@@ -466,8 +466,7 @@ pub(crate) fn chevron_box(size: isize) -> Vec<CssPropertyWithConditions> {
 /// The indicator of an open or closed section in `look`: its base, the
 /// theme's size and spacing, the turn, the tween.
 fn chevron_style(look: &AccordionLook, open: bool) -> CssPropertyWithConditionsVec {
-    let mut style = ACCORDION_CHEVRON_BASE.to_vec();
-    style.extend(look.chevron.iter().cloned());
+    let mut style = crate::widgets::themes::decl::on_base(ACCORDION_CHEVRON_BASE, &look.chevron);
     style.push(CssPropertyWithConditions::simple(chevron_turn(
         open,
         look.chevron_turn_deg,
@@ -641,9 +640,7 @@ impl Accordion {
 pub(crate) fn build(accordion: Accordion, look: &AccordionLook) -> Dom {
     // A part's declarations: its base first, then the theme's skin.
     let part = |base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
-        let mut style = base.to_vec();
-        style.extend(skin.iter().cloned());
-        CssPropertyWithConditionsVec::from_vec(style)
+        CssPropertyWithConditionsVec::from_vec(crate::widgets::themes::decl::on_base(base, skin))
     };
     {
         let on_toggle = accordion.on_toggle;
