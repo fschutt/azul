@@ -71,6 +71,8 @@ A test file is either one test object or an array of them.
 {
   "name": "string",
   "description": "string?",
+  "expect": "string?",
+  "only_on": ["linux", "windows"],
   "config": {
     "continue_on_failure": false,
     "delay_between_steps_ms": 0
@@ -86,6 +88,10 @@ A test file is either one test object or an array of them.
   ]
 }
 ```
+
+`expect: "fail"` marks a known failure: its FAIL is reported as XFAIL (green), and a PASS as XPASS (red: the bug is fixed, remove the marker).
+
+`only_on` (optional) lists the hosts the test holds on: `"linux"`, `"windows"`, `"macos"`, `"ios"`, `"android"`, `"web"`. Use it when the app itself differs per platform, for example a global hotkey that is `Cmd+Shift+K` on a Mac and `Ctrl+Alt+K` elsewhere: write one variant per host, each gated to its host (`examples/azul-widgets/e2e/global_hotkey.json`). On any other host the test runs no step, not even its `setup`, and reports `SKIP` with the reason (`only on linux, windows; this host is macos`). A skip is never a pass and never a failure: it does not fail the run, whatever `expect` says, and the summary line counts it as `skipped`. Without `only_on` a test runs everywhere. An unknown name (`"macOS"`) or an empty list fails the test, so a typo cannot skip it on every host.
 
 `config.continue_on_failure` keeps running steps after the first failure (still reports the test as failed). `config.delay_between_steps_ms` inserts a sleep, useful for visually inspecting a test that runs against a visible window. `setup.app_state` puts each test into a known state without restarting the process.
 
