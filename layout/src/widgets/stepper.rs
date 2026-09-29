@@ -108,7 +108,7 @@ pub struct Stepper {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub container_style: OptionCssPropertyWithConditionsVec,
-    /// The widget theme, or `None` for the default (`UiTheme::Flat`). A
+    /// The widget theme, or `None` to follow the app theme (`AppConfig::with_theme`). A
     /// theme is a DOM-level choice: it picks the skin the steps are built from
     /// (and the colours a click restyles them with), so switching it rebuilds
     /// the stepper.
@@ -476,6 +476,52 @@ pub(crate) fn skin_for(theme: UiTheme) -> StepperSkin {
     }
 }
 
+/// `part` of both themes' skins in BOTH themes' blocks
+/// (`themes::flat::follow_props`).
+fn follow_part(
+    part: impl Fn(StepperSkin) -> CssPropertyWithConditionsVec,
+) -> CssPropertyWithConditionsVec {
+    crate::widgets::themes::flat::follow_props(
+        part(skin_for(UiTheme::Flat)).as_slice(),
+        part(skin_for(UiTheme::Flora)).as_slice(),
+    )
+}
+
+fn follow_cell() -> CssPropertyWithConditionsVec {
+    follow_part(|s| (s.cell)())
+}
+
+fn follow_circle(reached: bool) -> CssPropertyWithConditionsVec {
+    follow_part(|s| (s.circle)(reached))
+}
+
+fn follow_connector(fill: ConnFill) -> CssPropertyWithConditionsVec {
+    follow_part(|s| (s.connector)(fill))
+}
+
+fn follow_label(reached: bool) -> CssPropertyWithConditionsVec {
+    follow_part(|s| (s.label)(reached))
+}
+
+/// The skin an UNPINNED stepper is built with, so it follows the app theme:
+/// `structure`'s theme (its marker goes on the stepper, so the click restyle
+/// writes that theme's colours - `structure`'s restyle colours) and every
+/// part in BOTH themes' blocks.
+#[must_use]
+pub(crate) fn follow_skin(structure: UiTheme) -> StepperSkin {
+    let own = skin_for(structure);
+    StepperSkin {
+        theme: structure,
+        cell: follow_cell,
+        circle: follow_circle,
+        connector: follow_connector,
+        label: follow_label,
+        circle_colours: own.circle_colours,
+        connector_fill: own.connector_fill,
+        label_ink: own.label_ink,
+    }
+}
+
 /// The flat theme's restyle colours for a circle - the established palette
 /// (the accent in both modes, the desktop's quiet highlight by night).
 #[must_use]
@@ -535,8 +581,8 @@ impl Stepper {
         }
     }
 
-    /// Pick the widget theme. Unset (`None`), the stepper renders in the
-    /// default theme (`UiTheme::default()`, flat).
+    /// Pick the widget theme. Unset (`None`), the stepper follows the
+    /// app theme (`AppConfig::with_theme`, flat by default).
     #[inline]
     pub const fn set_theme(&mut self, theme: UiTheme) {
         self.theme = OptionUiTheme::Some(theme);
@@ -616,13 +662,16 @@ impl Stepper {
     }
 
     /// Renders the stepper. Rendering goes through the theme modules (as
-    /// `Button::dom` does): each hands [`Self::build`] its skin.
-    /// `UiTheme::default()` is flat.
+    /// `Button::dom` does): each hands [`Self::build`] its skin. Unpinned
+    /// (`theme: None`), the stepper follows the APP theme: built in the
+    /// structure of the theme its DOM is built for, carrying every theme's
+    /// blocks (`follow_skin`).
     #[must_use]
     pub fn dom(self) -> Dom {
         match self.theme.into_option() {
             Some(UiTheme::Flora) => crate::widgets::themes::flora::stepper(self),
-            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::stepper(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::stepper(self),
+            None => self.build(follow_skin(UiTheme::current())),
         }
     }
 
@@ -1193,7 +1242,7 @@ mod autotest_generated {
 
     #[test]
     fn dom_appends_the_dark_twins_after_the_light_face() {
-        let dom = Stepper::create(n_labels(3)).with_current_step(1).dom();
+        let dom = Stepper::create(n_labels(3)).with_current_step(1).with_theme(UiTheme::Flat).dom();
         for (i, cell) in dom.children.as_ref().iter().enumerate() {
             let reached = i <= 1;
             let circle = inline_declarations(circle_of(row_of(cell)));
@@ -2876,7 +2925,7 @@ mod autotest_generated {
             for current in 0..n {
                 let dom = Stepper::create(n_labels(n))
                     .with_current_step(current)
-                    .dom();
+                    .with_theme(UiTheme::Flat).dom();
                 for (i, cell) in dom.children.as_ref().iter().enumerate() {
                     let reached = i <= current;
                     assert_eq!(
@@ -2901,7 +2950,7 @@ mod autotest_generated {
             for current in 0..n {
                 let dom = Stepper::create(n_labels(n))
                     .with_current_step(current)
-                    .dom();
+                    .with_theme(UiTheme::Flat).dom();
                 for (i, cell) in dom.children.as_ref().iter().enumerate() {
                     let row = row_of(cell);
                     assert_eq!(
@@ -2925,7 +2974,7 @@ mod autotest_generated {
             for current in 0..n {
                 let dom = Stepper::create(n_labels(n))
                     .with_current_step(current)
-                    .dom();
+                    .with_theme(UiTheme::Flat).dom();
                 let children = dom.children.as_ref();
 
                 let first_row = row_of(&children[0]);
@@ -2947,7 +2996,7 @@ mod autotest_generated {
 
     #[test]
     fn dom_of_a_single_step_hides_both_of_its_connectors() {
-        let dom = stepper(&["only"]).dom();
+        let dom = stepper(&["only"]).with_theme(UiTheme::Flat).dom();
         let row = row_of(step_cell(&dom, 0));
         assert_eq!(
             background_color(&inline_properties(conn_left_of(row))),
@@ -2972,7 +3021,7 @@ mod autotest_generated {
             for current in 0..n {
                 let dom = Stepper::create(n_labels(n))
                     .with_current_step(current)
-                    .dom();
+                    .with_theme(UiTheme::Flat).dom();
                 let accent: Vec<usize> = dom
                     .children
                     .as_ref()
@@ -3001,7 +3050,7 @@ mod autotest_generated {
         for current in [3usize, 4, 1_000, usize::MAX - 1, usize::MAX] {
             let mut s = Stepper::create(n_labels(3));
             s.stepper_state.inner.current_step = current;
-            let dom = s.dom();
+            let dom = s.with_theme(UiTheme::Flat).dom();
 
             assert_eq!(
                 dom.children.as_ref().len(),
@@ -3036,7 +3085,7 @@ mod autotest_generated {
         // emit phantom cells or truncate real ones.
         let mut s = stepper(&["a", "b", "c"]);
         s.stepper_state.inner.total_steps = 99;
-        let dom = s.dom();
+        let dom = s.with_theme(UiTheme::Flat).dom();
         assert_eq!(dom.children.as_ref().len(), 3);
         assert_eq!(
             background_color(&inline_properties(conn_right_of(row_of(step_cell(
@@ -3285,7 +3334,7 @@ mod autotest_generated {
         // Position, not caption, decides reached-ness.
         let dom = stepper(&["same", "same", "same"])
             .with_current_step(1)
-            .dom();
+            .with_theme(UiTheme::Flat).dom();
         for (i, cell) in dom.children.as_ref().iter().enumerate() {
             assert_eq!(text_of(label_of(cell)), Some("same"));
             assert_eq!(
@@ -3304,7 +3353,7 @@ mod autotest_generated {
 
     #[test]
     fn dom_gives_every_cell_the_shared_equal_share_style() {
-        let dom = Stepper::create(n_labels(3)).dom();
+        let dom = Stepper::create(n_labels(3)).with_theme(UiTheme::Flat).dom();
         for (i, cell) in dom.children.as_ref().iter().enumerate() {
             let props = inline_properties(cell);
             assert_eq!(
@@ -3377,7 +3426,7 @@ mod autotest_generated {
 
             let rebuilt = Stepper::create(n_labels(n))
                 .with_current_step(clicked)
-                .dom();
+                .with_theme(UiTheme::Flat).dom();
             for i in 0..n {
                 let cell = step_cell(&rebuilt, i);
                 let row = row_of(cell);

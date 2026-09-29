@@ -16,8 +16,8 @@
 //!   (`with_theme(T)`) - in light and dark, at rest and hovered / pressed / focused - with the same
 //!   classes (the theme marker included) and accessibility;
 //! * its DOM carries BOTH themes' blocks (unless the two looks are one);
-//! * a pinned widget ignores the app theme: no `@theme` condition anywhere, the same styles whatever
-//!   the app theme;
+//! * a pinned widget ignores the app theme: no `@theme` condition anywhere, the same styles
+//!   whatever the app theme;
 //! * its accessibility tree is the same under both app themes.
 
 use azul_core::{app_theme::ThemeScope, dom::Dom};

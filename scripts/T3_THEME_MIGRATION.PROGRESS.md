@@ -53,9 +53,14 @@ Recipe: scripts/T1_APP_THEME_2026_09_29.md §4. Nothing is compiled here (house 
   restyle stays the structure theme's; 6 autotest DOM-style pins now pin `with_theme(Flat)`;
   new: an unpinned control built for flora restyles in flora's colours)
 
+- stepper: RED 0805ce5a5, impl: see git log (`stepper::{follow_skin, follow_part, follow_cell,
+  follow_circle, follow_connector, follow_label}`; restyle colours stay the structure theme's; 11
+  autotest DOM-style pins now pin `with_theme(Flat)`; new: an unpinned stepper built for flora
+  restyles in flora's colours)
+
 ## IN PROGRESS
 
-- stepper
+- number_input
 
 ## NEXT
 
