@@ -316,3 +316,47 @@ fn a_window_opened_after_the_switch_starts_in_the_apps_choice() {
         "and holds the app's choice"
     );
 }
+
+/// An app that switches the scheme through `modify_window_state` gets it. The
+/// handler compared `theme`, asked for a `ThemeChange` rebuild, and never
+/// WROTE the theme: the rebuilt `layout()` still saw the old scheme.
+#[test]
+fn modify_window_state_with_a_new_theme_switches_the_window() {
+    let _app = fresh_app();
+    if env_pinned() {
+        return;
+    }
+    let model = Model::new();
+    let mut window = make_window(model.clone(), scheme_reading_layout);
+    window.regenerate_layout().expect("first layout");
+    assert_eq!(theme_of(&window), WindowTheme::LightMode, "premise: a light desktop");
+
+    let mut state = window.get_current_window_state().clone();
+    state.theme = WindowTheme::DarkMode;
+    let result = window.apply_user_change(&CallbackChange::ModifyWindowState { state });
+    assert_eq!(
+        theme_of(&window),
+        WindowTheme::DarkMode,
+        "the pushed theme is the window's theme now"
+    );
+    honor(&mut window, result);
+    assert_eq!(model.seen(), 2, "and the rebuilt layout() sees it");
+}
+
+/// A theme pushed through `modify_window_state` is the WINDOW's own choice,
+/// so the app's choice still outranks it (AZ_THEME > app > window > desktop).
+#[test]
+fn modify_window_state_does_not_override_the_apps_pin() {
+    let _app = fresh_app();
+    if env_pinned() {
+        return;
+    }
+    let mut window = make_window(Model::new(), scheme_blind_layout);
+    window.regenerate_layout().expect("first layout");
+    let _ = set_color_scheme(&mut window, PIN_LIGHT);
+
+    let mut state = window.get_current_window_state().clone();
+    state.theme = WindowTheme::DarkMode;
+    let _ = window.apply_user_change(&CallbackChange::ModifyWindowState { state });
+    assert_eq!(theme_of(&window), WindowTheme::LightMode);
+}
