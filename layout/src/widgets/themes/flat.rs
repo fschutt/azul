@@ -4107,3 +4107,15 @@ pub fn divider(d: crate::widgets::divider::Divider) -> Dom {
         ))
         .with_css_props(d.resolved_divider_style())
 }
+
+// ==== spinner ====
+
+/// The flat spinner.
+#[must_use]
+pub fn spinner(s: crate::widgets::spinner::Spinner) -> Dom {
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(
+            crate::widgets::spinner::SPINNER_CLASS,
+        ))
+        .with_css_props(s.resolved_spinner_style())
+}

@@ -43,7 +43,24 @@ use azul_css::{
     AzString,
 };
 
-static SPINNER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-spinner"))];
+/// The class the spinner's root node carries, in every theme.
+pub(crate) static SPINNER_CLASS: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-spinner"))];
+
+/// Which native busy indicator a [`Spinner`] draws.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum SpinnerStyle {
+    /// The theme's own indicator: the ring under Flat, the spokes under
+    /// Flora.
+    #[default]
+    Auto,
+    /// Eight capsule spokes with an opacity wave travelling clockwise - the
+    /// macOS and iOS activity indicator.
+    Spokes,
+    /// A round-capped arc spinning on a ring - the Windows 11 `ProgressRing`.
+    Ring,
+}
 
 /// Default ring diameter, in logical px.
 const DEFAULT_SIZE: isize = 24;
@@ -81,6 +98,11 @@ pub struct Spinner {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub spinner_style: OptionCssPropertyWithConditionsVec,
+    /// Which native indicator to draw; `Auto` lets the theme pick.
+    pub indicator: SpinnerStyle,
+    /// The widget theme, or `None` for the default
+    /// (`crate::widgets::themes::UiTheme::default()`, Flat).
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
 /// Builds the ring style for the given diameter and colours. All three are
@@ -182,6 +204,8 @@ impl Spinner {
             color: DEFAULT_ACCENT_COLOR,
             track_color: DEFAULT_TRACK_COLOR,
             spinner_style: OptionCssPropertyWithConditionsVec::None,
+            indicator: SpinnerStyle::Auto,
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
 
@@ -250,14 +274,47 @@ impl Spinner {
         s
     }
 
-    /// Converts this spinner into a single DOM node with the
-    /// `__azul-native-spinner` class.
+    /// Picks the native indicator to draw (`Auto`: the theme's own).
+    #[inline]
+    pub const fn set_indicator(&mut self, indicator: SpinnerStyle) {
+        self.indicator = indicator;
+    }
+
+    /// Builder-style setter for the indicator.
+    #[inline]
+    #[must_use]
+    pub const fn with_indicator(mut self, indicator: SpinnerStyle) -> Self {
+        self.set_indicator(indicator);
+        self
+    }
+
+    /// Pick the widget theme. Unset (`None`), the spinner renders in the
+    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// Converts this spinner into its DOM, root classed
+    /// `__azul-native-spinner`. The look comes from the theme module
+    /// (`themes::flat::spinner` / `themes::flora::spinner`); `None` renders
+    /// flat.
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(SPINNER_CLASS))
-            .with_css_props(self.resolved_spinner_style())
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::spinner(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::spinner(self),
+        }
     }
 }
 

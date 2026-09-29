@@ -4446,3 +4446,11 @@ pub fn divider(d: crate::widgets::divider::Divider) -> Dom {
         .with_ids_and_classes(IdOrClassVec::from_const_slice(FLORA_DIVIDER_CLASSES))
         .with_css_props(style)
 }
+
+// ==== spinner ====
+
+/// The flora spinner.
+#[must_use]
+pub fn spinner(s: crate::widgets::spinner::Spinner) -> Dom {
+    super::flat::spinner(s)
+}
