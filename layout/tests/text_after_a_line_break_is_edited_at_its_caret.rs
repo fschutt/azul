@@ -9,9 +9,8 @@
 //! the IME's text lost the line break and put the caret at the end.
 //!
 //! Guards (green before and after): a paragraph that is only a `<br>` - the
-//! empty paragraph of a rich-text editor - takes the first keystroke, and a
-//! trailing `<br>` does not stop Delete at the end of its paragraph from
-//! joining the next.
+//! empty paragraph of a rich-text editor - takes the first keystroke, and
+//! Delete in it joins the next paragraph, as in a paragraph with no item.
 
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId},
@@ -190,23 +189,19 @@ fn a_paragraph_that_is_only_a_line_break_takes_the_first_keystroke() {
     );
 }
 
-/// Guard: a `<br>` that ends its paragraph starts no line of its own, so a
-/// caret after the paragraph's last letter is at its end - Delete joins the
-/// next paragraph onto it.
+/// Guard: a paragraph that is only a `<br>` is empty - its one caret is at
+/// its end, and Delete joins the next paragraph onto it.
 #[test]
-fn delete_before_a_trailing_line_break_joins_the_next_paragraph() {
-    let mut lw = layout(vec![
-        para(vec![text("one"), Dom::create_br()]),
-        para(vec![text("next")]),
-    ]);
-    let end = TextCursor {
+fn delete_in_a_paragraph_that_is_only_a_line_break_joins_the_next() {
+    let mut lw = layout(vec![para(vec![Dom::create_br()]), para(vec![text("next")])]);
+    let blank = TextCursor {
         cluster_id: GraphemeClusterId {
             source_run: 0,
-            start_byte_in_run: 2,
+            start_byte_in_run: 0,
         },
-        affinity: CursorAffinity::Trailing,
+        affinity: CursorAffinity::Leading,
     };
-    lw.start_editing_at(end, DomId::ROOT_ID, NodeId::new(P), 0);
+    lw.start_editing_at(blank, DomId::ROOT_ID, NodeId::new(P), 0);
 
     let focused = Some(dnid(HOST));
     let editing = lw
@@ -227,6 +222,6 @@ fn delete_before_a_trailing_line_break_joins_the_next_paragraph() {
     .action;
     assert!(
         matches!(action, DefaultAction::MergeWithNext { .. }),
-        "\"one|\" before a trailing <br> is the paragraph's end: {action:?}"
+        "the empty paragraph's caret is at its end: {action:?}"
     );
 }

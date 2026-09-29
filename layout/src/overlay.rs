@@ -69,7 +69,8 @@ pub struct DirtyTextNode {
 /// The text the DOM holds at `node_id`, flattened the way the text overlay
 /// compares it: a text node's own text, or - for an element (a
 /// contenteditable host, a paragraph) - the concatenated text of its DIRECT
-/// text children. `None` when the DOM has no such node.
+/// text children, a direct `<br>` as '\n'. `None` when the DOM has no such
+/// node.
 #[must_use]
 pub fn dom_text_of(styled_dom: &StyledDom, node_id: NodeId) -> Option<String> {
     let node_data = styled_dom.node_data.as_container();
@@ -83,8 +84,14 @@ pub fn dom_text_of(styled_dom: &StyledDom, node_id: NodeId) -> Option<String> {
         let mut child = n.first_child_id(node_id);
         while let Some(c) = child {
             if let Some(cd) = node_data.get(c) {
-                if let NodeType::Text(t) = cd.get_node_type() {
-                    text.push_str(t.as_str());
+                match cd.get_node_type() {
+                    NodeType::Text(t) => text.push_str(t.as_str()),
+                    // The edit model holds a `<br>` as its line break, which
+                    // flattens to '\n': without it here, an edited paragraph
+                    // with a `<br>` never equalled the text it was typed over
+                    // or committed to.
+                    NodeType::Br => text.push('\n'),
+                    _ => {}
                 }
             }
             child = hierarchy

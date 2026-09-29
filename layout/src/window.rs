@@ -3825,7 +3825,10 @@ impl LayoutWindow {
     /// text, by POSITION in `content` - the carets' own numbering, whose first
     /// `generated` items are not text ([`Self::element_content`]). An item
     /// that holds nothing (an empty seed run) is not in the way; a character,
-    /// a line break or an image is.
+    /// a line break or an image is - except the line break of an empty
+    /// paragraph: a block whose one item is a `<br>` (a rich-text editor's
+    /// `<p><br></p>`) has its one caret at both edges, like a block with no
+    /// item at all.
     fn caret_at_block_edges(
         content: &[InlineContent],
         generated: usize,
@@ -3834,11 +3837,15 @@ impl LayoutWindow {
         use crate::text3::edit::cursor_byte_offset_in_run;
         let cursor = crate::block_content::BlockContent::past_generated(cursor, generated);
         let text = content.get(generated..).unwrap_or(&[]);
-        let blank = |items: &[InlineContent]| {
-            items
-                .iter()
-                .all(|item| matches!(item, InlineContent::Text(t) if t.text.is_empty()))
-        };
+        let empty = |item: &InlineContent| matches!(item, InlineContent::Text(t) if t.text.is_empty());
+        let blank = |items: &[InlineContent]| items.iter().all(empty);
+        let mut solid = text.iter().filter(|&item| !empty(item));
+        if matches!(
+            (solid.next(), solid.next()),
+            (None, _) | (Some(InlineContent::LineBreak(_)), None)
+        ) {
+            return (true, true);
+        }
         let run = (cursor.cluster_id.source_run as usize).saturating_sub(generated);
         let (at_item_start, at_item_end) = match text.get(run) {
             Some(InlineContent::Text(t)) => {
@@ -3849,9 +3856,9 @@ impl LayoutWindow {
                 cursor.affinity == CursorAffinity::Leading,
                 cursor.affinity == CursorAffinity::Trailing,
             ),
-            // Past the content: a blank block has its one caret at both
-            // edges; anything else is a stale caret, and no boundary.
-            None => return if blank(text) { (true, true) } else { (false, false) },
+            // Past the content of a block with text: a stale caret, and no
+            // boundary.
+            None => return (false, false),
         };
         (
             at_item_start && blank(&text[..run]),
@@ -18545,16 +18552,25 @@ impl LayoutWindow {
             return empty;
         };
 
-        // In the carets' numbering (behind a list item's marker).
+        // In the carets' numbering (behind a list item's marker). A block
+        // whose only item is a `<br>` - a rich-text editor's empty paragraph
+        // - has no text run either: the seed goes in front of the break,
+        // where the blank line's one caret (run 0 of the text) stands.
         let (mut content, generated) = self.element_content(dom_id, node_id).into_parts();
-        if content.len() == generated {
+        if !content[generated..]
+            .iter()
+            .any(|item| matches!(item, InlineContent::Text(_)))
+        {
             let style_node = self.seed_style_node(dom_id, node_id);
-            content.push(InlineContent::Text(StyledRun {
-                text: Arc::from(""),
-                style: self.get_text_style_for_node(dom_id, style_node.unwrap_or(node_id)),
-                logical_start_byte: 0,
-                source_node_id: style_node,
-            }));
+            content.insert(
+                generated,
+                InlineContent::Text(StyledRun {
+                    text: Arc::from(""),
+                    style: self.get_text_style_for_node(dom_id, style_node.unwrap_or(node_id)),
+                    logical_start_byte: 0,
+                    source_node_id: style_node,
+                }),
+            );
         }
 
         // Get current cursor/selection — prefer non-empty MultiCursorState, fall back to legacy
@@ -18980,7 +18996,8 @@ impl LayoutWindow {
             // `Svg*` family, which carries its text in `SvgText`; the
             // pseudo-element nodes (`Before`, `After`, `Marker`, `Placeholder`),
             // which are generated content and not document text; and the void
-            // elements (`Br`, `Hr`, `Wbr`, `Col`), which have no children.
+            // elements (`Hr`, `Wbr`, `Col`), which have no children (`Br` is
+            // its line break, below).
             // `VirtualView` stays because its children ARE the virtualized
             // document.
             NodeType::Body
@@ -19068,6 +19085,19 @@ impl LayoutWindow {
             | NodeType::Rtc
             | NodeType::Rp
             | NodeType::Data => self.collect_text_from_children(dom_id, node_id),
+            // A `<br>` is the hard line break `solver3::fc` lays it out as:
+            // an item of its own, so the runs behind it keep the numbers
+            // the layout's carets give them, a flat text has its '\n', and
+            // an item stands for the child it came from. Collected as
+            // nothing, the text after a `<br>` was one run lower here than
+            // in every caret - a keystroke there spliced into no run.
+            NodeType::Br => vec![InlineContent::LineBreak(
+                crate::text3::cache::InlineBreak {
+                    break_type: crate::text3::cache::BreakType::Hard,
+                    clear: crate::text3::cache::ClearType::None,
+                    content_index: 0,
+                },
+            )],
             _ => {
                 // Other node types (Image, etc.) don't contribute text
                 Vec::new()
