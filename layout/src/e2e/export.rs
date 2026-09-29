@@ -11,18 +11,17 @@
 //!   the language's printer spells it, its registration
 //!   (`register_<library>_library`, a `ComponentDef` per component).
 //!
-//! Plus what Export > Code downloads (`project_files`): the app, its build
-//! file, the exportable component libraries and a README.
+//! Plus what Export > Code downloads ([`project`]): the app, its build file,
+//! the exportable component libraries, the app's stylesheet as named styles
+//! and a README.
 //!
-//! **No code generator lives here.** Markup is LOWERED to the
-//! language-neutral codegen IR by `azul_core::codegen::dom` and PRINTED by
-//! `azul_css::codegen` (one printer per binding language, the same printers
-//! as the CSS export). Component instances stay calls: the builder's markup
-//! keeps them as `<library:name ..>` tags ([`builder::export_node_markup`])
-//! and each component is lowered once from its template
-//! ([`template_markup`]) or, without one, from what it renders. This module
-//! only picks the markup (a document subtree, the document, the live page),
-//! its stylesheet and the libraries, and assembles the files.
+//! **No code generator and no assembly live here.** Everything is
+//! `azul_core::codegen::project` (the DOM and the CSS generators together,
+//! on top of the component API), printed by `azul_css::codegen`. This module
+//! only picks the builder's markup (a document subtree, the document, the
+//! live page; instances stay `<library:name ..>` tags,
+//! [`builder::export_node_markup`]), its stylesheet, the components'
+//! templates ([`template_markup`]) and the libraries, and answers JSON.
 //!
 //! The ops that call this live in `full.rs` (`get_codegen_languages`,
 //! `get_css_rules`, `compile_css`, `export_subtree_code`,
@@ -30,79 +29,22 @@
 
 use std::fmt::Write as _;
 
+pub use azul_core::codegen::project::{AppMarkup, CodeExport, CodeMode};
 use azul_core::{
     codegen::{
         backend,
-        dom::{
-            lower_component_library, lower_components_app, lower_components_fragment,
-            lower_xml_page_app, ComponentMarkup, Components,
-        },
-        dom_warning, render_fn_name,
+        dom::{ComponentMarkup, Components},
+        project::{fragment_code, library_code, project_files, ProjectSpec},
+        render_fn_name,
     },
     xml::{ComponentDef, ComponentMap, XmlNodeChild},
 };
 use azul_css::{
-    codegen::{
-        all_backends,
-        ir::{Ident, Module},
-        CodegenBackend, GeneratedFile,
-    },
+    codegen::{all_backends, ir::Ident, GeneratedFile},
     css::{Css, CssDeclaration, CssPath, CssPathSelector, CssRuleBlock},
-    AzString,
 };
 
 use super::builder::{self, BuilderDocument, BuilderNode, BuilderNodeKind, ROOT_UID};
-
-// ===========================================================================
-// Results
-// ===========================================================================
-
-/// One file of an exported project.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CodeFile {
-    pub path: String,
-    pub contents: String,
-}
-
-impl From<GeneratedFile> for CodeFile {
-    fn from(f: GeneratedFile) -> Self {
-        Self {
-            path: f.path,
-            contents: f.contents,
-        }
-    }
-}
-
-/// Generated code, as the dialogs show it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CodeExport {
-    /// The language id (`rust`, `c`, `cpp`, `python`, ...).
-    pub language: String,
-    /// The file name of `code` (for the download button).
-    pub file_name: String,
-    /// The code the dialog shows first.
-    pub code: String,
-    /// Every file, when the result is a project (an app); else empty.
-    pub files: Vec<CodeFile>,
-    pub warnings: Vec<String>,
-}
-
-impl CodeExport {
-    #[must_use]
-    pub fn to_json(&self) -> serde_json::Value {
-        serde_json::json!({
-            "language": self.language,
-            "file_name": self.file_name,
-            "code": self.code,
-            "files": self
-                .files
-                .iter()
-                .map(|f| serde_json::json!({ "path": f.path, "contents": f.contents }))
-                .collect::<Vec<_>>(),
-            "warnings": self.warnings,
-        })
-    }
-}
 
 // ===========================================================================
 // Languages: ONE list, the code generators azul_css has
@@ -407,38 +349,55 @@ pub fn compile_css(
 }
 
 // ===========================================================================
-// DOM: subtree → code
+// DOM: the builder's markup through `azul_core::codegen::project`
 // ===========================================================================
-
-/// What "Subtree → code" produces.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SubtreeMode {
-    /// One render function (and what it needs above it).
-    Function,
-    /// A complete program that shows the subtree in a window.
-    App,
-}
-
-impl SubtreeMode {
-    /// `function` (default) or `app`.
-    ///
-    /// # Errors
-    /// Anything else.
-    pub fn parse(s: Option<&str>) -> Result<Self, String> {
-        match s.unwrap_or("function") {
-            "function" | "fn" => Ok(Self::Function),
-            "app" | "program" => Ok(Self::App),
-            other => Err(format!("unknown mode {other:?}; use function or app")),
-        }
-    }
-}
 
 fn parse_xml(xml: &str) -> Result<Vec<XmlNodeChild>, String> {
     crate::xml::parse_xml_string(xml)
         .map_err(|e| format!("the exported markup does not parse: {e:?}"))
 }
 
-/// `render_<id | first class | tag>`, `render_document` for the root.
+/// A component's TEMPLATE as markup for the component-aware lowering
+/// (AzBuilder's templates: `{placeholders}`, nested instances as
+/// `<library:name ..>` tags), with the component's CSS; `None` for a
+/// component without one (the lowering then exports what it renders).
+#[must_use]
+pub fn template_markup(def: &ComponentDef) -> Option<Result<ComponentMarkup, String>> {
+    let template = builder::template_of(def)?;
+    Some(parse_xml(template).map(|nodes| ComponentMarkup {
+        nodes,
+        css: def.css.as_str().to_string(),
+        is_template: true,
+    }))
+}
+
+/// The components of `map`, with the builder's templates.
+fn components(map: &ComponentMap) -> Components<'_> {
+    Components {
+        map,
+        template: &template_markup,
+    }
+}
+
+/// An export answer as the dialogs read it:
+/// `{language, file_name, code, files: [{path, contents}], warnings}`.
+#[must_use]
+pub fn code_json(c: &CodeExport) -> serde_json::Value {
+    serde_json::json!({
+        "language": c.language,
+        "file_name": c.file_name,
+        "code": c.code,
+        "files": c
+            .files
+            .iter()
+            .map(|f| serde_json::json!({ "path": f.path, "contents": f.contents }))
+            .collect::<Vec<_>>(),
+        "warnings": c.warnings,
+    })
+}
+
+/// `render_<id | first class | tag>`, `render_document` for the root, a
+/// component instance's `render_<name>`.
 fn default_fn_name(node: &BuilderNode) -> String {
     if node.uid == ROOT_UID {
         return "render_document".to_string();
@@ -461,33 +420,12 @@ fn default_fn_name(node: &BuilderNode) -> String {
     render_fn_name(&base)
 }
 
-/// The project file a dialog shows first: the entry point.
-fn main_file(files: &[CodeFile]) -> Option<&CodeFile> {
-    files
-        .iter()
-        .find(|f| {
-            let name = f.path.rsplit('/').next().unwrap_or(&f.path);
-            name.starts_with("main.") || name.starts_with("Main.") || name.starts_with("app.")
-        })
-        .or_else(|| files.first())
-}
-
-/// The files of an app module ([`Module::app`]): the printer's project
-/// (build file, the module, a `main` that opens the window). A printer that
-/// does not do DOM export has no app to write: its module alone (which says
-/// why, item by item), not the CSS harness `emit_project_files` would make.
-fn app_files(b: &dyn CodegenBackend, m: &Module) -> Vec<CodeFile> {
-    if b.exports_dom() {
-        b.emit_project_files(m)
-            .into_iter()
-            .map(CodeFile::from)
-            .collect()
-    } else {
-        vec![CodeFile {
-            path: format!("ui.{}", b.extension()),
-            contents: b.emit_module(m),
-        }]
-    }
+/// The builder's markup of `node` for the code export (instances as tags)
+/// and the CSS of every component it uses (global on the page, as when it
+/// is mounted).
+fn builder_markup(node: &BuilderNode, map: &ComponentMap) -> Result<(Vec<XmlNodeChild>, String), String> {
+    let (_, css) = builder::export_node_xml(node, map);
+    Ok((parse_xml(&builder::export_node_markup(node))?, css))
 }
 
 /// `export_subtree_code`: the document subtree at `uid` as code.
@@ -499,75 +437,23 @@ pub fn subtree_code(
     map: &ComponentMap,
     uid: u64,
     language: &str,
-    mode: SubtreeMode,
+    mode: CodeMode,
     fn_name: Option<&str>,
 ) -> Result<CodeExport, String> {
-    let b = backend(language)?;
     let node = doc.node(uid)?;
-    // Component CSS is global on the page (as when it is mounted).
-    let (_, css) = builder::export_node_xml(node, map);
-    let nodes = parse_xml(&builder::export_node_markup(node))?;
-    let components = Components {
-        map,
-        template: &template_markup,
-    };
-    let warnings: Vec<String> = dom_warning(&*b).into_iter().collect();
-    match mode {
-        SubtreeMode::Function => {
-            let name = fn_name
-                .filter(|n| !n.trim().is_empty())
-                .map_or_else(|| default_fn_name(node), str::to_string);
-            let m = lower_components_fragment(&nodes, &css, &name, Vec::new(), &components);
-            Ok(CodeExport {
-                language: b.lang().to_string(),
-                file_name: format!("{}.{}", Ident::from_text(&name).snake(), b.extension()),
-                code: b.emit_module(&m),
-                files: Vec::new(),
-                warnings,
-            })
-        }
-        SubtreeMode::App => {
-            let m = lower_components_app(&nodes, &css, "AzBuilder app", &components);
-            let files = app_files(&*b, &m);
-            let first = main_file(&files).cloned().unwrap_or(CodeFile {
-                path: String::new(),
-                contents: String::new(),
-            });
-            Ok(CodeExport {
-                language: b.lang().to_string(),
-                file_name: first.path.rsplit('/').next().unwrap_or("").to_string(),
-                code: first.contents,
-                files,
-                warnings,
-            })
-        }
-    }
-}
-
-// ===========================================================================
-// DOM: component → code
-// ===========================================================================
-
-/// A component's TEMPLATE as markup for the component-aware lowering
-/// (AzBuilder's templates: `{placeholders}`, nested instances as
-/// `<library:name ..>` tags), with the component's CSS; `None` for a
-/// component without one (the lowering then exports what it renders).
-#[must_use]
-pub fn template_markup(def: &ComponentDef) -> Option<Result<ComponentMarkup, String>> {
-    let template = builder::template_of(def)?;
-    Some(parse_xml(template).map(|nodes| ComponentMarkup {
-        nodes,
-        css: def.css.as_str().to_string(),
-        is_template: true,
-    }))
-}
-
-/// The version of library `library` (`0.1.0` if it has none).
-fn library_version(map: &ComponentMap, library: &str) -> String {
-    map.libraries
-        .iter()
-        .find(|l| l.name.as_str() == library)
-        .map_or_else(|| "0.1.0".to_string(), |l| l.version.as_str().to_string())
+    let (nodes, css) = builder_markup(node, map)?;
+    let name = fn_name
+        .filter(|n| !n.trim().is_empty())
+        .map_or_else(|| default_fn_name(node), str::to_string);
+    fragment_code(
+        &nodes,
+        &css,
+        language,
+        mode,
+        &name,
+        "AzBuilder app",
+        &components(map),
+    )
 }
 
 /// `export_component_code`: one component as code — its render function
@@ -585,7 +471,7 @@ pub fn component_code(
     let def = map
         .get(library, name)
         .ok_or_else(|| format!("Component '{name}' not found in library '{library}'"))?;
-    let mut out = library_code(map, library, &[def], language)?;
+    let mut out = library_code(library, &[def], language, &components(map))?;
     out.file_name = format!(
         "{}_{}.{}",
         Ident::from_text(library).snake(),
@@ -595,193 +481,56 @@ pub fn component_code(
     Ok(out)
 }
 
-/// Components of one library as one source file (each component's render
-/// function once, the registration of `defs`).
-///
-/// # Errors
-/// Unknown language.
-pub fn library_code(
-    map: &ComponentMap,
-    library: &str,
-    defs: &[&ComponentDef],
-    language: &str,
-) -> Result<CodeExport, String> {
-    let b = backend(language)?;
-    let mut warnings: Vec<String> = dom_warning(&*b).into_iter().collect();
-    let components = Components {
-        map,
-        template: &template_markup,
-    };
-    let m = lower_component_library(
-        library,
-        &library_version(map, library),
-        defs,
-        &components,
-        &mut warnings,
-    );
-    Ok(CodeExport {
-        language: b.lang().to_string(),
-        file_name: format!("{}.{}", Ident::from_text(library).snake(), b.extension()),
-        code: b.emit_module(&m),
-        files: Vec::new(),
-        warnings,
-    })
-}
-
 // ===========================================================================
 // Export > Code: the project
 // ===========================================================================
 
-/// The builder document (`<body>` and its component CSS) as an app
-/// project for `language`.
+/// The builder document (`<body>`, instances as tags, the component CSS it
+/// uses) as the app of a project.
 ///
 /// # Errors
-/// Unknown language; the document's markup does not parse.
-pub fn document_app(
-    doc: &BuilderDocument,
-    map: &ComponentMap,
-    language: &str,
-) -> Result<Vec<CodeFile>, String> {
-    let b = backend(language)?;
-    let (_, css) = builder::export_node_xml(&doc.root, map);
-    let nodes = parse_xml(&builder::export_node_markup(&doc.root))?;
-    let components = Components {
-        map,
-        template: &template_markup,
-    };
-    let m = lower_components_app(&nodes, &css, "AzBuilder app", &components);
-    Ok(app_files(&*b, &m))
+/// The document's markup does not parse.
+pub fn document_app(doc: &BuilderDocument, map: &ComponentMap) -> Result<AppMarkup, String> {
+    let (nodes, css) = builder_markup(&doc.root, map)?;
+    Ok(AppMarkup::Fragment { nodes, css })
 }
 
 /// The live page (`StyledDom::get_html_string`: a `<head><style>` and a
-/// body whose nodes carry their computed style) as an app project.
+/// body whose nodes carry their computed style) as the app of a project.
 ///
 /// # Errors
-/// Unknown language; the HTML does not parse or has no body.
-pub fn live_page_app(html: &str, language: &str) -> Result<Vec<CodeFile>, String> {
-    let b = backend(language)?;
-    let nodes = parse_xml(html)?;
-    let m = lower_xml_page_app(&nodes, "Azul app").map_err(|e| format!("codegen: {e}"))?;
-    Ok(app_files(&*b, &m))
+/// The HTML does not parse.
+pub fn live_page_app(html: &str) -> Result<AppMarkup, String> {
+    Ok(AppMarkup::Page(parse_xml(html)?))
 }
 
-/// Everything Export > Code writes for `language`: the app (`app`, from
-/// [`document_app`] or [`live_page_app`]: build file + module + main),
-/// every exportable component library (or only `library_filter`) as a file
-/// of its own, and a README.
+/// Everything Export > Code writes for `language`
+/// (`azul_core::codegen::project::project_files`): the app, every
+/// exportable component library (or only `library_filter`) as a file of its
+/// own, the app's stylesheet as named styles, a README.
 ///
 /// # Errors
-/// Unknown language. (A component library that does not compile is left out
-/// with a warning.)
-pub fn project_files(
+/// Unknown language; a page without a body.
+pub fn project(
     language: &str,
-    app: Vec<CodeFile>,
+    app: AppMarkup,
+    title: &str,
     map: &ComponentMap,
     library_filter: Option<&str>,
-    warnings: &mut Vec<String>,
-) -> Result<Vec<CodeFile>, String> {
-    let b = backend(language)?;
-    let mut files = app;
-    let mut component_paths: Vec<String> = Vec::new();
-    let mut rust_mods: Vec<String> = Vec::new();
-    for lib in map.get_exportable_libraries() {
-        if library_filter.is_some_and(|f| f != lib.name.as_str()) {
-            continue;
-        }
-        let defs: Vec<&ComponentDef> = lib.components.iter().collect();
-        if defs.is_empty() {
-            continue;
-        }
-        // One library that does not compile must not cost the user the app.
-        match library_code(map, lib.name.as_str(), &defs, b.lang()) {
-            Ok(code) => {
-                warnings.extend(code.warnings.iter().cloned());
-                let sn = Ident::from_text(lib.name.as_str()).snake();
-                let path = if b.lang() == "rust" {
-                    rust_mods.push(sn.clone());
-                    format!("src/components/{sn}.rs")
-                } else {
-                    format!("components/{sn}.{}", b.extension())
-                };
-                component_paths.push(path.clone());
-                files.push(CodeFile {
-                    path,
-                    contents: code.code,
-                });
-            }
-            Err(e) => warnings.push(format!(
-                "component library '{}' left out: {e}",
-                lib.name.as_str()
-            )),
-        }
-    }
-    if !rust_mods.is_empty() {
-        let mut m = String::new();
-        for sn in &rust_mods {
-            let _ = writeln!(m, "pub mod {sn};");
-        }
-        files.push(CodeFile {
-            path: "src/components/mod.rs".to_string(),
-            contents: m,
-        });
-        if let Some(main) = files.iter_mut().find(|f| f.path == "src/main.rs") {
-            main.contents
-                .push_str("\n#[allow(dead_code)]\nmod components;\n");
-        }
-    }
-    let listed: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
-    files.push(CodeFile {
-        path: "README.md".to_string(),
-        contents: readme(&*b, &listed, &component_paths),
-    });
-    Ok(files)
-}
-
-fn readme(b: &dyn CodegenBackend, files: &[String], component_paths: &[String]) -> String {
-    let build = match b.lang() {
-        "rust" => "cargo run --release\n# the bindings link against libazul: export \
-                   AZ_LINK_PATH=<the directory holding libazul>"
-            .to_string(),
-        "c" | "cpp" => "make AZUL_INCLUDE=<azul>/target/codegen AZUL_LIB=<azul>/target/release\n./app"
-            .to_string(),
-        "python" => "python3 main.py   # needs the azul extension module next to it".to_string(),
-        // The printer's project files carry their build steps as header comments.
-        _ if b.exports_dom() => format!(
-            "# see the comments at the top of the {} build file and main file above",
-            b.display_name()
-        ),
-        _ => format!(
-            "# see the {} files above; the {} printer does not write a runnable app yet",
-            b.display_name(),
-            b.display_name()
-        ),
+) -> Result<(Vec<GeneratedFile>, Vec<String>), String> {
+    let components = components(map);
+    let spec = ProjectSpec {
+        title,
+        app,
+        components: &components,
+        libraries: map
+            .get_exportable_libraries()
+            .into_iter()
+            .map(|l| l.name.as_str().to_string())
+            .filter(|n| library_filter.map_or(true, |f| f == n.as_str()))
+            .collect(),
     };
-    let comps = if component_paths.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "\nThe component libraries are in {}: each `render_*` function builds one \
-             component; where the language can spell it, `register_<library>_library` \
-             registers them for XML / AzBuilder.\n",
-            component_paths
-                .iter()
-                .map(|p| format!("`{p}`"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        )
-    };
-    format!(
-        "# AzBuilder export ({})\n\nFiles: {}.\n{comps}\n## Build and run\n\n```sh\n{build}\n```\n\n\
-         `<azul>` is an azul checkout with the bindings generated (`cargo run --release -p \
-         azul-doc -- codegen all`) and libazul built (`cargo build --release -p azul-dll \
-         --features build-dll`).\n",
-        b.display_name(),
-        files
-            .iter()
-            .map(|p| format!("`{p}`"))
-            .collect::<Vec<_>>()
-            .join(", "),
-    )
+    project_files(language, &spec)
 }
 
 #[cfg(test)]
@@ -792,6 +541,7 @@ mod tests {
         ComponentDataField, ComponentDefaultValue, ComponentFieldType, ComponentMap,
         OptionComponentDefaultValue,
     };
+    use azul_css::AzString;
 
     use super::*;
 

@@ -76,7 +76,7 @@ use crate::{
     window::{AzStringPair, StringPairVec},
     xml::{
         attributes::{self, NodeSetting},
-        element_draws_nothing, get_body_node, get_html_node, head_style_text, normalize_casing,
+        collect_style_text, element_draws_nothing, get_body_node, get_html_node, normalize_casing,
         tag_to_node_type, tag_to_node_type_tag, CompileError, ComponentCallCodegen,
         ComponentCodegen, ComponentDataField, ComponentDataModel, ComponentDef,
         ComponentDefaultValue, ComponentFieldType, ComponentMap, OptionComponentDefaultValue,
@@ -155,7 +155,7 @@ pub fn lower_xml_fragment_app(root_nodes: &[XmlNodeChild], stylesheet: &str, tit
 
 /// Lower a whole page (`<html>` with a `<head><style>` and a `<body>`, or a
 /// fragment the parser wraps into one) to an app: its body with its
-/// stylesheet.
+/// stylesheet (every `<style>` block, [`document_style_text`]).
 ///
 /// # Errors
 ///
@@ -164,13 +164,85 @@ pub fn lower_xml_fragment_app(root_nodes: &[XmlNodeChild], stylesheet: &str, tit
 pub fn lower_xml_page_app(root_nodes: &[XmlNodeChild], title: &str) -> Result<Module, CompileError> {
     let html = get_html_node(root_nodes)?;
     let body = get_body_node(html.children.as_ref())?.clone();
-    let style = head_style_text(&html);
+    let style = document_style_text(root_nodes);
     Ok(lower_xml_fragment_app(
         &[XmlNodeChild::Element(body)],
         &style,
         title,
     ))
 }
+
+/// Every `<style>` block's text in `root_nodes` (the document's head and
+/// body), in document order: the stylesheet a pasted page or fragment
+/// carries.
+#[must_use]
+pub fn document_style_text(root_nodes: &[XmlNodeChild]) -> String {
+    let mut out: Vec<String> = Vec::new();
+    for c in root_nodes {
+        if let XmlNodeChild::Element(n) = c {
+            if normalize_casing(n.node_type.as_str()) == "style" {
+                let t = n.get_text_content();
+                if !t.is_empty() {
+                    out.push(t);
+                }
+            } else {
+                collect_style_text(n, &mut out, 0);
+            }
+        }
+    }
+    out.join("\n")
+}
+
+/// Markup as what code builds: a whole document (an `<html>` root, or a
+/// root `<body>` / `<head>`) is its `<body>`, anything else the markup
+/// itself; with every `<style>` block's text as the stylesheet, and whether
+/// it was a document.
+///
+/// # Errors
+/// A document without a body.
+pub fn markup_parts(
+    root_nodes: &[XmlNodeChild],
+) -> Result<(Vec<XmlNodeChild>, String, bool), String> {
+    let css = document_style_text(root_nodes);
+    let is_page = root_nodes.iter().any(|c| {
+        matches!(c, XmlNodeChild::Element(n)
+            if ["html", "body", "head"].iter().any(|t| n.node_type.as_str().eq_ignore_ascii_case(t)))
+    });
+    if !is_page {
+        return Ok((root_nodes.to_vec(), css, false));
+    }
+    let html = get_html_node(root_nodes).map_err(|e| e.to_string())?;
+    let body = get_body_node(html.children.as_ref())
+        .map_err(|e| e.to_string())?
+        .clone();
+    Ok((vec![XmlNodeChild::Element(body)], css, true))
+}
+
+/// The name a render function of `root_nodes` gets:
+/// `render_<first id | first class | tag>` of the only element root (a
+/// component instance: `render_<name>`), else `render_ui`.
+#[must_use]
+pub fn default_fn_name(root_nodes: &[XmlNodeChild]) -> String {
+    let Some(n) = single_element_root(root_nodes, true) else {
+        return render_fn_name(APP_ROOT_BASE);
+    };
+    let raw = n.node_type.as_str();
+    if let Some((_, name)) = component_tag(raw) {
+        return render_fn_name(name);
+    }
+    let first = |k: &str| {
+        n.attributes
+            .get_key(k)
+            .and_then(|v| v.as_str().split_whitespace().next().map(ToString::to_string))
+    };
+    let base = first("id")
+        .or_else(|| first("class"))
+        .unwrap_or_else(|| normalize_casing(raw));
+    render_fn_name(&base)
+}
+
+/// `render_ui`'s base.
+const APP_ROOT_BASE: &str = "ui";
 
 // ===========================================================================
 // Component boundaries

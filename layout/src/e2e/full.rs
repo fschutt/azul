@@ -4047,39 +4047,37 @@ fn export_css_text(
     })
 }
 
-/// Export > Code's app: the builder document when the builder has taken the
-/// window over (its markup, its component CSS, no `azb-*` markers), else the
-/// live page.
+/// Export > Code's app and its title: the builder document when the builder
+/// has taken the window over (its markup with instances as tags, its
+/// component CSS, no `azb-*` markers), else the live page.
 #[cfg(feature = "std")]
 fn build_app_code(
-    language: &str,
     callback_info: &azul_layout::callbacks::CallbackInfo,
     component_map: &Arc<Mutex<azul_core::xml::ComponentMap>>,
-) -> Result<Vec<super::export::CodeFile>, String> {
+) -> Result<(super::export::AppMarkup, &'static str), String> {
     let builder_active = scratch(callback_info).builder.is_active();
     if builder_active {
         with_export_document(callback_info, component_map, |doc, map| {
-            super::export::document_app(doc, map, language)
+            super::export::document_app(doc, map)
         })
+        .map(|app| (app, "AzBuilder app"))
     } else {
-        build_live_page_code(language, callback_info)
+        build_live_page_code(callback_info).map(|app| (app, "Azul app"))
     }
 }
 
-/// Export > Code's files and warnings (see `export::project_files`).
+/// Export > Code's files and warnings (`export::project`, i.e.
+/// `azul_core::codegen::project::project_files`).
 #[cfg(feature = "std")]
 fn build_project_files(
     language: &str,
     callback_info: &azul_layout::callbacks::CallbackInfo,
     component_map: &Arc<Mutex<azul_core::xml::ComponentMap>>,
     library: Option<&str>,
-) -> Result<(Vec<super::export::CodeFile>, Vec<String>), String> {
-    let app = build_app_code(language, callback_info, component_map)?;
-    let mut warnings = Vec::new();
+) -> Result<(Vec<azul_css::codegen::GeneratedFile>, Vec<String>), String> {
+    let (app, title) = build_app_code(callback_info, component_map)?;
     let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
-    let files =
-        super::export::project_files(language, app, &map_guard, library, &mut warnings)?;
-    Ok((files, warnings))
+    super::export::project(language, app, title, &map_guard, library)
 }
 
 /// Snapshot the (already `pub`) resource + font-manager counters that a leak
@@ -13052,17 +13050,16 @@ fn parse_json_to_default_value(
     }
 }
 
-/// Generate a compilable app from the LIVE page (the current window's DOM+CSS).
+/// The LIVE page (the current window's DOM+CSS) as the app of a project.
 ///
 /// Serializes the live `StyledDom` back to HTML (`get_html_string`) and
-/// exports it as an app project (`export::live_page_app`: lowered to the
-/// codegen IR, printed by the language's code generator — the same path as
-/// the builder document). This is the "Export → Code" of the live UI.
+/// hands it to the project API as a page (`export::live_page_app`: lowered to
+/// the codegen IR, printed by the language's code generator — the same path
+/// as the builder document). This is the "Export → Code" of the live UI.
 #[cfg(feature = "std")]
 fn build_live_page_code(
-    language: &str,
     callback_info: &azul_layout::callbacks::CallbackInfo,
-) -> Result<Vec<super::export::CodeFile>, String> {
+) -> Result<super::export::AppMarkup, String> {
     let layout_window = callback_info.get_layout_window();
     let styled_dom = layout_window
         .layout_results
@@ -13073,7 +13070,7 @@ fn build_live_page_code(
     // document (the <head><style> is the page's stylesheet); the bare tree
     // (test_mode=true) has no <html> root and fails with NoHtmlNode.
     let html = styled_dom.get_html_string("", "", false);
-    super::export::live_page_app(&html, language)
+    super::export::live_page_app(&html)
 }
 
 /// Convert a `ComponentFieldType` to a JSON-friendly string for the debug protocol (legacy flat
@@ -19932,7 +19929,7 @@ pub fn process_debug_event(
             .and_then(|text| super::export::compile_css(&text, language, rules.as_deref()));
             match result {
                 Ok((code, rule_count)) => {
-                    let mut json = code.to_json();
+                    let mut json = super::export::code_json(&code);
                     if let Some(obj) = json.as_object_mut() {
                         obj.insert("rule_count".into(), serde_json::json!(rule_count));
                     }
@@ -19948,7 +19945,7 @@ pub fn process_debug_event(
             mode,
             function_name,
         } => {
-            let result = super::export::SubtreeMode::parse(mode.as_deref()).and_then(|mode| {
+            let result = super::export::CodeMode::parse(mode.as_deref()).and_then(|mode| {
                 with_export_document(callback_info, component_map, |doc, map| {
                     super::export::subtree_code(
                         doc,
@@ -19961,7 +19958,11 @@ pub fn process_debug_event(
                 })
             });
             match result {
-                Ok(code) => send_ok(request, None, Some(ResponseData::Json(code.to_json()))),
+                Ok(code) => send_ok(
+                    request,
+                    None,
+                    Some(ResponseData::Json(super::export::code_json(&code))),
+                ),
                 Err(e) => send_err(request, e),
             }
         }
@@ -19976,7 +19977,11 @@ pub fn process_debug_event(
                 super::export::component_code(&map_guard, library, name, language)
             };
             match result {
-                Ok(code) => send_ok(request, None, Some(ResponseData::Json(code.to_json()))),
+                Ok(code) => send_ok(
+                    request,
+                    None,
+                    Some(ResponseData::Json(super::export::code_json(&code))),
+                ),
                 Err(e) => send_err(request, e),
             }
         }

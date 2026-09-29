@@ -12,7 +12,11 @@
 //! markup (XmlNodeChild) --dom::lower_*--> ir::Module --backend(lang)--> source / project
 //! ```
 //!
-//! * [`dom`] - markup → IR: elements, their CSS, template placeholders.
+//! * [`dom`] - markup → IR: elements, their CSS and attributes, template
+//!   placeholders, component instances as calls of their functions.
+//! * [`project`] - the two generators together (DOM + CSS) on top of the
+//!   component API: a project for a language (the "zip"), markup as a
+//!   function or an app, a component library, pasted HTML.
 //!
 //! Entry point for printing: [`backend`] (one "unknown language" answer for
 //! every caller).
@@ -22,6 +26,7 @@ use alloc::{boxed::Box, string::String};
 use azul_css::codegen::{backend_for, ir::Ident, supported_languages, CodegenBackend};
 
 pub mod dom;
+pub mod project;
 
 /// The code generator for `language` (an id or an alias of
 /// [`azul_css::codegen::supported_languages`]).
