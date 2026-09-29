@@ -5,15 +5,15 @@ List: scripts/SELECTION_LEFTOVERS_FIX_2026_09_28.md "## Open".
 
 ## DONE
 
-(none yet)
+1. Ctrl+D whole word: 3e5d3a81b test (layout/tests/ctrl_d_searches_for_the_whole_word.rs),
+   e01fcf502 fix (`select_next_occurrence`, new `BlockContent::run_range`).
 
 ## IN PROGRESS
 
-1. Ctrl+D searches the word minus its last grapheme.
+2. Shift+Up/Down off a paragraph's edge line keeps the x.
 
 ## NEXT
 
-2. Shift+Up/Down off a paragraph's edge line keeps the x.
 3. `<br>` in the edit model (run numbers, Enter-split child indices).
 4. `white-space: normal` collapse in the edit model.
 5. `shift_carets_across_generation` in a list item.
