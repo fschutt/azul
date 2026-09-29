@@ -397,3 +397,13 @@ fn toasts_follow_the_app_theme() {
         }
     }
 }
+
+#[test]
+fn paginations_follow_the_app_theme() {
+    use azul_layout::widgets::pagination::Pagination;
+    for (current, total) in [(1, 1), (1, 4), (2, 4), (4, 4)] {
+        assert_follows_the_app_theme(&format!("pagination {current}/{total}"), |t| {
+            pinned(Pagination::create(current, total), t, Pagination::with_theme).dom()
+        });
+    }
+}

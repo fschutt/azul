@@ -2567,6 +2567,34 @@ mod autotest_generated {
             .iter()
             .any(|(n, bg, fg)| *n == page_node(2) && *bg == ACCENT_BG_COLOR && *fg == ACTIVE_TEXT));
     }
+
+    /// An UNPINNED pager follows the app theme, and so does its click
+    /// restyle: built for flora, it repaints in flora's colours (the marker
+    /// on the bar is the theme it was built for).
+    #[test]
+    fn a_click_on_an_unpinned_pagination_built_for_flora_restyles_in_flora_s_colours() {
+        use crate::widgets::themes::flora;
+
+        let (styled, state) = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            flatten(Pagination::create(1, 3))
+        };
+        let (_, changes) = run_click(Some(styled), page_node(2), state);
+        let ink = changes.iter().find_map(|c| match c {
+            CallbackChange::ChangeNodeCssProperties {
+                node_id,
+                properties,
+                ..
+            } if node_id.index() == page_node(2) => {
+                properties.as_ref().iter().find_map(|p| match p {
+                    CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+                    _ => None,
+                })
+            }
+            _ => None,
+        });
+        assert_eq!(ink, Some(flora::LIGHT_ON_ACC), "the new current page wears flora's stone ink");
+    }
 }
 
 #[cfg(test)]
@@ -2608,12 +2636,18 @@ mod theme_tests {
     }
 
     #[test]
-    fn a_pagination_without_a_theme_renders_flat() {
+    fn a_pagination_without_a_theme_follows_the_app_theme_flat_by_default() {
         let p = Pagination::create(1, 3);
         assert_eq!(p.theme, OptionUiTheme::None);
-        let dom = p.dom();
+        let dom = p.clone().dom();
         assert!(tc::has_class(&dom, FLAT));
         assert!(tc::has_class(&dom, "__azul-native-pagination"));
+        let dom = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            p.dom()
+        };
+        assert!(tc::has_class(&dom, FLORA), "built for flora, it is flora's");
+        assert!(!tc::has_class(&dom, FLAT));
     }
 
     #[test]
