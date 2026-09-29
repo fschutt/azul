@@ -6,16 +6,17 @@ Branch `wt/r2-theme-chain-rank`, cut from `0a326afe5`.
 - `20715c7ff` RED tests: css `a_theme_chain_selects_blocks_by_prefix_and_floor`, layout
   `a_theme_chain_ranks_its_blocks` (+ all.rs), `widgets_follow_the_app_theme` chain check.
 
+- `aa9438649` impl: css matcher + rank + cascade key + inline helpers; core restyle / slow path /
+  compact / inheritance sites; `UiTheme::current()` = structural theme.
+
 ## IN PROGRESS
-- css implementation.
+- Waiting for the parent's no-context commit (hash not yet received).
 
 ## NEXT
-1. css: `COMPILED_IN_APP_THEMES`, chain matcher (`app_theme_rank`, `cascade_rank`,
-   `structural_app_theme`), context methods; `has_app_theme` = prefix + floor.
-2. css: rank in the rule order (`CssRuleBlock::cascade_key`), inline pick / order helpers on `Css`.
-3. core: restyle sorts its rule lists by the key; every inline "last match wins" site picks by rank.
-4. After the parent's no-context commit (`DynamicSelector::matches_without_context`) lands: make it
-   call the chain matcher on `[app_theme]`, and give the no-context sites the same rank.
+1. After the parent's no-context commit (`DynamicSelector::matches_without_context`) lands: merge it,
+   make it call `app_theme_rank(&[app_theme], name)`, and give the no-context sites the same rank
+   (`cascade_rank(&[app_theme], conds)` instead of `UNTHEMED_RANK` when `ctx` is None).
+2. Report `scripts/R2_THEME_CHAIN_RANK_2026_09_29.md`.
 
 ## Scope change (coordinator)
 - Item 4 (no context) is the PARENT's: `DynamicSelector::matches_without_context(&self, app_theme)`,
