@@ -5,14 +5,16 @@ form reset clears the replaced controls' memory, FormData collects replaced cont
 display:none. NEVER compile. Report: `scripts/G1_FORM_GLUE_2026_09_29.md`.
 
 ## DONE
-- (none yet)
+- 9f9ef57e4 progress file
+- 330ea5048 RED step 1: `mod dedicated_widgets` in layout/tests/form_controls_become_widgets.rs +
+  unit tests `a_week_value_names_the_monday_of_that_iso_week`,
+  `month_and_datetime_values_are_checked_for_their_html_shape`
+- 1c68d83b4 step 1: WAVE2-GLUE rows -> W1 widgets (all markers gone)
 
 ## IN PROGRESS
-- step 1 RED: table rows -> W1 widgets (tests in layout/tests/form_controls_become_widgets.rs)
+- step 2 RED: raw `<form>` -> `Form`
 
 ## NEXT
-1. RED + impl: WAVE2-GLUE rows (TextInputKind, DatePickerMode month/week ISO, DateTimeLocal,
-   submit/reset/image buttons, HiddenInput, optgroups)
 2. RED + impl: raw `<form>` -> `Form` (Submit/Reset event handlers -> on_submit/on_reset trampolines)
 3. RED + impl: form reset forgets the replaced controls' memory (+ RefreshDom)
 4. RED + impl: FormData collects replaced checkbox/radio/range/colour/number/date/time/select/...
