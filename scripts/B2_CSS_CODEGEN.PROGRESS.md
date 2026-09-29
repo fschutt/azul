@@ -49,17 +49,30 @@ FlexBasis, Grid*, WhiteSpace, TextShadow, ...) - those need `CssProperty::<varia
 i.e. a monomorphized `CssPropertyValue<T>` alias which has no C constructor functions.
 
 ## 2. DONE
-(none yet)
+- 61568f4c1 audit (section 1)
+- aa0224900 `codegen` feature (css), `GetHash` -> `azul_css::hash`, core/layout/dll wiring
+- c20a016c0 RED goldens: tests/codegen_goldens.rs + tests/codegen_cases (6 shared stylesheets),
+  hand-written rust + c `basic` goldens (snippet + project)
+- (next commit) IR (`codegen/ir.rs`), layout (`doc.rs`), lowering (`lower.rs` + generated
+  `lower_types.rs` from `css/tools/gen_codegen_lowering.py`), printer framework (`lang/mod.rs`),
+  Rust + C printers, structural tests (tests/codegen_structure.rs)
 
 ## 3. IN PROGRESS
-- audit (this section) -> commit
+- printers for the other languages (per group: RED basic golden by hand, then printer)
 
 ## 4. NEXT
-1. `codegen` feature: gate `pub mod codegen` + every `FormatAsRustCode` impl; move `GetHash` to an
-   always-compiled `azul_css::hash` (re-exported from `codegen::format`); enable the feature in
-   core / layout / dll (debug-server, e2e-scripting) Cargo.toml.
-2. IR (`codegen/ir.rs`) + exhaustive lowering (`codegen/lower*.rs`).
-3. Golden tests (RED) then printers per language.
+1. C++ (C API from C++17), Python, C#, Java, Kotlin, Go, Swift, Node, Ruby, PHP, Lua, Zig, Nim, D,
+   OCaml, Haskell, Julia, Pascal; then ada algol68 cobol crystal fortran freebasic lisp odin perl
+   powershell racket red smalltalk v vb6.
+2. debug server: unknown-lang message from `supported_languages()`.
+3. final report.
+
+Binding research (3 Explore agents, 2026-09-29) condensed in the session scratchpad:
+lang_cfamily_notes.md / lang_managed_notes.md / lang_exotic_notes.md (if lost: re-run the brief in
+agent_prompt.md). Key facts: CssProperty variant ctors are shadowed for the ~120 properties with an
+api.json ctor; `*Value` aliases have no C ctor (tags Auto0 None1 Initial2 Inherit3 Revert4 Unset5
+Exact6, payload at offset 8); azul.h per-variant structs put a CssProperty payload at its own
+alignment (Rust: max alignment) -> hand-built CssProperty unions only safe for 8-aligned payloads.
 
 ## 5. Open questions
-- none yet
+- Goldens other than rust/c `basic` must be blessed by the parent (`AZ_BLESS=1`) after review.

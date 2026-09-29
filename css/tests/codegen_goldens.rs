@@ -115,6 +115,19 @@ fn check_lang(lang: &str) {
     for file in backend.emit_project(&parsed) {
         compare(&format!("{lang}/project/{}", file.path), &file.contents, &mut failures);
     }
+    // the exact `Css` value (rules, selectors, priorities, conditions)
+    let (parsed, _warnings) = azul_css::parser2::new_from_str(codegen_cases::CONDITIONS);
+    compare(
+        &format!("{lang}/stylesheet.{ext}"),
+        &backend.emit_stylesheet(&parsed),
+        &mut failures,
+    );
+    // a programmatic property list: revert / unset / keywords / text-shadow
+    compare(
+        &format!("{lang}/keywords.{ext}"),
+        &backend.emit_module(&codegen_cases::keyword_module()),
+        &mut failures,
+    );
     assert!(
         failures.is_empty(),
         "{} golden mismatch(es) for {lang}:\n\n{}",

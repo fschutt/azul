@@ -331,3 +331,32 @@ pub const CASES: &[(&str, &str)] = &[
     ("paint", PAINT),
     ("widget", WIDGET),
 ];
+
+/// `revert` / `unset` never come out of the parser, but a widget's property
+/// list can hold them (they need the shadowed-variant path); `text-shadow`
+/// holds a `BoxOrStatic` the bindings cannot build (dropped with a note).
+pub fn keyword_list() -> Vec<azul_css::dynamic_selector::CssPropertyWithConditions> {
+    use azul_css::{
+        css::CssPropertyValue, dynamic_selector::CssPropertyWithConditions,
+        props::property::CssProperty,
+    };
+    let shadow = {
+        let css = azul_css::parser2::new_from_str(".x { text-shadow: 1px 1px 2px #000000; }").0;
+        match &css.rules.as_slice()[0].declarations.as_slice()[0] {
+            azul_css::css::CssDeclaration::Static(p) => p.clone(),
+            azul_css::css::CssDeclaration::Dynamic(d) => d.default_value.clone(),
+        }
+    };
+    vec![
+        CssPropertyWithConditions::simple(CssProperty::Width(CssPropertyValue::Revert)),
+        CssPropertyWithConditions::simple(CssProperty::CaretWidth(CssPropertyValue::Unset)),
+        CssPropertyWithConditions::simple(CssProperty::Height(CssPropertyValue::Auto)),
+        CssPropertyWithConditions::simple(CssProperty::TextShadow(CssPropertyValue::None)),
+        CssPropertyWithConditions::on_hover(shadow),
+    ]
+}
+
+/// [`keyword_list`] lowered as one style named `keywords`.
+pub fn keyword_module() -> azul_css::codegen::ir::Module {
+    azul_css::codegen::lower::lower_property_list("keywords", &keyword_list())
+}

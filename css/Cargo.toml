@@ -3,7 +3,7 @@ readme = "../README.md"
 name = "azul-css"
 version = "0.0.16"
 # Lean published package: ship src only, not the test/bench/example/fuzz harnesses.
-exclude = ["tests", "benches", "examples", "fuzz"]
+exclude = ["tests", "benches", "examples", "fuzz", "tools"]
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = '''
@@ -57,5 +57,13 @@ required-features = ["io"]
 [[test]]
 name = "codegen_goldens"
 path = "tests/codegen_goldens.rs"
+required-features = ["codegen", "parser"]
+
+# Structural tests of the code generators: every property covered, every C-ABI
+# name the IR produces exists in the generated azul.h (skipped without it),
+# every language's output balanced / ASCII / free of `new` constructors.
+[[test]]
+name = "codegen_structure"
+path = "tests/codegen_structure.rs"
 required-features = ["codegen", "parser"]
 
