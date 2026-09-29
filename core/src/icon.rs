@@ -487,6 +487,14 @@ pub struct IconProviderInner {
     pub icons: BTreeMap<String, BTreeMap<String, RefAny>>,
     /// The resolver callback
     pub resolver: IconResolverCallbackType,
+    /// Pack names in the order they were first registered: the lookup order
+    /// among packs of equal rank. A pack removed and registered again goes
+    /// to the back.
+    pub pack_order: Vec<String>,
+    /// Pack ranks, lower searched first - a theme's index in the theme
+    /// chain, so `icons/xyz/pink/` beats `icons/xyz/` beats the app's own
+    /// packs. Packs without a rank are searched after every ranked pack.
+    pub pack_ranks: BTreeMap<String, u32>,
 }
 
 impl Default for IconProviderInner {
@@ -494,9 +502,14 @@ impl Default for IconProviderInner {
         Self {
             icons: BTreeMap::new(),
             resolver: default_icon_resolver,
+            pack_order: Vec::new(),
+            pack_ranks: BTreeMap::new(),
         }
     }
 }
+
+/// The rank of a pack that was given none: after every ranked pack.
+pub const ICON_PACK_UNRANKED: u32 = u32::MAX;
 
 // Icon Provider Handle
 
@@ -565,14 +578,71 @@ impl Default for IconProviderHandle {
 }
 
 impl IconProviderInner {
+    /// Insert (or replace) one icon. A pack seen for the first time joins
+    /// the lookup order at the back; re-registering into a pack that already
+    /// exists does not move it.
+    pub fn insert_icon(&mut self, pack_name: &str, icon_name: &str, data: RefAny) {
+        if !self.icons.contains_key(pack_name) {
+            self.pack_order.retain(|p| p != pack_name);
+            self.pack_order.push(pack_name.to_string());
+        }
+        self.icons
+            .entry(pack_name.to_string())
+            .or_default()
+            .insert(icon_name.to_lowercase(), data);
+    }
+
+    /// Remove a whole pack, and its place in the registration order (its
+    /// rank, a setting about the pack NAME, stays).
+    pub fn remove_pack(&mut self, pack_name: &str) {
+        self.icons.remove(pack_name);
+        self.pack_order.retain(|p| p != pack_name);
+    }
+
+    /// The packs in lookup order: rank first (lower first, unranked last),
+    /// then registration order, then name (only packs inserted around
+    /// [`Self::insert_icon`] have no registration position).
+    #[must_use]
+    pub fn packs_in_lookup_order(&self) -> Vec<(&str, &BTreeMap<String, RefAny>)> {
+        let mut packs: Vec<(u32, usize, &str, &BTreeMap<String, RefAny>)> = self
+            .icons
+            .iter()
+            .map(|(name, pack)| {
+                let rank = self
+                    .pack_ranks
+                    .get(name)
+                    .copied()
+                    .unwrap_or(ICON_PACK_UNRANKED);
+                let registered = self
+                    .pack_order
+                    .iter()
+                    .position(|p| p == name)
+                    .unwrap_or(usize::MAX);
+                (rank, registered, name.as_str(), pack)
+            })
+            .collect();
+        packs.sort_by(|a, b| (a.0, a.1, a.2).cmp(&(b.0, b.1, b.2)));
+        packs
+            .into_iter()
+            .map(|(_, _, name, pack)| (name, pack))
+            .collect()
+    }
+
+    /// The first pack, in lookup order, that has `name_lower`.
+    fn find_in_packs(&self, name_lower: &str) -> Option<(&str, &RefAny)> {
+        self.packs_in_lookup_order()
+            .into_iter()
+            .find_map(|(pack_name, pack)| pack.get(name_lower).map(|d| (pack_name, d)))
+    }
+
     /// Resolves an icon SPEC to registered icon data.
     ///
     /// A spec is a comma-separated fallback list of entries, each either a
-    /// bare icon name (`"content_copy"`, searched across all packs in
-    /// registration order, first match wins) or a pack-qualified name
-    /// (`"material-icons:save"`, searched only in that pack). The first
-    /// entry that resolves wins, so markup can express per-platform
-    /// fallbacks: `<icon>ios:open_menu,kde:three-lines,menu</icon>`.
+    /// bare icon name (`"content_copy"`, searched across all packs in lookup
+    /// order - rank, then registration order - first match wins) or a
+    /// pack-qualified name (`"material-icons:save"`, searched only in that
+    /// pack). The first entry that resolves wins, so markup can express
+    /// per-platform fallbacks: `<icon>ios:open_menu,kde:three-lines,menu</icon>`.
     /// Icon names are case-insensitive; pack names are case-sensitive.
     #[must_use]
     pub fn lookup_spec(&self, spec: &str) -> Option<RefAny> {
@@ -580,7 +650,7 @@ impl IconProviderInner {
         // legally contain ':', ',' or whitespace). The spec syntax below only
         // applies when nothing is registered under the literal name.
         let verbatim = spec.to_lowercase();
-        if let Some(data) = self.icons.values().find_map(|pack| pack.get(&verbatim)) {
+        if let Some((_, data)) = self.find_in_packs(&verbatim) {
             return Some(data.clone());
         }
 
@@ -595,7 +665,7 @@ impl IconProviderInner {
             };
             let name_lower = name.to_lowercase();
             let found = pack.map_or_else(
-                || self.icons.values().find_map(|pack| pack.get(&name_lower)),
+                || self.find_in_packs(&name_lower).map(|(_, d)| d),
                 |p| self.icons.get(p).and_then(|pack| pack.get(&name_lower)),
             );
             if let Some(data) = found {
@@ -614,21 +684,15 @@ impl IconProviderHandle {
     /// or use `with_resolver()` to create with a custom resolver.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            inner: ManuallyDrop::new(Box::new(IconProviderInner {
-                icons: BTreeMap::new(),
-                resolver: default_icon_resolver,
-            })),
-            run_destructor: true,
-        }
+        Self::with_resolver(default_icon_resolver)
     }
 
     /// Create with a custom resolver callback
     pub fn with_resolver(resolver: IconResolverCallbackType) -> Self {
         Self {
             inner: ManuallyDrop::new(Box::new(IconProviderInner {
-                icons: BTreeMap::new(),
                 resolver,
+                ..IconProviderInner::default()
             })),
             run_destructor: true,
         }
@@ -655,35 +719,38 @@ impl IconProviderHandle {
     ///
     /// Note: `pack_name` is case-sensitive, while `icon_name` is normalized to lowercase.
     pub fn register_icon(&mut self, pack_name: &str, icon_name: &str, data: RefAny) {
-        let pack = self.inner.icons.entry(pack_name.to_string()).or_default();
-        pack.insert(icon_name.to_lowercase(), data);
+        self.inner.insert_icon(pack_name, icon_name, data);
     }
 
     /// Unregister a single icon from a pack
     pub fn unregister_icon(&mut self, pack_name: &str, icon_name: &str) {
-        if let Some(pack) = self.inner.icons.get_mut(pack_name) {
+        let now_empty = self.inner.icons.get_mut(pack_name).is_some_and(|pack| {
             pack.remove(&icon_name.to_lowercase());
-            if pack.is_empty() {
-                self.inner.icons.remove(pack_name);
-            }
+            pack.is_empty()
+        });
+        if now_empty {
+            self.inner.remove_pack(pack_name);
         }
     }
 
     /// Unregister an entire icon pack
     pub fn unregister_pack(&mut self, pack_name: &str) {
-        self.inner.icons.remove(pack_name);
+        self.inner.remove_pack(pack_name);
     }
 
-    /// Look up an icon across all packs, returning the pack name and data reference (first match
-    /// wins)
+    /// Rank a pack: packs are searched in rank order (lower first), packs of
+    /// equal rank in registration order, and packs without a rank after
+    /// every ranked one. The user's theme packs rank by their theme's place
+    /// in the theme chain, so they beat the app's packs although the app
+    /// registered first.
+    pub fn set_pack_rank(&mut self, pack_name: &str, rank: u32) {
+        self.inner.pack_ranks.insert(pack_name.to_string(), rank);
+    }
+
+    /// Look up an icon across all packs in lookup order, returning the pack
+    /// name and data reference (first match wins)
     fn lookup_with_pack(&self, icon_name: &str) -> Option<(&str, &RefAny)> {
-        let icon_name_lower = icon_name.to_lowercase();
-        for (pack_name, pack) in &self.inner.icons {
-            if let Some(data) = pack.get(&icon_name_lower) {
-                return Some((pack_name.as_str(), data));
-            }
-        }
-        None
+        self.inner.find_in_packs(&icon_name.to_lowercase())
     }
 
     /// Look up an icon by spec (bare name, `pack:name`, or a comma-separated
@@ -838,8 +905,7 @@ impl SharedIconProvider {
     /// re-registration invisible.
     pub fn register_icon(&self, pack_name: &str, icon_name: &str, data: RefAny) {
         if let Ok(mut inner) = self.inner.lock() {
-            let pack = inner.icons.entry(pack_name.to_string()).or_default();
-            pack.insert(icon_name.to_lowercase(), data);
+            inner.insert_icon(pack_name, icon_name, data);
         }
         if let Ok(mut cache) = self.cache.lock() {
             cache.entries.clear();
