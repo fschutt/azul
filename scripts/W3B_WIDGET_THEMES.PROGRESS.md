@@ -37,12 +37,14 @@ microphone, screencap, map, node_graph.
   set_theme / with_theme.
 - stepper: RED 65b9dd8da, impl d345a46c9. API: Stepper.theme (last),
   set_theme / with_theme. Click restyle reads the marker.
+- time_picker: RED 6b6097192, impl e76ea579e. API: TimePicker.theme (last),
+  set_theme / with_theme.
 
 ## IN PROGRESS
-- time_picker
+- toast
 
 ## NEXT
-time_picker ->
+toast ->
 toast -> tooltip -> video -> decisions (camera/mic/screencap/map/node_graph) -> report
 
 ## Open questions
