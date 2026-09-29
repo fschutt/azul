@@ -357,7 +357,55 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                 .remove_scroll_node(*dom_id, node_id);
         }
     }
+    publish_nested_dom_placements(layout_window);
     layout_window.scroll_manager.calculate_scrollbar_states();
+}
+
+/// Tell the scroll manager where every nested (`VirtualView`) dom is
+/// composited, so the bars of its boxes are kept - and pressed - where they
+/// are painted ([`NestedDomPlacement`]).
+///
+/// The host side comes off the display lists (`headless::nested_dom_viewports`,
+/// the records the raster and the hit tester place a nested dom by). The
+/// `VirtualView`'s own scroll is kept symbolic too: its item bakes
+/// `materialized origin - offset` into `content_offset`, and a scroll of the
+/// view patches that item without a layout, so the origin is published at
+/// rest (`box origin + materialized origin`) with the view among the frames
+/// whose live offsets move it.
+///
+/// [`NestedDomPlacement`]: crate::managers::scroll_state::NestedDomPlacement
+fn publish_nested_dom_placements(layout_window: &mut LayoutWindow) {
+    use crate::managers::scroll_state::NestedDomPlacement;
+
+    let viewports = crate::headless::nested_dom_viewports(&layout_window.layout_results);
+    let placements = viewports
+        .into_iter()
+        .filter_map(|(nested, viewports)| {
+            // The innermost viewport is this dom's own `VirtualView` box.
+            let (view_box, view_frames) = viewports.last()?.clone();
+            let host = layout_window.virtual_view_manager.host_of_nested_dom(nested)?;
+            let materialized = layout_window
+                .virtual_view_manager
+                .materialized_window_origin(host.0, host.1)
+                .unwrap_or_else(azul_core::geom::LogicalPosition::zero);
+            let mut host_frames = view_frames;
+            host_frames.push(host);
+            Some((
+                nested,
+                NestedDomPlacement {
+                    origin: azul_core::geom::LogicalPosition::new(
+                        view_box.origin.x + materialized.x,
+                        view_box.origin.y + materialized.y,
+                    ),
+                    host_frames,
+                    viewports,
+                },
+            ))
+        })
+        .collect();
+    layout_window
+        .scroll_manager
+        .set_nested_dom_placements(placements);
 }
 
 /// Is `node_id` of `styled_dom` a SCROLL CONTAINER (CSS Overflow 3 §3.1:

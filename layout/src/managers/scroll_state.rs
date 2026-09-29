@@ -441,6 +441,34 @@ pub enum RevealRequest {
     Selection,
 }
 
+/// Where a nested (`VirtualView`-mounted) dom is composited, kept in a form
+/// the scroll manager resolves against its own LIVE offsets: a nested dom is
+/// laid out 0-relative, and its boxes - and their scrollbars - are painted
+/// where its host puts it.
+///
+/// Published by `register_scroll_nodes` from the host display lists (the
+/// placement `headless::nested_dom_window_origin` resolves for the raster
+/// and the hit tester), so [`ScrollManager::calculate_scrollbar_states`]
+/// can keep every bar's track in WINDOW space - on every scroll, not only
+/// after a layout. The host's transforms are not carried: a bar inside a
+/// transformed host is placed as if untransformed, like a bar inside a
+/// transformed box of its own dom.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NestedDomPlacement {
+    /// The window position of the dom's 0-relative origin with every frame
+    /// in [`Self::host_frames`] at rest.
+    pub origin: LogicalPosition,
+    /// The scroll containers whose CURRENT offsets move the dom up and left
+    /// of [`Self::origin`]: the host scroll frames its `VirtualView` item
+    /// is painted in, and the `VirtualView` itself (its offset moves the
+    /// content through its box).
+    pub host_frames: Vec<(DomId, NodeId)>,
+    /// The viewports the dom shows through - each enclosing `VirtualView`'s
+    /// box, with its frames at rest - each with the scroll frames that move
+    /// it. Nothing of the dom is visible, or pressable, outside them.
+    pub viewports: Vec<(LogicalRect, Vec<(DomId, NodeId)>)>,
+}
+
 // Core Scroll Manager
 
 /// Manages all scroll state and animations for a window
@@ -461,6 +489,9 @@ pub struct ScrollManager {
     /// own frame (the viewport's) puts the root above every box on a page
     /// taller than its window.
     scroll_ancestors: BTreeMap<(DomId, NodeId), Vec<NodeId>>,
+    /// Per nested dom: where it is composited ([`NestedDomPlacement`]),
+    /// published by `register_scroll_nodes`. Empty with no `VirtualView`.
+    nested_doms: BTreeMap<DomId, NestedDomPlacement>,
     /// Thread-safe queue for scroll inputs (shared with timer callbacks)
     #[cfg(feature = "std")]
     pub scroll_input_queue: ScrollInputQueue,
@@ -1709,6 +1740,54 @@ impl ScrollManager {
             })
     }
 
+    /// Record where every nested dom is composited ([`NestedDomPlacement`]),
+    /// replacing what was recorded before. Published by
+    /// `register_scroll_nodes`.
+    pub fn set_nested_dom_placements(&mut self, placements: BTreeMap<DomId, NestedDomPlacement>) {
+        self.nested_doms = placements;
+    }
+
+    /// The summed CURRENT offsets of `frames`.
+    fn offset_of_frames(&self, frames: &[(DomId, NodeId)]) -> LogicalPosition {
+        frames
+            .iter()
+            .filter_map(|(dom_id, node_id)| self.get_current_offset(*dom_id, *node_id))
+            .fold(LogicalPosition::zero(), |sum, offset| {
+                LogicalPosition::new(sum.x + offset.x, sum.y + offset.y)
+            })
+    }
+
+    /// Where `dom_id`'s 0-relative coordinates start in the window NOW: its
+    /// [`NestedDomPlacement`] resolved against the current offsets. Zero for
+    /// the window's own dom and for a dom no host mounts.
+    #[must_use]
+    pub fn dom_window_origin(&self, dom_id: DomId) -> LogicalPosition {
+        self.nested_doms
+            .get(&dom_id)
+            .map_or_else(LogicalPosition::zero, |placement| {
+                let scroll = self.offset_of_frames(&placement.host_frames);
+                LogicalPosition::new(
+                    placement.origin.x - scroll.x,
+                    placement.origin.y - scroll.y,
+                )
+            })
+    }
+
+    /// Does `dom_id` show at window point `point` - inside every viewport
+    /// it is composited through? The window's own dom shows everywhere.
+    fn dom_shows_at(&self, dom_id: DomId, point: LogicalPosition) -> bool {
+        self.nested_doms.get(&dom_id).is_none_or(|placement| {
+            placement.viewports.iter().all(|(viewport, frames)| {
+                let scroll = self.offset_of_frames(frames);
+                LogicalRect::new(
+                    LogicalPosition::new(viewport.origin.x - scroll.x, viewport.origin.y - scroll.y),
+                    viewport.size,
+                )
+                .contains(point)
+            })
+        })
+    }
+
     // Scrollbar State Management
 
     /// Calculate scrollbar states for all visible scrollbars.
@@ -1721,6 +1800,10 @@ impl ScrollManager {
     /// [`Self::ancestor_scroll_offset`]. Built from the layout-space
     /// scrollport alone, a box on a scrolled page had its bar found where it
     /// had been laid out, the page's scroll away from where it was drawn.
+    /// A box of a nested (`VirtualView`) dom is laid out 0-relative, so its
+    /// track is lifted to where the host composites that dom
+    /// ([`Self::dom_window_origin`]); without it a child dom's bar was
+    /// pressed near the window's top-left corner, over the page.
     pub fn calculate_scrollbar_states(&mut self) {
         self.scrollbar_states.clear();
 
@@ -1745,9 +1828,13 @@ impl ScrollManager {
                 .filter_map(|((dom_id, node_id), scroll_state)| {
                     let mut state =
                         Self::calculate_scrollbar_state_from_geometry(scroll_state, orientation)?;
+                    // Moved by the frames above the box in its own dom, and
+                    // lifted out of a nested dom's 0-relative space to where
+                    // its host composites it.
                     let shift = self.ancestor_scroll_offset(*dom_id, *node_id);
-                    state.track_rect.origin.x -= shift.x;
-                    state.track_rect.origin.y -= shift.y;
+                    let dom_origin = self.dom_window_origin(*dom_id);
+                    state.track_rect.origin.x += dom_origin.x - shift.x;
+                    state.track_rect.origin.y += dom_origin.y - shift.y;
                     Some(((*dom_id, *node_id, orientation), state))
                 })
                 .collect();
@@ -1863,7 +1950,10 @@ impl ScrollManager {
             }
 
             // Check if position is inside scrollbar track using LogicalRect::contains
-            if !scrollbar_state.track_rect.contains(global_pos) {
+            // - and inside the viewports its dom shows through.
+            if !scrollbar_state.track_rect.contains(global_pos)
+                || !self.dom_shows_at(dom_id, global_pos)
+            {
                 continue;
             }
 
@@ -1929,8 +2019,12 @@ impl ScrollManager {
                 continue;
             }
 
-            // Check if position is inside scrollbar track
-            if !scrollbar_state.track_rect.contains(global_pos) {
+            // Check if position is inside scrollbar track - and inside the
+            // viewports its dom shows through: a child dom's bar scrolled out
+            // of its `VirtualView` is not there to press.
+            if !scrollbar_state.track_rect.contains(global_pos)
+                || !self.dom_shows_at(*dom_id, global_pos)
+            {
                 continue;
             }
 
@@ -2241,6 +2335,16 @@ impl crate::managers::NodeIdRemap for ScrollManager {
         // `register_scroll_nodes` publishes them afresh after the layout the
         // new tree gets, so the stale ones are simply dropped.
         self.scroll_ancestors.retain(|(d, _), _| *d != dom);
+        // The same for the placements that name the dom's nodes (as a host)
+        // or the dom itself.
+        self.nested_doms.retain(|nested, placement| {
+            *nested != dom
+                && placement
+                    .host_frames
+                    .iter()
+                    .chain(placement.viewports.iter().flat_map(|(_, frames)| frames.iter()))
+                    .all(|(d, _)| *d != dom)
+        });
 
         let old = core::mem::take(&mut self.scrollbar_states);
         for ((d, old_node_id, orientation), state) in old {

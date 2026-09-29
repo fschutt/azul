@@ -612,6 +612,44 @@ pub fn nested_dom_window_origin(
     })
 }
 
+/// Every nested dom's viewports - each enclosing `VirtualView`'s box, with
+/// the host SCROLL frames that move it, innermost last - from the same
+/// records [`nested_dom_window_origin`] resolves, kept symbolic for a
+/// consumer that resolves the frames against LIVE offsets
+/// (`ScrollManager::set_nested_dom_placements`, via
+/// `register_scroll_nodes`). Transforms in the host are not carried.
+///
+/// Empty when no display list mounts a nested dom (the common window: one
+/// dom, and no walk over its list at all).
+#[must_use]
+pub fn nested_dom_viewports(
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+) -> BTreeMap<DomId, Vec<(LogicalRect, Vec<(DomId, NodeId)>)>> {
+    if layout_results.len() < 2 {
+        return BTreeMap::new();
+    }
+    let scroll_frames = |chain: &[HitChainLink]| -> Vec<(DomId, NodeId)> {
+        chain
+            .iter()
+            .filter_map(|link| match link {
+                HitChainLink::Scroll(dom_id, node_id) => Some((*dom_id, *node_id)),
+                HitChainLink::Transform(..) => None,
+            })
+            .collect()
+    };
+    resolve_virtual_view_placements(layout_results)
+        .into_iter()
+        .map(|(dom_id, placement)| {
+            let viewports = placement
+                .clips
+                .iter()
+                .map(|(viewport, chain)| (*viewport, scroll_frames(chain.as_slice())))
+                .collect();
+            (dom_id, viewports)
+        })
+        .collect()
+}
+
 fn resolve_virtual_view_placements(
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
 ) -> BTreeMap<DomId, Placement> {
