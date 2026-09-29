@@ -1674,4 +1674,45 @@ mod autotest_generated {
             );
         }
     }
+
+    /// An UNPINNED bar follows the app theme through its `VirtualView`: the
+    /// callback renders the bar in BOTH themes and merges them in the
+    /// structure of the theme it is rendered for.
+    #[test]
+    fn an_unpinned_bars_virtual_view_renders_every_theme_in_the_app_themes_structure() {
+        use crate::widgets::themes::{flat, flora, UiTheme};
+
+        let bar = ProgressBar::create(40.0);
+        assert_eq!(
+            bar.theme,
+            crate::widgets::themes::OptionUiTheme::None,
+            "a fresh bar has no theme opinion: it follows the app"
+        );
+        let dom = bar.clone().dom();
+        let vv = dom
+            .root
+            .get_virtual_view_node_ref()
+            .expect("a VirtualView node stores its callback + refany");
+        let (render, payload) = (vv.callback.cb, vv.refany.clone());
+
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let ret = {
+                let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str(
+                    theme.name(),
+                ));
+                with_virtual_view_info(200.0, 15.0, |info| render(payload.clone(), info))
+            };
+            let rendered = match ret.dom {
+                azul_core::dom::OptionDom::Some(d) => d,
+                azul_core::dom::OptionDom::None => panic!("{theme:?}: the callback must render"),
+            };
+            let bounds = Some((200.0, 15.0));
+            let want = flat::follow_dom(
+                theme,
+                flat::progressbar_render_bar_impl(bar.clone(), bounds),
+                flora::progressbar_render_bar_impl(bar.clone(), bounds),
+            );
+            assert!(rendered == want, "{theme:?}: {rendered:?}");
+        }
+    }
 }

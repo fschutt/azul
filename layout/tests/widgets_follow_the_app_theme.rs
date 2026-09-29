@@ -601,3 +601,26 @@ fn spinners_follow_the_app_theme() {
         }
     }
 }
+
+/// A progress bar's look is rendered by its `VirtualView`; `render_bar` is
+/// the same tree without the fast path, and follows the app theme the same
+/// way (the `VirtualView` path is pinned by the widget's own tests).
+#[test]
+fn progress_bars_follow_the_app_theme() {
+    use azul_layout::widgets::{progressbar::ProgressBar, themes::OptionUiTheme};
+    assert_eq!(
+        ProgressBar::create(0.0).theme,
+        OptionUiTheme::None,
+        "a fresh bar has no theme opinion: it follows the app"
+    );
+    for percent in [0.0f32, 40.0, 100.0] {
+        assert_follows_the_app_theme(&format!("progress bar {percent}"), |t| {
+            pinned(
+                ProgressBar::create(percent).with_accessibility_name("Upload"),
+                t,
+                ProgressBar::with_theme,
+            )
+            .render_bar()
+        });
+    }
+}
