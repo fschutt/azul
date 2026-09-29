@@ -1159,6 +1159,8 @@ pub fn regenerate_layout(
     // BeforeUnmount is resolved at this exact spot, through the same side
     // queue.
     let focus_lost = layout_window.focus_manager.take_focus_lost_to_unmount();
+    let lost_primary_focus = !focus_lost.is_empty()
+        && layout_window.focus_manager.get_focused_node().is_none();
     for lost in focus_lost {
         use azul_core::events::{
             EventData, EventFilter, EventSource, EventType, FocusEventFilter,
@@ -1183,6 +1185,40 @@ pub fn regenerate_layout(
                     .pending_unmount_invocations
                     .push((cb.clone(), blur.clone()));
             }
+        }
+    }
+
+    // A POPUP whose focused node this rebuild took away - a date grid turned
+    // to another month: the focused day is gone - gives focus to the node
+    // its new content asks it for (`autofocus`: the grid's Tab-stop day).
+    // A popup cannot be Tabbed into from its parent, so a focus lost there
+    // strands a keyboard user. Set here, before the runtime states are
+    // applied below, so the first frame of the new content already shows
+    // it. Nothing is focused when the content names no node: it did not say
+    // where. (The popup's first focus is its autofocus pass, not this.)
+    if lost_primary_focus && super::transient::mailbox_of(current_window_state).is_some() {
+        let asked = styled_dom
+            .node_data
+            .as_container()
+            .linear_iter()
+            .find(|n| {
+                styled_dom
+                    .node_data
+                    .as_container()
+                    .get(*n)
+                    .is_some_and(azul_core::dom::NodeData::has_autofocus)
+            });
+        if let Some(n) = asked {
+            let node = azul_core::dom::DomNodeId {
+                dom: azul_core::dom::DomId::ROOT_ID,
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(n)),
+            };
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] popup focus lost to the rebuild: focusing {:?}",
+                node
+            );
+            layout_window.focus_manager.set_focused_node(Some(node));
         }
     }
     azul_layout::probe::emit_phase_heap("after_state_migrate");

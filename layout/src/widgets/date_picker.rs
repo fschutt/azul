@@ -33,8 +33,13 @@
 //! KEYBOARD (WAI-ARIA APG date grid): the day cells are ONE Tab stop - the
 //! selected day. Left/Right move focus by a day, Up/Down by a week, Home/End
 //! to the ends of the week row; Enter/Space (a click) picks the focused day;
-//! PageUp/PageDown act as ‹ / ›. An arrow past the displayed month goes
-//! nowhere, for the same TODO2 reason: the grid cannot rebuild itself.
+//! PageUp/PageDown act as ‹ / ›. An arrow past the displayed month crosses
+//! into the neighbouring one: like ‹ / › it turns the calendar (the host's
+//! rebuild, the TODO2 above), to the day the arrow aimed at - which is the
+//! rebuilt grid's Tab stop and asks for focus (`autofocus`); every day cell
+//! is keyed by its date, so the rebuild drops the old focused day instead of
+//! handing its focus to whatever day sits in its slot, and the popup then
+//! focuses the day that asks for it.
 //!
 //! Key types: [`DatePicker`], [`DatePickerState`], [`DatePickerOnChange`].
 
@@ -43,8 +48,8 @@ use std::vec::Vec;
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{
-        ComponentEventFilter, Dom, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class,
-        IdOrClassVec, NodeData, NodeType, TabIndex,
+        AttributeType, ComponentEventFilter, Dom, EventFilter, HoverEventFilter, IdOrClass,
+        IdOrClass::Class, IdOrClassVec, NodeData, NodeType, TabIndex,
     },
     refany::{OptionRefAny, RefAny},
     transient::{TransientAnchor, TransientDismiss, TransientWindowConfig},
@@ -124,6 +129,9 @@ static WEEK_ROW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
 static DAY_CELL_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-date-picker-day",
 ))];
+/// Tags a day cell's reconciliation key, `(DAY_CELL_KEY, year, month, day)`:
+/// a date is its own identity across rebuilds.
+const DAY_CELL_KEY: &str = "__azul-native-date-picker-day";
 
 const PREV_ARROW: AzString = AzString::from_const_str("\u{2039}"); // ‹
 const NEXT_ARROW: AzString = AzString::from_const_str("\u{203A}"); // ›
@@ -1414,11 +1422,20 @@ fn build_grid_with(
                 } else {
                     TabIndex::NoKeyboardFocus
                 };
-                cells.push(
-                    build_day_cell_in(day, is_selected(day), shared.clone(), look)
-                        .with_accessibility_name(day_accessibility_name(year, month, day))
-                        .with_tab_index(tab_index),
-                );
+                // A date is its own identity: rebuilt onto another month
+                // (an arrow past the edge, ‹ / ›), the focused day unmounts
+                // instead of handing its focus to whatever day now sits in
+                // its slot.
+                let mut cell = build_day_cell_in(day, is_selected(day), shared.clone(), look)
+                    .with_accessibility_name(day_accessibility_name(year, month, day))
+                    .with_tab_index(tab_index)
+                    .with_key((DAY_CELL_KEY, year, month, day));
+                if day == stop_day {
+                    // The day the calendar asks focus for: when its popup
+                    // opens, and when a rebuild took the focused day away.
+                    cell = cell.with_attribute(AttributeType::Autofocus);
+                }
+                cells.push(cell);
             }
         }
         week_rows.push(
@@ -1934,9 +1951,10 @@ fn close_calendar_showing(info: &mut CallbackInfo, clicked: azul_core::dom::DomN
 /// focused day and closes the calendar. PageUp/PageDown turn the month exactly
 /// like the header's ‹ / › (see the module's TODO2: the host rebuilds the
 /// grid). Every handled key is `prevent_default`-ed; an arrow past the
-/// displayed month is consumed and goes nowhere, because the grid cannot
-/// rebuild itself into the neighbouring month. Any key held with Alt, Ctrl,
-/// Cmd or Shift, and every other key, keeps its default.
+/// displayed month turns the calendar to the day it aimed at in the
+/// neighbouring month (`move_to_date`, the ‹ / › path), where the rebuilt
+/// grid gives it focus. Any key held with Alt, Ctrl, Cmd or Shift, and every
+/// other key, keeps its default.
 extern "C" fn on_day_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     use azul_core::window::VirtualKeyCode as K;
 
@@ -2007,6 +2025,33 @@ extern "C" fn on_day_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     // The key is the grid's either way: spatial navigation must not walk out
     // of the calendar from its edge.
     info.prevent_default();
+
+    // An ARROW past the displayed month crosses into the neighbouring one
+    // (WAI-ARIA APG date grid): the calendar turns to the day the arrow aimed
+    // at, like ‹ / › - the host rebuilds the grid on that month with that
+    // day as its Tab stop, and the popup focuses it (the day cells are keyed
+    // by their date, and the Tab-stop day asks for focus).
+    let crossing_by = match key {
+        K::Left => Some(-1),
+        K::Right => Some(1),
+        K::Up => Some(-7),
+        K::Down => Some(7),
+        _ => None,
+    };
+    if let (None, Some(by)) = (target, crossing_by) {
+        // The cells are the days in order: the focused one is day `current + 1`.
+        let focused_day = u32::try_from(current + 1).unwrap_or(1);
+        let (year, month) = {
+            let mut probe = shared.clone();
+            let Some(w) = probe.downcast_ref::<DatePickerData>() else {
+                return Update::DoNothing;
+            };
+            (w.state.inner.year, w.state.inner.month)
+        };
+        let (year, month, day) = shifted_date(year, month, focused_day, by);
+        return move_to_date(shared, info, year, month, day);
+    }
+
     let Some(target) = target.filter(|t| *t != current) else {
         return Update::DoNothing;
     };
@@ -2150,32 +2195,79 @@ extern "C" fn on_date_picker_dismissed(mut data: RefAny, mut info: CallbackInfo)
 /// module docs) — only the reported state changes.
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 fn month_nav(mut data: RefAny, info: CallbackInfo, delta: i32) -> Update {
+    let (year, month, day) = {
+        let Some(w) = data.downcast_ref::<DatePickerData>() else {
+            return Update::DoNothing;
+        };
+        let inner = w.state.inner;
+        let mut month = inner.month as i32 + delta;
+        let mut year = inner.year as i32;
+        if month < 1 {
+            month = 12;
+            year -= 1;
+        } else if month > 12 {
+            month = 1;
+            year += 1;
+        }
+        let year = year.max(1) as u32;
+        let month = month as u32;
+        (year, month, inner.day.min(days_in_month(year, month)))
+    };
+    move_to_date(data, info, year, month, day)
+}
+
+/// Turns the calendar to `year`-`month`-`day` and tells the app
+/// (`on_change`), so the host rebuilds the grid on that month with that day
+/// as its one Tab stop (module TODO2: the grid cannot rebuild itself). What
+/// ‹ / ›, PageUp / PageDown and an arrow past the displayed month all come
+/// down to.
+fn move_to_date(mut data: RefAny, info: CallbackInfo, year: u32, month: u32, day: u32) -> Update {
     let Some(mut w) = data.downcast_mut::<DatePickerData>() else {
         return Update::DoNothing;
     };
     let w = &mut w.state;
-
-    let mut month = w.inner.month as i32 + delta;
-    let mut year = w.inner.year as i32;
-    if month < 1 {
-        month = 12;
-        year -= 1;
-    } else if month > 12 {
-        month = 1;
-        year += 1;
-    }
-    w.inner.year = year.max(1) as u32;
-    w.inner.month = month as u32;
-    let dim = days_in_month(w.inner.year, w.inner.month);
-    if w.inner.day > dim {
-        w.inner.day = dim;
-    }
-
+    w.inner.year = year;
+    w.inner.month = month;
+    w.inner.day = day;
     let inner = w.inner;
     let w = &mut *w;
     match w.on_change.as_mut() {
         Some(DatePickerOnChange { callback, refany }) => callback.invoke(refany.clone(), info, inner),
         None => Update::DoNothing,
+    }
+}
+
+/// The date `by` days away from `year`-`month`-`day` (negative: back),
+/// across month and year boundaries - where an arrow past the displayed
+/// month lands. The year floors at 1, like `month_nav`'s.
+fn shifted_date(year: u32, month: u32, day: u32, by: i32) -> (u32, u32, u32) {
+    let (mut year, mut month) = (year.max(1), month.clamp(1, 12));
+    let mut d = i64::from(day) + i64::from(by);
+    loop {
+        if d < 1 {
+            if month == 1 {
+                if year == 1 {
+                    return (1, 1, 1);
+                }
+                year -= 1;
+                month = 12;
+            } else {
+                month -= 1;
+            }
+            d += i64::from(days_in_month(year, month));
+        } else {
+            let dim = i64::from(days_in_month(year, month));
+            if d <= dim {
+                return (year, month, u32::try_from(d).unwrap_or(1));
+            }
+            d -= dim;
+            if month == 12 {
+                year = year.saturating_add(1);
+                month = 1;
+            } else {
+                month += 1;
+            }
+        }
     }
 }
 
