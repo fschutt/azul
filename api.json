@@ -37823,7 +37823,13 @@
                                     "Wraps the input in `* { ... }` so the main CSS parser can handle bare",
                                     "properties at the top level. Pseudo and at-rule blocks like",
                                     "`:hover { color: red; }` or `@os(linux) { font-size: 14px; }` work",
-                                    "directly via CSS nesting."
+                                    "directly via CSS nesting.",
+                                    "",
+                                    "The result is a node's OWN style (`NodeData::set_css`, `with_style`,",
+                                    "`CallbackInfo::set_node_style`), which the cascade reads by its",
+                                    "conditions and never selector-matches: a `:hover { .. }` block",
+                                    "becomes a rule under a `:hover` CONDITION. For a stylesheet the",
+                                    "cascade selector-matches (`Dom::add_component_css`), use `parse_scoped`."
                                 ],
                                 "fn_args": [
                                     {
@@ -37831,6 +37837,21 @@
                                     }
                                 ],
                                 "fn_body": "azul_css::css::Css::parse_inline(style.as_str())"
+                            },
+                            "parse_scoped": {
+                                "doc": [
+                                    "Parse the same text as [`Self::parse_inline`] into a SCOPED",
+                                    "stylesheet (`Dom::set_css`): wrapped in `* { ... }`, every rule at",
+                                    "`rule_priority::INLINE`, and every rule kept in selector form - a",
+                                    "`:hover { .. }` block stays `*:hover` - for the cascade to",
+                                    "selector-match against the owner's subtree."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "style": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_css::css::Css::parse_scoped(style.as_str())"
                             }
                         },
                         "functions": {
@@ -67044,6 +67065,9 @@
                                 },
                                 "on_text_input": {
                                     "type": "OptionComboBoxOnTextInput"
+                                },
+                                "active_option_cleared": {
+                                    "type": "bool"
                                 }
                             }
                         ],
