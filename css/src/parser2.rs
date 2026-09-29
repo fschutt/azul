@@ -3377,6 +3377,16 @@ mod autotest_generated {
         );
     }
 
+    /// Any other plain name is an APP theme (`@theme(sepia)`), not garbage:
+    /// it is live when the app's theme is `sepia`.
+    #[test]
+    fn parse_theme_condition_takes_any_name_as_an_app_theme() {
+        assert!(matches!(
+            parse_theme_condition("sepia"),
+            Some(DynamicSelector::Theme(ThemeCondition::Custom(ref n))) if n.as_str() == "sepia"
+        ));
+    }
+
     #[test]
     fn parse_theme_condition_garbage_returns_none() {
         for input in [
@@ -3385,7 +3395,6 @@ mod autotest_generated {
             "(",
             ")",
             "()",
-            "sepia",
             "\u{1F600}",
             "dark light",
             "\"dark",
