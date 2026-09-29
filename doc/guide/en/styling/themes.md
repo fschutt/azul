@@ -150,8 +150,8 @@ color: #1a1a1a;
 
 The variants follow `ThemeCondition`:
 
-- `@theme light`: system reports light theme.
-- `@theme dark`: system reports dark theme.
+- `@theme light`: the window is in light mode.
+- `@theme dark`: the window is in dark mode.
 - `@theme <name>` / `@theme(<name>)`: the APP THEME, a name such as `flat`
   (the default) or `flora`. The block applies only while that theme is in
   the app's theme chain: `AppConfig::with_theme("flora")` at startup,
@@ -160,7 +160,7 @@ The variants follow `ThemeCondition`:
   environment](#choosing-the-theme-and-the-mode-from-the-environment)).
   Widgets carry one block per theme they know, so one switch restyles all
   of them. A theme switch rebuilds every window's DOM (a theme may change a
-  widget's structure), while a light / dark switch only repaints. Nest
+  widget's structure), while a light / dark mode switch only repaints. Nest
   `@theme dark` inside a theme block for that theme's dark mode.
 
 The app theme is the head of a *theme chain*, most specific first, like a
@@ -175,6 +175,18 @@ further fallbacks (`fallback: native`); they are appended in chain order,
 each theme once, and a cycle is cut with a warning. The mode's words -
 `light`, `dark`, `system`, `auto` - are never theme names: in a chain they
 are an error, logged and dropped.
+
+A THEME and a MODE are two settings. The theme is the app's look (`flat`,
+`flora`, ...). The mode is light / dark / system: by default ("system") every
+window follows the desktop's light or dark, and
+`AppConfig::with_mode(OptionWindowTheme::Some(WindowTheme::DarkMode))` at
+startup or `CallbackInfo::set_mode(..)` at runtime pins every window of the
+app to one (`None` follows the desktop again). `CallbackInfo::get_mode` reads
+that choice back and `CallbackInfo::get_resolved_mode` the light or dark it
+gives. Inside `layout()`, `LayoutCallbackInfo::get_mode()` returns the light
+or dark the window shows (and makes a mode switch re-run that `layout()`),
+while `LayoutCallbackInfo::get_theme()` returns the app theme's name.
+`RelayoutReason` says which one changed: `ModeChange` or `ThemeChange`.
 
 For typical apps, define the base style for light mode and override
 selected properties under `@theme dark`. Combine with `@os` for

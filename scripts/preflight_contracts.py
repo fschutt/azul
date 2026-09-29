@@ -473,6 +473,42 @@ def check_miri_cache_secrets() -> None:
                 )
 
 
+# --------------------------------------------------------------------------
+# 8. Naming: "theme" is the app theme, "mode" is light / dark / system.
+#
+# User ruling 2026-09-29. Before it, the same call meant both:
+# `LayoutCallbackInfo::get_theme` returned light / dark while
+# `CallbackInfo::get_theme` returned the app theme, and the light / dark API
+# was `*_color_scheme`. Every binding generates its method names from these,
+# so a new `*_color_scheme` fn is a third name for the mode in 30+ languages.
+# The OS's own `color-scheme` setting (the XDG portal key) is read by private
+# fns and stays as it is; only PUBLIC fns are held to the ruling.
+# --------------------------------------------------------------------------
+PUB_COLOR_SCHEME_FN = re.compile(
+    r"\bpub(?:\s*\([^)]*\))?\s+(?:const\s+)?(?:unsafe\s+)?(?:extern\s+\"[^\"]*\"\s+)?"
+    r"fn\s+([A-Za-z0-9_]*color_scheme[A-Za-z0-9_]*)"
+)
+
+
+def check_mode_naming() -> None:
+    for crate in ("core", "layout", "dll"):
+        src_dir = ROOT / crate / "src"
+        if not src_dir.is_dir():
+            fail("mode-naming", f"missing source directory {src_dir}")
+            continue
+        for f in sorted(src_dir.rglob("*.rs")):
+            src = _strip_rust_comments(f.read_text(encoding="utf-8", errors="replace"))
+            for m in PUB_COLOR_SCHEME_FN.finditer(src):
+                line = src[: m.start()].count("\n") + 1
+                fail(
+                    "mode-naming",
+                    f"{f.relative_to(ROOT)} near line {line}: pub fn {m.group(1)}. Light / dark "
+                    f"/ system is the MODE (`get_mode`, `set_mode`, `AppConfig::with_mode`) and "
+                    f"the app theme is the THEME; a `color_scheme` name is a third spelling "
+                    f"of the mode that every binding would generate.",
+                )
+
+
 def main() -> int:
     check_api_json_parses()
     check_demo_naming()
@@ -482,6 +518,7 @@ def main() -> int:
     check_demo_accessibility()
     check_sparse_checkout()
     check_miri_cache_secrets()
+    check_mode_naming()
 
     if FAILURES:
         print("preflight contracts FAILED:\n", file=sys.stderr)
@@ -490,7 +527,8 @@ def main() -> int:
         return 1
     print(
         "preflight contracts OK (naming, widget wiring, override latch, "
-        "demo round-trip, demo a11y, sparse checkout, api.json, miri/cache/secrets)"
+        "demo round-trip, demo a11y, sparse checkout, api.json, miri/cache/secrets, "
+        "mode naming)"
     )
     return 0
 
