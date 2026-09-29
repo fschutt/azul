@@ -17,21 +17,17 @@ Branch `wt/r0-theme-mode-naming` (from 0a326afe5). "Theme" = app theme (flat / f
   mode_headless.rs; app_theme_headless; backend_feature_parity scan key -> ModeChange), examples
   (AzWidgets toolbar "Mode" segment, AzWriter get_mode).
 
-- (next commit) guide (styling/themes.md: theme vs mode paragraph; styling.md `@theme` line) and
+- bcbb6008d guide (styling/themes.md: theme vs mode paragraph; styling.md `@theme` line) and
   scripts/preflight_contracts.py `check_mode_naming` (9 hits on 0a326afe5, 0 now).
+- d49475cbc get_mode doc ASCII (api.json copies it).
+- (next commit) report scripts/R0_THEME_MODE_NAMING_2026_09_29.md.
 
 ## IN PROGRESS
-- report scripts/R0_THEME_MODE_NAMING_2026_09_29.md.
+- nothing: task complete; parent applies api.json + compiles.
 
 ## NEXT
-1. LayoutCallbackInfo::get_theme -> get_mode, then get_theme_name -> get_theme.
-2. CallbackInfo *_color_scheme -> *_mode; AppConfig.color_scheme -> mode (+ with_/set_);
-   CallbackChange::SetColorScheme { scheme } -> SetMode { mode }.
-3. RelayoutReason::ThemeChange -> ModeChange (value 3), AppThemeChange -> ThemeChange (value 6).
-4. Internals (layout/src/window.rs, dll shells) -> mode names.
-5. dll/tests/color_scheme_headless.rs -> dll/tests/mode_headless.rs.
-6. Guide + doc comments; preflight_contracts.py check (no `pub fn *color_scheme*`).
-7. Report `scripts/R0_THEME_MODE_NAMING_2026_09_29.md`.
+- (parent) api.json items 1-14 from the report, `codegen all`, then the test commands there.
+- (follow-up task) the TYPE sweep table in the report (WindowTheme -> WindowMode, ...).
 
 ## Open questions
 - none
