@@ -90,8 +90,9 @@ pub(crate) fn theme_condition(theme: UiTheme) -> DynamicSelector {
     )))
 }
 
-/// `conditions` inside `theme`'s block: the theme name first, the
-/// declaration's own conditions (dark, `:hover`, ...) after it.
+/// A rule's `conditions` inside `theme`'s block: the theme name first, the
+/// rule's own conditions (dark, `:hover`, ...) after it - what
+/// `CssPropertyWithConditions::in_theme` does for a part's declaration.
 fn theme_first(conditions: &DynamicSelectorVec, theme: UiTheme) -> DynamicSelectorVec {
     let own = conditions.as_slice();
     let mut out = Vec::with_capacity(own.len() + 1);
@@ -122,11 +123,8 @@ impl Unit for CssPropertyWithConditions {
     }
 
     fn into_block(self, theme: UiTheme) -> Self {
-        let apply_if = theme_first(&self.apply_if, theme);
-        Self {
-            property: self.property,
-            apply_if,
-        }
+        // The css crate's own helper: the theme name first, then the rest.
+        self.in_theme(theme.name())
     }
 }
 
