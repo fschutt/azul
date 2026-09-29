@@ -2665,8 +2665,9 @@ mod autotest_generated {
 
             // The colour, plus — for a translucent swatch only — the three
             // props that let the checkerboard sit under it (relative
-            // positioning, overflow hidden x/y).
-            let extra = if c.a < 255 { 4 } else { 1 };
+            // positioning, overflow hidden x/y), then the theme's focus ring
+            // (the halo and its night twin): the swatch is a keyboard stop.
+            let extra = if c.a < 255 { 4 } else { 1 } + 2;
             assert_eq!(
                 rendered.len(),
                 base.len() + extra,
@@ -2700,7 +2701,9 @@ mod autotest_generated {
     #[test]
     fn dom_declares_exactly_one_background_and_no_property_twice() {
         for c in SAMPLE_COLORS {
-            let props = inline_properties(&ColorInput::create(c).dom());
+            // At rest: the focus ring is a `:focus` declaration with a night
+            // twin of the same property, which is a pair, not a duplicate.
+            let props = crate::widgets::theme_probe::unconditional(&ColorInput::create(c).dom());
             let backgrounds = props
                 .iter()
                 .filter(|p| matches!(p, CssProperty::BackgroundContent(_)))
@@ -3856,5 +3859,264 @@ mod autotest_generated {
             "Shift+Left from {h0} wraps below 0 to {expected}, got {}",
             hsv_of(&state).h
         );
+    }
+}
+
+/// The theme option: which look a colour input renders in, and what each
+/// look is.
+#[cfg(test)]
+mod theme_tests {
+    use azul_core::dom::IdOrClass::Class;
+    use azul_css::{
+        css::CssDeclaration,
+        dynamic_selector::{DynamicSelector, PseudoStateType, ThemeCondition},
+    };
+
+    use super::*;
+    use crate::widgets::{
+        theme_probe,
+        themes::{flora, OptionUiTheme, UiTheme},
+    };
+
+    const RED: ColorU = ColorU {
+        r: 200,
+        g: 30,
+        b: 30,
+        a: 255,
+    };
+
+    fn input(theme: UiTheme) -> Dom {
+        ColorInput::create(RED).with_theme(theme).dom()
+    }
+
+    /// The picker panel inside the swatch's popup (the popup is the swatch's
+    /// last child; the panel is its only one).
+    fn panel(swatch: &Dom) -> &Dom {
+        let popup = swatch.children.as_ref().last().expect("the popup");
+        &popup.children.as_ref()[0]
+    }
+
+    /// The panel's parts, in the order `publish` relies on.
+    fn part(swatch: &Dom, i: usize) -> &Dom {
+        &panel(swatch).children.as_ref()[i]
+    }
+
+    fn preview(swatch: &Dom) -> &Dom {
+        &part(swatch, 4).children.as_ref()[0]
+    }
+
+    fn grip_handle(swatch: &Dom) -> &Dom {
+        &part(swatch, 0).children.as_ref()[0]
+    }
+
+    fn declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, c)| CssPropertyWithConditions {
+                property: p.clone(),
+                apply_if: c.clone(),
+            })
+            .collect()
+    }
+
+    fn in_state<T>(
+        node: &Dom,
+        state: PseudoStateType,
+        pick: impl Fn(&CssProperty) -> Option<T>,
+    ) -> (Option<T>, Option<T>) {
+        let mut light = None;
+        let mut dark = None;
+        for d in declarations(node) {
+            if d.pseudo_state_conditions() != [state] {
+                continue;
+            }
+            let Some(v) = pick(&d.property) else {
+                continue;
+            };
+            if d.is_dark_twin() {
+                dark = Some(v);
+            } else {
+                light = Some(v);
+            }
+        }
+        (light, dark)
+    }
+
+    fn shadow(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BoxShadowTop(v)
+            | CssProperty::BoxShadowRight(v)
+            | CssProperty::BoxShadowBottom(v)
+            | CssProperty::BoxShadowLeft(v) => v.get_property().map(|s| s.as_ref().color),
+            _ => None,
+        }
+    }
+
+    fn top_edge(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn bg(p: &CssProperty) -> Option<Vec<StyleBackgroundContent>> {
+        match p {
+            CssProperty::BackgroundContent(v) => v.get_property().map(|v| v.as_ref().to_vec()),
+            _ => None,
+        }
+    }
+
+    fn last<T>(props: &[CssProperty], f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
+        props.iter().rev().find_map(f)
+    }
+
+    /// The declarations of a node's component stylesheet (`with_css`), those
+    /// under `@media (prefers-color-scheme: dark)` or those outside it.
+    fn component(node: &Dom, dark: bool) -> Vec<CssProperty> {
+        node.css
+            .as_ref()
+            .iter()
+            .flat_map(|css| css.rules.as_ref().iter())
+            .filter(|r| {
+                r.conditions
+                    .as_ref()
+                    .iter()
+                    .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)))
+                    == dark
+            })
+            .flat_map(|r| r.declarations.as_ref().iter())
+            .filter_map(|d| match d {
+                CssDeclaration::Static(p) => Some(p.clone()),
+                CssDeclaration::Dynamic(_) => None,
+            })
+            .collect()
+    }
+
+    fn has_class(dom: &Dom, name: &str) -> bool {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
+    }
+
+    #[test]
+    fn a_color_input_without_a_theme_renders_flat() {
+        let plain = ColorInput::create(RED);
+        assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+        assert_eq!(
+            declarations(&plain.clone().dom()),
+            declarations(&plain.with_theme(UiTheme::Flat).dom())
+        );
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let mut set = ColorInput::create(RED);
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(ColorInput::create(RED).with_theme(UiTheme::Flora), set);
+    }
+
+    #[test]
+    fn a_flat_swatch_and_the_pickers_bars_ring_on_focus_by_day_and_night() {
+        let dom = input(UiTheme::Flat);
+        let (l, d) = in_state(&dom, PseudoStateType::Focus, shadow);
+        assert!(l.is_some() && d.is_some(), "the swatch is a keyboard stop: {l:?} {d:?}");
+        for (name, i) in [("plane", 1), ("hue", 2), ("alpha", 3)] {
+            let (l, d) = in_state(part(&dom, i), PseudoStateType::Focus, shadow);
+            assert!(l.is_some() && d.is_some(), "{name}: a keyboard stop with no ring");
+        }
+    }
+
+    #[test]
+    fn a_flat_pickers_preview_frame_and_grip_follow_the_night() {
+        let dom = input(UiTheme::Flat);
+        assert!(
+            last(&component(preview(&dom), true), top_edge).is_some(),
+            "the preview's #c8c8c8 frame has a night colour"
+        );
+        assert!(
+            last(&component(grip_handle(&dom), true), bg).is_some(),
+            "the grip's #c8c8c8 handle has a night colour"
+        );
+    }
+
+    #[test]
+    fn a_flora_swatch_is_framed_in_a_hairline_and_rings_in_the_accent() {
+        let dom = input(UiTheme::Flora);
+        let rest = theme_probe::unconditional(&dom);
+        assert_eq!(
+            last(&rest, bg),
+            Some(vec![StyleBackgroundContent::Color(RED)]),
+            "the swatch is its colour"
+        );
+        assert_eq!(last(&rest, top_edge), Some(flora::LIGHT_BD2), "a --fl-bd2 hairline");
+        assert_eq!(
+            last(&theme_probe::dark(&dom), top_edge),
+            Some(flora::DARK_BD2)
+        );
+        assert_eq!(
+            in_state(&dom, PseudoStateType::Focus, top_edge),
+            (Some(flora::LIGHT_ACC), Some(flora::DARK_GLOW)),
+            "flora's focus colour on the frame"
+        );
+        for (name, i) in [("plane", 1), ("hue", 2), ("alpha", 3)] {
+            assert_eq!(
+                in_state(part(&dom, i), PseudoStateType::Focus, shadow),
+                (Some(flora::LIGHT_ACC), Some(flora::DARK_GLOW)),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_picker_is_a_leaf_by_day_and_at_night() {
+        let dom = input(UiTheme::Flora);
+        let p = panel(&dom);
+        assert_eq!(
+            last(&component(p, false), bg),
+            Some(vec![StyleBackgroundContent::Color(flora::LIGHT_SUR)])
+        );
+        assert_eq!(last(&component(p, false), top_edge), Some(flora::LIGHT_BD));
+        assert_eq!(
+            last(&component(p, true), bg),
+            Some(vec![StyleBackgroundContent::Color(flora::DARK_SUR)])
+        );
+        assert_eq!(last(&component(p, true), top_edge), Some(flora::DARK_BD));
+    }
+
+    #[test]
+    fn a_flora_color_input_keeps_the_swatch_and_the_pickers_structure() {
+        let flora = input(UiTheme::Flora);
+        let flat = input(UiTheme::Flat);
+        assert!(flora.root.get_tab_index().is_some());
+        assert_eq!(
+            flora.root.get_accessibility_info().map(|a| a.role),
+            flat.root.get_accessibility_info().map(|a| a.role)
+        );
+        assert_eq!(flora.root.get_callbacks().as_ref().len(), 1, "opens the picker");
+        let classes = |d: &Dom| -> Vec<String> {
+            d.children
+                .as_ref()
+                .iter()
+                .map(|c| {
+                    c.root
+                        .get_ids_and_classes()
+                        .as_ref()
+                        .iter()
+                        .filter_map(|k| match k {
+                            Class(s) => Some(s.as_str().to_string()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .collect()
+        };
+        assert_eq!(classes(panel(&flora)), classes(panel(&flat)), "the parts publish finds");
+        assert!(has_class(&flora, "__azul-theme-flora"));
+        assert!(has_class(&flora, COLOR_INPUT_CLASS));
     }
 }

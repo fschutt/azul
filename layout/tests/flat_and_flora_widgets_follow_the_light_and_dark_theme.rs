@@ -543,3 +543,21 @@ fn menubars_read_in_both_themes_in_both_looks() {
         .collect();
     assert_follow_the_theme(widgets);
 }
+
+#[test]
+fn color_inputs_and_their_pickers_read_in_both_themes_in_both_looks() {
+    use azul_layout::widgets::color_input::ColorInput;
+    let mut widgets = Vec::new();
+    for (look, theme) in LOOKS {
+        for (name, color) in [
+            ("opaque", ColorU::rgb(40, 90, 200)),
+            ("translucent", ColorU::new(40, 90, 200, 128)),
+        ] {
+            widgets.push((
+                format!("{look} color input {name}"),
+                ColorInput::create(color).with_theme(theme).dom(),
+            ));
+        }
+    }
+    assert_follow_the_theme(widgets);
+}
