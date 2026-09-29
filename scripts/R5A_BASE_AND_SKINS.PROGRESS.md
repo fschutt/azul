@@ -5,9 +5,11 @@ badge, breadcrumb, button, card, check_box, chip, color_input.
 
 ## DONE
 - `1a501bee3` RED: one structure-lint test per widget (`assert_structure_is_shared`, `&[]`).
+- `cd89505ca` GREEN accordion: `ACCORDION_{CONTAINER,SECTION,HEADER,TITLE,CHEVRON}_BASE`, laid
+  first by `accordion::build`; flat / flora skins only.
 
 ## IN PROGRESS
-- GREEN accordion.
+- GREEN breadcrumb.
 
 ## NEXT
 1. GREEN accordion (container + header base), breadcrumb (crumb + label base), color_input (panel /
