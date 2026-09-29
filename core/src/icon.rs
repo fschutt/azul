@@ -151,7 +151,12 @@ mod nostd_lock {
     }
 }
 
-use azul_css::{props::basic::color::ColorU, system::SystemStyle, AzString, OptionString};
+use azul_css::{
+    dynamic_selector::{DynamicSelector, DynamicSelectorContext},
+    props::basic::color::ColorU,
+    system::SystemStyle,
+    AzString, OptionString,
+};
 
 use crate::{
     dom::{Dom, NodeData, NodeType},
@@ -495,6 +500,11 @@ pub struct IconProviderInner {
     /// chain, so `icons/xyz/pink/` beats `icons/xyz/` beats the app's own
     /// packs. Packs without a rank are searched after every ranked pack.
     pub pack_ranks: BTreeMap<String, u32>,
+    /// Remap rules, icon name (lowercase) -> its rules in the order they were
+    /// added. See [`IconRemapRule`].
+    pub remap: BTreeMap<String, Vec<IconRemapRule>>,
+    /// The application's name, which `app=` rule terms compare against.
+    pub app_name: String,
 }
 
 impl Default for IconProviderInner {
@@ -504,8 +514,120 @@ impl Default for IconProviderInner {
             resolver: default_icon_resolver,
             pack_order: Vec::new(),
             pack_ranks: BTreeMap::new(),
+            remap: BTreeMap::new(),
+            app_name: String::new(),
         }
     }
+}
+
+// Icon remap rules
+//
+// The user's per-name rules (`~/.azul/icons/remap.json`, and one table per
+// theme in `~/.azul/icons/<theme>/remap.json`): "draw `material/home` as
+// this file when `theme=monokai,mode=dark`". Design:
+// scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md section 8.
+
+/// One term of a rule's `apply-if` (the comma is AND).
+#[derive(Debug, Clone, PartialEq)]
+pub enum IconRuleCondition {
+    /// A term in the dynamic-selector vocabulary CSS conditions use:
+    /// `theme=<app theme>` (chain membership, like `@theme(name)`),
+    /// `theme=light|dark` / `mode=light|dark` (the mode), `os=<@os content>`,
+    /// `contrast=high|normal`. Matched by `DynamicSelector::matches`, the
+    /// same matcher the cascade uses.
+    Selector(DynamicSelector),
+    /// `app=<name>`: the application's name (the executable's).
+    App(String),
+    /// A term nobody understands, kept for diagnostics. Never matches: a
+    /// typo must not turn a rule unconditional.
+    Never(String),
+}
+
+impl IconRuleCondition {
+    /// Does this term hold under `context` for the application `app_name`?
+    #[must_use]
+    pub fn matches(&self, context: &DynamicSelectorContext, app_name: &str) -> bool {
+        match self {
+            Self::Selector(selector) => selector.matches(context),
+            Self::App(app) => app.eq_ignore_ascii_case(app_name),
+            Self::Never(_) => false,
+        }
+    }
+}
+
+/// Parse an `apply-if` string: comma-separated `key=value` terms, all of
+/// which must hold. See [`IconRuleCondition`] for the keys. An empty string
+/// is no condition at all.
+#[must_use]
+pub fn parse_icon_apply_if(apply_if: &str) -> Vec<IconRuleCondition> {
+    use azul_css::dynamic_selector::{parse_os_at_rule_content, BoolCondition, ThemeCondition};
+
+    let mode = |value: &str| {
+        if value.eq_ignore_ascii_case("light") {
+            Some(ThemeCondition::Light)
+        } else if value.eq_ignore_ascii_case("dark") {
+            Some(ThemeCondition::Dark)
+        } else {
+            None
+        }
+    };
+    let mut conditions = Vec::new();
+    for term in apply_if.split(',') {
+        let term = term.trim();
+        if term.is_empty() {
+            continue;
+        }
+        let never = || IconRuleCondition::Never(term.to_string());
+        let Some((key, value)) = term.split_once('=') else {
+            conditions.push(never());
+            continue;
+        };
+        let value = value.trim();
+        match key.trim().to_ascii_lowercase().as_str() {
+            // `light` / `dark` are reserved for the mode (design 9.1
+            // pitfall 5); any other name is an app theme in the chain.
+            "theme" => conditions.push(IconRuleCondition::Selector(DynamicSelector::Theme(
+                mode(value).unwrap_or_else(|| ThemeCondition::Custom(AzString::from(value))),
+            ))),
+            "mode" => conditions.push(mode(value).map_or_else(never, |m| {
+                IconRuleCondition::Selector(DynamicSelector::Theme(m))
+            })),
+            "os" => match parse_os_at_rule_content(value) {
+                Some(selectors) => conditions
+                    .extend(selectors.into_iter().map(IconRuleCondition::Selector)),
+                None => conditions.push(never()),
+            },
+            "contrast" => {
+                let wanted = match value.to_ascii_lowercase().as_str() {
+                    "high" | "more" => Some(BoolCondition::True),
+                    "normal" | "no-preference" | "low" | "less" => Some(BoolCondition::False),
+                    _ => None,
+                };
+                conditions.push(wanted.map_or_else(never, |w| {
+                    IconRuleCondition::Selector(DynamicSelector::PrefersHighContrast(w))
+                }));
+            }
+            "app" => conditions.push(IconRuleCondition::App(value.to_string())),
+            _ => conditions.push(never()),
+        }
+    }
+    conditions
+}
+
+/// One per-name remap rule: while every condition holds, the name is drawn
+/// as `target`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IconRemapRule {
+    /// The theme whose directory the rule came from (`xyz:pink` for
+    /// `icons/xyz/pink/`), `None` for the global table. A theme's rules apply
+    /// only while that theme is in the chain, and rank by its place there;
+    /// the global table ranks after every theme.
+    pub theme: Option<String>,
+    /// All must hold ([`parse_icon_apply_if`]).
+    pub conditions: Vec<IconRuleCondition>,
+    /// The icon spec the name is drawn as - a pack-qualified name the loader
+    /// registered the rule's file under, or any spec.
+    pub target: String,
 }
 
 /// The rank of a pack that was given none: after every ranked pack.
@@ -674,6 +796,76 @@ impl IconProviderInner {
         }
         None
     }
+
+    /// Add a remap rule for `icon_name` (case-insensitive), after the rules
+    /// it already has.
+    pub fn add_remap_rule(&mut self, icon_name: &str, rule: IconRemapRule) {
+        self.remap
+            .entry(icon_name.trim().to_lowercase())
+            .or_default()
+            .push(rule);
+    }
+
+    /// The data the first applicable remap rule for `name_lower` draws it
+    /// as. Rules are ranked by their theme's place in `context`'s chain (the
+    /// global table after every theme; a theme not in the chain contributes
+    /// nothing), then by the order they were added; the first whose
+    /// conditions all hold AND whose target resolves wins.
+    fn remapped(&self, name_lower: &str, context: &DynamicSelectorContext) -> Option<RefAny> {
+        let rules = self.remap.get(name_lower)?;
+        let chain = context.theme_chain.as_ref();
+        let mut ranked: Vec<(usize, usize, &IconRemapRule)> = rules
+            .iter()
+            .enumerate()
+            .filter_map(|(index, rule)| {
+                let rank = match &rule.theme {
+                    None => chain.len(),
+                    Some(theme) => chain.iter().position(|live| live.as_str() == theme.as_str())?,
+                };
+                Some((rank, index, rule))
+            })
+            .collect();
+        ranked.sort_by_key(|(rank, index, _)| (*rank, *index));
+        ranked
+            .into_iter()
+            .filter(|(_, _, rule)| {
+                rule.conditions
+                    .iter()
+                    .all(|c| c.matches(context, &self.app_name))
+            })
+            .find_map(|(_, _, rule)| self.lookup_spec(&rule.target))
+    }
+
+    /// [`Self::lookup_spec`] with the remap rules applied first, evaluated
+    /// against `context` - the live window's - at this lookup.
+    ///
+    /// Remap first, then the spec's own fallback list: the spec is the
+    /// app's statement (`ios:open_menu,kde:three-lines,menu`), the rules the
+    /// user's, so a rule for ANY entry (tried in the spec's order) beats the
+    /// app's chain, and an unmapped spec still falls through it.
+    #[must_use]
+    pub fn lookup_spec_in_context(
+        &self,
+        spec: &str,
+        context: &DynamicSelectorContext,
+    ) -> Option<RefAny> {
+        if !self.remap.is_empty() {
+            let verbatim = spec.trim().to_lowercase();
+            if let Some(data) = self.remapped(&verbatim, context) {
+                return Some(data);
+            }
+            for entry in spec.split(',') {
+                let entry = entry.trim();
+                if entry.is_empty() {
+                    continue;
+                }
+                if let Some(data) = self.remapped(&entry.to_lowercase(), context) {
+                    return Some(data);
+                }
+            }
+        }
+        self.lookup_spec(spec)
+    }
 }
 
 impl IconProviderHandle {
@@ -745,6 +937,48 @@ impl IconProviderHandle {
     /// registered first.
     pub fn set_pack_rank(&mut self, pack_name: &str, rank: u32) {
         self.inner.pack_ranks.insert(pack_name.to_string(), rank);
+    }
+
+    /// Add a global remap rule: while `apply_if` holds
+    /// ([`parse_icon_apply_if`]; empty = always), `icon_name` is drawn as
+    /// `target_spec`. Rules for one name are tried in the order they were
+    /// added; the first that applies and resolves wins. Evaluated at lookup
+    /// against the live window context, so `mode=dark` follows a mode switch.
+    pub fn add_icon_remap_rule(&mut self, icon_name: &str, apply_if: &str, target_spec: &str) {
+        self.inner.add_remap_rule(
+            icon_name,
+            IconRemapRule {
+                theme: None,
+                conditions: parse_icon_apply_if(apply_if),
+                target: target_spec.to_string(),
+            },
+        );
+    }
+
+    /// [`Self::add_icon_remap_rule`] for a rule of the THEME `theme`
+    /// (`xyz:pink`): it applies only while that theme is in the window's
+    /// theme chain, and beats the rules of the themes after it in the chain
+    /// and the global table - whatever order the rules were added in.
+    pub fn add_theme_icon_remap_rule(
+        &mut self,
+        theme: &str,
+        icon_name: &str,
+        apply_if: &str,
+        target_spec: &str,
+    ) {
+        self.inner.add_remap_rule(
+            icon_name,
+            IconRemapRule {
+                theme: Some(theme.to_string()),
+                conditions: parse_icon_apply_if(apply_if),
+                target: target_spec.to_string(),
+            },
+        );
+    }
+
+    /// The application's name, which `app=` rule terms compare against.
+    pub fn set_app_name(&mut self, app_name: &str) {
+        self.inner.app_name = app_name.to_string();
     }
 
     /// Look up an icon across all packs in lookup order, returning the pack
@@ -873,6 +1107,12 @@ struct IconResolutionCache {
     /// resolvers read the style (theme, tint, grayscale), so entries from
     /// another style are wrong, not merely stale.
     system_style: Option<SystemStyle>,
+    /// The rule context every entry was looked up under
+    /// ([`icon_rule_context`]): remap rules read the mode, the theme chain,
+    /// the OS and the contrast preference, so another context is another
+    /// lookup. Holds ONLY what rules read, so a viewport change - every frame
+    /// of a drag-resize - does not flush.
+    rule_context: Option<DynamicSelectorContext>,
     /// spec → entries with that spec (usually exactly one; more when the same
     /// icon name appears with different inline styles).
     entries: BTreeMap<String, Vec<IconCacheEntry>>,
@@ -910,25 +1150,26 @@ impl SharedIconProvider {
         if let Ok(mut cache) = self.cache.lock() {
             cache.entries.clear();
             cache.total = 0;
-            // The next batch re-validates against whatever style it carries.
+            // The next batch re-validates against whatever it carries.
             cache.system_style = None;
+            cache.rule_context = None;
         }
     }
 
-    /// Flush the cache if `system_style` differs from the one its entries
-    /// were resolved under. Called ONCE per `resolve_icons_in_styled_dom`
-    /// batch, not per icon, so the `SystemStyle` comparison is per-frame.
-    fn validate_cache_for_style(&self, system_style: &SystemStyle) {
+    /// Flush the cache if the style or the rule context differs from the one
+    /// its entries were resolved under. Called ONCE per resolution pass, not
+    /// per icon, so the comparison is per-frame.
+    fn validate_cache(&self, system_style: &SystemStyle, rule_context: &DynamicSelectorContext) {
         let Ok(mut cache) = self.cache.lock() else {
             return;
         };
-        match &cache.system_style {
-            Some(cached) if cached == system_style => {}
-            _ => {
-                cache.entries.clear();
-                cache.total = 0;
-                cache.system_style = Some(system_style.clone());
-            }
+        let same_style = cache.system_style.as_ref() == Some(system_style);
+        let same_rules = cache.rule_context.as_ref() == Some(rule_context);
+        if !(same_style && same_rules) {
+            cache.entries.clear();
+            cache.total = 0;
+            cache.system_style = Some(system_style.clone());
+            cache.rule_context = Some(rule_context.clone());
         }
     }
 
@@ -964,7 +1205,9 @@ impl SharedIconProvider {
         cache.total += 1;
     }
 
-    /// Resolve an icon to a `StyledDom` using the registered callback
+    /// Resolve an icon to a `StyledDom` using the registered callback, the
+    /// remap rules evaluated against the context `system_style` alone implies
+    /// (no window). See [`Self::resolve_in_context`].
     #[must_use]
     pub fn resolve(
         &self,
@@ -972,13 +1215,27 @@ impl SharedIconProvider {
         icon_name: &str,
         system_style: &SystemStyle,
     ) -> Dom {
+        let rule_context = icon_rule_context(system_style, None);
+        self.resolve_in_context(original_icon_node, icon_name, system_style, &rule_context)
+    }
+
+    /// Resolve an icon: remap rules evaluated against `rule_context` (the
+    /// live window's), then the spec's own fallback list, then the resolver.
+    #[must_use]
+    pub fn resolve_in_context(
+        &self,
+        original_icon_node: &NodeData,
+        icon_name: &str,
+        system_style: &SystemStyle,
+        rule_context: &DynamicSelectorContext,
+    ) -> Dom {
         let (resolver, lookup_result) = {
             let Ok(guard) = self.inner.lock() else {
                 return Dom::create_div();
             };
 
             let resolver = guard.resolver;
-            let lookup_result = guard.lookup_spec(icon_name);
+            let lookup_result = guard.lookup_spec_in_context(icon_name, rule_context);
 
             (resolver, lookup_result)
         };
@@ -986,22 +1243,24 @@ impl SharedIconProvider {
         resolver(lookup_result.into(), original_icon_node, system_style)
     }
 
-    /// [`Self::resolve`], memoised on `(spec, icon node)`.
+    /// [`Self::resolve_in_context`], memoised on `(spec, icon node)`.
     ///
-    /// The system style is not part of the key: a change to it clears the whole
-    /// cache once per pass (`validate_cache_for_style`), which is cheaper than
-    /// carrying it in every entry.
+    /// Neither the system style nor the rule context is part of the key: a
+    /// change to either clears the whole cache once per pass
+    /// (`validate_cache`), which is cheaper than carrying them in every entry.
     #[must_use]
     fn resolve_cached(
         &self,
         original_icon_node: &NodeData,
         icon_name: &str,
         system_style: &SystemStyle,
+        rule_context: &DynamicSelectorContext,
     ) -> Dom {
         if let Some(hit) = self.cached_resolution(icon_name, original_icon_node) {
             return hit;
         }
-        let resolved = self.resolve(original_icon_node, icon_name, system_style);
+        let resolved =
+            self.resolve_in_context(original_icon_node, icon_name, system_style, rule_context);
         self.store_resolution(icon_name, original_icon_node, &resolved);
         resolved
     }
@@ -1078,10 +1337,85 @@ pub fn resolve_icons_in_dom(
     provider: &SharedIconProvider,
     system_style: &SystemStyle,
 ) {
-    // A SystemStyle change (theme flip, tint, grayscale) invalidates every
-    // cached resolution. Checked once per pass, not once per icon.
-    provider.validate_cache_for_style(system_style);
-    resolve_icons_in_dom_inner(dom, provider, system_style);
+    resolve_icons_in_dom_with_context(dom, provider, system_style, None);
+}
+
+/// [`resolve_icons_in_dom`] under a window's selector context.
+///
+/// The context decides two things the `SystemStyle` alone cannot:
+///
+/// * the MODE the icons are drawn in - the window's (an app pinned dark on a light desktop, the
+///   `AZ_THEME` pin), handed to the resolver as the style's `theme`, which is where resolvers read
+///   it ([`style_in_window_mode`]);
+/// * what remap rules see: `apply-if` is evaluated at LOOKUP against this live context (mode,
+///   theme chain, OS, contrast), not once at startup, so a light -> dark switch swaps the artwork
+///   on the very next pass.
+///
+/// `None` (no window yet, a tray, the client-side decorations) uses the
+/// context the style implies.
+pub fn resolve_icons_in_dom_with_context(
+    dom: &mut Dom,
+    provider: &SharedIconProvider,
+    system_style: &SystemStyle,
+    context: Option<&DynamicSelectorContext>,
+) {
+    let rule_context = icon_rule_context(system_style, context);
+    let in_window_mode = style_in_window_mode(system_style, &rule_context);
+    let system_style = in_window_mode.as_ref().unwrap_or(system_style);
+    // A change of either (theme flip, tint, grayscale, theme chain)
+    // invalidates every cached resolution. Checked once per pass, not once
+    // per icon.
+    provider.validate_cache(system_style, &rule_context);
+    resolve_icons_in_dom_inner(dom, provider, system_style, &rule_context);
+}
+
+/// The part of a selector context icon remap rules read - mode, theme
+/// chain, OS, desktop, contrast - taken from the live `context` when there is
+/// one; everything else at what `system_style` alone implies. Keeping the
+/// rest fixed is what lets the resolution cache compare contexts per frame
+/// without a resize (a new viewport every frame) flushing it.
+fn icon_rule_context(
+    system_style: &SystemStyle,
+    context: Option<&DynamicSelectorContext>,
+) -> DynamicSelectorContext {
+    let mut rules = DynamicSelectorContext::from_system_style(system_style);
+    if let Some(live) = context {
+        rules.os = live.os;
+        rules.os_version = live.os_version;
+        rules.desktop_env = live.desktop_env.clone();
+        rules.de_version = live.de_version;
+        rules.theme = live.theme.clone();
+        rules.theme_chain = live.theme_chain.clone();
+        rules.prefers_high_contrast = live.prefers_high_contrast;
+        rules.system_colors = live.system_colors;
+    }
+    rules
+}
+
+/// `system_style` in the mode (and contrast) `context` evaluates, when that
+/// differs from the style's own: the palette of that mode, `theme` set to
+/// it. `None` when the style already matches, the usual case.
+fn style_in_window_mode(
+    system_style: &SystemStyle,
+    context: &DynamicSelectorContext,
+) -> Option<SystemStyle> {
+    use azul_css::{dynamic_selector::ThemeCondition, system::Theme};
+
+    let mode = if context.theme == ThemeCondition::Dark {
+        Theme::Dark
+    } else {
+        Theme::Light
+    };
+    if system_style.theme == mode
+        && system_style.prefers_high_contrast == context.prefers_high_contrast
+    {
+        return None;
+    }
+    let mut in_mode = system_style.clone();
+    in_mode.colors = system_style.colors_for_theme(mode);
+    in_mode.theme = mode;
+    in_mode.prefers_high_contrast = context.prefers_high_contrast;
+    Some(in_mode)
 }
 
 /// Resolve every `<icon>` in a user `Dom` and cascade it - the two halves of
@@ -1118,7 +1452,7 @@ pub fn styled_dom_resolving_icons_with_context(
     dom: Dom,
     provider: &SharedIconProvider,
     system_style: &SystemStyle,
-    context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+    context: Option<DynamicSelectorContext>,
 ) -> StyledDom {
     styled_dom_resolving_icons_with_user_sheets(dom, provider, system_style, context, &[])
 }
@@ -1134,7 +1468,7 @@ pub fn styled_dom_resolving_icons_with_user_sheets(
     context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
     user_sheets: &[azul_css::css::Css],
 ) -> StyledDom {
-    resolve_icons_in_dom(&mut dom, provider, system_style);
+    resolve_icons_in_dom_with_context(&mut dom, provider, system_style, context.as_ref());
     StyledDom::create_from_dom_with_user_sheets(dom, context, user_sheets)
 }
 
@@ -1232,6 +1566,7 @@ fn resolve_icons_in_dom_inner(
     dom: &mut Dom,
     provider: &SharedIconProvider,
     system_style: &SystemStyle,
+    rule_context: &DynamicSelectorContext,
 ) {
     // An icon may resolve TO another icon - registering
     // `Dom::create_icon("favorite").with_css("color: red")` under another name
@@ -1247,7 +1582,8 @@ fn resolve_icons_in_dom_inner(
         if seen >= MAX_ICON_INDIRECTION {
             break;
         }
-        let replacement = provider.resolve_cached(&dom.root, spec.as_str(), system_style);
+        let replacement =
+            provider.resolve_cached(&dom.root, spec.as_str(), system_style, rule_context);
         if icon_spec_of(&replacement).as_ref().map(AzString::as_str) == Some(spec.as_str()) {
             // Resolves to itself: replacing would spin.
             break;
@@ -1274,7 +1610,7 @@ fn resolve_icons_in_dom_inner(
     }
 
     for child in dom.children.as_mut() {
-        resolve_icons_in_dom_inner(child, provider, system_style);
+        resolve_icons_in_dom_inner(child, provider, system_style, rule_context);
     }
 }
 
