@@ -11,8 +11,10 @@
 //! until the next pass. (The viewport's bar got its own fix,
 //! 9a0f13b4c; this is every other scroll box.)
 //!
-//! The page: a 200x100 `overflow-y: scroll` box over 400px of content,
-//! laid out again over 800px.
+//! The page: a 200x200 `overflow-y: scroll` box over 400px of content,
+//! laid out again over 800px - tall enough that both thumbs (~88px and
+//! ~44px on a 12px classic bar) are longer than the minimum thumb (twice the
+//! bar's thickness), which would make them equal.
 
 use azul_core::{
     dom::{Dom, DomId, NodeId, ScrollbarOrientation},
@@ -34,7 +36,7 @@ fn page(content_height: f32) -> StyledDom {
     StyledDom::create_from_dom(
         Dom::create_body().with_css("margin: 0;").with_child(
             Dom::create_div()
-                .with_css("width: 200px; height: 100px; overflow-y: scroll;")
+                .with_css("width: 200px; height: 200px; overflow-y: scroll;")
                 .with_child(Dom::create_div().with_css(&format!("height: {content_height}px;"))),
         ),
     )
