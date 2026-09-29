@@ -1979,6 +1979,26 @@ impl Win32Window {
         self.common.rebuild_cpu_hit_tester();
     }
 
+    /// The `ShowWindow` command that first shows this window, from its frame
+    /// state - and, for a popup that LEAVES focus on its invoker (a
+    /// combobox's list), without activating it: its owner keeps every key
+    /// (see the `WS_EX_NOACTIVATE` in `wcreate::create_hwnd`).
+    fn show_command(&self) -> i32 {
+        use azul_core::window::WindowFrame;
+        use dlopen::constants::{SW_MAXIMIZE, SW_MINIMIZE, SW_SHOWNOACTIVATE, SW_SHOWNORMAL};
+        let state = self.common.current_window_state();
+        match state.flags.frame {
+            WindowFrame::Normal
+                if !crate::desktop::shell2::common::transient::popup_takes_focus(state) =>
+            {
+                SW_SHOWNOACTIVATE
+            }
+            WindowFrame::Normal => SW_SHOWNORMAL,
+            WindowFrame::Minimized => SW_MINIMIZE,
+            WindowFrame::Maximized | WindowFrame::Fullscreen => SW_MAXIMIZE,
+        }
+    }
+
     /// Route a `ProcessEventResult` produced by a MAIN-WINDOW input handler
     /// (`WM_MOUSEMOVE` / `WM_LBUTTONDOWN` / `WM_LBUTTONUP` / `WM_KEYDOWN` /
     /// `WM_KEYUP` / `WM_CHAR` / `WM_MOUSEWHEEL` / `WM_IME_CHAR` / …) exactly the
@@ -2001,26 +2021,6 @@ impl Win32Window {
     /// - `ShouldUpdateDisplayListCurrentWindow | ShouldReRenderCurrentWindow` → invalidate only
     ///   (preserves the old `!DoNothing` repaint).
     /// - `DoNothing` → nothing (preserves the old no-op).
-    /// The `ShowWindow` command that first shows this window, from its frame
-    /// state - and, for a popup that LEAVES focus on its invoker (a
-    /// combobox's list), without activating it: its owner keeps every key
-    /// (see the `WS_EX_NOACTIVATE` in `wcreate::create_hwnd`).
-    fn show_command(&self) -> i32 {
-        use azul_core::window::WindowFrame;
-        use dlopen::constants::{SW_MAXIMIZE, SW_MINIMIZE, SW_SHOWNOACTIVATE, SW_SHOWNORMAL};
-        let state = self.common.current_window_state();
-        match state.flags.frame {
-            WindowFrame::Normal
-                if !crate::desktop::shell2::common::transient::popup_takes_focus(state) =>
-            {
-                SW_SHOWNOACTIVATE
-            }
-            WindowFrame::Normal => SW_SHOWNORMAL,
-            WindowFrame::Minimized => SW_MINIMIZE,
-            WindowFrame::Maximized | WindowFrame::Fullscreen => SW_MAXIMIZE,
-        }
-    }
-
     fn route_main_window_result(
         &mut self,
         hwnd: HWND,
