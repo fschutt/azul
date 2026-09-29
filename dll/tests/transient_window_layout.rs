@@ -3307,6 +3307,25 @@ fn a_press_on_the_backdrop_closes_a_modal_dialog_only_with_closedby_any() {
     }
 }
 
+/// The dialog answers Escape with a WINDOW key handler, and the parent lays
+/// out the same node (the `<transient-window>` template). An Escape pressed
+/// in the parent while the dialog holds the keyboard is forwarded to the
+/// dialog's window; the parent's copy must never run `cancel` itself - that
+/// would be a second `cancel` against the same app state.
+#[test]
+fn an_escape_in_the_parent_does_not_reach_the_dialog_it_shows() {
+    let mut parent = dialog_parent(DialogClosedBy::Auto, false);
+    let (_popup, _) = show_probe_dialog(&mut parent);
+
+    key_down(&mut parent, VirtualKeyCode::Escape, &[], "t.parent.escape");
+    keys_up(&mut parent, "t.parent.escape.up");
+    assert_eq!(
+        with_probe(&parent, |p| p.cancels),
+        0,
+        "the dialog's key handler ran in the parent's window"
+    );
+}
+
 /// A control inside the dialog closes it with a return value
 /// (`Dialog::close_from`, HTML `close("ok")`): no `cancel`, and the app's
 /// `close` sees "ok".

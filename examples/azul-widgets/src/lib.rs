@@ -1059,14 +1059,14 @@ fn dialog_body(data: &RefAny) -> Dom {
                 ),
         )
 }
-extern "C" fn on_dialog_keep(_data: RefAny, mut info: CallbackInfo) -> Update {
+extern "C" fn on_dialog_keep(_data: RefAny, info: CallbackInfo) -> Update {
     let hit = info.get_hit_node();
-    let _ = Dialog::close_from(&mut info, hit, "keep".into());
+    let _ = Dialog::close_from(info, hit, "keep");
     Update::DoNothing
 }
-extern "C" fn on_dialog_delete(_data: RefAny, mut info: CallbackInfo) -> Update {
+extern "C" fn on_dialog_delete(_data: RefAny, info: CallbackInfo) -> Update {
     let hit = info.get_hit_node();
-    let _ = Dialog::close_from(&mut info, hit, "delete".into());
+    let _ = Dialog::close_from(info, hit, "delete");
     Update::DoNothing
 }
 /// The dialog closed - by a button, Escape or the close button: say how.

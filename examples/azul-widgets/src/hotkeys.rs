@@ -129,7 +129,7 @@ pub fn hotkey_section(data: &RefAny, demo: &HotkeyDemo, info: &LayoutCallbackInf
     if demo.enabled {
         info.add_global_hotkey_with_description(
             demo_hotkey(),
-            "Bring AzWidgets to the front".into(),
+            "Bring AzWidgets to the front",
             data.clone(),
             on_hotkey,
         );

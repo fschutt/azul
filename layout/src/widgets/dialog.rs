@@ -59,7 +59,7 @@ use azul_core::{
     callbacks::Update,
     dom::{
         AttributeType, ComponentEventFilter, DatasetMergeCallback, Dom, DomNodeId, DomVec,
-        EventFilter, FocusEventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class,
+        EventFilter, HoverEventFilter, WindowEventFilter, IdOrClass, IdOrClass::Class,
         IdOrClassVec, NodeData, NodeType, OptionDom, TabIndex,
     },
     refany::{OptionRefAny, RefAny},
@@ -902,6 +902,12 @@ pub(crate) fn build_dialog(parts: DialogParts) -> Dom {
     // and a popup panel's rounded corners are real corners.
     .with_material(azul_core::window::WindowBackgroundMaterial::Transparent);
     let mut window = NodeData::create_node(NodeType::TransientWindow(config));
+    // HTML `<dialog>` is focusable (its focusing steps fall back to the dialog
+    // itself) but never a SEQUENTIAL stop: tabindex=-1. Without it the
+    // Escape handler below - a focus-event callback - made the popup's root
+    // its first tab stop, so the dialog autofocused itself instead of its
+    // first control.
+    window.set_tab_index(TabIndex::NoKeyboardFocus);
     if !title.as_str().is_empty() {
         window.set_attributes(alloc::vec![AttributeType::Title(title)].into());
     }
@@ -910,8 +916,17 @@ pub(crate) fn build_dialog(parts: DialogParts) -> Dom {
         data.clone(),
         Callback::from_ptr(on_dialog_dismissed).to_core(),
     );
+    // Escape is a CLOSE REQUEST for the dialog whatever is focused inside it
+    // (HTML: the topmost dialog's close watcher, not a keydown listener on
+    // the focused control). A focus-scoped handler here only ever heard keys
+    // aimed at the root itself: azul's `Focus(..)` filters fire on the
+    // focused node, never on its ancestors. Inside its own window the root is
+    // the whole window, so a WINDOW key handler is exactly "an Escape in the
+    // dialog". The parent's copy of this node never hears the parent's keys
+    // while the dialog is up: a popup that holds the keyboard has them
+    // forwarded to it.
     window.add_callback(
-        EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+        EventFilter::Window(WindowEventFilter::VirtualKeyDown),
         data.clone(),
         Callback::from_ptr(on_dialog_key).to_core(),
     );
@@ -1705,7 +1720,7 @@ mod tests {
             .collect();
         for e in [
             EventFilter::Component(ComponentEventFilter::Dismissed),
-            EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+            EventFilter::Window(WindowEventFilter::VirtualKeyDown),
             EventFilter::Hover(HoverEventFilter::LeftMouseDown),
         ] {
             assert!(events.contains(&e), "{e:?} missing from {events:?}");
