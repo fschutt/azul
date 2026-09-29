@@ -2998,3 +2998,61 @@ pub fn popover(p: crate::widgets::popover::Popover) -> Dom {
     skin.panel = popover_panel_style();
     p.build(skin)
 }
+
+// ==== number_input ====
+//
+// A NumberInput draws nothing of its own: the TextInput it wraps is the field,
+// rendered by `text_input` above in flora. What flora adds for a number field
+// the app did not style: the field's own paper by day (`--fl-fld`) under flora
+// ink, a `--fl-bd2` hairline, the house radius and the well a field is sunk in
+// (`--fl-well`); the night field, border and ink are `text_input`'s. Its focus
+// ring lifts to the stone's glow by night (`--focus-color`) - appended after
+// `text_input`'s states, so it is the one that wins.
+
+/// `--fl-well` by day: inset 0 1px 2px rgba(48, 45, 38, 0.10).
+const NUMBER_INPUT_WELL_LIGHT: ColorU = ColorU::new(48, 45, 38, 26);
+/// `--fl-well` by night: inset 0 1px 2px rgba(0, 0, 0, 0.45).
+const NUMBER_INPUT_WELL_DARK: ColorU = ColorU::new(0, 0, 0, 115);
+
+/// Renders a [`crate::widgets::number_input::NumberInput`] in the flora theme.
+#[must_use]
+pub fn number_input(mut n: crate::widgets::number_input::NumberInput) -> Dom {
+    use azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec;
+
+    use super::style_kit as kit;
+    type P = CssPropertyWithConditions;
+
+    n.text_input.set_theme(super::UiTheme::Flora);
+    // A caller who styled the field chose every property of it; the theme
+    // adds to its OWN default only (as `button` does).
+    let owns_field = n.text_input.container_style.is_none();
+    if owns_field {
+        let mut field = crate::widgets::text_input::TEXT_INPUT_CONTAINER_PROPS.to_vec();
+        field.push(P::simple(kit::bg(LIGHT_FLD)));
+        field.push(P::simple(kit::ink(LIGHT_INK)));
+        field.extend(kit::border(kit::Edges::ALL, 1, LIGHT_BD2, DARK_BD));
+        field.extend(kit::radius(3));
+        field.extend(kit::inset_shadow(
+            1,
+            2,
+            NUMBER_INPUT_WELL_LIGHT,
+            NUMBER_INPUT_WELL_DARK,
+        ));
+        n.text_input.container_style =
+            OptionCssPropertyWithConditionsVec::Some(CssPropertyWithConditionsVec::from_vec(field));
+    }
+    if n.text_input.label_style.is_none() {
+        let mut label = crate::widgets::text_input::TEXT_INPUT_LABEL_PROPS.to_vec();
+        label.push(P::simple(kit::ink(LIGHT_INK)));
+        n.text_input.label_style =
+            OptionCssPropertyWithConditionsVec::Some(CssPropertyWithConditionsVec::from_vec(label));
+    }
+    let mut dom = n.build();
+    if owns_field {
+        for p in kit::focus_ring(LIGHT_ACC, DARK_GLOW) {
+            dom.add_css_property(p);
+        }
+    }
+    dom.add_class(AzString::from_const_str(kit::FLORA_CLASS));
+    dom
+}

@@ -28,11 +28,14 @@ use azul_css::{
 
 use crate::{
     callbacks::{Callback, CallbackInfo},
-    widgets::text_input::{
-        OnTextInputReturn, TextInput, TextInputOnFocusLostCallback,
-        TextInputOnFocusLostCallbackType, TextInputOnTextInputCallback,
-        TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallback,
-        TextInputOnVirtualKeyDownCallbackType, TextInputState, TextInputValid,
+    widgets::{
+        text_input::{
+            OnTextInputReturn, TextInput, TextInputOnFocusLostCallback,
+            TextInputOnFocusLostCallbackType, TextInputOnTextInputCallback,
+            TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallback,
+            TextInputOnVirtualKeyDownCallbackType, TextInputState, TextInputValid,
+        },
+        themes::{OptionUiTheme, UiTheme},
     },
 };
 
@@ -102,6 +105,10 @@ pub struct NumberInput {
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
+    /// The widget theme, or `None` for the default (`UiTheme::Flat`). Handed
+    /// to the wrapped [`TextInput`], which draws the field; a theme is a
+    /// DOM-level choice, so switching it rebuilds the field.
+    pub theme: OptionUiTheme,
 }
 
 /// Wraps `NumberInputState` together with its value-change and focus-lost callbacks.
@@ -278,8 +285,35 @@ impl NumberInput {
         s
     }
 
+    /// Pick the widget theme. Unset (`None`), the field renders in the
+    /// default theme (`UiTheme::default()`, flat).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
     #[must_use]
-    pub fn dom(mut self) -> Dom {
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// Renders the field. Rendering goes through the theme modules (as
+    /// `Button::dom` does); `UiTheme::default()` is flat.
+    #[must_use]
+    pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::number_input(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::number_input(self),
+        }
+    }
+
+    /// Wires the numeric validation into the wrapped [`TextInput`] and
+    /// renders it - in whatever theme and style the theme module left on it.
+    #[must_use]
+    pub(crate) fn build(mut self) -> Dom {
         let number_string = format!("{}", self.number_input_state.inner.number);
         self.text_input.text_input_state.inner.text = number_string
             .chars()

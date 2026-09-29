@@ -3477,3 +3477,18 @@ pub fn popover(p: crate::widgets::popover::Popover) -> Dom {
     skin.panel = popover_panel_style();
     p.build(skin)
 }
+
+// ==== number_input ====
+//
+// A NumberInput draws nothing of its own: the TextInput it wraps is the field.
+// Flat hands it the flat theme - the established white field, the desktop's
+// field in the dark, the `FIELD_RING` / `DARK_ACC` ring - and marks the root.
+
+/// Renders a [`crate::widgets::number_input::NumberInput`] in the flat theme.
+#[must_use]
+pub fn number_input(mut n: crate::widgets::number_input::NumberInput) -> Dom {
+    n.text_input.set_theme(super::UiTheme::Flat);
+    let mut dom = n.build();
+    dom.add_class(AzString::from_const_str(super::style_kit::FLAT_CLASS));
+    dom
+}
