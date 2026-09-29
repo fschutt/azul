@@ -1360,3 +1360,74 @@ mod gaps {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Platform leftovers (N1, 2026-09-29): what the per-OS backends decide that a
+// host can check - which response launched the app, the one app identity, the
+// Windows toast activator's registration, the freedesktop bookkeeping behind
+// an asynchronous `Notify`, and the Flatpak portal's notification.
+// ---------------------------------------------------------------------------
+
+mod platforms {
+    use super::wire;
+
+    // ---- which response launched the app ----
+
+    #[test]
+    fn the_tap_that_cold_launched_the_app_is_marked_where_the_os_names_no_notification() {
+        // iOS (a local notification) and a Windows COM activation: the
+        // process was started for a response nobody names. The first one is it.
+        let mut marker = wire::LaunchResponseMarker::new();
+        marker.expect_first();
+        assert!(
+            marker.launched_app("posted-by-an-earlier-run"),
+            "the first response of a launch that expected one launched the app"
+        );
+        assert!(
+            !marker.launched_app("another"),
+            "a launch marks at most one response"
+        );
+    }
+
+    #[test]
+    fn a_tap_on_an_app_that_was_already_active_did_not_launch_it() {
+        // iOS: `applicationDidBecomeActive` came first - the app was running.
+        let mut marker = wire::LaunchResponseMarker::new();
+        marker.expect_first();
+        marker.launch_finished();
+        assert!(!marker.launched_app("tapped-while-running"));
+    }
+
+    #[test]
+    fn a_process_that_was_not_launched_for_a_notification_marks_nothing() {
+        let mut marker = wire::LaunchResponseMarker::new();
+        assert!(!marker.launched_app("n"));
+        marker.launch_finished();
+        assert!(!marker.launched_app("n"));
+    }
+
+    #[test]
+    fn macos_marks_exactly_the_response_the_launch_named() {
+        let mut marker = wire::LaunchResponseMarker::new();
+        marker.name("clicked-in-notification-center".to_string());
+        assert!(
+            !marker.launched_app("some-other-notification"),
+            "only the named response launched the app"
+        );
+        assert!(marker.launched_app("clicked-in-notification-center"));
+        assert!(
+            !marker.launched_app("clicked-in-notification-center"),
+            "the same id clicked again later is a tap on a running app"
+        );
+    }
+
+    #[test]
+    fn a_named_launch_response_stays_marked_when_it_arrives_after_the_activation() {
+        // macOS may run `applicationDidBecomeActive:` before UN delivers the
+        // response the launch named.
+        let mut marker = wire::LaunchResponseMarker::new();
+        marker.name("n".to_string());
+        marker.launch_finished();
+        assert!(marker.launched_app("n"));
+    }
+}

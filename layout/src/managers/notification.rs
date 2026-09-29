@@ -786,6 +786,65 @@ pub mod wire {
         }
     }
 
+    // ---- which response LAUNCHED the app (macOS, iOS, Windows) ----
+
+    /// Which notification response started this process
+    /// (`NotificationEvent::launched_app`): the one tap whose notification's
+    /// callback cannot exist here, because the process did not.
+    ///
+    /// * **macOS** names it: `applicationDidFinishLaunching:`'s userInfo holds the response under
+    ///   `NSApplicationLaunchUserNotificationKey` ([`LaunchResponseMarker::name`]). Only that
+    ///   response is marked, whenever it arrives.
+    /// * **iOS** names nothing for a LOCAL notification. A tap that cold-launches the app delivers
+    ///   `didReceiveNotificationResponse` while the app launches, before its first
+    ///   `applicationDidBecomeActive`; a tap on an app that runs (in front or in the background)
+    ///   arrives after it was active once. So the first response between the launch
+    ///   ([`LaunchResponseMarker::expect_first`], from `didFinishLaunching`) and the first
+    ///   activation ([`LaunchResponseMarker::launch_finished`]) is the launch response.
+    /// * **Windows** starts the process with `-ToastActivated` when a click on a toast of an app
+    ///   that is not running reaches its COM activator (`launched_by_toast_activation`); the
+    ///   first activation that process receives is that click ([`LaunchResponseMarker::expect_first`]).
+    ///
+    /// A launch marks at most one response.
+    #[derive(Debug, Default, Clone, PartialEq, Eq)]
+    pub struct LaunchResponseMarker {
+        /// macOS: the request identifier the launch named.
+        named: Option<String>,
+        /// iOS / Windows: the next response is the launch response.
+        expecting_first: bool,
+    }
+
+    impl LaunchResponseMarker {
+        /// Nothing launched this process for a notification (yet).
+        #[must_use]
+        pub const fn new() -> Self {
+            Self {
+                named: None,
+                expecting_first: false,
+            }
+        }
+
+        /// macOS: the launch named the response by its request identifier.
+        pub fn name(&mut self, request_id: String) {
+            let _ = request_id;
+        }
+
+        /// The process was started for a response that has not arrived yet.
+        pub fn expect_first(&mut self) {}
+
+        /// iOS: the app became active. A response from now on is a tap on an
+        /// app that was running - unless the launch NAMED it (macOS), which
+        /// stays marked however late it arrives.
+        pub fn launch_finished(&mut self) {}
+
+        /// Judge one response, by the id of the notification it answers: did
+        /// it launch the app?
+        pub fn launched_app(&mut self, notification_id: &str) -> bool {
+            let _ = notification_id;
+            false
+        }
+    }
+
     // ---- Windows (Shell_NotifyIconW balloon, NOTIFYICON_VERSION_4) ----
 
     /// `LOWORD(lParam)` of the notify icon's callback message.
