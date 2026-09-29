@@ -574,9 +574,10 @@ impl Alert {
             Some(UiTheme::Flat) => crate::widgets::themes::flat::alert(self),
             // No theme: follow the app theme - both looks in one DOM, each
             // inside its `@theme(<name>)` block, and the app theme picks.
-            None => crate::widgets::themes::theme_blocks::every_theme_dom(
-                crate::widgets::themes::flat::alert(self.clone()),
-                crate::widgets::themes::flora::alert(self),
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                crate::widgets::themes::flat::alert,
+                crate::widgets::themes::flora::alert,
             ),
         }
     }

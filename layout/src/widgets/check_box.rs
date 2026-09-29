@@ -317,7 +317,7 @@ impl CheckBox {
             // No theme: follow the app theme - both looks in one DOM, each
             // inside its `@theme(<name>)` block, and the app theme picks.
             None => {
-                theme_blocks::every_theme_dom(flat::check_box(self.clone()), flora::check_box(self))
+                theme_blocks::follow_app_theme(self, flat::check_box, flora::check_box)
             }
         }
     }

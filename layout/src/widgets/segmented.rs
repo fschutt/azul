@@ -402,11 +402,11 @@ pub(crate) fn skin_for(theme: UiTheme) -> SegmentedSkin {
     }
 }
 
-/// One segment in BOTH themes' blocks (`themes::flat::follow_props`) - the
+/// One segment in BOTH themes' blocks (`themes::theme_blocks::follow_props`) - the
 /// `segment` of an unpinned control's skin.
 #[must_use]
 fn follow_segment(selected: bool, is_first: bool, is_last: bool) -> CssPropertyWithConditionsVec {
-    crate::widgets::themes::flat::follow_props(
+    crate::widgets::themes::theme_blocks::follow_props(
         (skin_for(UiTheme::Flat).segment)(selected, is_first, is_last).as_slice(),
         (skin_for(UiTheme::Flora).segment)(selected, is_first, is_last).as_slice(),
     )

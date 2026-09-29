@@ -274,7 +274,7 @@ impl DropDown {
             // No theme: follow the app theme - both looks in one DOM, each
             // inside its `@theme(<name>)` block, and the app theme picks.
             None => {
-                theme_blocks::every_theme_dom(flat::drop_down(self.clone()), flora::drop_down(self))
+                theme_blocks::follow_app_theme(self, flat::drop_down, flora::drop_down)
             }
         }
     }

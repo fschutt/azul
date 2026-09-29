@@ -307,7 +307,7 @@ impl Avatar {
             // inside its `@theme(<name>)` block, and the app theme picks.
             // (The two avatars look alike today, so the blocks collapse to
             // the one unconditioned look.)
-            None => theme_blocks::every_theme_dom(flat::avatar(self.clone()), flora::avatar(self)),
+            None => theme_blocks::follow_app_theme(self, flat::avatar, flora::avatar),
         }
     }
 }

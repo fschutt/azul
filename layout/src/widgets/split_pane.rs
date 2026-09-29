@@ -413,7 +413,7 @@ pub(crate) fn skin_for(theme: UiTheme, direction: SplitDirection) -> SplitPaneSk
 
 /// The skin an UNPINNED split pane is built with, so it follows the app
 /// theme: `structure`'s theme (its marker goes on the container) and the
-/// divider in BOTH themes' blocks (`themes::flat::follow_props`). The panes'
+/// divider in BOTH themes' blocks (`themes::theme_blocks::follow_props`). The panes'
 /// content is never cloned or walked.
 #[must_use]
 pub(crate) fn follow_skin(structure: UiTheme, direction: SplitDirection) -> SplitPaneSkin {
@@ -423,7 +423,7 @@ pub(crate) fn follow_skin(structure: UiTheme, direction: SplitDirection) -> Spli
     );
     SplitPaneSkin {
         theme: structure,
-        divider: crate::widgets::themes::flat::follow_props(
+        divider: crate::widgets::themes::theme_blocks::follow_props(
             flat.divider.as_slice(),
             flora.divider.as_slice(),
         ),

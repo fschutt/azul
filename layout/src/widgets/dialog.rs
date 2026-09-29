@@ -813,7 +813,7 @@ pub(crate) fn skin_for(theme: UiTheme) -> DialogSkin {
 
 /// The skin an UNPINNED dialog or modal is built with, so it follows the
 /// app theme: `structure`'s theme (its marker goes on the wrapper) and every
-/// part in BOTH themes' blocks (`themes::flat::follow_props`) - the cascade
+/// part in BOTH themes' blocks (`themes::theme_blocks::follow_props`) - the cascade
 /// keeps the live theme's.
 #[must_use]
 pub(crate) fn follow_skin(structure: UiTheme) -> DialogSkin {
@@ -825,7 +825,7 @@ pub(crate) fn follow_skin(structure: UiTheme) -> DialogSkin {
 /// build with.
 #[must_use]
 pub(crate) fn follow_skins(structure: UiTheme, flat: DialogSkin, flora: DialogSkin) -> DialogSkin {
-    use crate::widgets::themes::flat::follow_props as both;
+    use crate::widgets::themes::theme_blocks::follow_props as both;
     DialogSkin {
         theme: structure,
         panel: both(flat.panel.as_slice(), flora.panel.as_slice()),

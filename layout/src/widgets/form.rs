@@ -387,7 +387,8 @@ impl Form {
             // No theme: follow the app theme - both looks of the form node,
             // each inside its `@theme(<name>)` block. The content is the
             // caller's and alike in every theme, so it goes in once.
-            None => theme_blocks::every_theme_dom(
+            None => theme_blocks::follow_dom(
+                UiTheme::current(),
                 flat::form(DomVec::from_const_slice(&[])),
                 flora::form(DomVec::from_const_slice(&[])),
             )

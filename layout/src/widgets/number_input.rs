@@ -303,14 +303,14 @@ impl NumberInput {
     /// Renders the field. Rendering goes through the theme modules (as
     /// `Button::dom` does). Unpinned (`theme: None`), the field follows the
     /// APP theme: built in the structure of the theme its DOM is built for,
-    /// carrying every theme's blocks (`themes::flat::follow_app_theme`).
+    /// carrying every theme's blocks (`themes::theme_blocks::follow_app_theme`).
     #[must_use]
     pub fn dom(self) -> Dom {
-        use crate::widgets::themes::{flat, flora};
+        use crate::widgets::themes::{flat, flora, theme_blocks};
         match self.theme.into_option() {
             Some(UiTheme::Flora) => flora::number_input(self),
             Some(UiTheme::Flat) => flat::number_input(self),
-            None => flat::follow_app_theme(self, flat::number_input, flora::number_input),
+            None => theme_blocks::follow_app_theme(self, flat::number_input, flora::number_input),
         }
     }
 

@@ -569,14 +569,14 @@ impl TextArea {
     ///
     /// Unpinned (`theme: None`, the default), the area follows the APP theme:
     /// built in the structure of the theme its DOM is built for, every node
-    /// carrying flat's and flora's blocks (`themes::flat::follow_app_theme`).
+    /// carrying flat's and flora's blocks (`themes::theme_blocks::follow_app_theme`).
     #[must_use]
     pub fn dom(self) -> Dom {
-        use crate::widgets::themes::{flat, flora, UiTheme};
+        use crate::widgets::themes::{flat, flora, theme_blocks, UiTheme};
         match self.theme.into_option() {
             Some(UiTheme::Flat) => flat::text_area(self),
             Some(UiTheme::Flora) => flora::text_area(self),
-            None => flat::follow_app_theme(self, flat::text_area, flora::text_area),
+            None => theme_blocks::follow_app_theme(self, flat::text_area, flora::text_area),
         }
     }
 }

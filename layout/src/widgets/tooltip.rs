@@ -177,11 +177,11 @@ pub(crate) fn skin_for(theme: UiTheme) -> TooltipSkin {
 
 /// The skin an UNPINNED tooltip is built with, so it follows the app theme:
 /// `structure`'s theme (its marker goes on the wrapper) and both parts in
-/// BOTH themes' blocks (`themes::flat::follow_props`) - the cascade keeps
+/// BOTH themes' blocks (`themes::theme_blocks::follow_props`) - the cascade keeps
 /// the live theme's. The caller's anchor is never cloned or walked.
 #[must_use]
 pub(crate) fn follow_skin(structure: UiTheme) -> TooltipSkin {
-    use crate::widgets::themes::flat::follow_props as both;
+    use crate::widgets::themes::theme_blocks::follow_props as both;
     let (flat, flora) = (skin_for(UiTheme::Flat), skin_for(UiTheme::Flora));
     TooltipSkin {
         theme: structure,

@@ -318,9 +318,10 @@ impl Card {
             None => {
                 let mut shell = self;
                 let content = core::mem::replace(&mut shell.content, Dom::create_div());
-                crate::widgets::themes::theme_blocks::every_theme_dom(
-                    crate::widgets::themes::flat::card(shell.clone()),
-                    crate::widgets::themes::flora::card(shell),
+                crate::widgets::themes::theme_blocks::follow_app_theme(
+                    shell,
+                    crate::widgets::themes::flat::card,
+                    crate::widgets::themes::flora::card,
                 )
                 .with_children(alloc::vec![content].into())
             }

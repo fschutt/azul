@@ -511,9 +511,10 @@ impl Accordion {
             Some(UiTheme::Flat) => crate::widgets::themes::flat::accordion(self),
             // No theme: follow the app theme - both looks in one DOM, each
             // inside its `@theme(<name>)` block, and the app theme picks.
-            None => crate::widgets::themes::theme_blocks::every_theme_dom(
-                crate::widgets::themes::flat::accordion(self.clone()),
-                crate::widgets::themes::flora::accordion(self),
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                crate::widgets::themes::flat::accordion,
+                crate::widgets::themes::flora::accordion,
             ),
         }
     }

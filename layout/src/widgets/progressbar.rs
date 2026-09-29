@@ -381,10 +381,10 @@ impl ProgressBar {
 }
 
 /// An UNPINNED bar's tree: rendered by BOTH themes and merged in the
-/// structure of the theme the DOM is built for (`themes::flat::follow_dom`).
+/// structure of the theme the DOM is built for (`themes::theme_blocks::follow_dom`).
 fn follow_bar(bar: ProgressBar, bounds_px: Option<(f32, f32)>) -> Dom {
-    use crate::widgets::themes::{flat, flora, UiTheme};
-    flat::follow_dom(
+    use crate::widgets::themes::{flat, flora, theme_blocks, UiTheme};
+    theme_blocks::follow_dom(
         UiTheme::current(),
         flat::progressbar_render_bar_impl(bar.clone(), bounds_px),
         flora::progressbar_render_bar_impl(bar, bounds_px),
@@ -1740,7 +1740,7 @@ mod autotest_generated {
                 azul_core::dom::OptionDom::None => panic!("{theme:?}: the callback must render"),
             };
             let bounds = Some((200.0, 15.0));
-            let want = flat::follow_dom(
+            let want = crate::widgets::themes::theme_blocks::follow_dom(
                 theme,
                 flat::progressbar_render_bar_impl(bar.clone(), bounds),
                 flora::progressbar_render_bar_impl(bar.clone(), bounds),

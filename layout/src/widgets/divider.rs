@@ -195,7 +195,7 @@ impl Divider {
         match self.theme.into_option() {
             Some(UiTheme::Flora) => flora::divider(self),
             Some(UiTheme::Flat) => flat::divider(self),
-            None => theme_blocks::every_theme_dom(flat::divider(self.clone()), flora::divider(self)),
+            None => theme_blocks::follow_app_theme(self, flat::divider, flora::divider),
         }
     }
 }

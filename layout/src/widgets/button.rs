@@ -702,9 +702,10 @@ impl Button {
             }
             // No theme: follow the app theme - both looks in one DOM, each
             // inside its `@theme(<name>)` block, and the app theme picks.
-            None => crate::widgets::themes::theme_blocks::every_theme_dom(
-                crate::widgets::themes::flat::button(self.clone()),
-                crate::widgets::themes::flora::button(self),
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                crate::widgets::themes::flat::button,
+                crate::widgets::themes::flora::button,
             ),
         };
         with_form_semantics(dom, form_action, has_image, alt)

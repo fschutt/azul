@@ -337,13 +337,13 @@ impl Popover {
     #[must_use]
     pub fn resolved_content_style(&self) -> CssPropertyWithConditionsVec {
         self.content_style.clone().into_option().unwrap_or_else(|| {
-            use crate::widgets::themes::{flat, flora};
+            use crate::widgets::themes::{flat, flora, theme_blocks};
             match self.theme.into_option() {
                 Some(UiTheme::Flat) => flat::popover_panel_style(),
                 Some(UiTheme::Flora) => flora::popover_panel_style(),
                 // Unpinned: every theme's panel, as `follow_popover_skin`
                 // puts it on the render.
-                None => flat::follow_props(
+                None => theme_blocks::follow_props(
                     flat::popover_panel_style().as_slice(),
                     flora::popover_panel_style().as_slice(),
                 ),

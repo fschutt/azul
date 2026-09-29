@@ -405,14 +405,14 @@ impl Slider {
     /// Renders the slider. Unpinned (`theme: None`, the default), it follows
     /// the APP theme: built in the structure of the theme its DOM is built
     /// for, every node carrying flat's and flora's blocks
-    /// (`themes::flat::follow_app_theme`).
+    /// (`themes::theme_blocks::follow_app_theme`).
     #[must_use]
     pub fn dom(self) -> Dom {
-        use crate::widgets::themes::{flat, flora, UiTheme};
+        use crate::widgets::themes::{flat, flora, theme_blocks, UiTheme};
         match self.theme.into_option() {
             Some(UiTheme::Flat) => flat::slider(self),
             Some(UiTheme::Flora) => flora::slider(self),
-            None => flat::follow_app_theme(self, flat::slider, flora::slider),
+            None => theme_blocks::follow_app_theme(self, flat::slider, flora::slider),
         }
     }
 }

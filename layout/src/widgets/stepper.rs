@@ -477,11 +477,11 @@ pub(crate) fn skin_for(theme: UiTheme) -> StepperSkin {
 }
 
 /// `part` of both themes' skins in BOTH themes' blocks
-/// (`themes::flat::follow_props`).
+/// (`themes::theme_blocks::follow_props`).
 fn follow_part(
     part: impl Fn(StepperSkin) -> CssPropertyWithConditionsVec,
 ) -> CssPropertyWithConditionsVec {
-    crate::widgets::themes::flat::follow_props(
+    crate::widgets::themes::theme_blocks::follow_props(
         part(skin_for(UiTheme::Flat)).as_slice(),
         part(skin_for(UiTheme::Flora)).as_slice(),
     )

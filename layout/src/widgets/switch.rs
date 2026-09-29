@@ -357,16 +357,16 @@ impl Switch {
     /// Renders the switch. Unpinned (`theme: None`), it follows the APP
     /// theme: built in the structure of the theme its DOM is built for,
     /// every node carrying flat's and flora's blocks
-    /// (`themes::flat::follow_app_theme`; the two looks are one today, so
+    /// (`themes::theme_blocks::follow_app_theme`; the two looks are one today, so
     /// the merge keeps every declaration unconditional).
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        use crate::widgets::themes::{flat, flora};
+        use crate::widgets::themes::{flat, flora, theme_blocks};
         match self.theme.into_option() {
             Some(UiTheme::Flat) => flat::switch(self),
             Some(UiTheme::Flora) => flora::switch(self),
-            None => flat::follow_app_theme(self, flat::switch, flora::switch),
+            None => theme_blocks::follow_app_theme(self, flat::switch, flora::switch),
         }
     }
 }

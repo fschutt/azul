@@ -253,15 +253,15 @@ impl FileInput {
 
     /// Renders the input as a [`Button`] in its theme. Unpinned (`theme:
     /// None`), it follows the APP theme: both themes' buttons are built and
-    /// merged (`themes::flat::follow_app_theme`) in the structure of the
+    /// merged (`themes::theme_blocks::follow_app_theme`) in the structure of the
     /// theme its DOM is built for, carrying every theme's blocks.
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        use crate::widgets::themes::flat;
+        use crate::widgets::themes::theme_blocks;
         match self.theme.into_option() {
             Some(theme) => self.dom_in(theme),
-            None => flat::follow_app_theme(self, Self::dom_flat, Self::dom_flora),
+            None => theme_blocks::follow_app_theme(self, Self::dom_flat, Self::dom_flora),
         }
     }
 

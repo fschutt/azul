@@ -442,10 +442,10 @@ pub(crate) fn skin_for(theme: UiTheme) -> TimePickerSkin {
 
 /// The skin an UNPINNED time picker is built with, so it follows the app
 /// theme: `structure`'s theme (its marker goes on the frame) and every part
-/// in BOTH themes' blocks (`themes::flat::follow_props`).
+/// in BOTH themes' blocks (`themes::theme_blocks::follow_props`).
 #[must_use]
 pub(crate) fn follow_skin(structure: UiTheme) -> TimePickerSkin {
-    use crate::widgets::themes::flat::follow_props as both;
+    use crate::widgets::themes::theme_blocks::follow_props as both;
     let (flat, flora) = (skin_for(UiTheme::Flat), skin_for(UiTheme::Flora));
     TimePickerSkin {
         theme: structure,

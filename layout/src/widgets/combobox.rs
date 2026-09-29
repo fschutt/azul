@@ -267,10 +267,10 @@ pub(crate) fn skin_for(theme: UiTheme) -> ComboBoxSkin {
 
 /// The skin an UNPINNED combobox is built with, so it follows the app
 /// theme: `structure`'s theme (its marker goes on the wrapper) and every
-/// part in BOTH themes' blocks (`themes::flat::follow_props`).
+/// part in BOTH themes' blocks (`themes::theme_blocks::follow_props`).
 #[must_use]
 pub(crate) fn follow_skin(structure: UiTheme) -> ComboBoxSkin {
-    use crate::widgets::themes::flat::follow_props as both;
+    use crate::widgets::themes::theme_blocks::follow_props as both;
     let (flat, flora) = (skin_for(UiTheme::Flat), skin_for(UiTheme::Flora));
     ComboBoxSkin {
         theme: structure,

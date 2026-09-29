@@ -371,12 +371,12 @@ fn poster_style(theme: UiTheme) -> azul_css::dynamic_selector::CssPropertyWithCo
 }
 
 /// The poster of a widget state: its theme's, or - built unpinned - every
-/// theme's block of it (`themes::flat::follow_props`).
+/// theme's block of it (`themes::theme_blocks::follow_props`).
 fn state_poster_style(
     s: &VideoWidgetState,
 ) -> azul_css::dynamic_selector::CssPropertyWithConditionsVec {
     if s.follows_app_theme {
-        crate::widgets::themes::flat::follow_props(
+        crate::widgets::themes::theme_blocks::follow_props(
             poster_style(UiTheme::Flat).as_slice(),
             poster_style(UiTheme::Flora).as_slice(),
         )

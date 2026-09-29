@@ -488,10 +488,10 @@ pub(crate) fn skin_for(theme: UiTheme) -> ToastSkin {
 }
 
 /// The card of a `kind` toast in BOTH themes' blocks
-/// (`themes::flat::follow_props`): what an unpinned toast carries.
+/// (`themes::theme_blocks::follow_props`): what an unpinned toast carries.
 #[must_use]
 fn follow_container(kind: ToastKind) -> CssPropertyWithConditionsVec {
-    crate::widgets::themes::flat::follow_props(
+    crate::widgets::themes::theme_blocks::follow_props(
         (skin_for(UiTheme::Flat).container)(kind).as_slice(),
         (skin_for(UiTheme::Flora).container)(kind).as_slice(),
     )
@@ -502,7 +502,7 @@ fn follow_container(kind: ToastKind) -> CssPropertyWithConditionsVec {
 /// themes' blocks.
 #[must_use]
 pub(crate) fn follow_skin(structure: UiTheme) -> ToastSkin {
-    use crate::widgets::themes::flat::follow_props as both;
+    use crate::widgets::themes::theme_blocks::follow_props as both;
     let (flat, flora) = (skin_for(UiTheme::Flat), skin_for(UiTheme::Flora));
     ToastSkin {
         theme: structure,

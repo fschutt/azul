@@ -255,7 +255,8 @@ impl DateTimeLocalPicker {
             Some(UiTheme::Flora) => flora::datetime_local(date, time),
             // No theme: the row carries both looks, each inside its
             // `@theme(<name>)` block (the parts, alike in both, once).
-            None => theme_blocks::every_theme_dom(
+            None => theme_blocks::follow_dom(
+                UiTheme::current(),
                 flat::datetime_local(date.clone(), time.clone()),
                 flora::datetime_local(date, time),
             ),

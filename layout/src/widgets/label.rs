@@ -171,9 +171,10 @@ impl Label {
             Some(UiTheme::Flat) => crate::widgets::themes::flat::label(self),
             // No theme: follow the app theme - both looks in one DOM, each
             // inside its `@theme(<name>)` block, and the app theme picks.
-            None => crate::widgets::themes::theme_blocks::every_theme_dom(
-                crate::widgets::themes::flat::label(self.clone()),
-                crate::widgets::themes::flora::label(self),
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                crate::widgets::themes::flat::label,
+                crate::widgets::themes::flora::label,
             ),
         }
     }

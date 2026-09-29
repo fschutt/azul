@@ -450,11 +450,11 @@ pub(crate) fn skin_for(theme: UiTheme) -> PaginationSkin {
     }
 }
 
-/// One button in BOTH themes' blocks (`themes::flat::follow_props`) - the
+/// One button in BOTH themes' blocks (`themes::theme_blocks::follow_props`) - the
 /// `button` of an unpinned bar's skin.
 #[must_use]
 fn follow_button(face: PageFace, is_first: bool, is_last: bool) -> CssPropertyWithConditionsVec {
-    crate::widgets::themes::flat::follow_props(
+    crate::widgets::themes::theme_blocks::follow_props(
         (skin_for(UiTheme::Flat).button)(face, is_first, is_last).as_slice(),
         (skin_for(UiTheme::Flora).button)(face, is_first, is_last).as_slice(),
     )

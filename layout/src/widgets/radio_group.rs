@@ -389,10 +389,10 @@ pub(crate) fn skin_for(theme: UiTheme, horizontal: bool) -> RadioGroupSkin {
 
 /// The skin an UNPINNED radio group is built with, so it follows the app
 /// theme: `structure`'s theme (its marker goes on the group) and every part
-/// in BOTH themes' blocks (`themes::flat::follow_props`).
+/// in BOTH themes' blocks (`themes::theme_blocks::follow_props`).
 #[must_use]
 pub(crate) fn follow_skin(structure: UiTheme, horizontal: bool) -> RadioGroupSkin {
-    use crate::widgets::themes::flat::follow_props as both;
+    use crate::widgets::themes::theme_blocks::follow_props as both;
     let (flat, flora) = (
         skin_for(UiTheme::Flat, horizontal),
         skin_for(UiTheme::Flora, horizontal),

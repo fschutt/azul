@@ -1177,13 +1177,13 @@ impl TextInput {
     ///
     /// Unpinned (`theme: None`), the field follows the APP theme: built in
     /// the structure of the theme its DOM is built for, every node carrying
-    /// flat's and flora's blocks (`themes::flat::follow_app_theme`).
+    /// flat's and flora's blocks (`themes::theme_blocks::follow_app_theme`).
     #[must_use]
     pub fn dom(self) -> Dom {
-        use crate::widgets::themes::flat;
+        use crate::widgets::themes::theme_blocks;
         match self.theme.into_option() {
             Some(theme) => self.dom_in(theme),
-            None => flat::follow_app_theme(self, Self::dom_flat, Self::dom_flora),
+            None => theme_blocks::follow_app_theme(self, Self::dom_flat, Self::dom_flora),
         }
     }
 
