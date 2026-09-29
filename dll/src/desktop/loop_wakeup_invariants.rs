@@ -35,6 +35,7 @@ const HOTKEY_RS: &str = include_str!("global_hotkey/mod.rs");
 const HOTKEY_X11_RS: &str = include_str!("global_hotkey/x11.rs");
 const HOTKEY_PORTAL_RS: &str = include_str!("global_hotkey/portal.rs");
 const LOOP_WAKER_RS: &str = include_str!("loop_waker.rs");
+const APP_EVENTS_RS: &str = include_str!("app_events.rs");
 
 /// The text of the first top-level `fn` whose signature contains `name`, up
 /// to its closing brace in column 0.
@@ -247,5 +248,36 @@ fn the_manual_macos_loop_delivers_every_app_source_right_before_it_parks() {
     assert!(
         before.contains("global_hotkey::pump_macos_windows()"),
         "the manual macOS loop parks without delivering the hotkeys it just handled"
+    );
+}
+
+/// A click on a freedesktop notification brings an `ActivationToken` (spec
+/// 1.2; GNOME and KDE send it just before `ActionInvoked`). On Wayland that
+/// token is the ONLY way the app may raise its window for the click - a
+/// notification click carries no input serial. The Linux backend keeps the
+/// token (`notifications::take_activation_token`) and the Wayland window can
+/// spend it (`WaylandWindow::activate_with_token`), but the run-loop block
+/// that joined the two was replaced by the app-event collector when the loops
+/// moved onto it, and nothing took the token any more: the callback ran and
+/// the window stayed behind every other window.
+#[test]
+fn a_notification_click_raises_the_wayland_window_with_its_activation_token() {
+    let body = top_level_fn_body(APP_EVENTS_RS, "fn deliver_to_linux_windows");
+    let take = body
+        .find("notifications::take_activation_token()")
+        .expect("the Linux collector never takes the token a notification click brought");
+    assert!(
+        body.contains(".activate_with_token("),
+        "the Linux collector never spends the activation token on the Wayland window"
+    );
+    // Taken before the collector's early return: a click on a notification
+    // that has no callback still raises the app, and a token left behind
+    // would be spent on the NEXT, unrelated delivery.
+    let early_return = body
+        .find("return;")
+        .expect("the Linux collector returns early when nothing was collected");
+    assert!(
+        take < early_return,
+        "the activation token is only taken when a callback was collected"
     );
 }
