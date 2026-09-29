@@ -18,7 +18,10 @@
 //!   enum's first variant, `None`, an empty Vec) round-trips its derives:
 //!   a clone is equal, compares equal, hashes equal, formats non-empty, and
 //!   both copies drop;
-//! * every enum variant constructor whose payload can be built;
+//! * every enum variant constructor whose payload can be built, and - for one
+//!   by-value payload that can be compared - that payload read back through
+//!   the binding's union (`v.<Variant>.payload`), which pins the payload
+//!   offset the binding declares against the one libazul wrote;
 //! * every Vec whose element can be built: three elements in, three out;
 //! * every host-invokable callback kind: a wrapper around a host handle is
 //!   created and dropped.
@@ -31,7 +34,9 @@ pub mod c;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::ir::{CodegenIR, EnumVariantKind, FunctionDef, FunctionKind, TypeCategory};
+use super::ir::{
+    CodegenIR, EnumVariantKind, FieldRefKind, FunctionDef, FunctionKind, TypeCategory,
+};
 
 /// How a conformance program makes a value of some type.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,6 +107,24 @@ pub struct VariantCase {
     pub delete: Option<String>,
     /// `Az<Enum>_partialEq`, to check two constructions are equal.
     pub partial_eq: Option<String>,
+    /// How the program reads the payload back through the binding's union
+    /// (`v.<Variant>.payload`) and compares it with what went in: set for a
+    /// variant with exactly one by-value payload that can be compared. It
+    /// pins the payload offset the binding declares against the one libazul
+    /// wrote (X3: azul.h put a 1-aligned payload at 1, Rust at 8).
+    pub payload_check: Option<PayloadCheck>,
+}
+
+/// How a variant's payload is compared after reading it back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PayloadCheck {
+    /// A primitive: the program passes a distinctive non-zero value (a zero
+    /// could match the padding it would read at a wrong offset) and
+    /// compares with `==`.
+    Primitive { ty: String },
+    /// Compared with a fresh value of the same recipe through
+    /// `Az<Payload>_partialEq`; `delete` frees that fresh value.
+    PartialEq { eq: String, delete: Option<String> },
 }
 
 /// A Vec filled with three elements from `element`, read back.
@@ -232,6 +255,25 @@ impl ConformancePlan {
                     continue;
                 }
             };
+            // One by-value payload that can be compared: read it back.
+            let one_by_value_payload = e.variants.iter().find(|v| v.name == variant).is_some_and(
+                |v| {
+                    matches!(&v.kind, EnumVariantKind::Tuple(ts)
+                        if ts.len() == 1 && ts[0].1 == FieldRefKind::Owned)
+                },
+            );
+            let payload_check = match args.as_slice() {
+                [Recipe::Primitive { ty }] if one_by_value_payload => {
+                    Some(PayloadCheck::Primitive { ty: ty.clone() })
+                }
+                [r] if one_by_value_payload => {
+                    fns.get(r.ty(), FunctionKind::PartialEq).map(|eq| PayloadCheck::PartialEq {
+                        eq,
+                        delete: fns.get(r.ty(), FunctionKind::Delete),
+                    })
+                }
+                _ => None,
+            };
             {
                 plan.variants.push(VariantCase {
                     ty: e.name.clone(),
@@ -241,6 +283,7 @@ impl ConformancePlan {
                     args,
                     delete: fns.get(&e.name, FunctionKind::Delete),
                     partial_eq: fns.get(&e.name, FunctionKind::PartialEq),
+                    payload_check,
                 });
             }
         }
