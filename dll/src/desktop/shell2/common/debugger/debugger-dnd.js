@@ -366,6 +366,24 @@
         return dirty ? shown : (docSheet || '');
     }
 
+    // ── B5: the builder's markers ──
+
+    /**
+     * The live node (`get_node_hierarchy`) of document node `uid`: the one
+     * the server answers with `builder_uid` (B5 keeps the marker class
+     * `azb-<uid>` out of `classes`), or - from a server before that - the one
+     * carrying the marker class. Null if it is not mounted.
+     */
+    function liveNodeOf(nodes, uid) {
+        var list = nodes || [];
+        var mark = 'azb-' + uid;
+        for (var i = 0; i < list.length; i++) {
+            var n = list[i];
+            if (n && (n.builder_uid === uid || (n.classes || []).indexOf(mark) !== -1)) return n;
+        }
+        return null;
+    }
+
     // ── B5: drops onto the window canvas ──
 
     /**
@@ -440,6 +458,7 @@
         attrString: attrString, typedValue: typedValue, editableType: editableType,
         stylesheetMessage: stylesheetMessage, sheetText: sheetText,
         canvasPoint: canvasPoint, canvasDrop: canvasDrop, canvasIndicator: canvasIndicator,
+        liveNodeOf: liveNodeOf,
     };
 
     if (typeof module !== 'undefined' && module.exports) module.exports = logic;
@@ -920,19 +939,15 @@
     }
 
     /**
-     * Every mounted document element carries the class `azb-<uid>`; find the
-     * live node for the detail panel (CSS, layout, screenshot) without
-     * re-rendering the tree.
+     * Every mounted document element carries the marker `azb-<uid>` (answered
+     * as `builder_uid`); find the live node for the detail panel (CSS, layout,
+     * screenshot) without re-rendering the tree.
      */
     async function showLiveDetail(uid) {
         try {
             var h = S.liveCache || (S.liveCache = await call({ op: 'get_node_hierarchy' }));
             var nodes = (h && h.nodes) || [];
-            var mark = 'azb-' + uid;
-            var live = null;
-            for (var i = 0; i < nodes.length; i++) {
-                if ((nodes[i].classes || []).indexOf(mark) !== -1) { live = nodes[i]; break; }
-            }
+            var live = liveNodeOf(nodes, uid);
             if (!live || S.selected !== uid) return;
             app.state.hierarchy = nodes;
             app.state.hierarchyRoot = h.root != null ? h.root : 0;

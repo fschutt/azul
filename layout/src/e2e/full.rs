@@ -1282,6 +1282,12 @@ pub struct HierarchyNodeInfo {
     /// but knowing it exists helps visualize component state.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_dataset: Option<bool>,
+    /// The AzBuilder document node this live node shows, if it is a mounted
+    /// document element. Its marker class `azb-<uid>` stays on the node
+    /// (the builder finds its nodes by it) but is answered here, not in
+    /// `classes`: it is the builder's plumbing, not the user's markup.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_uid: Option<u64>,
 }
 
 /// JSON representation of a component origin stamp.
@@ -15904,14 +15910,19 @@ pub fn process_debug_event(
                     // Extract tag name from node type
                     let tag = Some(node_type.clone());
 
-                    // Extract ID and classes from attributes
+                    // Extract ID and classes from attributes; the builder's
+                    // marker `azb-<uid>` is answered as `builder_uid`.
                     let mut id_attr = None;
                     let mut classes = Vec::new();
+                    let mut builder_uid = None;
                     for attr in data.attributes().as_ref().iter() {
                         if let Some(id) = attr.as_id() {
                             id_attr = Some(id.to_string());
                         } else if let Some(class) = attr.as_class() {
-                            classes.push(class.to_string());
+                            match super::builder::marker_uid(class) {
+                                Some(uid) => builder_uid = Some(uid),
+                                None => classes.push(class.to_string()),
+                            }
                         }
                     }
 
@@ -15998,6 +16009,7 @@ pub fn process_debug_event(
                         contenteditable: data.is_contenteditable(),
                         component,
                         has_dataset,
+                        builder_uid,
                     });
                 }
 

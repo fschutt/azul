@@ -20,10 +20,11 @@ Branch `wt/b5-builder-extras`, base `d240a1b1d`. Nothing is compiled here (house
 - 2 GREEN `17bdb34e7` document stylesheet (node 9/9, smoke 24/24; Rust not run)
 - 3 RED `ac8b65589` (builder_hit_test scenario, node, smoke)
 - 3 GREEN `3fee8515d` canvas drops + builder_hit_test (node 14/14, smoke 33/33)
+- 4 RED `367cf5065` (hierarchy scenario, node, smoke)
 
 ## IN PROGRESS
 
-4. Hide markers: RED committed (this commit), implementation next.
+4. Hide markers: implementation commit (this one).
 
 ## NEXT
 

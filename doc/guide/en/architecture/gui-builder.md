@@ -38,6 +38,11 @@ The browser's DOM Explorer opens in **Document** mode for AzBuilder: you edit th
 document, not the raw DOM of the window. Switch to **Live DOM** to inspect whatever the window
 shows (that is the default for any other app you run with the debug server).
 
+Every element the builder mounts carries a class `azb-<uid>` that ties it to its document node.
+That is the builder's plumbing: the Live DOM tree and the Inspector's class list leave it out
+(`get_node_hierarchy` answers it as the node's `builder_uid`), but it stays on the node, where
+the builder finds its nodes by it.
+
 ## Drag and drop
 
 The **Components** palette below the document tree shows every registered component as a card
