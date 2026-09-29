@@ -4957,9 +4957,68 @@ pub fn accordion(a: crate::widgets::accordion::Accordion) -> Dom {
 }
 
 // ==== menubar ====
+//
+// flora.css gives toolbars their own surface, --fl-strip, and closes a strip
+// with a rule. A flora menu bar is that strip in the house ink, closed along
+// its foot by a --fl-bd hairline; its items behave like flora's nav links:
+// the hover face (--fl-hT -> --fl-hB) under the pointer, the pressed face
+// while held - light entering a raised face, then the face pushed in. Every
+// surface, rule and ink has its night value. The items take no focus, as in
+// the flat bar: the keyboard reaches a menu through the platform.
 
-/// The flora menu bar.
+/// The flora menu bar: flora's toolbar strip.
 #[must_use]
 pub fn menubar(m: crate::widgets::menubar::Menubar) -> Dom {
-    super::flat::menubar(m)
+    use super::decl;
+
+    let mut bar = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+            LayoutFlexDirection::Row,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_align_items(
+            LayoutAlignItems::Stretch,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::Px(
+            PixelValue::const_percent(100),
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(28))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            14,
+        ))),
+    ];
+    bar.extend(decl::padding(0, 0, 0, 4));
+    bar.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+    bar.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    bar.extend(decl::border_bottom(1));
+    bar.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut item = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+            LayoutFlexDirection::Row,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    ];
+    item.extend(decl::padding(0, 11, 0, 11));
+    item.extend(decl::radius(3));
+    item.extend(decl::hover_layers(
+        vec![HOVER_FACE_LIGHT],
+        vec![HOVER_FACE_DARK],
+    ));
+    item.extend(decl::active_layers(
+        vec![PRESSED_FACE_LIGHT],
+        vec![PRESSED_FACE_DARK],
+    ));
+
+    let bar = CssPropertyWithConditionsVec::from_vec(bar);
+    let item = CssPropertyWithConditionsVec::from_vec(item);
+    crate::widgets::menubar::build(
+        &m.menu,
+        Some("__azul-theme-flora"),
+        |dom| dom.with_css_props(bar.clone()),
+        |dom| dom.with_css_props(item.clone()),
+    )
 }
