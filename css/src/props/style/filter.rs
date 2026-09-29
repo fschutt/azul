@@ -18,7 +18,7 @@ use crate::props::basic::{
     parse::{parse_parentheses, ParenthesisParseError, ParenthesisParseErrorOwned},
 };
 use crate::{
-    codegen::format::GetHash,
+    hash::GetHash,
     props::{
         basic::{
             angle::{
@@ -183,6 +183,7 @@ impl PrintAsCssValue for StyleFilterVec {
 }
 
 // Formatting to Rust code for StyleFilterVec
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleFilterVec {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(

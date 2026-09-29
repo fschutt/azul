@@ -2935,6 +2935,7 @@ impl crate::css::PrintAsCssValue for StyleAnimationVec {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleAnimationVec {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         use crate::codegen::format::FormatAsRustCode as _;
@@ -2949,6 +2950,7 @@ impl crate::codegen::format::FormatAsRustCode for StyleAnimationVec {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleAnimation {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         use crate::codegen::format::FormatAsRustCode as _;

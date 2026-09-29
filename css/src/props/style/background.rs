@@ -16,7 +16,7 @@ use crate::props::basic::{
     },
 };
 use crate::{
-    codegen::format::GetHash,
+    hash::GetHash,
     corety::AzString,
     props::{
         basic::{
@@ -141,6 +141,7 @@ impl PrintAsCssValue for StyleBackgroundContent {
 
 // Formatting to Rust code for background-related vecs
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleBackgroundContent {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         // Delegate to the CSS value representation for single backgrounds
@@ -151,6 +152,7 @@ impl crate::codegen::format::FormatAsRustCode for StyleBackgroundContent {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleBackgroundSizeVec {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -160,6 +162,7 @@ impl crate::codegen::format::FormatAsRustCode for StyleBackgroundSizeVec {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleBackgroundRepeatVec {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -169,6 +172,7 @@ impl crate::codegen::format::FormatAsRustCode for StyleBackgroundRepeatVec {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleBackgroundContentVec {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -578,6 +582,7 @@ impl PrintAsCssValue for StyleBackgroundPositionVec {
 }
 
 // Formatting to Rust code for StyleBackgroundPositionVec
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleBackgroundPositionVec {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(

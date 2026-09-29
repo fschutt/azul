@@ -7,8 +7,9 @@
 use alloc::string::{String, ToString};
 use core::fmt;
 
+#[cfg(feature = "codegen")]
+use crate::codegen::format::FormatAsRustCode;
 use crate::{
-    codegen::format::FormatAsRustCode,
     corety::AzString,
     props::{
         basic::{
@@ -626,6 +627,7 @@ impl PrintAsCssValue for StyleVerticalAlign {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleVerticalAlign {
     fn format_as_rust_code(&self, indent: usize) -> String {
         match self {
@@ -1005,6 +1007,7 @@ impl PrintAsCssValue for StyleTextIndent {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleTextIndent {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -1100,6 +1103,7 @@ pub struct StyleInitialLetter {
     pub sink: crate::corety::OptionU32,
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleInitialLetter {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{self:?}")
@@ -1235,6 +1239,7 @@ pub struct StyleLineClamp {
     pub max_lines: usize,
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleLineClamp {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{self:?}")
@@ -1346,6 +1351,7 @@ impl StyleHangingPunctuation {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleHangingPunctuation {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{self:?}")
@@ -1478,6 +1484,7 @@ pub enum StyleTextCombineUpright {
     Digits(u8),
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleTextCombineUpright {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{self:?}")
@@ -2492,6 +2499,7 @@ impl PrintAsCssValue for CaretColor {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for CaretColor {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -2533,6 +2541,7 @@ impl PrintAsCssValue for CaretAnimationDuration {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for CaretAnimationDuration {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -2578,6 +2587,7 @@ impl PrintAsCssValue for CaretWidth {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for CaretWidth {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(

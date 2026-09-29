@@ -75,10 +75,15 @@ pub mod macros;
 /// `redundant_pub_crate` (they conflict); `#[doc(hidden)]` keeps it out of the API.
 #[doc(hidden)]
 pub mod cast;
-/// Multi-language code generation backends (Rust, C++, Python).
+/// CSS -> source code generation for every binding language (one IR, one
+/// printer per language). Opt-in: enable the `codegen` cargo feature.
+#[cfg(feature = "codegen")]
 pub mod codegen;
 /// Three-tier numeric property cache for fast style resolution.
 pub mod compact_cache;
+/// Content hashing (`GetHash`) used for dedup / cache keys. Always compiled:
+/// it is runtime infrastructure, not code generation.
+pub mod hash;
 /// FFI-safe core type aliases (`AzString`, `AzVec`, `OptionT`, etc.).
 pub mod corety;
 /// Stylesheet types: rules, selectors, declarations, and specificity.

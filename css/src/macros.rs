@@ -1251,6 +1251,7 @@ macro_rules! impl_result {
 
 macro_rules! impl_color_value_fmt {
     ($struct_name:ty) => {
+        #[cfg(feature = "codegen")]
         impl FormatAsRustCode for $struct_name {
             fn format_as_rust_code(&self, _tabs: usize) -> String {
                 format!(
@@ -1264,6 +1265,7 @@ macro_rules! impl_color_value_fmt {
 }
 
 macro_rules! impl_enum_fmt {($enum_name:ident, $($enum_type:ident),+) => (
+    #[cfg(feature = "codegen")]
     impl crate::codegen::format::FormatAsRustCode for $enum_name {
         fn format_as_rust_code(&self, _tabs: usize) -> String {
             match self {

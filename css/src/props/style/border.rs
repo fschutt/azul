@@ -139,6 +139,7 @@ define_border_side_property!(StyleBorderBottomStyle, BorderStyle, BorderStyle::N
 define_border_side_property!(StyleBorderLeftStyle, BorderStyle, BorderStyle::None);
 
 // Formatting implementations for border side style values
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleBorderTopStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         format!(
@@ -148,6 +149,7 @@ impl crate::codegen::format::FormatAsRustCode for StyleBorderTopStyle {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleBorderRightStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         format!(
@@ -157,6 +159,7 @@ impl crate::codegen::format::FormatAsRustCode for StyleBorderRightStyle {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleBorderLeftStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         format!(
@@ -166,6 +169,7 @@ impl crate::codegen::format::FormatAsRustCode for StyleBorderLeftStyle {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleBorderBottomStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         format!(

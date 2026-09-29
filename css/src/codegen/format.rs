@@ -29,19 +29,9 @@ pub trait FormatAsRustCode {
     fn format_as_rust_code(&self, tabs: usize) -> String;
 }
 
-/// Returns a deterministic 64-bit hash for content-based deduplication.
-pub trait GetHash {
-    fn get_hash(&self) -> u64;
-}
-
-impl<T: Hash> GetHash for T {
-    fn get_hash(&self) -> u64 {
-        use core::hash::Hasher;
-        let mut hasher = std::hash::DefaultHasher::new();
-        self.hash(&mut hasher);
-        hasher.finish()
-    }
-}
+/// Re-exported for the old import path `azul_css::codegen::format::GetHash`;
+/// the trait itself is always compiled in [`crate::hash`].
+pub use crate::hash::GetHash;
 
 // In order to generate the Rust code, all items that implement Drop
 // have to be declared before being used.

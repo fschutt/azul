@@ -102,6 +102,7 @@ impl PrintAsCssValue for StyleBoxShadow {
 }
 
 // Formatting to Rust code for StyleBoxShadow
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleBoxShadow {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         let t = String::from("    ").repeat(tabs);
@@ -332,8 +333,9 @@ mod tests {
 #[cfg(all(test, feature = "parser"))]
 mod autotest_generated {
     use super::*;
+    #[cfg(feature = "codegen")]
+    use crate::codegen::format::FormatAsRustCode;
     use crate::{
-        codegen::format::FormatAsRustCode,
         props::basic::{
             pixel::{CssPixelValueParseError, PixelValue},
             SizeMetric,
@@ -1143,6 +1145,7 @@ mod autotest_generated {
         }
     }
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_is_well_formed_for_extremes() {
         for s in round_trip_corpus() {

@@ -10,12 +10,13 @@ use alloc::{
 use core::fmt;
 
 // Import all property types from their new locations.
+#[cfg(feature = "codegen")]
+use crate::codegen::format::FormatAsRustCode;
 // wildcard imports: this is the property aggregator module that pulls in every
 // property type from its sub-modules; enumerating them all explicitly would be
 // unmaintainable and defeats the purpose of the per-category modules.
 #[allow(clippy::wildcard_imports)]
 use crate::{
-    codegen::format::FormatAsRustCode,
     props::{
         basic::{
             color::{
@@ -8042,6 +8043,7 @@ impl CssProperty {
 #[allow(clippy::too_many_lines)]
 // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per
 // property/variant)
+#[cfg(feature = "codegen")]
 #[must_use]
 pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
     match prop {
@@ -8816,6 +8818,7 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
     }
 }
 
+#[cfg(feature = "codegen")]
 fn print_css_property_value<T: FormatAsRustCode>(
     prop_val: &CssPropertyValue<T>,
     tabs: usize,

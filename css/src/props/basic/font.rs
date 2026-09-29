@@ -20,8 +20,10 @@ use core::{
 
 #[cfg(feature = "parser")]
 use crate::props::basic::parse::{strip_quotes, UnclosedQuotesError};
+#[cfg(feature = "codegen")]
+use crate::codegen::format::FormatAsRustCode;
 use crate::{
-    codegen::format::{FormatAsRustCode, GetHash},
+    hash::GetHash,
     corety::{AzString, U8Vec},
     props::{
         basic::{
@@ -75,6 +77,7 @@ impl PrintAsCssValue for StyleFontWeight {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleFontWeight {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         use StyleFontWeight::{
@@ -122,6 +125,7 @@ impl PrintAsCssValue for StyleFontStyle {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleFontStyle {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         use StyleFontStyle::{Italic, Normal, Oblique};
@@ -388,6 +392,7 @@ impl PrintAsCssValue for StyleFontFamilyVec {
 }
 
 // Formatting to Rust code for StyleFontFamilyVec
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleFontFamilyVec {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -408,6 +413,7 @@ pub enum CssFontWeightParseError<'a> {
 }
 
 // Formatting to Rust code for StyleFontFamily
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleFontFamily {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -2337,6 +2343,7 @@ mod autotest_generated {
         assert!(StyleFontWeight::Bolder > StyleFontWeight::W900);
     }
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_matches_the_debug_variant_names() {
         for weight in [

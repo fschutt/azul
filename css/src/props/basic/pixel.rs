@@ -328,6 +328,7 @@ impl crate::css::PrintAsCssValue for PixelValue {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for PixelValue {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -1334,8 +1335,9 @@ mod autotest_generated {
     };
 
     use super::*;
+    #[cfg(feature = "codegen")]
+    use crate::codegen::format::FormatAsRustCode;
     use crate::{
-        codegen::format::FormatAsRustCode,
         css::PrintAsCssValue,
         props::{
             basic::length::{FloatValue, SizeMetric},
@@ -2875,6 +2877,7 @@ mod autotest_generated {
         );
     }
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_emits_a_reconstructible_literal() {
         assert_eq!(

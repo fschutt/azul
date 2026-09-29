@@ -14,7 +14,7 @@ use crate::props::basic::{
     parse::{parse_parentheses, ParenthesisParseError, ParenthesisParseErrorOwned},
 };
 use crate::{
-    codegen::format::GetHash,
+    hash::GetHash,
     corety::AzString,
     props::{
         basic::{
@@ -93,6 +93,7 @@ impl PrintAsCssValue for StyleTransformOrigin {
 }
 
 // Formatting to Rust code
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StylePerspectiveOrigin {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -104,6 +105,7 @@ impl crate::codegen::format::FormatAsRustCode for StylePerspectiveOrigin {
 }
 
 // Formatting to Rust code for StyleTransformOrigin
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleTransformOrigin {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -236,6 +238,7 @@ impl PrintAsCssValue for StyleTransformVec {
 }
 
 // Formatting to Rust code for StyleTransformVec
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleTransformVec {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(

@@ -28,6 +28,13 @@ default = ["parser"]
 # CSS parser support (azul-simplecss)
 parser = ["dep:azul-simplecss"]
 
+# CSS -> source code generation (`azul_css::codegen`): one language-neutral IR
+# lowered from the parsed model + one printer per binding language (Rust, C,
+# C++, Python, C#, Java, ...), and the legacy `FormatAsRustCode` impls. Off by
+# default; enabled explicitly by azul-core (xml.rs), azul-layout and the dll's
+# debug server. Its golden tests: `cargo test -p azul-css --features codegen`.
+codegen = []
+
 # Opt-in: integration tests that perform live system/theme IO
 # (tests/test_system_style.rs). Off by default so CI doesn't probe the host.
 io = []
@@ -43,4 +50,12 @@ io = []
 name = "test_system_style"
 path = "tests/test_system_style.rs"
 required-features = ["io"]
+
+# Golden + structural tests of the CSS code generators (every binding
+# language). Needs the parser to build the input stylesheets from CSS text.
+# `AZ_BLESS=1` rewrites the golden files instead of comparing.
+[[test]]
+name = "codegen_goldens"
+path = "tests/codegen_goldens.rs"
+required-features = ["codegen", "parser"]
 

@@ -7,8 +7,9 @@ use alloc::{
 };
 use core::mem::ManuallyDrop;
 
+#[cfg(feature = "codegen")]
+use crate::codegen::format::FormatAsRustCode;
 use crate::{
-    codegen::format::FormatAsRustCode,
     corety::AzString,
     impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_eq, impl_vec_hash, impl_vec_mut,
     impl_vec_ord, impl_vec_partialeq, impl_vec_partialord,
@@ -848,6 +849,7 @@ impl PrintAsCssValue for LayoutGap {
 
 // Implement FormatAsRustCode for the new types so they can be emitted by the
 // code generator.
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for LayoutGridAutoFlow {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -862,6 +864,7 @@ impl FormatAsRustCode for LayoutGridAutoFlow {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for LayoutJustifySelf {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -877,6 +880,7 @@ impl FormatAsRustCode for LayoutJustifySelf {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for LayoutJustifyItems {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -891,6 +895,7 @@ impl FormatAsRustCode for LayoutJustifyItems {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for LayoutGap {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         use crate::codegen::format::format_pixel_value;
@@ -898,6 +903,7 @@ impl FormatAsRustCode for LayoutGap {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for GridTrackSizing {
     // `tabs` is required by the FormatAsRustCode trait signature; this variant only
     // threads it through to nested MinMax children, never reading it locally.
@@ -926,6 +932,7 @@ impl FormatAsRustCode for GridTrackSizing {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for GridAutoTracks {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         let tracks: Vec<String> = self
@@ -941,6 +948,7 @@ impl FormatAsRustCode for GridAutoTracks {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for GridTemplateAreas {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(

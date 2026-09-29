@@ -192,6 +192,7 @@ impl PrintAsCssValue for ColumnRuleColor {
 }
 
 // Formatting to Rust code
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ColumnCount {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -201,6 +202,7 @@ impl crate::codegen::format::FormatAsRustCode for ColumnCount {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ColumnWidth {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -213,6 +215,7 @@ impl crate::codegen::format::FormatAsRustCode for ColumnWidth {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ColumnSpan {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -222,6 +225,7 @@ impl crate::codegen::format::FormatAsRustCode for ColumnSpan {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ColumnFill {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -231,6 +235,7 @@ impl crate::codegen::format::FormatAsRustCode for ColumnFill {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ColumnRuleWidth {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -240,6 +245,7 @@ impl crate::codegen::format::FormatAsRustCode for ColumnRuleWidth {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ColumnRuleStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         format!(
@@ -249,6 +255,7 @@ impl crate::codegen::format::FormatAsRustCode for ColumnRuleStyle {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ColumnRuleColor {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -644,7 +651,9 @@ mod tests {
 #[allow(clippy::float_cmp)] // parsed values are compared against the exact source literals
 mod autotest_generated {
     use super::*;
-    use crate::{codegen::format::FormatAsRustCode, corety::AzString, props::basic::SizeMetric};
+    #[cfg(feature = "codegen")]
+    use crate::codegen::format::FormatAsRustCode;
+    use crate::{corety::AzString, props::basic::SizeMetric};
 
     // A long-but-not-pathological input size for the "does not hang" cases.
     const LONG: usize = 1_000_000;
@@ -1420,6 +1429,7 @@ mod autotest_generated {
         assert_ne!(hash_of(&ColumnFill::Auto), hash_of(&ColumnFill::Balance));
     }
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_emits_constructible_snippets() {
         assert_eq!(

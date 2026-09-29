@@ -507,6 +507,7 @@ impl PrintAsCssValue for ScrollbarStyle {
 }
 
 // Formatting to Rust code
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ScrollbarStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         let t = String::from("    ").repeat(tabs);
@@ -522,6 +523,7 @@ impl crate::codegen::format::FormatAsRustCode for ScrollbarStyle {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for OverscrollBehavior {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -532,6 +534,7 @@ impl crate::codegen::format::FormatAsRustCode for OverscrollBehavior {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for LayoutScrollbarWidth {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -542,6 +545,7 @@ impl crate::codegen::format::FormatAsRustCode for LayoutScrollbarWidth {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleScrollbarColor {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -555,6 +559,7 @@ impl crate::codegen::format::FormatAsRustCode for StyleScrollbarColor {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ScrollbarVisibilityMode {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -565,12 +570,14 @@ impl crate::codegen::format::FormatAsRustCode for ScrollbarVisibilityMode {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ScrollbarFadeDelay {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("ScrollbarFadeDelay::new({})", self.ms)
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ScrollbarFadeDuration {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("ScrollbarFadeDuration::new({})", self.ms)
@@ -1330,6 +1337,7 @@ mod tests {
 #[allow(clippy::unreadable_literal, clippy::float_cmp)]
 mod autotest_generated {
     use super::*;
+    #[cfg(feature = "codegen")]
     use crate::codegen::format::FormatAsRustCode;
 
     /// Largest integer an `f32` represents exactly (`2^24`). Every millisecond
@@ -1587,6 +1595,7 @@ mod autotest_generated {
     // FormatAsRustCode  (codegen encoders)
     // ======================================================================
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_emits_constructible_expressions() {
         assert_eq!(
@@ -1622,6 +1631,7 @@ mod autotest_generated {
         );
     }
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_of_aggregates_does_not_panic() {
         let custom = StyleScrollbarColor::Custom(ScrollbarColorCustom {

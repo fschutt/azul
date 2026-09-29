@@ -42,6 +42,7 @@ impl PrintAsCssValue for SelectionBackgroundColor {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for SelectionBackgroundColor {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -87,6 +88,7 @@ impl PrintAsCssValue for SelectionColor {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for SelectionColor {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -135,6 +137,7 @@ impl PrintAsCssValue for SelectionRadius {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for SelectionRadius {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         // Use the Display implementation of PixelValue to get a string like "5px" or "1em"
@@ -163,6 +166,7 @@ mod autotest_generated {
     };
 
     use super::*;
+    #[cfg(feature = "codegen")]
     use crate::codegen::format::FormatAsRustCode;
 
     fn hash_of<T: Hash>(t: &T) -> u64 {
@@ -800,6 +804,7 @@ mod autotest_generated {
         );
     }
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_emits_a_constructor_for_each_type() {
         let radius = SelectionRadius {
