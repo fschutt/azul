@@ -4068,6 +4068,7 @@ pub fn form(children: azul_core::dom::DomVec) -> Dom {
             ))),
         ]))
         .with_children(children)
+}
 
 // ==== badge ====
 //
