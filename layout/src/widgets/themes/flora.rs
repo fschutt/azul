@@ -4213,4 +4213,11 @@ pub fn form(children: azul_core::dom::DomVec) -> Dom {
             ))),
         ]))
         .with_children(children)
+
+// ==== badge ====
+
+/// The flora badge.
+#[must_use]
+pub fn badge(b: crate::widgets::badge::Badge) -> Dom {
+    super::flat::badge(b)
 }

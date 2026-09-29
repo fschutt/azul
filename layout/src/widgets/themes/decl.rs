@@ -1,0 +1,431 @@
+//! Declaration builders shared by the theme modules.
+//!
+//! A theme function is a list of decisions - this surface, that ink, a
+//! hairline here, a ring on focus - and every one of them is a handful of
+//! nested constructors when spelled out (`CssPropertyWithConditions::simple(
+//! CssProperty::const_border_top_color(StyleBorderTopColor { inner: .. }))`,
+//! four times, then again for the dark twin). These helpers are those
+//! shapes, named, so the flat and flora sections read as the decisions they
+//! make.
+//!
+//! Two rules they keep so a caller cannot get them wrong:
+//!
+//! * A dark twin always comes RIGHT AFTER its light value, in the same state
+//!   (`widgets::theme_pairs` rejects anything else): every `themed_*` helper
+//!   returns `[light, dark]` pairs in that order, edge by edge.
+//! * A focus ring is a border colour change, so it is only visible on a node
+//!   that HAS a border: [`focus_ring`] is for nodes that declare one (give a
+//!   borderless node a transparent [`border`] first).
+
+use alloc::vec::Vec;
+
+use azul_css::{
+    css::BoxOrStatic,
+    dynamic_selector::CssPropertyWithConditions,
+    props::{
+        basic::{color::ColorU, pixel::PixelValue, pixel::PixelValueNoPercent, StyleFontWeight},
+        layout::{
+            LayoutMarginBottom, LayoutMarginLeft, LayoutMarginRight, LayoutMarginTop,
+            LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop,
+        },
+        property::{CssProperty, StyleBoxShadowValue},
+        style::{
+            BorderStyle, BoxShadowClipMode, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
+            LayoutBorderRightWidth, LayoutBorderTopWidth, StyleBackgroundContent,
+            StyleBackgroundContentVec, StyleBorderBottomColor, StyleBorderBottomLeftRadius,
+            StyleBorderBottomRightRadius, StyleBorderBottomStyle, StyleBorderLeftColor,
+            StyleBorderLeftStyle, StyleBorderRightColor, StyleBorderRightStyle,
+            StyleBorderTopColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius,
+            StyleBorderTopStyle, StyleBoxShadow, StyleLetterSpacing, StyleTextColor,
+        },
+    },
+};
+
+/// `background: <color>`, one solid layer.
+#[must_use]
+pub(crate) fn fill(color: ColorU) -> CssProperty {
+    CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(alloc::vec![
+        StyleBackgroundContent::Color(color),
+    ]))
+}
+
+/// `background` built from layers, painted first to last (the base colour
+/// goes FIRST - the reverse of a CSS comma list).
+#[must_use]
+pub(crate) fn layers(list: Vec<StyleBackgroundContent>) -> CssProperty {
+    CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(list))
+}
+
+/// `color: <color>`.
+#[must_use]
+pub(crate) const fn ink(color: ColorU) -> CssProperty {
+    CssProperty::const_text_color(StyleTextColor { inner: color })
+}
+
+/// A resting surface with its dark twin: `[simple(light), dark_theme(dark)]`.
+#[must_use]
+pub(crate) fn themed_fill(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 2] {
+    CssPropertyWithConditions::themed(fill(light), fill(dark))
+}
+
+/// A resting ink with its dark twin.
+#[must_use]
+pub(crate) fn themed_ink(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 2] {
+    CssPropertyWithConditions::themed(ink(light), ink(dark))
+}
+
+/// A layered resting surface (a gradient face, a stone) with its dark twin.
+#[must_use]
+pub(crate) fn themed_layers(
+    light: Vec<StyleBackgroundContent>,
+    dark: Vec<StyleBackgroundContent>,
+) -> [CssPropertyWithConditions; 2] {
+    CssPropertyWithConditions::themed(layers(light), layers(dark))
+}
+
+/// The four border-colour properties, top / right / bottom / left.
+#[must_use]
+pub(crate) const fn border_colors(color: ColorU) -> [CssProperty; 4] {
+    [
+        CssProperty::const_border_top_color(StyleBorderTopColor { inner: color }),
+        CssProperty::const_border_right_color(StyleBorderRightColor { inner: color }),
+        CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: color }),
+        CssProperty::const_border_left_color(StyleBorderLeftColor { inner: color }),
+    ]
+}
+
+/// `border: <width>px solid` on all four edges, no colour (pair it with
+/// [`themed_border_color`]).
+#[must_use]
+pub(crate) const fn border(width_px: isize) -> [CssPropertyWithConditions; 8] {
+    [
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
+            LayoutBorderTopWidth::const_px(width_px),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
+            LayoutBorderRightWidth::const_px(width_px),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
+            LayoutBorderBottomWidth::const_px(width_px),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
+            LayoutBorderLeftWidth::const_px(width_px),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(
+            StyleBorderTopStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
+            StyleBorderRightStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
+            StyleBorderBottomStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_left_style(
+            StyleBorderLeftStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+    ]
+}
+
+/// One solid edge: `border-<side>: <width>px solid`, no colour.
+#[must_use]
+pub(crate) const fn border_bottom(width_px: isize) -> [CssPropertyWithConditions; 2] {
+    [
+        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
+            LayoutBorderBottomWidth::const_px(width_px),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
+            StyleBorderBottomStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+    ]
+}
+
+/// See [`border_bottom`].
+#[must_use]
+pub(crate) const fn border_top(width_px: isize) -> [CssPropertyWithConditions; 2] {
+    [
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
+            LayoutBorderTopWidth::const_px(width_px),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(
+            StyleBorderTopStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+    ]
+}
+
+/// See [`border_bottom`].
+#[must_use]
+pub(crate) const fn border_left(width_px: isize) -> [CssPropertyWithConditions; 2] {
+    [
+        CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
+            LayoutBorderLeftWidth::const_px(width_px),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_left_style(
+            StyleBorderLeftStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+    ]
+}
+
+/// All four border colours with their dark twins, each twin right after its
+/// light value.
+#[must_use]
+pub(crate) fn themed_border_color(light: ColorU, dark: ColorU) -> Vec<CssPropertyWithConditions> {
+    let mut out = Vec::with_capacity(8);
+    for (l, d) in border_colors(light).into_iter().zip(border_colors(dark)) {
+        out.extend(CssPropertyWithConditions::themed(l, d));
+    }
+    out
+}
+
+/// One edge's colour with its dark twin.
+#[must_use]
+pub(crate) fn themed_border_bottom_color(
+    light: ColorU,
+    dark: ColorU,
+) -> [CssPropertyWithConditions; 2] {
+    CssPropertyWithConditions::themed(
+        CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: light }),
+        CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: dark }),
+    )
+}
+
+/// See [`themed_border_bottom_color`].
+#[must_use]
+pub(crate) fn themed_border_top_color(
+    light: ColorU,
+    dark: ColorU,
+) -> [CssPropertyWithConditions; 2] {
+    CssPropertyWithConditions::themed(
+        CssProperty::const_border_top_color(StyleBorderTopColor { inner: light }),
+        CssProperty::const_border_top_color(StyleBorderTopColor { inner: dark }),
+    )
+}
+
+/// See [`themed_border_bottom_color`].
+#[must_use]
+pub(crate) fn themed_border_left_color(
+    light: ColorU,
+    dark: ColorU,
+) -> [CssPropertyWithConditions; 2] {
+    CssPropertyWithConditions::themed(
+        CssProperty::const_border_left_color(StyleBorderLeftColor { inner: light }),
+        CssProperty::const_border_left_color(StyleBorderLeftColor { inner: dark }),
+    )
+}
+
+/// The focus ring: all four border colours on `:focus`, each with its dark
+/// twin. Only visible on a node with a border (see the module note).
+#[must_use]
+pub(crate) fn focus_ring(light: ColorU, dark: ColorU) -> Vec<CssPropertyWithConditions> {
+    let mut out = Vec::with_capacity(8);
+    for (l, d) in border_colors(light).into_iter().zip(border_colors(dark)) {
+        out.extend(CssPropertyWithConditions::themed_on_focus(l, d));
+    }
+    out
+}
+
+/// All four border colours on `:hover`, each with its dark twin.
+#[must_use]
+pub(crate) fn hover_border_color(light: ColorU, dark: ColorU) -> Vec<CssPropertyWithConditions> {
+    let mut out = Vec::with_capacity(8);
+    for (l, d) in border_colors(light).into_iter().zip(border_colors(dark)) {
+        out.extend(CssPropertyWithConditions::themed_on_hover(l, d));
+    }
+    out
+}
+
+/// A surface on `:hover`, with its dark twin.
+#[must_use]
+pub(crate) fn hover_fill(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 2] {
+    CssPropertyWithConditions::themed_on_hover(fill(light), fill(dark))
+}
+
+/// A layered surface on `:hover`, with its dark twin.
+#[must_use]
+pub(crate) fn hover_layers(
+    light: Vec<StyleBackgroundContent>,
+    dark: Vec<StyleBackgroundContent>,
+) -> [CssPropertyWithConditions; 2] {
+    CssPropertyWithConditions::themed_on_hover(layers(light), layers(dark))
+}
+
+/// A surface while pressed, with its dark twin.
+#[must_use]
+pub(crate) fn active_fill(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 2] {
+    CssPropertyWithConditions::themed_on_active(fill(light), fill(dark))
+}
+
+/// A layered surface while pressed, with its dark twin.
+#[must_use]
+pub(crate) fn active_layers(
+    light: Vec<StyleBackgroundContent>,
+    dark: Vec<StyleBackgroundContent>,
+) -> [CssPropertyWithConditions; 2] {
+    CssPropertyWithConditions::themed_on_active(layers(light), layers(dark))
+}
+
+/// An ink on `:hover`, with its dark twin.
+#[must_use]
+pub(crate) fn hover_ink(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 2] {
+    CssPropertyWithConditions::themed_on_hover(ink(light), ink(dark))
+}
+
+/// `border-radius: <px>` on all four corners.
+#[must_use]
+pub(crate) const fn radius(px: isize) -> [CssPropertyWithConditions; 4] {
+    [
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
+            StyleBorderTopLeftRadius::const_px(px),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_right_radius(
+            StyleBorderTopRightRadius::const_px(px),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_left_radius(
+            StyleBorderBottomLeftRadius::const_px(px),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_right_radius(
+            StyleBorderBottomRightRadius::const_px(px),
+        )),
+    ]
+}
+
+/// `padding: <top> <right> <bottom> <left>`, in px.
+#[must_use]
+pub(crate) const fn padding(
+    top: isize,
+    right: isize,
+    bottom: isize,
+    left: isize,
+) -> [CssPropertyWithConditions; 4] {
+    [
+        CssPropertyWithConditions::simple(CssProperty::const_padding_top(
+            LayoutPaddingTop::const_px(top),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+            LayoutPaddingRight::const_px(right),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
+            LayoutPaddingBottom::const_px(bottom),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+            LayoutPaddingLeft::const_px(left),
+        )),
+    ]
+}
+
+/// `margin: <top> <right> <bottom> <left>`, in px.
+#[must_use]
+pub(crate) const fn margin(
+    top: isize,
+    right: isize,
+    bottom: isize,
+    left: isize,
+) -> [CssPropertyWithConditions; 4] {
+    [
+        CssPropertyWithConditions::simple(CssProperty::const_margin_top(
+            LayoutMarginTop::const_px(top),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_margin_right(
+            LayoutMarginRight::const_px(right),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_margin_bottom(
+            LayoutMarginBottom::const_px(bottom),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_margin_left(
+            LayoutMarginLeft::const_px(left),
+        )),
+    ]
+}
+
+/// `box-shadow: 0 <offset_y>px <blur>px <spread>px <color> [inset]` - the
+/// same shadow on all four sides, which is what the `box-shadow` shorthand
+/// expands to.
+#[must_use]
+pub(crate) fn shadow(
+    offset_y: isize,
+    blur: isize,
+    spread: isize,
+    color: ColorU,
+    inset: bool,
+) -> [CssProperty; 4] {
+    let make = || {
+        StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
+            offset_x: PixelValueNoPercent {
+                inner: PixelValue::const_px(0),
+            },
+            offset_y: PixelValueNoPercent {
+                inner: PixelValue::const_px(offset_y),
+            },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::const_px(blur),
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::const_px(spread),
+            },
+            clip_mode: if inset {
+                BoxShadowClipMode::Inset
+            } else {
+                BoxShadowClipMode::Outset
+            },
+            color,
+        }))
+    };
+    [
+        CssProperty::BoxShadowTop(make()),
+        CssProperty::BoxShadowRight(make()),
+        CssProperty::BoxShadowBottom(make()),
+        CssProperty::BoxShadowLeft(make()),
+    ]
+}
+
+/// A drop shadow with its dark twin (flora's shadows are warm in light mode
+/// and near-black at night), each side's twin right after its light value.
+#[must_use]
+pub(crate) fn themed_shadow(
+    offset_y: isize,
+    blur: isize,
+    light: ColorU,
+    dark: ColorU,
+) -> Vec<CssPropertyWithConditions> {
+    let mut out = Vec::with_capacity(8);
+    for (l, d) in shadow(offset_y, blur, 0, light, false)
+        .into_iter()
+        .zip(shadow(offset_y, blur, 0, dark, false))
+    {
+        out.extend(CssPropertyWithConditions::themed(l, d));
+    }
+    out
+}
+
+/// `font-weight: bold`.
+#[must_use]
+pub(crate) const fn bold() -> CssPropertyWithConditions {
+    CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::Bold))
+}
+
+/// `font-weight: 600`.
+#[must_use]
+pub(crate) const fn semibold() -> CssPropertyWithConditions {
+    CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::W600))
+}
+
+/// `letter-spacing: <em>em` - flora tracks its small labels out.
+#[must_use]
+pub(crate) fn letter_spacing_em(em: f32) -> CssPropertyWithConditions {
+    CssPropertyWithConditions::simple(CssProperty::const_letter_spacing(StyleLetterSpacing {
+        inner: PixelValue::em(em),
+    }))
+}

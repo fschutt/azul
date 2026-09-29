@@ -4068,4 +4068,25 @@ pub fn form(children: azul_core::dom::DomVec) -> Dom {
             ))),
         ]))
         .with_children(children)
+
+// ==== badge ====
+//
+// The flat badge is the widget's established pill: a kind-coloured fill with
+// white (or, on the light Warning / Info fills, near-black) text, 2px 8px
+// padding, a 10px radius. Its colour IS its meaning, so it is the same pill in
+// the dark theme - the rule `button_states` applies to a coloured command - and
+// every kind reads at better than 2:1 on either window
+// (`widgets::theme_contrast`). A badge is not focusable, so it has no ring.
+
+/// The flat badge: [`crate::widgets::badge::Badge::resolved_badge_style`] on a
+/// `<p>` pill.
+#[must_use]
+pub fn badge(b: crate::widgets::badge::Badge) -> Dom {
+    // Resolved before `b.string` is moved out below.
+    let style = b.resolved_badge_style();
+    crate::widgets::widget_p_with_text(b.string)
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(
+            crate::widgets::badge::BADGE_CLASS,
+        ))
+        .with_css_props(style)
 }

@@ -6,7 +6,7 @@
 //!
 //! Key types: [`Badge`], [`BadgeKind`].
 
-use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
+use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class};
 use azul_css::{
     dynamic_selector::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
@@ -27,6 +27,8 @@ use azul_css::{
     },
     AzString,
 };
+
+use crate::widgets::themes::{OptionUiTheme, UiTheme};
 
 /// The semantic colour variant of a [`Badge`] (mirrors `button::ButtonType`).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
@@ -153,7 +155,16 @@ pub struct Badge {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub badge_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme, or `None` for the default
+    /// (`crate::widgets::themes::UiTheme::default()`, Flat). A theme is a
+    /// DOM-level choice: the badge is rebuilt in the other look when it
+    /// changes.
+    pub theme: OptionUiTheme,
 }
+
+/// The class every badge pill carries, in every theme.
+pub(crate) static BADGE_CLASS: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-badge"))];
 
 /// Builds the pill style for a given [`BadgeKind`]. The colours are the only
 /// kind-dependent properties, so the style is built at runtime per the recipe's
@@ -229,6 +240,7 @@ impl Badge {
             string,
             kind,
             badge_style: OptionCssPropertyWithConditionsVec::None,
+            theme: OptionUiTheme::None,
         }
     }
 
@@ -271,24 +283,37 @@ impl Badge {
         s
     }
 
+    /// Pick the widget theme. Unset (`None`), the badge renders in the
+    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
     /// Converts this badge into a `<p>` pill carrying the
     /// `__azul-native-badge` class and wrapping a bare text node.
     ///
     /// The pill's background, padding and border-radius live on the `<p>`: a
     /// `NodeType::Text` node is always inline-level and owns no rect, so those
     /// properties would never paint on a raw text node.
+    ///
+    /// The look comes from the theme module (`themes::flat::badge` /
+    /// `themes::flora::badge`); `None` renders flat, like every widget.
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        static BADGE_CLASS: &[IdOrClass] =
-            &[Class(AzString::from_const_str("__azul-native-badge"))];
-
-        // Resolved before `self.string` is moved out below.
-        let badge_style = self.resolved_badge_style();
-
-        crate::widgets::widget_p_with_text(self.string)
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(BADGE_CLASS))
-            .with_css_props(badge_style)
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::badge(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::badge(self),
+        }
     }
 }
 

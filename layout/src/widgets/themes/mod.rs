@@ -3,6 +3,9 @@ use azul_css::{impl_option, impl_option_inner};
 pub mod flat;
 pub mod flora;
 pub mod system_palette;
+/// Declaration builders the theme modules share (fills, inks, borders,
+/// focus rings, each light value paired with its dark twin).
+pub(crate) mod decl;
 
 // ==== W3b: shared style builders + the theme marker, and their test helpers ====
 pub mod style_kit;
