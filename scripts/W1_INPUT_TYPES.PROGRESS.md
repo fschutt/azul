@@ -11,8 +11,12 @@
   is_valid_absolute_url / value_matches_type; TextInputState::compute_validity; :user-invalid ring via
   override_node_css_properties, theme found by marker class on constrained fields; mark_user_invalid)
 
+- 4 month/week/datetime-local: RED ebbdb7370, impl 50342904c (DatePickerMode on DatePicker + DatePickerData;
+  create_month/create_week; ISO week math; Monday-first week grid; month grid + year nav; new
+  datetime_local.rs DateTimeLocalPicker composing DatePicker+TimePicker; flat/flora datetime_local rows)
+
 ## IN PROGRESS
-- 4 month/week (DatePicker modes) + datetime-local
+- 5 reset/submit/image + Form/FormData (new layout/src/widgets/form.rs)
 
 ## NEXT (in order)
 2. search (wrapper div [container, clear x]; x hidden when empty; Escape + x clear)
