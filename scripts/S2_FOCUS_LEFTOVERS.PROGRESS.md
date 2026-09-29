@@ -44,13 +44,14 @@ Branch `wt/s2-focus-leftovers`, based on `0a326afe5`. Nothing compiled (house ru
 
 - Item 4: 7bf41a0df RED (8 stepper tests), 4ceaf3df0 fix (roving Tab stop on the current step, `on_step_key`, `go_to_step_cell` shared by click + key, live "step N of M" on every step).
 
+- Item 5a: c8a6999ec RED (9 tests + `rv::announced_states` / `rv::declared`), b203042a0 fix (`roving::announce_chosen`; roles: segment RadioButton, tab PageTab + header PageTabList, list row ListItem, tree Outline + OutlineItem rows with Expanded/Collapsed/Selected).
+
 ## IN PROGRESS
 
-- Item 5a.
+- Items 1+2.
 
 ## NEXT
 
-5. Item 5a: a11y live states in radio / segmented / tabs / list / tree.
 6. Items 1+2: combobox active descendant + non-activating keep-focus popups.
 7. Item 5b: date grid across months (needs a post-rebuild focus target).
 8. Item 7: device-faithful variant with the parent's activation round trip.
