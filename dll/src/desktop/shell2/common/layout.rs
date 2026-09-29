@@ -704,9 +704,9 @@ pub fn regenerate_layout(
             // slider's drag died on its second move whenever the app's
             // `RefreshDom` was followed by a redraw-driven relayout — and
             // split the widget across two allocations.
-            for (idx, fresh) in &transfers.datasets {
-                azul_core::diff::merge_fresh_dataset(node_data_mut, *idx, fresh.clone());
-            }
+            // All at once: one widget's datasets are clones of ONE fresh
+            // allocation on several nodes (`merge_fresh_datasets`).
+            azul_core::diff::merge_fresh_datasets(node_data_mut, transfers.datasets.clone());
         }
 
         // Re-derive hover/focus/active flags from the managers. A state

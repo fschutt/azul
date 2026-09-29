@@ -1519,19 +1519,60 @@ fn repoint_orphaned_refanys(node_data: &mut [NodeData], orphan_alloc: usize, mer
 /// AFTER the fresh callbacks have been installed on `node_data`, once per
 /// fresh dataset, with `idx` the node's flattened index.
 pub fn merge_fresh_dataset(node_data: &mut [NodeData], idx: usize, fresh: RefAny) {
+    merge_fresh_datasets(node_data, alloc::vec![(idx, fresh)]);
+}
+
+/// [`merge_fresh_dataset`] for a whole build at once - what the pre-cascade
+/// fast path must call, because ONE widget's fresh datasets are clones of
+/// one allocation spread over several nodes.
+///
+/// A dialog keeps its state on the wrapper (with the merge callback) AND on
+/// its panel (no merge callback). Merged node by node, the wrapper's merge
+/// re-pointed every clone of the fresh allocation - but the panel still held
+/// last frame's dataset then, so there was nothing to re-point; the panel's
+/// turn came next and, having no merge callback, installed the fresh
+/// allocation: an orphan. A control inside the dialog then wrote its return
+/// value into a copy nobody read. So, like [`transfer_states`]: install
+/// EVERY fresh dataset first, then run each merge callback and re-point the
+/// whole arena at its result.
+pub fn merge_fresh_datasets(node_data: &mut [NodeData], fresh: Vec<(usize, RefAny)>) {
     use crate::refany::OptionRefAny;
-    let Some(nd) = node_data.get_mut(idx) else {
-        return;
-    };
-    let orphan_alloc = fresh.sharing_info.ptr as usize;
-    let merge_callback = nd.get_merge_callback();
-    let retained = nd.take_dataset();
-    let result = match (merge_callback, retained) {
-        (Some(cb), Some(old)) => cb.invoke(fresh, old),
-        _ => fresh,
-    };
-    nd.set_dataset(OptionRefAny::Some(result.clone()));
-    repoint_orphaned_refanys(node_data, orphan_alloc, &result);
+    // 1. Every fresh dataset goes in; what each node held is kept for its
+    //    merge callback.
+    let mut merges: Vec<(usize, usize, RefAny)> = Vec::new();
+    for (idx, fresh) in fresh {
+        let Some(nd) = node_data.get_mut(idx) else {
+            continue;
+        };
+        let retained = nd.take_dataset();
+        let fresh_alloc = fresh.sharing_info.ptr as usize;
+        nd.set_dataset(OptionRefAny::Some(fresh));
+        if let (Some(_), Some(old)) = (nd.get_merge_callback(), retained) {
+            merges.push((idx, fresh_alloc, old));
+        }
+    }
+    // 2. Merge where the widget asked for it, and re-point every clone of
+    //    the fresh allocation - on any node - at the result.
+    for (idx, fresh_alloc, old) in merges {
+        let Some(nd) = node_data.get_mut(idx) else {
+            continue;
+        };
+        let Some(merge_callback) = nd.get_merge_callback() else {
+            continue;
+        };
+        let Some(current) = nd.take_dataset() else {
+            continue;
+        };
+        if current.sharing_info.ptr as usize != fresh_alloc {
+            // An earlier merge of the same allocation already re-pointed
+            // this node: it is unified, and merging again would fork it.
+            nd.set_dataset(OptionRefAny::Some(current));
+            continue;
+        }
+        let merged = merge_callback.invoke(current, old);
+        nd.set_dataset(OptionRefAny::Some(merged.clone()));
+        repoint_orphaned_refanys(node_data, fresh_alloc, &merged);
+    }
 }
 
 /// Calculate a stable key for a contenteditable node using the hierarchy:

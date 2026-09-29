@@ -1822,6 +1822,32 @@ mod autotest_generated {
         merge_fresh_dataset(&mut plain, 99, RefAny::new(TestState(3)));
     }
 
+    /// One widget, two nodes: the wrapper merges (keeps the retained state),
+    /// the panel inside it carries a clone of the same dataset and no merge
+    /// callback. Merged node by node the panel ended on the fresh allocation
+    /// - an orphan - because the wrapper's re-point ran before the panel held
+    /// it. Merged as a batch, both end on the retained state.
+    #[test]
+    fn autotest_merge_fresh_datasets_unifies_a_widget_spread_over_two_nodes() {
+        let mut nodes = vec![NodeData::create_div(), NodeData::create_div()];
+        let retained = RefAny::new(TestState(7));
+        let retained_ptr = retained.sharing_info.ptr as usize;
+        nodes[0].set_dataset(OptionRefAny::Some(retained.clone()));
+        nodes[0].set_merge_callback(merge_keep_old as DatasetMergeCallbackType);
+        nodes[1].set_dataset(OptionRefAny::Some(retained));
+
+        let fresh = RefAny::new(TestState(0));
+        merge_fresh_datasets(&mut nodes, vec![(0, fresh.clone()), (1, fresh)]);
+
+        for (i, nd) in nodes.iter().enumerate() {
+            assert_eq!(
+                nd.get_dataset().unwrap().sharing_info.ptr as usize,
+                retained_ptr,
+                "node {i} must end on the retained (merged) allocation"
+            );
+        }
+    }
+
     #[test]
     fn autotest_transfer_states_without_merge_callback_leaves_datasets_intact() {
         let mut old = vec![NodeData::create_div()];
