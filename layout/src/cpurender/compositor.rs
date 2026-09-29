@@ -2267,28 +2267,14 @@ pub fn gpu_value_damage(
         ],
     };
     let items = &display_list.items;
-    // The offsets of the scroll frames open at each item, accumulated: an
-    // item is painted this far up and left of its display-list bounds.
-    let mut frames: Vec<(f32, f32)> = Vec::new();
-    let mut scrolled = (0.0_f32, 0.0_f32);
-    let on_screen = |r: LogicalRect, by: (f32, f32)| {
-        LogicalRect::new(
-            LogicalPosition::new(r.origin.x - by.0, r.origin.y - by.1),
-            r.size,
-        )
-    };
+    // THE walk of the scroll frames open at each item (`ScrollStack`, shared
+    // with the scroll-shift producers): an item is painted `scrolled` up and
+    // left of its display-list bounds.
+    let mut stack = ScrollStack::new(scroll_offsets);
     for (idx, item) in items.iter().enumerate() {
+        let scrolled = stack.scrolled();
+        stack.step(item);
         match item {
-            DisplayListItem::PushScrollFrame { scroll_id, .. } => {
-                let offset = scroll_offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
-                frames.push(offset);
-                scrolled = (scrolled.0 + offset.0, scrolled.1 + offset.1);
-            }
-            DisplayListItem::PopScrollFrame => {
-                if let Some(offset) = frames.pop() {
-                    scrolled = (scrolled.0 - offset.0, scrolled.1 - offset.1);
-                }
-            }
             DisplayListItem::PushReferenceFrame {
                 transform_key,
                 bounds,
@@ -2329,8 +2315,8 @@ pub fn gpu_value_damage(
                     affine_rect_about(new_m, bounds.inner().origin, content),
                 ) {
                     (Some(a), Some(b)) => {
-                        out.rects.push(on_screen(a, scrolled));
-                        out.rects.push(on_screen(b, scrolled));
+                        out.rects.push(moved_by(a, scrolled));
+                        out.rects.push(moved_by(b, scrolled));
                     }
                     _ => out.needs_full = true,
                 }
@@ -2343,7 +2329,7 @@ pub fn gpu_value_damage(
                 if thumb_moved || faded {
                     // The whole bar bounds cover the thumb's old AND new
                     // position — precise and cheap.
-                    out.rects.push(on_screen(info.bounds.0, scrolled));
+                    out.rects.push(moved_by(info.bounds.0, scrolled));
                 }
             }
             DisplayListItem::PushOpacity {
@@ -2355,7 +2341,7 @@ pub fn gpu_value_damage(
                 // unlike a moved reference frame whose content extent is
                 // unknowable from the item.
                 if changed_o.contains(&k.id) {
-                    out.rects.push(on_screen(*bounds.inner(), scrolled));
+                    out.rects.push(moved_by(*bounds.inner(), scrolled));
                 }
             }
             _ => {}
