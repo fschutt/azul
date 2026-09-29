@@ -574,6 +574,8 @@ pub fn warn_widget_needs_a_name(widget_type: &str, has_name: bool) {
     if has_name || crate::dom_lint::lint_suppressed("a11y_widget") {
         return;
     }
+    #[cfg(test)]
+    A11Y_WARNINGS_ON_THIS_THREAD.with(|n| n.set(n.get() + 1));
     azul_core::diagnostics::emit(alloc::format!(
         "[azul][a11y-widget] {widget_type} was built without an accessible name. It has no text \
          of its own to derive one from, so a screen reader announces its ROLE and nothing else. \
@@ -586,6 +588,81 @@ pub fn warn_widget_needs_a_name(widget_type: &str, has_name: bool) {
 
 #[cfg(not(feature = "std"))]
 pub fn warn_widget_needs_a_name(_widget_type: &str, _has_name: bool) {}
+
+#[cfg(all(test, feature = "std"))]
+std::thread_local! {
+    /// How many [`warn_widget_needs_a_name`] warnings this thread emitted. A
+    /// test counts its own builds here: the diagnostics ring is shared by
+    /// every test of the binary, running in parallel.
+    static A11Y_WARNINGS_ON_THIS_THREAD: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+}
+
+#[cfg(all(test, feature = "std"))]
+mod a11y_warning_per_build {
+    //! A widget that follows the app theme may build itself twice - once per
+    //! theme - and keep only the structure theme's tree. The user built ONE
+    //! widget, so they get ONE warning.
+    use azul_core::dom::Dom;
+
+    use super::{check_box::CheckBox, slider::Slider, switch::Switch, A11Y_WARNINGS_ON_THIS_THREAD};
+    use crate::widgets::themes::{theme_blocks::checks::under, UiTheme};
+
+    /// The accessible-name warnings `build` emits on this thread.
+    fn warnings_while(build: impl FnOnce() -> Dom) -> usize {
+        let before = A11Y_WARNINGS_ON_THIS_THREAD.with(core::cell::Cell::get);
+        let _dom = build();
+        A11Y_WARNINGS_ON_THIS_THREAD.with(core::cell::Cell::get) - before
+    }
+
+    fn unnamed() -> [(&'static str, fn() -> Dom); 3] {
+        [
+            ("slider", || Slider::create(40.0, 0.0, 100.0).dom()),
+            ("switch", || Switch::create(true).dom()),
+            ("check box", || CheckBox::create(true).dom()),
+        ]
+    }
+
+    #[test]
+    fn an_unnamed_widget_that_follows_the_app_theme_warns_once_per_build() {
+        if crate::dom_lint::lint_suppressed("a11y_widget") {
+            return;
+        }
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            for (what, build) in unnamed() {
+                assert_eq!(
+                    under(theme, || warnings_while(build)),
+                    1,
+                    "an unnamed {what} built for {theme:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn an_unnamed_pinned_widget_warns_once_per_build_too() {
+        if crate::dom_lint::lint_suppressed("a11y_widget") {
+            return;
+        }
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            assert_eq!(
+                warnings_while(|| Slider::create(40.0, 0.0, 100.0).with_theme(theme).dom()),
+                1,
+                "a slider pinned to {theme:?}"
+            );
+            assert_eq!(
+                warnings_while(|| Switch::create(true).with_theme(theme).dom()),
+                1,
+                "a switch pinned to {theme:?}"
+            );
+            assert_eq!(
+                warnings_while(|| CheckBox::create(true).with_theme(theme).dom()),
+                1,
+                "a check box pinned to {theme:?}"
+            );
+        }
+    }
+}
 
 #[allow(clippy::too_many_lines)]
 #[cfg(test)]
