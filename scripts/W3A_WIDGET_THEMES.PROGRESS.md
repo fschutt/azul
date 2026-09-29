@@ -44,13 +44,14 @@ is shared with other agents!). Append to files via Write-to-scratch + `cat >>`.
 - divider: a3225bdee (plumbing), ab3aad664 (RED), f682418fb (flora SEP hairline).
   API: `Divider.theme` appended after `divider_style`; set_theme / with_theme.
 
+- spinner: e101c8551 (plumbing), 96f0b26bd (RED makeover tests), f666983df
+  (impl), 98c5bba05 (cleanup). API: new enum `SpinnerStyle {Auto, Spokes,
+  Ring}` (repr C); fields now size, spinner_style, indicator: SpinnerStyle,
+  theme: OptionUiTheme, color: OptionColorU, track_color: OptionColorU;
+  set_indicator/with_indicator, set_theme/with_theme; default size 32.
+  Build in `spinner::build(s, &SpinnerLook)`; flat/flora supply the look.
+
 ## IN PROGRESS
-spinner (design: SpinnerStyle{Auto,Spokes,Ring}; color/track_color ->
-OptionColorU (None = native ink); fields reordered size, spinner_style, style,
-theme, color, track_color; spokes = 8 full-size nodes clipped to rotated
-capsules under a ViewBox container, per-spoke phase-rotated keyframes;
-ring = arc clip + rotate keyframes; all animations gated on
-PrefersReducedMotion(False); container fade in/out)
 
 ## NEXT
 chip, alert, card, frame, breadcrumb,
