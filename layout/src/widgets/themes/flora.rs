@@ -4390,9 +4390,59 @@ pub fn badge(b: crate::widgets::badge::Badge) -> Dom {
 }
 
 // ==== divider ====
+//
+// flora.css `hr`: "A hairline" - 1px of --fl-sep, which is #D8D5CE by day and
+// #383838 at night. The page gives an `hr` 40px of air; inside a widget tree
+// that would push everything apart, so the flora rule takes 8px, twice the
+// flat rule's 4px, which is as much of the house's slowness as a separator
+// can carry.
 
-/// The flora divider.
+/// The flora rule for one orientation: geometry first, then the colour with
+/// its night twin.
+fn flora_divider_style(
+    orientation: crate::widgets::divider::DividerOrientation,
+) -> Vec<CssPropertyWithConditions> {
+    use crate::widgets::divider::DividerOrientation;
+
+    let mut style = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
+        // Span the parent's cross axis, never grow along the main one.
+        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Stretch)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
+            0,
+        ))),
+    ];
+    match orientation {
+        DividerOrientation::Horizontal => {
+            style.push(CssPropertyWithConditions::simple(CssProperty::const_height(
+                LayoutHeight::const_px(1),
+            )));
+            style.extend(super::decl::margin(8, 0, 8, 0));
+        }
+        DividerOrientation::Vertical => {
+            style.push(CssPropertyWithConditions::simple(CssProperty::const_width(
+                LayoutWidth::const_px(1),
+            )));
+            style.extend(super::decl::margin(0, 8, 0, 8));
+        }
+    }
+    style.extend(super::decl::themed_fill(LIGHT_SEP, DARK_SEP));
+    style
+}
+
+/// The flora divider: a 1px --fl-sep hairline. A caller's `divider_style` is
+/// taken as it is.
 #[must_use]
 pub fn divider(d: crate::widgets::divider::Divider) -> Dom {
-    super::flat::divider(d)
+    static FLORA_DIVIDER_CLASSES: &[IdOrClass] = &[
+        Class(AzString::from_const_str("__azul-native-divider")),
+        Class(AzString::from_const_str("__azul-theme-flora")),
+    ];
+    let orientation = d.orientation;
+    let style = d.divider_style.into_option().unwrap_or_else(|| {
+        CssPropertyWithConditionsVec::from_vec(flora_divider_style(orientation))
+    });
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(FLORA_DIVIDER_CLASSES))
+        .with_css_props(style)
 }
