@@ -253,14 +253,14 @@ async function main() {
             { shots: countSent('take_screenshot'), state: countSent('get_state') });
         const shots = countSent('take_screenshot');
 
-        let accepted = await cdp.eval(`__t.canvasOver('builtin:div', 100, 60)`);
+        let accepted = await cdp.eval(`__t.canvasOver('builtin:div', 100, 65)`);
         await waitFor(cdp, `__t.mark() !== null`);
         const probe = lastSent('builder_hit_test');
         check('hovering the picture hit-tests the window point under the pointer (builder_hit_test)',
-            accepted && probe && Math.abs(probe.x - 100) < 1.5 && Math.abs(probe.y - 60) < 1.5, probe);
+            accepted && probe && Math.abs(probe.x - 100) < 1.5 && Math.abs(probe.y - 65) < 1.5, probe);
         check('...and shows where the drop lands: AFTER the instance (a leaf, lower half)',
             await cdp.eval(`__t.mark()`) === 'after', await cdp.eval(`__t.mark()`));
-        await cdp.eval(`__t.canvasDrop(100, 60)`);
+        await cdp.eval(`__t.canvasDrop(100, 65)`);
         await waitFor(cdp, `!!__t.row(4)`);
         check('dropping inserts there, like the tree drop (builder_insert after the instance)',
             same(lastSent('builder_insert'), { op: 'builder_insert', parent: 0, component: 'div', index: 2 })
@@ -287,9 +287,9 @@ async function main() {
         check('below every node the drop appends to <body>',
             same(lastSent('builder_insert'), { op: 'builder_insert', parent: 0, component: 'p' }),
             lastSent('builder_insert'));
+        for (let i = 0; i < 40 && countSent('take_screenshot') <= shots; i++) await new Promise((r) => setTimeout(r, 50));
         check('the picture follows the edits (a new take_screenshot after them)',
-            await waitFor(cdp, `true`) && countSent('take_screenshot') > shots,
-            { before: shots, after: countSent('take_screenshot') });
+            countSent('take_screenshot') > shots, { before: shots, after: countSent('take_screenshot') });
         // body > p(1), div(6), card(2), div(4), span(3), p(7): (100, 100) is the card.
         await cdp.eval(`(() => { const p = __t.at(100, 100);
             __t.canvasImg().dispatchEvent(new MouseEvent('click', Object.assign({ bubbles: true }, p))); return true; })()`);

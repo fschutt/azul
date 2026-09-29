@@ -60,6 +60,36 @@ pub const TEMPLATE_MARKER: &str = "<!-- azul-builder-template -->";
 /// The document root (`<body>`) always has this uid.
 pub const ROOT_UID: u64 = 0;
 
+/// Every element the document mounts carries the marker class
+/// `azb-<uid>`: how a live node (a hit test, the Inspector) finds its
+/// document node. The builder's plumbing, never the user's markup.
+pub const MARKER_PREFIX: &str = "azb-";
+
+/// The document uid a marker class `azb-<uid>` names; `None` for any other
+/// class (`azb-card` is an ordinary class).
+#[must_use]
+pub fn marker_uid(class: &str) -> Option<u64> {
+    let digits = class.strip_prefix(MARKER_PREFIX)?;
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+/// The document uid the live node `id` carries in its marker class, if it
+/// is a mounted document element.
+#[must_use]
+pub fn node_marker(sd: &StyledDom, id: NodeId) -> Option<u64> {
+    sd.node_data
+        .as_ref()
+        .get(id.index())?
+        .attributes()
+        .as_ref()
+        .iter()
+        .filter_map(|a| a.as_class())
+        .find_map(marker_uid)
+}
+
 /// Undo snapshots kept per document.
 const MAX_UNDO: usize = 100;
 
@@ -1570,7 +1600,7 @@ fn write_open_tag(
         if !class.is_empty() {
             class.push(' ');
         }
-        class.push_str(&format!("azb-{uid}"));
+        class.push_str(&format!("{MARKER_PREFIX}{uid}"));
     }
     for (k, v) in attrs {
         if k == "text" || k == "class" {
@@ -1625,7 +1655,7 @@ fn single_root(
         classes.push(c.clone());
     }
     if let Some(uid) = marker {
-        classes.push(format!("azb-{uid}"));
+        classes.push(format!("{MARKER_PREFIX}{uid}"));
     }
     if !classes.is_empty() {
         root.attrs.insert("class".to_string(), classes.join(" "));
@@ -1700,7 +1730,7 @@ fn node_from_styled(
             if import && c.starts_with("__azul-") {
                 return None;
             }
-            if !c.starts_with("azb-") {
+            if marker_uid(c).is_none() {
                 classes.push(c.to_string());
             }
         } else if let Some(i) = attr.as_id() {
@@ -2372,7 +2402,7 @@ fn element_from_render_json(
             // subtree taken from a mounted document carries the builder's
             // `azb-<uid>` markers, which must not be baked into a template.
             if c != "component-instance"
-                && !c.starts_with("azb-")
+                && marker_uid(c).is_none()
                 && !c.is_empty()
                 && !classes.contains(&c)
             {
@@ -3185,7 +3215,34 @@ mod tests {
         );
     }
 
-    // ── B5: the document's own stylesheet ──
+    // ── B5: the marker, the document's own stylesheet ──
+
+    #[test]
+    fn only_azb_followed_by_digits_is_a_marker() {
+        assert_eq!(marker_uid("azb-0"), Some(0));
+        assert_eq!(marker_uid("azb-42"), Some(42));
+        assert_eq!(marker_uid("azb-card"), None, "an ordinary class");
+        assert_eq!(marker_uid("azb-"), None);
+        assert_eq!(marker_uid("azb-1x"), None);
+        assert_eq!(marker_uid("xazb-1"), None);
+        // A live node's marker; an import keeps an ordinary `azb-` class and
+        // drops the marker.
+        let sd = crate::xml::parse_xml_to_styled_dom(
+            "<html><body><div class=\"azb-card azb-7\"></div></body></html>",
+        )
+        .expect("parses");
+        let marked: Vec<u64> = (0..sd.node_data.as_ref().len())
+            .filter_map(|i| node_marker(&sd, NodeId::new(i)))
+            .collect();
+        assert_eq!(marked, vec![7]);
+        let imported = BuilderDocument::from_styled_dom(Some(&sd));
+        assert_eq!(imported.root.children[0].attrs["class"], "azb-card");
+        let mut doc = BuilderDocument::new();
+        doc.insert(0, None, el("p"), attrs(&[("class", "azb-card")]))
+            .expect("insert");
+        let xml = doc.to_mount_xml(&ComponentMap::default());
+        assert!(xml.contains("class=\"azb-card azb-1\""), "{xml}");
+    }
 
     #[test]
     fn the_documents_stylesheet_is_one_undo_step_and_the_same_text_is_none() {

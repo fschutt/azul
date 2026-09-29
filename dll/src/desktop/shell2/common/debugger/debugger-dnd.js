@@ -366,6 +366,67 @@
         return dirty ? shown : (docSheet || '');
     }
 
+    // ── B5: drops onto the window canvas ──
+
+    /**
+     * The window point (logical px) under client (x, y) on the window's
+     * picture, shown at `rect` (its client rect); `logical` = the window's
+     * logical size (`get_state`). The picture's own pixel size (it is the
+     * CPU render at the window's DPI) plays no part. Null without a size.
+     */
+    function canvasPoint(clientX, clientY, rect, logical) {
+        if (!rect || !logical || !logical.width || !logical.height || !rect.width || !rect.height) return null;
+        var clamp = function (v, max) { return Math.max(0, Math.min(max, v)); };
+        return {
+            x: clamp((clientX - rect.left) * logical.width / rect.width, logical.width),
+            y: clamp((clientY - rect.top) * logical.height / rect.height, logical.height),
+        };
+    }
+
+    /**
+     * Where a drop at a `builder_hit_test` answer lands: the tree's own rule
+     * on the node under the pointer (`dropZone` on `rel_y`); where INTO is
+     * refused (a <div> in a <p>) it falls back to before / after by halves;
+     * outside every document node it is the end of <body>.
+     * `{uid, zone, msg}`, `msg` null when the drop is not allowed; null
+     * without a payload.
+     */
+    function canvasDrop(payload, hit, docRoot) {
+        var p = normalizePayload(payload);
+        if (!p || !docRoot) return null;
+        var row = hit && hit.hit && hit.uid != null ? rowOf(docRoot, hit.uid) : null;
+        if (!row) {
+            return { uid: 0, zone: 'into', msg: dropMessage(p, { parent: 0, index: null }, docRoot) };
+        }
+        var relY = typeof hit.rel_y === 'number' ? hit.rel_y : 0.5;
+        var zone = dropZone(relY, row.node, row.parent == null);
+        var msg = dropMessage(p, dropTarget(row, zone), docRoot);
+        if (!msg && zone === 'into' && row.parent != null) {
+            zone = relY < 0.5 ? 'before' : 'after';
+            msg = dropMessage(p, dropTarget(row, zone), docRoot);
+        }
+        return { uid: row.uid, zone: zone, msg: msg };
+    }
+
+    /**
+     * The drop indicator over the picture (px in the picture's box, shown at
+     * `shown` {width, height}): the node's box for INTO, a 2px line on its top
+     * / bottom edge for BEFORE / AFTER, the whole window for <body> (no rect).
+     */
+    function canvasIndicator(hit, zone, shown, logical) {
+        if (!shown || !logical || !logical.width || !logical.height) return null;
+        if (!hit || !hit.rect) return { zone: 'into', left: 0, top: 0, width: shown.width, height: shown.height };
+        var sx = shown.width / logical.width;
+        var sy = shown.height / logical.height;
+        var left = hit.rect.x * sx;
+        var top = hit.rect.y * sy;
+        var width = hit.rect.width * sx;
+        var height = hit.rect.height * sy;
+        if (zone === 'before') return { zone: zone, left: left, top: top - 1, width: width, height: 2 };
+        if (zone === 'after') return { zone: zone, left: left, top: top + height - 1, width: width, height: 2 };
+        return { zone: 'into', left: left, top: top, width: width, height: height };
+    }
+
     var logic = {
         NON_VISUAL: NON_VISUAL, VOID: VOID, AUTO_CLOSE: AUTO_CLOSE,
         acceptsChildren: acceptsChildren, canContain: canContain, dropZone: dropZone, flatten: flatten,
@@ -378,6 +439,7 @@
         componentDef: componentDef, propertyRows: propertyRows, propertyMessage: propertyMessage,
         attrString: attrString, typedValue: typedValue, editableType: editableType,
         stylesheetMessage: stylesheetMessage, sheetText: sheetText,
+        canvasPoint: canvasPoint, canvasDrop: canvasDrop, canvasIndicator: canvasIndicator,
     };
 
     if (typeof module !== 'undefined' && module.exports) module.exports = logic;
@@ -411,6 +473,15 @@
         liveCache: null,         // last get_node_hierarchy value
         registry: null,          // last get_component_registry value (the panel's data models)
         sheetDirty: false,       // the stylesheet editor holds text not applied yet
+        canvas: {                // the window's picture in the Inspector (drop target)
+            open: true,          // the picture is unfolded
+            logical: null,       // the window's logical size {width, height} (get_state)
+            over: false,         // a drag is over the picture
+            want: null,          // the latest hover point still to hit-test
+            busy: false,         // a hover hit test is in flight
+            drop: null,          // canvasDrop() of the last hover answer
+            timer: null,         // pending refresh
+        },
     };
 
     var origRefreshSidebar = app.handlers.refreshSidebar;
@@ -463,6 +534,8 @@
         if (S.selected != null && !findNode(doc.root, S.selected)) S.selected = null;
         if (S.mode === 'document') renderDocumentTree();
         updateToolbar();
+        // The window re-mounts the document: show the new picture.
+        if (S.mode === 'document') scheduleCanvas();
     }
 
     async function refreshDocument() {
@@ -475,6 +548,7 @@
         }
         renderDocumentTree();
         updateToolbar();
+        if (S.mode === 'document') scheduleCanvas();
     }
 
     // ── mode ──
@@ -1224,6 +1298,7 @@
         main.id = 'azb-inspector-main';
         main.className = 'azb-inspector-main';
         view.insertBefore(row, detail);
+        main.appendChild(buildCanvas());
         main.appendChild(detail);
         row.appendChild(main);
 
@@ -1248,9 +1323,217 @@
         var docMode = S.mode === 'document';
         var side = document.getElementById('azb-side');
         if (side) side.classList.toggle('hidden', !docMode);
+        var pane = document.getElementById('azb-canvas');
+        if (pane) {
+            var appearing = docMode && pane.classList.contains('hidden');
+            pane.classList.toggle('hidden', !docMode);
+            if (appearing) scheduleCanvas(0);
+        }
         if (docMode) {
             renderProps();
             renderSheet();
+        }
+    }
+
+    // ── the window canvas ──
+    //
+    // A browser drag cannot land in the native window itself: the shells
+    // register it for FILE drops only. So the Inspector shows the window as a
+    // picture - its own CPU rendering (`take_screenshot`), refreshed after
+    // every edit - and a drop or a click on the picture is a point in the
+    // window: `builder_hit_test` maps it to the document node under it
+    // through its `azb-<uid>` marker, and the tree's own rule places the drop.
+
+    var CANVAS_KEY = 'azul_builder_canvas_open';
+
+    function buildCanvas() {
+        try { S.canvas.open = localStorage.getItem(CANVAS_KEY) !== '0'; } catch (e) { /* private mode */ }
+        var pane = document.createElement('div');
+        pane.id = 'azb-canvas';
+        pane.className = 'azb-canvas hidden';
+        var bar = document.createElement('div');
+        bar.className = 'azb-toolbar azb-canvas-bar';
+        var title = document.createElement('span');
+        title.className = 'azb-canvas-title';
+        title.textContent = 'Window';
+        var info = document.createElement('span');
+        info.id = 'azb-canvas-info';
+        info.className = 'azb-canvas-info';
+        info.textContent = 'Drop components on the window; click it to select.';
+        var spacer = document.createElement('span');
+        spacer.className = 'azb-spacer';
+        var refresh = button('canvas-refresh', 'refresh', 'Refresh the picture of the window');
+        refresh.addEventListener('click', function () { refreshCanvas(); });
+        var fold = button('canvas-fold', S.canvas.open ? 'expand_less' : 'expand_more', 'Show / hide the window');
+        fold.addEventListener('click', function () {
+            S.canvas.open = !S.canvas.open;
+            try { localStorage.setItem(CANVAS_KEY, S.canvas.open ? '1' : '0'); } catch (e) { /* ignore */ }
+            fold.querySelector('.material-icons').textContent = S.canvas.open ? 'expand_less' : 'expand_more';
+            stage.classList.toggle('hidden', !S.canvas.open);
+            if (S.canvas.open) refreshCanvas();
+        });
+        [title, info, spacer, refresh, fold].forEach(function (n) { bar.appendChild(n); });
+
+        var stage = document.createElement('div');
+        stage.id = 'azb-canvas-stage';
+        stage.className = 'azb-canvas-stage' + (S.canvas.open ? '' : ' hidden');
+        var frame = document.createElement('div');
+        frame.className = 'azb-canvas-frame';
+        var img = document.createElement('img');
+        img.id = 'azb-canvas-img';
+        img.alt = '';
+        img.draggable = false;
+        var mark = document.createElement('div');
+        mark.id = 'azb-canvas-mark';
+        mark.className = 'azb-canvas-mark hidden';
+        frame.appendChild(img);
+        frame.appendChild(mark);
+        stage.appendChild(frame);
+        img.addEventListener('dragover', onCanvasDragOver);
+        img.addEventListener('dragleave', function () {
+            S.canvas.over = false;
+            drawCanvasMark(null, null);
+        });
+        img.addEventListener('drop', onCanvasDrop);
+        img.addEventListener('click', onCanvasClick);
+        pane.appendChild(bar);
+        pane.appendChild(stage);
+        return pane;
+    }
+
+    function scheduleCanvas(ms) {
+        if (S.canvas.timer) clearTimeout(S.canvas.timer);
+        // After an edit the window re-mounts on its next frame: wait for it.
+        S.canvas.timer = setTimeout(function () {
+            S.canvas.timer = null;
+            refreshCanvas();
+        }, ms == null ? 250 : ms);
+    }
+
+    async function refreshCanvas() {
+        var img = document.getElementById('azb-canvas-img');
+        var info = document.getElementById('azb-canvas-info');
+        if (!img || S.mode !== 'document' || !S.canvas.open) return;
+        try {
+            var st = await app.api.post({ op: 'get_state' });
+            var ws = (st && (st.window_state || (st.data && (st.data.value || st.data)))) || {};
+            if (ws.logical_width > 0 && ws.logical_height > 0) {
+                S.canvas.logical = { width: ws.logical_width, height: ws.logical_height };
+            }
+            var shot = await call({ op: 'take_screenshot' });
+            var data = shot && (typeof shot === 'string' ? shot : shot.data);
+            if (data) img.src = data;
+            if (info && S.canvas.logical) {
+                info.textContent = Math.round(S.canvas.logical.width) + ' × '
+                    + Math.round(S.canvas.logical.height) + ' - drop components here, click to select';
+            }
+        } catch (err) {
+            if (info) info.textContent = 'No picture of the window: ' + err.message;
+        }
+    }
+
+    function round1(v) { return Math.round(v * 10) / 10; }
+
+    function canvasPointOf(e) {
+        var img = document.getElementById('azb-canvas-img');
+        return img ? canvasPoint(e.clientX, e.clientY, img.getBoundingClientRect(), S.canvas.logical) : null;
+    }
+
+    function hitTest(pt) {
+        return call({ op: 'builder_hit_test', x: round1(pt.x), y: round1(pt.y) });
+    }
+
+    function drawCanvasMark(zone, hit) {
+        var mark = document.getElementById('azb-canvas-mark');
+        var img = document.getElementById('azb-canvas-img');
+        if (!mark || !img) return;
+        var r = zone ? canvasIndicator(hit, zone, { width: img.clientWidth, height: img.clientHeight },
+            S.canvas.logical) : null;
+        if (!r) {
+            mark.className = 'azb-canvas-mark hidden';
+            mark.dataset.zone = '';
+            return;
+        }
+        mark.className = 'azb-canvas-mark azb-canvas-' + r.zone;
+        mark.dataset.zone = r.zone;
+        mark.style.left = r.left + 'px';
+        mark.style.top = r.top + 'px';
+        mark.style.width = r.width + 'px';
+        mark.style.height = r.height + 'px';
+    }
+
+    /** Hit-test the latest hover point; one request in flight, the newest point wins. */
+    function probeCanvas(pt, payload) {
+        S.canvas.want = { pt: pt, payload: payload };
+        if (S.canvas.busy) return;
+        S.canvas.busy = true;
+        (async function () {
+            while (S.canvas.want) {
+                var w = S.canvas.want;
+                S.canvas.want = null;
+                var hit;
+                try { hit = await hitTest(w.pt); } catch (e) { break; }
+                if (!S.canvas.over) break;
+                S.canvas.drop = canvasDrop(w.payload, hit, S.doc && S.doc.root);
+                drawCanvasMark(S.canvas.drop && S.canvas.drop.msg ? S.canvas.drop.zone : null, hit);
+            }
+            S.canvas.busy = false;
+        })();
+    }
+
+    function onCanvasDragOver(e) {
+        if (S.mode !== 'document' || !S.doc) return;
+        var payload = currentPayload(e);
+        var pt = payload ? canvasPointOf(e) : null;
+        if (!pt) return;
+        e.preventDefault();
+        var fresh = !S.canvas.over;
+        S.canvas.over = true;
+        var last = S.canvas.lastPt;
+        if (fresh || !last || Math.abs(last.x - pt.x) >= 2 || Math.abs(last.y - pt.y) >= 2) {
+            S.canvas.lastPt = pt;
+            probeCanvas(pt, payload);
+        }
+        var ok = !S.canvas.drop || !!S.canvas.drop.msg;
+        e.dataTransfer.dropEffect = !ok ? 'none' : payload.type === 'builder-node' ? 'move' : 'copy';
+    }
+
+    async function onCanvasDrop(e) {
+        if (S.mode !== 'document' || !S.doc) return;
+        e.preventDefault();
+        var payload = readPayload(e);
+        var pt = canvasPointOf(e);
+        S.canvas.over = false;
+        S.canvas.want = null;
+        S.canvas.drop = null;
+        S.canvas.lastPt = null;
+        drawCanvasMark(null, null);
+        endDrag();
+        if (!payload || !pt) return;
+        var hit;
+        try {
+            hit = await hitTest(pt);
+        } catch (err) {
+            app.log('Drop on the window: ' + err.message, 'error');
+            return;
+        }
+        var drop = canvasDrop(payload, hit, S.doc && S.doc.root);
+        if (!drop || !drop.msg) {
+            app.log('Cannot drop there: the node under the pointer cannot take it', 'warning');
+            return;
+        }
+        await send(drop.msg);
+    }
+
+    async function onCanvasClick(e) {
+        if (S.mode !== 'document' || !S.doc) return;
+        var pt = canvasPointOf(e);
+        if (!pt) return;
+        try {
+            var hit = await hitTest(pt);
+            if (hit && hit.hit && S.doc && findNode(S.doc.root, hit.uid)) select(hit.uid);
+        } catch (err) {
+            app.log('Select on the window: ' + err.message, 'error');
         }
     }
 
@@ -1496,6 +1779,8 @@
         C.builder_get_stylesheet = { desc: "The builder document's own stylesheet", examples: ['/builder_get_stylesheet'], params: [] };
         C.builder_set_stylesheet = { desc: "Set the builder document's own stylesheet (undoable)", examples: ['/builder_set_stylesheet css ".card { padding: 8px; }"'],
             params: [{ name: 'css', type: 'text', placeholder: '.card { padding: 8px; }' }] };
+        C.builder_hit_test = { desc: 'The builder document node at a window point', examples: ['/builder_hit_test x 100 y 40'],
+            params: [{ name: 'x', type: 'number', value: 0 }, { name: 'y', type: 'number', value: 0 }] };
         C.builder_undo = { desc: 'Undo the last builder edit', examples: ['/builder_undo'], params: [] };
         C.builder_redo = { desc: 'Redo the last undone builder edit', examples: ['/builder_redo'], params: [] };
         C.builder_reset = { desc: 'Discard the builder document', examples: ['/builder_reset'], params: [] };
@@ -1564,6 +1849,15 @@
             '.azb-sheet-ok{color:var(--success)}',
             '.azb-sheet-warning{color:var(--warning)}',
             '.azb-sheet-error{color:var(--error)}',
+            '.azb-canvas{flex:0 0 auto;display:flex;flex-direction:column;background:var(--bg-sidebar);border-bottom:1px solid var(--border)}',
+            '.azb-canvas-title{font-size:11px;font-weight:bold;text-transform:uppercase;padding:0 6px 0 4px}',
+            '.azb-canvas-info{font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}',
+            '.azb-canvas-stage{padding:10px;overflow:auto;max-height:42vh;text-align:center;background:repeating-conic-gradient(#2a2a2a 0 25%,#333 0 50%) 0 0/16px 16px}',
+            '.azb-canvas-frame{position:relative;display:inline-block;max-width:100%;line-height:0;box-shadow:0 1px 6px rgba(0,0,0,.5)}',
+            '.azb-canvas-frame img{display:block;max-width:100%;max-height:calc(42vh - 20px);width:auto;height:auto;cursor:crosshair}',
+            '.azb-canvas-mark{position:absolute;pointer-events:none;box-sizing:border-box}',
+            '.azb-canvas-mark.azb-canvas-into{background:rgba(0,122,204,.18);border:1px solid var(--accent)}',
+            '.azb-canvas-mark.azb-canvas-before,.azb-canvas-mark.azb-canvas-after{background:var(--accent);border-radius:1px}',
         ].join('\n');
         document.head.appendChild(s);
     }

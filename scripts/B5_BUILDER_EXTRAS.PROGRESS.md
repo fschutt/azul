@@ -18,10 +18,11 @@ Branch `wt/b5-builder-extras`, base `d240a1b1d`. Nothing is compiled here (house
 - 1 GREEN `68b3a492b` properties panel (node 7/7, smoke 17/17, other smokes unchanged)
 - 2 RED `c196ff546` (builder_tests / export_tests / project_tests scenarios, node, smoke)
 - 2 GREEN `17bdb34e7` document stylesheet (node 9/9, smoke 24/24; Rust not run)
+- 3 RED `ac8b65589` (builder_hit_test scenario, node, smoke)
 
 ## IN PROGRESS
 
-3. Canvas drops: RED committed (this commit), implementation next.
+3. Canvas drops: implementation commit (this one).
 
 ## NEXT
 

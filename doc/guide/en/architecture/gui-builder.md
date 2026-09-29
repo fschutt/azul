@@ -54,6 +54,21 @@ it, **F2** or **Enter** (or double-click) to edit its text, and use the context 
 ids, move up / down and delete. Every edit goes to the native window at once, and clicking a row
 shows its live node - CSS, layout, box model - in the inspector.
 
+### Dropping onto the window
+
+In Document mode the Inspector shows the window itself, above the node details: its own
+rendering, redrawn after every edit. Drop a palette card (or a tree row) onto it and it lands on
+the node under the pointer by the same rule as the tree: the top quarter of a node is before it,
+the bottom quarter after it, the middle inside it; a node that takes no children splits in
+halves, and where "inside" is not allowed - a `<div>` in a `<p>` - the drop goes before or after
+instead. Below every node it lands at the end of `<body>`. While you drag, the picture shows the
+line or the box it will land at. Clicking the picture selects the node under the pointer.
+
+The picture is the drop target because a browser drag cannot land in the native window itself:
+the window accepts files from the system, not drags from a web page. Under the hood a point on
+the picture is a point in the window, and `builder_hit_test` finds the document node there
+through the `azb-<uid>` class the builder puts on every element it mounts.
+
 ## Properties
 
 In Document mode the Inspector has a **Properties** panel on its right. It shows the selected
@@ -263,7 +278,8 @@ with the whole document (a tree of nodes with stable `uid`s, `<body>` is uid 0, 
 `stylesheet`) and re-mounts it over the window; `builder_move` takes the slot as the drop
 indicator shows it, before the move. `builder_get_stylesheet` answers the document's own
 stylesheet with its rules and the parser's warnings; `builder_set_stylesheet {css}` replaces it
-(one undo step).
+(one undo step). `builder_hit_test {x, y}` answers the document node at a window point (`uid`,
+its `rect`, and `rel_x` / `rel_y` - where in the node the point is, 0 to 1).
 
 **Components** - `builder_convert_to_component`, `get_component_thumbnail` (a PNG from the CPU
 renderer, cached until the component changes), `get_component_registry`, `create_component`

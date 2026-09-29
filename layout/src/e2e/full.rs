@@ -3214,6 +3214,18 @@ pub enum DebugEvent {
         /// The whole stylesheet (empty clears it).
         css: String,
     },
+    /// The document node under a window point (a drop onto the window, a
+    /// click on its picture): the deepest node whose box contains the point
+    /// and carries a marker `azb-<uid>` — a node inside a component instance
+    /// belongs to the instance. Answers `{hit, x, y, uid, node, rect, rel_x,
+    /// rel_y}` (`rel_*`: where in `rect` the point is, 0..1 — the drop zone
+    /// is the tree's rule on `rel_y`), or `{hit: false, uid: null}`.
+    BuilderHitTest {
+        /// Logical window x.
+        x: f32,
+        /// Logical window y.
+        y: f32,
+    },
     /// Undo the last builder edit.
     BuilderUndo,
     /// Redo the last undone builder edit.
@@ -4081,6 +4093,96 @@ fn remount_builder_if_active(
             true
         }
         None => false,
+    }
+}
+
+/// Every node of `dom_id` whose box contains the point (x, y), in DFS order,
+/// so the LAST one is the deepest - the topmost - node there (`hit_test`).
+/// The box is the node's hit-test area; with `layout_boxes` a node that has
+/// none (no callback, no hover style: a plain `<div>`) counts by its laid-out
+/// rect (`builder_hit_test`).
+#[cfg(feature = "std")]
+fn nodes_at(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+    dom_id: azul_core::dom::DomId,
+    x: f32,
+    y: f32,
+    layout_boxes: bool,
+) -> Vec<(azul_core::id::NodeId, azul_core::geom::LogicalRect)> {
+    let node_count = match callback_info.get_layout_window().layout_results.get(&dom_id) {
+        Some(lr) => lr.styled_dom.node_data.as_container().len(),
+        None => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    for i in 0..node_count {
+        let node_id = azul_core::id::NodeId::new(i);
+        let dom_node_id = azul_core::dom::DomNodeId {
+            dom: dom_id,
+            node: Some(node_id).into(),
+        };
+        let rect = callback_info
+            .get_node_hit_test_bounds(dom_node_id)
+            .or_else(|| {
+                if layout_boxes {
+                    callback_info.get_node_rect(dom_node_id)
+                } else {
+                    None
+                }
+            });
+        if let Some(rect) = rect {
+            if x >= rect.origin.x
+                && x <= rect.origin.x + rect.size.width
+                && y >= rect.origin.y
+                && y <= rect.origin.y + rect.size.height
+            {
+                out.push((node_id, rect));
+            }
+        }
+    }
+    out
+}
+
+/// `builder_hit_test`: the document node under a window point - the deepest
+/// node whose box contains it AND carries a marker `azb-<uid>` (a node inside
+/// a component instance, or a run of text, belongs to the marked element
+/// around it) - with its box and where in the box the point is.
+#[cfg(feature = "std")]
+fn builder_hit_test_json(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+    x: f32,
+    y: f32,
+) -> serde_json::Value {
+    let hits = nodes_at(callback_info, ROOT_DOM_ID, x, y, true);
+    let found = callback_info
+        .get_layout_window()
+        .layout_results
+        .get(&ROOT_DOM_ID)
+        .and_then(|lr| {
+            hits.iter().rev().find_map(|(node, rect)| {
+                super::builder::node_marker(&lr.styled_dom, *node).map(|uid| (uid, *node, *rect))
+            })
+        });
+    match found {
+        Some((uid, node, rect)) => {
+            let w = rect.size.width.max(1.0);
+            let h = rect.size.height.max(1.0);
+            serde_json::json!({
+                "hit": true,
+                "x": x,
+                "y": y,
+                "uid": uid,
+                "node": node.index(),
+                "rect": {
+                    "x": rect.origin.x,
+                    "y": rect.origin.y,
+                    "width": rect.size.width,
+                    "height": rect.size.height,
+                },
+                "rel_x": ((x - rect.origin.x) / w).clamp(0.0, 1.0),
+                "rel_y": ((y - rect.origin.y) / h).clamp(0.0, 1.0),
+            })
+        }
+        None => serde_json::json!({ "hit": false, "x": x, "y": y, "uid": null }),
     }
 }
 
@@ -15016,46 +15118,19 @@ pub fn process_debug_event(
         }
 
         DebugEvent::HitTest { x, y } => {
-            use azul_core::{
-                dom::{DomId, DomNodeId},
-                id::NodeId,
-            };
-
-            let mut result_node_id: Option<u64> = None;
-            let mut result_tag: Option<String> = None;
-
-            // Iterate all nodes and find the deepest one whose bounds contain (x, y).
-            // Later nodes in the tree (higher NodeId) that are nested deeper will
-            // naturally be the "topmost" rendered element at that point.
+            // The deepest node whose hit-test area contains (x, y): the last
+            // one in DFS order (`nodes_at`).
             let dom_id = target_dom(request);
-            let layout_window = callback_info.get_layout_window();
-
-            if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
-                let node_count = layout_result.styled_dom.node_data.as_container().len();
-
-                for i in 0..node_count {
-                    let node_id = NodeId::new(i);
-                    let dom_node_id = DomNodeId {
+            let deepest = nodes_at(callback_info, dom_id, *x, *y, false).pop();
+            let result_node_id = deepest.as_ref().map(|(n, _)| n.index() as u64);
+            let result_tag = deepest.as_ref().and_then(|(n, _)| {
+                callback_info
+                    .get_node_tag_name(azul_core::dom::DomNodeId {
                         dom: dom_id,
-                        node: Some(node_id).into(),
-                    };
-
-                    if let Some(rect) = callback_info.get_node_hit_test_bounds(dom_node_id) {
-                        let px = *x;
-                        let py = *y;
-                        if px >= rect.origin.x
-                            && px <= rect.origin.x + rect.size.width
-                            && py >= rect.origin.y
-                            && py <= rect.origin.y + rect.size.height
-                        {
-                            result_node_id = Some(i as u64);
-                            result_tag = callback_info
-                                .get_node_tag_name(dom_node_id)
-                                .map(|s| s.as_str().to_string());
-                        }
-                    }
-                }
-            }
+                        node: Some(*n).into(),
+                    })
+                    .map(|s| s.as_str().to_string())
+            });
 
             let response = HitTestResponse {
                 x: *x,
@@ -15064,6 +15139,11 @@ pub fn process_debug_event(
                 node_tag: result_tag,
             };
             send_ok(request, None, Some(ResponseData::HitTest(response)));
+        }
+
+        DebugEvent::BuilderHitTest { x, y } => {
+            let json = builder_hit_test_json(callback_info, *x, *y);
+            send_ok(request, None, Some(ResponseData::Json(json)));
         }
 
         DebugEvent::CustomOp { name, args } => {
