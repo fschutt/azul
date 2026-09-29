@@ -364,3 +364,29 @@ fn dividers_pair_their_night_rule_in_both_looks() {
     }
     assert_follow_the_theme(widgets);
 }
+
+#[test]
+fn spinners_pair_their_night_ink_in_both_looks() {
+    use azul_layout::widgets::spinner::{Spinner, SpinnerStyle};
+    let mut widgets = Vec::new();
+    for (look, theme) in LOOKS {
+        for style in [SpinnerStyle::Auto, SpinnerStyle::Spokes, SpinnerStyle::Ring] {
+            widgets.push((
+                format!("{look} spinner {style:?}"),
+                Spinner::create()
+                    .with_theme(theme)
+                    .with_indicator(style)
+                    .dom(),
+            ));
+            widgets.push((
+                format!("{look} spinner {style:?} tracked"),
+                Spinner::create()
+                    .with_theme(theme)
+                    .with_indicator(style)
+                    .with_track_color(ColorU::rgb(200, 200, 200))
+                    .dom(),
+            ));
+        }
+    }
+    assert_follow_the_theme(widgets);
+}

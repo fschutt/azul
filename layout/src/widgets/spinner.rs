@@ -1349,3 +1349,573 @@ mod autotest_generated {
         }
     }
 }
+
+/// The makeover: a native busy indicator, per theme and per style.
+///
+/// Numbers are the ones `scripts/NATIVE_WIDGET_LOOK_REFERENCE_2026_09_28.md`
+/// measured: macOS 11-15 (section 3.1) for the spokes, Windows 11's
+/// `ProgressRing` (section 3.2) for the ring.
+#[cfg(test)]
+mod makeover_tests {
+    use azul_core::{
+        dom::{Dom, SvgNodeData},
+        svg::SvgMultiPolygon,
+    };
+    use azul_css::{
+        dynamic_selector::{
+            BoolCondition, CssPropertyWithConditions, DynamicSelectorContext, ThemeCondition,
+        },
+        props::{
+            basic::animation::{AnimationIterationCount, AnimationTiming, StyleAnimation},
+            basic::color::SystemColorRef,
+            property::CssProperty,
+            style::{StyleBackgroundContent, StyleTransform},
+        },
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, OptionUiTheme, UiTheme};
+
+    /// macOS's opacity ramp at frame 0: the head at 12 o'clock, then 0.07
+    /// less per spoke going counter-clockwise, down to 0.06 just clockwise
+    /// of the head. Indexed by spoke, clockwise from 12 o'clock.
+    const RAMP: [f32; 8] = [0.55, 0.06, 0.13, 0.20, 0.27, 0.34, 0.41, 0.48];
+
+    fn classes(dom: &Dom) -> Vec<String> {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .filter_map(|c| match c {
+                Class(s) => Some(s.as_str().to_string()),
+                IdOrClass::Id(_) => None,
+            })
+            .collect()
+    }
+
+    fn has_class(dom: &Dom, name: &str) -> bool {
+        classes(dom).iter().any(|c| c == name)
+    }
+
+    /// Every node of the tree, depth first, root included.
+    fn all_nodes(dom: &Dom) -> Vec<&Dom> {
+        let mut out = vec![dom];
+        for child in dom.children.as_ref() {
+            out.extend(all_nodes(child));
+        }
+        out
+    }
+
+    fn with_class<'a>(dom: &'a Dom, name: &str) -> Vec<&'a Dom> {
+        all_nodes(dom)
+            .into_iter()
+            .filter(|n| has_class(n, name))
+            .collect()
+    }
+
+    fn clip(node: &Dom) -> Option<&SvgMultiPolygon> {
+        match node.root.get_svg_data() {
+            Some(SvgNodeData::Path(p)) => Some(p),
+            _ => None,
+        }
+    }
+
+    fn declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, c)| CssPropertyWithConditions {
+                property: p.clone(),
+                apply_if: c.clone(),
+            })
+            .collect()
+    }
+
+    /// The declarations that apply under `ctx`, in order.
+    fn applying(node: &Dom, ctx: &DynamicSelectorContext) -> Vec<CssProperty> {
+        declarations(node)
+            .into_iter()
+            .filter(|d| d.matches(ctx))
+            .map(|d| d.property)
+            .collect()
+    }
+
+    fn ctx(theme: ThemeCondition, reduced_motion: bool) -> DynamicSelectorContext {
+        let mut c = DynamicSelectorContext::default();
+        c.theme = theme;
+        c.prefers_reduced_motion = if reduced_motion {
+            BoolCondition::True
+        } else {
+            BoolCondition::False
+        };
+        c
+    }
+
+    fn light() -> DynamicSelectorContext {
+        ctx(ThemeCondition::Light, false)
+    }
+
+    fn dark() -> DynamicSelectorContext {
+        ctx(ThemeCondition::Dark, false)
+    }
+
+    fn last_fill(props: &[CssProperty]) -> Option<Vec<StyleBackgroundContent>> {
+        props.iter().rev().find_map(|p| match p {
+            CssProperty::BackgroundContent(v) => v.get_property().map(|v| v.as_ref().to_vec()),
+            _ => None,
+        })
+    }
+
+    fn opacity(props: &[CssProperty]) -> Option<f32> {
+        props.iter().rev().find_map(|p| match p {
+            CssProperty::Opacity(v) => v.get_property().map(|o| o.inner.normalized()),
+            _ => None,
+        })
+    }
+
+    fn animation_in(props: &[CssProperty]) -> Option<StyleAnimation> {
+        props.iter().rev().find_map(|p| match p {
+            CssProperty::AnimationIn(v) => v
+                .get_property()
+                .and_then(|list| list.as_ref().first().cloned()),
+            _ => None,
+        })
+    }
+
+    fn animation_out(props: &[CssProperty]) -> Option<StyleAnimation> {
+        props.iter().rev().find_map(|p| match p {
+            CssProperty::AnimationOut(v) => v
+                .get_property()
+                .and_then(|list| list.as_ref().first().cloned()),
+            _ => None,
+        })
+    }
+
+    /// The `@keyframes` block named `name` among the root's stylesheets.
+    fn keyframes<'a>(dom: &'a Dom, name: &str) -> Option<&'a azul_css::css::Keyframes> {
+        dom.css
+            .as_ref()
+            .iter()
+            .flat_map(|css| css.keyframes.as_ref().iter())
+            .find(|k| k.name.as_str() == name)
+    }
+
+    /// `(permille, opacity)` of every stop of a keyframes block that sets one.
+    fn opacity_stops(kf: &azul_css::css::Keyframes) -> Vec<(u16, f32)> {
+        kf.stops
+            .as_ref()
+            .iter()
+            .filter_map(|s| {
+                s.props.as_ref().iter().find_map(|p| match p {
+                    CssProperty::Opacity(v) => {
+                        v.get_property().map(|o| (s.permille, o.inner.normalized()))
+                    }
+                    _ => None,
+                })
+            })
+            .collect()
+    }
+
+    /// `(permille, degrees)` of every stop that rotates.
+    fn rotation_stops(kf: &azul_css::css::Keyframes) -> Vec<(u16, f32)> {
+        kf.stops
+            .as_ref()
+            .iter()
+            .filter_map(|s| {
+                s.props.as_ref().iter().find_map(|p| match p {
+                    CssProperty::Transform(v) => v.get_property().and_then(|list| {
+                        list.as_ref().iter().find_map(|t| match t {
+                            StyleTransform::Rotate(a) => Some((s.permille, a.to_degrees())),
+                            _ => None,
+                        })
+                    }),
+                    _ => None,
+                })
+            })
+            .collect()
+    }
+
+    /// The point `r` px from the centre of a `size` box, `deg` degrees
+    /// clockwise from 12 o'clock, in the box's own coordinates.
+    fn polar(size: f32, deg: f32, r: f32) -> (f32, f32) {
+        let (s, c) = deg.to_radians().sin_cos();
+        (size / 2.0 + r * s, size / 2.0 - r * c)
+    }
+
+    fn inside(p: &SvgMultiPolygon, point: (f32, f32)) -> bool {
+        p.contains_point(point.0, point.1)
+    }
+
+    fn spinner(theme: UiTheme, style: SpinnerStyle) -> Dom {
+        Spinner::create()
+            .with_theme(theme)
+            .with_indicator(style)
+            .dom()
+    }
+
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() < 0.006
+    }
+
+    const RED: ColorU = ColorU {
+        r: 200,
+        g: 20,
+        b: 20,
+        a: 255,
+    };
+
+    // ------------------------------------------------------------------
+    // Options and defaults
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn the_default_spinner_is_the_native_regular_size() {
+        // macOS regular = 32pt, Windows 11 ProgressRing default = 32px. The old
+        // 24 matched nothing.
+        let s = Spinner::create();
+        assert_eq!(s.size, 32);
+        assert_eq!(s.indicator, SpinnerStyle::Auto, "the theme picks");
+        assert_eq!(s.theme, OptionUiTheme::None, "no theme opinion");
+    }
+
+    #[test]
+    fn a_flat_spinner_draws_the_windows_ring_by_default() {
+        let dom = Spinner::create().dom();
+        assert!(has_class(&dom, "__azul-native-spinner"), "{:?}", classes(&dom));
+        assert!(has_class(&dom, "__azul-spinner-ring"), "{:?}", classes(&dom));
+        assert_eq!(with_class(&dom, "__azul-spinner-arc").len(), 1, "one arc");
+        assert!(with_class(&dom, "__azul-spinner-spoke").is_empty());
+    }
+
+    #[test]
+    fn a_flora_spinner_draws_the_macos_spokes_by_default() {
+        let dom = Spinner::create().with_theme(UiTheme::Flora).dom();
+        assert!(has_class(&dom, "__azul-spinner-spokes"), "{:?}", classes(&dom));
+        assert!(has_class(&dom, "__azul-theme-flora"), "{:?}", classes(&dom));
+        assert_eq!(
+            with_class(&dom, "__azul-spinner-spoke").len(),
+            8,
+            "8 capsule spokes, one every 45 degrees (the 12-spoke look is pre-Big Sur)"
+        );
+    }
+
+    #[test]
+    fn the_indicator_option_overrides_the_themes_pick() {
+        let spokes = spinner(UiTheme::Flat, SpinnerStyle::Spokes);
+        assert_eq!(with_class(&spokes, "__azul-spinner-spoke").len(), 8);
+        let ring = spinner(UiTheme::Flora, SpinnerStyle::Ring);
+        assert_eq!(with_class(&ring, "__azul-spinner-arc").len(), 1);
+        assert!(with_class(&ring, "__azul-spinner-spoke").is_empty());
+    }
+
+    // ------------------------------------------------------------------
+    // Shapes: real clip paths in the container's user space
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn the_container_sets_up_a_user_space_the_size_of_the_spinner() {
+        for style in [SpinnerStyle::Spokes, SpinnerStyle::Ring] {
+            let dom = Spinner::with_size(48).with_indicator(style).dom();
+            match dom.root.get_svg_data() {
+                Some(SvgNodeData::ViewBox {
+                    min_x,
+                    min_y,
+                    width,
+                    height,
+                }) => {
+                    assert_eq!((*min_x, *min_y, *width, *height), (0.0, 0.0, 48.0, 48.0));
+                }
+                other => panic!("{style:?}: no viewBox on the container: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn each_spoke_is_a_capsule_from_two_fifths_of_the_radius_to_the_rim() {
+        // At 32: 4 wide, from r = 6.5 to r = 16, one every 45 degrees clockwise.
+        let dom = spinner(UiTheme::Flat, SpinnerStyle::Spokes);
+        let spokes = with_class(&dom, "__azul-spinner-spoke");
+        assert_eq!(spokes.len(), 8);
+        for (k, spoke) in spokes.iter().enumerate() {
+            let deg = k as f32 * 45.0;
+            let shape = clip(spoke).unwrap_or_else(|| panic!("spoke {k} has no clip shape"));
+            assert!(inside(shape, polar(32.0, deg, 11.0)), "spoke {k}: its middle");
+            assert!(inside(shape, polar(32.0, deg, 15.5)), "spoke {k}: near the rim");
+            assert!(!inside(shape, polar(32.0, deg, 5.0)), "spoke {k}: the hole");
+            assert!(
+                !inside(shape, polar(32.0, deg + 22.5, 11.0)),
+                "spoke {k}: the gap to its neighbour"
+            );
+            assert!(!inside(shape, (16.0, 16.0)), "spoke {k}: the centre");
+        }
+    }
+
+    #[test]
+    fn the_ring_is_a_round_capped_arc_on_the_windows_ring() {
+        // At 32: centre-line radius 0.4375 x 32 = 14, stroke 0.09375 x 32 = 3.
+        let dom = spinner(UiTheme::Flat, SpinnerStyle::Ring);
+        let arc = with_class(&dom, "__azul-spinner-arc");
+        let shape = clip(arc[0]).expect("the arc is a clip shape");
+        assert!(inside(shape, polar(32.0, 60.0, 14.0)), "on the arc");
+        assert!(!inside(shape, polar(32.0, 60.0, 11.0)), "inside the ring");
+        assert!(!inside(shape, polar(32.0, 60.0, 16.0)), "outside the ring");
+        assert!(!inside(shape, polar(32.0, 225.0, 14.0)), "the gap in the arc");
+        assert!(!inside(shape, (16.0, 16.0)), "the centre");
+    }
+
+    #[test]
+    fn a_ring_track_is_drawn_only_when_asked_for() {
+        let bare = spinner(UiTheme::Flat, SpinnerStyle::Ring);
+        assert!(
+            with_class(&bare, "__azul-spinner-track").is_empty(),
+            "the Windows ring has no track by default"
+        );
+        let tracked = Spinner::create()
+            .with_indicator(SpinnerStyle::Ring)
+            .with_track_color(RED)
+            .dom();
+        let track = with_class(&tracked, "__azul-spinner-track");
+        assert_eq!(track.len(), 1);
+        let shape = clip(track[0]).expect("the track is a clip shape");
+        for deg in [0.0, 90.0, 225.0, 300.0] {
+            assert!(inside(shape, polar(32.0, deg, 14.0)), "a full ring, at {deg}");
+        }
+        assert!(!inside(shape, (16.0, 16.0)), "a ring, not a disc");
+        assert_eq!(
+            last_fill(&applying(track[0], &light())),
+            Some(vec![StyleBackgroundContent::Color(RED)])
+        );
+        // Under the arc: the track is painted first.
+        let order: Vec<bool> = tracked.children.as_ref()
+            .iter()
+            .map(|c| has_class(c, "__azul-spinner-track"))
+            .collect();
+        assert_eq!(order.first(), Some(&true), "the track lies under the arc");
+    }
+
+    // ------------------------------------------------------------------
+    // Motion
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn the_spokes_hold_the_macos_opacity_ramp() {
+        let dom = spinner(UiTheme::Flat, SpinnerStyle::Spokes);
+        for (k, spoke) in with_class(&dom, "__azul-spinner-spoke").iter().enumerate() {
+            let o = opacity(&applying(spoke, &light())).expect("a spoke has an opacity");
+            assert!(close(o, RAMP[k]), "spoke {k}: {o}, want {}", RAMP[k]);
+        }
+    }
+
+    #[test]
+    fn every_spoke_runs_its_own_phase_of_the_wave_once_per_800_ms() {
+        let dom = spinner(UiTheme::Flat, SpinnerStyle::Spokes);
+        let spokes = with_class(&dom, "__azul-spinner-spoke");
+        let mut names = Vec::new();
+        for (k, spoke) in spokes.iter().enumerate() {
+            let anim = animation_in(&applying(spoke, &light()))
+                .unwrap_or_else(|| panic!("spoke {k} declares no animation"));
+            assert_eq!(anim.duration.millis(), 800, "spoke {k}: one revolution per 0.8 s");
+            assert_eq!(anim.iterations, AnimationIterationCount::Infinite, "spoke {k}");
+            assert_eq!(anim.timing, AnimationTiming::Linear, "spoke {k}");
+            let kf = keyframes(&dom, anim.name.as_str())
+                .unwrap_or_else(|| panic!("spoke {k}: @keyframes {} is missing", anim.name.as_str()));
+            let stops = opacity_stops(kf);
+            let at = |permille: u16| stops.iter().find(|(p, _)| *p == permille).map(|(_, o)| *o);
+            // It starts where the static ramp holds it, so the first frame
+            // and the reduced-motion picture agree.
+            assert!(at(0).is_some_and(|o| close(o, RAMP[k])), "spoke {k}: {stops:?}");
+            // Its peak is the head passing it: spoke k is the head k/8 in.
+            let peak = if k == 0 { 0 } else { 125 * k as u16 };
+            assert!(at(peak).is_some_and(|o| close(o, 0.55)), "spoke {k}: {stops:?}");
+            let low = stops.iter().map(|(_, o)| *o).fold(1.0_f32, f32::min);
+            assert!(close(low, 0.06), "spoke {k}: the trough is 0.06, {stops:?}");
+            names.push(anim.name.as_str().to_string());
+        }
+        names.sort();
+        names.dedup();
+        assert_eq!(names.len(), 8, "one phase-shifted track per spoke");
+    }
+
+    #[test]
+    fn the_ring_spins_clockwise_at_450_degrees_a_second() {
+        let dom = spinner(UiTheme::Flat, SpinnerStyle::Ring);
+        let arc = with_class(&dom, "__azul-spinner-arc");
+        let anim = animation_in(&applying(arc[0], &light())).expect("the arc spins");
+        assert_eq!(anim.duration.millis(), 800);
+        assert_eq!(anim.iterations, AnimationIterationCount::Infinite);
+        assert_eq!(anim.timing, AnimationTiming::Linear);
+        let turns = rotation_stops(keyframes(&dom, anim.name.as_str()).expect("@keyframes"));
+        assert_eq!(turns.first().map(|t| t.0), Some(0));
+        assert_eq!(turns.last().map(|t| t.0), Some(1000));
+        let sweep = turns.last().map_or(0.0, |t| t.1) - turns.first().map_or(0.0, |t| t.1);
+        assert!(close(sweep, 360.0), "a full clockwise turn per cycle, got {sweep}");
+    }
+
+    #[test]
+    fn the_spinner_fades_in_when_shown_and_out_when_hidden() {
+        for style in [SpinnerStyle::Spokes, SpinnerStyle::Ring] {
+            let dom = spinner(UiTheme::Flat, style);
+            let root = applying(&dom, &light());
+            let fade_in = animation_in(&root).expect("a fade in");
+            let fade_out = animation_out(&root).expect("a fade out");
+            let rise = opacity_stops(keyframes(&dom, fade_in.name.as_str()).expect("@keyframes"));
+            let fall = opacity_stops(keyframes(&dom, fade_out.name.as_str()).expect("@keyframes"));
+            assert_eq!(rise.first().map(|s| s.1), Some(0.0), "{style:?}: {rise:?}");
+            assert_eq!(rise.last().map(|s| s.1), Some(1.0), "{style:?}: {rise:?}");
+            assert_eq!(fall.first().map(|s| s.1), Some(1.0), "{style:?}: {fall:?}");
+            assert_eq!(fall.last().map(|s| s.1), Some(0.0), "{style:?}: {fall:?}");
+            assert_ne!(
+                fade_in.iterations,
+                AnimationIterationCount::Infinite,
+                "a fade runs once"
+            );
+        }
+    }
+
+    #[test]
+    fn the_spinner_holds_still_under_reduced_motion() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            for style in [SpinnerStyle::Spokes, SpinnerStyle::Ring] {
+                let dom = spinner(theme, style);
+                let still = ctx(ThemeCondition::Light, true);
+                for node in all_nodes(&dom) {
+                    let props = applying(node, &still);
+                    assert!(
+                        animation_in(&props).is_none() && animation_out(&props).is_none(),
+                        "{theme:?} {style:?}: {:?} animates under reduced motion",
+                        classes(node)
+                    );
+                }
+                // ...and it is still an indicator: the same shapes, held.
+                let moving = all_nodes(&dom)
+                    .into_iter()
+                    .filter(|n| animation_in(&applying(n, &light())).is_some())
+                    .count();
+                assert!(moving > 1, "{theme:?} {style:?}: nothing declared motion");
+                assert!(
+                    all_nodes(&dom).iter().filter(|n| clip(n).is_some()).count() >= 1,
+                    "{theme:?} {style:?}: the static picture lost its shapes"
+                );
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Colour: the native ink per theme, or the caller's
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn flat_spokes_are_black_by_day_and_white_by_night() {
+        // The macOS sprite is pure ink; only the alpha varies.
+        let dom = spinner(UiTheme::Flat, SpinnerStyle::Spokes);
+        let spoke = with_class(&dom, "__azul-spinner-spoke")[0];
+        assert_eq!(
+            last_fill(&applying(spoke, &light())),
+            Some(vec![StyleBackgroundContent::Color(ColorU::BLACK)])
+        );
+        assert_eq!(
+            last_fill(&applying(spoke, &dark())),
+            Some(vec![StyleBackgroundContent::Color(ColorU::WHITE)])
+        );
+    }
+
+    #[test]
+    fn flora_spokes_are_flora_s_ink_by_day_and_night() {
+        let dom = spinner(UiTheme::Flora, SpinnerStyle::Spokes);
+        let spoke = with_class(&dom, "__azul-spinner-spoke")[0];
+        assert_eq!(
+            last_fill(&applying(spoke, &light())),
+            Some(vec![StyleBackgroundContent::Color(flora::LIGHT_INK)])
+        );
+        assert_eq!(
+            last_fill(&applying(spoke, &dark())),
+            Some(vec![StyleBackgroundContent::Color(flora::DARK_INK)])
+        );
+    }
+
+    #[test]
+    fn the_flat_ring_is_the_desktop_accent() {
+        let dom = spinner(UiTheme::Flat, SpinnerStyle::Ring);
+        let arc = with_class(&dom, "__azul-spinner-arc")[0];
+        let accent = Some(vec![StyleBackgroundContent::SystemColor(
+            SystemColorRef::Accent,
+        )]);
+        assert_eq!(last_fill(&applying(arc, &light())), accent);
+        assert_eq!(last_fill(&applying(arc, &dark())), accent, "resolved per theme");
+    }
+
+    #[test]
+    fn the_flora_ring_is_the_accent_stone_lifted_to_its_glow_at_night() {
+        let dom = spinner(UiTheme::Flora, SpinnerStyle::Ring);
+        let arc = with_class(&dom, "__azul-spinner-arc")[0];
+        assert_eq!(
+            last_fill(&applying(arc, &light())),
+            Some(vec![StyleBackgroundContent::Color(flora::LIGHT_ACC)])
+        );
+        assert_eq!(
+            last_fill(&applying(arc, &dark())),
+            Some(vec![StyleBackgroundContent::Color(flora::DARK_GLOW)])
+        );
+    }
+
+    #[test]
+    fn a_chosen_colour_paints_the_indicator_in_both_modes() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            for (style, part) in [
+                (SpinnerStyle::Spokes, "__azul-spinner-spoke"),
+                (SpinnerStyle::Ring, "__azul-spinner-arc"),
+            ] {
+                let dom = Spinner::create()
+                    .with_theme(theme)
+                    .with_indicator(style)
+                    .with_color(RED)
+                    .dom();
+                let node = with_class(&dom, part)[0];
+                for mode in [light(), dark()] {
+                    assert_eq!(
+                        last_fill(&applying(node, &mode)),
+                        Some(vec![StyleBackgroundContent::Color(RED)]),
+                        "{theme:?} {style:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // The container
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn a_callers_spinner_style_replaces_the_container_css() {
+        let custom = CssPropertyWithConditionsVec::from_vec(alloc::vec![
+            CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(
+                77
+            )))
+        ]);
+        let mut s = Spinner::create();
+        s.spinner_style = OptionCssPropertyWithConditionsVec::Some(custom.clone());
+        let dom = s.dom();
+        let got: Vec<CssProperty> = declarations(&dom).into_iter().map(|d| d.property).collect();
+        let want: Vec<CssProperty> = custom.as_ref().iter().map(|p| p.property.clone()).collect();
+        assert_eq!(got, want, "the caller chose every container property");
+        assert_eq!(
+            with_class(&dom, "__azul-spinner-arc").len(),
+            1,
+            "the indicator is still drawn inside it"
+        );
+    }
+
+    #[test]
+    fn the_spinner_is_decoration_to_the_keyboard() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            for style in [SpinnerStyle::Spokes, SpinnerStyle::Ring] {
+                let dom = spinner(theme, style);
+                assert!(
+                    all_nodes(&dom).iter().all(|n| n.root.get_tab_index().is_none()),
+                    "{theme:?} {style:?}: a busy indicator takes no focus"
+                );
+            }
+        }
+    }
+}
