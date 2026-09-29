@@ -5092,3 +5092,11 @@ pub fn color_input(c: crate::widgets::color_input::ColorInput) -> Dom {
         },
     )
 }
+
+// ==== date_picker ====
+
+/// The flora date picker.
+#[must_use]
+pub fn date_picker(d: crate::widgets::date_picker::DatePicker) -> Dom {
+    super::flat::date_picker(d)
+}

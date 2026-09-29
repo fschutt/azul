@@ -4392,3 +4392,12 @@ pub fn color_input(c: crate::widgets::color_input::ColorInput) -> Dom {
         },
     )
 }
+
+// ==== date_picker ====
+
+/// The flat date picker.
+#[must_use]
+pub fn date_picker(d: crate::widgets::date_picker::DatePicker) -> Dom {
+    use crate::widgets::date_picker::DatePickerLook;
+    crate::widgets::date_picker::build(d, &DatePickerLook::established())
+}
