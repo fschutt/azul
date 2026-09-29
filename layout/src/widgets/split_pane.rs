@@ -3621,3 +3621,166 @@ mod autotest_generated {
         assert!(changes.is_empty(), "{changes:?}");
     }
 }
+
+#[cfg(test)]
+mod theme_tests {
+    //! The split pane's theme is a DOM-level choice: the divider - the only
+    //! part with a look of its own - is built from the skin of the theme the
+    //! pane carries, flat by default. Its geometry (the thickness the drag
+    //! arithmetic relies on) is the same in every theme.
+
+    use azul_core::dom::Dom;
+    use azul_css::{
+        dynamic_selector::PseudoStateType,
+        props::{
+            basic::color::ColorU,
+            property::{CssProperty, CssPropertyType},
+        },
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLAT: &str = "__azul-theme-flat";
+    const FLORA: &str = "__azul-theme-flora";
+
+    fn split(dir: SplitDirection, theme: Option<UiTheme>) -> Dom {
+        let sp = SplitPane::create(dir, Dom::create_div(), Dom::create_div());
+        match theme {
+            Some(t) => sp.with_theme(t).dom(),
+            None => sp.dom(),
+        }
+    }
+
+    fn divider(dom: &Dom) -> &Dom {
+        &dom.children.as_ref()[1]
+    }
+
+    fn edge_color(node: &Dom, ty: CssPropertyType, dark: bool) -> Option<ColorU> {
+        tc::resolve(node, ty, dark, None).as_ref().and_then(tc::border_color)
+    }
+
+    #[test]
+    fn a_split_pane_without_a_theme_renders_flat() {
+        let sp = SplitPane::create(SplitDirection::Horizontal, Dom::create_div(), Dom::create_div());
+        assert_eq!(sp.theme, OptionUiTheme::None);
+        assert!(tc::has_class(&split(SplitDirection::Horizontal, None), FLAT));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_agree() {
+        let mut a =
+            SplitPane::create(SplitDirection::Vertical, Dom::create_div(), Dom::create_div());
+        a.set_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        let b = SplitPane::create(SplitDirection::Vertical, Dom::create_div(), Dom::create_div())
+            .with_theme(UiTheme::Flora);
+        assert_eq!(b.theme, a.theme);
+    }
+
+    #[test]
+    fn a_flat_divider_keeps_its_grey_bar_and_the_desktop_separator_in_the_dark() {
+        let dom = split(SplitDirection::Horizontal, Some(UiTheme::Flat));
+        let d = divider(&dom);
+        assert_eq!(
+            tc::background(d, false).and_then(|p| tc::bg_color(&p)),
+            Some(ColorU::rgb(173, 181, 189))
+        );
+        assert_eq!(
+            tc::background(d, true).map(|p| tc::bg_layers(&p)),
+            Some(alloc::vec![azul_css::props::style::StyleBackgroundContent::SystemColor(
+                azul_css::props::basic::color::SystemColorRef::Separator
+            )])
+        );
+    }
+
+    #[test]
+    fn a_flora_divider_is_a_channel_between_two_hairlines() {
+        for (dir, sides) in [
+            (
+                SplitDirection::Horizontal,
+                [CssPropertyType::BorderLeftColor, CssPropertyType::BorderRightColor],
+            ),
+            (
+                SplitDirection::Vertical,
+                [CssPropertyType::BorderTopColor, CssPropertyType::BorderBottomColor],
+            ),
+        ] {
+            let dom = split(dir, Some(UiTheme::Flora));
+            assert!(tc::has_class(&dom, FLORA));
+            let d = divider(&dom);
+            assert_eq!(
+                tc::background(d, false).and_then(|p| tc::bg_color(&p)),
+                Some(flora::LIGHT_STRIP),
+                "{dir:?}"
+            );
+            assert_eq!(
+                tc::background(d, true).and_then(|p| tc::bg_color(&p)),
+                Some(flora::DARK_STRIP),
+                "{dir:?}"
+            );
+            for side in sides {
+                assert_eq!(edge_color(d, side, false), Some(flora::LIGHT_BD), "{dir:?} {side:?}");
+                assert_eq!(edge_color(d, side, true), Some(flora::DARK_BD), "{dir:?} {side:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_divider_keeps_its_thickness_in_every_theme() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let d = split(SplitDirection::Horizontal, Some(theme));
+            let d = divider(&d);
+            assert_eq!(
+                tc::resolve(d, CssPropertyType::Width, false, None),
+                Some(CssProperty::const_width(LayoutWidth::const_px(DIVIDER_THICKNESS))),
+                "{theme:?}"
+            );
+        }
+        // Flora's hairlines sit INSIDE the bar, so the drag arithmetic's
+        // thickness is still the rendered one.
+        let dom = split(SplitDirection::Horizontal, Some(UiTheme::Flora));
+        assert_eq!(
+            tc::resolve(divider(&dom), CssPropertyType::BoxSizing, false, None),
+            Some(CssProperty::const_box_sizing(
+                azul_css::props::layout::LayoutBoxSizing::BorderBox
+            ))
+        );
+    }
+
+    #[test]
+    fn the_divider_shows_a_focus_ring_in_every_theme_and_mode() {
+        for dir in [SplitDirection::Horizontal, SplitDirection::Vertical] {
+            for theme in [UiTheme::Flat, UiTheme::Flora] {
+                let dom = split(dir, Some(theme));
+                let d = divider(&dom);
+                assert!(tc::has_focus_ring(d, false), "{dir:?} {theme:?}: light");
+                assert!(tc::has_focus_ring(d, true), "{dir:?} {theme:?}: dark");
+                tc::assert_theme_invariants(&format!("split_pane {dir:?} {theme:?}"), &dom);
+            }
+        }
+        let dom = split(SplitDirection::Horizontal, Some(UiTheme::Flora));
+        assert_eq!(tc::focus_ring_color(divider(&dom), false), Some(flora::LIGHT_ACC));
+        assert_eq!(tc::focus_ring_color(divider(&dom), true), Some(flora::DARK_GLOW));
+        // Flat lights the whole bar in the ring colour, so a thin divider still
+        // reads as focused.
+        let dom = split(SplitDirection::Horizontal, Some(UiTheme::Flat));
+        let focus = Some(PseudoStateType::Focus);
+        let lit = |dark: bool| {
+            tc::resolve(divider(&dom), CssPropertyType::BackgroundContent, dark, focus)
+                .and_then(|p| tc::bg_color(&p))
+        };
+        assert_eq!(lit(false), Some(crate::widgets::themes::flat::FIELD_RING));
+        assert_eq!(lit(true), Some(crate::widgets::themes::flat::DARK_ACC));
+    }
+
+    #[test]
+    fn the_theme_changes_the_look_not_the_accessibility_tree() {
+        for dir in [SplitDirection::Horizontal, SplitDirection::Vertical] {
+            let flat = split(dir, Some(UiTheme::Flat));
+            let flora_dom = split(dir, Some(UiTheme::Flora));
+            assert_eq!(tc::a11y_outline(&flat).len(), 1, "the divider");
+            assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora_dom));
+        }
+    }
+}
