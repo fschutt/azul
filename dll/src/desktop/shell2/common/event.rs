@@ -270,9 +270,9 @@ fn auto_scroll_delta(
 /// stay raw. Tune HERE, never per-backend — four independent `20.0`s
 /// drifting apart is exactly how macOS wheels ended up ~20x slower than X11.
 pub const WHEEL_SCROLL_PIXELS_PER_LINE: f32 = 20.0;
-const KEYBOARD_SCROLL_LINE_PX: f32 = WHEEL_SCROLL_PIXELS_PER_LINE;
-const KEYBOARD_SCROLL_DOCUMENT_MAX: f32 = 100_000.0;
-const DEFAULT_VIEWPORT_HEIGHT: f32 = 600.0;
+// Keyboard scrolling (a line, a page, Home / End) is measured in ONE place:
+// `LayoutWindow::scroll_container_by_keyboard`, which the shells and the
+// headless E2E runner call.
 
 #[repr(C)]
 struct EmptyRefAnyData(u8);
@@ -12423,70 +12423,21 @@ pub trait PlatformWindow {
                                 }
 
                                 DefaultAction::ScrollFocusedContainer { direction, amount } => {
-                                    use azul_core::events::{ScrollAmount, ScrollDirection};
-
+                                    // MWA-C-scroll: the nearest overflowing box around the focused
+                                    // node, else around the node under the pointer - arrows /
+                                    // PgUp/PgDn/Space over an unfocused scroll container used to do
+                                    // nothing. The helper the headless E2E runner calls too.
                                     if let Some(lw) = self.get_layout_window_mut() {
-                                        // MWA-C-scroll: anchor on the focused node,
-                                        // else the deepest hovered node — arrows /
-                                        // PgUp/PgDn/Space over an unfocused scroll
-                                        // container previously did nothing.
-                                        let anchor = lw.focus_manager.focused_node.or_else(|| {
-                                        let hit = lw.hover_manager.get_current(
-                                            &InputPointId::Mouse,
-                                        )?;
-                                        hit.hovered_nodes.iter().next().and_then(|(dom_id, entry)| {
-                                            entry.regular_hit_test_nodes.keys().next_back().map(|nid| {
-                                                azul_core::dom::DomNodeId {
-                                                    dom: *dom_id,
-                                                    node: NodeHierarchyItemId::from_crate_internal(Some(*nid)),
-                                                }
-                                            })
-                                        })
-                                    });
-                                        if let Some(focused) = anchor {
-                                            if let Some(ancestor) =
-                                                lw.find_scrollable_ancestor(focused)
-                                            {
-                                                if let Some(anc_node) =
-                                                    ancestor.node.into_crate_internal()
-                                                {
-                                                    let anc_bounds =
-                                                        lw.get_node_bounds(ancestor.dom, anc_node);
-                                                    let vp_h = anc_bounds
-                                                        .map(|b| b.size.height as f32)
-                                                        .unwrap_or(DEFAULT_VIEWPORT_HEIGHT);
-
-                                                    let magnitude = match amount {
-                                                        ScrollAmount::Line => {
-                                                            KEYBOARD_SCROLL_LINE_PX
-                                                        }
-                                                        ScrollAmount::Page => vp_h * 0.9,
-                                                        ScrollAmount::Document => {
-                                                            KEYBOARD_SCROLL_DOCUMENT_MAX
-                                                        }
-                                                    };
-
-                                                    let (dx, dy) = match direction {
-                                                        ScrollDirection::Up => (0.0, -magnitude),
-                                                        ScrollDirection::Down => (0.0, magnitude),
-                                                        ScrollDirection::Left => (-magnitude, 0.0),
-                                                        ScrollDirection::Right => (magnitude, 0.0),
-                                                    };
-
-                                                    let now: azul_core::task::Instant =
-                                                        std::time::Instant::now().into();
-                                                    lw.scroll_manager.scroll_by(
-                                                        ancestor.dom,
-                                                        anc_node,
-                                                        LogicalPosition { x: dx, y: dy },
-                                                        std::time::Duration::from_millis(150)
-                                                            .into(),
-                                                        azul_core::events::EasingFunction::EaseOut,
-                                                        now,
-                                                    );
-                                                    result = result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
-                                                }
-                                            }
+                                        let focused = lw.focus_manager.focused_node;
+                                        let now: azul_core::task::Instant = std::time::Instant::now().into();
+                                        if lw.scroll_focused_container_by_keyboard(
+                                            focused,
+                                            *direction,
+                                            *amount,
+                                            std::time::Duration::from_millis(150).into(),
+                                            now,
+                                        ) {
+                                            result = result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
                                         }
                                     }
                                 }

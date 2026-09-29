@@ -4056,10 +4056,6 @@ impl Runner {
             // at once (its `ScrollTo` arm does the same): scenario time is
             // virtual, and an eased scroll would make the offset depend on
             // frame pacing.
-            //
-            // `ScrollFocusedContainer` (PgUp/PgDn/Space/Home/End, and an arrow
-            // with nowhere to go) still has no arm here - a wider change to
-            // the headless corpus, left open in the spatial-navigation audit.
             DefaultAction::ScrollContainer {
                 container,
                 direction,
@@ -4068,6 +4064,27 @@ impl Runner {
                 let now = self.now();
                 let scrolled = self.layout_window.scroll_container_by_keyboard(
                     *container,
+                    *direction,
+                    *amount,
+                    std::time::Duration::from_millis(0).into(),
+                    now,
+                );
+                if scrolled {
+                    self.layout_window.scroll_manager.calculate_scrollbar_states();
+                    (ProcessEventResult::ShouldReRenderCurrentWindow, false)
+                } else {
+                    (ProcessEventResult::DoNothing, false)
+                }
+            }
+            // ==== E1: `ScrollFocusedContainer` ====
+            // PgUp / PgDn / Space / Home / End, and an arrow with nowhere to
+            // go: the nearest overflowing box around this seat's focus (or
+            // the node under the pointer), through the helper the dll arm
+            // calls - applied at once, like `ScrollContainer` above.
+            DefaultAction::ScrollFocusedContainer { direction, amount } => {
+                let now = self.now();
+                let scrolled = self.layout_window.scroll_focused_container_by_keyboard(
+                    focused,
                     *direction,
                     *amount,
                     std::time::Duration::from_millis(0).into(),

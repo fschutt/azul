@@ -10948,6 +10948,34 @@ impl LayoutWindow {
         true
     }
 
+    /// `DefaultAction::ScrollFocusedContainer` (PgUp / PgDn / Space / Home /
+    /// End, and an arrow with nowhere to go): scroll the nearest overflowing
+    /// box around `focused` - or, with nothing focused, around the topmost
+    /// node under the mouse pointer, so the keys page an unfocused scroll box
+    /// the pointer is over - the way [`Self::scroll_container_by_keyboard`]
+    /// scrolls. `false` (nothing scrolled) when there is no such box.
+    ///
+    /// The one implementation the desktop shells and the headless E2E runner
+    /// share; `duration` is the shells' 150 ms ease, zero in the runner.
+    pub fn scroll_focused_container_by_keyboard(
+        &mut self,
+        focused: Option<DomNodeId>,
+        direction: azul_core::events::ScrollDirection,
+        amount: azul_core::events::ScrollAmount,
+        duration: Duration,
+        now: Instant,
+    ) -> bool {
+        let anchor = focused.or_else(|| {
+            self.hover_manager
+                .get_current(&crate::managers::hover::InputPointId::Mouse)
+                .and_then(azul_core::hit_test::FullHitTest::topmost_node)
+        });
+        let Some(container) = anchor.and_then(|node| self.find_scrollable_ancestor(node)) else {
+            return false;
+        };
+        self.scroll_container_by_keyboard(container, direction, amount, duration, now)
+    }
+
     /// The node's inline layout with CLUSTERS IN IT.
     ///
     /// [`Self::get_inline_layout_for_node`] returns the sparse
