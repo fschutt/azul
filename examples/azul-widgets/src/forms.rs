@@ -162,16 +162,26 @@ impl FormValues {
     }
 }
 
+/// One entry of a submitted `FormData`, as the output box prints it.
+#[derive(Clone)]
+struct SubmittedLine {
+    /// `<form prefix>-<name>`: the line's element id, so a test can ask
+    /// whether an entry was submitted (`e2e/every_input_form.json`).
+    id: String,
+    /// `name = value`.
+    text: String,
+}
+
 /// The state of both form sections. Lives in `Showcase::form`.
 #[derive(Clone)]
 pub(crate) struct FormDemo {
     values: FormValues,
-    /// What the last submit handed over: one `name = value` line per entry.
-    submitted: Vec<String>,
+    /// What the last submit handed over, one line per entry.
+    submitted: Vec<SubmittedLine>,
     /// One line on the last submit or reset.
     verdict: String,
     /// The same two for the raw form.
-    raw_submitted: Vec<String>,
+    raw_submitted: Vec<SubmittedLine>,
     raw_verdict: String,
     /// The picture on the image submit button (`<input type=image>`), made
     /// once: a new image on every rebuild would be a new texture every frame.
@@ -253,7 +263,7 @@ fn beside(control: Dom, label: &str) -> Dom {
 }
 
 /// The submitted form data, one `name = value` line each, under the verdict.
-fn output(title: &str, lines: &[String], verdict: &str) -> Dom {
+fn output(title: &str, lines: &[SubmittedLine], verdict: &str) -> Dom {
     let mut block = Dom::create_div().with_css(OUTPUT_CSS);
     if lines.is_empty() {
         block = block.with_child(
@@ -261,8 +271,11 @@ fn output(title: &str, lines: &[String], verdict: &str) -> Dom {
         );
     }
     for line in lines {
-        block =
-            block.with_child(Dom::create_span_with_text(line.as_str()).with_css(OUTPUT_LINE_CSS));
+        block = block.with_child(
+            Dom::create_span_with_text(line.text.as_str())
+                .with_css(OUTPUT_LINE_CSS)
+                .with_id(line.id.as_str()),
+        );
     }
     captioned(
         title,
@@ -273,21 +286,31 @@ fn output(title: &str, lines: &[String], verdict: &str) -> Dom {
     )
 }
 
-/// `FormData` as the output box prints it, and one line on it. A password is
-/// submitted in the clear (as in HTML); the page shows one bullet per
-/// character instead.
-fn describe(form_data: &FormData) -> (Vec<String>, String) {
-    let lines: Vec<String> = form_data
+/// `FormData` as the output box prints it (each line's id is `id_prefix`, a
+/// dash and the entry's name), and one line on it. A password is submitted
+/// in the clear (as in HTML); the page shows one bullet per character
+/// instead.
+fn describe(form_data: &FormData, id_prefix: &str) -> (Vec<SubmittedLine>, String) {
+    let lines: Vec<SubmittedLine> = form_data
         .entries
         .as_slice()
         .iter()
         .map(|entry| {
-            let value = if entry.name.as_str() == "password" {
+            let name = entry.name.as_str();
+            let value = if name == "password" {
                 "\u{2022}".repeat(entry.value.as_str().chars().count())
             } else {
                 entry.value.as_str().to_string()
             };
-            format!("{} = {}", entry.name.as_str(), value)
+            // An id is letters, digits and dashes.
+            let id_name: String = name
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+                .collect();
+            SubmittedLine {
+                id: format!("{id_prefix}-{id_name}"),
+                text: format!("{name} = {value}"),
+            }
         })
         .collect();
     let invalid: Vec<&str> = form_data
@@ -636,8 +659,18 @@ pub(crate) fn every_input_section(data: &RefAny, demo: &FormDemo, theme: UiTheme
     };
     let buttons = Dom::create_div()
         .with_css(ROW_CSS)
-        .with_child(Button::create_submit("Submit").with_theme(theme).dom())
-        .with_child(Button::create_reset("Reset").with_theme(theme).dom())
+        .with_child(
+            Button::create_submit("Submit")
+                .with_theme(theme)
+                .dom()
+                .with_id("form-submit"),
+        )
+        .with_child(
+            Button::create_reset("Reset")
+                .with_theme(theme)
+                .dom()
+                .with_id("form-reset"),
+        )
         .with_child(image_submit.with_theme(theme).dom())
         .with_child(
             Button::create("A plain button")
@@ -663,11 +696,13 @@ pub(crate) fn every_input_section(data: &RefAny, demo: &FormDemo, theme: UiTheme
     section(
         "Every input type, in a Form",
         vec![
+            // Lower-case "submit" / "reset" on purpose: an E2E `click` by text
+            // takes the FIRST text containing it, which should be the button.
             note(
-                "One Form around a widget for every HTML input type. Submit (either submit \
-                 button, or Enter in a text field) hands the app the FormData printed below. \
-                 A field that fails its type or pattern is drawn as invalid once you edit it, \
-                 and every such field when you submit. Reset puts every field back.",
+                "One Form around a widget for every HTML input type. Either submit button, or \
+                 Enter in a text field, hands the app the FormData printed below. A field that \
+                 fails its type or pattern is drawn as invalid once you edit it, and every such \
+                 field when you submit; the reset button puts every field back.",
             ),
             form,
             output("Submitted FormData", &demo.submitted, &demo.verdict),
@@ -801,12 +836,12 @@ fn rust_controls() -> Dom {
                 .with_child(
                     input("submit", "", "Send the raw form")
                         .with_id("raw-submit")
-                        .with_attribute(AttributeType::value("Send")),
+                        .with_attribute(AttributeType::value("Send raw")),
                 )
                 .with_child(
                     input("reset", "", "Reset the raw form")
                         .with_id("raw-reset")
-                        .with_attribute(AttributeType::value("Reset")),
+                        .with_attribute(AttributeType::value("Reset raw")),
                 ),
         ),
     ])
@@ -1029,7 +1064,7 @@ extern "C" fn on_plain_button(mut data: RefAny, _: CallbackInfo) -> Update {
 }
 
 extern "C" fn on_form_submit(mut data: RefAny, _: CallbackInfo, form_data: FormData) -> Update {
-    let (lines, verdict) = describe(&form_data);
+    let (lines, verdict) = describe(&form_data, "form-data");
     match data.downcast_mut::<Showcase>() {
         Some(mut s) => {
             s.form.submitted = lines;
@@ -1078,7 +1113,7 @@ extern "C" fn on_form_reset(
 }
 
 extern "C" fn on_raw_submit(mut data: RefAny, _: CallbackInfo, form_data: FormData) -> Update {
-    let (lines, verdict) = describe(&form_data);
+    let (lines, verdict) = describe(&form_data, "raw-form-data");
     match data.downcast_mut::<Showcase>() {
         Some(mut s) => {
             s.form.raw_submitted = lines;
