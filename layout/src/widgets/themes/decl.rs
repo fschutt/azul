@@ -371,13 +371,14 @@ pub(crate) const fn margin(
 }
 
 /// `box-shadow: 0 <offset_y>px <blur>px <spread>px <color> [inset]`, as ONE
-/// declaration.
+/// declaration: the bottom one of a node's four shadow slots.
 ///
-/// azul stores a shadow per side, and the painter draws every side's shadow
-/// as a whole box shadow (`display_list.rs`, "Check all four sides"): the
-/// four copies the `box-shadow` shorthand expands to overlap, and a
-/// translucent shadow comes out four times as dark. One side's slot carries
-/// exactly one shadow, which is what a theme means.
+/// azul keeps a node's shadows in four slots (`-azul-box-shadow-left/right/
+/// top/bottom`) and paints each DISTINCT one once (`getters::get_box_shadows`),
+/// so this one slot paints exactly what the `box-shadow` shorthand (the same
+/// shadow in all four) paints. Every shadow of this module sits in the same
+/// slot, so a `:focus` halo replaces the resting shadow, as a CSS `:focus {
+/// box-shadow: .. }` does.
 #[must_use]
 pub(crate) fn shadow(
     offset_y: isize,

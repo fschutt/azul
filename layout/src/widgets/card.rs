@@ -62,7 +62,9 @@ const CARD_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color
 const CARD_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(CARD_BG_ITEMS);
 
-/// Shared drop-shadow descriptor referenced by all four edge box-shadows.
+/// Shared drop-shadow descriptor, `box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15)`:
+/// the shorthand writes it into all four shadow slots, which hold ONE shadow
+/// and paint it once.
 static CARD_SHADOW: StyleBoxShadow = StyleBoxShadow {
     offset_x: PixelValueNoPercent {
         inner: PixelValue::const_px(0),
@@ -173,7 +175,7 @@ pub(crate) const CARD_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_border_bottom_right_radius(
         StyleBorderBottomRightRadius::const_px(8),
     )),
-    // soft drop shadow on all four edges
+    // box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15) - the shorthand's four slots
     CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
         BoxOrStatic::Static(&raw const CARD_SHADOW),
     ))),

@@ -282,9 +282,11 @@ pub fn ring_slot() -> Vec<P> {
     border(Edges::ALL, 1, ColorU::TRANSPARENT, ColorU::TRANSPARENT)
 }
 
-/// A drop shadow under a floating surface, light then dark. One edge slot
-/// carries it: each edge's shadow paints as a whole-box shadow, so four
-/// copies would stack.
+/// A drop shadow under a floating surface, light then dark. One slot (the
+/// bottom one) carries it: the four slots are a node's list of shadows, each
+/// painted once as a whole-box shadow, so a role in its own slot stacks with
+/// the others ([`inset_shadow`]: top, [`focus_shadow_ring`]: left) instead of
+/// replacing them.
 #[must_use]
 pub fn drop_shadow(offset_y: isize, blur: isize, light: ColorU, dark: ColorU) -> [P; 2] {
     let shadow = |color: ColorU| StyleBoxShadow {
