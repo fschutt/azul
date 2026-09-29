@@ -4350,9 +4350,9 @@ pub fn accordion(a: crate::widgets::accordion::Accordion) -> Dom {
     use super::decl;
     use crate::widgets::accordion::{
         AccordionLook, ACCORDION_CONTAINER_STYLE, ACCORDION_HEADER_STYLE, ACCORDION_SECTION_STYLE,
-        ACCORDION_TITLE_STYLE,
     };
 
+    // The skins: `accordion::build` lays each over the part's base.
     let mut header = ACCORDION_HEADER_STYLE.to_vec();
     header.extend(decl::hover_fill(ColorU::rgb(233, 236, 239), DARK_HT));
     header.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
@@ -4363,7 +4363,7 @@ pub fn accordion(a: crate::widgets::accordion::Accordion) -> Dom {
             container: ACCORDION_CONTAINER_STYLE.to_vec(),
             section: ACCORDION_SECTION_STYLE.to_vec(),
             header,
-            title: ACCORDION_TITLE_STYLE.to_vec(),
+            title: Vec::new(),
             // The Windows 11 expander's chevron: down, up when open.
             chevron: crate::widgets::accordion::chevron_box(16),
             chevron_icon: "expand_more",

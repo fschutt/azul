@@ -206,7 +206,9 @@ pub struct Accordion {
     pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
-/// What a theme decides about an accordion: the style of each part. [`build`]
+/// What a theme decides about an accordion: the SKIN of each part (its paint
+/// and metrics). [`build`] lays each skin over the part's base - the
+/// accordion's structure, the same in every theme (`ACCORDION_*_BASE`) - and
 /// assembles them with the section bodies' own open / closed geometry; built
 /// by `themes::flat::accordion` and `themes::flora::accordion`.
 pub(crate) struct AccordionLook {
@@ -219,8 +221,8 @@ pub(crate) struct AccordionLook {
     /// The title inside a header.
     pub title: Vec<CssPropertyWithConditions>,
     /// The disclosure indicator at the end of a header (its size and
-    /// spacing; its ink is the header's): [`chevron_style`] adds the turn
-    /// and the tween.
+    /// spacing, [`chevron_box`]; its ink is the header's): [`chevron_style`]
+    /// adds the turn and the tween.
     pub chevron: Vec<CssPropertyWithConditions>,
     /// The icon the indicator shows (a `Dom::create_icon` name).
     pub chevron_icon: &'static str,
@@ -230,14 +232,72 @@ pub(crate) struct AccordionLook {
     pub marker: Option<&'static str>,
 }
 
-// ---- styles ----
+// ---- the base: the accordion's structure, in every theme ----
+//
+// What lays an accordion out is the same whichever theme paints it, so it is
+// the widget's own: [`build`] declares each part's base FIRST, then the
+// theme's skin (`AccordionLook`). No structure declaration then sits inside a
+// `@theme` block, and it holds under a theme no widget knows (R5).
 
-pub(crate) static ACCORDION_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
+/// The panel: a column that hugs its sections and clips their rules at its
+/// rounded corners.
+pub(crate) static ACCORDION_CONTAINER_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,
     )),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+];
+
+/// One section: its header over its body.
+pub(crate) static ACCORDION_SECTION_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+];
+
+/// A header: a row, title and indicator centred on it, a click target whose
+/// title the pointer never selects.
+pub(crate) static ACCORDION_HEADER_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// The title: the header's remaining width, set from the left.
+pub(crate) static ACCORDION_TITLE_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
+];
+
+/// The indicator's box: it centres its icon (so it turns about the icon's
+/// centre) and keeps its size against the title - never grows or shrinks.
+pub(crate) static ACCORDION_CHEVRON_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(
+        azul_css::props::layout::LayoutJustifyContent::Center,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(
+        azul_css::props::layout::LayoutFlexShrink {
+            inner: azul_css::props::basic::length::FloatValue::const_new(0),
+        },
+    )),
+];
+
+// ---- the flat skin ----
+
+/// The flat panel's skin: the established #DEE2E6 hairline at a 6px radius,
+/// the label ink, and their night twins.
+pub(crate) static ACCORDION_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
@@ -308,16 +368,10 @@ pub(crate) static ACCORDION_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_border_bottom_right_radius(
         StyleBorderBottomRightRadius::const_px(6),
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
-    CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
 ];
 
+/// The flat section's skin: a thin separator from the next section.
 pub(crate) static ACCORDION_SECTION_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-        LayoutFlexDirection::Column,
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     // a thin separator between stacked sections
     CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
         LayoutBorderBottomWidth::const_px(1),
@@ -335,11 +389,8 @@ pub(crate) static ACCORDION_SECTION_STYLE: &[CssPropertyWithConditions] = &[
     system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
 ];
 
+/// The flat header's skin: the #F8F9FA bar (the window surface at night).
 pub(crate) static ACCORDION_HEADER_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
-    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         10,
     ))),
@@ -352,16 +403,9 @@ pub(crate) static ACCORDION_HEADER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(12),
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(HEADER_BG_VEC)),
     // Dark theme: the header bar is part of the panel, not a light strip.
     system_palette::DARK_WINDOW_BACKGROUND,
-];
-
-pub(crate) static ACCORDION_TITLE_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
 ];
 
 /// An open body's padding, on every side; a closed body keeps it on the
@@ -400,25 +444,14 @@ fn chevron_turn(open: bool, turn_deg: isize) -> CssProperty {
     ]))
 }
 
-/// The indicator's box, `size` px square, at the end of a header: it keeps
-/// its size (never grows or shrinks against the title), sits `8px` off the
-/// title and centres its icon, so it turns about the icon's centre. The icon
-/// inside takes the box's font size and the header's ink.
+/// The indicator's box, `size` px square, at the end of a header, `8px` off
+/// the title - a theme's measure of it; its layout (a box that keeps its size
+/// and centres its icon, so it turns about the icon's centre) is
+/// [`ACCORDION_CHEVRON_BASE`]. The icon inside takes the box's font size and
+/// the header's ink.
 pub(crate) fn chevron_box(size: isize) -> Vec<CssPropertyWithConditions> {
-    use azul_css::props::{
-        basic::length::FloatValue,
-        layout::{LayoutFlexShrink, LayoutJustifyContent, LayoutMarginLeft, LayoutWidth},
-    };
+    use azul_css::props::layout::{LayoutMarginLeft, LayoutWidth};
     alloc::vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        CssPropertyWithConditions::simple(CssProperty::const_justify_content(
-            LayoutJustifyContent::Center,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
-            inner: FloatValue::const_new(0),
-        })),
         CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(size))),
         CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(size))),
         CssPropertyWithConditions::simple(CssProperty::const_margin_left(
@@ -430,10 +463,11 @@ pub(crate) fn chevron_box(size: isize) -> Vec<CssPropertyWithConditions> {
     ]
 }
 
-/// The indicator of an open or closed section in `look`: the theme's size
-/// and spacing, the turn, the tween.
+/// The indicator of an open or closed section in `look`: its base, the
+/// theme's size and spacing, the turn, the tween.
 fn chevron_style(look: &AccordionLook, open: bool) -> CssPropertyWithConditionsVec {
-    let mut style = look.chevron.clone();
+    let mut style = ACCORDION_CHEVRON_BASE.to_vec();
+    style.extend(look.chevron.iter().cloned());
     style.push(CssPropertyWithConditions::simple(chevron_turn(
         open,
         look.chevron_turn_deg,
@@ -602,7 +636,15 @@ impl Accordion {
 /// The accordion's DOM in `look`: per section a header (the keyboard stop and
 /// click target) over a body whose open / closed geometry is the widget's own
 /// (`body_style`), so the header's click handler can tween it in any theme.
+/// Every part is its base (the structure, `ACCORDION_*_BASE`), then the
+/// look's skin.
 pub(crate) fn build(accordion: Accordion, look: &AccordionLook) -> Dom {
+    // A part's declarations: its base first, then the theme's skin.
+    let part = |base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
+        let mut style = base.to_vec();
+        style.extend(skin.iter().cloned());
+        CssPropertyWithConditionsVec::from_vec(style)
+    };
     {
         let on_toggle = accordion.on_toggle;
         let sections = accordion.sections;
@@ -612,7 +654,7 @@ pub(crate) fn build(accordion: Accordion, look: &AccordionLook) -> Dom {
         for (index, section) in sections.as_ref().iter().enumerate() {
             let title = crate::widgets::widget_p_with_text(section.title.clone())
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(ACCORDION_TITLE_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_vec(look.title.clone()));
+                .with_css_props(part(ACCORDION_TITLE_BASE, look.title.as_slice()));
 
             // Read the open state before it is moved into the click data.
             let section_is_open = section.is_open;
@@ -637,7 +679,7 @@ pub(crate) fn build(accordion: Accordion, look: &AccordionLook) -> Dom {
 
             let header = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(ACCORDION_HEADER_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_vec(look.header.clone()))
+                .with_css_props(part(ACCORDION_HEADER_BASE, look.header.as_slice()))
                 .with_tab_index(TabIndex::Auto)
                 // A section header must report whether it is open. Expanded /
                 // Collapsed is the difference between "Details" and "Details,
@@ -675,7 +717,7 @@ pub(crate) fn build(accordion: Accordion, look: &AccordionLook) -> Dom {
             section_doms.push(
                 Dom::create_div()
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(ACCORDION_SECTION_CLASS))
-                    .with_css_props(CssPropertyWithConditionsVec::from_vec(look.section.clone()))
+                    .with_css_props(part(ACCORDION_SECTION_BASE, look.section.as_slice()))
                     .with_children(DomVec::from_vec(alloc::vec![header, body])),
             );
         }
@@ -687,7 +729,7 @@ pub(crate) fn build(accordion: Accordion, look: &AccordionLook) -> Dom {
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_vec(classes))
-            .with_css_props(CssPropertyWithConditionsVec::from_vec(look.container.clone()))
+            .with_css_props(part(ACCORDION_CONTAINER_BASE, look.container.as_slice()))
             .with_children(DomVec::from_vec(section_doms))
     }
 }

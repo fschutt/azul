@@ -4815,23 +4815,15 @@ pub fn breadcrumb(b: crate::widgets::breadcrumb::Breadcrumb) -> Dom {
 #[must_use]
 pub fn accordion(a: crate::widgets::accordion::Accordion) -> Dom {
     use super::decl;
-    use crate::widgets::accordion::{AccordionLook, ACCORDION_TITLE_STYLE};
+    use crate::widgets::accordion::AccordionLook;
 
+    // The skins: `accordion::build` lays each over the part's base (the
+    // panel's clipped column, the header's row and pointer, ...).
     let mut container = vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Column,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             14,
         ))),
         CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
-        // Rounded corners that clip the per-section rules.
-        CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
-        CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
     ];
     container.extend(decl::border(1));
     container.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
@@ -4839,31 +4831,10 @@ pub fn accordion(a: crate::widgets::accordion::Accordion) -> Dom {
     container.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
     container.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
 
-    let mut section = vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Column,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
-    ];
-    section.extend(decl::border_bottom(1));
+    let mut section = decl::border_bottom(1).to_vec();
     section.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
 
-    let mut header = vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Row,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
-        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-        CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
-    ];
-    header.extend(decl::padding(10, 12, 10, 12));
+    let mut header = decl::padding(10, 12, 10, 12).to_vec();
     header.extend(decl::themed_layers(
         vec![RAISED_FACE_LIGHT],
         vec![RAISED_FACE_DARK],
@@ -4879,8 +4850,7 @@ pub fn accordion(a: crate::widgets::accordion::Accordion) -> Dom {
     header.extend(decl::hover_ink(LIGHT_QT, DARK_QT));
     header.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
 
-    let mut title = ACCORDION_TITLE_STYLE.to_vec();
-    title.push(decl::semibold());
+    let title = vec![decl::semibold()];
 
     crate::widgets::accordion::build(
         a,
