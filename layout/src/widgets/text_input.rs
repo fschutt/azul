@@ -25,7 +25,7 @@ use alloc::{string::String, vec::Vec};
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{AttributeType, Dom, DomNodeId},
-    form::ValidityState,
+    form::{ValidityReason, ValidityState},
     refany::RefAny,
     task::OptionTimerId,
 };
@@ -863,8 +863,48 @@ fn to_units(s: &str) -> U32Vec {
 
 /// Which constraints `state`'s current value fails.
 fn validity_of(state: &TextInputState) -> ValidityState {
-    let _ = state;
-    ValidityState::valid()
+    state.compute_validity()
+}
+
+impl TextInputState {
+    /// Which constraints the current value fails, HTML's rules: the syntax
+    /// its [`TextInputKind`] demands (`type=email`, `type=url`) and the
+    /// `pattern`, which must match the WHOLE value. An empty value is exempt
+    /// from both. A password is checked against its real text, never its
+    /// mask. The widget keeps [`Self::validity`] up to date with this; call it
+    /// directly on a state you built yourself.
+    #[must_use]
+    pub fn compute_validity(&self) -> ValidityState {
+        let mut validity = ValidityState::valid();
+        let value = self.get_text();
+        if value.is_empty() {
+            return validity;
+        }
+        let type_ok = match self.kind {
+            TextInputKind::Email => crate::form::is_valid_email(&value),
+            TextInputKind::Url => crate::form::is_valid_absolute_url(&value),
+            TextInputKind::Text
+            | TextInputKind::Password
+            | TextInputKind::Search
+            | TextInputKind::Tel => true,
+        };
+        if !type_ok {
+            validity.insert(ValidityReason::TypeMismatch);
+        }
+        if let Some(pattern) = self.pattern.as_ref() {
+            if crate::form::pattern_matches(pattern.as_str(), &value) == Some(false) {
+                validity.insert(ValidityReason::PatternMismatch);
+            }
+        }
+        validity
+    }
+
+    /// Can this field's value be invalid at all? Only a typed field
+    /// (`email`, `url`) or one with a `pattern` has a constraint to fail.
+    #[must_use]
+    pub const fn is_constrained(&self) -> bool {
+        matches!(self.kind, TextInputKind::Email | TextInputKind::Url) || self.pattern.is_some()
+    }
 }
 
 impl Default for TextInputStateWrapper {
@@ -1135,7 +1175,7 @@ impl TextInput {
     /// in particular no caret node (the engine paints the caret and the
     /// selection from its display list).
     #[must_use]
-    pub fn dom(self) -> Dom {
+    pub fn dom(mut self) -> Dom {
         // `UiTheme::default()` is Flat, and so is every other widget's fallback:
         // an unset theme here used to reach FLORA, which is why an unthemed
         // TextInput rendered skeuomorphic next to a flat Button.
@@ -1143,7 +1183,12 @@ impl TextInput {
             .theme
             .into_option()
             .unwrap_or(crate::widgets::themes::UiTheme::Flat);
+        // The state is built fresh from the app's value, so its validity is
+        // too: an app handing in a malformed e-mail gets an invalid state
+        // (and FormData) before the user has touched the field.
+        self.text_input_state.inner.validity = validity_of(&self.text_input_state.inner);
         let kind = self.text_input_state.inner.kind;
+        let constrained = self.text_input_state.inner.is_constrained();
         let name = self.name.clone();
         let a11y_name = self.accessibility_name.clone();
         let has_text = !self.text_input_state.inner.text.is_empty();
@@ -1153,7 +1198,15 @@ impl TextInput {
                 crate::widgets::themes::flora::text_input(self)
             }
         };
-        let container = with_kind_semantics(container, kind, name, a11y_name);
+        let mut container = with_kind_semantics(container, kind, name, a11y_name);
+        if constrained {
+            // The handlers paint the invalid ring in the THEME's colours, and
+            // this is how they learn which theme the field was built with.
+            container.add_class(AzString::from_const_str(match theme {
+                crate::widgets::themes::UiTheme::Flat => THEME_FLAT_CLASS,
+                crate::widgets::themes::UiTheme::Flora => THEME_FLORA_CLASS,
+            }));
+        }
         if kind == TextInputKind::Search {
             search_field(container, theme, has_text)
         } else {
@@ -1161,6 +1214,11 @@ impl TextInput {
         }
     }
 }
+
+/// Marks a constrained field built by the flat theme (see [`TextInput::dom`]).
+pub const THEME_FLAT_CLASS: &str = "__azul-theme-flat";
+/// Marks a constrained field built by the flora theme.
+pub const THEME_FLORA_CLASS: &str = "__azul-theme-flora";
 
 /// The class of the row a `type=search` field sits in.
 pub const SEARCH_FIELD_CLASS: &str = "__azul-native-search-field";
@@ -1460,9 +1518,10 @@ fn clear_field(
     if result.valid == TextInputValid::No {
         return result.update;
     }
+    let looks_before = looks_of(&wrapper.inner);
     wrapper.inner = preview;
     replace_engine_line(&mut info, container, "");
-    sync_live_looks(&mut info, container, false, &wrapper.inner);
+    sync_live_looks(&mut info, container, looks_before, &wrapper.inner);
     result.update
 }
 
@@ -1517,20 +1576,38 @@ fn replace_engine_line(info: &mut CallbackInfo, container: DomNodeId, shown: &st
     }
 }
 
+/// What a field's value-dependent looks were derived from, captured BEFORE an
+/// edit so [`sync_live_looks`] can tell what changed.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+struct LooksBefore {
+    empty: bool,
+    invalid: bool,
+}
+
+fn looks_of(state: &TextInputState) -> LooksBefore {
+    LooksBefore {
+        empty: state.text.is_empty(),
+        invalid: !state.validity.is_valid(),
+    }
+}
+
 /// Bring the parts of the field that depend on its value up to date after an
-/// edit, WITHOUT a rebuild: the `type=search` clear button appears with the
-/// first character and hides with the last.
+/// edit, WITHOUT a rebuild:
 ///
-/// Writes only on a TRANSITION (`was_empty` vs now): a same-value `display`
-/// write costs a full relayout per keystroke.
+/// * the `type=search` clear button appears with the first character and hides
+///   with the last - written only on that TRANSITION, because a same-value
+///   `display` write costs a full relayout per keystroke;
+/// * the invalid ring: painted while an edit leaves the value invalid, removed
+///   when an edit makes it valid again (see [`paint_invalid_ring`]). A valid
+///   edit of a valid field writes nothing.
 fn sync_live_looks(
     info: &mut CallbackInfo,
     container: DomNodeId,
-    was_empty: bool,
+    before: LooksBefore,
     state: &TextInputState,
 ) {
     let is_empty = state.text.is_empty();
-    if state.kind == TextInputKind::Search && was_empty != is_empty {
+    if state.kind == TextInputKind::Search && before.empty != is_empty {
         if let Some(clear) = info.get_next_sibling(container) {
             let display = if is_empty {
                 LayoutDisplay::None
@@ -1539,6 +1616,62 @@ fn sync_live_looks(
             };
             info.set_css_property(clear, CssProperty::const_display(display));
         }
+    }
+
+    let invalid = !state.validity.is_valid();
+    if invalid || before.invalid {
+        paint_invalid_ring(info, container, invalid);
+    }
+}
+
+/// The invalid look - CSS `:user-invalid`, not `:invalid`: it follows the
+/// USER's edits. An edit that leaves the value invalid rings the field in the
+/// theme's invalid colour on all four edges; an edit that makes it valid
+/// REMOVES the ring (an `initial` override), which brings the resting border,
+/// the hover/focus ring and the dark twins back exactly as the theme declared
+/// them.
+///
+/// An override, not an inline declaration, because only an override can be
+/// taken back at run time. The price: it outranks the hover/focus ring while
+/// it stands (an invalid field is red in every state, which is the intent),
+/// and its colour is the light or dark one current when it was written.
+/// A value the APP hands in invalid is reported in the state (and FormData)
+/// at once but not painted until the user edits it or a form submit asks
+/// ([`mark_user_invalid`]) - the reason browsers added `:user-invalid`.
+fn paint_invalid_ring(info: &mut CallbackInfo, container: DomNodeId, invalid: bool) {
+    let Some(node_id) = container.node.into_crate_internal() else {
+        return;
+    };
+    let props: Vec<CssProperty> = if invalid {
+        let flora = info
+            .get_node_classes(container)
+            .as_ref()
+            .iter()
+            .any(|c| c.as_str() == THEME_FLORA_CLASS);
+        let dark = crate::widgets::date_picker::window_is_dark(info);
+        if flora {
+            crate::widgets::themes::flora::text_input_invalid_ring(dark)
+        } else {
+            crate::widgets::themes::flat::text_input_invalid_ring(dark)
+        }
+    } else {
+        alloc::vec![
+            CssProperty::initial(CssPropertyType::BorderTopColor),
+            CssProperty::initial(CssPropertyType::BorderRightColor),
+            CssProperty::initial(CssPropertyType::BorderBottomColor),
+            CssProperty::initial(CssPropertyType::BorderLeftColor),
+        ]
+    };
+    info.override_node_css_properties(container.dom, node_id, props.into());
+}
+
+/// Paint the invalid look on the field hosted at `container` if its current
+/// value is invalid - what a failed form submit does for every field it
+/// refused (see `crate::widgets::form`), the other moment `:user-invalid`
+/// starts to apply.
+pub fn mark_user_invalid(info: &mut CallbackInfo, container: DomNodeId, state: &TextInputState) {
+    if !state.validity.is_valid() {
+        paint_invalid_ring(info, container, true);
     }
 }
 
@@ -1748,12 +1881,12 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
     let _value = value_node(&info)?;
     let container = info.get_hit_node();
     let is_password = text_input.inner.kind == TextInputKind::Password;
-    let was_empty = text_input.inner.text.is_empty();
+    let looks_before = looks_of(&text_input.inner);
 
     if inserted_text.is_empty() {
         if is_password {
             let update = masked_notification(&mut text_input, info, container);
-            sync_live_looks(&mut info, container, was_empty, &text_input.inner);
+            sync_live_looks(&mut info, container, looks_before, &text_input.inner);
             return update;
         }
         // Idempotent: a notification that changed nothing observable (a
@@ -1767,7 +1900,7 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
         let len = text_input.inner.get_text().len();
         text_input.inner.selection = engine_selection(&info, container, len).into();
         text_input.inner.validity = validity_of(&text_input.inner);
-        sync_live_looks(&mut info, container, was_empty, &text_input.inner);
+        sync_live_looks(&mut info, container, looks_before, &text_input.inner);
         let result = {
             let text_input = &mut *text_input;
             let inner_clone = text_input.inner.clone();
@@ -1794,7 +1927,7 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
 
     if is_password {
         let update = masked_insertion(&mut text_input, info, container, &inserted_text);
-        sync_live_looks(&mut info, container, was_empty, &text_input.inner);
+        sync_live_looks(&mut info, container, looks_before, &text_input.inner);
         return Some(update);
     }
 
@@ -1865,7 +1998,7 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
         let len = text_input.inner.get_text().len();
         text_input.inner.selection = engine_selection(&info, container, len).into();
         text_input.inner.validity = validity_of(&text_input.inner);
-        sync_live_looks(&mut info, container, was_empty, &text_input.inner);
+        sync_live_looks(&mut info, container, looks_before, &text_input.inner);
     } else {
         // The engine applies the recorded changeset once the callbacks return,
         // unless one of them vetoes it.

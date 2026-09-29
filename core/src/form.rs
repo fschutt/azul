@@ -40,6 +40,10 @@ pub enum ValidityReason {
     /// Does not match `pattern` (11b-i-b). The whole value must match, and an
     /// empty value is exempt - both exactly as HTML's `patternMismatch`.
     PatternMismatch = 5,
+    /// The value is not the syntax its `type` requires: a malformed e-mail
+    /// address for `type=email`, a relative URL for `type=url`. An empty value
+    /// is exempt - exactly as HTML's `typeMismatch`.
+    TypeMismatch = 6,
 }
 
 impl ValidityReason {

@@ -4030,3 +4030,41 @@ pub fn search_field(field: Dom, clear: Dom) -> Dom {
         ]))
         .with_children(vec![field, clear].into())
 }
+
+// ==== text input kinds (invalid look) ====
+
+/// The border of a text field whose value the user edited into an INVALID
+/// state (`type=email` / `type=url` syntax, `pattern`): flora's warm brick
+/// red, which sits with its paper-and-ink palette where the flat theme's
+/// signal red would glare. Light mode.
+pub const INVALID_RING: ColorU = ColorU {
+    r: 192,
+    g: 57,
+    b: 43,
+    a: 255,
+};
+
+/// [`INVALID_RING`] in the dark theme: a lighter coral that keeps the warmth
+/// and still reads on a dark field.
+pub const DARK_INVALID_RING: ColorU = ColorU {
+    r: 232,
+    g: 132,
+    b: 122,
+    a: 255,
+};
+
+/// The four border colours of the invalid look, for the light (`dark ==
+/// false`) or the dark theme. `text_input.rs` writes them as an OVERRIDE on
+/// the field host while the value is invalid (see its `paint_invalid_ring`);
+/// an override carries no theme condition, so the mode is chosen when it is
+/// written.
+#[must_use]
+pub fn text_input_invalid_ring(dark: bool) -> Vec<CssProperty> {
+    let inner = if dark { DARK_INVALID_RING } else { INVALID_RING };
+    vec![
+        CssProperty::const_border_top_color(StyleBorderTopColor { inner }),
+        CssProperty::const_border_right_color(StyleBorderRightColor { inner }),
+        CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner }),
+        CssProperty::const_border_left_color(StyleBorderLeftColor { inner }),
+    ]
+}

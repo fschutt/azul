@@ -689,7 +689,7 @@ fn day_cell_colours(selected: bool, dark: bool) -> (StyleBackgroundContentVec, C
 /// Whether the window a callback runs in cascades in the dark theme - the
 /// answer `LayoutWindow::dynamic_selector_context` gives: the `AZ_THEME` pin
 /// first, then the window's own theme.
-fn window_is_dark(info: &CallbackInfo) -> bool {
+pub(crate) fn window_is_dark(info: &CallbackInfo) -> bool {
     azul_css::dynamic_selector::theme_pinned_by_env().map_or_else(
         || info.get_current_window_state().theme == azul_core::window::WindowTheme::DarkMode,
         |t| t == azul_css::dynamic_selector::ThemeCondition::Dark,
