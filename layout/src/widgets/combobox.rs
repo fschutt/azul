@@ -35,9 +35,17 @@
 //! TODO2 — like [`Popover`], the list is placed at a fixed offset below the field
 //! (it does not measure the field's height, flip near a screen edge, escape an
 //! `overflow: hidden` ancestor, or raise its z-order — it relies on being the
-//! later sibling to paint on top). There is no click-outside / blur dismissal
-//! (closing on focus-lost races the option click and could swallow the
-//! selection); the list closes on selection or on clicking the field again.
+//! later sibling to paint on top). The list closes on selection, on clicking
+//! the field again, on a click outside it, and when the field loses focus
+//! (Tab, a click elsewhere - WAI-ARIA combobox). The blur cannot swallow a
+//! pick: options are never focused and the list popup is never the key
+//! window, so a click on an option does not blur the field.
+//!
+//! Typing while the list shows an ACTIVE option clears it (WAI-ARIA
+//! combobox): Enter then keeps the typed text, the next arrow starts over.
+//! The popup still paints the stale highlight until its next key - the
+//! field (parent window) cannot restyle the popup window's nodes; the shared
+//! state (`active_option_cleared`) carries only the decision across.
 //!
 //! Key types: [`ComboBox`], [`ComboBoxState`], [`ComboBoxOnSelect`].
 
@@ -343,6 +351,14 @@ pub struct ComboBoxStateWrapper {
     /// typed text is the value, picked or not). Appended at the END of the
     /// `repr(C)` struct.
     pub on_text_input: OptionComboBoxOnTextInput,
+    /// The user typed into the field (or deleted) since the list last made
+    /// an option ACTIVE: that option no longer counts (WAI-ARIA combobox -
+    /// typing clears the active option). The list's next arrow starts over
+    /// from no active option, and Enter keeps the typed text instead of
+    /// picking it. The list clears the flag when it makes an option active.
+    /// The shared state is the one channel from the field (parent window) to
+    /// the list (popup window). Appended at the END of the `repr(C)` struct.
+    pub active_option_cleared: bool,
 }
 
 impl Default for ComboBoxStateWrapper {
@@ -352,6 +368,7 @@ impl Default for ComboBoxStateWrapper {
             items: StringVec::from_const_slice(&[]),
             on_select: None.into(),
             on_text_input: None.into(),
+            active_option_cleared: false,
         }
     }
 }
@@ -676,6 +693,7 @@ impl ComboBox {
                 items,
                 on_select: None.into(),
                 on_text_input: None.into(),
+                active_option_cleared: false,
             },
             placeholder: AzString::from_const_str(""),
             wrapper_style: OptionCssPropertyWithConditionsVec::None,
@@ -986,6 +1004,15 @@ impl ComboBox {
                         },
                         refany: state_ref.clone(),
                     },
+                    // Focus leaving the field closes its list.
+                    CoreCallbackData {
+                        event: EventFilter::Focus(FocusEventFilter::FocusLost),
+                        callback: CoreCallback {
+                            cb: on_combobox_blur as usize,
+                            ctx: OptionRefAny::None,
+                        },
+                        refany: state_ref.clone(),
+                    },
                 ]
                 .into(),
             )
@@ -1107,9 +1134,57 @@ extern "C" fn on_combobox_toggle(mut data: RefAny, mut info: CallbackInfo) -> Up
         combo.inner.open
     };
 
-    info.set_transient_window_open(popup, now_open);
-    announce_expanded(&mut info, field, now_open);
+    show_list(&mut info, field, popup, now_open);
 
+    Update::DoNothing
+}
+
+/// Opens or closes the field's list - its popup WINDOW (`popup`, the
+/// field's next sibling) - and the field says so. The one place a field
+/// handler shows or hides the list: a click, Down / Up, Tab, a blur.
+fn show_list(
+    info: &mut CallbackInfo,
+    field: azul_core::dom::DomNodeId,
+    popup: azul_core::dom::DomNodeId,
+    open: bool,
+) {
+    info.set_transient_window_open(popup, open);
+    announce_expanded(info, field, open);
+}
+
+/// Closes the field's list if it is open - what a blur and Tab do
+/// (WAI-ARIA combobox): `open` cleared, the popup window closed, the field
+/// says Collapsed. The field's text stays the value. `false`, and nothing
+/// written, when the list is closed already or the state is not a
+/// combobox's.
+fn close_list(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    field: azul_core::dom::DomNodeId,
+) -> bool {
+    let Some(popup) = info.get_next_sibling(field) else {
+        return false;
+    };
+    {
+        let Some(mut combo) = data.downcast_mut::<ComboBoxStateWrapper>() else {
+            return false;
+        };
+        if !combo.inner.open {
+            return false;
+        }
+        combo.inner.open = false;
+    }
+    show_list(info, field, popup, false);
+    true
+}
+
+/// The field lost focus - Tab, Shift+Tab, a click elsewhere: its list
+/// closes (WAI-ARIA combobox). A pick is not lost to this: an option is
+/// never focused and the list popup is never the key window, so a click on
+/// an option does not blur the field.
+extern "C" fn on_combobox_blur(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let field = info.get_hit_node();
+    close_list(&mut data, &mut info, field);
     Update::DoNothing
 }
 
@@ -1208,6 +1283,8 @@ fn on_combobox_text_input_inner(mut data: RefAny, mut info: CallbackInfo) -> Opt
         let mut s: String = combo.inner.text.as_str().into();
         s.push_str(&inserted_text);
         combo.inner.text = s.clone().into();
+        // Typing clears the list's active option (WAI-ARIA combobox).
+        combo.active_option_cleared = true;
         s
     };
 
@@ -1215,22 +1292,31 @@ fn on_combobox_text_input_inner(mut data: RefAny, mut info: CallbackInfo) -> Opt
     Some(report_typed_text(&mut data, info))
 }
 
-/// Field key-down handler - implements backspace deletion (mirroring `text_input`).
+/// Field key-down handler - implements backspace deletion (mirroring
+/// `text_input`), opens the list on Down / Up and closes it on Tab.
 extern "C" fn on_combobox_key_down(data: RefAny, info: CallbackInfo) -> Update {
     on_combobox_key_down_inner(data, info).unwrap_or(Update::DoNothing)
 }
 
 fn on_combobox_key_down_inner(mut data: RefAny, mut info: CallbackInfo) -> Option<Update> {
     let field = info.get_hit_node();
+    let key = info
+        .get_current_keyboard_state()
+        .current_virtual_keycode
+        .into_option();
+    // Tab (and Shift+Tab) closes the list - the blur that follows closes
+    // it too, but the field may be the window's only stop, and then no blur
+    // follows. The key stays Tab: not consumed, focus moves on.
+    if key == Some(VirtualKeyCode::Tab) {
+        return close_list(&mut data, &mut info, field).then_some(Update::DoNothing);
+    }
     if let Some(update) = open_list_from_the_keyboard(&mut data, &mut info, field) {
         return Some(update);
     }
     // field -> label `<p>` -> bare text leaf (see `on_combobox_text_input_inner`).
     let text_node = info.get_first_child(info.get_first_child(field)?)?;
 
-    let keyboard_state = info.get_current_keyboard_state();
-    let c = keyboard_state.current_virtual_keycode.into_option()?;
-    if c != VirtualKeyCode::Back {
+    if key? != VirtualKeyCode::Back {
         return None;
     }
 
@@ -1239,6 +1325,8 @@ fn on_combobox_key_down_inner(mut data: RefAny, mut info: CallbackInfo) -> Optio
         let mut s: String = combo.inner.text.as_str().into();
         s.pop();
         combo.inner.text = s.clone().into();
+        // Deleting is typing: it clears the list's active option too.
+        combo.active_option_cleared = true;
         s
     };
 
@@ -1289,8 +1377,7 @@ fn open_list_from_the_keyboard(
         K::Down | K::Up if !open => {
             let popup = info.get_next_sibling(field)?;
             data.downcast_mut::<ComboBoxStateWrapper>()?.inner.open = true;
-            info.set_transient_window_open(popup, true);
-            announce_expanded(info, field, true);
+            show_list(info, field, popup, true);
             info.prevent_default();
             Some(Update::DoNothing)
         }
@@ -1315,7 +1402,12 @@ fn open_list_from_the_keyboard(
 /// extracted subtree), where a window key handler hears every key the parent
 /// gets; only the popup window's copy - the list right under the window's
 /// root - acts.
-extern "C" fn on_combobox_list_key(data: RefAny, mut info: CallbackInfo) -> Update {
+///
+/// Typing into the field since the active option was shown clears it
+/// (`ComboBoxStateWrapper::active_option_cleared`): the list then acts as
+/// with no option active - Enter keeps the typed text, Down starts at the
+/// first option.
+extern "C" fn on_combobox_list_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     use azul_core::window::VirtualKeyCode as K;
 
     use crate::widgets::roving::{self, Step};
@@ -1340,9 +1432,16 @@ extern "C" fn on_combobox_list_key(data: RefAny, mut info: CallbackInfo) -> Upda
         return Update::DoNothing;
     }
     let options = roving::items_of(&info, list, COMBOBOX_OPTION_CLASS_NAME);
-    let active = options
-        .iter()
-        .position(|o| roving::has_class(&info, *o, COMBOBOX_OPTION_ACTIVE_CLASS_NAME));
+    let cleared = data
+        .downcast_ref::<ComboBoxStateWrapper>()
+        .is_some_and(|combo| combo.active_option_cleared);
+    let active = if cleared {
+        None
+    } else {
+        options
+            .iter()
+            .position(|o| roving::has_class(&info, *o, COMBOBOX_OPTION_ACTIVE_CLASS_NAME))
+    };
     info.prevent_default();
 
     let Some(step) = step else {
@@ -1364,6 +1463,10 @@ extern "C" fn on_combobox_list_key(data: RefAny, mut info: CallbackInfo) -> Upda
     let Some(target) = target.filter(|t| Some(*t) != active) else {
         return Update::DoNothing;
     };
+    // An option is active again: it counts until the next typing.
+    if let Some(mut combo) = data.downcast_mut::<ComboBoxStateWrapper>() {
+        combo.active_option_cleared = false;
+    }
     show_active_option(&mut info, list, &options, target);
     Update::DoNothing
 }
@@ -2315,6 +2418,7 @@ mod autotest_generated {
             cbs.as_ref()[3].event,
             EventFilter::Focus(FocusEventFilter::FocusLost)
         );
+        assert_eq!(cbs.as_ref()[3].callback.cb, on_combobox_blur as usize);
         assert_eq!(
             cbs.as_ref()[0].event,
             EventFilter::Hover(HoverEventFilter::Click)
