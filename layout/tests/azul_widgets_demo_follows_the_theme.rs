@@ -482,3 +482,37 @@ fn the_notifications_section_paints_from_the_system_palette_too() {
     }
     assert!(bad.is_empty(), "the notifications section:\n  {}", bad.join("\n  "));
 }
+
+/// The forms section (every input type, the raw inputs) lives in `forms.rs`,
+/// which the scans above do not read. It paints from the same palette, with
+/// no dark-theme patches.
+const DEMO_FORMS: &str = include_str!("../../examples/azul-widgets/src/forms.rs");
+
+#[test]
+fn the_forms_section_paints_from_the_system_palette_too() {
+    let styles: Vec<String> = string_literals(DEMO_FORMS)
+        .into_iter()
+        .filter(|l| l.contains(':') && l.contains(';'))
+        .collect();
+    let mut bad = Vec::new();
+    for s in &styles {
+        for rule in Css::parse_inline(s).rules.as_ref() {
+            if rule
+                .conditions
+                .as_ref()
+                .contains(&DynamicSelector::Theme(ThemeCondition::Dark))
+            {
+                bad.push(format!("a dark-theme patch in {s:?}"));
+            }
+            for d in rule.declarations.as_ref() {
+                let CssDeclaration::Static(p) = d else {
+                    continue;
+                };
+                if paints_a_colour(p.get_type()) && !follows_the_theme(p) {
+                    bad.push(format!("fixed {:?} in {s:?}", p.get_type()));
+                }
+            }
+        }
+    }
+    assert!(bad.is_empty(), "the forms section:\n  {}", bad.join("\n  "));
+}
