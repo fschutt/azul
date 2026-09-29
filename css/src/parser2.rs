@@ -3523,23 +3523,36 @@ mod autotest_generated {
         assert!(check_if_value_is_css_var("").is_none());
         assert!(check_if_value_is_css_var("calc(1px + 2px)").is_none());
 
-        // A var() without a default falls back to "none".
+        // A var() without a fallback says so: the cascade then uses the
+        // property's initial value (it used to invent "none", which parsed for
+        // some properties and dropped the declaration for the rest).
         match check_if_value_is_css_var("var(--main-bg-color)") {
-            Some(Ok((id, default))) => {
+            Some(Ok((id, fallback))) => {
                 assert_eq!(id, "main-bg-color");
-                assert_eq!(default, "none");
+                assert_eq!(fallback, None);
             }
             other => panic!("expected Some(Ok(..)), got {other:?}"),
         }
 
-        // A var() with a default returns it.
+        // A var() with a fallback returns it.
         match check_if_value_is_css_var("var(--w, 100px)") {
-            Some(Ok((id, default))) => {
+            Some(Ok((id, fallback))) => {
                 assert_eq!(id, "w");
-                assert_eq!(default.trim(), "100px");
+                assert_eq!(fallback.map(str::trim), Some("100px"));
             }
             other => panic!("expected Some(Ok(..)), got {other:?}"),
         }
+
+        // Only a value that IS the var() call: trailing tokens are not
+        // silently dropped any more (`parse_parentheses` cuts at the LAST
+        // `)`, so `var(--a) 1px` used to read as `var(--a)`).
+        assert!(check_if_value_is_css_var("var(--a) 1px").is_none());
+        // A name is one ident: `var(--a) var(--b)` is not a reference to a
+        // variable called `a) var(--b`.
+        assert!(matches!(
+            check_if_value_is_css_var("var(--a) var(--b)"),
+            None | Some(Err(_))
+        ));
 
         // Malformed brace contents surface as an error, not a panic and not a None.
         assert!(matches!(
@@ -3666,6 +3679,67 @@ mod autotest_generated {
             }
             other => panic!("expected a Dynamic declaration, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_var_fallback_chain_is_one_dynamic_reference() {
+        let km = key_map();
+        let decls = parse_declaration_resilient(
+            "width",
+            "var(--a, var(--b, 100px))",
+            loc(0, 0),
+            &km,
+        )
+        .expect("a fallback that is itself a var() parses");
+        assert_eq!(decls.len(), 1);
+        let CssDeclaration::Dynamic(d) = &decls[0] else {
+            panic!("expected a Dynamic declaration, got {decls:?}");
+        };
+        assert_eq!(d.dynamic_id.as_str(), "a,b", "tried in order");
+        assert_eq!(d.var_names().collect::<Vec<_>>(), vec!["a", "b"]);
+        assert_eq!(
+            d.default_value,
+            crate::props::property::parse_css_property(CssPropertyType::Width, "100px").unwrap(),
+            "the innermost literal is the fallback"
+        );
+    }
+
+    #[test]
+    fn a_var_without_a_fallback_defaults_to_the_initial_value() {
+        let km = key_map();
+        let decls = parse_declaration_resilient("width", "var(--w)", loc(0, 0), &km)
+            .expect("a var() without a fallback still parses");
+        let CssDeclaration::Dynamic(d) = &decls[0] else {
+            panic!("expected a Dynamic declaration, got {decls:?}");
+        };
+        assert_eq!(d.default_value, CssProperty::initial(CssPropertyType::Width));
+    }
+
+    #[test]
+    fn var_on_a_shorthand_with_one_longhand_is_accepted() {
+        // `background` / `background-color` expand to the ONE longhand
+        // `background-content`, so a variable there is not ambiguous - and it
+        // is the design's own example (`background: var(--x, system:..)`).
+        let km = key_map();
+        for key in ["background", "background-color"] {
+            let decls = parse_declaration_resilient(key, "var(--bg, #ff0000)", loc(0, 0), &km)
+                .unwrap_or_else(|e| panic!("{key}: {e:?}"));
+            assert_eq!(decls.len(), 1, "{key}");
+            let CssDeclaration::Dynamic(d) = &decls[0] else {
+                panic!("{key}: expected a Dynamic declaration, got {decls:?}");
+            };
+            assert_eq!(d.default_value.get_type(), CssPropertyType::BackgroundContent);
+        }
+        // Without a fallback: the one longhand's initial value.
+        let decls = parse_declaration_resilient("background", "var(--bg)", loc(0, 0), &km)
+            .expect("parses");
+        let CssDeclaration::Dynamic(d) = &decls[0] else {
+            panic!("expected a Dynamic declaration, got {decls:?}");
+        };
+        assert_eq!(
+            d.default_value,
+            CssProperty::initial(CssPropertyType::BackgroundContent)
+        );
     }
 
     #[test]
@@ -4206,38 +4280,105 @@ mod autotest_generated {
         assert!(!warnings.is_empty(), "the unknown key should have warned");
     }
 
+    /// `var()` is resolved by the CASCADE, under the live context and across
+    /// stylesheets (design §7.3): the parser keeps the `--boxw` definition as a
+    /// declaration and leaves the reference unresolved. The end-to-end
+    /// resolution of this very string is pinned in
+    /// `core/tests/custom_properties.rs`
+    /// (`a_definition_in_the_same_string_still_reaches_its_consumer`).
     #[test]
-    fn var_reference_resolves_against_a_root_custom_property() {
-        let (css, _) = new_from_str(":root{--boxw:150px} .v{width:var(--boxw)}");
-        // The `--boxw` DEFINITION emits no declaration; the `var(--boxw)` REFERENCE is
-        // resolved to a concrete Static value, so exactly one declaration survives overall.
-        let decls: Vec<_> = css
-            .rules
-            .as_slice()
-            .iter()
-            .flat_map(|r| r.declarations.as_slice().iter())
-            .collect();
+    fn a_custom_property_definition_is_kept_and_its_reference_stays_dynamic() {
+        let (css, warnings) = new_from_str(":root{--boxw:150px} .v{width:var(--boxw)}");
+        let rules = css.rules.as_slice();
+        assert_eq!(rules.len(), 2, "{rules:?}");
         assert_eq!(
-            decls.len(),
-            1,
-            "custom-prop def emits nothing, var() resolves: {decls:?}"
+            rules[0].declarations.as_slice(),
+            &[CssDeclaration::CustomProperty(crate::css::CssCustomProperty {
+                name: "boxw".into(),
+                value: "150px".into(),
+            })][..]
         );
-        // The resolved declaration is identical to a direct `width:150px`.
-        let (direct, _) = new_from_str(".v{width:150px}");
         assert_eq!(
-            decls[0],
-            &direct.rules.as_slice()[0].declarations.as_slice()[0]
+            rules[1].declarations.as_slice(),
+            &[CssDeclaration::Dynamic(DynamicCssProperty {
+                dynamic_id: "boxw".into(),
+                default_value: CssProperty::initial(CssPropertyType::Width),
+            })][..]
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|w| matches!(w.warning, CssParseWarnMsgInner::VarWithoutFallback { .. })),
+            "a var() without a fallback warns: {warnings:?}"
         );
     }
 
     #[test]
-    fn undefined_var_reference_falls_back_to_its_default() {
-        let (css, _) = new_from_str(".v{width:var(--nope, 42px)}");
+    fn a_var_reference_keeps_its_fallback_for_the_cascade() {
+        let (css, warnings) = new_from_str(".v{width:var(--nope, 42px)}");
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let d = &css.rules.as_slice()[0].declarations.as_slice()[0];
+        let CssDeclaration::Dynamic(dy) = d else {
+            panic!("the reference must stay Dynamic, got {d:?}");
+        };
+        assert_eq!(dy.dynamic_id.as_str(), "nope");
+        // No environment: the fallback.
         let (direct, _) = new_from_str(".v{width:42px}");
-        assert_eq!(
-            css.rules.as_slice()[0].declarations.as_slice()[0],
-            direct.rules.as_slice()[0].declarations.as_slice()[0],
+        let CssDeclaration::Static(p) = &direct.rules.as_slice()[0].declarations.as_slice()[0]
+        else {
+            panic!("static");
+        };
+        assert_eq!(d.resolve_in_cascade(None), Some(p.clone()));
+    }
+
+    #[test]
+    fn custom_property_definitions_keep_their_conditions() {
+        let (css, warnings) = new_from_str(
+            "@theme(dark) { :root { --bg: #272822; } } @theme(light) { :root { --bg: #fafafa; } }",
         );
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let rules = css.rules.as_slice();
+        assert_eq!(rules.len(), 2, "{rules:?}");
+        for (rule, (theme, value)) in rules.iter().zip([
+            (crate::dynamic_selector::ThemeCondition::Dark, "#272822"),
+            (crate::dynamic_selector::ThemeCondition::Light, "#fafafa"),
+        ]) {
+            assert_eq!(
+                rule.conditions.as_slice(),
+                &[DynamicSelector::Theme(theme)][..],
+                "both definitions survive, each under its own condition"
+            );
+            assert_eq!(
+                rule.declarations.as_slice(),
+                &[CssDeclaration::CustomProperty(crate::css::CssCustomProperty {
+                    name: "bg".into(),
+                    value: value.into(),
+                })][..]
+            );
+        }
+    }
+
+    #[test]
+    fn a_custom_property_value_is_kept_verbatim() {
+        let (css, _) = new_from_str(".a { --shadow:  0 0 4px var(--c, #000) ; --empty: ; }");
+        let decls = css.rules.as_slice()[0].declarations.as_slice();
+        assert!(
+            decls.contains(&CssDeclaration::CustomProperty(crate::css::CssCustomProperty {
+                name: "shadow".into(),
+                value: "0 0 4px var(--c, #000)".into(),
+            })),
+            "{decls:?}"
+        );
+    }
+
+    #[test]
+    fn a_var_without_a_fallback_warns_once_per_declaration() {
+        let (_, warnings) = new_from_str(".a { color: var(--fg); width: var(--w, 1px); }");
+        let n = warnings
+            .iter()
+            .filter(|w| matches!(w.warning, CssParseWarnMsgInner::VarWithoutFallback { .. }))
+            .count();
+        assert_eq!(n, 1, "{warnings:?}");
     }
 
     /// `new_from_str` documents "Never panics" -- hold it to that.
@@ -4680,11 +4821,11 @@ mod env_tests {
     }
 
     #[test]
-    fn env_is_not_mistaken_for_var_and_survives_var_substitution() {
-        // A `var()` next to it is still substituted at parse time; the env()
-        // must come out the other side still Dynamic.
+    fn env_is_not_mistaken_for_var_and_var_is_not_mistaken_for_env() {
+        // Both stay Dynamic (both are resolved by the cascade); the env()
+        // keeps its prefix, the var() does not get one.
         let (parsed, warnings) = new_from_str(
-            ":root { --gap: 3px; } div { margin-left: var(--gap); padding-bottom: \
+            ":root { --gap: 3px; } div { margin-left: var(--gap, 1px); padding-bottom: \
              env(safe-area-inset-bottom, 7px); }",
         );
         assert!(warnings.is_empty(), "{warnings:?}");
@@ -4693,8 +4834,11 @@ mod env_tests {
             .find(|r| r.declarations.as_ref().len() == 2)
             .expect("the div rule");
         let decls = div.declarations.as_ref();
-        let three = parse_css_property(CssPropertyType::MarginLeft, "3px").unwrap();
-        assert_eq!(decls[0], CssDeclaration::Static(three));
+        assert_eq!(decls[0].env_variable(), None);
+        assert!(
+            matches!(&decls[0], CssDeclaration::Dynamic(d) if d.dynamic_id.as_str() == "gap"),
+            "{decls:?}"
+        );
         assert_eq!(
             decls[1].env_variable(),
             Some(EnvVariable::SafeAreaInsetBottom)

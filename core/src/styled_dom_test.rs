@@ -2561,4 +2561,37 @@ mod cascade_epoch {
         sd.recompute_inheritance_and_compact_cache();
         assert_ne!(epoch(&sd), e0);
     }
+
+    /// Design §9.1 pitfall 11: a custom property is a cascade input like the
+    /// theme. A context change that moves a variable is a new generation
+    /// (every cache serving painted output keys on the epoch), and it moves
+    /// exactly the nodes that read the variable.
+    #[test]
+    fn a_variable_that_follows_the_mode_bumps_the_epoch_and_moves_only_its_readers() {
+        let mut dom = Dom::create_body()
+            .with_child(
+                Dom::create_div().with_style(Css::parse_inline("color: var(--fg, #ff0000)")),
+            )
+            .with_child(Dom::create_div().with_style(Css::parse_inline("color: #123456")));
+        let css = Css::from_string(
+            "@theme(dark) { :root { --fg: #ffffff; } } @theme(light) { :root { --fg: #000000; } }"
+                .into(),
+        );
+        let mut sd =
+            StyledDom::create_with_context(&mut dom, css, Some(ctx(ThemeCondition::Light)));
+        let text = |sd: &StyledDom, n: usize| {
+            sd.get_css_property_cache()
+                .compact_cache
+                .as_ref()
+                .expect("compact cache")
+                .tier2b_text[n]
+                .text_color
+        };
+        let (e0, reader0, bystander0) = (epoch(&sd), text(&sd, 1), text(&sd, 2));
+
+        sd.set_dynamic_selector_context(ctx(ThemeCondition::Dark));
+        assert_ne!(epoch(&sd), e0, "a variable change is a new generation");
+        assert_ne!(text(&sd, 1), reader0, "the reader follows the variable");
+        assert_eq!(text(&sd, 2), bystander0, "a node that reads nothing keeps its value");
+    }
 }

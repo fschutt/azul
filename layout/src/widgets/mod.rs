@@ -1505,6 +1505,72 @@ mod theme_pairs {
 }
 
 #[cfg(test)]
+mod var_fallbacks {
+    //! Design gap 1 (`RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md` §9):
+    //! every `var()` declares a fallback, so an unknown or mistyped variable
+    //! always degrades to a working value - there is no manifest of a theme's
+    //! variables to check a name against, only this rule. The parser warns at
+    //! runtime (`CssParseWarnMsgInner::VarWithoutFallback`); for the widgets
+    //! it is an ERROR, here, over the same manifest the pair lint walks: every
+    //! node's own declarations and every stylesheet attached to its subtree.
+    use azul_core::dom::Dom;
+    use azul_css::css::Css;
+
+    /// Every fallback-less `var()` in `css`, as messages.
+    fn findings(css: &Css, widget: &str, path: &str) -> Vec<String> {
+        css.rules()
+            .flat_map(|r| r.declarations.as_ref().iter())
+            .filter_map(azul_css::css::CssDeclaration::var_without_fallback)
+            .map(|name| {
+                format!("{widget}: node {path} reads var(--{name}) without a fallback")
+            })
+            .collect()
+    }
+
+    fn walk(node: &Dom, widget: &str, path: &str, out: &mut Vec<String>) {
+        out.extend(findings(&node.root.style, widget, path));
+        for sheet in node.css.as_ref() {
+            out.extend(findings(sheet, widget, path));
+        }
+        for (i, child) in node.children.as_ref().iter().enumerate() {
+            walk(child, widget, &format!("{path}/{i}"), out);
+        }
+    }
+
+    #[test]
+    fn every_widget_var_declares_a_fallback() {
+        let mut bad = Vec::new();
+        for (widget, dom) in super::label_convention::every_widget_dom() {
+            walk(&dom, widget, "root", &mut bad);
+        }
+        assert!(
+            bad.is_empty(),
+            "{} var() without a fallback in the widget styles:\n  {}\n\nWrite \
+             `var(--name, <fallback>)`, e.g. `var(--azul-button-face, system:button-face)`.",
+            bad.len(),
+            bad.join("\n  ")
+        );
+    }
+
+    /// A guard on the guard: the walk sees both channels, and a fallback
+    /// (even one that is itself a variable with a fallback) is clean.
+    #[test]
+    fn the_walk_reports_a_var_without_a_fallback() {
+        let fixture = Dom::create_div()
+            .with_style(Css::parse_inline("color: var(--fg);"))
+            .with_child(Dom::create_div().with_css(".x { width: var(--w); }"))
+            .with_child(Dom::create_div().with_style(Css::parse_inline(
+                "color: var(--fg, var(--accent, #000000)); background: var(--bg, #ffffff);",
+            )));
+        let mut bad = Vec::new();
+        walk(&fixture, "fixture", "root", &mut bad);
+        assert_eq!(bad.len(), 2, "{bad:?}");
+        assert!(bad[0].contains("node root reads var(--fg)"), "{}", bad[0]);
+        assert!(bad[1].contains("node root/0 reads var(--w)"), "{}", bad[1]);
+    }
+}
+
+#[cfg(test)]
 mod wheel_ownership {
     //! Workspace-level guard for the wheel rule (bug W1, 2026-09-21): a wheel
     //! over a CLOSED control belongs to the page, not to the control.
