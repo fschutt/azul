@@ -323,9 +323,22 @@ pub trait WrapperDomSyntax {
         Some(super::ITEM_CALL_LIMITATION)
     }
     /// `item(args)`: a call of the module's item `item`, spelled the way
-    /// the printer names its items; `args` are native strings.
-    fn item_call(&self, item: &Ident, _args: Vec<Doc>, _broken: bool) -> Doc {
+    /// the printer names its items; `args` are native strings, `params` the
+    /// callee's parameter names (see [`ExprSyntax::item_call`]).
+    fn item_call(&self, item: &Ident, _params: &[Ident], _args: Vec<Doc>, _broken: bool) -> Doc {
         self.base().unsupported(&format!("a call of {}", item.snake()))
+    }
+    /// A `String` ARGUMENT of an item call from `parts`: the native string
+    /// the callee's parameter takes. Default: [`Self::native_string`] /
+    /// [`Self::param`] / [`Self::concat`] (a wrapper whose `String` is
+    /// wrapped, like Go's `azul.Str(..)`, overrides it).
+    fn string_arg(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        match parts {
+            [] => self.native_string(""),
+            [ConcatPart::Lit(s)] => self.native_string(s),
+            [ConcatPart::Param(p)] => self.param(p),
+            _ => self.concat(parts),
+        }
     }
 }
 
@@ -397,8 +410,12 @@ impl<W: WrapperDomSyntax> ExprSyntax for WrapperDom<W> {
         self.0.item_call_limitation()
     }
 
-    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
-        self.0.item_call(item, args, broken)
+    fn item_call(&self, item: &Ident, params: &[Ident], args: Vec<Doc>, broken: bool) -> Doc {
+        self.0.item_call(item, params, args, broken)
+    }
+
+    fn native_string(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        self.0.string_arg(parts)
     }
 }
 

@@ -1065,6 +1065,7 @@ impl Lower<'_, '_> {
                 (
                     Expr::ItemCall {
                         item: d.item,
+                        params: d.params.iter().map(|p| Ident::from_text(&p.name)).collect(),
                         args,
                     },
                     text_used,

@@ -144,8 +144,10 @@ pub trait ExprSyntax {
     }
 
     /// `item(args)`: a call of the module's item `item` (spelled the way
-    /// the printer names its items); `args` are native strings.
-    fn item_call(&self, item: &Ident, _args: Vec<Doc>, _broken: bool) -> Doc {
+    /// the printer names its items); `args` are native strings, `params`
+    /// the callee's parameter names (one per argument, for the languages
+    /// that pass by label / keyword).
+    fn item_call(&self, item: &Ident, _params: &[Ident], _args: Vec<Doc>, _broken: bool) -> Doc {
         self.unsupported(&format!("a call of {}", item.snake()))
     }
 
@@ -381,6 +383,18 @@ pub fn native_list(s: &dyn ExprSyntax, e: &Expr, open: &str, close: &str) -> Opt
     }
 }
 
+/// The api.json class a by-value `self` method returns: a builder method
+/// returns its own class, a widget's `dom()` the `Dom` it builds
+/// (`ComponentCodegen::Call`'s finishing method).
+#[must_use]
+pub fn method_result_class<'a>(class: &'a str, method: &str) -> &'a str {
+    if method == "dom" {
+        "Dom"
+    } else {
+        class
+    }
+}
+
 /// `true` if any node of the module is a struct literal (printers that
 /// need a helper for struct literals emit it only then).
 #[must_use]
@@ -487,8 +501,9 @@ fn expr_doc_inner(s: &dyn ExprSyntax, e: &Expr, broken: bool) -> Doc {
         ),
         Expr::Param(name) => s.param(name),
         Expr::Concat(parts) => s.concat(&concat_parts(parts)),
-        Expr::ItemCall { item, args } => s.item_call(
+        Expr::ItemCall { item, params, args } => s.item_call(
             item,
+            params,
             args.iter()
                 .map(|a| s.native_string(&string_parts(a)))
                 .collect(),

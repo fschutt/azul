@@ -26,7 +26,9 @@ use alloc::{
     vec::Vec,
 };
 
-use super::{blocker_with, concat_parts, dom::is_dom_item, string_parts, ConcatPart};
+use super::{
+    blocker_with, concat_parts, dom::is_dom_item, method_result_class, string_parts, ConcatPart,
+};
 use crate::codegen::{
     ir::{is_droppable_vec, EnumShape, Expr, Ident, Item, Prim},
     lower_types::union_tag,
@@ -193,14 +195,21 @@ pub trait LinearSyntax {
         String::new()
     }
 
-    /// The call `item(args)` as an expression. `None`: [`Self::item_call`].
-    fn item_call_expr(&self, _item: &Ident, _args: &[String]) -> Option<String> {
+    /// The call `item(args)` as an expression (`params`: the callee's
+    /// parameter names, one per argument). `None`: [`Self::item_call`].
+    fn item_call_expr(&self, _item: &Ident, _params: &[Ident], _args: &[String]) -> Option<String> {
         None
     }
 
     /// Statements that make `target` the `Dom` item `item` returns for
     /// `args`.
-    fn item_call(&self, _target: &str, _item: &Ident, _args: &[String]) -> Vec<String> {
+    fn item_call(
+        &self,
+        _target: &str,
+        _item: &Ident,
+        _params: &[Ident],
+        _args: &[String],
+    ) -> Vec<String> {
         Vec::new()
     }
 }
@@ -373,8 +382,9 @@ impl Ctx<'_> {
             } => {
                 let r = self.emit(recv);
                 let args: Vec<String> = args.iter().map(|a| self.arg(a)).collect();
-                // A chain updates the receiver's temporary in place.
-                let ty = s.type_name(class);
+                // A chain updates the receiver's temporary in place (a
+                // widget's `dom()` makes a Dom: a temporary of its own).
+                let ty = s.type_name(method_result_class(class, method));
                 let target = if self.is_temp_of(&r, &ty) {
                     r.clone()
                 } else {
@@ -403,16 +413,16 @@ impl Ctx<'_> {
                 self.out.body.extend(st);
                 t
             }
-            Expr::ItemCall { item, args } => {
+            Expr::ItemCall { item, params, args } => {
                 let args: Vec<String> = args
                     .iter()
                     .map(|a| s.native_string_arg(&string_parts(a)))
                     .collect();
-                if let Some(x) = s.item_call_expr(item, &args) {
+                if let Some(x) = s.item_call_expr(item, params, &args) {
                     return x;
                 }
                 let t = self.temp(s.type_name("Dom"));
-                let st = s.item_call(&t, item, &args);
+                let st = s.item_call(&t, item, params, &args);
                 self.out.body.extend(st);
                 t
             }

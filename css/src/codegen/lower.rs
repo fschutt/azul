@@ -318,8 +318,9 @@ pub fn desugar_calls(e: &Expr) -> Expr {
             args.iter().map(desugar_calls).collect(),
         ),
         Expr::Concat(parts) => Expr::Concat(parts.iter().map(desugar_calls).collect()),
-        Expr::ItemCall { item, args } => Expr::ItemCall {
+        Expr::ItemCall { item, params, args } => Expr::ItemCall {
             item: item.clone(),
+            params: params.clone(),
             args: args.iter().map(desugar_calls).collect(),
         },
         Expr::Int { .. }

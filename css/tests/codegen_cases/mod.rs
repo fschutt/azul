@@ -511,13 +511,13 @@ pub fn dom_components_module() -> azul_css::codegen::ir::Module {
             vec![dom("create_h2_with_text", vec![p("title")])],
         ),
         "with_child",
-        vec![Expr::item_call("render_badge", vec![p("tag")])],
+        vec![Expr::item_call("render_badge", vec![("text", p("tag"))])],
     );
     let ui = with(
         with(
             dom("create_body", vec![]),
             "with_child",
-            vec![Expr::item_call("render_card", vec![s("Hi"), s("Beta")])],
+            vec![Expr::item_call("render_card", vec![("title", s("Hi")), ("tag", s("Beta"))])],
         ),
         "with_child",
         vec![Expr::method(

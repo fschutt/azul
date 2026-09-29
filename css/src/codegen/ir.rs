@@ -212,7 +212,13 @@ pub enum Expr {
     /// passed as the language's NATIVE string (what the callee's parameter
     /// takes): an [`Expr::Str`], a caller's [`Expr::Param`] or an
     /// [`Expr::Concat`] of both. The callee returns the item's type.
-    ItemCall { item: Ident, args: Vec<Expr> },
+    ItemCall {
+        item: Ident,
+        /// The callee's parameter names, one per argument (the languages
+        /// with labelled / named arguments pass them by name).
+        params: Vec<Ident>,
+        args: Vec<Expr>,
+    },
 }
 
 impl Expr {
@@ -315,12 +321,18 @@ impl Expr {
         Self::Param(Ident::from_text(name))
     }
 
-    /// `item(args)`: a call of item `item` of the same module (see
+    /// `item(param: arg, ..)`: a call of item `item` of the same module,
+    /// each argument with the callee's parameter name (see
     /// [`Expr::ItemCall`]).
     #[must_use]
-    pub fn item_call(item: &str, args: Vec<Self>) -> Self {
+    pub fn item_call(item: &str, args: Vec<(&str, Self)>) -> Self {
+        let (params, args) = args
+            .into_iter()
+            .map(|(p, a)| (Ident::from_text(p), a))
+            .unzip();
         Self::ItemCall {
             item: Ident::from_text(item),
+            params,
             args,
         }
     }

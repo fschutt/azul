@@ -130,7 +130,7 @@ impl ExprSyntax for Rust {
     }
 
     /// `render_card("Hi", title)`: another function of the module.
-    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+    fn item_call(&self, item: &Ident, _params: &[Ident], args: Vec<Doc>, broken: bool) -> Doc {
         Doc::call(item.snake(), args, broken)
     }
 

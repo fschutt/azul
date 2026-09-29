@@ -252,7 +252,7 @@ fn a_page_with_nested_user_components_and_a_widget_has_one_function_per_componen
                 vec![dom("create_h2_with_text", vec![Expr::param("title")])]
             ),
             "with_child",
-            vec![Expr::item_call("render_badge", vec![Expr::param("tag")])]
+            vec![Expr::item_call("render_badge", vec![("text", Expr::param("tag"))])]
         )
     );
 
@@ -266,7 +266,7 @@ fn a_page_with_nested_user_components_and_a_widget_has_one_function_per_componen
                 "with_child",
                 vec![Expr::item_call(
                     "render_card",
-                    vec![Expr::str("Hi"), Expr::str("Beta")]
+                    vec![("title", Expr::str("Hi")), ("tag", Expr::str("Beta"))]
                 )]
             ),
             "with_child",
@@ -307,7 +307,7 @@ fn an_instance_attribute_that_is_not_a_field_styles_the_call_and_its_children_ar
         item(&m, "render_x").value,
         with(
             with(
-                Expr::item_call("render_badge", vec![Expr::str("A")]),
+                Expr::item_call("render_badge", vec![("text", Expr::str("A"))]),
                 "with_class",
                 vec![Expr::str("wide")]
             ),
@@ -337,14 +337,14 @@ fn a_missing_field_is_passed_as_its_default_and_the_text_field_takes_the_instanc
     assert!(
         flat.contains(&format!(
             "{:?}",
-            Expr::item_call("render_card", vec![Expr::str("Hello"), Expr::str("New")])
+            Expr::item_call("render_card", vec![("title", Expr::str("Hello")), ("tag", Expr::str("New"))])
         )),
         "{flat}"
     );
     assert!(
         flat.contains(&format!(
             "{:?}",
-            Expr::item_call("render_badge", vec![Expr::str("Soon")])
+            Expr::item_call("render_badge", vec![("text", Expr::str("Soon"))])
         )),
         "{flat}"
     );
