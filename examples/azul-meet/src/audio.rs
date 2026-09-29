@@ -51,23 +51,27 @@ pub const MAX_CATCH_UP_MS: u64 = 100;
 pub const TONE_AMPLITUDE: f32 = 0.2;
 
 /// Samples (per channel) in one packet at `sample_rate`; at least one.
-pub fn samples_per_packet(_sample_rate: u32) -> usize {
-    0
+pub fn samples_per_packet(sample_rate: u32) -> usize {
+    let samples = u64::from(sample_rate) * u64::from(PACKET_MS) / 1000;
+    usize::try_from(samples).unwrap_or(usize::MAX).max(1)
 }
 
 /// One sample as 16-bit PCM: clamped to -1.0..=1.0, NaN as silence.
-pub fn to_pcm16(_sample: f32) -> i16 {
-    0
+pub fn to_pcm16(sample: f32) -> i16 {
+    if sample.is_nan() {
+        return 0;
+    }
+    (sample.clamp(-1.0, 1.0) * 32767.0).round() as i16
 }
 
 /// One 16-bit PCM sample as `f32` in -1.0..=1.0.
-pub fn from_pcm16(_sample: i16) -> f32 {
-    0.0
+pub fn from_pcm16(sample: i16) -> f32 {
+    (f32::from(sample) / 32767.0).max(-1.0)
 }
 
 /// A packet as `f32` samples, for `AudioSink::play`.
-pub fn pcm_to_f32(_samples: &[i16]) -> Vec<f32> {
-    Vec::new()
+pub fn pcm_to_f32(samples: &[i16]) -> Vec<f32> {
+    samples.iter().map(|s| from_pcm16(*s)).collect()
 }
 
 /// 20 ms of mono 16-bit PCM and its place in the sender's stream.
@@ -84,15 +88,62 @@ pub struct WireFrame {
     pub packets: Vec<Packet>,
 }
 
-/// The frame carrying `packets` (oldest first) at `sample_rate`.
-pub fn encode_frame(_sample_rate: u32, _packets: &[Packet]) -> Vec<u8> {
-    Vec::new()
+const HEADER_BYTES: usize = 8;
+const PACKET_HEADER_BYTES: usize = 6;
+
+/// The frame carrying `packets` (oldest first) at `sample_rate`. More than 255 packets keep the
+/// newest 255, and a packet keeps at most 65535 samples.
+pub fn encode_frame(sample_rate: u32, packets: &[Packet]) -> Vec<u8> {
+    let packets = &packets[packets.len().saturating_sub(usize::from(u8::MAX))..];
+    let body: usize = packets
+        .iter()
+        .map(|p| PACKET_HEADER_BYTES + 2 * p.samples.len())
+        .sum();
+    let mut out = Vec::with_capacity(HEADER_BYTES + body);
+    out.extend_from_slice(&[WIRE_VERSION, CODEC_PCM16, packets.len() as u8, 0]);
+    out.extend_from_slice(&sample_rate.to_le_bytes());
+    for p in packets {
+        let samples = &p.samples[..p.samples.len().min(usize::from(u16::MAX))];
+        out.extend_from_slice(&p.sequence.to_le_bytes());
+        out.extend_from_slice(&(samples.len() as u16).to_le_bytes());
+        for s in samples {
+            out.extend_from_slice(&s.to_le_bytes());
+        }
+    }
+    out
 }
 
 /// Reads a frame; `None` for another version or codec, no packets, a zero rate, or bytes that do
 /// not add up.
-pub fn decode_frame(_bytes: &[u8]) -> Option<WireFrame> {
-    None
+pub fn decode_frame(bytes: &[u8]) -> Option<WireFrame> {
+    let header = bytes.get(..HEADER_BYTES)?;
+    if header[0] != WIRE_VERSION || header[1] != CODEC_PCM16 || header[2] == 0 {
+        return None;
+    }
+    let count = usize::from(header[2]);
+    let sample_rate = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
+    if sample_rate == 0 {
+        return None;
+    }
+    let mut rest = &bytes[HEADER_BYTES..];
+    let mut packets = Vec::with_capacity(count);
+    for _ in 0..count {
+        let head = rest.get(..PACKET_HEADER_BYTES)?;
+        let sequence = u32::from_le_bytes([head[0], head[1], head[2], head[3]]);
+        let len = usize::from(u16::from_le_bytes([head[4], head[5]]));
+        let end = PACKET_HEADER_BYTES + 2 * len;
+        let body = rest.get(PACKET_HEADER_BYTES..end)?;
+        let samples = body
+            .chunks_exact(2)
+            .map(|b| i16::from_le_bytes([b[0], b[1]]))
+            .collect();
+        packets.push(Packet { sequence, samples });
+        rest = &rest[end..];
+    }
+    rest.is_empty().then_some(WireFrame {
+        sample_rate,
+        packets,
+    })
 }
 
 /// Cuts captured audio (chunks of any length, any channel count) into 20 ms mono packets and
@@ -112,13 +163,44 @@ impl Packetizer {
 
     /// Feeds one captured chunk (interleaved `f32`, mixed down to mono) and returns the frames to
     /// send: one for every packet it completes.
-    pub fn push(&mut self, _sample_rate: u32, _channels: u16, _samples: &[f32]) -> Vec<Vec<u8>> {
-        Vec::new()
+    pub fn push(&mut self, sample_rate: u32, channels: u16, samples: &[f32]) -> Vec<Vec<u8>> {
+        if sample_rate == 0 || channels == 0 {
+            return Vec::new();
+        }
+        if sample_rate != self.sample_rate {
+            // Packets at the old rate cannot share a frame with the new ones.
+            self.reset();
+            self.sample_rate = sample_rate;
+        }
+        let channels = usize::from(channels);
+        let per_packet = samples_per_packet(sample_rate);
+        let mut frames = Vec::new();
+        for frame in samples.chunks_exact(channels) {
+            let mono = frame.iter().sum::<f32>() / channels as f32;
+            self.pending.push(to_pcm16(mono));
+            if self.pending.len() < per_packet {
+                continue;
+            }
+            let packet = Packet {
+                sequence: self.next_sequence,
+                samples: std::mem::replace(&mut self.pending, Vec::with_capacity(per_packet)),
+            };
+            self.next_sequence = self.next_sequence.wrapping_add(1);
+            if self.recent.len() == REDUNDANCY {
+                self.recent.pop_front();
+            }
+            self.recent.push_back(packet);
+            frames.push(encode_frame(sample_rate, self.recent.make_contiguous()));
+        }
+        frames
     }
 
     /// Forgets the unfinished packet and the packets a frame repeats, as on mute: the next frame
     /// carries only new audio. Sequence numbers continue.
-    pub fn reset(&mut self) {}
+    pub fn reset(&mut self) {
+        self.pending.clear();
+        self.recent.clear();
+    }
 
     /// The sequence number the next packet gets.
     pub fn next_sequence(&self) -> u32 {
@@ -156,7 +238,7 @@ pub struct JitterBuffer {
     packets: BTreeMap<u32, Vec<i16>>,
     /// The sequence number whose turn is next; `None` while the buffer fills up.
     next: Option<u32>,
-    /// Packets below this sequence number are late.
+    /// Packets below this sequence number are late. While playing it equals `next`.
     floor: Option<u32>,
     /// The highest sequence number seen, and which of the 128 below it were seen (bit n = newest - n).
     newest: Option<u32>,
@@ -185,12 +267,76 @@ impl JitterBuffer {
     }
 
     /// Takes in a packet sent at `sample_rate`.
-    pub fn push(&mut self, _sample_rate: u32, _packet: Packet) {}
+    pub fn push(&mut self, sample_rate: u32, packet: Packet) {
+        if sample_rate == 0 {
+            return;
+        }
+        if sample_rate != self.sample_rate {
+            // The packets waiting are at the old rate: start over at the new one.
+            self.packets.clear();
+            self.next = None;
+            self.misses = 0;
+            self.sample_rate = sample_rate;
+        }
+        let sequence = packet.sequence;
+        if !self.mark_seen(sequence) {
+            self.stats.duplicates += 1;
+            return;
+        }
+        if self.floor.is_some_and(|floor| sequence < floor) {
+            self.stats.late += 1;
+            return;
+        }
+        self.packets.insert(sequence, packet.samples);
+        self.stats.received += 1;
+        while self.packets.len() > self.max {
+            let Some((oldest, _)) = self.packets.pop_first() else {
+                break;
+            };
+            self.stats.overflow += 1;
+            let after = oldest.saturating_add(1);
+            self.raise_floor(after);
+            if let Some(next) = self.next {
+                self.next = Some(next.max(after));
+            }
+        }
+    }
 
     /// The next 20 ms to play: the packet whose turn it is, silence when it is missing, or `None`
     /// while the buffer fills up (before the first packet, and after the sender went quiet).
     pub fn pop(&mut self) -> Option<Vec<i16>> {
-        None
+        let next = match self.next {
+            Some(next) => next,
+            None => {
+                if self.packets.len() < self.target {
+                    return None;
+                }
+                let first = *self.packets.keys().next()?;
+                self.next = Some(first);
+                self.raise_floor(first);
+                first
+            }
+        };
+        if let Some(samples) = self.packets.remove(&next) {
+            self.advance(next);
+            self.misses = 0;
+            self.stats.played += 1;
+            return Some(samples);
+        }
+        self.stats.silent += 1;
+        if self.packets.is_empty() {
+            // Underrun: nothing is here. The packet may still come, so its turn waits.
+            self.misses += 1;
+            if self.misses >= REFILL_AFTER_MISSES {
+                self.next = None;
+                self.misses = 0;
+            }
+        } else {
+            // A later packet is here: this one is lost, or so late that its turn passes.
+            self.advance(next);
+            self.misses = 0;
+        }
+        Some(vec![0; samples_per_packet(self.sample_rate)])
     }
 
     /// Packets waiting for their turn.
@@ -213,7 +359,50 @@ impl JitterBuffer {
     }
 
     /// Drops the waiting packets and fills up again before playing (deafen); the counts stay.
-    pub fn clear(&mut self) {}
+    pub fn clear(&mut self) {
+        self.packets.clear();
+        self.next = None;
+        self.misses = 0;
+    }
+
+    fn advance(&mut self, played: u32) {
+        let after = played.saturating_add(1);
+        self.next = Some(after);
+        self.raise_floor(after);
+    }
+
+    fn raise_floor(&mut self, to: u32) {
+        self.floor = Some(self.floor.map_or(to, |floor| floor.max(to)));
+    }
+
+    /// Records `sequence` as seen; false when it was seen before. Sequence numbers more than 127
+    /// below the newest are not remembered, and count as new (the floor judges them).
+    fn mark_seen(&mut self, sequence: u32) -> bool {
+        match self.newest {
+            Some(newest) if sequence <= newest => {
+                let back = newest - sequence;
+                if back >= 128 {
+                    return true;
+                }
+                let bit = 1_u128 << back;
+                let fresh = self.seen & bit == 0;
+                self.seen |= bit;
+                fresh
+            }
+            Some(newest) => {
+                let ahead = sequence - newest;
+                self.seen = if ahead >= 128 { 0 } else { self.seen << ahead };
+                self.seen |= 1;
+                self.newest = Some(sequence);
+                true
+            }
+            None => {
+                self.newest = Some(sequence);
+                self.seen = 1;
+                true
+            }
+        }
+    }
 }
 
 /// Paces playout at one packet per 20 ms of wall time.
@@ -230,13 +419,21 @@ impl PlayoutClock {
 
     /// How many packets to play now, `elapsed_ms` after the clock started. After a stall longer
     /// than [`MAX_CATCH_UP_MS`] the older turns are skipped rather than played in a burst.
-    pub fn due(&mut self, _elapsed_ms: u64) -> u64 {
-        0
+    pub fn due(&mut self, elapsed_ms: u64) -> u64 {
+        let packet_ms = u64::from(PACKET_MS);
+        let due = elapsed_ms / packet_ms + 1;
+        let catch_up = (MAX_CATCH_UP_MS / packet_ms).max(1);
+        if due.saturating_sub(self.done) > catch_up {
+            self.done = due - catch_up;
+        }
+        let now = due.saturating_sub(self.done);
+        self.done += now;
+        now
     }
 
     /// Milliseconds from `elapsed_ms` until the next turn is due.
-    pub fn wait_ms(&self, _elapsed_ms: u64) -> u64 {
-        0
+    pub fn wait_ms(&self, elapsed_ms: u64) -> u64 {
+        (self.done * u64::from(PACKET_MS)).saturating_sub(elapsed_ms)
     }
 }
 
@@ -264,8 +461,26 @@ impl ToneSource {
 
     /// The mono samples due `elapsed_ms` after the tone started that were not handed out yet (at
     /// most [`MAX_CATCH_UP_MS`] of them after a stall).
-    pub fn take(&mut self, _elapsed_ms: u64) -> Vec<f32> {
-        Vec::new()
+    pub fn take(&mut self, elapsed_ms: u64) -> Vec<f32> {
+        let rate = u64::from(self.sample_rate);
+        if rate == 0 {
+            return Vec::new();
+        }
+        let due = elapsed_ms.saturating_mul(rate) / 1000;
+        let catch_up = MAX_CATCH_UP_MS * rate / 1000;
+        if due.saturating_sub(self.produced) > catch_up {
+            self.produced = due - catch_up;
+        }
+        let start = self.produced;
+        let end = due.max(start);
+        self.produced = end;
+        let cycles_per_sample = self.frequency / rate as f64;
+        (start..end)
+            .map(|i| {
+                let phase = (i as f64 * cycles_per_sample).fract();
+                (phase * std::f64::consts::TAU).sin() as f32 * TONE_AMPLITUDE
+            })
+            .collect()
     }
 }
 
@@ -284,26 +499,55 @@ pub enum Control {
     State(PeerState),
 }
 
+const CONTROL_STATE: u8 = 1;
+const FLAG_MUTED: u8 = 1;
+const FLAG_DEAFENED: u8 = 2;
+
 /// The control message announcing `state`.
-pub fn encode_state(_state: PeerState) -> Vec<u8> {
-    Vec::new()
+pub fn encode_state(state: PeerState) -> Vec<u8> {
+    let mut flags = 0;
+    if state.muted {
+        flags |= FLAG_MUTED;
+    }
+    if state.deafened {
+        flags |= FLAG_DEAFENED;
+    }
+    vec![CONTROL_STATE, flags]
 }
 
 /// Reads a control message; `None` for an unknown kind or a short message.
-pub fn decode_control(_bytes: &[u8]) -> Option<Control> {
-    None
+pub fn decode_control(bytes: &[u8]) -> Option<Control> {
+    match bytes {
+        [CONTROL_STATE, flags, ..] => Some(Control::State(PeerState {
+            muted: flags & FLAG_MUTED != 0,
+            deafened: flags & FLAG_DEAFENED != 0,
+        })),
+        _ => None,
+    }
 }
 
 /// A row of the people list: `label` ("Ben · connected", "Ada (you)") and, when known, the
 /// person's audio state: "Ben · connected · muted".
-pub fn person_line(label: &str, _state: Option<PeerState>) -> String {
-    label.to_string()
+pub fn person_line(label: &str, state: Option<PeerState>) -> String {
+    let mut line = label.to_string();
+    if let Some(state) = state {
+        if state.muted {
+            line.push_str(" · muted");
+        }
+        if state.deafened {
+            line.push_str(" · deafened");
+        }
+    }
+    line
 }
 
 /// The window's line for one peer's incoming audio:
 /// "Audio from Ben: 250 packets, 247 played, 3 silent, 0 late, 3 buffered".
-pub fn audio_line(_name: &str, _stats: &JitterStats, _buffered: usize) -> String {
-    String::new()
+pub fn audio_line(name: &str, stats: &JitterStats, buffered: usize) -> String {
+    format!(
+        "Audio from {name}: {} packets, {} played, {} silent, {} late, {buffered} buffered",
+        stats.received, stats.played, stats.silent, stats.late
+    )
 }
 
 #[cfg(test)]
