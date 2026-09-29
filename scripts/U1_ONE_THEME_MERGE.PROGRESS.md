@@ -28,12 +28,15 @@ Nothing is compiled here (house rule).
 - 1 GREEN 0233bf13a (one merge in theme_blocks.rs; T3 section out of flat.rs; every_theme_* gone;
   all call sites switched; follow_tests moved)
 
+- 2 3f9390e33 (theme_checks::probe_theme / live_conditions; applies, checks::live_rules,
+  theme_probe::live all through it)
+
 ## IN PROGRESS
 
-- 2 theme_checks: one evaluator
+- 3 silent twin build (RED first)
 
 ## NEXT
 
-- 3, 4, 5, report
+- 4, 5, report
 
 ## Open questions
