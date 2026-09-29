@@ -54,7 +54,7 @@ pub use layout::{generate_frame, regenerate_layout};
 ///
 /// An explicit `background_color` wins and is left alone - it is the app's.
 /// Otherwise the window starts on the background its MODE derives
-/// ([`scheme_background`]), for the mode it will show: the one
+/// ([`mode_background`]), for the mode it will show: the one
 /// [`event::initial_window_theme`] resolves - the decision
 /// `CommonWindowState::new` makes a moment later - so a window opened under a
 /// dark app / `AZ_THEME` pin on a light desktop starts dark. (It used to pick
@@ -66,7 +66,7 @@ pub use layout::{generate_frame, regenerate_layout};
 ///
 /// The per-mode pair is kept (rather than collapsed here) so a mode change
 /// while the window is open can re-derive:
-/// `CommonWindowState::move_scheme_background` moves a background seeded
+/// `CommonWindowState::move_mode_background` moves a background seeded
 /// here with the mode, and leaves one the app set where it is.
 pub fn resolve_initial_background_color(
     options: &mut azul_layout::window_state::WindowCreateOptions,
@@ -85,7 +85,7 @@ pub fn resolve_initial_background_color(
     }
     let mode = event::initial_window_theme(options.theme, system_style.theme);
     options.window_state.background_color =
-        azul_css::props::basic::OptionColorU::Some(scheme_background(
+        azul_css::props::basic::OptionColorU::Some(mode_background(
             mode,
             system_style,
             options.background_color_light,
@@ -95,7 +95,7 @@ pub fn resolve_initial_background_color(
 
 /// The window background a MODE derives - THE derivation, for the creation
 /// seed and for every mode change that moves a seeded background
-/// (`CommonWindowState::move_scheme_background`):
+/// (`CommonWindowState::move_mode_background`):
 ///
 /// 1. the app's own background for that mode (`WindowCreateOptions::background_color_light` /
 ///    `background_color_dark`);
@@ -108,7 +108,7 @@ pub fn resolve_initial_background_color(
 /// Always a colour: `None` in a window's `background_color` means "no
 /// background" (a material, an offscreen canvas), never "derive one".
 #[must_use]
-pub fn scheme_background(
+pub fn mode_background(
     mode: azul_core::window::WindowTheme,
     system_style: &azul_css::system::SystemStyle,
     light: azul_css::props::basic::OptionColorU,
@@ -138,7 +138,7 @@ pub fn scheme_background(
 ///
 /// 1. `transparent` (a background material the platform composites): transparent black, so the
 ///    material shows through;
-/// 2. the window's `background_color` - the app's own, or the one [`scheme_background`] derived
+/// 2. the window's `background_color` - the app's own, or the one [`mode_background`] derived
 ///    for the window's mode (seeded at creation, moved with every mode change);
 /// 3. `follow_system_background` (a real window on a desktop): the system palette's window
 ///    background for `mode` - the mode the window SHOWS, after the app / `AZ_THEME` pin, never the
@@ -169,7 +169,7 @@ pub fn window_clear_color(
     let color = match (background_color.into_option(), system_style) {
         (Some(color), _) => color,
         (None, Some(style)) if follow_system_background => {
-            scheme_background(mode, style, OptionColorU::None, OptionColorU::None)
+            mode_background(mode, style, OptionColorU::None, OptionColorU::None)
         }
         (None, _) if mode == azul_core::window::WindowTheme::DarkMode => ColorU {
             r: 42,

@@ -3364,7 +3364,7 @@ impl CommonWindowState {
     }
 
     /// Write the light / dark this window SHOWS, and move a background the
-    /// scheme derived along with it ([`Self::move_scheme_background`]).
+    /// mode derived along with it ([`Self::move_mode_background`]).
     ///
     /// The write for a mode change under an unchanged system style - the
     /// app's colour-scheme switch and the device-appearance adopters that do
@@ -3373,12 +3373,12 @@ impl CommonWindowState {
     pub fn write_shown_mode(&mut self, mode: azul_core::window::WindowTheme) {
         self.update_unsynced_state(|ws| ws.theme = mode);
         let held = Arc::clone(&self.system_style);
-        self.move_scheme_background(&held);
+        self.move_mode_background(&held);
     }
 
-    /// THE helper that moves a SCHEME-DERIVED `background_color` with the
+    /// THE helper that moves a MODE-DERIVED `background_color` with the
     /// mode: when the window's background is one `derived_from` derives for a
-    /// mode ([`super::scheme_background`] - the app's per-mode background, or
+    /// mode ([`super::mode_background`] - the app's per-mode background, or
     /// the system palette's), it becomes the one the CURRENT style derives for
     /// the mode the window shows now. A background the app set is the app's
     /// decision and stays; `None` (a material, an offscreen canvas) stays
@@ -3395,7 +3395,7 @@ impl CommonWindowState {
     /// (`common::resolve_initial_background_color`). Before this existed only
     /// a desktop style change moved the background, and only between the two
     /// desktop palettes: an app pin left the canvas in the desktop's colours.
-    pub fn move_scheme_background(&mut self, derived_from: &azul_css::system::SystemStyle) {
+    pub fn move_mode_background(&mut self, derived_from: &azul_css::system::SystemStyle) {
         use azul_core::window::WindowTheme;
         use azul_css::props::basic::OptionColorU;
 
@@ -3403,13 +3403,13 @@ impl CommonWindowState {
             return;
         };
         let (light, dark) = (self.background_color_light, self.background_color_dark);
-        let derived = |mode| super::scheme_background(mode, derived_from, light, dark);
+        let derived = |mode| super::mode_background(mode, derived_from, light, dark);
         if background != derived(WindowTheme::LightMode)
             && background != derived(WindowTheme::DarkMode)
         {
             return;
         }
-        let target = super::scheme_background(
+        let target = super::mode_background(
             self.current_window_state.theme,
             &self.system_style,
             light,
@@ -5706,12 +5706,12 @@ pub trait PlatformWindow {
                         current.theme = theme;
                                             });
                 // The pushed state carries the background the app read; when
-                // the scheme derived it, it moves with the pushed mode (a
+                // its mode derived it, it moves with the pushed mode (a
                 // background the app set in this push stays its own).
                 if theme_changed {
                     let common = self.get_common_mut();
                     let held = Arc::clone(&common.system_style);
-                    common.move_scheme_background(&held);
+                    common.move_mode_background(&held);
                 }
 
                 if state.flags.close_requested {
@@ -7846,7 +7846,7 @@ pub trait PlatformWindow {
                 // `ThemeChanged`.
                 let old_state = self.get_current_window_state().clone();
                 self.set_previous_window_state(old_state);
-                // The canvas moves with the mode when the scheme derived it.
+                // The canvas moves with the mode when the mode derived it.
                 self.get_common_mut().write_shown_mode(target);
                 let nested = self.process_window_events(0);
 
@@ -10318,11 +10318,11 @@ pub trait PlatformWindow {
 
         self.get_common_mut().system_style = Arc::clone(&new_style);
 
-        // A background the scheme derived (the creation seed, or the app's
+        // A background the mode derived (the creation seed, or the app's
         // per-mode one) is re-derived for the mode the window shows, from the
         // NEW style; one the app set stays. The window's OWN mode picks it,
         // like it picks the cascade - not the system style's theme.
-        self.get_common_mut().move_scheme_background(&old_style);
+        self.get_common_mut().move_mode_background(&old_style);
 
         if let Some(lw) = self.get_layout_window_mut() {
             // `regenerate_layout` pushes the style into the LayoutWindow on
