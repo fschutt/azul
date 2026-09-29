@@ -26,13 +26,16 @@ Recipe: scripts/T1_APP_THEME_2026_09_29.md §4. Nothing is compiled here (house 
   popover resolvers answer the follow skin when unpinned; their two "default resolver = flat"
   pins now pin `with_theme(Flat)`)
 
+- tooltip: RED 086a479be, impl: see git log (`tooltip::{follow_skin, skin_of}`; two autotest
+  pins that compare against flat's const tables now pin `with_theme(Flat)`)
+
 ## IN PROGRESS
 
-- tooltip
+- split_pane
 
 ## NEXT
 
-tooltip, split_pane, radio_group, time_picker, toast,
+split_pane, radio_group, time_picker, toast,
 pagination, segmented, stepper, number_input, progressbar, slider, spinner, switch, text_area,
 text_input, video, combobox (+ theme option + flora look), file_input (same), then the six
 single-look widgets (ribbon, quick_access, statusbar, tabs, titlebar, tree_view).
