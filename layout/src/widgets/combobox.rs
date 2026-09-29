@@ -1901,7 +1901,7 @@ mod autotest_generated {
             },
             items: sv(items),
             on_select: None.into(),
-            on_text_input: None.into(),
+            ..ComboBoxStateWrapper::default()
         })
     }
 
@@ -2306,10 +2306,15 @@ mod autotest_generated {
         assert!(has_class(arrow, "__azul-native-combobox-arrow"));
         assert_eq!(icon_of(arrow), Some("arrow_drop_down"));
 
-        // the field is focusable and wires exactly toggle / text-input / key-down
+        // the field is focusable and wires exactly toggle / text-input /
+        // key-down / focus-lost (its list closes when it loses focus)
         assert!(matches!(field.root.get_tab_index(), Some(TabIndex::Auto)));
         let cbs = field.root.get_callbacks();
-        assert_eq!(cbs.len(), 3);
+        assert_eq!(cbs.len(), 4);
+        assert_eq!(
+            cbs.as_ref()[3].event,
+            EventFilter::Focus(FocusEventFilter::FocusLost)
+        );
         assert_eq!(
             cbs.as_ref()[0].event,
             EventFilter::Hover(HoverEventFilter::Click)
@@ -3474,7 +3479,7 @@ mod autotest_generated {
                 refany: log.clone(),
             })
             .into(),
-            on_text_input: None.into(),
+            ..ComboBoxStateWrapper::default()
         });
 
         let (update, changes) = run(
@@ -3602,16 +3607,22 @@ mod autotest_generated {
         }
     }
 
-    #[test]
-    fn the_active_option_steps_and_holds_at_the_ends() {
-        let (mut styled, options) = popup_window_fixture(&["a", "b", "c"]);
-        // Option 1 is active, as a previous key left it.
-        styled.node_data.as_container_mut()[NodeId::new(options[1])].set_ids_and_classes(
+    /// Marks `option` of the popup-window dom `styled` ACTIVE, as a previous
+    /// key left it (the marker class the list handler writes and reads).
+    fn mark_active(styled: &mut StyledDom, option: usize) {
+        styled.node_data.as_container_mut()[NodeId::new(option)].set_ids_and_classes(
             IdOrClassVec::from_vec(alloc::vec![
                 Class(AzString::from_const_str(COMBOBOX_OPTION_CLASS_NAME)),
                 Class(AzString::from_const_str(COMBOBOX_OPTION_ACTIVE_CLASS_NAME)),
             ]),
         );
+    }
+
+    #[test]
+    fn the_active_option_steps_and_holds_at_the_ends() {
+        let (mut styled, options) = popup_window_fixture(&["a", "b", "c"]);
+        // Option 1 is active, as a previous key left it.
+        mark_active(&mut styled, options[1]);
         let data = state(&["a", "b", "c"], "", true, 0);
         let (_, down) = press_list(&styled, VirtualKeyCode::Down, &data);
         assert_eq!(marked_active(&down), alloc::vec![options[2]]);
@@ -3635,12 +3646,7 @@ mod autotest_generated {
         );
         assert_eq!(inner_of(&mut data).selected, 0, "and picks nothing");
 
-        styled.node_data.as_container_mut()[NodeId::new(options[2])].set_ids_and_classes(
-            IdOrClassVec::from_vec(alloc::vec![
-                Class(AzString::from_const_str(COMBOBOX_OPTION_CLASS_NAME)),
-                Class(AzString::from_const_str(COMBOBOX_OPTION_ACTIVE_CLASS_NAME)),
-            ]),
-        );
+        mark_active(&mut styled, options[2]);
         let (_, picked) = press_list(&styled, VirtualKeyCode::Return, &data);
         let inner = inner_of(&mut data);
         assert_eq!(inner.selected, 2, "Enter picked the active option");
@@ -3743,7 +3749,7 @@ mod autotest_generated {
                 refany: log.clone(),
             })
             .into(),
-            on_text_input: None.into(),
+            ..ComboBoxStateWrapper::default()
         });
 
         let (update, changes) = run(
@@ -3792,7 +3798,7 @@ mod autotest_generated {
                 refany: RefAny::new(0u8),
             })
             .into(),
-            on_text_input: None.into(),
+            ..ComboBoxStateWrapper::default()
         });
 
         SHARED_ALIAS.with(|a| *a.borrow_mut() = Some(data.clone()));
@@ -3816,6 +3822,193 @@ mod autotest_generated {
         );
 
         SHARED_ALIAS.with(|a| *a.borrow_mut() = None);
+    }
+
+    // ------------------------------------------------------------------
+    // WAI-ARIA combobox (APG): typing clears the active option; the list
+    // closes when the field loses focus (Tab, Shift+Tab, a click elsewhere).
+    // ------------------------------------------------------------------
+
+    /// Types `typed` into the field of the PARENT dom (`fx`), sharing `data`
+    /// with the popup's list - the one channel between the two windows.
+    fn type_into_field(fx: &Fixture, data: &RefAny, typed: &str) -> Vec<CallbackChange> {
+        let old = inner_of(&mut data.clone()).text;
+        run(
+            Env {
+                styled: Some(fx.styled.clone()),
+                changeset: Some(PendingTextEdit {
+                    node: node(fx.text),
+                    inserted_text: AzString::from(typed),
+                    old_text: old,
+                }),
+                ..Env::default()
+            },
+            fx.field,
+            data.clone(),
+            |r, ci| on_combobox_text_input(r, ci),
+        )
+        .1
+    }
+
+    /// Presses `key` on the field of the PARENT dom (`fx`).
+    fn press_field(fx: &Fixture, data: &RefAny, key: VirtualKeyCode) -> Vec<CallbackChange> {
+        run(
+            Env {
+                styled: Some(fx.styled.clone()),
+                keycode: Some(key),
+                ..Env::default()
+            },
+            fx.field,
+            data.clone(),
+            |r, ci| on_combobox_key_down(r, ci),
+        )
+        .1
+    }
+
+    /// Runs the field's own `FocusLost` handler, as the engine does when
+    /// focus leaves the field; panics when the field registers none.
+    fn blur_field(fx: &Fixture, data: &RefAny) -> (Update, Vec<CallbackChange>) {
+        let blur = EventFilter::Focus(FocusEventFilter::FocusLost);
+        let handler = fx.styled.node_data.as_ref()[fx.field]
+            .get_callbacks()
+            .as_ref()
+            .iter()
+            .find(|cb| cb.event == blur)
+            .map(|cb| cb.callback.clone())
+            .expect("the field must close its list when it loses focus (a FocusLost handler)");
+        run(
+            Env {
+                styled: Some(fx.styled.clone()),
+                ..Env::default()
+            },
+            fx.field,
+            data.clone(),
+            |r, ci| Callback::from_core(handler).invoke(r, ci),
+        )
+    }
+
+    /// APG: typing while an option is active clears it - the field's text is
+    /// the value again. Enter then keeps what was typed and just closes the
+    /// list; it no longer picks the option the list showed before the typing.
+    #[test]
+    fn typing_while_an_option_is_active_clears_it_so_enter_keeps_the_typed_text() {
+        let items = ["a", "b", "c"];
+        let fx = fixture(&items);
+        let (mut styled, options) = popup_window_fixture(&items);
+        mark_active(&mut styled, options[1]);
+        let mut data = state(&items, "", true, 0);
+
+        type_into_field(&fx, &data, "x");
+        let (_, enter) = press_list(&styled, VirtualKeyCode::Return, &data);
+
+        let inner = inner_of(&mut data);
+        assert_eq!(inner.text.as_str(), "x", "the typed text is the value");
+        assert_eq!(
+            inner.selected, 0,
+            "the option active before the typing was not picked"
+        );
+        assert_eq!(
+            transient_writes(&enter),
+            alloc::vec![(0, false)],
+            "Enter closes the list (its root)"
+        );
+    }
+
+    /// ...and the list's next arrow starts over, as from no active option:
+    /// Down lands on the first option, not on the one after the stale one.
+    #[test]
+    fn after_typing_the_next_arrow_starts_over_from_no_active_option() {
+        let items = ["a", "b", "c"];
+        let fx = fixture(&items);
+        let (mut styled, options) = popup_window_fixture(&items);
+        mark_active(&mut styled, options[1]);
+        let data = state(&items, "", true, 0);
+
+        type_into_field(&fx, &data, "x");
+        let (_, down) = press_list(&styled, VirtualKeyCode::Down, &data);
+        assert_eq!(marked_active(&down), alloc::vec![options[0]]);
+        assert_eq!(announced_selected(&down), alloc::vec![options[0]]);
+
+        // Once an arrow made an option active again, it counts again.
+        mark_active(&mut styled, options[0]);
+        let mut data_after = data.clone();
+        let (_, enter) = press_list(&styled, VirtualKeyCode::Return, &data);
+        assert_eq!(transient_writes(&enter), alloc::vec![(0, false)]);
+        assert_eq!(
+            inner_of(&mut data_after).text.as_str(),
+            "a",
+            "Enter picked it"
+        );
+    }
+
+    /// Deleting is typing too: Backspace clears the active option.
+    #[test]
+    fn backspace_while_an_option_is_active_clears_it_too() {
+        let items = ["a", "b", "c"];
+        let fx = fixture(&items);
+        let (mut styled, options) = popup_window_fixture(&items);
+        mark_active(&mut styled, options[2]);
+        let mut data = state(&items, "xy", true, 0);
+
+        press_field(&fx, &data, VirtualKeyCode::Back);
+        press_list(&styled, VirtualKeyCode::Return, &data);
+
+        let inner = inner_of(&mut data);
+        assert_eq!(inner.text.as_str(), "x", "the edited text is the value");
+        assert_eq!(inner.selected, 0, "the stale active option was not picked");
+    }
+
+    /// APG: the list closes when focus leaves the field - Tab, Shift+Tab, a
+    /// click elsewhere - and the field says so.
+    #[test]
+    fn the_list_closes_when_the_field_loses_focus() {
+        use azul_core::a11y::AccessibilityState::Collapsed;
+
+        use crate::widgets::roving::test_support::announced_states;
+
+        let fx = fixture(&["a", "b"]);
+        let mut data = state(&["a", "b"], "a", true, 0);
+        let (update, changes) = blur_field(&fx, &data);
+
+        assert_eq!(update, Update::DoNothing);
+        assert!(!inner_of(&mut data).open, "the list is closed");
+        assert_eq!(transient_writes(&changes), alloc::vec![(fx.popup, false)]);
+        assert_eq!(
+            announced_states(&changes),
+            alloc::vec![(node(fx.field), alloc::vec![Collapsed])],
+            "the field says its list closed"
+        );
+        assert!(text_writes(&changes).is_empty(), "the value is left alone");
+        assert_eq!(inner_of(&mut data).text.as_str(), "a");
+    }
+
+    /// Losing focus with the list already closed changes nothing.
+    #[test]
+    fn losing_focus_with_the_list_closed_changes_nothing() {
+        let fx = fixture(&["a", "b"]);
+        let data = state(&["a", "b"], "", false, 0);
+        let (update, changes) = blur_field(&fx, &data);
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty(), "{changes:?}");
+    }
+
+    /// Tab closes the list even when it has nowhere else to go (the field
+    /// is the window's only stop, so it keeps focus and no blur follows) -
+    /// and it stays Tab: focus moves on, the key is not consumed.
+    #[test]
+    fn tab_in_the_field_closes_its_list_and_still_moves_focus() {
+        let fx = fixture(&["a", "b"]);
+        let mut data = state(&["a", "b"], "", true, 0);
+        let changes = press_field(&fx, &data, VirtualKeyCode::Tab);
+
+        assert!(!inner_of(&mut data).open, "the list is closed");
+        assert_eq!(transient_writes(&changes), alloc::vec![(fx.popup, false)]);
+        assert!(
+            !changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::PreventDefault)),
+            "Tab still moves focus"
+        );
     }
 }
 
