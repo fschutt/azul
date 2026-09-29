@@ -85,7 +85,8 @@ fn width(sd: &StyledDom, node: usize) -> u32 {
 /// uses for a node in a pseudo-state.
 fn slow(sd: &StyledDom, node: usize, state: StyledNodeState, ty: CssPropertyType) -> CssProperty {
     let node_id = NodeId::new(node);
-    let node_data = &sd.node_data.as_container()[node_id];
+    let container = sd.node_data.as_container();
+    let node_data = &container[node_id];
     sd.get_css_property_cache()
         .get_property(node_data, &node_id, &state, &ty)
         .cloned()
