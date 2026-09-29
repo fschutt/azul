@@ -546,3 +546,5 @@ mod xml_no_text_duplication;
 mod xml_self_closing;
 #[path = "zero_width_selection.rs"]
 mod zero_width_selection;
+#[path = "form_controls_become_widgets.rs"]
+mod form_controls_become_widgets;

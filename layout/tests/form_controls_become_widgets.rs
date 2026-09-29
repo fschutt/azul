@@ -1,0 +1,938 @@
+//! `<input type=..>`, `<select>` and `<textarea>` become azul widgets.
+//!
+//! An app that writes `Dom::create_input_no_a11y("range", ..)` - or the same
+//! control in XML - gets a `Slider`, the way an `<icon>` gets its icon: the
+//! raw form node is REPLACED, before the cascade, by the widget its `type`
+//! names, with the node's attributes mapped onto the widget and its ids,
+//! classes, inline style, callbacks, tab index and key carried to the
+//! widget's root. Every path from a user `Dom` to a `StyledDom` goes through
+//! `LayoutWindow::style_user_dom*`, so that is where these tests look - no
+//! test here touches the replacement pass directly, which is also what keeps
+//! them compiling against the pre-replacement engine (where they fail, since
+//! the raw nodes survive).
+//!
+//! The widget's STATE is the other half: a checkbox the user checked, a
+//! select option the user picked, text the user typed - all survive the
+//! app's next rebuild, because nothing in a raw `<input>` app stores them.
+
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+};
+
+use azul_core::{
+    a11y::{AccessibilityRole, AccessibilityState},
+    callbacks::{Update, VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn},
+    dom::{
+        AttributeNameValue, AttributeType, Dom, DomId, DomNodeId, EventFilter, HoverEventFilter,
+        IdOrClass, NodeData, NodeId, NodeType, TabIndex,
+    },
+    geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition},
+    gl::OptionGlContextPtr,
+    hit_test::ScrollPosition,
+    refany::{OptionRefAny, RefAny},
+    resources::RendererResources,
+    selection::{CursorAffinity, GraphemeClusterId, TextCursor},
+    styled_dom::{NodeHierarchyItemId, StyledDom},
+    window::{MonitorVec, RawWindowHandle},
+};
+use azul_css::{
+    css::CssDeclaration,
+    dynamic_selector::CssPropertyWithConditions,
+    props::{basic::color::ColorU, layout::LayoutWidth, property::CssProperty},
+    system::SystemStyle,
+};
+use azul_layout::{
+    callbacks::{Callback, CallbackChange, CallbackInfo, CallbackInfoRefData, ExternalSystemCallbacks},
+    widgets::{
+        check_box::CHECKBOX_CONTAINER_CLASS,
+        color_input::{color_to_hex, COLOR_INPUT_CLASS},
+        drop_down::DropDown,
+        radio_group::{RadioGroupState, RadioGroupStateWrapper},
+        text_input::{TextInputState, TextInputStateWrapper, TEXT_INPUT_CONTAINER_CLASS},
+    },
+    window::LayoutWindow,
+    window_state::FullWindowState,
+};
+use rust_fontconfig::FcFontCache;
+
+const SLIDER_CLASS: &str = "__azul-native-slider";
+const RADIO_GROUP_CLASS: &str = "__azul-native-radio-group";
+const BUTTON_CLASS: &str = "__azul-native-button";
+const DATE_PICKER_CLASS: &str = "__azul-native-date-picker";
+const TIME_PICKER_CLASS: &str = "__azul-native-time-picker";
+const DROP_DOWN_CLASS: &str = "__azul-native-dropdown";
+const TEXT_AREA_CLASS: &str = "__azul-native-text-area-container";
+const COMBOBOX_CLASS: &str = "__azul-native-combobox";
+
+// ── Fixtures ────────────────────────────────────────────────────────────────
+
+/// A window that can STYLE a DOM. No font scan: styling needs no fonts.
+fn styling_window() -> LayoutWindow {
+    window_with(FcFontCache::default())
+}
+
+/// A window that can also lay out and shape text.
+fn text_window() -> LayoutWindow {
+    window_with(FcFontCache::build())
+}
+
+fn window_with(fonts: FcFontCache) -> LayoutWindow {
+    let mut lw = LayoutWindow::new(fonts).expect("LayoutWindow::new");
+    lw.system_animations_override = Some(azul_core::resources::SystemAnimations::disabled());
+    let mut window_state = FullWindowState::default();
+    window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
+    lw.current_window_state = window_state;
+    lw
+}
+
+/// `<input type=ty>` the way an app writes it.
+fn input(ty: &str) -> Dom {
+    Dom::create_input_no_a11y(ty.into(), "field".into(), "Field".into())
+}
+
+fn page(child: Dom) -> Dom {
+    Dom::create_body().with_child(child)
+}
+
+fn attr(name: &str, value: &str) -> AttributeType {
+    AttributeType::Custom(AttributeNameValue {
+        attr_name: name.into(),
+        value: value.into(),
+    })
+}
+
+fn node(styled: &StyledDom, id: NodeId) -> &NodeData {
+    &styled.node_data.as_container()[id]
+}
+
+fn all_nodes(styled: &StyledDom) -> Vec<NodeId> {
+    (0..styled.node_data.as_ref().len()).map(NodeId::new).collect()
+}
+
+fn with_class(styled: &StyledDom, class: &str) -> Vec<NodeId> {
+    all_nodes(styled)
+        .into_iter()
+        .filter(|id| node(styled, *id).has_class(class))
+        .collect()
+}
+
+fn one_with_class(styled: &StyledDom, class: &str) -> NodeId {
+    let found = with_class(styled, class);
+    assert_eq!(
+        found.len(),
+        1,
+        "expected exactly one node with class {class}, found {found:?} in {:?}",
+        node_types(styled)
+    );
+    found[0]
+}
+
+fn node_types(styled: &StyledDom) -> Vec<String> {
+    all_nodes(styled)
+        .into_iter()
+        .map(|id| format!("{:?}", node(styled, id).get_node_type()))
+        .collect()
+}
+
+/// Raw form nodes the replacement should have removed.
+fn raw_form_nodes(styled: &StyledDom) -> Vec<NodeId> {
+    all_nodes(styled)
+        .into_iter()
+        .filter(|id| {
+            matches!(
+                node(styled, *id).get_node_type(),
+                NodeType::Input | NodeType::Select | NodeType::TextArea
+            )
+        })
+        .collect()
+}
+
+fn is_under(styled: &StyledDom, mut id: NodeId, ancestor: NodeId) -> bool {
+    let hierarchy = styled.node_hierarchy.as_container();
+    loop {
+        if id == ancestor {
+            return true;
+        }
+        match hierarchy[id].parent_id() {
+            Some(parent) => id = parent,
+            None => return false,
+        }
+    }
+}
+
+/// `root` and every node under it.
+fn subtree(styled: &StyledDom, root: NodeId) -> Vec<NodeId> {
+    all_nodes(styled)
+        .into_iter()
+        .filter(|id| is_under(styled, *id, root))
+        .collect()
+}
+
+/// The text of every text node under `root`, in document order.
+fn text_under(styled: &StyledDom, root: NodeId) -> String {
+    subtree(styled, root)
+        .into_iter()
+        .filter_map(|id| match node(styled, id).get_node_type() {
+            NodeType::Text(t) => Some(t.as_str().to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn a11y_states(styled: &StyledDom, id: NodeId) -> Vec<AccessibilityState> {
+    node(styled, id)
+        .get_accessibility_info()
+        .map(|a| a.states.as_slice().to_vec())
+        .unwrap_or_default()
+}
+
+fn a11y_value(styled: &StyledDom, id: NodeId) -> Option<String> {
+    node(styled, id)
+        .get_accessibility_info()
+        .and_then(|a| a.accessibility_value.as_ref().map(|v| v.as_str().to_string()))
+}
+
+fn dom_node(id: NodeId) -> DomNodeId {
+    DomNodeId {
+        dom: DomId::ROOT_ID,
+        node: NodeHierarchyItemId::from_crate_internal(Some(id)),
+    }
+}
+
+fn lay_out(lw: &mut LayoutWindow, styled: StyledDom) {
+    let window_state = lw.current_window_state.clone();
+    lw.layout_new_generation(
+        styled,
+        &window_state,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut Some(Vec::new()),
+    )
+    .expect("layout");
+}
+
+/// Run `f` against a `CallbackInfo` over `lw`, hit on `hit`, the way a user
+/// callback sees it.
+fn with_info<R>(
+    lw: &LayoutWindow,
+    hit: DomNodeId,
+    f: impl FnOnce(CallbackInfo) -> R,
+) -> (R, Vec<CallbackChange>) {
+    let renderer_resources = RendererResources::default();
+    let previous_window_state: Option<FullWindowState> = None;
+    let current_window_state = lw.current_window_state.clone();
+    let gl_context = OptionGlContextPtr::None;
+    let scroll_states: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> =
+        BTreeMap::new();
+    let window_handle = RawWindowHandle::Unsupported;
+    let system_callbacks = ExternalSystemCallbacks::rust_internal();
+
+    let ref_data = CallbackInfoRefData {
+        layout_window: lw,
+        renderer_resources: &renderer_resources,
+        previous_window_state: &previous_window_state,
+        current_window_state: &current_window_state,
+        gl_context: &gl_context,
+        current_scroll_manager: &scroll_states,
+        current_window_handle: &window_handle,
+        system_callbacks: &system_callbacks,
+        system_style: Arc::new(SystemStyle::default()),
+        monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
+        #[cfg(feature = "icu")]
+        icu_localizer: azul_layout::icu::IcuLocalizerHandle::default(),
+        ctx: core::cell::RefCell::new(OptionRefAny::None),
+    };
+    let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
+    let mut info = CallbackInfo::new(
+        &ref_data,
+        &changes,
+        hit,
+        OptionLogicalPosition::None,
+        OptionLogicalPosition::None,
+    );
+    let out = f(info);
+    let queued = info.take_changes();
+    (out, queued)
+}
+
+// ── One test per mapping family ─────────────────────────────────────────────
+
+#[test]
+fn an_input_of_type_text_becomes_a_text_input_holding_its_value() {
+    let lw = styling_window();
+    let styled = lw.style_user_dom(page(
+        input("text")
+            .with_attribute(AttributeType::Value("ada".into()))
+            .with_attribute(AttributeType::Placeholder("Your name".into())),
+    ));
+    assert_eq!(raw_form_nodes(&styled), vec![], "{:?}", node_types(&styled));
+    let field = one_with_class(&styled, TEXT_INPUT_CONTAINER_CLASS);
+    assert!(
+        node(&styled, field).is_contenteditable(),
+        "the text input's container is the editing host"
+    );
+    assert_eq!(text_under(&styled, field), "ada", "the value attribute is the text");
+    let prompt = subtree(&styled, field)
+        .into_iter()
+        .find_map(|id| node(&styled, id).get_placeholder().map(str::to_string));
+    assert_eq!(prompt.as_deref(), Some("Your name"));
+}
+
+#[test]
+fn an_input_without_a_type_or_with_an_unknown_one_is_a_text_input() {
+    // HTML: a missing or unrecognised `type` is the text state.
+    let lw = styling_window();
+    let untyped = Dom::create_from_data(NodeData::create_node(NodeType::Input));
+    let styled = lw.style_user_dom(
+        Dom::create_body()
+            .with_child(untyped)
+            .with_child(input("banana")),
+    );
+    assert_eq!(raw_form_nodes(&styled), vec![]);
+    assert_eq!(with_class(&styled, TEXT_INPUT_CONTAINER_CLASS).len(), 2);
+}
+
+#[test]
+fn an_input_of_type_checkbox_becomes_a_check_box_that_is_checked_when_the_input_is() {
+    let lw = styling_window();
+    let checked = lw.style_user_dom(page(input("checkbox").with_attribute(AttributeType::CheckedTrue)));
+    let unchecked = lw.style_user_dom(page(input("checkbox")));
+    assert_eq!(raw_form_nodes(&checked), vec![]);
+    let on = one_with_class(&checked, CHECKBOX_CONTAINER_CLASS);
+    let off = one_with_class(&unchecked, CHECKBOX_CONTAINER_CLASS);
+    assert_eq!(a11y_states(&checked, on), vec![AccessibilityState::CheckedTrue]);
+    assert_eq!(a11y_states(&unchecked, off), vec![AccessibilityState::CheckedFalse]);
+}
+
+#[test]
+fn an_input_of_type_radio_becomes_a_radio_checked_when_the_input_is() {
+    let lw = styling_window();
+    let styled = lw.style_user_dom(page(
+        input("radio")
+            .with_attribute(AttributeType::Value("red".into()))
+            .with_attribute(AttributeType::CheckedTrue),
+    ));
+    assert_eq!(raw_form_nodes(&styled), vec![]);
+    let group = one_with_class(&styled, RADIO_GROUP_CLASS);
+    let radios: Vec<NodeId> = subtree(&styled, group)
+        .into_iter()
+        .filter(|id| {
+            node(&styled, *id)
+                .get_accessibility_info()
+                .is_some_and(|a| a.role == AccessibilityRole::RadioButton)
+        })
+        .collect();
+    assert_eq!(radios.len(), 1, "one input is one radio");
+    assert_eq!(a11y_states(&styled, radios[0]), vec![AccessibilityState::CheckedTrue]);
+}
+
+#[test]
+fn an_input_of_type_color_becomes_a_color_swatch_of_its_value() {
+    let lw = styling_window();
+    let styled = lw.style_user_dom(page(
+        input("color").with_attribute(AttributeType::Value("#ff0000".into())),
+    ));
+    assert_eq!(raw_form_nodes(&styled), vec![]);
+    let swatch = one_with_class(&styled, COLOR_INPUT_CLASS);
+    let red = ColorU {
+        r: 255,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
+    assert_eq!(a11y_value(&styled, swatch), Some(color_to_hex(red)));
+}
+
+#[test]
+fn an_input_of_type_file_becomes_a_file_button() {
+    let lw = styling_window();
+    let styled = lw.style_user_dom(page(input("file")));
+    assert_eq!(raw_form_nodes(&styled), vec![]);
+    let button = one_with_class(&styled, BUTTON_CLASS);
+    assert!(matches!(node(&styled, button).get_node_type(), NodeType::Button));
+}
+
+#[test]
+fn an_input_of_type_number_becomes_a_number_input_showing_its_value() {
+    let lw = styling_window();
+    let styled = lw.style_user_dom(page(
+        input("number").with_attribute(AttributeType::Value("42".into())),
+    ));
+    assert_eq!(raw_form_nodes(&styled), vec![]);
+    let field = one_with_class(&styled, TEXT_INPUT_CONTAINER_CLASS);
+    assert_eq!(text_under(&styled, field), "42");
+}
+
+#[test]
+fn an_input_of_type_range_becomes_a_slider_within_min_and_max() {
+    let lw = styling_window();
+    let styled = lw.style_user_dom(page(
+        input("range")
+            .with_attribute(AttributeType::Min("0".into()))
+            .with_attribute(AttributeType::Max("10".into()))
+            .with_attribute(AttributeType::Value("5".into())),
+    ));
+    assert_eq!(raw_form_nodes(&styled), vec![]);
+    let slider = one_with_class(&styled, SLIDER_CLASS);
+    assert_eq!(a11y_value(&styled, slider).as_deref(), Some("5"));
+
+    // Out of range: clamped, as HTML clamps a range's value.
+    let clamped = lw.style_user_dom(page(
+        input("range")
+            .with_attribute(AttributeType::Max("10".into()))
+            .with_attribute(AttributeType::Value("99".into())),
+    ));
+    let slider = one_with_class(&clamped, SLIDER_CLASS);
+    assert_eq!(a11y_value(&clamped, slider).as_deref(), Some("10"));
+}
+
+#[test]
+fn an_input_of_type_date_becomes_a_date_picker_on_its_value() {
+    let lw = styling_window();
+    let styled = lw.style_user_dom(page(
+        input("date").with_attribute(AttributeType::Value("2024-03-15".into())),
+    ));
+    assert_eq!(raw_form_nodes(&styled), vec![]);
+    let picker = one_with_class(&styled, DATE_PICKER_CLASS);
+    assert_eq!(a11y_value(&styled, picker).as_deref(), Some("2024-03-15"));
+}
+
+#[test]
+fn an_input_of_type_time_becomes_a_time_picker_on_its_value() {
+    let lw = styling_window();
+    let styled = lw.style_user_dom(page(
+        input("time").with_attribute(AttributeType::Value("09:05".into())),
+    ));
+    assert_eq!(raw_form_nodes(&styled), vec![]);
+    let picker = one_with_class(&styled, TIME_PICKER_CLASS);
+    let text = text_under(&styled, picker);
+    assert!(text.contains('9') && text.contains("05"), "hour and minute shown: {text:?}");
+}
+
+#[test]
+fn an_input_of_type_button_becomes_a_button_labelled_by_its_value() {
+    let lw = styling_window();
+    let styled = lw.style_user_dom(page(
+        input("button").with_attribute(AttributeType::Value("Go".into())),
+    ));
+    assert_eq!(raw_form_nodes(&styled), vec![]);
+    let button = one_with_class(&styled, BUTTON_CLASS);
+    assert!(matches!(node(&styled, button).get_node_type(), NodeType::Button));
+    assert_eq!(text_under(&styled, button), "Go");
+}
+
+fn fruit_select(selected: usize) -> Dom {
+    let mut select = Dom::create_select_no_a11y("fruit".into(), "Fruit".into());
+    for (i, (value, label)) in [("a", "Apple"), ("b", "Banana"), ("c", "Cherry")]
+        .into_iter()
+        .enumerate()
+    {
+        let mut option = Dom::create_option_no_a11y(value.into(), label.into());
+        if i == selected {
+            option = option.with_attribute(AttributeType::Selected);
+        }
+        select = select.with_child(option);
+    }
+    select
+}
+
+#[test]
+fn a_select_becomes_a_drop_down_showing_its_selected_option() {
+    let lw = styling_window();
+    let styled = lw.style_user_dom(page(fruit_select(1)));
+    assert_eq!(raw_form_nodes(&styled), vec![]);
+    let drop_down = one_with_class(&styled, DROP_DOWN_CLASS);
+    assert_eq!(text_under(&styled, drop_down), "Banana");
+    assert!(
+        !all_nodes(&styled)
+            .iter()
+            .any(|id| matches!(node(&styled, *id).get_node_type(), NodeType::SelectOption)),
+        "the options became the drop-down's choices, not nodes"
+    );
+}
+
+#[test]
+fn a_textarea_becomes_a_text_area_holding_its_text() {
+    let lw = styling_window();
+    let styled = lw.style_user_dom(page(
+        Dom::create_textarea_no_a11y("notes".into(), "Notes".into()).with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("hello"),
+        ),
+    ));
+    assert_eq!(raw_form_nodes(&styled), vec![]);
+    let area = one_with_class(&styled, TEXT_AREA_CLASS);
+    assert_eq!(text_under(&styled, area), "hello");
+}
+
+#[test]
+fn a_text_input_backed_by_a_datalist_becomes_a_combobox() {
+    let lw = styling_window();
+    let datalist = Dom::create_datalist_no_a11y()
+        .with_id("fruits".into())
+        .with_child(Dom::create_option_no_a11y("Apple".into(), "Apple".into()))
+        .with_child(Dom::create_option_no_a11y("Pear".into(), "Pear".into()));
+    let styled = lw.style_user_dom(
+        Dom::create_body()
+            .with_child(input("text").with_attribute(attr("list", "fruits")))
+            .with_child(datalist),
+    );
+    assert_eq!(raw_form_nodes(&styled), vec![]);
+    one_with_class(&styled, COMBOBOX_CLASS);
+    assert!(with_class(&styled, TEXT_INPUT_CONTAINER_CLASS).is_empty());
+}
+
+#[test]
+fn every_visible_html_input_type_becomes_a_widget() {
+    // The types a parallel wave builds dedicated widgets for still become the
+    // NEAREST existing widget today - never a raw node that draws nothing.
+    let lw = styling_window();
+    for ty in [
+        "text", "checkbox", "radio", "color", "file", "number", "range", "date", "time", "button",
+        "password", "search", "email", "tel", "url", "month", "week", "datetime-local", "reset",
+        "submit", "image",
+    ] {
+        let styled = lw.style_user_dom(page(input(ty)));
+        assert_eq!(
+            raw_form_nodes(&styled),
+            vec![],
+            "type={ty} left a raw node: {:?}",
+            node_types(&styled)
+        );
+        assert!(
+            styled.node_data.as_ref().len() > 2,
+            "type={ty} became a widget, not an empty box"
+        );
+    }
+}
+
+// ── Attribute mapping ───────────────────────────────────────────────────────
+
+#[test]
+fn the_inputs_id_classes_and_inline_style_move_to_the_widget_root() {
+    let lw = styling_window();
+    let width = CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(200.0)));
+    let styled = lw.style_user_dom(page(
+        input("text")
+            .with_id("email".into())
+            .with_class("wide".into())
+            .with_css_property(width.clone()),
+    ));
+    let field = one_with_class(&styled, TEXT_INPUT_CONTAINER_CLASS);
+    let root = node(&styled, field);
+    assert!(root.has_id("email"), "the id names the widget now");
+    assert!(root.has_class("wide"));
+    let last_width = root
+        .get_style()
+        .rules
+        .as_slice()
+        .iter()
+        .flat_map(|rule| rule.declarations.as_slice().iter())
+        .filter_map(|decl| match decl {
+            CssDeclaration::Static(p @ CssProperty::Width(_)) => Some(p.clone()),
+            _ => None,
+        })
+        .last();
+    assert_eq!(
+        last_width,
+        Some(width.property),
+        "the app's inline width is the LAST width on the root, so it wins over the widget's"
+    );
+}
+
+#[test]
+fn constraint_and_form_attributes_stay_on_the_widget_root() {
+    // Form validation, the soft keyboard's purpose and reset detection read
+    // these off the node the user interacts with.
+    let lw = styling_window();
+    let styled = lw.style_user_dom(page(
+        input("email")
+            .with_attribute(AttributeType::Required)
+            .with_attribute(AttributeType::Pattern(".+@.+".into()))
+            .with_attribute(AttributeType::MinLength(3)),
+    ));
+    let field = one_with_class(&styled, TEXT_INPUT_CONTAINER_CLASS);
+    let attrs = node(&styled, field).attributes().as_slice().to_vec();
+    for expected in [
+        AttributeType::Required,
+        AttributeType::Pattern(".+@.+".into()),
+        AttributeType::MinLength(3),
+        AttributeType::Name("field".into()),
+        AttributeType::InputType("email".into()),
+    ] {
+        assert!(attrs.contains(&expected), "{expected:?} missing from {attrs:?}");
+    }
+}
+
+#[test]
+fn a_disabled_input_becomes_a_widget_nothing_can_activate_or_focus() {
+    let lw = styling_window();
+    let styled = lw.style_user_dom(page(
+        input("checkbox").with_attribute(AttributeType::Disabled),
+    ));
+    let root = one_with_class(&styled, CHECKBOX_CONTAINER_CLASS);
+    assert!(node(&styled, root).attributes().as_slice().contains(&AttributeType::Disabled));
+    for id in subtree(&styled, root) {
+        let n = node(&styled, id);
+        assert!(n.get_callbacks().as_slice().is_empty(), "node {id:?} still reacts");
+        assert_eq!(n.get_tab_index(), None, "node {id:?} is still focusable");
+    }
+}
+
+#[test]
+fn a_readonly_text_input_is_not_editable() {
+    let lw = styling_window();
+    let styled = lw.style_user_dom(page(
+        input("text")
+            .with_attribute(AttributeType::Readonly)
+            .with_attribute(AttributeType::Value("fixed".into())),
+    ));
+    let field = one_with_class(&styled, TEXT_INPUT_CONTAINER_CLASS);
+    assert!(!node(&styled, field).is_contenteditable());
+    assert_eq!(text_under(&styled, field), "fixed");
+    assert!(
+        node(&styled, field).get_tab_index().is_some(),
+        "readonly is still focusable (and selectable), unlike disabled"
+    );
+}
+
+#[test]
+fn tabindex_and_autofocus_reach_the_widget_root() {
+    let lw = styling_window();
+    let styled = lw.style_user_dom(page(
+        input("range")
+            .with_tab_index(TabIndex::OverrideInParent(3))
+            .with_attribute(AttributeType::Autofocus),
+    ));
+    let slider = one_with_class(&styled, SLIDER_CLASS);
+    assert_eq!(
+        node(&styled, slider).get_tab_index(),
+        Some(TabIndex::OverrideInParent(3))
+    );
+    assert!(node(&styled, slider).has_autofocus());
+}
+
+extern "C" fn app_click(_data: RefAny, _info: CallbackInfo) -> Update {
+    Update::RefreshDom
+}
+
+#[test]
+fn the_apps_callbacks_on_the_input_fire_on_the_widget_root() {
+    // Carried, not mapped: the root is the node the pointer and the focus
+    // land on, so the app's handler fires for the same interactions it
+    // would have on the raw input - AFTER the widget's own, which has by
+    // then updated the widget.
+    let lw = styling_window();
+    let styled = lw.style_user_dom(page(input("checkbox").with_callback(
+        EventFilter::Hover(HoverEventFilter::Click),
+        RefAny::new(0u32),
+        Callback::from_ptr(app_click).to_core(),
+    )));
+    let root = one_with_class(&styled, CHECKBOX_CONTAINER_CLASS);
+    let callbacks = node(&styled, root).get_callbacks().as_slice().to_vec();
+    let app_cb = Callback::from_ptr(app_click).to_core().cb;
+    let app_at = callbacks
+        .iter()
+        .position(|c| c.callback.cb == app_cb)
+        .expect("the app's click handler is on the widget root");
+    assert_eq!(
+        callbacks[app_at].event,
+        EventFilter::Hover(HoverEventFilter::Click)
+    );
+    assert!(app_at > 0, "the widget's own click handler runs first");
+}
+
+#[test]
+fn an_input_marked_data_azul_widget_none_stays_a_raw_input() {
+    let lw = styling_window();
+    let styled = lw.style_user_dom(page(input("range").with_attribute(AttributeType::Data(
+        AttributeNameValue {
+            attr_name: "data-azul-widget".into(),
+            value: "none".into(),
+        },
+    ))));
+    assert_eq!(raw_form_nodes(&styled).len(), 1, "opted out: the raw node stays");
+    assert!(with_class(&styled, SLIDER_CLASS).is_empty());
+}
+
+// ── XML ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn xml_form_controls_become_the_same_widgets() {
+    let xml = r#"<html><body>
+        <input type="range" min="0" max="10" value="5" />
+        <input type="checkbox" checked="checked" />
+        <select name="fruit">
+            <option value="a">Apple</option>
+            <optgroup label="Later">
+                <option value="b" selected="selected">Banana</option>
+            </optgroup>
+        </select>
+        <textarea rows="4">hi</textarea>
+    </body></html>"#;
+    let parsed = azul_layout::xml::parse_xml(xml).expect("parses");
+    let dom = azul_layout::xml::dom_from_parsed_xml(parsed);
+    let lw = styling_window();
+    let styled = lw.style_user_dom(dom);
+
+    assert_eq!(raw_form_nodes(&styled), vec![], "{:?}", node_types(&styled));
+    let slider = one_with_class(&styled, SLIDER_CLASS);
+    assert_eq!(a11y_value(&styled, slider).as_deref(), Some("5"));
+    let check = one_with_class(&styled, CHECKBOX_CONTAINER_CLASS);
+    assert_eq!(a11y_states(&styled, check), vec![AccessibilityState::CheckedTrue]);
+    let drop_down = one_with_class(&styled, DROP_DOWN_CLASS);
+    assert_eq!(
+        text_under(&styled, drop_down),
+        "Banana",
+        "an option inside an optgroup is still a choice"
+    );
+    let area = one_with_class(&styled, TEXT_AREA_CLASS);
+    assert_eq!(text_under(&styled, area), "hi");
+}
+
+// ── VirtualViews ────────────────────────────────────────────────────────────
+
+extern "C" fn view_with_a_range(_data: RefAny, _info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+    let rect = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(200.0, 40.0));
+    VirtualViewReturn::with_dom(
+        Dom::create_div()
+            .with_css("display: block;")
+            .with_child(input("range")),
+        rect,
+        rect,
+    )
+}
+
+#[test]
+fn an_input_inside_a_virtual_view_becomes_a_widget() {
+    // The other producer of an app DOM: the replacement is on the funnel,
+    // not on the layout callback's path only (the icon lesson).
+    let mut lw = text_window();
+    let dom = Dom::create_body().with_child(
+        Dom::create_virtual_view(RefAny::new(0u32), VirtualViewCallback::create(view_with_a_range))
+            .with_css("width: 200px; height: 40px; overflow: hidden;"),
+    );
+    let styled = lw.style_user_dom(dom);
+    lay_out(&mut lw, styled);
+    let nested = lw
+        .virtual_view_manager
+        .get_nested_dom_id(DomId::ROOT_ID, NodeId::new(1))
+        .expect("the view mounted a nested dom");
+    let nested_styled = &lw
+        .get_layout_result(&nested)
+        .expect("nested dom laid out")
+        .styled_dom;
+    assert_eq!(raw_form_nodes(nested_styled), vec![]);
+    one_with_class(nested_styled, SLIDER_CLASS);
+}
+
+// ── State across rebuilds ───────────────────────────────────────────────────
+
+fn text_page() -> Dom {
+    page(input("text").with_attribute(AttributeType::Value("hello".into())))
+}
+
+#[test]
+fn typing_into_a_replaced_text_input_keeps_its_text_across_a_rebuild() {
+    let mut lw = text_window();
+    let styled = lw.style_user_dom(text_page());
+    let field = one_with_class(&styled, TEXT_INPUT_CONTAINER_CLASS);
+    lay_out(&mut lw, styled);
+
+    let (value_line, text_leaf) = {
+        let lr = lw.get_layout_result(&DomId::ROOT_ID).expect("laid out");
+        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+        let line = hierarchy[field].first_child_id(field).expect("the value line");
+        let leaf = hierarchy[line].first_child_id(line).expect("its text");
+        (line, leaf)
+    };
+
+    // A keystroke, the way the shell commits one.
+    lw.focus_manager.set_focused_node(Some(dom_node(field)));
+    lw.start_editing_at(
+        TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: 0,
+            },
+            affinity: CursorAffinity::Leading,
+        },
+        DomId::ROOT_ID,
+        text_leaf,
+        0,
+    );
+    let _ = lw.record_text_input("X");
+    let _ = lw.apply_text_changeset();
+
+    // The app rebuilds from ITS model - which never heard of the keystroke.
+    let rebuilt = lw.style_user_dom(text_page());
+    lay_out(&mut lw, rebuilt);
+
+    let content = lw.get_text_before_textinput(DomId::ROOT_ID, value_line);
+    assert_eq!(
+        lw.extract_text_from_inline_content(&content),
+        "Xhello",
+        "the typed text survives the app's rebuild"
+    );
+}
+
+#[test]
+fn a_clicked_checkbox_stays_checked_across_a_rebuild() {
+    let mut lw = text_window();
+    let styled = lw.style_user_dom(page(input("checkbox")));
+    let root = one_with_class(&styled, CHECKBOX_CONTAINER_CLASS);
+    let state = node(&styled, root).get_callbacks().as_slice()[0].refany.clone();
+    lay_out(&mut lw, styled);
+
+    // The widget's OWN click handler, as the event loop would run it.
+    let (update, _) = with_info(&lw, dom_node(root), |info| {
+        azul_layout::widgets::check_box::input::default_on_checkbox_clicked(state, info)
+    });
+    assert_ne!(update, Update::RefreshDom, "a check needs no rebuild to show");
+
+    // Any later rebuild (another control's RefreshDom) starts from the raw
+    // input again - which still says "unchecked".
+    let rebuilt = lw.style_user_dom(page(input("checkbox")));
+    let root = one_with_class(&rebuilt, CHECKBOX_CONTAINER_CLASS);
+    assert_eq!(
+        a11y_states(&rebuilt, root),
+        vec![AccessibilityState::CheckedTrue],
+        "the user's check survives the rebuild"
+    );
+}
+
+/// The drop-down's own change hook, fired with `choice`.
+fn pick(lw: &LayoutWindow, styled: &StyledDom, choice: usize) -> Update {
+    let root = one_with_class(styled, DROP_DOWN_CLASS);
+    let mut data = node(styled, root).get_callbacks().as_slice()[0].refany.clone();
+    let hook = {
+        let dd = data.downcast_ref::<DropDown>().expect("the drop-down's state");
+        dd.on_choice_change
+            .as_ref()
+            .cloned()
+            .expect("the replacement listens for the pick")
+    };
+    with_info(lw, dom_node(root), |info| {
+        hook.callback.invoke(hook.refany.clone(), info, choice)
+    })
+    .0
+}
+
+#[test]
+fn picking_a_select_option_asks_for_the_rebuild_that_shows_it() {
+    let lw = styling_window();
+    let styled = lw.style_user_dom(page(fruit_select(0)));
+    let update = pick(&lw, &styled, 2);
+    assert_eq!(
+        update,
+        Update::RefreshDom,
+        "a drop-down only shows a choice by being rebuilt"
+    );
+    let rebuilt = lw.style_user_dom(page(fruit_select(0)));
+    let drop_down = one_with_class(&rebuilt, DROP_DOWN_CLASS);
+    assert_eq!(text_under(&rebuilt, drop_down), "Cherry");
+}
+
+#[test]
+fn an_app_that_changes_the_default_overrides_the_remembered_choice() {
+    // The HTML "dirty value" rule: the user's value stands until the APP
+    // changes the default, then the app is the truth again.
+    let lw = styling_window();
+    let styled = lw.style_user_dom(page(fruit_select(0)));
+    let _ = pick(&lw, &styled, 2);
+    let rebuilt = lw.style_user_dom(page(fruit_select(1)));
+    let drop_down = one_with_class(&rebuilt, DROP_DOWN_CLASS);
+    assert_eq!(text_under(&rebuilt, drop_down), "Banana");
+}
+
+fn colour_radios(checked: &str) -> Dom {
+    let radio = |value: &str| {
+        let mut r = input("radio")
+            .with_attribute(AttributeType::Name("colour".into()))
+            .with_attribute(AttributeType::Value(value.into()));
+        if value == checked {
+            r = r.with_attribute(AttributeType::CheckedTrue);
+        }
+        r
+    };
+    Dom::create_body()
+        .with_child(radio("red"))
+        .with_child(radio("green"))
+}
+
+/// Per radio group root, whether its one radio is checked.
+fn radio_checks(styled: &StyledDom) -> Vec<bool> {
+    with_class(styled, RADIO_GROUP_CLASS)
+        .into_iter()
+        .map(|group| {
+            subtree(styled, group).into_iter().any(|id| {
+                node(styled, id)
+                    .get_accessibility_info()
+                    .is_some_and(|a| {
+                        a.role == AccessibilityRole::RadioButton
+                            && a.states.as_slice().contains(&AccessibilityState::CheckedTrue)
+                    })
+            })
+        })
+        .collect()
+}
+
+#[test]
+fn checking_one_radio_unchecks_the_others_of_its_name_on_the_rebuild_it_asks_for() {
+    let lw = styling_window();
+    let styled = lw.style_user_dom(colour_radios("red"));
+    assert_eq!(radio_checks(&styled), vec![true, false]);
+
+    // The GREEN radio's change hook, as its row's click handler fires it.
+    let green_group = with_class(&styled, RADIO_GROUP_CLASS)[1];
+    let row = subtree(&styled, green_group)
+        .into_iter()
+        .find(|id| !node(&styled, *id).get_callbacks().as_slice().is_empty())
+        .expect("the radio row listens");
+    let mut data = node(&styled, row).get_callbacks().as_slice()[0].refany.clone();
+    let hook = {
+        let rg = data
+            .downcast_ref::<RadioGroupStateWrapper>()
+            .expect("the radio's state");
+        rg.on_change.as_ref().cloned().expect("the replacement listens")
+    };
+    let (update, _) = with_info(&lw, dom_node(row), |info| {
+        hook.callback
+            .invoke(hook.refany.clone(), info, RadioGroupState { selected_index: 0 })
+    });
+    assert_eq!(update, Update::RefreshDom, "the other radios change on the rebuild");
+
+    let rebuilt = lw.style_user_dom(colour_radios("red"));
+    assert_eq!(radio_checks(&rebuilt), vec![false, true]);
+}
+
+#[test]
+fn text_the_widget_reported_survives_a_rebuild_even_after_the_overlay_is_acked() {
+    // An app that folds typing into its own model acks EVERY text revision
+    // (`mark_text_revision_synced` is window-wide), which retires the
+    // overlay entry of a raw input it knows nothing about. The replaced
+    // widget reports its text through its own change hook, so the rebuild
+    // still shows it.
+    let lw = styling_window();
+    let styled = lw.style_user_dom(text_page());
+    let field = one_with_class(&styled, TEXT_INPUT_CONTAINER_CLASS);
+    let mut data = node(&styled, field)
+        .get_dataset()
+        .cloned()
+        .expect("the text input's state");
+    let hook = {
+        let ti = data
+            .downcast_ref::<TextInputStateWrapper>()
+            .expect("the text input's state");
+        ti.on_text_input.as_ref().cloned().expect("the replacement listens")
+    };
+    let mut typed = TextInputState::default();
+    typed.text = "hello world".chars().map(|c| c as u32).collect::<Vec<_>>().into();
+    let _ = with_info(&lw, dom_node(field), |info| {
+        hook.callback.invoke(hook.refany.clone(), info, typed)
+    });
+
+    let rebuilt = lw.style_user_dom(text_page());
+    let field = one_with_class(&rebuilt, TEXT_INPUT_CONTAINER_CLASS);
+    assert_eq!(text_under(&rebuilt, field), "hello world");
+}
