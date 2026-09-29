@@ -624,7 +624,7 @@ fn discover_macos_cli_extras(style: &mut SystemStyle, known_languages: &[azul_cs
     let timeout = core::time::Duration::from_millis(500);
 
     // ── Dark mode detection ─────────────────────────────────────────────
-    if style.theme == DarkLightMode::Light {
+    if style.mode == DarkLightMode::Light {
         if let Ok(val) =
             run_command_with_timeout("defaults", &["read", "-g", "AppleInterfaceStyle"], timeout)
         {
@@ -943,7 +943,7 @@ fn adopt_probed_theme(
     common.snapshot_window_state_baseline("macos.adopt_observed_theme");
 
     if let Some(window_theme) = window_theme {
-        common.update_unsynced_state(|ws| ws.theme = window_theme);
+        common.update_unsynced_state(|ws| ws.mode = window_theme);
     }
 
     // RE-DISCOVER the style, the way the Windows backend does on

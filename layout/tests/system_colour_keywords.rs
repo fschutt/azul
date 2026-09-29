@@ -66,7 +66,7 @@ fn painted_rects(css: &str, theme: DarkLightMode) -> Vec<(f32, f32, ColorU)> {
     lw.set_system_style(Arc::new(preset(theme)));
     let mut ws = FullWindowState::default();
     ws.size.dimensions = LogicalSize::new(200.0, 100.0);
-    ws.theme = window_theme(theme);
+    ws.mode = window_theme(theme);
     lw.current_window_state = ws.clone();
     let rr = RendererResources::default();
     let sc = ExternalSystemCallbacks::rust_internal();

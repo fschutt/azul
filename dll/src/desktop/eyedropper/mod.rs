@@ -161,7 +161,7 @@ pub fn loupe_window(shot: Screenshot, request_id: u64, dpi: u32) -> Option<Windo
         window_state: ws,
         size_to_content: false,
         renderer: None.into(),
-        theme: None.into(),
+        mode: None.into(),
         create_callback: None.into(),
         hot_reload: false,
         parent_window_id: 0,

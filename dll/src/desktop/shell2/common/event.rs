@@ -1582,7 +1582,7 @@ fn first_differing_state_field(a: &FullWindowState, b: &FullWindowState) -> Opti
         position,
         flags,
         window_focused,
-        theme,
+        mode: theme,
         monitor_id,
         mouse_state,
         pointer_seats,
@@ -1620,7 +1620,7 @@ fn first_differing_state_field(a: &FullWindowState, b: &FullWindowState) -> Opti
     if *window_focused != b.window_focused {
         return Some("window_focused");
     }
-    if *theme != b.theme {
+    if *theme != b.mode {
         return Some("theme");
     }
     if *monitor_id != b.monitor_id {
@@ -3267,8 +3267,8 @@ impl CommonWindowState {
             azul_css::system::Platform::current(),
         );
         let mut current_window_state = current_window_state;
-        current_window_state.theme = initial_window_theme(requested_theme, system_style.theme);
-        let desktop_theme = system_style.theme;
+        current_window_state.mode = initial_window_theme(requested_theme, system_style.mode);
+        let desktop_theme = system_style.mode;
         Self {
             layout_window: None,
             current_window_state,
@@ -3351,7 +3351,7 @@ impl CommonWindowState {
         }
         self.desktop_theme = desktop;
         let target = self.resolved_window_mode();
-        (target != self.current_window_state.theme).then_some(target)
+        (target != self.current_window_state.mode).then_some(target)
     }
 
     /// Write the light / dark this window SHOWS, and move a background the
@@ -3362,7 +3362,7 @@ impl CommonWindowState {
     /// not re-discover the style. The caller still owns the event baseline
     /// (snapshot before, pass after), exactly as for any other write.
     pub fn write_shown_mode(&mut self, mode: azul_core::window::DarkLightMode) {
-        self.update_unsynced_state(|ws| ws.theme = mode);
+        self.update_unsynced_state(|ws| ws.mode = mode);
         let held = Arc::clone(&self.system_style);
         self.move_mode_background(&held);
     }
@@ -3401,7 +3401,7 @@ impl CommonWindowState {
             return;
         }
         let target = super::mode_background(
-            self.current_window_state.theme,
+            self.current_window_state.mode,
             &self.system_style,
             light,
             dark,
@@ -3419,7 +3419,7 @@ impl CommonWindowState {
         let ws = &self.current_window_state;
         super::window_clear_color(
             ws.background_color,
-            ws.theme,
+            ws.mode,
             Some(&*self.system_style),
             true,
             !matches!(
@@ -3472,7 +3472,7 @@ impl CommonWindowState {
         // answer that does not depend on the desktop is a pin.
         let pinned = azul_layout::window::resolve_window_mode(app, DarkLightMode::Light)
             == azul_layout::window::resolve_window_mode(app, DarkLightMode::Dark);
-        let shown = self.current_window_state.theme;
+        let shown = self.current_window_state.mode;
         (pinned || shown != self.desktop_theme).then_some(shown)
     }
 
@@ -5578,9 +5578,9 @@ pub trait PlatformWindow {
                 // requested ran `layout()` under the OLD mode.
                 let theme = azul_layout::window::resolve_window_mode(
                     self.get_common_mut().app_mode(),
-                    state.theme,
+                    state.mode,
                 );
-                let theme_changed = old_state.theme != theme;
+                let theme_changed = old_state.mode != theme;
                 // The other cursors (9b-ii): same treatment as the primary,
                 // or an app-pushed seat change would neither copy nor diff.
                 let seats_changed = old_state.pointer_seats != state.pointer_seats;
@@ -5642,7 +5642,7 @@ pub trait PlatformWindow {
                         current.keyboard_seats = state.keyboard_seats.clone();
                         current.touch_state = state.touch_state.clone();
                         current.window_focused = state.window_focused;
-                        current.theme = theme;
+                        current.mode = theme;
                                             });
                 // The pushed state carries the background the app read; when
                 // its mode derived it, it moves with the pushed mode (a
@@ -10234,7 +10234,7 @@ pub trait PlatformWindow {
             common
                 .previous_window_state
                 .as_ref()
-                .is_some_and(|prev| prev.theme != common.current_window_state.theme)
+                .is_some_and(|prev| prev.mode != common.current_window_state.mode)
         };
         if *old_style == *new_style && !theme_delta {
             return false;
@@ -10351,7 +10351,7 @@ pub trait PlatformWindow {
             lw.mode = mode;
         }
         let target = common.resolved_window_mode();
-        (target != common.current_window_state().theme).then_some(target)
+        (target != common.current_window_state().mode).then_some(target)
     }
 
     /// This window adopts the app's mode - the path for a window whose OWN
@@ -14197,7 +14197,7 @@ mod tests {
     fn check_input_delta_consumed_panics_on_an_unconsumed_theme_change() {
         require_validation_gate();
         let (previous, mut current) = state_pair();
-        current.theme = match current.theme {
+        current.mode = match current.mode {
             DarkLightMode::Dark => DarkLightMode::Light,
             DarkLightMode::Light => DarkLightMode::Dark,
         };

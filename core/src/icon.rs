@@ -1403,14 +1403,14 @@ fn style_in_window_mode(
     use azul_css::{dynamic_selector::ThemeCondition, system::DarkLightMode};
 
     let mode = context.mode;
-    if system_style.theme == mode
+    if system_style.mode == mode
         && system_style.prefers_high_contrast == context.prefers_high_contrast
     {
         return None;
     }
     let mut in_mode = system_style.clone();
     in_mode.colors = system_style.colors_for_theme(mode);
-    in_mode.theme = mode;
+    in_mode.mode = mode;
     in_mode.prefers_high_contrast = context.prefers_high_contrast;
     Some(in_mode)
 }

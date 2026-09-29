@@ -355,7 +355,7 @@ pub extern "C" fn default_icon_resolver(
 /// Reads `SystemStyle::theme`, the light / dark slot (renamed to a mode by
 /// the naming migration; this is the one place to follow it).
 fn is_dark(style: &SystemStyle) -> bool {
-    style.theme == DarkLightMode::Dark
+    style.mode == DarkLightMode::Dark
 }
 
 /// The `<icon>` redirected to the artwork for the current mode, when the
@@ -2053,7 +2053,7 @@ mod autotest_generated {
 
     fn dark_style() -> SystemStyle {
         let mut s = SystemStyle::default();
-        s.theme = DarkLightMode::Dark;
+        s.mode = DarkLightMode::Dark;
         s
     }
 

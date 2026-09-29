@@ -49,7 +49,7 @@ fn env_pinned() -> bool {
 
 fn window_state(theme: DarkLightMode) -> FullWindowState {
     let mut ws = FullWindowState::default();
-    ws.theme = theme;
+    ws.mode = theme;
     ws.size.dimensions = LogicalSize::new(640.0, 480.0);
     ws
 }

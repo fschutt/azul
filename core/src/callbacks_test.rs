@@ -316,7 +316,7 @@ mod autotest_generated {
         let info = vv_info(&fonts, &images, bounds);
 
         assert_eq!(info.reason, VirtualViewCallbackReason::InitialRender);
-        assert_eq!(info.window_theme, DarkLightMode::Light);
+        assert_eq!(info.window_mode, DarkLightMode::Light);
         assert_eq!(
             info.get_bounds().get_logical_size(),
             LogicalSize::new(800.0, 600.0)
@@ -721,7 +721,7 @@ mod autotest_generated {
         let info = LayoutCallbackInfo::new(&rd, win(1280.0, 720.0, 192), DarkLightMode::Dark);
 
         assert_eq!(info.relayout_reason(), RelayoutReason::Initial);
-        assert_eq!(info.theme, DarkLightMode::Dark);
+        assert_eq!(info.mode, DarkLightMode::Dark);
         assert_eq!(info.get_window_width(), 1280.0);
         assert_eq!(info.get_window_height(), 720.0);
         assert_eq!(info.get_dpi_factor(), 2.0);
@@ -1605,7 +1605,7 @@ mod system_style_dependency_tests {
 
         // Polarity flip: rebuild.
         let mut dark = style();
-        dark.theme = DarkLightMode::Dark;
+        dark.mode = DarkLightMode::Dark;
         assert!(deps.dom_depends_on_change(&old, &dark));
     }
 
@@ -1706,7 +1706,7 @@ mod system_style_dependency_tests {
         let _ = take_recorded_style_dependencies();
 
         let info = info(&rd);
-        let _ = info.theme;
+        let _ = info.mode;
         assert!(take_recorded_style_dependencies().is_empty());
 
         assert_eq!(info.get_mode(), DarkLightMode::Light);

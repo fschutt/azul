@@ -8067,7 +8067,7 @@
                                 "renderer": {
                                     "type": "OptionRendererOptions"
                                 },
-                                "theme": {
+                                "mode": {
                                     "type": "OptionDarkLightMode"
                                 },
                                 "background_color_light": {
@@ -8145,7 +8145,7 @@
                                 "mouse_state": {
                                     "type": "MouseState"
                                 },
-                                "theme": {
+                                "mode": {
                                     "type": "DarkLightMode"
                                 },
                                 "ime_position": {
@@ -12243,7 +12243,7 @@
                                     "type": "c_void",
                                     "ref_kind": "constptr"
                                 },
-                                "window_theme": {
+                                "window_mode": {
                                     "type": "DarkLightMode"
                                 },
                                 "window_frame": {
@@ -20110,7 +20110,7 @@
                                 "window_size": {
                                     "type": "WindowSize"
                                 },
-                                "theme": {
+                                "mode": {
                                     "type": "DarkLightMode"
                                 },
                                 "relayout_reason": {
@@ -49171,7 +49171,7 @@
                                 "scroll_physics": {
                                     "type": "ScrollPhysics"
                                 },
-                                "theme": {
+                                "mode": {
                                     "type": "DarkLightMode"
                                 },
                                 "os_version": {

@@ -485,7 +485,7 @@ fn a_theme_switch_changes_the_theme_and_requests_a_frame() {
         .regenerate_layout()
         .expect("regenerate_layout must succeed");
 
-    let before = window.common.current_window_state().theme;
+    let before = window.common.current_window_state().mode;
     let switch_to = match before {
         DarkLightMode::Dark => DarkLightMode::Light,
         DarkLightMode::Light => DarkLightMode::Dark,
@@ -496,7 +496,7 @@ fn a_theme_switch_changes_the_theme_and_requests_a_frame() {
         "set_system_theme reported no change while switching from {before:?} to {switch_to:?}",
     );
     assert_eq!(
-        window.common.current_window_state().theme,
+        window.common.current_window_state().mode,
         switch_to,
         "the window kept its old theme after a switch, so prefers-color-scheme styling would \
          still evaluate against {before:?}",
@@ -521,7 +521,7 @@ fn re_asserting_the_current_theme_costs_nothing() {
         .regenerate_layout()
         .expect("regenerate_layout must succeed");
 
-    let current = window.common.current_window_state().theme;
+    let current = window.common.current_window_state().mode;
     // Retire whatever the initial layout raised, so the assertion below is about
     // the no-op switch and not about leftover startup state.
     let epoch = window.common.regen_epoch();
@@ -560,7 +560,7 @@ fn window_create_options_theme_seeds_the_initial_window_theme() {
         ctx: azul_core::refany::OptionRefAny::None,
     };
     // The window state still says LightMode (its default) — the REQUEST wins.
-    options.theme = OptionDarkLightMode::Some(DarkLightMode::Dark);
+    options.mode = OptionDarkLightMode::Some(DarkLightMode::Dark);
 
     let window = HeadlessWindow::new(
         options,
@@ -574,7 +574,7 @@ fn window_create_options_theme_seeds_the_initial_window_theme() {
     .expect("HeadlessWindow construction must succeed");
 
     assert_eq!(
-        window.common.current_window_state().theme,
+        window.common.current_window_state().mode,
         DarkLightMode::Dark,
         "the requested theme must seed the window at creation"
     );

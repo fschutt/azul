@@ -2063,7 +2063,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
     // `DynamicSelectorContext::from_system_style` feeds to
     // `prefers-color-scheme`, so the tiles and the app's stylesheet resolve
     // light/dark from one source instead of two.
-    let scheme = MapColorScheme::from_system_theme(info.get_system_style().theme);
+    let scheme = MapColorScheme::from_system_theme(info.get_system_style().mode);
 
     // Collect the work first (URL build + state flip) under one borrow,
     // then spawn outside it so we don't hold the cache lock across
@@ -2101,7 +2101,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
             std::eprintln!(
                 "[map] spawn_pending: system theme={:?} scheme={:?} look={:?} \
                  look_changed={look_changed} ready={} pending={}",
-                info.get_system_style().theme,
+                info.get_system_style().mode,
                 scheme,
                 look,
                 cache
@@ -2641,7 +2641,7 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
             // the scheme where the keys are read is what makes a switch
             // re-key the tiles (a miss under the new look inserts Pending, the
             // timer decodes it under the new sheet).
-            c.cascade_scheme = Some(MapColorScheme::from_window_theme(info.window_theme));
+            c.cascade_scheme = Some(MapColorScheme::from_window_theme(info.window_mode));
             let look = c.current_look();
             c.set_active_look(look);
             (c.layer.clone(), c.viewport, look)

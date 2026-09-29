@@ -473,7 +473,7 @@ pub struct VirtualViewCallbackInfo {
     pub reason: VirtualViewCallbackReason,
     pub system_fonts: *const FcFontCache,
     pub image_cache: *const ImageCache,
-    pub window_theme: DarkLightMode,
+    pub window_mode: DarkLightMode,
     /// The window's CURRENT frame: normal, minimized, maximized, fullscreen.
     ///
     /// Here for the same reason `window_theme` is: a view whose content
@@ -581,7 +581,7 @@ impl VirtualViewCallbackInfo {
             reason,
             system_fonts: core::ptr::from_ref::<FcFontCache>(system_fonts),
             image_cache: core::ptr::from_ref::<ImageCache>(image_cache),
-            window_theme,
+            window_mode: window_theme,
             window_frame,
             bounds,
             materialized,
@@ -983,8 +983,9 @@ pub struct LayoutCallbackInfo {
     /// the window size - mobile / desktop view). Should be later removed
     /// in favor of "resize" handlers and @media queries.
     pub window_size: WindowSize,
-    /// Registers whether the UI is dependent on the window theme
-    pub theme: DarkLightMode,
+    /// The window's dark / light mode; reading it registers the UI as
+    /// depending on it
+    pub mode: DarkLightMode,
     /// What triggered this `layout()` call. Read via `relayout_reason()`.
     pub relayout_reason: RelayoutReason,
     /// Pointer to the callable (`OptionRefAny`) for FFI language bindings (Python, etc.)
@@ -1268,7 +1269,7 @@ impl SystemStyleDependencies {
         if self.is_empty() {
             return old != new;
         }
-        if self.contains(SystemStyleDependency::Theme) && old.theme != new.theme {
+        if self.contains(SystemStyleDependency::Theme) && old.mode != new.mode {
             return true;
         }
         if self.contains(SystemStyleDependency::Colors) && old.colors != new.colors {
@@ -1367,7 +1368,7 @@ impl core::fmt::Debug for LayoutCallbackInfo {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("LayoutCallbackInfo")
             .field("window_size", &self.window_size)
-            .field("theme", &self.theme)
+            .field("theme", &self.mode)
             .field("relayout_reason", &self.relayout_reason)
             .finish_non_exhaustive()
     }
@@ -1448,7 +1449,7 @@ impl LayoutCallbackInfo {
             ref_data: core::ptr::from_ref::<LayoutCallbackInfoRefData<'a>>(ref_data)
                 as *const LayoutCallbackInfoRefData<'static>,
             window_size,
-            theme,
+            mode: theme,
             relayout_reason,
             callable_ptr: core::ptr::null(),
             _abi_mut: core::ptr::null_mut(),
@@ -1645,7 +1646,7 @@ impl LayoutCallbackInfo {
     #[must_use]
     pub fn get_mode(&self) -> DarkLightMode {
         self.depends_on_system_style(SystemStyleDependency::Theme);
-        self.theme
+        self.mode
     }
 
     /// The APP THEME this `layout()` builds for (`"flat"`, `"flora"`, ...;

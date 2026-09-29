@@ -150,7 +150,7 @@ fn make_window_from(model: Model, options: WindowCreateOptions) -> HeadlessWindo
 }
 
 fn mode_of(window: &HeadlessWindow) -> DarkLightMode {
-    window.common.current_window_state().theme
+    window.common.current_window_state().mode
 }
 
 fn set_mode(window: &mut HeadlessWindow, mode: OptionDarkLightMode) -> ProcessEventResult {
@@ -346,7 +346,7 @@ fn modify_window_state_with_a_new_mode_switches_the_window() {
     assert_eq!(mode_of(&window), DarkLightMode::Light, "premise: a light desktop");
 
     let mut state = window.get_current_window_state().clone();
-    state.theme = DarkLightMode::Dark;
+    state.mode = DarkLightMode::Dark;
     let result = window.apply_user_change(&CallbackChange::ModifyWindowState { state });
     assert_eq!(
         mode_of(&window),
@@ -371,7 +371,7 @@ fn modify_window_state_does_not_override_the_apps_pin() {
     let _ = set_mode(&mut window, PIN_LIGHT);
 
     let mut state = window.get_current_window_state().clone();
-    state.theme = DarkLightMode::Dark;
+    state.mode = DarkLightMode::Dark;
     let _ = window.apply_user_change(&CallbackChange::ModifyWindowState { state });
     assert_eq!(mode_of(&window), DarkLightMode::Light);
 }
@@ -591,7 +591,7 @@ fn modify_window_state_with_a_new_theme_moves_the_seeded_background() {
     assert!(!is_dark_rgba(paint_and_read_clear_color(&mut window)), "premise");
 
     let mut state = window.get_current_window_state().clone();
-    state.theme = DarkLightMode::Dark;
+    state.mode = DarkLightMode::Dark;
     let result = window.apply_user_change(&CallbackChange::ModifyWindowState { state });
     honor(&mut window, result);
     let clear = paint_and_read_clear_color(&mut window);

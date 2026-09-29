@@ -454,7 +454,7 @@ fn build_three_paragraphs_themed(
     }
     let mut window_state = FullWindowState::default();
     window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
-    window_state.theme = theme;
+    window_state.mode = theme;
     lw.current_window_state = window_state.clone();
     let renderer_resources = RendererResources::default();
     let system_callbacks = ExternalSystemCallbacks::rust_internal();

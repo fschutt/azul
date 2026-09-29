@@ -3562,17 +3562,17 @@ impl Runner {
                 // mounted DOM. The runner never publishes the app-global
                 // mode - scenarios run side by side in one process. Its
                 // "desktop" is its system style.
-                let desktop = match self.layout_window.system_style.as_deref().map(|s| s.theme)
+                let desktop = match self.layout_window.system_style.as_deref().map(|s| s.mode)
                 {
                     Some(DarkLightMode::Dark) => azul_core::window::DarkLightMode::Dark,
                     _ => azul_core::window::DarkLightMode::Light,
                 };
                 self.layout_window.mode = *mode;
                 let target = self.layout_window.window_mode_for(desktop);
-                if self.window_state.theme == target {
+                if self.window_state.mode == target {
                     ProcessEventResult::DoNothing
                 } else {
-                    self.window_state.theme = target;
+                    self.window_state.mode = target;
                     ProcessEventResult::ShouldIncrementalRelayout
                 }
             }

@@ -2168,7 +2168,7 @@ impl LayoutWindow {
         if self.layout_results.is_empty() {
             return true;
         }
-        if old.theme != new.theme {
+        if old.mode != new.mode {
             // While the app pins its mode (or `AZ_MODE` does), the
             // desktop's light / dark is not this window's: what `layout()`
             // reads as the mode is the pin, and the pin did not move. Weigh
@@ -2178,7 +2178,7 @@ impl LayoutWindow {
                 || azul_css::dynamic_selector::mode_pinned_by_env().is_some();
             if pinned {
                 let mut same_polarity = new.clone();
-                same_polarity.theme = old.theme;
+                same_polarity.mode = old.mode;
                 return self.system_style_change_needs_full_regeneration(old, &same_polarity);
             }
             return true;
@@ -5637,7 +5637,7 @@ impl LayoutWindow {
         // Both focus flags, read through the one helper: every backend
         // writes `window_focused`, only Win32 `flags.has_focus`.
         ctx.window_focused = window_state.is_window_active();
-        ctx.mode = match self.window_mode_for(window_state.theme) {
+        ctx.mode = match self.window_mode_for(window_state.mode) {
             azul_core::window::DarkLightMode::Dark => azul_css::system::DarkLightMode::Dark,
             azul_core::window::DarkLightMode::Light => azul_css::system::DarkLightMode::Light,
         };
@@ -8875,7 +8875,7 @@ impl LayoutWindow {
             reason,
             &self.font_manager.fc_cache,
             &self.image_cache,
-            window_state.theme,
+            window_state.mode,
             // The live frame, not a copy the widget was built with: a control
             // that draws "maximize" vs "restore" must be right after a window
             // manager maximize too, which never reaches the button's callback.
@@ -29068,7 +29068,7 @@ mod window_theme_context {
     fn window_with_system_theme(theme: azul_css::system::DarkLightMode) -> LayoutWindow {
         let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
         let mut style = azul_css::system::SystemStyle::default();
-        style.theme = theme;
+        style.mode = theme;
         lw.set_system_style(std::sync::Arc::new(style));
         lw
     }
@@ -29080,7 +29080,7 @@ mod window_theme_context {
         }
         let lw = window_with_system_theme(DarkLightMode::Light);
         let mut ws = FullWindowState {
-            theme: DarkLightMode::Dark,
+            mode: DarkLightMode::Dark,
             ..Default::default()
         };
         assert_eq!(
@@ -29088,7 +29088,7 @@ mod window_theme_context {
             azul_css::system::DarkLightMode::Dark,
             "an app that switched its window to dark must get `@theme dark` rules"
         );
-        ws.theme = DarkLightMode::Light;
+        ws.mode = DarkLightMode::Light;
         assert_eq!(
             lw.dynamic_selector_context(&ws).mode,
             azul_css::system::DarkLightMode::Light
@@ -29144,7 +29144,7 @@ mod window_theme_context {
             DarkLightMode::Light => DarkLightMode::Light,
         });
         let mut ws = FullWindowState {
-            theme,
+            mode: theme,
             ..Default::default()
         };
         ws.size.dimensions = LogicalSize::new(400.0, 300.0);
@@ -29207,7 +29207,7 @@ mod window_theme_context {
 
         let mut lw = window_with_system_theme(DarkLightMode::Light);
         let mut ws = FullWindowState {
-            theme: DarkLightMode::Light,
+            mode: DarkLightMode::Light,
             ..Default::default()
         };
         ws.size.dimensions = LogicalSize::new(400.0, 300.0);
@@ -29227,9 +29227,9 @@ mod window_theme_context {
         // object is the one already laid out (what `incremental_relayout`
         // hands back in).
         let mut dark_style = azul_css::system::SystemStyle::default();
-        dark_style.theme = DarkLightMode::Dark;
+        dark_style.mode = DarkLightMode::Dark;
         lw.set_system_style(std::sync::Arc::new(dark_style));
-        ws.theme = DarkLightMode::Dark;
+        ws.mode = DarkLightMode::Dark;
         let retained = lw
             .layout_results
             .remove(&DomId::ROOT_ID)
@@ -29276,7 +29276,7 @@ mod window_theme_context {
 
         let mut lw = window_with_system_theme(DarkLightMode::Dark);
         let mut ws = FullWindowState {
-            theme: DarkLightMode::Dark,
+            mode: DarkLightMode::Dark,
             ..Default::default()
         };
         ws.size.dimensions = LogicalSize::new(400.0, 300.0);
@@ -29325,7 +29325,7 @@ mod window_theme_context {
                 DarkLightMode::Light => DarkLightMode::Light,
             });
             let mut ws = FullWindowState {
-                theme,
+                mode: theme,
                 ..Default::default()
             };
             ws.size.dimensions = LogicalSize::new(800.0, 600.0);
@@ -29411,7 +29411,7 @@ mod window_theme_context {
 
         let mut lw = window_with_system_theme(DarkLightMode::Light);
         let mut ws = FullWindowState {
-            theme: DarkLightMode::Light,
+            mode: DarkLightMode::Light,
             ..Default::default()
         };
         ws.size.dimensions = LogicalSize::new(800.0, 600.0);
@@ -29424,15 +29424,15 @@ mod window_theme_context {
         assert!(light.len() > 3, "the fixture must lay out: {light:?}");
 
         let mut dark_style = azul_css::system::SystemStyle::default();
-        dark_style.theme = DarkLightMode::Dark;
+        dark_style.mode = DarkLightMode::Dark;
         lw.set_system_style(std::sync::Arc::new(dark_style));
-        ws.theme = DarkLightMode::Dark;
+        ws.mode = DarkLightMode::Dark;
         lw.layout_and_generate_display_list(fixture(), &ws, &rr, &sc, &mut dbg)
             .expect("dark layout");
         assert_eq!(light, rects(&lw), "the switch moved node rects");
 
         // And back, on the retained DOM (the restyle path).
-        ws.theme = DarkLightMode::Light;
+        ws.mode = DarkLightMode::Light;
         let retained = lw
             .layout_results
             .remove(&DomId::ROOT_ID)

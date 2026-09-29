@@ -1832,7 +1832,7 @@ impl CallbackInfo {
     #[must_use]
     pub fn get_resolved_mode(&self) -> azul_core::window::DarkLightMode {
         self.get_layout_window()
-            .window_mode_for(self.get_current_window_state().theme)
+            .window_mode_for(self.get_current_window_state().mode)
     }
 
     /// Switch the app's THEME to `name` (`"flat"`, `"flora"`, ...): the

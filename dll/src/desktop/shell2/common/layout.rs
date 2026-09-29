@@ -533,7 +533,7 @@ pub fn regenerate_layout(
     let callback_info = LayoutCallbackInfo::new_with_reason(
         &layout_ref_data,
         current_window_state.size,
-        current_window_state.theme,
+        current_window_state.mode,
         relayout_reason,
     );
 
@@ -672,7 +672,7 @@ pub fn regenerate_layout(
     // style equalled the held one) used to keep the retained DOM's old theme
     // for as long as the app's DOM stayed structurally identical.
     let theme_changed_precheck =
-        layout_window.current_window_state.theme != current_window_state.theme;
+        layout_window.current_window_state.mode != current_window_state.mode;
     // The window's DECORATION MODE moved since the retained DOM was built, so
     // the tree this pass owes is a DIFFERENT SHAPE from the retained one: a CSD
     // titlebar has to be prepended (or dropped). That injection lives on the

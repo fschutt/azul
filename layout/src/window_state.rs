@@ -47,7 +47,7 @@ pub struct WindowCreateOptions {
     /// an `AZ_THEME` pin), `None` follows the system. See
     /// `CommonWindowState::initial_window_theme`. The OS theme watchers keep
     /// following the system afterwards either way.
-    pub theme: azul_core::window::OptionDarkLightMode,
+    pub mode: azul_core::window::OptionDarkLightMode,
     /// Explicitly defined background color for light theme. If set, overrides the system light
     /// window background.
     pub background_color_light: OptionColorU,
@@ -66,7 +66,7 @@ impl Default for WindowCreateOptions {
             window_state: FullWindowState::default(),
             create_callback: OptionCallback::None,
             renderer: azul_core::window::OptionRendererOptions::None,
-            theme: azul_core::window::OptionDarkLightMode::None,
+            mode: azul_core::window::OptionDarkLightMode::None,
             size_to_content: false,
             hot_reload: false,
             parent_window_id: 0,
@@ -135,8 +135,8 @@ pub struct FullWindowState {
     pub flags: WindowFlags,
     /// Current mouse cursor state (position, buttons)
     pub mouse_state: MouseState,
-    /// Active window theme (light/dark)
-    pub theme: DarkLightMode,
+    /// The window's dark / light mode
+    pub mode: DarkLightMode,
     /// Position of the IME candidate window
     pub ime_position: ImePosition,
     /// GPU renderer options (`VSync`, SRGB, hardware acceleration)
@@ -390,7 +390,7 @@ impl Default for FullWindowState {
             mouse_state: MouseState::default(),
             pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
             keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
-            theme: DarkLightMode::default(),
+            mode: DarkLightMode::default(),
             ime_position: ImePosition::default(),
             renderer_options: RendererOptions::default(),
             monitor_id: OptionU32::None,
@@ -560,7 +560,7 @@ mod autotest_generated {
 
         assert_eq!(opts.create_callback, def.create_callback);
         assert_eq!(opts.renderer, def.renderer);
-        assert_eq!(opts.theme, def.theme);
+        assert_eq!(opts.mode, def.mode);
         assert_eq!(opts.size_to_content, def.size_to_content);
         assert_eq!(opts.hot_reload, def.hot_reload);
         assert_eq!(opts.parent_window_id, def.parent_window_id);
@@ -650,7 +650,7 @@ mod autotest_generated {
         assert!(s.background_color.is_none());
         assert!(s.active_route.is_none());
         assert_eq!(s.close_callback, OptionCallback::None);
-        assert_eq!(s.theme, DarkLightMode::default());
+        assert_eq!(s.mode, DarkLightMode::default());
         assert_eq!(s.position, WindowPosition::default());
         assert_eq!(s.ime_position, ImePosition::default());
 
@@ -667,7 +667,7 @@ mod autotest_generated {
         assert!(!o.size_to_content);
         assert!(!o.hot_reload);
         assert!(o.renderer.is_none());
-        assert!(o.theme.is_none());
+        assert!(o.mode.is_none());
         assert_eq!(o.create_callback, OptionCallback::None);
         assert_eq!(o.window_state, FullWindowState::default());
 
@@ -688,7 +688,7 @@ mod autotest_generated {
         assert_ne!(options_with(|o| o.size_to_content = true), base);
         assert_ne!(options_with(|o| o.hot_reload = true), base);
         assert_ne!(
-            options_with(|o| o.theme = OptionDarkLightMode::Some(DarkLightMode::Dark)),
+            options_with(|o| o.mode = OptionDarkLightMode::Some(DarkLightMode::Dark)),
             base
         );
         assert_ne!(

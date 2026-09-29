@@ -84,7 +84,7 @@ pub fn resolve_initial_background_color(
     ) {
         return;
     }
-    let mode = event::initial_window_theme(options.theme, system_style.theme);
+    let mode = event::initial_window_theme(options.mode, system_style.mode);
     options.window_state.background_color =
         azul_css::props::basic::OptionColorU::Some(mode_background(
             mode,

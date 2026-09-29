@@ -299,7 +299,7 @@ pub fn default_renderer_options(
     // renderer on the same function from then on, so a mode change moves it.
     let bg = crate::desktop::shell2::common::window_clear_color(
         options.window_state.background_color,
-        options.window_state.theme,
+        options.window_state.mode,
         None,
         false,
         !matches!(

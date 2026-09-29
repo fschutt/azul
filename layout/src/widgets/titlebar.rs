@@ -2577,7 +2577,7 @@ mod autotest_generated {
         };
         for theme in [DarkLightMode::Light, DarkLightMode::Dark] {
             let mut ss = blank_system_style();
-            ss.theme = theme;
+            ss.mode = theme;
             ss.colors.text = OptionColorU::Some(detected);
             assert_eq!(
                 Titlebar::from_system_style(AzString::from("x"), &ss).title_color,
@@ -2620,7 +2620,7 @@ mod autotest_generated {
 
         for desktop in [DarkLightMode::Light, DarkLightMode::Dark] {
             let mut ss = blank_system_style();
-            ss.theme = desktop;
+            ss.mode = desktop;
             ss.colors.text = OptionColorU::None;
             for bar in [
                 Titlebar::from_system_style(AzString::from("x"), &ss),
@@ -2663,7 +2663,7 @@ mod autotest_generated {
         let mut ss = blank_system_style();
         ss.metrics.titlebar.height = OptionPixelValue::Some(PixelValue::px(41.0));
         ss.metrics.titlebar.title_font_size = OptionF32::Some(17.5);
-        ss.theme = DarkLightMode::Dark;
+        ss.mode = DarkLightMode::Dark;
 
         let title_only = Titlebar::from_system_style(AzString::from("x"), &ss);
         let csd = Titlebar::from_system_style_csd(AzString::from("x"), &ss);

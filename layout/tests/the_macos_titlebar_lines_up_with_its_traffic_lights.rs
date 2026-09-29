@@ -261,7 +261,7 @@ fn the_macos_titlebar_has_no_fill_and_the_system_separator() {
         ),
         (defaults::macos_modern_dark(), ColorU::new_rgb(0, 0, 0)),
     ] {
-        let theme = style.theme;
+        let theme = style.mode;
         let bar = Titlebar::from_system_style("Window Title".into(), &style).dom();
         let resting: Vec<CssProperty> = bar
             .root

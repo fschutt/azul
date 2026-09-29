@@ -192,7 +192,7 @@ else, write your own resolver and pass it to
 `IconProviderHandle::with_resolver(my_callback)` or
 `IconProviderHandle::set_resolver(my_callback)`. The `system_style` a
 resolver receives is in the window's mode, so a resolver that reads
-`system_style.theme` sees the mode the window shows.
+`system_style.mode` sees the mode the window shows.
 
 ## System-style integration
 

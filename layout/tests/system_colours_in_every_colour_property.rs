@@ -359,7 +359,7 @@ fn display_list(css: &str, theme: DarkLightMode) -> Vec<DisplayListItem> {
     lw.set_system_style(preset(theme));
     let mut ws = FullWindowState::default();
     ws.size.dimensions = LogicalSize::new(200.0, 100.0);
-    ws.theme = match theme {
+    ws.mode = match theme {
         DarkLightMode::Light => DarkLightMode::Light,
         DarkLightMode::Dark => DarkLightMode::Dark,
     };

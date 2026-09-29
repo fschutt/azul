@@ -427,7 +427,7 @@ pub fn popup_create_options(
 
     let mut window_state = popup_window_state("Popup", "azul-transient", size, origin);
     window_state.size.dpi = parent.size.dpi;
-    window_state.theme = parent.theme;
+    window_state.mode = parent.mode;
     // `material="transparent"` (or a clip mask on the node): the frame
     // clears to transparent and whatever the content leaves at alpha 0 is
     // not window - clicks fall through, the corners are really round.
@@ -441,7 +441,7 @@ pub fn popup_create_options(
         window_state,
         size_to_content: false,
         renderer: None.into(),
-        theme: None.into(),
+        mode: None.into(),
         create_callback: None.into(),
         hot_reload: false,
         parent_window_id,
@@ -503,7 +503,7 @@ pub fn toplevel_create_options(
     // rectangle. A `Normal` toplevel at an absolute position got neither.
     let mut window_state = popup_window_state(title, "azul-transient-torn", size, origin);
     window_state.size.dpi = parent.size.dpi;
-    window_state.theme = parent.theme;
+    window_state.mode = parent.mode;
     window_state.flags.background_material = open.placement.material;
     // Unlike a menu/picker popup, a torn-off panel is a window the user parks
     // and works next to — it must not sit permanently above every other
@@ -518,7 +518,7 @@ pub fn toplevel_create_options(
         window_state,
         size_to_content: false,
         renderer: None.into(),
-        theme: None.into(),
+        mode: None.into(),
         create_callback: None.into(),
         hot_reload: false,
         parent_window_id,

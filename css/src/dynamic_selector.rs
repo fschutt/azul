@@ -1666,7 +1666,7 @@ impl DynamicSelectorContext {
         // in, so a widget with `@theme dark` rules came out dark on the site
         // while every other widget stayed light. Unset (the normal case) keeps
         // the OS mode.
-        let mode = mode_pinned_by_env().unwrap_or(system_style.theme);
+        let mode = mode_pinned_by_env().unwrap_or(system_style.mode);
         // The palette of the mode this context EVALUATES, which the pin can
         // make differ from the desktop's.
         let system_colors = system_style.colors_for_theme(mode);

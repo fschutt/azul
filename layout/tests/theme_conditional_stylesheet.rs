@@ -34,7 +34,7 @@ const DARK_INK: ColorU = ColorU {
 
 fn style_for(theme: DarkLightMode) -> Arc<SystemStyle> {
     let mut s = SystemStyle::default();
-    s.theme = theme;
+    s.mode = theme;
     Arc::new(s)
 }
 

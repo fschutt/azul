@@ -5821,7 +5821,7 @@ impl MacOSWindow {
             },
             position: options.window_state.position,
             flags: options.window_state.flags,
-            theme: options.window_state.theme,
+            mode: options.window_state.mode,
             debug_state: options.window_state.debug_state,
             keyboard_state: Default::default(),
             mouse_state: Default::default(),
@@ -5967,7 +5967,7 @@ impl MacOSWindow {
 
         let mut common = event::CommonWindowState::new(
             current_window_state,
-            options.theme,
+            options.mode,
             options.background_color_light,
             options.background_color_dark,
             fc_cache,

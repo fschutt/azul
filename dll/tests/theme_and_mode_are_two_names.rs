@@ -171,7 +171,7 @@ fn make_window(model: Model) -> HeadlessWindow {
 }
 
 fn shown_mode(window: &HeadlessWindow) -> DarkLightMode {
-    window.common.current_window_state().theme
+    window.common.current_window_state().mode
 }
 
 /// The names ARE the contract: each binding generates its method names from them.

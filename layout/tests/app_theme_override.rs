@@ -56,7 +56,7 @@ fn window(desktop: SystemStyle, app_theme: &str) -> LayoutWindow {
 
 fn window_state(theme: DarkLightMode) -> FullWindowState {
     let mut ws = FullWindowState::default();
-    ws.theme = theme;
+    ws.mode = theme;
     ws.size.dimensions = LogicalSize::new(400.0, 300.0);
     ws
 }

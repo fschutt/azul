@@ -601,7 +601,7 @@ impl CpuBackend {
             let ws = &layout_window.current_window_state;
             let c = crate::desktop::shell2::common::window_clear_color(
                 ws.background_color,
-                layout_window.window_mode_for(ws.theme),
+                layout_window.window_mode_for(ws.mode),
                 layout_window.system_style.as_deref(),
                 self.follow_system_background,
                 self.transparent,
@@ -1636,7 +1636,7 @@ impl HeadlessWindow {
         // suite that builds thousands of them.
         let mut common = CommonWindowState::new(
             full_window_state,
-            options.theme,
+            options.mode,
             bg_light,
             bg_dark,
             fc_cache,

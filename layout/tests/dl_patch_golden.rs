@@ -135,14 +135,14 @@ fn run_theme_flip(
 
     let mut ws = FullWindowState::default();
     ws.size.dimensions = LogicalSize::new(640.0, 480.0);
-    ws.theme = first;
+    ws.mode = first;
     lw.layout_and_generate_display_list(test_dom(), &ws, &rr, &cb, &mut dbg)
         .unwrap();
 
     // The new generation also edits one paragraph, as AzWriter's rebuild
     // re-flows text. An otherwise identical DOM takes the clean-reconcile
     // exit, which re-emits wholesale and never reaches the patch gate.
-    ws.theme = second;
+    ws.mode = second;
     lw.layout_and_generate_display_list(
         test_dom_with("the first paragraph of golden text, edited"),
         &ws,

@@ -516,7 +516,7 @@ pub fn show_menu(
         window_state,
         size_to_content: true,
         renderer: None.into(),
-        theme: None.into(),
+        mode: None.into(),
         create_callback: None.into(),
         hot_reload: false,
         // A menu opened FROM a menu is placed AGAINST that menu: the

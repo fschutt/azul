@@ -1683,7 +1683,7 @@ mod remap_rules_tests {
         _original: &NodeData,
         style: &SystemStyle,
     ) -> Dom {
-        if style.theme == DarkLightMode::Dark {
+        if style.mode == DarkLightMode::Dark {
             SEEN_DARK.fetch_add(1, AtomicOrdering::SeqCst);
         }
         Dom::create_div()
