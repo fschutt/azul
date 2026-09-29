@@ -3717,4 +3717,200 @@ mod autotest_generated {
             "a click must move the current step and nothing else"
         );
     }
+
+    /// The click restyle writes the colours of the theme the stepper was
+    /// BUILT in (read back from its marker class): a flora stepper must not
+    /// be repainted in flat's blue and grey on the first click.
+    #[test]
+    fn a_click_on_a_flora_stepper_restyles_in_flora_s_colours() {
+        use crate::widgets::themes::{flora, theme_checks as tc, UiTheme};
+
+        let (styled, state) = flatten(Stepper::create(n_labels(3)).with_theme(UiTheme::Flora));
+        let (_, changes) = run_click(Some(styled), node(cell_node(1)), state);
+        let writes: Vec<(usize, CssProperty)> = changes
+            .iter()
+            .filter_map(|c| match c {
+                CallbackChange::ChangeNodeCssProperties {
+                    node_id,
+                    properties,
+                    ..
+                } => Some((node_id.index(), properties.as_ref()[0].clone())),
+                _ => None,
+            })
+            .collect();
+        let bg_of = |n: usize| {
+            writes
+                .iter()
+                .find(|(i, p)| *i == n && matches!(p, CssProperty::BackgroundContent(_)))
+                .map(|(_, p)| tc::bg_layers(p))
+        };
+        let ink_of = |n: usize| {
+            writes.iter().find_map(|(i, p)| match p {
+                CssProperty::TextColor(v) if *i == n => v.get_property().map(|c| c.inner),
+                _ => None,
+            })
+        };
+
+        let reached = bg_of(circle_node(1)).expect("circle 1 is restyled");
+        assert_eq!(
+            reached.first(),
+            Some(&StyleBackgroundContent::Color(flora::LIGHT_ACC)),
+            "a reached step is flora's accent stone: {reached:?}"
+        );
+        assert_eq!(ink_of(circle_node(1)), Some(flora::LIGHT_ON_ACC));
+        let upcoming = bg_of(circle_node(2)).expect("circle 2 is restyled");
+        assert!(
+            upcoming == vec![flora::RAISED_FACE_LIGHT] || upcoming == vec![flora::RAISED_FACE_DARK],
+            "an upcoming step is flora paper: {upcoming:?}"
+        );
+        let label = ink_of(label_node(2)).expect("label 2 is restyled");
+        assert!(label == flora::LIGHT_SOFT1 || label == flora::DARK_SOFT1, "{label:?}");
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    //! The stepper's theme is a DOM-level choice: cells, circles, connectors
+    //! and labels are built from the skin of the theme the stepper carries,
+    //! flat by default, and the click restyle writes that theme's colours.
+
+    use azul_core::dom::Dom;
+    use azul_css::props::{
+        basic::color::ColorU,
+        property::{CssProperty, CssPropertyType},
+        style::StyleBackgroundContent,
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, system_palette, theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLAT: &str = "__azul-theme-flat";
+    const FLORA: &str = "__azul-theme-flora";
+
+    /// Three steps, the second current: step 0 and 1 reached, 2 upcoming.
+    fn steps(theme: Option<UiTheme>) -> Dom {
+        let s = Stepper::create(StringVec::from_vec(vec![
+            AzString::from("Start"),
+            AzString::from("Details"),
+            AzString::from("Done"),
+        ]))
+        .with_current_step(1);
+        match theme {
+            Some(t) => s.with_theme(t).dom(),
+            None => s.dom(),
+        }
+    }
+
+    fn cell(dom: &Dom, i: usize) -> &Dom {
+        &dom.children.as_ref()[i]
+    }
+    fn circle(dom: &Dom, i: usize) -> &Dom {
+        &cell(dom, i).children.as_ref()[0].children.as_ref()[1]
+    }
+    fn connector(dom: &Dom, i: usize, right: bool) -> &Dom {
+        &cell(dom, i).children.as_ref()[0].children.as_ref()[if right { 2 } else { 0 }]
+    }
+    fn label(dom: &Dom, i: usize) -> &Dom {
+        &cell(dom, i).children.as_ref()[1]
+    }
+    fn bg(node: &Dom, dark: bool) -> Option<ColorU> {
+        tc::background(node, dark).and_then(|p| tc::bg_color(&p))
+    }
+    fn layers(node: &Dom, dark: bool) -> Vec<StyleBackgroundContent> {
+        tc::background(node, dark)
+            .map(|p| tc::bg_layers(&p))
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_stepper_without_a_theme_renders_flat() {
+        let s = Stepper::create(StringVec::from_const_slice(&[]));
+        assert_eq!(s.theme, OptionUiTheme::None);
+        assert!(tc::has_class(&steps(None), FLAT));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_agree() {
+        let mut a = Stepper::create(StringVec::from_const_slice(&[]));
+        a.set_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(
+            a,
+            Stepper::create(StringVec::from_const_slice(&[])).with_theme(UiTheme::Flora)
+        );
+    }
+
+    #[test]
+    fn a_flat_stepper_keeps_its_look_and_takes_the_desktop_palette_in_the_dark() {
+        let dom = steps(Some(UiTheme::Flat));
+        assert_eq!(bg(circle(&dom, 1), false), Some(ColorU::rgb(13, 110, 253)));
+        assert_eq!(bg(circle(&dom, 2), false), Some(ColorU::rgb(233, 236, 239)));
+        assert_eq!(
+            layers(circle(&dom, 2), true),
+            system_palette::SELECTION_BACKGROUND_INACTIVE.as_ref().to_vec()
+        );
+    }
+
+    #[test]
+    fn a_flora_stepper_marks_the_way_in_accent_stones_on_flora_paper() {
+        let dom = steps(Some(UiTheme::Flora));
+        assert!(tc::has_class(&dom, FLORA));
+        for dark in [false, true] {
+            // Reached: the accent stone, its own colour by day and by night.
+            let stone = layers(circle(&dom, 1), dark);
+            assert_eq!(
+                stone.first(),
+                Some(&StyleBackgroundContent::Color(flora::LIGHT_ACC)),
+                "dark={dark}: {stone:?}"
+            );
+            assert!(stone.len() > 1, "dark={dark}: the stone carries its rig");
+            assert_eq!(tc::text_color(circle(&dom, 1), dark), Some(flora::LIGHT_ON_ACC));
+            // The line walked so far is the accent.
+            assert_eq!(bg(connector(&dom, 1, false), dark), Some(flora::LIGHT_ACC));
+        }
+        // Upcoming: raised paper, soft ink, a BD line ahead.
+        assert_eq!(layers(circle(&dom, 2), false), vec![flora::RAISED_FACE_LIGHT]);
+        assert_eq!(layers(circle(&dom, 2), true), vec![flora::RAISED_FACE_DARK]);
+        assert_eq!(tc::text_color(circle(&dom, 2), false), Some(flora::LIGHT_SOFT1));
+        assert_eq!(tc::text_color(circle(&dom, 2), true), Some(flora::DARK_SOFT1));
+        assert_eq!(bg(connector(&dom, 1, true), false), Some(flora::LIGHT_BD));
+        assert_eq!(bg(connector(&dom, 1, true), true), Some(flora::DARK_BD));
+        // Labels: ink for the way walked, soft ink for the way ahead.
+        assert_eq!(tc::text_color(label(&dom, 0), false), Some(flora::LIGHT_INK));
+        assert_eq!(tc::text_color(label(&dom, 0), true), Some(flora::DARK_INK));
+        assert_eq!(tc::text_color(label(&dom, 2), false), Some(flora::LIGHT_SOFT1));
+        assert_eq!(tc::text_color(label(&dom, 2), true), Some(flora::DARK_SOFT1));
+    }
+
+    #[test]
+    fn a_step_circle_keeps_its_size_in_every_theme() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = steps(Some(theme));
+            assert_eq!(
+                tc::resolve(circle(&dom, 0), CssPropertyType::Width, false, None),
+                Some(CssProperty::const_width(LayoutWidth::const_px(CIRCLE_SIZE))),
+                "{theme:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_step_shows_a_focus_ring_in_every_theme_and_mode() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = steps(Some(theme));
+            assert_eq!(tc::focusable(&dom).len(), 3, "{theme:?}: one stop per step");
+            tc::assert_theme_invariants(&format!("stepper {theme:?}"), &dom);
+        }
+        let dom = steps(Some(UiTheme::Flora));
+        assert_eq!(tc::focus_ring_color(cell(&dom, 0), false), Some(flora::LIGHT_ACC));
+        assert_eq!(tc::focus_ring_color(cell(&dom, 0), true), Some(flora::DARK_GLOW));
+    }
+
+    #[test]
+    fn the_theme_changes_the_look_not_the_accessibility_tree() {
+        let flat = steps(Some(UiTheme::Flat));
+        let flora_dom = steps(Some(UiTheme::Flora));
+        assert_eq!(tc::a11y_outline(&flat).len(), 3);
+        assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora_dom));
+    }
 }
