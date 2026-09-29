@@ -20,9 +20,17 @@ Nothing is compiled here (house rule). If resumed: read this file first.
 - b7d1f01ef fix(d): `&mut self` of a native type = `ref` receiver + write back
   (`stringLocalizable(ref string self, bool)`).
 
+- cf13151b1 test RED + 8f1b6dd45 fix: every binding with per-variant records pads like azul.h
+  (15 bindings), OCaml extractor uses payload_offset and its own layout calculator is gone,
+  VB6 comment. Hand-checked go/zig/odin/ldc2/nim/crystal/v/racket snippets: payload at 8.
+
 ## IN PROGRESS
 
-- P0 bindings. Survey (3 Explore agents) result:
+- P0 conformance case per constructible union variant (if cheap).
+
+## Survey notes (P0 bindings)
+
+- Survey (3 Explore agents) result:
   - NEED `_pad0[N]` (C-aligned records, from c_layout padding): go, node/koffi (Deno resolve()
     cannot parse arrays -> emit N uint8_t members or teach resolve), crystal, odin, v, racket
     (define-cstruct positional make-* arity changes), java (+@FieldOrder), kotlin
