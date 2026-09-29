@@ -15,6 +15,10 @@
 //! * unpinned, built for app theme T, every node resolves exactly like the widget pinned to T
 //!   (`with_theme(T)`) - in light and dark, at rest and hovered / pressed / focused - with the same
 //!   classes (the theme marker included) and accessibility;
+//! * ... also when the theme chain holds the OTHER compiled-in theme behind T (`[flora, flat]`:
+//!   the app default is the chain's implicit last entry). Each compiled-in theme is a complete
+//!   look, so only the first one in the chain is live: flat must not fill the gaps of flora's
+//!   look (a property flat declares and flora does not stays flora's - undeclared);
 //! * its DOM carries BOTH themes' blocks (unless the two looks are one);
 //! * a pinned widget ignores the app theme: no `@theme` condition anywhere, the same styles
 //!   whatever the app theme;
@@ -44,23 +48,28 @@ fn built_for(theme: UiTheme, make: &dyn Fn() -> Dom) -> Dom {
     make()
 }
 
-/// `node`'s inline style under the app theme `app_theme`, the colour scheme
-/// and `state` (`None`: at rest): last match wins per property.
+/// `node`'s inline style under the theme chain `chain` (most specific first),
+/// the colour scheme and `state` (`None`: at rest): last match wins per property.
 fn resolve(
     node: &Dom,
-    app_theme: &str,
+    chain: &[&str],
     dark: bool,
     state: Option<PseudoStateType>,
 ) -> Vec<(CssPropertyType, CssProperty)> {
-    let ctx = DynamicSelectorContext {
+    let mut ctx = DynamicSelectorContext {
         theme: if dark {
             ThemeCondition::Dark
         } else {
             ThemeCondition::Light
         },
         ..Default::default()
-    }
-    .with_app_theme(app_theme);
+    };
+    ctx.theme_chain = azul_css::StringVec::from_vec(
+        chain
+            .iter()
+            .map(|n| AzString::from((*n).to_string()))
+            .collect(),
+    );
     let mut out: Vec<(CssPropertyType, CssProperty)> = Vec::new();
     for (p, conds) in node.root.style.iter_inline_properties() {
         let applies = conds.as_ref().iter().all(|c| match c {
@@ -129,6 +138,14 @@ fn a11y(dom: &Dom) -> Vec<Box<azul_core::a11y::AccessibilityInfo>> {
         .collect()
 }
 
+/// `theme` first, then every other compiled-in widget theme: a chain holding
+/// more than one complete look (`[flora, flat]`).
+fn with_the_others_behind(theme: UiTheme) -> Vec<&'static str> {
+    let mut chain = vec![theme.name()];
+    chain.extend(THEMES.iter().filter(|t| **t != theme).map(|t| t.name()));
+    chain
+}
+
 /// The checks every widget that follows the app theme owes (module docs).
 /// `make(None)` builds it unpinned, `make(Some(t))` pinned to `t`.
 fn assert_follows_the_app_theme(widget: &str, make: impl Fn(Option<UiTheme>) -> Dom) {
@@ -161,14 +178,16 @@ fn assert_follows_the_app_theme(widget: &str, make: impl Fn(Option<UiTheme>) -> 
             }
             for dark in [false, true] {
                 for state in STATES {
-                    let got = resolve(fnode, theme.name(), dark, state);
-                    let want = resolve(pnode, theme.name(), dark, state);
-                    if got != want {
-                        bad.push(format!(
-                            "{widget} under {theme:?}, dark {dark}, {state:?}: node {path} \
-                             resolves\n      {got:?}\n    with_theme({theme:?}) resolves\n      \
-                             {want:?}"
-                        ));
+                    let want = resolve(pnode, &[theme.name()], dark, state);
+                    for chain in [vec![theme.name()], with_the_others_behind(theme)] {
+                        let got = resolve(fnode, &chain, dark, state);
+                        if got != want {
+                            bad.push(format!(
+                                "{widget} under the chain {chain:?}, dark {dark}, {state:?}: \
+                                 node {path} resolves\n      {got:?}\n    \
+                                 with_theme({theme:?}) resolves\n      {want:?}"
+                            ));
+                        }
                     }
                 }
             }
