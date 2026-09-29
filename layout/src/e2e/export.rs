@@ -10,6 +10,10 @@
 //!   converted component's `{placeholders}` become parameters) and, where
 //!   the language's printer spells it, its registration
 //!   (`register_<library>_library`, a `ComponentDef` per component).
+//! * **HTML → DOM (code)** — pasted HTML / XHTML (a fragment or a document,
+//!   its `<style>` blocks and `style` attributes) as a render function or an
+//!   app, optionally with its CSS as named styles; a parse error comes back
+//!   with its line and column ([`html_to_code`]).
 //!
 //! Plus what Export > Code downloads ([`project`]): the app, its build file,
 //! the exportable component libraries, the app's stylesheet as named styles
@@ -24,7 +28,7 @@
 //! templates ([`template_markup`]) and the libraries, and answers JSON.
 //!
 //! The ops that call this live in `full.rs` (`get_codegen_languages`,
-//! `get_css_rules`, `compile_css`, `export_subtree_code`,
+//! `get_css_rules`, `compile_css`, `html_to_code`, `export_subtree_code`,
 //! `export_component_code`, `export_code`, `export_code_zip`).
 
 use std::fmt::Write as _;
@@ -34,7 +38,7 @@ use azul_core::{
     codegen::{
         backend,
         dom::{ComponentMarkup, Components},
-        project::{fragment_code, library_code, project_files, ProjectSpec},
+        project::{fragment_code, html_code, library_code, project_files, ProjectSpec},
         render_fn_name,
     },
     xml::{ComponentDef, ComponentMap, XmlNodeChild},
@@ -479,6 +483,109 @@ pub fn component_code(
         backend(language)?.extension()
     );
     Ok(out)
+}
+
+/// `html_to_code`: pasted HTML / XHTML as code ("HTML → DOM (code)",
+/// `azul_core::codegen::project::html_code`), component instances
+/// (`<library:name ..>`) as calls of the app's components. The answer is
+/// [`code_json`] plus `errors`: markup that does not parse answers no code and
+/// its error with line and column ([`parse_error_json`]); that is an answer,
+/// not a refusal.
+///
+/// # Errors
+/// An unknown language; a document without a body.
+pub fn html_to_code(
+    html: &str,
+    map: &ComponentMap,
+    language: &str,
+    mode: CodeMode,
+    fn_name: Option<&str>,
+    with_styles: bool,
+) -> Result<serde_json::Value, String> {
+    let b = backend(language)?;
+    let nodes = match crate::xml::parse_xml_string(html) {
+        Ok(nodes) => nodes,
+        Err(e) => {
+            return Ok(serde_json::json!({
+                "language": b.lang(),
+                "file_name": "",
+                "code": "",
+                "files": [],
+                "warnings": [],
+                "errors": [parse_error_json(&e)],
+            }))
+        }
+    };
+    let out = html_code(&nodes, b.lang(), mode, fn_name, with_styles, &components(map))?;
+    let mut json = code_json(&out);
+    if let Some(obj) = json.as_object_mut() {
+        obj.insert("errors".into(), serde_json::json!([]));
+    }
+    Ok(json)
+}
+
+/// A markup parse error as the dialogs read it: `{message, line, column}`
+/// (1-based; `line` / `column` are `null` when the parser gave no position).
+#[must_use]
+pub fn parse_error_json(e: &azul_core::xml::XmlError) -> serde_json::Value {
+    let (line, column) = xml_error_position(e).map_or((None, None), |p| (Some(p.row), Some(p.col)));
+    serde_json::json!({
+        "message": e.to_string(),
+        "line": line,
+        "column": column,
+    })
+}
+
+/// Where the parser stopped, if it said.
+fn xml_error_position(e: &azul_core::xml::XmlError) -> Option<azul_core::xml::XmlTextPos> {
+    use azul_core::xml::{XmlError as E, XmlParseError as P, XmlStreamError as S};
+    let stream_pos = |s: &S| match s {
+        S::NonXmlChar(x) => Some(x.pos),
+        S::InvalidChar(x) => Some(x.pos),
+        S::InvalidCharMultiple(x) => Some(x.pos),
+        S::InvalidQuote(x) => Some(x.pos),
+        S::InvalidSpace(x) => Some(x.pos),
+        S::InvalidString(x) => Some(x.pos),
+        _ => None,
+    };
+    match e {
+        E::ParserError(p) => match p {
+            P::InvalidDeclaration(t)
+            | P::InvalidComment(t)
+            | P::InvalidPI(t)
+            | P::InvalidDoctype(t)
+            | P::InvalidEntity(t)
+            | P::InvalidElement(t)
+            | P::InvalidAttribute(t)
+            | P::InvalidCdata(t)
+            | P::InvalidCharData(t) => stream_pos(&t.stream_error).or(Some(t.pos)),
+            P::UnknownToken(pos) => Some(*pos),
+        },
+        E::InvalidXmlPrefixUri(p)
+        | E::UnexpectedXmlUri(p)
+        | E::UnexpectedXmlnsUri(p)
+        | E::InvalidElementNamePrefix(p)
+        | E::UnexpectedEntityCloseTag(p)
+        | E::MalformedEntityReference(p)
+        | E::EntityReferenceLoop(p)
+        | E::InvalidAttributeValue(p)
+        | E::UnexpectedDeclaration(p)
+        | E::InvalidName(p)
+        | E::NonXmlChar(p)
+        | E::InvalidChar(p)
+        | E::InvalidChar2(p)
+        | E::InvalidString(p)
+        | E::InvalidExternalID(p)
+        | E::InvalidComment(p)
+        | E::InvalidCharacterData(p)
+        | E::UnknownToken(p) => Some(*p),
+        E::DuplicatedNamespace(x) => Some(x.pos),
+        E::UnknownNamespace(x) => Some(x.pos),
+        E::UnexpectedCloseTag(x) => Some(x.pos),
+        E::UnknownEntityReference(x) => Some(x.pos),
+        E::DuplicatedAttribute(x) => Some(x.pos),
+        _ => None,
+    }
 }
 
 // ===========================================================================

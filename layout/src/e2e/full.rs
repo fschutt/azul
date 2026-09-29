@@ -3298,6 +3298,30 @@ pub enum DebugEvent {
         #[serde(default)]
         rules: Option<Vec<usize>>,
     },
+    /// Pasted HTML / XHTML as code ("HTML → DOM (code)"): a fragment or a
+    /// whole document, its `<style>` blocks and `style` attributes lowered
+    /// like the builder's markup (component instances `<library:name ..>`
+    /// are calls of the app's components): `{language, file_name, code,
+    /// files, warnings, errors}`. Markup that does not parse answers no code
+    /// and `errors: [{message, line, column}]` (1-based, in the text as
+    /// pasted).
+    HtmlToCode {
+        /// The pasted markup.
+        html: String,
+        /// Any code generator's language (see `get_codegen_languages`).
+        language: String,
+        /// `function` (default: one render function) or `app` (a runnable
+        /// program: `files` holds the project).
+        #[serde(default)]
+        mode: Option<String>,
+        /// The render function's name (default: `render_ui` for a document,
+        /// else after the root's id / class / tag).
+        #[serde(default)]
+        function_name: Option<String>,
+        /// Also the markup's stylesheet as named styles (`styles.<ext>`).
+        #[serde(default)]
+        css: bool,
+    },
     /// A builder-document subtree as code: `{language, file_name, code,
     /// warnings}`.
     ExportSubtreeCode {
@@ -19935,6 +19959,30 @@ pub fn process_debug_event(
                     }
                     send_ok(request, None, Some(ResponseData::Json(json)));
                 }
+                Err(e) => send_err(request, e),
+            }
+        }
+
+        DebugEvent::HtmlToCode {
+            html,
+            language,
+            mode,
+            function_name,
+            css,
+        } => {
+            let result = super::export::CodeMode::parse(mode.as_deref()).and_then(|mode| {
+                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                super::export::html_to_code(
+                    html,
+                    &map_guard,
+                    language,
+                    mode,
+                    function_name.as_deref(),
+                    *css,
+                )
+            });
+            match result {
+                Ok(json) => send_ok(request, None, Some(ResponseData::Json(json))),
                 Err(e) => send_err(request, e),
             }
         }

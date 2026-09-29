@@ -16,6 +16,11 @@
  * Both lists are the ONE list of azul_css::codegen's code generators
  * (`get_codegen_languages`); the DOM dialogs disable the languages whose
  * printer does not do DOM export yet.
+ *   - HTML → DOM (code) pasted HTML / XHTML (a fragment or a whole
+ *                        document, its <style> blocks and style=""
+ *                        attributes) as a render function or a runnable app,
+ *                        optionally with its CSS as named styles; a parse
+ *                        error shows its line and column.
  *   - Component → code   a component as code: its render function (a
  *                        converted component's texts are its parameters),
  *                        and its registration.
@@ -139,6 +144,30 @@
         return msg;
     }
 
+    /**
+     * `html_to_code`: the pasted text and the language; the mode, the
+     * function name (a function only) and the CSS only when they are not the
+     * default. Nothing pasted: nothing to send (`null`).
+     */
+    function htmlMessage(html, language, mode, fnName, withCss) {
+        if (!html || !String(html).trim()) return null;
+        var msg = { op: 'html_to_code', html: String(html), language: language };
+        if (mode === 'app') msg.mode = 'app';
+        else if (fnName && fnName.trim()) msg.function_name = fnName.trim();
+        if (withCss) msg.css = true;
+        return msg;
+    }
+
+    /** A parse error as the dialog shows it: `line 4, column 10: <message>`. */
+    function parseErrorText(err) {
+        if (!err) return '';
+        var where = '';
+        if (err.line != null) {
+            where = 'line ' + err.line + (err.column != null ? ', column ' + err.column : '') + ': ';
+        }
+        return where + (err.message || 'the markup does not parse');
+    }
+
     function componentMessage(choice, language) {
         return { op: 'export_component_code', library: choice.library, name: choice.name, language: language };
     }
@@ -237,6 +266,8 @@
         rulesMessage: rulesMessage,
         compileCssMessage: compileCssMessage,
         subtreeMessage: subtreeMessage,
+        htmlMessage: htmlMessage,
+        parseErrorText: parseErrorText,
         componentMessage: componentMessage,
         componentChoices: componentChoices,
         defaultComponentChoice: defaultComponentChoice,
@@ -260,6 +291,7 @@
         languages: null,   // dialogLanguages(..) once the server answered
         open: null,        // the dialog on screen
         seq: 0,
+        html: null,        // what "HTML → DOM (code)" had pasted last
     };
 
     async function call(msg) {
@@ -772,6 +804,84 @@
         await loadSource();
     }
 
+    // ── HTML → DOM (code) ──
+
+    var HTML_SAMPLE = '<style>\n  .card { padding: 8px; border-radius: 4px; }\n</style>\n'
+        + '<div class="card">\n  <h2>Hello</h2>\n  <p>Pasted HTML becomes DOM code.</p>\n'
+        + '  <a href="https://azul.rs">Docs</a>\n</div>\n';
+
+    async function openHtmlDialog(opener, preset) {
+        var d = openDialog('HTML → DOM (code)', 'html', opener);
+        var langs = await languages();
+        if (S.open !== d) return;
+
+        var ta = el('textarea', 'azx-css azx-html');
+        ta.spellcheck = false;
+        ta.setAttribute('aria-label', 'HTML');
+        ta.placeholder = '<div class="card"><h2>Hello</h2></div>  (a fragment or a whole document)';
+        ta.value = (preset && preset.html) || S.html || HTML_SAMPLE;
+        d.body.appendChild(ta);
+
+        var row = el('div', 'azx-row');
+        var mode = selectOf([
+            { id: 'function', label: 'A render function' },
+            { id: 'app', label: 'A runnable app' },
+        ], 'function');
+        var name = el('input', 'azx-input');
+        name.type = 'text';
+        name.placeholder = 'render_…';
+        name.spellcheck = false;
+        var nameField = field('Function name', name);
+        var langSel = languageSelect(langs.dom, 'dom');
+        var cssLabel = el('label', 'azx-check');
+        var cssBox = el('input');
+        cssBox.type = 'checkbox';
+        cssLabel.appendChild(cssBox);
+        cssLabel.appendChild(document.createTextNode(' With its CSS as named styles'));
+        row.appendChild(field('Export as', mode));
+        row.appendChild(nameField);
+        row.appendChild(field('Language', langSel));
+        row.appendChild(cssLabel);
+        d.body.appendChild(row);
+        d.body.appendChild(el('div', 'azx-hint',
+            '<style> blocks and style="" attributes become each node\u2019s with_css; '
+            + 'a <library:name> tag is a call of that component.'));
+        var out = outputPanel(d.body);
+
+        async function generate() {
+            S.html = ta.value;
+            nameField.style.display = mode.value === 'app' ? 'none' : '';
+            var msg = htmlMessage(ta.value, langSel.value, mode.value, name.value, cssBox.checked);
+            if (!msg) {
+                setCode(out, '', '');
+                setStatus(out, 'Paste some HTML.', '');
+                return;
+            }
+            var v = await request(d, out, function () { return call(msg); });
+            if (!v) return;
+            if (v.errors && v.errors.length) {
+                setCode(out, '', '');
+                setStatus(out, v.errors.map(parseErrorText).join('\n'), 'error');
+                return;
+            }
+            setAnswer(out, v);
+            if (!(v.warnings || []).length) {
+                var n = projectFiles(v).length;
+                setStatus(out, labelOf(langs.dom, v.language) + ': ' + v.file_name
+                    + (n > 1 ? ' (+' + (n - 1) + ' more file' + (n > 2 ? 's' : '') + ')' : ''), 'ok');
+            }
+        }
+
+        d.run = generate;
+        ta.addEventListener('input', debounce(function () { if (S.open === d) generate(); }, 400));
+        mode.addEventListener('change', generate);
+        langSel.addEventListener('change', generate);
+        cssBox.addEventListener('change', generate);
+        name.addEventListener('input', debounce(function () { if (S.open === d) generate(); }, 350));
+        ta.focus();
+        await generate();
+    }
+
     // ── Subtree → code ──
 
     async function openSubtreeDialog(opener, uid) {
@@ -918,6 +1028,7 @@
         // A click on a menu item does not move focus: what had it gets it back.
         var opener = document.activeElement;
         if (act === 'css') return openCssDialog(opener);
+        if (act === 'html') return openHtmlDialog(opener);
         if (act === 'subtree') return openSubtreeDialog(opener, null);
         if (act === 'component') return openComponentDialog(opener);
     }
@@ -927,6 +1038,7 @@
         if (!dd || dd.querySelector('[data-azx]')) return;
         var items = [
             menuItem('style', 'Compile CSS to…', 'css'),
+            menuItem('html', 'HTML \u2192 DOM (code)…', 'html'),
             menuItem('account_tree', 'Subtree → code…', 'subtree'),
             menuItem('widgets', 'Component → code…', 'component'),
         ];
@@ -1025,6 +1137,8 @@
             '.azx-dialog :focus-visible{outline:2px solid var(--accent);outline-offset:1px}',
             '.azx-split{display:grid;grid-template-columns:minmax(0,1fr) 220px;gap:8px;min-height:130px}',
             '.azx-css{background:var(--bg-panel);color:var(--text-main);border:1px solid var(--border);border-radius:3px;font:12px/1.4 monospace;padding:6px;resize:vertical;min-height:130px}',
+            '.azx-html{min-height:150px;width:100%;box-sizing:border-box}',
+            '.azx-check{display:inline-flex;align-items:center;gap:4px;padding-bottom:4px;cursor:pointer}',
             '.azx-rules{border:1px solid var(--border);border-radius:3px;display:flex;flex-direction:column;min-height:0;max-height:220px}',
             '.azx-rules-head{display:flex;align-items:center;gap:4px;padding:3px 6px;border-bottom:1px solid var(--border)}',
             '.azx-rules-title{flex:1;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)}',
@@ -1074,6 +1188,7 @@
         logic: logic,
         state: S,
         openCssDialog: openCssDialog,
+        openHtmlDialog: openHtmlDialog,
         openSubtreeDialog: openSubtreeDialog,
         openComponentDialog: openComponentDialog,
         closeDialog: closeDialog,

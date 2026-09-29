@@ -601,6 +601,7 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("get_codegen_languages",      Some("codegen surface, not engine behaviour")),
     ("get_css_rules",              Some("codegen surface, not engine behaviour")),
     ("compile_css",                Some("codegen surface, not engine behaviour")),
+    ("html_to_code",               Some("codegen surface, not engine behaviour")),
     ("export_subtree_code",        Some("codegen surface, not engine behaviour")),
     ("export_component_code",      Some("codegen surface, not engine behaviour")),
     ("resolve_function_pointers",  Some("editor/codegen plumbing, not engine behaviour")),

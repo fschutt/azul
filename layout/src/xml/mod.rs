@@ -907,6 +907,10 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
 
     // Strip UTF-8 BOM if present (some W3C test files have it)
     let xml = xml.strip_prefix('\u{FEFF}').unwrap_or(xml);
+    // The text as given: a parse error's line / column are counted in it, not
+    // in what the prefix stripping below leaves (a pasted document with blank
+    // lines and a doctype before a broken tag must point at that tag's line).
+    let full = xml;
 
     // Search for "<?xml" and "?>" tags and delete them from the XML
     let mut xml = xml.trim();
@@ -941,7 +945,10 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
         }
     }
 
-    let tokenizer = Tokenizer::from_fragment(xml, 0..xml.len());
+    // `xml` is a slice of `full`: tokenize that range of the full text, so the
+    // positions are the full text's.
+    let start = (xml.as_ptr() as usize).saturating_sub(full.as_ptr() as usize);
+    let tokenizer = Tokenizer::from_fragment(full, start..start + xml.len());
 
     // OPTIMIZED: Use a stack of raw pointers to avoid O(n*d) traversal on every token.
     // This is safe because:
