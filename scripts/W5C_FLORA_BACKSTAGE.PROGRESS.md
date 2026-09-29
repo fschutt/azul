@@ -18,16 +18,17 @@ caller's title strip / pane content is never cloned).
 ## DONE
 - a62f1c0cb plumbing: theme option, follow_style, marker, back button
   theme, flora stub, backstage test removed from the single-look guard
-- (RED) backstage.rs `flora_tests`; `backstages_follow_the_app_theme` +
-  `the_backstage_has_a_flora_look_of_its_own` (widgets_follow_the_app_theme.rs,
+- e8484d34c RED: backstage.rs `flora_tests`; `backstages_follow_the_app_theme`
+  + `the_backstage_has_a_flora_look_of_its_own` (widgets_follow_the_app_theme.rs,
   which also got the missing `}` of W5a's own-look test - the base did not
   compile); `backstages_read_in_both_themes_in_both_looks`
+- (flora) flora.rs `// ==== backstage ====`: `backstage_style`
 
 ## IN PROGRESS
-- flora look in flora.rs `// ==== backstage ====`
+- report scripts/W5C_FLORA_BACKSTAGE_2026_09_29.md
 
 ## NEXT
-- report scripts/W5C_FLORA_BACKSTAGE_2026_09_29.md
+- parent: compile, run the commands in the report, autofix api.json
 
 ## Open questions
 - (see report)

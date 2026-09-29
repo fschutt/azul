@@ -6304,13 +6304,146 @@ mod night_focus_ring_tests {
 // ==== backstage ====
 //
 // A flora backstage is the flyout navigation drawer of flora.css
-// (`.mobile-menu`, opened by the socket) laid on the Office column.
+// (`.mobile-menu`, the panel the socket opens) laid on the Office column.
+// The column is the drawer: a leaf of paper (`--fl-sur`) with a `--fl-bd2`
+// hairline along the edge that faces the page. The pane beside it is the page
+// the drawer lies on (`--fl-pg`), written in the house ink (`--color-text`,
+// `--fl-ink`), so whatever the application puts there reads in either mode.
+//
+// The nav items are the drawer's links (`.mobile-menu a`): keys inset from
+// the drawer's edges (`padding: 14px 12px`, `gap: 2px`, a 1px ring each), bare
+// at rest in the house ink, lifting to the hover face in a `--fl-bd` hairline
+// under the pointer and pressing to the pressed face - the toolbar key of the
+// chrome section ([`chrome_key`]). The selected item (`.mobile-menu
+// a.active`) is the sunken stone (`--fl-gem-sunken` under the sunken rig) in
+// `--fl-on-acc`, edged in brass - the leaf border, drawn in the one colour
+// the ribbon's rule is cut from (`--fl-metal-turn`, [`TAB_METAL`]) where the
+// CSS rolls two radial passes - and it stays the stone under the pointer and
+// while held.
+//
+// The back button closes the drawer the ribbon's FILE stone opened: the same
+// raised accent stone, seated in a brass collar (the socket's
+// `.fl-orb-collar`), its arrow in `--fl-on-acc`. Its streak brightens under
+// the pointer, it sinks while held, and it rings on focus like the socket
+// (`.fl-orb:focus-visible`: the focus colour, following the circle). A stone
+// is its own colour in both modes, so its states repeat for the night.
+//
+// Metrics: the column, the back button's circle and the fonts are the flat
+// look's. Only the keys are re-measured, to the drawer's inset: 12px in from
+// either side, 2px apart. The label stays where the flat look writes it (the
+// 24px indent) and the items keep the flat pitch (38px), so a theme switch
+// moves no word. The drawer's own shadow (`-12px 0 42px`) is not drawn: the
+// page beside the column paints over an outset shadow of its sibling.
+
+/// How far a drawer key sits in from the drawer's edges
+/// (`.mobile-menu { padding: 14px 12px }`).
+const BACKSTAGE_KEY_INSET: isize = 12;
+/// Half the drawer's gap between two keys (`.mobile-menu { gap: 2px }`),
+/// above and below each key.
+const BACKSTAGE_KEY_GAP_HALF: isize = 1;
+/// A drawer key's height: the flat item's 38px pitch less the gap, so the
+/// items keep their pitch.
+const BACKSTAGE_KEY_H: isize = 36;
+/// A drawer key's side padding: the flat item's 24px label indent less the
+/// inset and the key's 1px ring, so the label keeps its place.
+const BACKSTAGE_KEY_PAD: isize = 11;
 
 /// Flora's backstage: every part the caller left `None` in `s` filled with
-/// flora's paint on the flat part's geometry (see the chrome section above).
+/// flora's paint on the flat part's geometry (see the chrome section above);
+/// the nav items re-measured to the drawer's keys.
 #[must_use]
 pub(crate) fn backstage_style(
-    s: crate::widgets::backstage::BackstageStyle,
+    mut s: crate::widgets::backstage::BackstageStyle,
 ) -> crate::widgets::backstage::BackstageStyle {
+    use super::{decl, style_kit as kit};
+    type P = CssPropertyWithConditions;
+
+    // The page: the root and the two boxes that hold the caller's strip and
+    // pane.
+    let e = s.resolved_root_style();
+    chrome_part(&mut s.root_style, &e, |v| {
+        v.extend(kit::themed_bg(LIGHT_PG, DARK_PG));
+        v.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
+    });
+    let (right, content) = (s.resolved_right_style(), s.resolved_content_style());
+    for (slot, e) in [(&mut s.right_style, right), (&mut s.content_style, content)] {
+        chrome_part(slot, &e, |v| v.extend(kit::themed_bg(LIGHT_PG, DARK_PG)));
+    }
+
+    // The drawer: a leaf, its hairline on the edge that faces the page.
+    let e = s.resolved_nav_style();
+    chrome_part(&mut s.nav_style, &e, |v| {
+        v.extend(kit::themed_bg(LIGHT_SUR, DARK_SUR));
+        v.extend(kit::border(
+            kit::Edges {
+                top: false,
+                right: true,
+                bottom: false,
+                left: false,
+            },
+            1,
+            LIGHT_BD2,
+            DARK_BD2,
+        ));
+    });
+
+    // The back button: the accent stone in a brass collar.
+    let e = s.resolved_back_button_style();
+    chrome_part(&mut s.back_button_style, &e, |v| {
+        v.push(P::simple(kit::layers(stone_face(LIGHT_ACC, STONE_STREAK))));
+        v.extend(decl::border_colors(TAB_METAL).map(P::simple));
+        let lit = stone_face(LIGHT_ACC, STONE_STREAK_HOVER);
+        v.extend(kit::hover_layers(lit.clone(), lit));
+        let held = sunken_stone_face(LIGHT_DEEP);
+        v.extend(kit::active_layers(held.clone(), held));
+        v.extend(kit::focus_halo(LIGHT_ACC, DARK_GLOW));
+    });
+    let e = s.resolved_back_icon_style();
+    chrome_part(&mut s.back_icon_style, &e, |v| {
+        v.push(P::simple(kit::ink(LIGHT_ON_ACC)));
+    });
+
+    // A nav item: the drawer's key. The flat row's height and indent give
+    // way to the key's box (see the consts above); everything else is the
+    // flat row's.
+    let e = s.resolved_nav_item_style();
+    chrome_part(&mut s.nav_item_style, &e, |v| {
+        v.retain(|p| {
+            !matches!(
+                p.property.get_type(),
+                CssPropertyType::Height | CssPropertyType::PaddingLeft
+            )
+        });
+        v.push(P::simple(CssProperty::const_height(LayoutHeight::const_px(
+            BACKSTAGE_KEY_H,
+        ))));
+        v.extend(decl::margin(
+            BACKSTAGE_KEY_GAP_HALF,
+            BACKSTAGE_KEY_INSET,
+            BACKSTAGE_KEY_GAP_HALF,
+            BACKSTAGE_KEY_INSET,
+        ));
+        v.extend(kit::padding(0, BACKSTAGE_KEY_PAD, 0, BACKSTAGE_KEY_PAD));
+        v.extend(decl::border(1));
+        v.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
+        chrome_key(v);
+    });
+    // APPENDED to the selected item: the sunken stone in a brass edge, which
+    // stays the stone under the pointer and while held (the lift would
+    // un-pick it). Its states come after its resting face, so none of the
+    // key's is shadowed; the ring is the stone's glow, by day and by night.
+    let e = s.resolved_nav_item_active_style();
+    chrome_part(&mut s.nav_item_active_style, &e, |v| {
+        v.push(P::simple(kit::layers(selected_stone())));
+        v.push(P::simple(kit::ink(LIGHT_ON_ACC)));
+        v.extend(decl::border_colors(TAB_METAL).map(P::simple));
+        v.extend(kit::hover_layers(selected_stone(), selected_stone()));
+        v.extend(kit::hover_border(TAB_METAL, TAB_METAL));
+        v.extend(kit::active_layers(selected_stone(), selected_stone()));
+        v.extend(kit::focus_ring(LIGHT_GLOW, DARK_GLOW));
+    });
+    // APPENDED to the item after a gap: the flat gap, nothing to paint.
+    let e = s.resolved_nav_item_gap_style();
+    chrome_part(&mut s.nav_item_gap_style, &e, |_| {});
     s
 }
