@@ -3232,6 +3232,24 @@ pub enum DebugEvent {
         /// Logical window y.
         y: f32,
     },
+    /// Copy a node and its subtree right after it; the copy's nodes take
+    /// fresh uids. One undo step. Answers the document plus `inserted` (the
+    /// copy's uid).
+    BuilderDuplicate {
+        /// uid of the node to copy (not the root).
+        node: u64,
+    },
+    /// The document as a file — what `project_save` writes as
+    /// `document.json`: `{format, version, root, stylesheet}`, no uids.
+    /// Before the first edit it is what the window shows.
+    BuilderSaveDocument,
+    /// Replace the document by a file `builder_save_document` answered (or
+    /// a bare node tree): one undo step, its nodes take fresh uids. Answers
+    /// the document.
+    BuilderLoadDocument {
+        /// The file's JSON.
+        document: serde_json::Value,
+    },
     /// Undo the last builder edit.
     BuilderUndo,
     /// Redo the last undone builder edit.
@@ -15150,6 +15168,58 @@ pub fn process_debug_event(
         DebugEvent::BuilderHitTest { x, y } => {
             let json = builder_hit_test_json(callback_info, *x, *y);
             send_ok(request, None, Some(ResponseData::Json(json)));
+        }
+
+        DebugEvent::BuilderDuplicate { node } => {
+            let result = {
+                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let layout_window = callback_info.get_layout_window();
+                let live = layout_window
+                    .layout_results
+                    .get(&ROOT_DOM_ID)
+                    .map(|lr| &lr.styled_dom);
+                scratch(callback_info)
+                    .builder
+                    .duplicate(live, &map_guard, *node)
+            };
+            if finish_builder_op(request, callback_info, result) {
+                needs_update = true;
+            }
+        }
+
+        DebugEvent::BuilderSaveDocument => {
+            let json = {
+                let layout_window = callback_info.get_layout_window();
+                let live = layout_window
+                    .layout_results
+                    .get(&ROOT_DOM_ID)
+                    .map(|lr| &lr.styled_dom);
+                let guard = scratch(callback_info);
+                let file = guard.builder.export_document(live).to_file_json();
+                file
+            };
+            send_ok(request, None, Some(ResponseData::Json(json)));
+        }
+
+        DebugEvent::BuilderLoadDocument { document } => {
+            let result = match super::builder::BuilderDocument::from_file_json(document) {
+                Err(e) => Err(e),
+                Ok(loaded) => {
+                    let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                    let layout_window = callback_info.get_layout_window();
+                    let live = layout_window
+                        .layout_results
+                        .get(&ROOT_DOM_ID)
+                        .map(|lr| &lr.styled_dom);
+                    let reply = scratch(callback_info)
+                        .builder
+                        .replace_document(live, &map_guard, loaded);
+                    reply
+                }
+            };
+            if finish_builder_op(request, callback_info, result) {
+                needs_update = true;
+            }
         }
 
         DebugEvent::CustomOp { name, args } => {

@@ -101,11 +101,24 @@ has not been applied yet; what the CSS parser skipped shows under the editor.
 Use it instead of the Inspector's CSS override for anything you want to keep: the override edits
 the live node and is gone the next time the document is mounted.
 
+## Duplicate, and the document as a file
+
+Right-click a row and choose **Duplicate** (or select it and press **Ctrl/Cmd+D**): the node and
+everything in it are copied right after it, and the copy is selected. The copy is a node of its
+own - editing it leaves the original alone - and it keeps the original's attributes, its `id`
+too, so give it a new one if you style by ids.
+
+**Export > Builder document (JSON)** downloads the document - its tree and its stylesheet - as
+`document.json`, the same file a project keeps; **Import > Builder document (JSON)…** opens one
+and replaces the document with it. Opening a file is one edit: **Ctrl/Cmd+Z** brings back what
+you had.
+
 ## Undo and redo
 
 Every edit of the document is one undo step: **Ctrl/Cmd+Z** undoes, **Shift+Ctrl/Cmd+Z** or
 **Ctrl+Y** redoes, and the toolbar above the tree has both buttons. Undo covers the document
-(inserts, moves, deletes, text and attribute edits, conversions); it does not reach into files you
+(inserts, moves, deletes, duplicates, text and attribute edits, the stylesheet, conversions,
+opening a document file); it does not reach into files you
 saved in the project. The reset button gives the window back to the app and discards the
 document.
 
@@ -285,6 +298,10 @@ indicator shows it, before the move. `builder_get_stylesheet` answers the docume
 stylesheet with its rules and the parser's warnings; `builder_set_stylesheet {css}` replaces it
 (one undo step). `builder_hit_test {x, y}` answers the document node at a window point (`uid`,
 its `rect`, and `rel_x` / `rel_y` - where in the node the point is, 0 to 1).
+`builder_duplicate {node}` copies a subtree right after itself (the answer's `inserted` is the
+copy). `builder_save_document` answers the document file (`{format, version, root, stylesheet}`,
+what `project_save` writes as `document.json`), and `builder_load_document {document}` replaces
+the document with one, as an undoable edit.
 
 **Components** - `builder_convert_to_component`, `get_component_thumbnail` (a PNG from the CPU
 renderer, cached until the component changes), `get_component_registry`, `create_component`

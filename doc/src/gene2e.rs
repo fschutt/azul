@@ -585,6 +585,11 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     // builder's own marker classes - IDE plumbing (a drop onto the window
     // picture); `hit_test` is the engine-facing query.
     ("builder_hit_test",           Some("visual-editor/IDE surface, not engine behaviour")),
+    // B5: document edits and the document file (the format project_save
+    // writes) - pinned by builder_tests.
+    ("builder_duplicate",          Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_save_document",      Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_load_document",      Some("visual-editor/IDE surface, not engine behaviour")),
     ("get_component_thumbnail",    Some("visual-editor/IDE surface, not engine behaviour")),
     // AzBuilder's project folder ops (layout/src/e2e/project.rs): they read
     // and write the user's disk — pinned by the project_tests module, never a

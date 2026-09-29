@@ -384,6 +384,31 @@
         return null;
     }
 
+    // ── B5: duplicate, the document file ──
+
+    /** "Duplicate": the message for `uid`, or null (the root, an unknown node). */
+    function duplicateMessage(docRoot, uid) {
+        if (!docRoot || uid == null || uid === 0 || !findNode(docRoot, uid)) return null;
+        return { op: 'builder_duplicate', node: uid };
+    }
+
+    /**
+     * An opened `document.json` as the message that loads it. Throws with
+     * the reason for text that is not JSON, not a document, or another
+     * format (the server refuses those too, but the file name is known here).
+     */
+    function documentLoadMessage(text) {
+        var v;
+        try { v = JSON.parse(text); } catch (e) { throw new Error('the file is not JSON (' + e.message + ')'); }
+        if (!v || typeof v !== 'object' || Array.isArray(v)) {
+            throw new Error('the file is not a builder document (an object with "root")');
+        }
+        if (v.format != null && v.format !== 'azul-builder-document') {
+            throw new Error('the file is "' + v.format + '", not an "azul-builder-document"');
+        }
+        return { op: 'builder_load_document', document: v };
+    }
+
     // ── B5: drops onto the window canvas ──
 
     /**
@@ -458,7 +483,7 @@
         attrString: attrString, typedValue: typedValue, editableType: editableType,
         stylesheetMessage: stylesheetMessage, sheetText: sheetText,
         canvasPoint: canvasPoint, canvasDrop: canvasDrop, canvasIndicator: canvasIndicator,
-        liveNodeOf: liveNodeOf,
+        liveNodeOf: liveNodeOf, duplicateMessage: duplicateMessage, documentLoadMessage: documentLoadMessage,
     };
 
     if (typeof module !== 'undefined' && module.exports) module.exports = logic;
@@ -523,6 +548,8 @@
             case 'builder_move': return 'Move node ' + msg.node;
             case 'builder_delete': return 'Delete node ' + msg.node;
             case 'builder_set_attribute': return 'Set ' + msg.name + ' on node ' + msg.node;
+            case 'builder_duplicate': return 'Duplicate node ' + msg.node;
+            case 'builder_load_document': return 'Load the document';
             case 'builder_undo': return 'Undo';
             case 'builder_redo': return 'Redo';
             default: return msg.op;
@@ -969,6 +996,86 @@
         return doc;
     }
 
+    /** Copy a node and its subtree right after it; the copy gets selected. */
+    function duplicateNode(uid) {
+        var msg = S.doc ? duplicateMessage(S.doc.root, uid) : null;
+        return msg ? send(msg) : null;
+    }
+
+    // ── the document as a file (Export / Import menus) ──
+
+    function menuEntry(act, icon, label) {
+        var item = document.createElement('div');
+        item.className = 'menu-dropdown-item';
+        item.dataset.azbMenu = act;
+        var i = document.createElement('span');
+        i.className = 'material-icons mi';
+        i.textContent = icon;
+        item.appendChild(i);
+        item.appendChild(document.createTextNode(label));
+        return item;
+    }
+
+    function injectDocumentMenus() {
+        var exp = document.querySelector('.menu-item[data-menu="export"] > .menu-dropdown');
+        var imp = document.querySelector('.menu-item[data-menu="import"] > .menu-dropdown');
+        if (!exp || !imp || document.getElementById('azb-document-input')) return;
+        var sep = function () {
+            var d = document.createElement('div');
+            d.className = 'menu-dropdown-separator';
+            return d;
+        };
+        var save = menuEntry('save-document', 'description', 'Builder document (JSON)');
+        save.addEventListener('click', saveDocumentFile);
+        exp.appendChild(sep());
+        exp.appendChild(save);
+
+        var input = document.createElement('input');
+        input.type = 'file';
+        input.id = 'azb-document-input';
+        input.className = 'hidden';
+        input.accept = '.json,application/json';
+        input.addEventListener('change', function () { loadDocumentFile(input); });
+        document.body.appendChild(input);
+        var load = menuEntry('load-document', 'description', 'Builder document (JSON)\u2026');
+        load.addEventListener('click', function () { input.value = ''; input.click(); });
+        imp.appendChild(sep());
+        imp.appendChild(load);
+    }
+
+    /** Export > Builder document (JSON): `document.json`, the file project_save writes. */
+    async function saveDocumentFile() {
+        try {
+            var file = await call({ op: 'builder_save_document' });
+            if (typeof root._downloadJSON !== 'function') throw new Error('no download helper on this page');
+            root._downloadJSON(file, 'document.json');
+            app.log('Builder document saved as document.json', 'info');
+        } catch (err) {
+            app.log('Save the builder document: ' + err.message, 'error');
+        }
+    }
+
+    /** Import > Builder document (JSON)…: replaces the document as one edit (Ctrl/Cmd+Z undoes it). */
+    function loadDocumentFile(input) {
+        var f = input.files && input.files[0];
+        if (!f) return;
+        var reader = new FileReader();
+        reader.onload = function () {
+            var msg;
+            try {
+                msg = documentLoadMessage(String(reader.result || ''));
+            } catch (err) {
+                app.log('Open ' + f.name + ': ' + err.message, 'error');
+                return;
+            }
+            if (S.mode !== 'document') setMode('document');
+            S.sheetDirty = false;
+            send(msg, 'Load ' + f.name);
+        };
+        reader.onerror = function () { app.log('Open ' + f.name + ': cannot read the file', 'error'); };
+        reader.readAsText(f);
+    }
+
     /** An element's / text node's text, or a component instance's `text` argument. */
     function editText(uid) {
         var node = S.doc ? findNode(S.doc.root, uid) : null;
@@ -1073,6 +1180,7 @@
             var down = stepMessage(S.doc.root, node.uid, +1);
             if (up) items.push({ icon: 'arrow_upward', label: 'Move up', action: function () { send(up); } });
             if (down) items.push({ icon: 'arrow_downward', label: 'Move down', action: function () { send(down); } });
+            items.push({ icon: 'content_copy', label: 'Duplicate', action: function () { duplicateNode(node.uid); } });
             if (node.kind === 'element') {
                 items.push({ separator: true });
                 items.push({ icon: 'widgets', label: 'Convert to component…', action: function () { convertToComponent(node.uid); } });
@@ -1098,6 +1206,9 @@
         } else if (mod && (key === 'y' || key === 'Y')) {
             e.preventDefault();
             send({ op: 'builder_redo' });
+        } else if (mod && (key === 'd' || key === 'D') && S.selected != null && S.selected !== 0) {
+            e.preventDefault();
+            duplicateNode(S.selected);
         } else if ((key === 'Delete' || key === 'Backspace') && S.selected != null && S.selected !== 0) {
             e.preventDefault();
             deleteNode(S.selected);
@@ -1796,6 +1907,9 @@
             params: [{ name: 'css', type: 'text', placeholder: '.card { padding: 8px; }' }] };
         C.builder_hit_test = { desc: 'The builder document node at a window point', examples: ['/builder_hit_test x 100 y 40'],
             params: [{ name: 'x', type: 'number', value: 0 }, { name: 'y', type: 'number', value: 0 }] };
+        C.builder_duplicate = { desc: 'Duplicate a builder node and its subtree (undoable)', examples: ['/builder_duplicate node 1'],
+            params: [{ name: 'node', type: 'number', value: 1 }] };
+        C.builder_save_document = { desc: 'The builder document as a file (document.json)', examples: ['/builder_save_document'], params: [] };
         C.builder_undo = { desc: 'Undo the last builder edit', examples: ['/builder_undo'], params: [] };
         C.builder_redo = { desc: 'Redo the last undone builder edit', examples: ['/builder_redo'], params: [] };
         C.builder_reset = { desc: 'Discard the builder document', examples: ['/builder_reset'], params: [] };
@@ -1883,6 +1997,7 @@
         injectStyle();
         injectToolbar();
         injectInspectorLayout();
+        injectDocumentMenus();
         installContainerDrop();
         registerSchema();
 

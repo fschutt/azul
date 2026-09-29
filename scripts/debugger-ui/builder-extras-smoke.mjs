@@ -330,7 +330,7 @@ async function main() {
         // body > p(1) > span(5), div(6), card(2), div(4), span(3), p(7)
         await cdp.eval(`(() => { const r = __t.row(6).getBoundingClientRect();
             __t.row(6).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 20, clientY: r.top + 5 }));
-            const item = [...document.querySelectorAll('.azd-context-menu-item')].find(i => i.textContent.trim() === 'Duplicate');
+            const item = [...document.querySelectorAll('.azd-context-menu-item')].find(i => i.textContent.includes('Duplicate'));
             if (item) item.click();
             return !!item; })()`);
         await waitFor(cdp, `!!__t.row(8)`);

@@ -22,14 +22,15 @@ Branch `wt/b5-builder-extras`, base `d240a1b1d`. Nothing is compiled here (house
 - 3 GREEN `3fee8515d` canvas drops + builder_hit_test (node 14/14, smoke 33/33)
 - 4 RED `367cf5065` (hierarchy scenario, node, smoke)
 - 4 GREEN `a2ec15ebd` markers answered as builder_uid (node 15/15, smoke 35/35)
+- 5 RED `c99da1d4a` (duplicate / save / load scenarios, node, smoke)
 
 ## IN PROGRESS
 
-5. Duplicate + document file: RED committed (this commit), implementation next.
+5. Duplicate + document file: implementation commit (this one).
 
 ## NEXT
 
-5 (implementation), then the report `scripts/B5_BUILDER_EXTRAS_2026_09_29.md`.
+the report `scripts/B5_BUILDER_EXTRAS_2026_09_29.md` `scripts/B5_BUILDER_EXTRAS_2026_09_29.md`.
 
 ## Open questions
 

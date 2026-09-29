@@ -860,6 +860,57 @@ impl BuilderDocument {
         Ok(())
     }
 
+    /// Copy `uid` and its subtree right after it (B5). The copy's nodes take
+    /// fresh uids, in DFS order. Returns the copy's uid.
+    ///
+    /// # Errors
+    /// The root, or an unknown node.
+    pub fn duplicate(&mut self, uid: u64) -> Result<u64, String> {
+        if uid == ROOT_UID {
+            return Err("the document root cannot be duplicated".to_string());
+        }
+        let path = self.path(uid)?;
+        let Some((&last, parent)) = path.split_last() else {
+            return Err("the document root cannot be duplicated".to_string());
+        };
+        let mut copy = self.at(&path).clone();
+        self.checkpoint();
+        self.renumber(&mut copy);
+        let new_uid = copy.uid;
+        self.at_mut(parent).children.insert(last + 1, copy);
+        Ok(new_uid)
+    }
+
+    /// Give `node` and its subtree fresh uids, in DFS order.
+    fn renumber(&mut self, node: &mut BuilderNode) {
+        node.uid = self.alloc_uid();
+        for c in &mut node.children {
+            self.renumber(c);
+        }
+    }
+
+    /// Replace the whole document - tree and stylesheet - by `loaded` (a
+    /// file read back, `builder_load_document`): ONE undo step, unlike a
+    /// project load, which starts a history. The new nodes take fresh uids.
+    ///
+    /// # Errors
+    /// None today; `Result` for [`BuilderSession::edit`].
+    pub fn replace_with(&mut self, loaded: BuilderDocument) -> Result<(), String> {
+        let BuilderDocument {
+            mut root,
+            stylesheet,
+            ..
+        } = loaded;
+        self.checkpoint();
+        for c in &mut root.children {
+            self.renumber(c);
+        }
+        root.uid = ROOT_UID;
+        self.root = root;
+        self.stylesheet = stylesheet;
+        Ok(())
+    }
+
     /// Replace the subtree at `uid` by an instance of `library:name`, keeping
     /// the uid (the UI's selection stays on it).
     ///
@@ -1167,6 +1218,37 @@ impl BuilderSession {
         css: &str,
     ) -> Result<BuilderReply, String> {
         Ok(self.edit(live, map, |doc| doc.set_stylesheet(css))?.1)
+    }
+
+    /// `builder_duplicate`: answers the document plus `inserted` (the
+    /// copy's uid, which the UI selects).
+    ///
+    /// # Errors
+    /// See [`BuilderDocument::duplicate`].
+    pub fn duplicate(
+        &mut self,
+        live: Option<&StyledDom>,
+        map: &ComponentMap,
+        node: u64,
+    ) -> Result<BuilderReply, String> {
+        let (uid, mut reply) = self.edit(live, map, |doc| doc.duplicate(node))?;
+        if let Some(obj) = reply.json.as_object_mut() {
+            obj.insert("inserted".into(), serde_json::json!(uid));
+        }
+        Ok(reply)
+    }
+
+    /// `builder_load_document`: `loaded` replaces the document as one edit.
+    ///
+    /// # Errors
+    /// See [`BuilderDocument::replace_with`].
+    pub fn replace_document(
+        &mut self,
+        live: Option<&StyledDom>,
+        map: &ComponentMap,
+        loaded: BuilderDocument,
+    ) -> Result<BuilderReply, String> {
+        Ok(self.edit(live, map, |doc| doc.replace_with(loaded))?.1)
     }
 
     /// `builder_undo`.
@@ -3304,6 +3386,50 @@ mod tests {
             .find("<style>.badge &gt; b { color: blue; }</style></head>")
             .expect("the document's own sheet, escaped, last in the <head>");
         assert!(component < project && project < own, "{xml}");
+    }
+
+    #[test]
+    fn a_duplicate_lands_right_after_the_original_with_fresh_dfs_uids() {
+        let mut doc = three_paragraphs();
+        let span = doc
+            .insert(2, None, el("span"), attrs(&[("text", "x")]))
+            .expect("span in b");
+        let steps = doc.undo.len();
+        let copy = doc.duplicate(2).expect("duplicate b");
+        assert_eq!(copy, 5);
+        assert_eq!(kids(&doc, 0), vec![1, 2, 5, 3]);
+        assert_eq!(kids(&doc, 2), vec![span], "the original keeps its children");
+        assert_eq!(kids(&doc, 5), vec![6], "the copy has copies of them");
+        assert_eq!(doc.node(6).expect("copy").attrs["text"], "x");
+        assert_eq!(doc.undo.len(), steps + 1, "one undo step");
+        doc.undo().expect("undo");
+        assert_eq!(kids(&doc, 0), vec![1, 2, 3]);
+        assert!(doc.duplicate(ROOT_UID).unwrap_err().contains("root"));
+        assert!(doc.duplicate(99).unwrap_err().contains("99"));
+        // uids are never reused: the next copy starts after the undone one.
+        assert_eq!(doc.duplicate(1).expect("again"), 7);
+    }
+
+    #[test]
+    fn replacing_the_document_is_one_undo_step_with_fresh_uids() {
+        let mut doc = three_paragraphs();
+        doc.set_stylesheet("#a { width: 1px; }").expect("set");
+        let mut other = BuilderDocument::new();
+        let div = other
+            .insert(0, None, el("div"), BTreeMap::new())
+            .expect("div");
+        other
+            .insert(div, None, el("p"), BTreeMap::new())
+            .expect("p");
+        other.set_stylesheet("div { }").expect("sheet");
+        let loaded = BuilderDocument::from_file_json(&other.to_file_json()).expect("reads");
+        doc.replace_with(loaded).expect("replace");
+        assert_eq!(kids(&doc, 0), vec![4], "fresh uids after 1..3");
+        assert_eq!(kids(&doc, 4), vec![5]);
+        assert_eq!(doc.stylesheet, "div { }");
+        doc.undo().expect("undo");
+        assert_eq!(kids(&doc, 0), vec![1, 2, 3]);
+        assert_eq!(doc.stylesheet, "#a { width: 1px; }");
     }
 
     #[test]
