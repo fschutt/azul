@@ -1069,6 +1069,57 @@ mod label_convention {
                 )
                 .dom(),
             ),
+            // The HTML input types built on existing widgets (W1): the same
+            // lints hold for every mode.
+            (
+                "text_input (password)",
+                TextInput::create_password()
+                    .with_text(AzString::from("hunter2"))
+                    .dom(),
+            ),
+            (
+                "text_input (search)",
+                TextInput::create_search()
+                    .with_text(AzString::from("query"))
+                    .dom(),
+            ),
+            (
+                "text_input (email)",
+                TextInput::create_email()
+                    .with_text(AzString::from("someone@example.com"))
+                    .dom(),
+            ),
+            ("date_picker (month)", DatePicker::create_month(2026, 9).dom()),
+            ("date_picker (week)", DatePicker::create_week(2026, 40).dom()),
+            (
+                "datetime_local",
+                super::datetime_local::DateTimeLocalPicker::create(2026, 9, 29, 14, 5).dom(),
+            ),
+            (
+                "button (submit)",
+                Button::create_submit(AzString::from("Send")).dom(),
+            ),
+            (
+                "drop_down (optgroup)",
+                DropDown::new(labels(&["None"]))
+                    .with_optgroup(AzString::from("Fruit"), labels(&["Apple", "Pear"]))
+                    .dom(),
+            ),
+            (
+                "hidden_input",
+                super::form::HiddenInput::create(AzString::from("token"), AzString::from("x"))
+                    .dom(),
+            ),
+            (
+                "form",
+                super::form::Form::create(azul_core::dom::DomVec::from_vec(vec![
+                    TextInput::create()
+                        .with_name(AzString::from("user"))
+                        .dom(),
+                    Button::create_submit(AzString::from("Send")).dom(),
+                ]))
+                .dom(),
+            ),
         ]
     }
 
@@ -1375,9 +1426,11 @@ mod wheel_ownership {
         // time field is. Everything else — the drop-down trigger, the slider,
         // the colour swatch, the number input, the segmented control — stays
         // deaf to the wheel so the gesture reaches the scrollable ancestor.
+        // `datetime_local` is not a second exception: its time half IS the
+        // time picker, spinner columns and all.
         assert_eq!(
             wheel_takers(),
-            vec!["time_picker".to_string()],
+            vec!["time_picker".to_string(), "datetime_local".to_string()],
             "a widget started listening for the wheel: a closed control must leave the gesture to \
              the page under it",
         );
@@ -1823,6 +1876,7 @@ mod theme_contrast {
         "split_pane",
         "tabs (content)",
         "tooltip",
+        "form",
     ];
     /// Controls a user types into, picks from or toggles.
     const INPUTS: &[&str] = &[
@@ -1844,6 +1898,15 @@ mod theme_contrast {
         "text_area",
         "text_input",
         "time_picker",
+        "text_input (password)",
+        "text_input (search)",
+        "text_input (email)",
+        "date_picker (month)",
+        "date_picker (week)",
+        "datetime_local",
+        "button (submit)",
+        "drop_down (optgroup)",
+        "hidden_input",
     ];
     /// Navigation and application chrome.
     const CHROME: &[&str] = &[
