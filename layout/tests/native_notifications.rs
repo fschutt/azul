@@ -674,6 +674,24 @@ mod gaps {
         }
     }
 
+    /// Installs the process-wide app-level handler for one test and removes
+    /// it again when dropped - also when the test fails, so a red test cannot
+    /// leave a handler behind for the next one.
+    struct AppHandlerForThisTest;
+
+    impl AppHandlerForThisTest {
+        fn install(data: &RefAny) -> Self {
+            set_app_notification_handler(OptionNotificationCallback::Some(app_handler(data)));
+            Self
+        }
+    }
+
+    impl Drop for AppHandlerForThisTest {
+        fn drop(&mut self) {
+            set_app_notification_handler(OptionNotificationCallback::None);
+        }
+    }
+
     fn run_callback(cb: extern "C" fn(RefAny, CallbackInfo) -> Update, data: &RefAny) {
         let mut lw = laid_out_window();
         let mut cb = Callback::from_ptr(cb);
@@ -899,6 +917,9 @@ mod gaps {
         let _serial = serial();
         drop(drain_notification_requests());
         drop(drain_notification_events());
+        drop(drain_notification_deliveries());
+        let handler = RefAny::new(Seen::default());
+        let _handler = AppHandlerForThisTest::install(&handler);
         for i in 0..MAX_QUEUED_REQUESTS {
             assert!(push_notification_request(NotificationRequest::Post(
                 Notification::create(AzString::from(format!("filler-{i}")), s("t"))
@@ -907,12 +928,18 @@ mod gaps {
         run_callback(post_a_plain_overflow, &RefAny::new(()));
         drop(drain_notification_requests());
 
-        // Into the mailbox, where the registry hands an id it never admitted
-        // to the app handler.
-        let events = drain_notification_events();
-        assert_eq!(events.len(), 1, "{events:?}");
-        assert_eq!(events[0].kind, NotificationEventType::Failed);
-        assert_eq!(events[0].notification_id.as_str(), "overflow-plain");
+        // Straight to the app handler, as a waiting delivery - NOT through
+        // the mailbox, whose routing would take the id for whatever an
+        // earlier post under it left (see `follow_ups`).
+        let deliveries = drain_notification_deliveries();
+        assert_eq!(deliveries.len(), 1, "{deliveries:?}");
+        assert_eq!(deliveries[0].event.kind, NotificationEventType::Failed);
+        assert_eq!(deliveries[0].event.notification_id.as_str(), "overflow-plain");
+        assert_eq!(deliveries[0].callback.refany, handler);
+        assert!(
+            drain_notification_events().is_empty(),
+            "nothing for the router to misread"
+        );
     }
 
     // ---- deliveries wait for a window (G7) ----
@@ -1169,5 +1196,167 @@ mod gaps {
             button,
             NotificationEvent::action_invoked(s("n"), s("reply"))
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Follow-ups (2026-09-29): the ways the gaps round still lost a
+    // notification without a word. A post the full queue rejected went back
+    // through ROUTING, which takes its id for whatever an earlier post under
+    // that id left - handing the failure to the notification on screen
+    // (ending it) or swallowing it as the echo of an ended one. And a
+    // withdraw that met a full queue vanished, so the notification stayed up
+    // and its callback still fired.
+    // -----------------------------------------------------------------------
+
+    mod follow_ups {
+        use azul_core::{
+            callbacks::Update,
+            notification::{Notification, NotificationEvent, NotificationEventType},
+            refany::RefAny,
+        };
+        use azul_css::AzString;
+        use azul_layout::{
+            callbacks::CallbackInfo,
+            managers::notification::{
+                app_notification_handler, drain_notification_deliveries,
+                drain_notification_events, drain_notification_requests,
+                push_notification_request, NotificationDelivery, NotificationRegistry,
+                NotificationRequest, MAX_QUEUED_REQUESTS,
+            },
+        };
+
+        use super::super::{notification_with_callback, s, serial, Seen};
+        use super::{post_a_plain_overflow, run_callback, AppHandlerForThisTest};
+
+        fn fill_the_request_queue_with_posts() {
+            drop(drain_notification_requests());
+            for i in 0..MAX_QUEUED_REQUESTS {
+                assert!(push_notification_request(NotificationRequest::Post(
+                    Notification::create(AzString::from(format!("filler-{i}")), s("t"))
+                )));
+            }
+        }
+
+        /// What the dll's `pump_notifications` hands the loop: the deliveries
+        /// that waited, then the mailbox routed through the registry.
+        fn pump(registry: &mut NotificationRegistry) -> Vec<NotificationDelivery> {
+            let mut out = drain_notification_deliveries();
+            out.extend(registry.route(drain_notification_events()));
+            out
+        }
+
+        extern "C" fn withdraw_the_one_on_screen(_data: RefAny, mut info: CallbackInfo) -> Update {
+            info.withdraw_notification(s("on-screen"));
+            Update::DoNothing
+        }
+
+        #[test]
+        fn a_rejected_post_does_not_end_the_live_notification_under_its_id() {
+            let _serial = serial();
+            drop(drain_notification_events());
+            drop(drain_notification_deliveries());
+            let own = RefAny::new(Seen::default());
+            let handler = RefAny::new(Seen::default());
+            let _handler = AppHandlerForThisTest::install(&handler);
+            let mut registry = NotificationRegistry::new();
+            registry.set_app_handler(app_notification_handler());
+            // On screen: posted earlier, with its own callback.
+            registry.admit(notification_with_callback("overflow-plain", &own));
+
+            // A repost under the same id, without a callback, that does not fit.
+            fill_the_request_queue_with_posts();
+            run_callback(post_a_plain_overflow, &RefAny::new(()));
+            drop(drain_notification_requests());
+
+            // Today the rejection travels through the mailbox, and routing
+            // hands its `Failed` to the notification on screen and ends it.
+            let deliveries = pump(&mut registry);
+            assert!(
+                registry.is_live("overflow-plain"),
+                "the post that failed never reached the screen, so it replaced nothing"
+            );
+            assert_eq!(deliveries.len(), 1, "{deliveries:?}");
+            assert_eq!(deliveries[0].event.kind, NotificationEventType::Failed);
+            assert_eq!(
+                deliveries[0].callback.refany, handler,
+                "the failure belongs to the post that failed, which has no callback of its own"
+            );
+        }
+
+        #[test]
+        fn a_rejected_post_under_an_ended_id_still_reports_failed() {
+            let _serial = serial();
+            drop(drain_notification_events());
+            drop(drain_notification_deliveries());
+            let handler = RefAny::new(Seen::default());
+            let _handler = AppHandlerForThisTest::install(&handler);
+            let mut registry = NotificationRegistry::new();
+            registry.set_app_handler(app_notification_handler());
+            // Posted earlier, clicked: the id has ENDED in this process.
+            registry.admit(Notification::create(s("overflow-plain"), s("Saved")));
+            assert_eq!(
+                registry
+                    .route(vec![NotificationEvent::activated(s("overflow-plain"))])
+                    .len(),
+                1
+            );
+
+            fill_the_request_queue_with_posts();
+            run_callback(post_a_plain_overflow, &RefAny::new(()));
+            drop(drain_notification_requests());
+
+            // Today 0: routing takes the `Failed` for the trailing close of
+            // the notification that ended, and swallows it.
+            let deliveries = pump(&mut registry);
+            assert_eq!(deliveries.len(), 1, "{deliveries:?}");
+            assert_eq!(deliveries[0].event.kind, NotificationEventType::Failed);
+            assert_eq!(
+                deliveries[0].event.notification_id.as_str(),
+                "overflow-plain"
+            );
+            assert_eq!(deliveries[0].callback.refany, handler);
+        }
+
+        #[test]
+        fn a_withdraw_still_reaches_the_platform_when_posts_filled_the_queue() {
+            let _serial = serial();
+            fill_the_request_queue_with_posts();
+            run_callback(withdraw_the_one_on_screen, &RefAny::new(()));
+
+            // Today the withdraw is dropped: MAX_QUEUED_REQUESTS requests, and
+            // the notification stays on screen with its callback armed.
+            let requests = drain_notification_requests();
+            assert_eq!(requests.len(), MAX_QUEUED_REQUESTS + 1);
+            assert_eq!(
+                requests.last(),
+                Some(&NotificationRequest::Withdraw(s("on-screen")))
+            );
+        }
+
+        #[test]
+        fn posts_cannot_take_the_room_withdraws_are_given_and_withdraws_are_bounded_too() {
+            let _serial = serial();
+            fill_the_request_queue_with_posts();
+            assert!(
+                !push_notification_request(NotificationRequest::Post(Notification::create(
+                    s("one-more"),
+                    s("t")
+                ))),
+                "posts stop at the bound (and report Failed)"
+            );
+            for i in 0..MAX_QUEUED_REQUESTS {
+                assert!(
+                    push_notification_request(NotificationRequest::Withdraw(AzString::from(
+                        format!("w-{i}")
+                    ))),
+                    "withdraw {i} fits: one for every post the queue can hold"
+                );
+            }
+            assert!(
+                !push_notification_request(NotificationRequest::Withdraw(s("one-too-many"))),
+                "a target that never drains must not grow the queue without bound"
+            );
+            drop(drain_notification_requests());
+        }
     }
 }
