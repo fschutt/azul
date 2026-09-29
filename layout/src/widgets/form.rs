@@ -32,7 +32,12 @@
 //!   form from (pickers are rebuilt from the app's state).
 //!
 //! Key types: [`Form`], [`FormData`], [`FormEntry`], [`FormOnSubmit`],
-//! [`FormOnReset`]; free functions [`submit_form`], [`reset_form`].
+//! [`FormOnReset`]; free functions [`submit_form`], [`reset_form`],
+//! [`collect_form_data`].
+//!
+//! A raw `<form>` (`Dom::create_form*`, XML) becomes a [`Form`] before the
+//! cascade (`crate::form_controls`), and so do its raw controls - into the
+//! widgets this module reads.
 
 use alloc::vec::Vec;
 
@@ -653,10 +658,13 @@ pub fn submit_form(info: &mut CallbackInfo, form: DomNodeId) -> Update {
         }
     }
 
-    let Some(mut wrapper) = dataset.downcast_mut::<FormStateWrapper>() else {
-        return Update::DoNothing;
+    // The callback is taken OUT of the form state before it runs: a handler
+    // that reads the form (`collect_form_data`) borrows that state again.
+    let on_submit = match dataset.downcast_ref::<FormStateWrapper>() {
+        Some(wrapper) => wrapper.on_submit.clone(),
+        None => return Update::DoNothing,
     };
-    match wrapper.on_submit.as_mut() {
+    match on_submit.as_ref() {
         Some(FormOnSubmit { callback, refany }) => callback.invoke(refany.clone(), *info, data),
         None => Update::DoNothing,
     }
@@ -709,13 +717,29 @@ pub fn reset_form(info: &mut CallbackInfo, form: DomNodeId) -> Update {
         crate::widgets::text_input::restore_text_input(info, field_node, &mut w, value.as_str());
     }
 
-    let Some(mut wrapper) = dataset.downcast_mut::<FormStateWrapper>() else {
-        return Update::DoNothing;
+    // Taken out of the form state before it runs, as in `submit_form`.
+    let on_reset = match dataset.downcast_ref::<FormStateWrapper>() {
+        Some(wrapper) => wrapper.on_reset.clone(),
+        None => return Update::DoNothing,
     };
-    match wrapper.on_reset.as_mut() {
+    match on_reset.as_ref() {
         Some(FormOnReset { callback, refany }) => callback.invoke(refany.clone(), *info, initial),
         None => Update::DoNothing,
     }
+}
+
+/// The CURRENT values of the form `node` sits in - `node` may be the form
+/// itself, a field or a button: what a submit would hand over, without
+/// submitting. `None` when `node` is in no form.
+///
+/// How a plain callback reads a form: the app's own `Submit` handler on a raw
+/// `<form>` runs as that Form's `on_submit` (see `crate::form_controls`), with
+/// the `CallbackInfo` of whatever triggered the submit, so it calls this with
+/// `info.get_hit_node()`.
+#[must_use]
+pub fn collect_form_data(info: &mut CallbackInfo, node: DomNodeId) -> Option<FormData> {
+    let form = enclosing_form(info, node)?;
+    Some(current_form_data(info, form).0)
 }
 
 /// Submit the form `node` sits in, if any - HTML's implicit submission (Enter

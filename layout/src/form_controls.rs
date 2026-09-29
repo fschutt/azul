@@ -38,6 +38,25 @@
 //! `FormWidget::Button(ButtonFormAction::Submit)`, so building the widget
 //! needs no second table.
 //!
+//! # `<form>`
+//!
+//! A raw `<form>` becomes a [`Form`] around its content (a `Form` the app
+//! built is left alone), so FormData, Enter-to-submit and the submit / reset
+//! buttons work on raw and XML forms too. Its controls are resolved INSIDE
+//! the Form, after it recorded their initial values from the raw nodes -
+//! their HTML defaults. It keeps the raw form's block layout (not the Form
+//! widget's column) and everything the graft carries.
+//!
+//! The app's own `Submit` / `Reset` handlers on the raw form (plain
+//! `(RefAny, CallbackInfo) -> Update` callbacks on `HoverEventFilter::Submit`
+//! / `Reset`) become the Form's `on_submit` / `on_reset`: they run whenever
+//! the Form submits or resets - a submit button, Enter in a field, the
+//! engine's own event - exactly once, with the `CallbackInfo` of the event
+//! that triggered it, and read the values with
+//! `crate::widgets::form::collect_form_data(&mut info, info.get_hit_node())`.
+//! They are NOT left on the form node as well: the engine's `Submit` reaches
+//! every handler there, so they would run twice.
+//!
 //! # What moves from the raw node to the widget
 //!
 //! * The HTML attributes are READ into the widget: `value`, `placeholder`,
@@ -114,18 +133,19 @@ use std::sync::Mutex;
 
 use azul_core::{
     a11y::AccessibilityState,
-    callbacks::{CoreCallbackDataVec, Update},
-    dom::{AttributeNameValue, AttributeType, Dom, NodeData, NodeType},
+    callbacks::{CoreCallbackData, CoreCallbackDataVec, Update},
+    dom::{AttributeNameValue, AttributeType, Dom, EventFilter, HoverEventFilter, NodeData, NodeType},
     refany::{OptionRefAny, RefAny},
 };
 use azul_css::{
     css::{Css, CssPathSelector, CssRuleBlock},
-    props::basic::color::ColorU,
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    props::{basic::color::ColorU, layout::LayoutDisplay, property::CssProperty},
     AzString, OptionString, StringVec,
 };
 
 use crate::{
-    callbacks::CallbackInfo,
+    callbacks::{Callback, CallbackInfo},
     widgets::{
         button::{Button, ButtonFormAction},
         check_box::{CheckBox, CheckBoxOnToggleCallbackType, CheckBoxState},
@@ -140,7 +160,10 @@ use crate::{
         },
         drop_down::{DropDown, DropDownOnChoiceChangeCallbackType},
         file_input::{FileInput, FileInputOnPathChangeCallbackType, FileInputState},
-        form::HiddenInput,
+        form::{
+            Form, FormData, FormOnResetCallbackType, FormOnSubmitCallbackType, FormStateWrapper,
+            HiddenInput,
+        },
         number_input::{NumberInput, NumberInputOnValueChangeCallbackType, NumberInputState},
         radio_group::{RadioGroup, RadioGroupOnChangeCallbackType, RadioGroupState},
         slider::{Slider, SliderOnValueChangeCallbackType, SliderState},
@@ -207,6 +230,10 @@ pub enum FormWidget {
     /// `type="hidden"`: an invisible node that keeps its attributes (a form
     /// still submits its `name` / `value`).
     Hidden,
+    /// `<form>`: a [`Form`] around the raw form's content, whose controls
+    /// are then resolved inside it. The app's own `Submit` / `Reset`
+    /// handlers on the raw form become the Form's `on_submit` / `on_reset`.
+    Form,
 }
 
 impl FormWidget {
@@ -230,6 +257,7 @@ impl FormWidget {
             Self::DropDown => "drop-down",
             Self::ComboBox => "combobox",
             Self::Hidden => "hidden",
+            Self::Form => "form",
         }
     }
 
@@ -273,6 +301,7 @@ pub static INPUT_TYPE_WIDGETS: &[(&str, FormWidget)] = &[
     ("hidden", FormWidget::Hidden),
     ("<select>", FormWidget::DropDown),
     ("<textarea>", FormWidget::TextArea),
+    ("<form>", FormWidget::Form),
 ];
 
 /// The text state: a missing or unknown `type`.
@@ -463,6 +492,9 @@ struct Ctx<'a> {
 fn prepass(dom: &Dom, out: &mut Prepass) {
     let node = &dom.root;
     match node.get_node_type() {
+        NodeType::Form if !opted_out(node) && !is_form_widget(node) => {
+            out.has_controls = true;
+        }
         NodeType::Input | NodeType::Select | NodeType::TextArea if !opted_out(node) => {
             out.has_controls = true;
             if matches!(node.get_node_type(), NodeType::Input) && input_type(node) == "radio" {
@@ -490,12 +522,21 @@ fn prepass(dom: &Dom, out: &mut Prepass) {
 }
 
 fn resolve_inner(dom: &mut Dom, ctx: &Ctx<'_>, path: &mut Vec<u32>) -> usize {
-    if let Some(replacement) = replacement_for(dom, ctx, path) {
-        // The widget is never walked: widgets are built from widgets, never
-        // from raw form nodes.
+    if let Some((kind, replacement)) = replacement_for(dom, ctx, path) {
         *dom = replacement;
-        return 1;
+        if kind != FormWidget::Form {
+            // The widget is never walked: widgets are built from widgets,
+            // never from raw form nodes.
+            return 1;
+        }
+        // A form's controls are its content: resolved INSIDE the Form they
+        // now sit in, at the same tree paths as before.
+        return 1 + resolve_children(dom, ctx, path);
     }
+    resolve_children(dom, ctx, path)
+}
+
+fn resolve_children(dom: &mut Dom, ctx: &Ctx<'_>, path: &mut Vec<u32>) -> usize {
     let mut replaced = 0;
     for (i, child) in dom.children.as_mut().iter_mut().enumerate() {
         path.push(u32::try_from(i).unwrap_or(u32::MAX));
@@ -505,9 +546,9 @@ fn resolve_inner(dom: &mut Dom, ctx: &Ctx<'_>, path: &mut Vec<u32>) -> usize {
     replaced
 }
 
-/// The widget `raw` becomes, or `None` when it is not a form control (or
-/// opted out).
-fn replacement_for(raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) -> Option<Dom> {
+/// The widget `raw` becomes (and which one), or `None` when it is not a form
+/// control (or opted out).
+fn replacement_for(raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) -> Option<(FormWidget, Dom)> {
     let node = &raw.root;
     if opted_out(node) {
         return None;
@@ -516,7 +557,17 @@ fn replacement_for(raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) -> Option<Dom> {
     let spec = Spec::read(raw, kind);
     let mut widget = build(kind, &spec, raw, ctx, path);
     graft(raw, &mut widget, kind, &spec);
-    Some(widget)
+    Some((kind, widget))
+}
+
+/// A form node that already IS a [`Form`] - the app built one, or this pass
+/// did on an earlier run - carries the Form's state.
+fn is_form_widget(node: &NodeData) -> bool {
+    node.get_dataset().is_some_and(|dataset| {
+        let mut dataset = dataset.clone();
+        let is_form = dataset.downcast_ref::<FormStateWrapper>().is_some();
+        is_form
+    })
 }
 
 /// Which widget `node` becomes, through [`INPUT_TYPE_WIDGETS`].
@@ -526,6 +577,7 @@ fn widget_for(node: &NodeData, pre: &Prepass) -> Option<FormWidget> {
         // `<optgroup>`s become the drop-down's headings (`collect_choices`).
         NodeType::Select => String::from("<select>"),
         NodeType::TextArea => String::from("<textarea>"),
+        NodeType::Form if !is_form_widget(node) => String::from("<form>"),
         _ => return None,
     };
     let kind = INPUT_TYPE_WIDGETS
@@ -1074,6 +1126,79 @@ extern "C" fn record_text_area(
     }
 }
 
+// ── A raw <form>'s own handlers ─────────────────────────────────────────────
+
+/// The engine's form events: `Submit` and `Reset` on the form node.
+fn is_form_event(event: &EventFilter) -> bool {
+    matches!(
+        event,
+        EventFilter::Hover(HoverEventFilter::Submit | HoverEventFilter::Reset)
+    )
+}
+
+/// The app's own `Submit` (or `Reset`) handlers of a raw `<form>` - plain
+/// callbacks - carried into the Form's `on_submit` (`on_reset`).
+#[derive(Debug, Clone)]
+struct CarriedFormHandlers {
+    handlers: Vec<CoreCallbackData>,
+}
+
+/// Run every carried handler, in the order the app attached them, with the
+/// `CallbackInfo` of the event that submitted (reset) the form. The values
+/// are one `collect_form_data` away for them; the `FormData` argument has no
+/// place in their signature.
+fn run_carried(data: &mut RefAny, info: CallbackInfo) -> Update {
+    let handlers = match data.downcast_ref::<CarriedFormHandlers>() {
+        Some(carried) => carried.handlers.clone(),
+        None => return Update::DoNothing,
+    };
+    let mut update = Update::DoNothing;
+    for handler in handlers {
+        let result = Callback::from_core(handler.callback).invoke(handler.refany, info);
+        update.max_self(result);
+    }
+    update
+}
+
+extern "C" fn run_carried_submit(mut data: RefAny, info: CallbackInfo, _values: FormData) -> Update {
+    run_carried(&mut data, info)
+}
+
+extern "C" fn run_carried_reset(mut data: RefAny, info: CallbackInfo, _initial: FormData) -> Update {
+    run_carried(&mut data, info)
+}
+
+/// The Form a raw `<form>` becomes: its content (still raw - the caller
+/// resolves it inside), the app's handlers as `on_submit` / `on_reset`, and
+/// the raw form's block layout rather than the Form widget's column.
+fn form_for(raw: &Dom, label: Option<String>) -> Dom {
+    let (mut submit, mut reset) = (Vec::new(), Vec::new());
+    for handler in raw.root.callbacks.as_ref() {
+        match handler.event {
+            EventFilter::Hover(HoverEventFilter::Submit) => submit.push(handler.clone()),
+            EventFilter::Hover(HoverEventFilter::Reset) => reset.push(handler.clone()),
+            _ => {}
+        }
+    }
+    let mut form = Form::create(raw.children.clone()).with_container_style(
+        CssPropertyWithConditionsVec::from_vec(alloc::vec![CssPropertyWithConditions::simple(
+            CssProperty::const_display(LayoutDisplay::Block)
+        )]),
+    );
+    if !submit.is_empty() {
+        let run: FormOnSubmitCallbackType = run_carried_submit;
+        form = form.with_on_submit(RefAny::new(CarriedFormHandlers { handlers: submit }), run);
+    }
+    if !reset.is_empty() {
+        let run: FormOnResetCallbackType = run_carried_reset;
+        form = form.with_on_reset(RefAny::new(CarriedFormHandlers { handlers: reset }), run);
+    }
+    if let Some(label) = label {
+        form = form.with_accessibility_name(label);
+    }
+    form.dom()
+}
+
 // ── Building the widget ─────────────────────────────────────────────────────
 
 const BLACK: ColorU = ColorU {
@@ -1398,6 +1523,7 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
             spec.value.clone().unwrap_or_default().into(),
         )
         .dom(),
+        FormWidget::Form => form_for(raw, name),
     };
 
     // HTML's character / line counts, as a size the app's own style (added
@@ -1461,10 +1587,13 @@ fn targets_the_node_itself(rule: &CssRuleBlock) -> bool {
 
 fn graft(raw: &Dom, widget: &mut Dom, kind: FormWidget, spec: &Spec) {
     let from = &raw.root;
+    // A form has no `disabled` of its own (a `<fieldset>` has; it is not
+    // replaced), and its content is the app's, not the widget's to disable.
+    let disabled = spec.disabled && kind != FormWidget::Form;
 
     // What the widget does with `disabled` / `readonly`, BEFORE the app's
     // style lands: the app can still restyle a disabled control.
-    if spec.disabled {
+    if disabled {
         disable(widget);
         widget.root.set_css("opacity: 0.5;");
         if let Some(a11y) = widget.root.accessibility.as_mut() {
@@ -1511,7 +1640,9 @@ fn graft(raw: &Dom, widget: &mut Dom, kind: FormWidget, spec: &Spec) {
     for sheet in raw.css.iter() {
         let mut rest = Vec::new();
         for rule in sheet.rules.iter() {
-            if targets_the_node_itself(rule) {
+            // On a `<form>` a bare `* { .. }` reaches its whole content, as
+            // before: it stays a scoped sheet.
+            if kind != FormWidget::Form && targets_the_node_itself(rule) {
                 rules.push(rule.clone());
             } else {
                 rest.push(rule.clone());
@@ -1530,16 +1661,25 @@ fn graft(raw: &Dom, widget: &mut Dom, kind: FormWidget, spec: &Spec) {
     widget.root.style.keyframes = keyframes.into();
     widget.css = sheets.into();
 
-    // 3. Callbacks: the widget's first, then the app's - unless disabled.
-    if !spec.disabled {
+    // 3. Callbacks: the widget's first, then the app's - unless disabled. A
+    //    raw form's Submit / Reset handlers are not among them: they became
+    //    the Form's `on_submit` / `on_reset` (`form_for`), and left here too
+    //    the engine's Submit would run them a second time.
+    if !disabled {
         let mut callbacks = widget.root.callbacks.clone().into_library_owned_vec();
-        callbacks.extend(from.callbacks.clone().into_library_owned_vec());
+        callbacks.extend(
+            from.callbacks
+                .as_ref()
+                .iter()
+                .filter(|c| kind != FormWidget::Form || !is_form_event(&c.event))
+                .cloned(),
+        );
         widget.root.callbacks = callbacks.into();
     }
 
     // 4. Focus order: onto the root when the root is what takes focus.
     if let Some(tab_index) = from.get_tab_index() {
-        if !spec.disabled && widget.root.get_tab_index().is_some() {
+        if !disabled && widget.root.get_tab_index().is_some() {
             widget.root.set_tab_index(tab_index);
         }
     }
