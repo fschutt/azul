@@ -1521,4 +1521,59 @@ mod app_theme_tests {
             );
         }
     }
+
+    /// Through the REAL cascade (the window's context, its app theme and
+    /// colour scheme): a divider with no theme paints flat's rule under the
+    /// app theme flat and flora's under flora, by day and at night.
+    #[test]
+    fn the_cascade_paints_the_app_themes_rule() {
+        use azul_core::{dom::NodeId, styled_dom::StyledDom};
+        use azul_css::dynamic_selector::{DynamicSelectorContext, ThemeCondition};
+
+        use crate::widgets::themes::flora;
+
+        let painted = |theme: UiTheme, dark: bool| {
+            let dom = checks::under(theme, || Divider::create().dom());
+            let mut ctx = DynamicSelectorContext::default();
+            if dark {
+                ctx.theme = ThemeCondition::Dark;
+            }
+            let ctx = ctx.with_app_theme(theme.name());
+            let sd = StyledDom::create_from_dom_with_context(
+                Dom::create_body().with_child(dom),
+                Some(ctx),
+            );
+            let rule = NodeId::new(1);
+            let states = sd.styled_nodes.as_container();
+            crate::solver3::getters::get_background_contents(
+                &sd,
+                rule,
+                &states[rule].styled_node_state,
+            )
+        };
+
+        assert_eq!(
+            painted(UiTheme::Flat, false),
+            alloc::vec![StyleBackgroundContent::Color(DIVIDER_COLOR)],
+            "flat by day: the established #DDDDDD rule"
+        );
+        assert_eq!(
+            painted(UiTheme::Flora, false),
+            alloc::vec![StyleBackgroundContent::Color(flora::LIGHT_SEP)],
+            "flora by day: --fl-sep"
+        );
+        assert_eq!(
+            painted(UiTheme::Flora, true),
+            alloc::vec![StyleBackgroundContent::Color(flora::DARK_SEP)],
+            "flora at night: --fl-sep's night value"
+        );
+        let flat_night = painted(UiTheme::Flat, true);
+        assert!(
+            !flat_night.is_empty()
+                && flat_night != painted(UiTheme::Flora, true)
+                && flat_night != painted(UiTheme::Flat, false),
+            "flat at night: the desktop's separator, neither flora's nor the day rule: \
+             {flat_night:?}"
+        );
+    }
 }
