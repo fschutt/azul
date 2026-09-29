@@ -5489,7 +5489,16 @@ pub trait PlatformWindow {
 
                 let mouse_state_changed = old_state.mouse_state != state.mouse_state;
 
-                let theme_changed = old_state.theme != state.theme;
+                // A pushed theme is the WINDOW's own choice: an AZ_THEME pin
+                // and the app's choice still outrank it (the one decision,
+                // `resolve_window_theme`). It used to be compared here and
+                // never written, so the `ThemeChange` rebuild it requested
+                // ran `layout()` under the OLD scheme.
+                let theme = azul_layout::window::resolve_window_theme(
+                    self.get_common_mut().app_color_scheme(),
+                    state.theme,
+                );
+                let theme_changed = old_state.theme != theme;
                 // The other cursors (9b-ii): same treatment as the primary,
                 // or an app-pushed seat change would neither copy nor diff.
                 let seats_changed = old_state.pointer_seats != state.pointer_seats;
@@ -5551,6 +5560,7 @@ pub trait PlatformWindow {
                         current.keyboard_seats = state.keyboard_seats.clone();
                         current.touch_state = state.touch_state.clone();
                         current.window_focused = state.window_focused;
+                        current.theme = theme;
                                             });
 
                 if state.flags.close_requested {
@@ -5634,7 +5644,7 @@ pub trait PlatformWindow {
                 // full pass a system theme change takes; without it an in-app
                 // switch flipped the window chrome and nothing else.
                 if theme_changed {
-                    self.request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
+                    result = result.max(self.color_scheme_change_tier());
                 }
                 // Mouse state changed → update hit test before the event pass
                 if mouse_state_changed {
@@ -7689,26 +7699,7 @@ pub trait PlatformWindow {
                     .update_unsynced_state(|ws| ws.theme = target);
                 let nested = self.process_window_events(0);
 
-                // THE trigger's decision (I7), as in `adopt_system_style`
-                // for a theme delta with an unchanged style: paint-only
-                // unless `layout()` read the scheme. The incremental caches
-                // hold a display list and a solved tree painted in the OLD
-                // scheme; drop them either way.
-                let rebuild = self
-                    .get_layout_window()
-                    .is_none_or(|lw| lw.color_scheme_change_needs_new_dom());
-                if let Some(lw) = self.get_layout_window_mut() {
-                    lw.layout_cache.reset_incremental();
-                }
-                let tier = if rebuild {
-                    self.request_regeneration(
-                        azul_core::callbacks::RelayoutReason::ThemeChange,
-                    );
-                    ProcessEventResult::ShouldRegenerateDomCurrentWindow
-                } else {
-                    ProcessEventResult::ShouldIncrementalRelayout
-                };
-                tier.max(nested)
+                self.color_scheme_change_tier().max(nested)
             }
             CallbackChange::SetTheme { theme } => {
                 // The APP theme, not the colour scheme: a theme may change a
@@ -10259,6 +10250,28 @@ pub trait PlatformWindow {
     /// shows (`None`: nothing to write). The decision is
     /// `CommonWindowState::resolved_window_theme` - the desktop's theme under
     /// the app's choice and `AZ_THEME`.
+    /// What a colour-scheme change of THIS window costs, once `ws.theme`
+    /// holds the new scheme - THE trigger's decision (I7), as in
+    /// `adopt_system_style` for a theme delta with an unchanged style:
+    /// paint-only unless `layout()` read the scheme. The incremental caches
+    /// hold a display list and a solved tree painted in the OLD scheme; they
+    /// are dropped either way. One decision for the app's switch
+    /// (`SetColorScheme`) and a pushed state (`ModifyWindowState`).
+    fn color_scheme_change_tier(&mut self) -> ProcessEventResult {
+        let rebuild = self
+            .get_layout_window()
+            .is_none_or(|lw| lw.color_scheme_change_needs_new_dom());
+        if let Some(lw) = self.get_layout_window_mut() {
+            lw.layout_cache.reset_incremental();
+        }
+        if rebuild {
+            self.request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
+            ProcessEventResult::ShouldRegenerateDomCurrentWindow
+        } else {
+            ProcessEventResult::ShouldIncrementalRelayout
+        }
+    }
+
     fn mirror_app_color_scheme(&mut self) -> Option<azul_core::window::WindowTheme> {
         let scheme = azul_layout::window::app_color_scheme();
         let common = self.get_common_mut();
