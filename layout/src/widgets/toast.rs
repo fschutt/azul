@@ -2223,3 +2223,157 @@ mod autotest_generated {
         );
     }
 }
+
+#[cfg(test)]
+mod theme_tests {
+    //! The toast's theme is a DOM-level choice: the card, message and close
+    //! button are built from the skin of the theme the toast carries, flat by
+    //! default.
+
+    use azul_core::dom::Dom;
+    use azul_css::props::{
+        basic::color::ColorU,
+        property::{CssProperty, CssPropertyType},
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLAT: &str = "__azul-theme-flat";
+    const FLORA: &str = "__azul-theme-flora";
+    const KINDS: [ToastKind; 4] = [
+        ToastKind::Info,
+        ToastKind::Success,
+        ToastKind::Warning,
+        ToastKind::Danger,
+    ];
+
+    fn toast(kind: ToastKind, theme: Option<UiTheme>) -> Dom {
+        let t = Toast::with_kind(AzString::from("Saved"), kind);
+        match theme {
+            Some(th) => t.with_theme(th).dom(),
+            None => t.dom(),
+        }
+    }
+
+    fn close(dom: &Dom) -> &Dom {
+        tc::find(dom, "__azul-native-toast-close").expect("a close button")
+    }
+
+    fn left_edge(node: &Dom, dark: bool) -> Option<ColorU> {
+        tc::resolve(node, CssPropertyType::BorderLeftColor, dark, None)
+            .as_ref()
+            .and_then(tc::border_color)
+    }
+
+    #[test]
+    fn a_toast_without_a_theme_renders_flat() {
+        let t = Toast::create(AzString::from("x"));
+        assert_eq!(t.theme, OptionUiTheme::None);
+        assert!(tc::has_class(&toast(ToastKind::Info, None), FLAT));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_agree() {
+        let mut a = Toast::create(AzString::from("x"));
+        a.set_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(a, Toast::create(AzString::from("x")).with_theme(UiTheme::Flora));
+    }
+
+    #[test]
+    fn a_flat_toast_keeps_its_kind_palette() {
+        for kind in KINDS {
+            let dom = toast(kind, Some(UiTheme::Flat));
+            let (bg, border, text) = kind.colors();
+            assert_eq!(
+                tc::background(&dom, false).and_then(|p| tc::bg_color(&p)),
+                Some(bg),
+                "{kind:?}"
+            );
+            assert_eq!(tc::border_top_color(&dom, false, None), Some(border), "{kind:?}");
+            assert_eq!(tc::text_color(&dom, false), Some(text), "{kind:?}");
+            let (dark_bg, _, dark_text) = kind.dark_colors();
+            assert_eq!(
+                tc::background(&dom, true).and_then(|p| tc::bg_color(&p)),
+                Some(dark_bg),
+                "{kind:?}"
+            );
+            assert_eq!(tc::text_color(&dom, true), Some(dark_text), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn a_flora_toast_is_a_leaf_with_its_kind_as_a_thread_in_the_margin() {
+        let hues = [
+            (ToastKind::Info, flora::LIGHT_ACC, flora::DARK_GLOW),
+            (ToastKind::Success, ColorU::rgb(68, 104, 79), ColorU::rgb(127, 169, 140)),
+            (ToastKind::Warning, ColorU::rgb(154, 139, 95), ColorU::rgb(196, 181, 142)),
+            (ToastKind::Danger, ColorU::rgb(126, 74, 66), ColorU::rgb(179, 131, 122)),
+        ];
+        for (kind, light, dark) in hues {
+            let dom = toast(kind, Some(UiTheme::Flora));
+            assert!(tc::has_class(&dom, FLORA));
+            assert_eq!(
+                tc::background(&dom, false).and_then(|p| tc::bg_color(&p)),
+                Some(flora::LIGHT_SUR),
+                "{kind:?}"
+            );
+            assert_eq!(
+                tc::background(&dom, true).and_then(|p| tc::bg_color(&p)),
+                Some(flora::DARK_SUR),
+                "{kind:?}"
+            );
+            assert_eq!(tc::text_color(&dom, false), Some(flora::LIGHT_INK), "{kind:?}");
+            assert_eq!(tc::text_color(&dom, true), Some(flora::DARK_INK), "{kind:?}");
+            assert_eq!(tc::border_top_color(&dom, false, None), Some(flora::LIGHT_BD2));
+            assert_eq!(tc::border_top_color(&dom, true, None), Some(flora::DARK_BD2));
+            assert_eq!(left_edge(&dom, false), Some(light), "{kind:?}: the thread by day");
+            assert_eq!(left_edge(&dom, true), Some(dark), "{kind:?}: the thread by night");
+            assert_eq!(
+                tc::resolve(&dom, CssPropertyType::BorderLeftWidth, false, None),
+                Some(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(3))),
+                "{kind:?}"
+            );
+
+            let c = close(&dom);
+            assert_eq!(tc::text_color(c, false), Some(flora::LIGHT_QT));
+            assert_eq!(tc::text_color(c, true), Some(flora::DARK_QT));
+        }
+    }
+
+    #[test]
+    fn the_toast_close_button_shows_a_focus_ring_in_every_theme_and_mode() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            for kind in KINDS {
+                let dom = toast(kind, Some(theme));
+                let c = close(&dom);
+                assert!(tc::has_focus_ring(c, false), "{theme:?} {kind:?}: light");
+                assert!(tc::has_focus_ring(c, true), "{theme:?} {kind:?}: dark");
+                tc::assert_theme_invariants(&format!("toast {theme:?} {kind:?}"), &dom);
+            }
+        }
+        let dom = toast(ToastKind::Info, Some(UiTheme::Flora));
+        assert_eq!(tc::focus_ring_color(close(&dom), false), Some(flora::LIGHT_ACC));
+        assert_eq!(tc::focus_ring_color(close(&dom), true), Some(flora::DARK_GLOW));
+    }
+
+    #[test]
+    fn the_theme_changes_the_look_not_the_accessibility_tree() {
+        let flat = toast(ToastKind::Warning, Some(UiTheme::Flat));
+        let flora_dom = toast(ToastKind::Warning, Some(UiTheme::Flora));
+        assert_eq!(tc::a11y_outline(&flat).len(), 1, "the close button");
+        assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora_dom));
+    }
+
+    #[test]
+    fn a_caller_container_style_wins_over_either_theme() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let mut t = Toast::create(AzString::from("m")).with_theme(theme);
+            t.container_style = OptionCssPropertyWithConditionsVec::Some(
+                CssPropertyWithConditionsVec::from_vec(alloc::vec![]),
+            );
+            assert_eq!(t.dom().root.style.iter_inline_properties().count(), 0, "{theme:?}");
+        }
+    }
+}
