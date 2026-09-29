@@ -521,3 +521,25 @@ fn accordions_hold_readable_text_in_both_themes_in_both_looks() {
         .collect();
     assert_follow_the_theme(widgets);
 }
+
+#[test]
+fn menubars_read_in_both_themes_in_both_looks() {
+    use azul_core::menu::{Menu, MenuItem, MenuItemVec, StringMenuItem};
+    use azul_layout::widgets::menubar::Menubar;
+    let menu = || {
+        Menu::create(MenuItemVec::from_vec(vec![
+            MenuItem::String(StringMenuItem::create("File".into())),
+            MenuItem::String(StringMenuItem::create("Edit".into())),
+        ]))
+    };
+    let widgets = LOOKS
+        .iter()
+        .map(|(look, theme)| {
+            (
+                format!("{look} menubar"),
+                Menubar::create(menu()).with_theme(*theme).dom(),
+            )
+        })
+        .collect();
+    assert_follow_the_theme(widgets);
+}

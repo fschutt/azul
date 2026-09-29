@@ -1246,3 +1246,177 @@ mod autotest_generated {
         });
     }
 }
+
+/// The theme option: which look a menu bar renders in, and what each look is.
+#[cfg(test)]
+mod theme_tests {
+    use azul_core::menu::{Menu, MenuItem, MenuItemVec, StringMenuItem};
+    use azul_css::{
+        dynamic_selector::{CssPropertyWithConditions, PseudoStateType},
+        props::{basic::color::ColorU, property::CssProperty, style::StyleBackgroundContent},
+    };
+
+    use super::*;
+    use crate::widgets::{
+        theme_probe,
+        themes::{flora, OptionUiTheme, UiTheme},
+    };
+
+    fn menu() -> Menu {
+        Menu::create(MenuItemVec::from_vec(vec![
+            MenuItem::String(StringMenuItem::create("File".into())),
+            MenuItem::String(StringMenuItem::create("Edit".into())),
+        ]))
+    }
+
+    fn bar(theme: UiTheme) -> Dom {
+        Menubar::create(menu()).with_theme(theme).dom()
+    }
+
+    fn declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, c)| CssPropertyWithConditions {
+                property: p.clone(),
+                apply_if: c.clone(),
+            })
+            .collect()
+    }
+
+    fn in_state<T>(
+        node: &Dom,
+        state: PseudoStateType,
+        pick: impl Fn(&CssProperty) -> Option<T>,
+    ) -> (Option<T>, Option<T>) {
+        let mut light = None;
+        let mut dark = None;
+        for d in declarations(node) {
+            if d.pseudo_state_conditions() != [state] {
+                continue;
+            }
+            let Some(v) = pick(&d.property) else {
+                continue;
+            };
+            if d.is_dark_twin() {
+                dark = Some(v);
+            } else {
+                light = Some(v);
+            }
+        }
+        (light, dark)
+    }
+
+    fn bg(p: &CssProperty) -> Option<Vec<StyleBackgroundContent>> {
+        match p {
+            CssProperty::BackgroundContent(v) => v.get_property().map(|v| v.as_ref().to_vec()),
+            _ => None,
+        }
+    }
+
+    fn ink(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn bottom_edge(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BorderBottomColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn last<T>(props: &[CssProperty], f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
+        props.iter().rev().find_map(f)
+    }
+
+    fn classes(dom: &Dom) -> Vec<String> {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .filter_map(|c| match c {
+                Class(s) => Some(s.as_str().to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_menubar_without_a_theme_is_the_bar_the_shell_injects() {
+        let plain = Menubar::create(menu());
+        assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+        let a = plain.clone().dom();
+        let b = build_menubar_dom(&menu());
+        assert_eq!(classes(&a), classes(&b));
+        assert_eq!(a.css.as_ref(), b.css.as_ref(), "the same flat stylesheet");
+        assert_eq!(a.children.as_ref().len(), b.children.as_ref().len());
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let mut set = Menubar::create(menu());
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(Menubar::create(menu()).with_theme(UiTheme::Flora), set);
+    }
+
+    #[test]
+    fn a_flora_menubar_is_flora_s_strip_closed_by_a_hairline() {
+        let dom = bar(UiTheme::Flora);
+        let rest = theme_probe::unconditional(&dom);
+        assert_eq!(
+            last(&rest, bg),
+            Some(vec![StyleBackgroundContent::Color(flora::LIGHT_STRIP)]),
+            "flora.css --fl-strip: toolbars"
+        );
+        assert_eq!(last(&rest, bottom_edge), Some(flora::LIGHT_BD));
+        assert_eq!(last(&rest, ink), Some(flora::LIGHT_INK));
+        let dark = theme_probe::dark(&dom);
+        assert_eq!(
+            last(&dark, bg),
+            Some(vec![StyleBackgroundContent::Color(flora::DARK_STRIP)])
+        );
+        assert_eq!(last(&dark, bottom_edge), Some(flora::DARK_BD));
+        assert_eq!(last(&dark, ink), Some(flora::DARK_INK));
+    }
+
+    #[test]
+    fn a_flora_menubar_item_lifts_under_the_pointer_and_sinks_when_pressed() {
+        let dom = bar(UiTheme::Flora);
+        for item in dom.children.as_ref() {
+            assert_eq!(
+                in_state(item, PseudoStateType::Hover, bg),
+                (
+                    Some(vec![flora::HOVER_FACE_LIGHT]),
+                    Some(vec![flora::HOVER_FACE_DARK])
+                ),
+                "`.nav-links a:hover`: the hover face"
+            );
+            assert_eq!(
+                in_state(item, PseudoStateType::Active, bg),
+                (
+                    Some(vec![flora::PRESSED_FACE_LIGHT]),
+                    Some(vec![flora::PRESSED_FACE_DARK])
+                ),
+                "`.nav-links a:active`: the pressed face"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_menubar_keeps_every_items_click_and_takes_no_focus() {
+        let flora = bar(UiTheme::Flora);
+        let flat = bar(UiTheme::Flat);
+        assert_eq!(flora.children.as_ref().len(), flat.children.as_ref().len());
+        for (a, b) in flora.children.as_ref().iter().zip(flat.children.as_ref()) {
+            assert_eq!(classes(a), classes(b));
+            assert_eq!(a.root.get_callbacks().as_ref().len(), 1, "opens its submenu");
+            assert_eq!(a.root.get_tab_index(), b.root.get_tab_index());
+        }
+        assert!(classes(&flora).iter().any(|c| c == "__azul-theme-flora"));
+        assert!(classes(&flora).iter().any(|c| c == MENUBAR_CLASS), "the shell's marker");
+    }
+}
