@@ -34,13 +34,18 @@ Nothing is compiled here (house rule). The parent compiles once.
   FIX e2e586796 (paint_scrollbars reads this layout's extent + caret gutter; `caret_scroll_node`; GPU
   updater reads the published extent; funnel refreshes thumb transforms after registration).
 
+- item 6: RED 74018917b (`layout/tests/a_drag_autoscrolls_the_box_its_containing_block_scrolls_in.rs`),
+  FIX df204d5cc (`LayoutWindow::scroll_box_in_chain` / `scroll_box_of_node`; `drag_autoscroll_box`,
+  `CallbackInfo::find_scroll_container`, `scroll_box_of_layout_node` on it; `ScrollManager::find_scroll_parent`
+  + 4 unit tests deleted).
+
 ## IN PROGRESS
 
-- item 6 (R5 scroll-parent search via ScrollChain)
+- item 3 guard test
 
 ## NEXT
 
-6, 3 (guard), 8 (implement small or plan), report.
+3 (guard), 8 (implement small or plan), report.
 
 ## Open questions
 
