@@ -6,7 +6,7 @@
 //! This is a blend of [`crate::widgets::segmented::Segmented`] (a horizontal row
 //! of clickable items whose clicked index is derived from sibling position and
 //! whose parts are live-restyled with the style a build in the new state gives
-//! them - `CallbackInfo::set_node_inline_style`) and the filled-track
+//! them - `CallbackInfo::set_node_style`) and the filled-track
 //! look of [`crate::widgets::progressbar::ProgressBar`] (the accent connector).
 //!
 //! Steps are CLICKABLE (free navigation, like a segmented control): clicking
@@ -431,7 +431,7 @@ const fn conn_right_fill(i: usize, last: usize, current: usize) -> ConnFill {
 /// What a theme supplies for a stepper: the style of every part. Built by
 /// `themes::flat::stepper_skin` / `themes::flora::stepper_skin`. A click
 /// restyles each part with the same functions
-/// (`CallbackInfo::set_node_inline_style`), so a clicked stepper is the
+/// (`CallbackInfo::set_node_style`), so a clicked stepper is the
 /// stepper built on its new step - in every mode.
 #[derive(Clone, Copy)]
 pub(crate) struct StepperSkin {
@@ -873,19 +873,19 @@ fn go_to_step_cell(
         let label = info.get_next_sibling(row);
 
         if let Some(circle) = circle {
-            info.set_node_inline_style(circle, (skin.circle)(reached));
+            info.set_node_style(circle, (skin.circle)(reached).into());
         }
         if let Some(cl) = conn_left {
-            info.set_node_inline_style(cl, (skin.connector)(conn_left_fill(i, clicked_idx)));
+            info.set_node_style(cl, (skin.connector)(conn_left_fill(i, clicked_idx)).into());
         }
         if let Some(cr) = conn_right {
-            info.set_node_inline_style(
+            info.set_node_style(
                 cr,
-                (skin.connector)(conn_right_fill(i, last, clicked_idx)),
+                (skin.connector)(conn_right_fill(i, last, clicked_idx)).into(),
             );
         }
         if let Some(label) = label {
-            info.set_node_inline_style(label, (skin.label)(reached));
+            info.set_node_style(label, (skin.label)(reached).into());
         }
     }
 
@@ -932,6 +932,7 @@ mod autotest_generated {
         window::{MonitorVec, RawWindowHandle},
     };
     use azul_css::{
+        css::Css,
         props::basic::{length::SizeMetric, pixel::PixelValue},
         system::SystemStyle,
     };
@@ -1544,11 +1545,10 @@ mod autotest_generated {
             // each colour (the dark twins travel in the same style).
             let resting = |ty: CssPropertyType| {
                 style
-                    .as_ref()
-                    .iter()
-                    .filter(|p| p.apply_if.as_ref().is_empty() && p.property.get_type() == ty)
+                    .iter_inline_properties()
+                    .filter(|(p, c)| c.as_ref().is_empty() && p.get_type() == ty)
                     .last()
-                    .map(|p| p.property.clone())
+                    .map(|(p, _)| p.clone())
             };
             if let Some(CssProperty::BackgroundContent(v)) =
                 resting(CssPropertyType::BackgroundContent)
@@ -1568,15 +1568,15 @@ mod autotest_generated {
         out
     }
 
-    /// Every part style the live restyle wrote (`set_node_inline_style`), as
+    /// Every part style the live restyle wrote (`set_node_style`), as
     /// `(node index, style)` in emission order. The restyle pins no value: any
     /// other change is a bug (a `ChangeNodeCssProperties` would outlive a light
     /// / dark switch).
-    fn inline_writes(changes: &[CallbackChange]) -> Vec<(usize, CssPropertyWithConditionsVec)> {
+    fn inline_writes(changes: &[CallbackChange]) -> Vec<(usize, Css)> {
         changes
             .iter()
             .filter_map(|change| match change {
-                CallbackChange::SetNodeInlineStyle { node_id, style, .. } => {
+                CallbackChange::SetNodeStyle { node_id, style, .. } => {
                     Some((node_id.index(), style.clone()))
                 }
                 // The restyle must never go back to BAKED overrides: they
@@ -3928,17 +3928,17 @@ mod autotest_generated {
                 .map(|(_, s)| s.clone())
                 .unwrap_or_else(|| panic!("node {n} is restyled"))
         };
-        assert_eq!(style_of(circle_node(1)), (skin.circle)(true), "a reached circle");
-        assert_eq!(style_of(circle_node(2)), (skin.circle)(false), "an upcoming circle");
-        assert_eq!(style_of(label_node(2)), (skin.label)(false), "an upcoming label");
+        assert_eq!(style_of(circle_node(1)), Css::from((skin.circle)(true)), "a reached circle");
+        assert_eq!(style_of(circle_node(2)), Css::from((skin.circle)(false)), "an upcoming circle");
+        assert_eq!(style_of(label_node(2)), Css::from((skin.label)(false)), "an upcoming label");
         assert_eq!(
             style_of(conn_right_node(0)),
-            (skin.connector)(conn_right_fill(0, 2, 1)),
+            Css::from((skin.connector)(conn_right_fill(0, 2, 1))),
             "the walked line"
         );
 
         // ...which is the accent stone, flora paper and soft ink, by night too.
-        let node_of = |n: usize| Dom::create_div().with_css_props(style_of(n));
+        let node_of = |n: usize| Dom::create_div().with_style(style_of(n));
         assert_eq!(tc::text_color(&node_of(circle_node(1)), false), Some(flora::LIGHT_ON_ACC));
         for dark in [false, true] {
             let upcoming = tc::background(&node_of(circle_node(2)), dark).map(|p| tc::bg_layers(&p));
@@ -3976,7 +3976,7 @@ mod autotest_generated {
             .map(|(_, style)| style)
             .expect("circle 1 is restyled");
         assert_eq!(
-            tc::text_color(&Dom::create_div().with_css_props(circle), false),
+            tc::text_color(&Dom::create_div().with_style(circle), false),
             Some(flora::LIGHT_ON_ACC),
             "a reached step wears flora's stone ink"
         );

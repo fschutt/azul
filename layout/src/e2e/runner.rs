@@ -2445,7 +2445,7 @@ impl Runner {
                 .to_process_event_result(),
 
             // Same one-line delegation as the DLL host.
-            CallbackChange::SetNodeInlineStyle {
+            CallbackChange::SetNodeStyle {
                 dom_id,
                 node_id,
                 style,

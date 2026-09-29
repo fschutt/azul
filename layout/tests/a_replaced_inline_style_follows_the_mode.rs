@@ -1,6 +1,6 @@
-//! `CallbackInfo::set_node_inline_style`: a node's whole inline style
-//! replaced at run time resolves like a node BUILT with it - now, and after a
-//! light / dark switch of the retained DOM.
+//! `CallbackInfo::set_node_style`: a node's inline stylesheet replaced at
+//! run time resolves like a node BUILT with it - now, and after a light /
+//! dark switch of the retained DOM.
 //!
 //! The live restyles of segmented / stepper / pagination / date_picker used
 //! `set_css_property`, which writes a USER OVERRIDE: it outranks every
@@ -10,7 +10,7 @@
 //! nothing: its dark twins are declarations like any other.
 //!
 //! Driven through the content chokepoint the dll host and the e2e runner
-//! both delegate `CallbackChange::SetNodeInlineStyle` to.
+//! both delegate `CallbackChange::SetNodeStyle` to.
 
 use std::sync::Arc;
 
@@ -22,6 +22,7 @@ use azul_core::{
     window::{OptionWindowTheme, WindowTheme},
 };
 use azul_css::{
+    css::Css,
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
         basic::color::ColorU,
@@ -59,13 +60,14 @@ pub(crate) fn fill(c: ColorU) -> CssProperty {
 }
 
 /// A `width` x 20 box painted `light` by day and `dark` by night.
-fn box_style(width: isize, light: ColorU, dark: ColorU) -> CssPropertyWithConditionsVec {
+fn box_style(width: isize, light: ColorU, dark: ColorU) -> Css {
     CssPropertyWithConditionsVec::from_vec(vec![
         CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(width))),
         CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(20))),
         CssPropertyWithConditions::simple(fill(light)),
         CssPropertyWithConditions::dark_theme(fill(dark)),
     ])
+    .into()
 }
 
 fn window_state(theme: WindowTheme) -> FullWindowState {
@@ -94,7 +96,7 @@ pub(crate) fn window() -> LayoutWindow {
     lw.mode = OptionWindowTheme::None;
     let dom = Dom::create_body()
         .with_css("margin: 0;")
-        .with_child(Dom::create_div().with_css_props(box_style(40, RED, BLUE)));
+        .with_child(Dom::create_div().with_style(box_style(40, RED, BLUE)));
     lay_out(&mut lw, StyledDom::create_from_dom(dom), &window_state(WindowTheme::LightMode));
     lw
 }
@@ -130,7 +132,7 @@ pub(crate) fn box_fill(lw: &LayoutWindow, width: f32) -> Option<ColorU> {
         })
 }
 
-pub(crate) fn replace(lw: &mut LayoutWindow, style: CssPropertyWithConditionsVec) -> ContentDirtyTier {
+pub(crate) fn replace(lw: &mut LayoutWindow, style: Css) -> ContentDirtyTier {
     lw.apply_content_change(ContentChange::NodeStyle {
         dom_id: DomId::ROOT_ID,
         node_id: BOX,

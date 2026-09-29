@@ -172,15 +172,15 @@ pub enum ContentChange {
         props: Vec<azul_css::props::property::CssProperty>,
         override_only: bool,
     },
-    /// Replace a node's whole inline style, conditional declarations
-    /// included (`CallbackInfo::set_node_inline_style`). No override is
-    /// written: the node resolves like a node BUILT with `style`, now and on
-    /// every later mode switch. Tier: paint-only unless a layout-affecting
-    /// property's declarations changed.
+    /// Replace a node's inline style - the stylesheet the node stores,
+    /// conditional rules included (`CallbackInfo::set_node_style`). No
+    /// override is written: the node resolves like a node BUILT with
+    /// `style`, now and on every later mode switch. Tier: paint-only unless
+    /// a layout-affecting property's declarations changed.
     NodeStyle {
         dom_id: DomId,
         node_id: NodeId,
-        style: azul_css::dynamic_selector::CssPropertyWithConditionsVec,
+        style: azul_css::css::Css,
     },
     /// Change a node's image mask (an attribute-slot write like css props —
     /// fingerprinted by reconcile, not a content-identity mutation).

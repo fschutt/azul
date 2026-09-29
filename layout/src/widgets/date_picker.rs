@@ -245,7 +245,7 @@ pub(crate) struct DatePickerLook {
 /// other cell - exactly as built (dark twins and states included). Every
 /// cell's payload carries them, so a pick repaints the grid with the faces a
 /// build of it in the new state would give it
-/// (`CallbackInfo::set_node_inline_style`): the cascade, not the handler,
+/// (`CallbackInfo::set_node_style`): the cascade, not the handler,
 /// picks the mode's colours.
 #[derive(Debug, Clone)]
 pub(crate) struct CellFaces {
@@ -2084,7 +2084,7 @@ fn restyle_grid(
                 } else {
                     faces.other.clone()
                 };
-                info.set_node_inline_style(cell, face);
+                info.set_node_style(cell, face.into());
             }
             cellopt = info.get_next_sibling(cell);
         }
@@ -2715,10 +2715,10 @@ mod autotest_generated {
             })
     }
 
-    /// The cell faces `restyle_days` wrote (`set_node_inline_style`), in push
+    /// The cell faces `restyle_days` wrote (`set_node_style`), in push
     /// order. No restyle may pin a value: a `ChangeNodeCssProperties` colour
     /// would outlive a light / dark switch.
-    fn pushed_faces(changes: &[CallbackChange]) -> Vec<(NodeId, CssPropertyWithConditionsVec)> {
+    fn pushed_faces(changes: &[CallbackChange]) -> Vec<(NodeId, azul_css::css::Css)> {
         assert!(
             !changes
                 .iter()
@@ -2728,7 +2728,7 @@ mod autotest_generated {
         changes
             .iter()
             .filter_map(|c| match c {
-                CallbackChange::SetNodeInlineStyle { node_id, style, .. } => {
+                CallbackChange::SetNodeStyle { node_id, style, .. } => {
                     Some((*node_id, style.clone()))
                 }
                 _ => None,
@@ -2739,13 +2739,12 @@ mod autotest_generated {
     /// The last UNCONDITIONAL declaration `pick` finds in a face - what the
     /// face shows by day at rest.
     fn resting<T>(
-        face: &CssPropertyWithConditionsVec,
+        face: &azul_css::css::Css,
         pick: impl Fn(&CssProperty) -> Option<T>,
     ) -> Option<T> {
-        face.as_ref()
-            .iter()
-            .filter(|p| p.apply_if.as_ref().is_empty())
-            .filter_map(|p| pick(&p.property))
+        face.iter_inline_properties()
+            .filter(|(_, c)| c.as_ref().is_empty())
+            .filter_map(|(p, _)| pick(p))
             .last()
     }
 

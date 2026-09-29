@@ -515,16 +515,17 @@ pub enum CallbackChange {
         node_id: NodeId,
         properties: CssPropertyVec,
     },
-    /// Replace a node's whole INLINE style - every declaration, conditions
-    /// included (`@theme(dark)`, `:hover`, `@theme(flora)`, ...) - as if the
-    /// node had been built with it. Unlike `ChangeNodeCssProperties` nothing is
+    /// Replace a node's inline style - the stylesheet the node stores
+    /// (`NodeData::set_style`), every rule and its conditions
+    /// (`@theme(dark)`, `:hover`, `@theme(flora)`, ...) - as if the node had
+    /// been built with it. Unlike `ChangeNodeCssProperties` nothing is
     /// pinned: no user override is written, so the cascade resolves the new
-    /// declarations like any built style and re-resolves them on a light /
-    /// dark switch or a pseudo-state change.
-    SetNodeInlineStyle {
+    /// rules like any built style and re-resolves them on a light / dark
+    /// switch or a pseudo-state change.
+    SetNodeStyle {
         dom_id: DomId,
         node_id: NodeId,
-        style: azul_css::dynamic_selector::CssPropertyWithConditionsVec,
+        style: azul_css::css::Css,
     },
 
     // Scroll Management
@@ -2697,27 +2698,39 @@ impl CallbackInfo {
         self.change_node_css_properties(dom_id, internal_node_id, vec![property].into());
     }
 
-    /// Replace `node_id`'s whole inline style - every declaration and its
-    /// conditions - with `style` (applied after the callback returns).
+    /// Replace `node_id`'s inline style - the stylesheet the node stores,
+    /// as `NodeData::set_style` sets it at build time - with `style`
+    /// (applied after the callback returns). A `node_id` without a node is
+    /// ignored.
+    ///
+    /// Every rule of `style` applies to the node itself, under its
+    /// conditions (dark / light mode, `:hover`, `:focus`, `@os`, ...): the
+    /// node resolves like a node BUILT with `style`. As at build time, rule
+    /// selectors are not matched: `:hover` and the other pseudo-states are
+    /// rule conditions, as `CssPropertyWithConditions::on_hover` and its
+    /// siblings build them. A declaration list becomes a stylesheet with
+    /// `Css::from(CssPropertyWithConditionsVec)`.
     ///
     /// The live restyle for a state a widget owns (the selected segment, the
     /// current page, a picked day): write the node's style for the new state
     /// exactly as a rebuild would build it, dark twins and `:hover` / `:focus`
-    /// rules included. [`Self::set_css_property`] pins one VALUE - a user
-    /// override outranks every declaration, so a colour baked for light mode
-    /// stays light after a switch to dark, and outranks the node's hover and
-    /// focus rules. This pins nothing: the cascade re-resolves the new
-    /// declarations on every mode switch and state change, like any built
-    /// style. A `node_id` without a node is ignored.
-    pub fn set_node_inline_style(
-        &mut self,
-        node_id: DomNodeId,
-        style: azul_css::dynamic_selector::CssPropertyWithConditionsVec,
-    ) {
+    /// rules included.
+    ///
+    /// Why not a DOM refresh: a self-contained widget keeps that state in its
+    /// own dataset, not in the app's model. `Update::RefreshDom` re-runs the
+    /// APP's layout callback, which rebuilds the widget from the app's data
+    /// and loses the state.
+    ///
+    /// Why not [`Self::set_css_property`]: it pins one VALUE as a user
+    /// override, which outranks every declaration - a colour baked for light
+    /// mode stays light after a switch to dark, and outranks the node's hover
+    /// and focus rules. This pins nothing: the cascade re-resolves the new
+    /// rules on every mode switch and state change, like any built style.
+    pub fn set_node_style(&mut self, node_id: DomNodeId, style: azul_css::css::Css) {
         let Some(internal_node_id) = node_id.node.into_crate_internal() else {
             return;
         };
-        self.push_change(CallbackChange::SetNodeInlineStyle {
+        self.push_change(CallbackChange::SetNodeStyle {
             dom_id: node_id.dom,
             node_id: internal_node_id,
             style,

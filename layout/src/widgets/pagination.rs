@@ -3,7 +3,7 @@
 //! [`crate::widgets::segmented::Segmented`] (a joined button bar whose clicked
 //! item is derived from sibling position and whose buttons are live-restyled
 //! with the style a build on the new page gives them -
-//! `CallbackInfo::set_node_inline_style`, so the cascade keeps picking the
+//! `CallbackInfo::set_node_style`, so the cascade keeps picking the
 //! mode's colours), specialised to page navigation.
 //!
 //! State is `{ current_page, total_pages }` (`current_page` is 1-based). Clicking
@@ -418,7 +418,7 @@ impl PageFace {
 /// What a theme supplies for a pagination bar: every button's style. Built
 /// by `themes::flat::pagination_skin` / `themes::flora::pagination_skin`. A
 /// click restyles each button with the same function
-/// (`CallbackInfo::set_node_inline_style`), so a clicked bar is the bar
+/// (`CallbackInfo::set_node_style`), so a clicked bar is the bar
 /// built on its new page - in every mode.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PaginationSkin {
@@ -751,7 +751,7 @@ extern "C" fn on_page_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
         } else {
             PageFace::of(i == new_page, false)
         };
-        info.set_node_inline_style(*node, (skin.button)(face, i == 0, i == n - 1));
+        info.set_node_style(*node, (skin.button)(face, i == 0, i == n - 1).into());
     }
 
     result
@@ -1183,13 +1183,13 @@ mod autotest_generated {
     }
 
     /// Every button style a live-restyle transaction wrote
-    /// (`set_node_inline_style`), as `(node index, style)` in order. The
+    /// (`set_node_style`), as `(node index, style)` in order. The
     /// restyle pins no value: any other change is a bug.
-    fn inline_writes(changes: &[CallbackChange]) -> Vec<(usize, CssPropertyWithConditionsVec)> {
+    fn inline_writes(changes: &[CallbackChange]) -> Vec<(usize, azul_css::css::Css)> {
         changes
             .iter()
             .map(|c| match c {
-                CallbackChange::SetNodeInlineStyle {
+                CallbackChange::SetNodeStyle {
                     dom_id,
                     node_id,
                     style,
@@ -1211,10 +1211,9 @@ mod autotest_generated {
             .into_iter()
             .map(|(node, style)| {
                 let resting: Vec<CssProperty> = style
-                    .as_ref()
-                    .iter()
-                    .filter(|p| p.apply_if.as_ref().is_empty())
-                    .map(|p| p.property.clone())
+                    .iter_inline_properties()
+                    .filter(|(_, c)| c.as_ref().is_empty())
+                    .map(|(p, _)| p.clone())
                     .collect();
                 let bg = background_color(&resting).expect("every button has a resting background");
                 let fg = text_color(&resting).expect("every button has a resting ink");
@@ -2536,9 +2535,8 @@ mod autotest_generated {
                 .map(|(p, c)| (p.clone(), c.clone()))
                 .collect();
             let got: Vec<(CssProperty, azul_css::dynamic_selector::DynamicSelectorVec)> = style
-                .as_ref()
-                .iter()
-                .map(|p| (p.property.clone(), p.apply_if.clone()))
+                .iter_inline_properties()
+                .map(|(p, c)| (p.clone(), c.clone()))
                 .collect();
             assert_eq!(got, want, "button node {node} takes the flora build's style");
         }
@@ -2550,7 +2548,7 @@ mod autotest_generated {
                 .find(|(i, _)| *i == n)
                 .map(|(_, s)| s.clone())
                 .expect("restyled");
-            Dom::create_div().with_css_props(style)
+            Dom::create_div().with_style(style)
         };
         for dark in [false, true] {
             let page1 = tc::background(&node(page_node(1)), dark).map(|p| tc::bg_layers(&p));
@@ -2599,7 +2597,7 @@ mod autotest_generated {
             .map(|(_, style)| style)
             .expect("page 2 is restyled");
         assert_eq!(
-            tc::text_color(&Dom::create_div().with_css_props(page2), false),
+            tc::text_color(&Dom::create_div().with_style(page2), false),
             Some(flora::LIGHT_ON_ACC),
             "the new current page wears flora's stone ink"
         );

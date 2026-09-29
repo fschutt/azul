@@ -164,7 +164,7 @@ fn click(lw: &mut LayoutWindow, node: NodeId) {
                 props: properties.as_ref().to_vec(),
                 override_only: true,
             },
-            CallbackChange::SetNodeInlineStyle {
+            CallbackChange::SetNodeStyle {
                 dom_id,
                 node_id,
                 style,

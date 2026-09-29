@@ -6439,7 +6439,7 @@ pub trait PlatformWindow {
                 self.content_change_result(tier)
             }
 
-            CallbackChange::SetNodeInlineStyle {
+            CallbackChange::SetNodeStyle {
                 dom_id,
                 node_id,
                 style,

@@ -7968,7 +7968,7 @@ impl LayoutWindow {
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
-        style: azul_css::dynamic_selector::CssPropertyWithConditionsVec,
+        new_style: azul_css::css::Css,
     ) -> crate::overlay::ContentChangeResult {
         use azul_css::props::property::{CssProperty, CssPropertyType};
 
@@ -7984,7 +7984,6 @@ impl LayoutWindow {
             return unchanged;
         }
 
-        let new_style: azul_css::css::Css = style.into();
         // The property types whose declarations the write changes: they
         // decide the tier, and which overrides must go.
         let changed: Vec<CssPropertyType> = {

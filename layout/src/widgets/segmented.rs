@@ -7,7 +7,7 @@
 //! segment's index from its position among its siblings, updates the
 //! `selected_index`, invokes the user's `on_change(index)`, and live-restyles
 //! every segment (selected vs unselected) with the style a build in the new
-//! selection gives it (`CallbackInfo::set_node_inline_style`) - dark twins
+//! selection gives it (`CallbackInfo::set_node_style`) - dark twins
 //! and states included, so the cascade keeps picking the mode's colours.
 //!
 //! Key types: [`Segmented`], [`SegmentedState`], [`SegmentedOnChange`].
@@ -358,7 +358,7 @@ pub(crate) fn segment_style(
 /// What a theme supplies for a segmented control: every segment's style.
 /// Built by `themes::flat::segmented_skin` / `themes::flora::segmented_skin`.
 /// A selection restyles each segment with the same function
-/// (`CallbackInfo::set_node_inline_style`), so a clicked control is the
+/// (`CallbackInfo::set_node_style`), so a clicked control is the
 /// control built in its new state - in every mode.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SegmentedSkin {
@@ -724,7 +724,10 @@ fn select_segment(
     // outlived the switch, and outranked the hover and focus rules).
     let last = segments.len().saturating_sub(1);
     for (i, node) in segments.iter().enumerate() {
-        info.set_node_inline_style(*node, (skin.segment)(i == selected, i == 0, i == last));
+        info.set_node_style(
+            *node,
+            (skin.segment)(i == selected, i == 0, i == last).into(),
+        );
     }
 
     Some(result)
@@ -754,6 +757,7 @@ mod autotest_generated {
         window::{MonitorVec, RawWindowHandle, VirtualKeyCode},
     };
     use azul_css::{
+        css::Css,
         props::basic::{length::SizeMetric, pixel::PixelValue},
         system::SystemStyle,
     };
@@ -1223,11 +1227,11 @@ mod autotest_generated {
         (update, recorded)
     }
 
-    /// Every segment style the live restyle wrote (`set_node_inline_style`),
+    /// Every segment style the live restyle wrote (`set_node_style`),
     /// as `(node index, style)` in emission order. Panics on any change other
     /// than the restyle and the roving Tab stop: the restyle pins no value
     /// (`ChangeNodeCssProperties` would outlive a light / dark switch).
-    fn inline_writes(changes: &[CallbackChange]) -> Vec<(usize, CssPropertyWithConditionsVec)> {
+    fn inline_writes(changes: &[CallbackChange]) -> Vec<(usize, Css)> {
         let mut out = Vec::new();
         for change in changes {
             // The click also moves the control's roving Tab stop and announces
@@ -1240,7 +1244,7 @@ mod autotest_generated {
             ) {
                 continue;
             }
-            let CallbackChange::SetNodeInlineStyle { node_id, style, .. } = change else {
+            let CallbackChange::SetNodeStyle { node_id, style, .. } = change else {
                 panic!("the restyle must only replace inline styles, got {change:?}");
             };
             out.push((node_id.index(), style.clone()));
@@ -1258,11 +1262,10 @@ mod autotest_generated {
         for (node, style) in inline_writes(changes) {
             let resting = |ty: CssPropertyType| {
                 style
-                    .as_ref()
-                    .iter()
-                    .filter(|p| p.apply_if.as_ref().is_empty() && p.property.get_type() == ty)
+                    .iter_inline_properties()
+                    .filter(|(p, c)| c.as_ref().is_empty() && p.get_type() == ty)
                     .last()
-                    .map(|p| p.property.clone())
+                    .map(|(p, _)| p.clone())
             };
             if let Some(CssProperty::BackgroundContent(v)) =
                 resting(CssPropertyType::BackgroundContent)
@@ -2476,7 +2479,11 @@ mod autotest_generated {
                     written,
                     &(
                         seg_node(i),
-                        (skin_for(UiTheme::Flat).segment)(i == clicked, i == 0, i + 1 == n)
+                        Css::from((skin_for(UiTheme::Flat).segment)(
+                            i == clicked,
+                            i == 0,
+                            i + 1 == n
+                        ))
                     ),
                     "clicked={clicked}: segment {i} takes the style a flat build gives it"
                 );
@@ -3016,13 +3023,16 @@ mod autotest_generated {
         assert_eq!(
             written,
             (0..3)
-                .map(|i| (seg_node(i), flora_segment(i == 2, i == 0, i == 2)))
+                .map(|i| (
+                    seg_node(i),
+                    Css::from(flora_segment(i == 2, i == 0, i == 2))
+                ))
                 .collect::<Vec<_>>(),
             "every segment takes the style a flora build gives it"
         );
 
         // ...which is flora paper and the stone, with their night faces.
-        let node = |i: usize| Dom::create_div().with_css_props(written[i].1.clone());
+        let node = |i: usize| Dom::create_div().with_style(written[i].1.clone());
         for dark in [false, true] {
             let first = tc::background(&node(0), dark).map(|p| tc::bg_layers(&p));
             assert_eq!(
@@ -3060,9 +3070,12 @@ mod autotest_generated {
             .find(|(n, _)| *n == seg_node(2))
             .map(|(_, style)| style)
             .expect("segment 2 is restyled");
-        assert_eq!(third, (flora::segmented_skin().segment)(true, false, true));
         assert_eq!(
-            tc::text_color(&Dom::create_div().with_css_props(third), false),
+            third,
+            Css::from((flora::segmented_skin().segment)(true, false, true))
+        );
+        assert_eq!(
+            tc::text_color(&Dom::create_div().with_style(third), false),
             Some(flora::LIGHT_ON_ACC),
             "the selected segment wears flora's stone ink"
         );
