@@ -20,13 +20,15 @@ microphone, screencap, map, node_graph.
 - Shared test helpers: `themes/theme_checks.rs` (`#[cfg(test)]`).
 
 ## DONE
-(none yet)
+- dialog + modal + popover (shared builder): RED 113b016c4, impl 898b93cf6.
+  API: Dialog.theme / Modal.theme / Popover.theme (OptionUiTheme, appended LAST),
+  set_theme / with_theme on all three.
 
 ## IN PROGRESS
-- dialog (shared builder; modal + popover ride on it)
+- number_input
 
 ## NEXT
-dialog -> modal -> popover -> number_input -> pagination -> radio_group -> segmented ->
+number_input -> pagination -> radio_group -> segmented ->
 split_pane -> stepper -> time_picker -> toast -> tooltip -> video -> decisions -> report
 
 ## Open questions
