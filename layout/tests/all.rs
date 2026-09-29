@@ -600,3 +600,5 @@ mod shift_down_off_a_paragraph_keeps_the_column;
 mod text_after_a_line_break_is_edited_at_its_caret;
 #[path = "typing_after_collapsed_spaces_lands_at_the_caret.rs"]
 mod typing_after_collapsed_spaces_lands_at_the_caret;
+#[path = "a_list_item_caret_moves_with_the_apps_text.rs"]
+mod a_list_item_caret_moves_with_the_apps_text;
