@@ -250,5 +250,28 @@ test("a document node's live node is found by builder_uid (and by an older serve
     assert.strictEqual(L.liveNodeOf(null, 3), null);
 });
 
+// ── 5. duplicate, the document file ─────────────────────────────────────
+
+test('Duplicate sends builder_duplicate for any node but the <body>', () => {
+    const d = canvasDoc();
+    assert.deepStrictEqual(L.duplicateMessage(d, 2), { op: 'builder_duplicate', node: 2 });
+    assert.deepStrictEqual(L.duplicateMessage(d, 4), { op: 'builder_duplicate', node: 4 });
+    assert.strictEqual(L.duplicateMessage(d, 0), null, 'the root');
+    assert.strictEqual(L.duplicateMessage(d, 99), null, 'not in the document');
+    assert.strictEqual(L.duplicateMessage(null, 2), null);
+});
+
+test('a document file opens as builder_load_document; anything else says why', () => {
+    const file = { format: 'azul-builder-document', version: 1, root: { kind: 'element', tag: 'body' }, stylesheet: '' };
+    assert.deepStrictEqual(L.documentLoadMessage(JSON.stringify(file)),
+        { op: 'builder_load_document', document: file });
+    assert.throws(() => L.documentLoadMessage('{nope'), /not JSON/);
+    assert.throws(() => L.documentLoadMessage('[1]'), /not a builder document/);
+    assert.throws(() => L.documentLoadMessage(JSON.stringify({ format: 'azul-project' })), /azul-project/);
+    // A bare tree (no format) is a document too, as the server reads it.
+    assert.deepStrictEqual(L.documentLoadMessage('{"kind":"element","tag":"body"}').document,
+        { kind: 'element', tag: 'body' });
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

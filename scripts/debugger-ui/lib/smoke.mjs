@@ -233,6 +233,34 @@ export function builderMock(registry) {
                 d.stylesheet = s.stylesheet;
                 return commit();
             }
+            case 'builder_duplicate': {
+                if (msg.node === 0) throw new Error('the document root cannot be duplicated');
+                const from = parentOf(d.root, msg.node);
+                if (!from) throw new Error(`no node with uid ${msg.node} in the builder document`);
+                checkpoint();
+                const copy = clone(from.parent.children[from.index]);
+                (function renumber(n) { n.uid = d.next++; n.children.forEach(renumber); })(copy);
+                from.parent.children.splice(from.index + 1, 0, copy);
+                return commit({ inserted: copy.uid });
+            }
+            case 'builder_save_document': {
+                const strip = (n) => { const c = clone(n); delete c.uid; c.children = n.children.map(strip); return c; };
+                return { format: 'azul-builder-document', version: 1, root: strip(d.root), stylesheet: d.stylesheet };
+            }
+            case 'builder_load_document': {
+                const f = msg.document || {};
+                if (f.format && f.format !== 'azul-builder-document') {
+                    throw new Error(`the format is "${f.format}", not "azul-builder-document"`);
+                }
+                const tree = clone(f.root || f);
+                checkpoint();
+                (function renumber(n) { n.uid = d.next++; n.attrs = n.attrs || {}; n.children = n.children || [];
+                    n.children.forEach(renumber); })(tree);
+                tree.uid = 0;
+                d.root = tree;
+                d.stylesheet = f.root ? (f.stylesheet || '') : '';
+                return commit();
+            }
             case 'builder_hit_test': {
                 // The mock window lays <body>'s children out as 40px rows
                 // across a 400px wide window; below them nothing is hit.

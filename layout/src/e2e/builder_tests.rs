@@ -585,3 +585,121 @@ fn the_live_dom_answers_a_mounted_nodes_marker_as_builder_uid_not_as_a_class() {
     );
     assert_passes(&result);
 }
+
+// ── B5: duplicate, and the document as a file ──
+
+#[test]
+fn duplicating_a_node_copies_its_subtree_with_fresh_uids_right_after_it_as_one_undo_step() {
+    let [wf, w] = settle();
+    let result = run(
+        "builder_duplicate",
+        false,
+        steps(vec![
+            // uid 1: div.box > [p "A" (2), span "B" (3)]; uid 4: p#tail.
+            serde_json::json!({ "op": "builder_insert", "parent": 0, "component": "div",
+                                "attrs": { "class": "box" } }),
+            serde_json::json!({ "op": "builder_insert", "parent": 1, "component": "p",
+                                "attrs": { "text": "A" } }),
+            serde_json::json!({ "op": "builder_insert", "parent": 1, "component": "span",
+                                "attrs": { "text": "B" } }),
+            serde_json::json!({ "op": "builder_insert", "parent": 0, "component": "p",
+                                "attrs": { "id": "tail", "text": "tail" } }),
+            // The copy's root is uid 5, its children 6 and 7 (DFS).
+            serde_json::json!({ "op": "builder_duplicate", "node": 1 }),
+            serde_json::json!({ "op": "assert_response", "contains": "\"inserted\":5" }),
+            serde_json::json!({ "op": "assert_response", "contains": "\"uid\":7" }),
+            serde_json::json!({ "op": "assert_response", "not_contains": "\"uid\":8" }),
+            wf.clone(),
+            w.clone(),
+            serde_json::json!({ "op": "assert_node_count", "selector": ".box", "expected": 2 }),
+            serde_json::json!({ "op": "assert_node_count", "selector": ".box > span", "expected": 2 }),
+            // Right after the original: div, its copy, then p#tail.
+            serde_json::json!({ "op": "assert_exists", "selector": "#tail:nth-child(3)" }),
+            serde_json::json!({ "op": "assert_exists", "selector": ".azb-5" }),
+            // The copy is a node of its own: editing it leaves the original.
+            serde_json::json!({ "op": "builder_set_attribute", "node": 7, "name": "text",
+                                "value": "copy" }),
+            wf.clone(),
+            w.clone(),
+            serde_json::json!({ "op": "assert_dom", "contains": "copy" }),
+            serde_json::json!({ "op": "assert_dom", "contains": "B" }),
+            // Undo the edit, then the duplicate.
+            serde_json::json!({ "op": "builder_undo" }),
+            serde_json::json!({ "op": "builder_undo" }),
+            wf,
+            w,
+            serde_json::json!({ "op": "assert_node_count", "selector": ".box", "expected": 1 }),
+        ]),
+    );
+    assert_passes(&result);
+}
+
+#[test]
+fn the_document_saves_as_json_and_loads_back_as_one_undoable_edit() {
+    let [wf, w] = settle();
+    let file = serde_json::json!({
+        "format": "azul-builder-document",
+        "version": 1,
+        "root": { "kind": "element", "tag": "body", "attrs": {}, "children": [
+            { "kind": "element", "tag": "p", "attrs": { "id": "b", "text": "B" }, "children": [] }
+        ] },
+        "stylesheet": "#b { width: 77px; }",
+    });
+    let result = run(
+        "builder_save_load_document",
+        true,
+        steps(vec![
+            /* 0 */
+            serde_json::json!({ "op": "builder_insert", "parent": 0, "component": "p",
+                                "attrs": { "id": "a", "text": "A" } }),
+            /* 1 */
+            serde_json::json!({ "op": "builder_set_stylesheet", "css": "#a { width: 123px; }" }),
+            /* 2: the file project_save writes as document.json */
+            serde_json::json!({ "op": "builder_save_document" }),
+            /* 3 */
+            serde_json::json!({ "op": "assert_response", "contains": "\"format\":\"azul-builder-document\"" }),
+            /* 4 */
+            serde_json::json!({ "op": "assert_response", "contains": "#a { width: 123px; }" }),
+            /* 5: uids are the session's, not the file's */
+            serde_json::json!({ "op": "assert_response", "not_contains": "\"uid\"" }),
+            /* 6: another document replaces this one... */
+            serde_json::json!({ "op": "builder_load_document", "document": file }),
+            /* 7: ...as an edit: it can be undone */
+            serde_json::json!({ "op": "assert_response", "contains": "\"can_undo\":true" }),
+            /* 8 */ wf.clone(),
+            /* 9 */ w.clone(),
+            /* 10 */ serde_json::json!({ "op": "assert_not_exists", "selector": "#a" }),
+            /* 11 */
+            serde_json::json!({ "op": "assert_layout", "selector": "#b", "property": "width",
+                                "expected": 77, "tolerance": 1 }),
+            /* 12 */ serde_json::json!({ "op": "builder_undo" }),
+            /* 13 */ wf,
+            /* 14 */ w,
+            /* 15 */
+            serde_json::json!({ "op": "assert_layout", "selector": "#a", "property": "width",
+                                "expected": 123, "tolerance": 1 }),
+            /* 16 */ serde_json::json!({ "op": "assert_not_exists", "selector": "#b" }),
+            /* 17: refusals, with reasons */
+            serde_json::json!({ "op": "builder_load_document",
+                                "document": { "format": "azul-project", "root": {} } }),
+            /* 18 */ serde_json::json!({ "op": "builder_duplicate", "node": 0 }),
+            /* 19 */ serde_json::json!({ "op": "builder_duplicate", "node": 99 }),
+        ]),
+    );
+    let status = |i: usize| {
+        result
+            .steps
+            .iter()
+            .find(|s| s.step_index == i)
+            .map(|s| (s.status.clone(), s.error.clone().unwrap_or_default()))
+            .unwrap_or_else(|| ("missing".to_string(), String::new()))
+    };
+    for i in 0..=16 {
+        assert_eq!(status(i).0, "pass", "step {i} must pass:\n{}", failures(&result));
+    }
+    for (i, needle) in [(17, "format"), (18, "root"), (19, "99")] {
+        let (st, err) = status(i);
+        assert_eq!(st, "fail", "step {i} must be refused:\n{}", failures(&result));
+        assert!(err.contains(needle), "step {i}: expected '{needle}' in: {err}");
+    }
+}

@@ -326,6 +326,54 @@ async function main() {
         check('...whose class list has no builder marker',
             await cdp.eval(`!document.getElementById('node-detail-panel').textContent.includes('azb-')`));
 
+        // ── 5. duplicate, the document file ──
+        // body > p(1) > span(5), div(6), card(2), div(4), span(3), p(7)
+        await cdp.eval(`(() => { const r = __t.row(6).getBoundingClientRect();
+            __t.row(6).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 20, clientY: r.top + 5 }));
+            const item = [...document.querySelectorAll('.azd-context-menu-item')].find(i => i.textContent.trim() === 'Duplicate');
+            if (item) item.click();
+            return !!item; })()`);
+        await waitFor(cdp, `!!__t.row(8)`);
+        check('the context menu duplicates a node (builder_duplicate), the copy right after it, selected',
+            same(lastSent('builder_duplicate'), { op: 'builder_duplicate', node: 6 })
+            && same(await cdp.eval(`azDnd.state.doc.root.children.map(c => c.uid)`), [1, 6, 8, 2, 4, 3, 7])
+            && await cdp.eval(`azDnd.state.selected === 8`),
+            { sent: lastSent('builder_duplicate'), kids: await cdp.eval(`azDnd.state.doc.root.children.map(c => c.uid)`) });
+        await cdp.eval(`__t.row(3).click(); document.activeElement && document.activeElement.blur(); __t.key('d', { ctrlKey: true }); true`);
+        await waitFor(cdp, `!!__t.row(9)`);
+        check('Ctrl/Cmd+D duplicates the selection',
+            same(lastSent('builder_duplicate'), { op: 'builder_duplicate', node: 3 }), lastSent('builder_duplicate'));
+
+        await cdp.eval(`window.__saved = null; window._downloadJSON = (data, name) => { window.__saved = { data, name }; }; true`);
+        await cdp.eval(`document.querySelector('[data-azb-menu="save-document"]').click(); true`);
+        await waitFor(cdp, `!!window.__saved`);
+        const saved = await cdp.eval(`window.__saved`);
+        check('Export > Builder document (JSON) downloads builder_save_document as document.json',
+            countSent('builder_save_document') === 1 && saved && saved.name === 'document.json'
+            && saved.data.format === 'azul-builder-document' && saved.data.root.tag === 'body',
+            saved && { name: saved.name, format: saved.data && saved.data.format });
+
+        const file = { format: 'azul-builder-document', version: 1, stylesheet: '.x { }',
+            root: { kind: 'element', tag: 'body', attrs: {}, children: [
+                { kind: 'element', tag: 'h1', attrs: { text: 'Loaded' }, children: [] }] } };
+        await cdp.eval(`(() => {
+            const input = document.getElementById('azb-document-input');
+            const dt = new DataTransfer();
+            dt.items.add(new File([${JSON.stringify(JSON.stringify(file))}], 'document.json', { type: 'application/json' }));
+            input.files = dt.files;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            return true; })()`);
+        await waitFor(cdp, `azDnd.state.doc.root.children.length === 1 && azDnd.state.doc.root.children[0].tag === 'h1'`);
+        check('Import > Builder document (JSON) loads the file (builder_load_document) and the tree shows it',
+            same((lastSent('builder_load_document') || {}).document, file)
+            && await cdp.eval(`__t.row(0) && document.querySelectorAll('#dom-tree-container .azb-row').length === 2
+                && document.getElementById('azb-sheet-text').value === '.x { }'`),
+            lastSent('builder_load_document'));
+        await cdp.eval(`document.activeElement && document.activeElement.blur(); __t.key('z', { ctrlKey: true }); true`);
+        await waitFor(cdp, `azDnd.state.doc.root.children.length === 8`);
+        check('...as one edit: Ctrl+Z brings the previous document back',
+            await cdp.eval(`azDnd.state.doc.root.children.length === 8`));
+
         // ── Live DOM hides the builder panels ──
         await cdp.eval(`document.querySelector('.azb-seg button[data-mode=live]').click(); true`);
         const hidden = await waitFor(cdp, `!__t.visible('azb-side') && !__t.visible('azb-canvas')`);
