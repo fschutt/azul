@@ -945,3 +945,310 @@ fn text_the_widget_reported_survives_a_rebuild_even_after_the_overlay_is_acked()
     let field = one_with_class(&rebuilt, TEXT_INPUT_CONTAINER_CLASS);
     assert_eq!(text_under(&rebuilt, field), "hello world");
 }
+
+// ── The dedicated widgets each type maps to ─────────────────────────────────
+
+/// Every `<input type>` that has a widget of its own becomes THAT widget, not
+/// the nearest general one: a password is masked, a week is an ISO week, a
+/// submit button submits.
+mod dedicated_widgets {
+    use azul_layout::widgets::{
+        date_picker::DatePickerState,
+        datetime_local::{
+            DateTimeLocalPickerState, DateTimeLocalPickerStateWrapper, DATETIME_LOCAL_CLASS,
+        },
+        drop_down::DropDownOptGroup,
+        form::default_on_form_button_click,
+        text_input::{TextInputKind, PASSWORD_MASK_CHAR, SEARCH_CLEAR_CLASS, SEARCH_FIELD_CLASS},
+        time_picker::TimePickerState,
+    };
+
+    use super::*;
+
+    /// The state the text input editing host `field` carries.
+    fn text_state(styled: &StyledDom, field: NodeId) -> TextInputState {
+        let mut ds = node(styled, field)
+            .get_dataset()
+            .cloned()
+            .expect("a text input carries its state");
+        let state = ds
+            .downcast_ref::<TextInputStateWrapper>()
+            .expect("the text input's state")
+            .inner
+            .clone();
+        state
+    }
+
+    fn has_callback(styled: &StyledDom, id: NodeId, cb: usize) -> bool {
+        node(styled, id)
+            .get_callbacks()
+            .as_slice()
+            .iter()
+            .any(|c| c.callback.cb == cb)
+    }
+
+    #[test]
+    fn a_password_input_becomes_a_text_input_that_shows_one_bullet_per_character() {
+        let lw = styling_window();
+        let styled = lw.style_user_dom(page(
+            input("password").with_attribute(AttributeType::Value("hunter2".into())),
+        ));
+        assert_eq!(raw_form_nodes(&styled), vec![], "{:?}", node_types(&styled));
+        let field = one_with_class(&styled, TEXT_INPUT_CONTAINER_CLASS);
+        let bullets: String = core::iter::repeat(PASSWORD_MASK_CHAR).take(7).collect();
+        assert_eq!(
+            text_under(&styled, field),
+            bullets,
+            "the line shows the mask, never the value"
+        );
+        let state = text_state(&styled, field);
+        assert_eq!(state.kind, TextInputKind::Password);
+        assert_eq!(state.get_text(), "hunter2", "the state keeps the real value");
+        assert!(a11y_states(&styled, field).contains(&AccessibilityState::Protected));
+    }
+
+    #[test]
+    fn a_search_input_becomes_a_search_field_with_a_clear_button() {
+        let lw = styling_window();
+        let styled = lw.style_user_dom(page(
+            input("search").with_attribute(AttributeType::Value("rust".into())),
+        ));
+        assert_eq!(raw_form_nodes(&styled), vec![]);
+        let row = one_with_class(&styled, SEARCH_FIELD_CLASS);
+        let field = one_with_class(&styled, TEXT_INPUT_CONTAINER_CLASS);
+        let clear = one_with_class(&styled, SEARCH_CLEAR_CLASS);
+        assert!(is_under(&styled, field, row) && is_under(&styled, clear, row));
+        assert_eq!(text_state(&styled, field).kind, TextInputKind::Search);
+        assert_eq!(text_state(&styled, field).get_text(), "rust");
+        // The row is the widget's ROOT: the input's identity lands there.
+        let attrs = node(&styled, row).attributes().as_slice().to_vec();
+        assert!(attrs.contains(&AttributeType::Name("field".into())), "{attrs:?}");
+    }
+
+    #[test]
+    fn email_tel_and_url_inputs_become_text_inputs_of_their_kind() {
+        let lw = styling_window();
+        for (ty, kind) in [
+            ("email", TextInputKind::Email),
+            ("tel", TextInputKind::Tel),
+            ("url", TextInputKind::Url),
+            ("text", TextInputKind::Text),
+            ("banana", TextInputKind::Text),
+        ] {
+            let styled = lw.style_user_dom(page(input(ty)));
+            let field = one_with_class(&styled, TEXT_INPUT_CONTAINER_CLASS);
+            assert_eq!(text_state(&styled, field).kind, kind, "type={ty}");
+        }
+    }
+
+    #[test]
+    fn an_email_input_holding_a_malformed_address_is_invalid() {
+        let lw = styling_window();
+        let styled = lw.style_user_dom(page(
+            input("email").with_attribute(AttributeType::Value("not-an-address".into())),
+        ));
+        let field = one_with_class(&styled, TEXT_INPUT_CONTAINER_CLASS);
+        assert!(!text_state(&styled, field).validity.is_valid());
+    }
+
+    #[test]
+    fn a_pattern_attribute_constrains_the_replaced_text_input() {
+        let lw = styling_window();
+        let styled = lw.style_user_dom(page(
+            input("text")
+                .with_attribute(AttributeType::Pattern("[0-9]{3}".into()))
+                .with_attribute(AttributeType::Value("12a".into())),
+        ));
+        let field = one_with_class(&styled, TEXT_INPUT_CONTAINER_CLASS);
+        let state = text_state(&styled, field);
+        assert_eq!(
+            state.pattern.as_ref().map(|p| p.as_str().to_string()).as_deref(),
+            Some("[0-9]{3}")
+        );
+        assert!(!state.validity.is_valid(), "the app's value fails the pattern");
+    }
+
+    #[test]
+    fn a_month_input_becomes_a_month_picker_on_its_value() {
+        let lw = styling_window();
+        let styled = lw.style_user_dom(page(
+            input("month").with_attribute(AttributeType::Value("2024-03".into())),
+        ));
+        assert_eq!(raw_form_nodes(&styled), vec![]);
+        let picker = one_with_class(&styled, DATE_PICKER_CLASS);
+        assert_eq!(a11y_value(&styled, picker).as_deref(), Some("2024-03"));
+    }
+
+    #[test]
+    fn a_week_input_becomes_an_iso_week_picker_on_its_value() {
+        // 2021-01-01 is a Friday: ISO week 1 of 2021 starts on Monday the
+        // 4th, and 2026-W01 starts on Monday 2025-12-29. A picker counting
+        // weeks from January 1st lands in the wrong week for both.
+        let lw = styling_window();
+        for value in ["2024-W11", "2021-W01", "2020-W53", "2026-W01"] {
+            let styled = lw.style_user_dom(page(
+                input("week").with_attribute(AttributeType::Value(value.into())),
+            ));
+            assert_eq!(raw_form_nodes(&styled), vec![]);
+            let picker = one_with_class(&styled, DATE_PICKER_CLASS);
+            assert_eq!(a11y_value(&styled, picker).as_deref(), Some(value));
+        }
+    }
+
+    fn datetime_page() -> Dom {
+        page(input("datetime-local").with_attribute(AttributeType::Value("2024-03-15T10:30".into())))
+    }
+
+    #[test]
+    fn a_datetime_local_input_becomes_a_date_and_time_picker_on_its_value() {
+        let lw = styling_window();
+        let styled = lw.style_user_dom(datetime_page());
+        assert_eq!(raw_form_nodes(&styled), vec![]);
+        let row = one_with_class(&styled, DATETIME_LOCAL_CLASS);
+        assert_eq!(a11y_value(&styled, row).as_deref(), Some("2024-03-15T10:30"));
+        assert_eq!(
+            with_class(&styled, TIME_PICKER_CLASS).len(),
+            1,
+            "the time half is a time picker"
+        );
+    }
+
+    #[test]
+    fn a_datetime_local_pick_survives_the_apps_rebuild() {
+        let lw = styling_window();
+        let styled = lw.style_user_dom(datetime_page());
+        let row = one_with_class(&styled, DATETIME_LOCAL_CLASS);
+        let mut data = node(&styled, row)
+            .get_dataset()
+            .cloned()
+            .expect("the row carries the combined state");
+        let hook = {
+            let w = data
+                .downcast_ref::<DateTimeLocalPickerStateWrapper>()
+                .expect("the combined state");
+            w.on_change.as_ref().cloned().expect("the replacement listens")
+        };
+        let picked = DateTimeLocalPickerState {
+            date: DatePickerState {
+                year: 2025,
+                month: 12,
+                day: 24,
+            },
+            time: TimePickerState {
+                hour: 18,
+                minute: 45,
+                is_pm: false,
+                is_24h: true,
+            },
+        };
+        let _ = with_info(&lw, dom_node(row), |info| {
+            hook.callback.invoke(hook.refany.clone(), info, picked)
+        });
+
+        let rebuilt = lw.style_user_dom(datetime_page());
+        let row = one_with_class(&rebuilt, DATETIME_LOCAL_CLASS);
+        assert_eq!(a11y_value(&rebuilt, row).as_deref(), Some("2025-12-24T18:45"));
+    }
+
+    #[test]
+    fn submit_and_reset_inputs_become_buttons_that_act_on_their_form() {
+        let lw = styling_window();
+        for (ty, label) in [("submit", "Submit"), ("reset", "Reset")] {
+            let styled = lw.style_user_dom(page(input(ty)));
+            assert_eq!(raw_form_nodes(&styled), vec![]);
+            let button = one_with_class(&styled, BUTTON_CLASS);
+            assert_eq!(text_under(&styled, button), label, "HTML's default label for type={ty}");
+            assert!(
+                has_callback(&styled, button, default_on_form_button_click as usize),
+                "type={ty} must act on its form"
+            );
+            assert!(node(&styled, button)
+                .attributes()
+                .as_slice()
+                .contains(&AttributeType::InputType(ty.into())));
+        }
+        let styled = lw.style_user_dom(page(
+            input("submit").with_attribute(AttributeType::Value("Send".into())),
+        ));
+        let button = one_with_class(&styled, BUTTON_CLASS);
+        assert_eq!(text_under(&styled, button), "Send", "the value is the label");
+    }
+
+    #[test]
+    fn an_image_input_becomes_a_submit_button_named_by_its_alt_text() {
+        let lw = styling_window();
+        let styled = lw.style_user_dom(page(
+            input("image")
+                .with_attribute(AttributeType::Alt("Go".into()))
+                .with_attribute(AttributeType::Src("go.png".into())),
+        ));
+        assert_eq!(raw_form_nodes(&styled), vec![]);
+        let button = one_with_class(&styled, BUTTON_CLASS);
+        assert!(
+            has_callback(&styled, button, default_on_form_button_click as usize),
+            "an image button submits its form"
+        );
+        let name = node(&styled, button)
+            .get_accessibility_info()
+            .and_then(|a| a.accessibility_name.as_ref().map(|n| n.as_str().to_string()));
+        assert_eq!(name.as_deref(), Some("Go"), "named by its alt text");
+        let attrs = node(&styled, button).attributes().as_slice().to_vec();
+        assert!(attrs.contains(&AttributeType::InputType("image".into())), "{attrs:?}");
+        assert!(
+            !attrs.contains(&AttributeType::InputType("submit".into())),
+            "one type, the app's: {attrs:?}"
+        );
+    }
+
+    #[test]
+    fn a_hidden_input_is_out_of_the_accessibility_tree_and_keeps_its_name_and_value() {
+        let lw = styling_window();
+        let styled = lw.style_user_dom(page(
+            input("hidden").with_attribute(AttributeType::Value("t0k3n".into())),
+        ));
+        assert_eq!(raw_form_nodes(&styled), vec![]);
+        // body > the hidden input's node
+        let attrs = node(&styled, NodeId::new(1)).attributes().as_slice().to_vec();
+        assert!(attrs.contains(&AttributeType::Hidden), "{attrs:?}");
+        assert!(attrs.contains(&AttributeType::Name("field".into())));
+        assert!(attrs.contains(&AttributeType::Value("t0k3n".into())));
+    }
+
+    #[test]
+    fn an_optgroup_becomes_a_heading_of_the_drop_down_instead_of_being_flattened() {
+        let lw = styling_window();
+        let select = Dom::create_select_no_a11y("fruit".into(), "Fruit".into())
+            .with_child(Dom::create_option_no_a11y("a".into(), "Apple".into()))
+            .with_child(
+                Dom::create_optgroup_no_a11y("Later".into())
+                    .with_child(Dom::create_option_no_a11y("b".into(), "Banana".into()))
+                    .with_child(Dom::create_option_no_a11y("c".into(), "Cherry".into())),
+            )
+            .with_child(Dom::create_option_no_a11y("d".into(), "Date".into()));
+        let styled = lw.style_user_dom(page(select));
+        assert_eq!(raw_form_nodes(&styled), vec![]);
+        let root = one_with_class(&styled, DROP_DOWN_CLASS);
+        let mut data = node(&styled, root).get_callbacks().as_slice()[0].refany.clone();
+        let (choices, groups) = {
+            let dd = data.downcast_ref::<DropDown>().expect("the drop-down's state");
+            let choices: Vec<String> = dd
+                .choices
+                .as_ref()
+                .iter()
+                .map(|c| c.as_str().to_string())
+                .collect();
+            let groups: Vec<DropDownOptGroup> = dd.groups.as_ref().to_vec();
+            (choices, groups)
+        };
+        assert_eq!(choices, ["Apple", "Banana", "Cherry", "Date"]);
+        assert_eq!(
+            groups,
+            vec![DropDownOptGroup {
+                label: "Later".into(),
+                first_choice: 1,
+                len: 2,
+            }],
+            "the group is a heading over its options, not a choice"
+        );
+    }
+}

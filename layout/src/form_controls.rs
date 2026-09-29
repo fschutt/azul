@@ -1578,6 +1578,34 @@ mod tests {
     }
 
     #[test]
+    fn a_week_value_names_the_monday_of_that_iso_week() {
+        // ISO 8601: week 1 is the week holding the year's first Thursday.
+        assert_eq!(parse_date("week", "2024-W11"), Some((2024, 3, 11)));
+        assert_eq!(parse_date("week", "2021-W01"), Some((2021, 1, 4)));
+        assert_eq!(parse_date("week", "2020-W53"), Some((2020, 12, 28)));
+        assert_eq!(parse_date("week", "2026-W01"), Some((2025, 12, 29)));
+        // 2021 has 52 weeks: there is no week 53 to name.
+        assert_eq!(parse_date("week", "2021-W53"), None);
+        assert_eq!(parse_date("week", "2021-W00"), None);
+    }
+
+    #[test]
+    fn month_and_datetime_values_are_checked_for_their_html_shape() {
+        assert_eq!(parse_date("month", "2024-12"), Some((2024, 12, 1)));
+        assert_eq!(parse_date("month", "2024-13"), None);
+        assert_eq!(
+            parse_datetime("2024-03-15T10:30"),
+            Some(((2024, 3, 15), (10, 30)))
+        );
+        // HTML also accepts a space for the `T`.
+        assert_eq!(
+            parse_datetime("2024-03-15 10:30"),
+            Some(((2024, 3, 15), (10, 30)))
+        );
+        assert_eq!(parse_datetime("2024-03-15"), None, "a date alone is not a datetime");
+    }
+
+    #[test]
     fn a_selects_default_choice_is_the_last_selected_else_the_first_enabled() {
         let c = |selected, disabled| Choice {
             value: String::new(),
