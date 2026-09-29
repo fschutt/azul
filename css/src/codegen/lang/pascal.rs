@@ -111,8 +111,8 @@ impl LinearSyntax for Pascal {
         format!("{arr}[{index}] := {value};")
     }
 
-    fn vec_from_array(&self, target: &str, ty: &str, _elem: &str, arr: &str, n: usize) -> Vec<String> {
-        vec![format!("{target} := Az{ty}CopyFromPtr(@{arr}[0], {n});")]
+    fn vec_from_array(&self, target: &str, ty: &str, _elem: &str, arr: &str, count: &str) -> Vec<String> {
+        vec![format!("{target} := Az{ty}CopyFromPtr(@{arr}[0], {count});")]
     }
 
     fn vec_empty(&self, target: &str, ty: &str) -> Vec<String> {

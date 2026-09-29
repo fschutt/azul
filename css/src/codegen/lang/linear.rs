@@ -7,6 +7,11 @@
 //! evaluation order (children first): every constructor call, variant,
 //! struct, string and Vec gets one; C-like enum constants and numbers stay
 //! inline. A [`LinearSyntax`] spells declarations and statements.
+//!
+//! A language that CAN nest some constructions (Ada, Fortran and BASIC nest
+//! calls and aggregates, only a Vec needs a declared array) returns them
+//! from the `*_expr` methods; those nodes then stay inline and only the
+//! rest gets a temporary.
 
 use alloc::{
     format,
@@ -51,8 +56,9 @@ pub trait LinearSyntax {
     fn set_field(&self, target: &str, ty: &str, field: &str, value: &str) -> String;
     /// Statement storing `value` into element `index` (0-based) of array `arr`.
     fn set_elem(&self, arr: &str, index: usize, value: &str) -> String;
-    /// Statements that make `target` the Vec copied from array `arr`.
-    fn vec_from_array(&self, target: &str, ty: &str, elem: &str, arr: &str, n: usize) -> Vec<String>;
+    /// Statements that make `target` the Vec copied from array `arr`;
+    /// `count` is the item count as a `usize` operand.
+    fn vec_from_array(&self, target: &str, ty: &str, elem: &str, arr: &str, count: &str) -> Vec<String>;
     /// Statements that make `target` an empty Vec.
     fn vec_empty(&self, target: &str, ty: &str) -> Vec<String>;
     /// Statements that make `target` an `AzString` holding `s`.
@@ -61,6 +67,65 @@ pub trait LinearSyntax {
     /// [`ExprSyntax::limitation`](super::ExprSyntax::limitation)).
     fn limitation(&self, _e: &Expr) -> Option<String> {
         None
+    }
+
+    // Inline forms. `None` (the default) means "use a temporary".
+
+    /// `class::method(args)` as an expression.
+    fn call_expr(&self, _class: &str, _method: &str, _args: &[String]) -> Option<String> {
+        None
+    }
+    /// A tagged-union variant (via its variant constructor) as an expression.
+    fn variant_expr(&self, _ty: &str, _variant: &str, _args: &[String]) -> Option<String> {
+        None
+    }
+    /// A hand-built union variant as an expression.
+    fn union_expr(
+        &self,
+        _ty: &str,
+        _variant: &str,
+        _tag: usize,
+        _payload: Option<&str>,
+    ) -> Option<String> {
+        None
+    }
+    /// A struct as an expression (fields in declaration order).
+    fn struct_expr(&self, _ty: &str, _fields: &[(String, String)]) -> Option<String> {
+        None
+    }
+    /// An `AzString` holding `s` as an expression.
+    fn string_expr(&self, _s: &str) -> Option<String> {
+        None
+    }
+    /// The Vec copied from array `arr` (`count` items) as an expression.
+    fn vec_expr(&self, _ty: &str, _elem: &str, _arr: &str, _count: &str) -> Option<String> {
+        None
+    }
+    /// An empty Vec as an expression.
+    fn vec_empty_expr(&self, _ty: &str) -> Option<String> {
+        None
+    }
+
+    // Data items (COBOL: a CALL argument is a data item, not an expression).
+
+    /// The declared type, with its initializer, of a buffer temporary that
+    /// holds the bytes of `s` before [`Self::string_from_buffer`] builds the
+    /// `AzString`. `None`: [`Self::string`] builds it directly.
+    fn string_buffer(&self, _s: &str) -> Option<String> {
+        None
+    }
+    /// Statements that make `target` the `AzString` of buffer `buf`.
+    fn string_from_buffer(&self, target: &str, _buf: &str, s: &str) -> Vec<String> {
+        self.string(target, s)
+    }
+    /// The declared type, with its initializer, of a temporary holding the
+    /// scalar CALL argument `e`. `None`: the literal is passed inline.
+    fn scalar_arg(&self, _e: &Expr) -> Option<String> {
+        None
+    }
+    /// The CALL operand for a [`Self::scalar_arg`] temporary.
+    fn scalar_operand(&self, temp: &str) -> String {
+        temp.to_string()
     }
 }
 
@@ -89,6 +154,18 @@ impl Ctx<'_> {
         name
     }
 
+    /// A CALL argument: a scalar the language cannot pass inline gets a
+    /// temporary of its own.
+    fn arg(&mut self, e: &Expr) -> String {
+        if matches!(e, Expr::Int { .. } | Expr::Float { .. } | Expr::Bool(_)) {
+            if let Some(decl) = self.s.scalar_arg(e) {
+                let t = self.temp(decl);
+                return self.s.scalar_operand(&t);
+            }
+        }
+        self.emit(e)
+    }
+
     fn emit(&mut self, e: &Expr) -> String {
         let s = self.s;
         match e {
@@ -96,6 +173,16 @@ impl Ctx<'_> {
             Expr::Float { text, ty } => s.float(text, *ty),
             Expr::Bool(b) => s.boolean(*b),
             Expr::Str(text) => {
+                if let Some(x) = s.string_expr(text) {
+                    return x;
+                }
+                if let Some(decl) = s.string_buffer(text) {
+                    let buf = self.temp(decl);
+                    let t = self.temp(s.type_name("String"));
+                    let st = s.string_from_buffer(&t, &buf, text);
+                    self.out.body.extend(st);
+                    return t;
+                }
                 let t = self.temp(s.type_name("String"));
                 let st = s.string(&t, text);
                 self.out.body.extend(st);
@@ -106,7 +193,10 @@ impl Ctx<'_> {
                 method,
                 args,
             } => {
-                let args: Vec<String> = args.iter().map(|a| self.emit(a)).collect();
+                let args: Vec<String> = args.iter().map(|a| self.arg(a)).collect();
+                if let Some(x) = s.call_expr(class, method, &args) {
+                    return x;
+                }
                 let t = self.temp(s.type_name(class));
                 let st = s.call(&t, class, method, &args);
                 self.out.body.extend(st);
@@ -120,7 +210,10 @@ impl Ctx<'_> {
             } => match shape {
                 EnumShape::CLike => s.clike(ty, variant),
                 EnumShape::Tagged => {
-                    let args: Vec<String> = args.iter().map(|a| self.emit(a)).collect();
+                    let args: Vec<String> = args.iter().map(|a| self.arg(a)).collect();
+                    if let Some(x) = s.variant_expr(ty, variant, &args) {
+                        return x;
+                    }
                     let t = self.temp(s.type_name(ty));
                     let st = s.variant_call(&t, ty, variant, &args);
                     self.out.body.extend(st);
@@ -128,8 +221,11 @@ impl Ctx<'_> {
                 }
                 EnumShape::TaggedShadowed | EnumShape::Generic { .. } => {
                     let payload = args.first().map(|a| self.emit(a));
-                    let t = self.temp(s.type_name(ty));
                     let tag = union_tag(ty, variant).unwrap_or(0);
+                    if let Some(x) = s.union_expr(ty, variant, tag, payload.as_deref()) {
+                        return x;
+                    }
+                    let t = self.temp(s.type_name(ty));
                     let st = s.union(&t, ty, variant, tag, payload.as_deref());
                     self.out.body.extend(st);
                     t
@@ -140,6 +236,9 @@ impl Ctx<'_> {
                     .iter()
                     .map(|(k, v)| (k.clone(), self.emit(v)))
                     .collect();
+                if let Some(x) = s.struct_expr(ty, &values) {
+                    return x;
+                }
                 let t = self.temp(s.type_name(ty));
                 for (k, v) in values {
                     let st = s.set_field(&t, ty, &k, &v);
@@ -157,6 +256,9 @@ impl Ctx<'_> {
                     }
                 }
                 if kept.is_empty() {
+                    if let Some(x) = s.vec_empty_expr(ty) {
+                        return x;
+                    }
                     let t = self.temp(s.type_name(ty));
                     let st = s.vec_empty(&t, ty);
                     self.out.body.extend(st);
@@ -168,8 +270,12 @@ impl Ctx<'_> {
                     let st = s.set_elem(&arr, i, v);
                     self.out.body.push(st);
                 }
+                let count = self.arg(&Expr::int(values.len() as i128, Prim::Usize));
+                if let Some(x) = s.vec_expr(ty, elem, &arr, &count) {
+                    return x;
+                }
                 let t = self.temp(s.type_name(ty));
-                let st = s.vec_from_array(&t, ty, elem, &arr, values.len());
+                let st = s.vec_from_array(&t, ty, elem, &arr, &count);
                 self.out.body.extend(st);
                 t
             }

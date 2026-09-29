@@ -244,7 +244,7 @@ fn lexical(lang: &str) -> Lexical {
         "powershell" => Lexical {
             line_comments: &["#"],
             block_comment: Some(("<#", "#>")),
-            quote: '"',
+            quote: '\'',
             backslash_escapes: false,
         },
         "lua" | "haskell" => Lexical {
@@ -273,7 +273,7 @@ fn lexical(lang: &str) -> Lexical {
         "fortran" => Lexical {
             line_comments: &["!"],
             block_comment: None,
-            quote: '"',
+            quote: '\'',
             backslash_escapes: false,
         },
         "cobol" => Lexical {
@@ -303,6 +303,10 @@ fn lexical(lang: &str) -> Lexical {
             block_comment: Some(("#", "#")),
             quote: '"',
             backslash_escapes: false,
+        },
+        "v" => Lexical {
+            quote: '\'',
+            ..C_LIKE
         },
         _ => C_LIKE,
     }

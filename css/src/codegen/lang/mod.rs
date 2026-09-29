@@ -20,26 +20,41 @@ use super::{
     CodegenBackend,
 };
 
+pub mod ada;
+pub mod algol68;
 pub mod c;
+pub mod cobol;
 pub mod cpp;
+pub mod crystal;
 pub mod csharp;
 pub mod d;
+pub mod fortran;
+pub mod freebasic;
 pub mod go;
 pub mod haskell;
 pub mod java;
 pub mod julia;
 pub mod kotlin;
 pub mod linear;
+pub mod lisp;
 pub mod lua;
 pub mod nim;
 pub mod node;
 pub mod ocaml;
+pub mod odin;
 pub mod pascal;
+pub mod perl;
 pub mod php;
+pub mod powershell;
 pub mod python;
+pub mod racket;
+pub mod red;
 pub mod ruby;
 pub mod rust;
+pub mod smalltalk;
 pub mod swift;
+pub mod v;
+pub mod vb6;
 pub mod zig;
 
 /// How one language spells the IR node kinds.
@@ -69,6 +84,13 @@ pub trait ExprSyntax {
     /// item containing it. Default: no limitation.
     fn limitation(&self, _e: &Expr) -> Option<String> {
         None
+    }
+
+    /// The value of struct field `field` as the struct literal takes it,
+    /// given its ordinary layout `value` (Crystal fills a lib struct with
+    /// raw C values). Default: `value` unchanged.
+    fn field_value(&self, _field: &Expr, value: Doc) -> Doc {
+        value
     }
 }
 
@@ -267,7 +289,7 @@ fn expr_doc_inner(s: &dyn ExprSyntax, e: &Expr, broken: bool) -> Doc {
             ty,
             fields
                 .iter()
-                .map(|(k, v)| (k.clone(), expr_doc(s, v)))
+                .map(|(k, v)| (k.clone(), s.field_value(v, expr_doc(s, v))))
                 .collect(),
             broken,
         ),
@@ -336,7 +358,7 @@ pub fn c_escape(s: &str) -> String {
 /// Escape `s` for a double-quoted literal of a language with backslash
 /// escapes: `\\`, `\"`, `\n`, `\r`, `\t`, `extra` (e.g. `$` for Kotlin /
 /// Julia / V interpolation) backslashed, every other non-printable or
-/// non-ASCII char through `unicode(codepoint)` (e.g. `é`).
+/// non-ASCII char through `unicode(codepoint)` (e.g. U+00E9).
 #[must_use]
 pub fn escape_quoted(s: &str, extra: &[char], unicode: &dyn Fn(u32) -> String) -> String {
     let mut out = String::new();
@@ -358,7 +380,7 @@ pub fn escape_quoted(s: &str, extra: &[char], unicode: &dyn Fn(u32) -> String) -
     out
 }
 
-/// `é` / `\U0001f600` (Python, C#, Java, JS, Kotlin, D, Go ...).
+/// `\u00e9` / `\U0001f600` (Python, C#, Java, JS, Kotlin, D, Go ...).
 #[must_use]
 pub fn unicode_u4(cp: u32) -> String {
     if cp < 0x1_0000 {
@@ -490,6 +512,21 @@ pub fn all() -> Vec<Box<dyn CodegenBackend>> {
         Box::new(haskell::Haskell),
         Box::new(julia::Julia),
         Box::new(pascal::Pascal),
+        Box::new(ada::Ada),
+        Box::new(algol68::Algol68),
+        Box::new(cobol::Cobol),
+        Box::new(crystal::Crystal),
+        Box::new(fortran::Fortran),
+        Box::new(freebasic::FreeBasic),
+        Box::new(lisp::Lisp),
+        Box::new(odin::Odin),
+        Box::new(perl::Perl),
+        Box::new(powershell::PowerShell),
+        Box::new(racket::Racket),
+        Box::new(red::Red),
+        Box::new(smalltalk::Smalltalk),
+        Box::new(v::V),
+        Box::new(vb6::Vb6),
     ]
 }
 
