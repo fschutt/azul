@@ -76,7 +76,7 @@ use super::{
     check_box::CheckBox,
     combobox::ComboBox,
     drop_down::DropDown,
-    themes::flat,
+    themes::{flat, style_kit, OptionUiTheme, UiTheme},
 };
 use crate::callbacks::{Callback, CallbackInfo};
 
@@ -2584,6 +2584,11 @@ pub struct Ribbon {
     pub style: RibbonStyle,
     /// Which interactions the ribbon handles by itself (defaults to the classic behavior).
     pub behavior: RibbonBehavior,
+    /// The widget theme, or `None` to follow the app theme
+    /// (`AppConfig::with_theme`). Flat is the Office look [`Self::style`]
+    /// describes; flora lays flora's paper, hairlines and stones on the same
+    /// metrics. A part the caller set in [`Self::style`] wins in either theme.
+    pub theme: OptionUiTheme,
 }
 
 /// The application button at the far left of the tab strip ("FILE").
@@ -3104,7 +3109,23 @@ impl Ribbon {
             on_tab_click: None.into(),
             style: RibbonStyle::office_2013(),
             behavior: RibbonBehavior::office_2013(),
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme: the ribbon, its buttons and every embedded
+    /// widget without a theme of its own keep this look whatever the app
+    /// theme is. Unset (`None`), the ribbon follows the app theme
+    /// (`AppConfig::with_theme`, flat by default).
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// Sets the application button ("FILE").
@@ -3183,7 +3204,7 @@ impl Ribbon {
     /// `layout()` logic.
     #[must_use]
     pub fn dom(self) -> Dom {
-        self.build_chrome(RibbonChromeMode::Adaptive)
+        self.themed(RibbonChromeMode::Adaptive)
     }
 
     /// Builds ONLY the desktop chrome (tab strip + content band), with no
@@ -3194,7 +3215,7 @@ impl Ribbon {
     /// breakpoint swaps the structure.
     #[must_use]
     pub fn dom_desktop(self) -> Dom {
-        self.build_chrome(RibbonChromeMode::Desktop)
+        self.themed(RibbonChromeMode::Desktop)
     }
 
     /// Builds ONLY the touch chrome: the full-width active-tab button (tap
@@ -3204,10 +3225,31 @@ impl Ribbon {
     /// relayout). See [`Self::dom_desktop`] for the pairing contract.
     #[must_use]
     pub fn dom_mobile(self) -> Dom {
-        self.build_chrome(RibbonChromeMode::Mobile)
+        self.themed(RibbonChromeMode::Mobile)
     }
 
-    fn build_chrome(self, mode: RibbonChromeMode) -> Dom {
+    /// `mode`'s chrome in the ribbon's theme: a pinned theme is that look;
+    /// no theme follows the app theme - the ribbon built in both looks and
+    /// merged into ONE tree in the structure of the theme the DOM is built
+    /// for (`UiTheme::current()`), every node carrying each look's
+    /// declarations in its `@theme(<name>)` block.
+    fn themed(self, mode: RibbonChromeMode) -> Dom {
+        match self.theme.into_option() {
+            Some(theme) => self.build_in(theme, mode),
+            None => {
+                let flat = self.clone().build_in(UiTheme::Flat, mode);
+                let flora = self.build_in(UiTheme::Flora, mode);
+                crate::widgets::themes::theme_blocks::follow_dom(UiTheme::current(), flat, flora)
+            }
+        }
+    }
+
+    /// `mode`'s chrome in exactly `theme`'s look.
+    fn build_in(self, theme: UiTheme, mode: RibbonChromeMode) -> Dom {
+        self.build_chrome(mode, theme)
+    }
+
+    fn build_chrome(self, mode: RibbonChromeMode, theme: UiTheme) -> Dom {
         let Self {
             app_button,
             tabs,
@@ -3215,6 +3257,9 @@ impl Ribbon {
             on_tab_click,
             style,
             behavior,
+            // The look to build is `theme`: the field is the caller's pin,
+            // already resolved by `themed`.
+            theme: _,
         } = self;
         let has_callback = on_tab_click.is_some();
 
@@ -3358,7 +3403,7 @@ impl Ribbon {
                     .groups
                     .into_library_owned_vec()
                     .into_iter()
-                    .map(|g| group_dom(g, &style, behavior))
+                    .map(|g| group_dom(g, &style, behavior, theme))
                     .collect(),
                 None => Vec::new(),
             };
@@ -3564,8 +3609,13 @@ impl Ribbon {
                 vec![mobile_tab_button, mobile_tab_overlay, band]
             }
         };
+        // The root carries the theme marker (`__azul-theme-<name>`), like
+        // every themed widget: the look it was BUILT in.
         let mut container = Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_RIBBON))
+            .with_ids_and_classes(IdOrClassVec::from_vec(vec![
+                CLS_RIBBON[0].clone(),
+                style_kit::marker(theme),
+            ]))
             .with_css_props(style.resolved_container_style())
             .with_children(DomVec::from_vec(children));
         // The chrome state (collapse flag) lives on the container as a
@@ -3608,7 +3658,9 @@ fn merged_style(
 }
 
 /// Expands ribbon button config to the existing [`Button`] widget with the
-/// given part styles injected through `Button`'s public style fields.
+/// given part styles injected through `Button`'s public style fields, in the
+/// ribbon's theme (`theme`): the button is part of the ribbon's look, so it
+/// is built in that look, never left to follow on its own.
 fn styled_button(
     icon: AzString,
     label: AzString,
@@ -3618,6 +3670,7 @@ fn styled_button(
     label_style: CssPropertyWithConditionsVec,
     trailing_icon_style: CssPropertyWithConditionsVec,
     on_click: OptionButtonOnClick,
+    theme: UiTheme,
 ) -> Dom {
     let mut b = Button::create(label);
     b.set_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK);
@@ -3628,10 +3681,11 @@ fn styled_button(
     b.label_style = OptionCssPropertyWithConditionsVec::Some(label_style);
     b.trailing_icon_style = OptionCssPropertyWithConditionsVec::Some(trailing_icon_style);
     b.on_click = on_click;
+    b.set_theme(theme);
     b.dom()
 }
 
-fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle) -> Dom {
+fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: UiTheme) -> Dom {
     let base = if large {
         &s.resolved_large_button_style()
     } else {
@@ -3666,13 +3720,17 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle) -> Dom {
         label_style,
         s.resolved_arrow_icon_style(),
         rb.on_click,
+        theme,
     )
 }
 
-fn item_dom(item: RibbonItem, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
+/// One item in the ribbon's theme. An embedded widget the caller left
+/// without a theme (`None`) is part of the ribbon's look and is built in
+/// `theme`; one the caller pinned keeps its pin.
+fn item_dom(item: RibbonItem, s: &RibbonStyle, b: RibbonBehavior, theme: UiTheme) -> Dom {
     match item {
-        RibbonItem::LargeButton(rb) => expand_ribbon_button(rb, true, s),
-        RibbonItem::SmallButton(rb) => expand_ribbon_button(rb, false, s),
+        RibbonItem::LargeButton(rb) => expand_ribbon_button(rb, true, s, theme),
+        RibbonItem::SmallButton(rb) => expand_ribbon_button(rb, false, s, theme),
         RibbonItem::Column(col) => Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_COLUMN))
             .with_css_props(s.resolved_column_style())
@@ -3680,7 +3738,7 @@ fn item_dom(item: RibbonItem, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
                 col.items
                     .into_library_owned_vec()
                     .into_iter()
-                    .map(|it| item_dom(it, s, b))
+                    .map(|it| item_dom(it, s, b, theme))
                     .collect(),
             )),
         RibbonItem::Row(row) => Dom::create_div()
@@ -3690,13 +3748,28 @@ fn item_dom(item: RibbonItem, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
                 row.items
                     .into_library_owned_vec()
                     .into_iter()
-                    .map(|it| item_dom(it, s, b))
+                    .map(|it| item_dom(it, s, b, theme))
                     .collect(),
             )),
-        RibbonItem::Combo(combo) => combo.dom(),
-        RibbonItem::Drop(drop) => drop.dom(),
-        RibbonItem::Check(check) => check.dom(),
-        RibbonItem::Gallery(gallery) => gallery_dom(gallery, s, b),
+        RibbonItem::Combo(mut combo) => {
+            if combo.theme.is_none() {
+                combo.set_theme(theme);
+            }
+            combo.dom()
+        }
+        RibbonItem::Drop(mut drop) => {
+            if drop.theme.is_none() {
+                drop.set_theme(theme);
+            }
+            drop.dom()
+        }
+        RibbonItem::Check(mut check) => {
+            if check.theme.is_none() {
+                check.set_theme(theme);
+            }
+            check.dom()
+        }
+        RibbonItem::Gallery(gallery) => gallery_dom(gallery, s, b, theme),
         RibbonItem::Separator => Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_SEPARATOR))
             .with_css_props(s.resolved_separator_style()),
@@ -3718,7 +3791,7 @@ static GROUP_FILL_STYLE: &[Cond] = &[
     Cond::simple(P::const_min_width(LayoutMinWidth::const_px(160))),
 ];
 
-fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
+fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior, theme: UiTheme) -> Dom {
     let RibbonGroup {
         label,
         items,
@@ -3729,7 +3802,7 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
     let item_doms: Vec<Dom> = items
         .into_library_owned_vec()
         .into_iter()
-        .map(|it| item_dom(it, s, b))
+        .map(|it| item_dom(it, s, b, theme))
         .collect();
 
     let items_row = Dom::create_div()
@@ -3765,6 +3838,7 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
             s.resolved_small_label_style(),
             s.resolved_arrow_icon_style(),
             Some(l).into(),
+            theme,
         ));
     }
     let footer = Dom::create_div()
@@ -3787,7 +3861,7 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
         .with_children(DomVec::from_vec(vec![items_row, footer]))
 }
 
-fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
+fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior, theme: UiTheme) -> Dom {
     let RibbonGallery {
         cells,
         selected,
@@ -3867,6 +3941,7 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
                 s.resolved_small_label_style(),
                 s.resolved_arrow_icon_style(),
                 OptionButtonOnClick::None,
+                theme,
             );
             // The third button is "More": it expands the panel.
             if i == 2 && b.expandable_gallery {
@@ -4720,6 +4795,7 @@ mod tests {
     #[test]
     fn dom_renders_app_button_tabs_and_filler_in_order() {
         let r = Ribbon::new(tabs(3))
+            .with_theme(UiTheme::Flat)
             .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
             .with_active_tab(1);
         let dom = r.dom();
@@ -4955,7 +5031,9 @@ mod tests {
     fn render_item(item: RibbonItem) -> Dom {
         let tab = RibbonTab::new(AzString::from("t"))
             .with_group(RibbonGroup::new(AzString::from("g")).with_item(item));
-        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab])).dom();
+        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab]))
+            .with_theme(UiTheme::Flat)
+            .dom();
         let (_, content) = parts(&dom);
         let (items, _) = group_parts(content, 0);
         assert_eq!(items.children.as_ref().len(), 1);
@@ -5102,6 +5180,7 @@ mod tests {
         use azul_css::StringVec;
 
         let dom = Ribbon::new(tabs(2))
+            .with_theme(UiTheme::Flat)
             .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
             .dom();
         let (bar, _) = parts(&dom);
@@ -5334,7 +5413,8 @@ mod tests {
             RibbonGroup::new(AzString::from("g"))
                 .with_item(RibbonItem::SmallButton(small_btn("format_bold", ""))),
         );
-        let mut r = Ribbon::new(RibbonTabVec::from_vec(vec![tab]));
+        let mut r = Ribbon::new(RibbonTabVec::from_vec(vec![tab]))
+            .with_theme(UiTheme::Flat);
         r.style.small_button_style = OptionCssPropertyWithConditionsVec::Some(injected.clone());
         let dom = r.dom();
         let (_, content) = parts(&dom);
@@ -5893,6 +5973,7 @@ mod tests {
         use crate::widgets::theme_probe::unconditional;
 
         let dom = Ribbon::new(tabs(2))
+            .with_theme(UiTheme::Flat)
             .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
             .dom();
         let (bar, content) = parts(&dom);
@@ -5950,6 +6031,7 @@ mod tests {
         use CssPropertyType as T;
 
         let dom = Ribbon::new(tabs(2))
+            .with_theme(UiTheme::Flat)
             .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
             .dom();
         let (bar, _) = parts(&dom);
@@ -6185,6 +6267,7 @@ mod tests {
         use crate::widgets::theme_probe::dark;
 
         let dom = Ribbon::new(tabs(2))
+            .with_theme(UiTheme::Flat)
             .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
             .dom();
         let (bar, _) = parts(&dom);
@@ -6236,7 +6319,7 @@ mod tests {
     fn the_chrome_goes_dark_with_the_window() {
         use crate::widgets::theme_probe::dark;
 
-        let dom = Ribbon::new(tabs(2)).dom();
+        let dom = Ribbon::new(tabs(2)).with_theme(UiTheme::Flat).dom();
         let (bar, content) = parts(&dom);
         let colours = |node: &Dom| dark(node).iter().filter_map(colour_of).collect::<Vec<_>>();
         assert_eq!(

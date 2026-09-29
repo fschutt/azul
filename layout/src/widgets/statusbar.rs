@@ -59,7 +59,7 @@ use azul_css::{
 use super::{
     button::{Button, OptionButtonOnClick},
     slider::{OptionSliderOnValueChange, Slider},
-    themes::flat,
+    themes::{flat, style_kit, OptionUiTheme, UiTheme},
 };
 use crate::callbacks::CallbackInfo;
 
@@ -1290,6 +1290,11 @@ pub struct StatusBar {
     pub zoom: OptionStatusBarZoom,
     /// All part styles (defaults to the the Office-2013-era look look).
     pub style: StatusBarStyle,
+    /// The widget theme, or `None` to follow the app theme
+    /// (`AppConfig::with_theme`). Flat is the Office look [`Self::style`]
+    /// describes; flora lays flora's toolbar strip and paper keys on the same
+    /// metrics. A part the caller set in [`Self::style`] wins in either theme.
+    pub theme: OptionUiTheme,
 }
 
 // -- CSS classes --
@@ -1332,7 +1337,23 @@ impl StatusBar {
             views: None.into(),
             zoom: None.into(),
             style: StatusBarStyle::office_2013(),
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme: the status bar, its buttons and its zoom
+    /// slider keep this look whatever the app theme is. Unset (`None`), the
+    /// status bar follows the app theme (`AppConfig::with_theme`, flat by
+    /// default).
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// Sets the view-switcher cluster.
@@ -1411,19 +1432,48 @@ impl StatusBar {
         true
     }
 
-    /// Renders the status bar.
+    /// Renders the status bar in its theme: a pinned theme is that look; no
+    /// theme follows the app theme (both looks in one tree, each inside its
+    /// `@theme(<name>)` block, in the structure of the theme the DOM is built
+    /// for).
     #[must_use]
     pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(theme) => self.build_in(theme),
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                Self::flat_look,
+                Self::flora_look,
+            ),
+        }
+    }
+
+    /// The bar in the flat look (a `follow_app_theme` builder).
+    fn flat_look(self) -> Dom {
+        self.build_in(UiTheme::Flat)
+    }
+
+    /// The bar in the flora look (a `follow_app_theme` builder).
+    fn flora_look(self) -> Dom {
+        self.build_in(UiTheme::Flora)
+    }
+
+    /// The bar in exactly `theme`'s look: its buttons and its zoom slider
+    /// are built in that look too, and the root carries the theme marker.
+    fn build_in(self, theme: UiTheme) -> Dom {
         let Self {
             segments,
             views,
             zoom,
             style,
+            // The look to build is `theme`: the field is the caller's pin,
+            // already resolved by `dom`.
+            theme: _,
         } = self;
         let mut children: Vec<Dom> = Vec::with_capacity(segments.len() + 3);
 
         for seg in segments.into_library_owned_vec() {
-            children.push(segment_dom(seg, &style));
+            children.push(segment_dom(seg, &style, theme));
         }
 
         children.push(
@@ -1433,15 +1483,18 @@ impl StatusBar {
         );
 
         if let Some(switcher) = views.into_option() {
-            children.push(views_dom(switcher, &style));
+            children.push(views_dom(switcher, &style, theme));
         }
 
         if let Some(zoom) = zoom.into_option() {
-            children.push(zoom_dom(zoom, &style));
+            children.push(zoom_dom(zoom, &style, theme));
         }
 
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_STATUSBAR))
+            .with_ids_and_classes(IdOrClassVec::from_vec(vec![
+                CLS_STATUSBAR[0].clone(),
+                style_kit::marker(theme),
+            ]))
             .with_css_props(style.resolved_bar_style())
             .with_children(DomVec::from_vec(children))
     }
@@ -1462,12 +1515,14 @@ impl From<StatusBar> for Dom {
 // -- DOM builders --
 
 /// Expands widget config to the existing [`Button`] widget with the
-/// status-bar part styles injected (the ribbon's composition rule).
+/// status-bar part styles injected (the ribbon's composition rule), built in
+/// the bar's theme: the button is part of the bar's look.
 fn styled_button(
     icon: AzString,
     container_style: CssPropertyWithConditionsVec,
     icon_style: CssPropertyWithConditionsVec,
     on_click: OptionButtonOnClick,
+    theme: UiTheme,
 ) -> Dom {
     let mut b = Button::create(AzString::from_const_str(""));
     b.set_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK);
@@ -1475,6 +1530,7 @@ fn styled_button(
     b.container_style = OptionCssPropertyWithConditionsVec::Some(container_style);
     b.icon_style = OptionCssPropertyWithConditionsVec::Some(icon_style);
     b.on_click = on_click;
+    b.set_theme(theme);
     b.dom()
 }
 
@@ -1490,7 +1546,7 @@ fn merged_style(
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
-fn segment_dom(seg: StatusBarSegment, style: &StatusBarStyle) -> Dom {
+fn segment_dom(seg: StatusBarSegment, style: &StatusBarStyle, theme: UiTheme) -> Dom {
     let StatusBarSegment {
         icon,
         label,
@@ -1498,7 +1554,8 @@ fn segment_dom(seg: StatusBarSegment, style: &StatusBarStyle) -> Dom {
         marker,
     } = seg;
     if !icon.as_str().is_empty() || on_click.is_some() {
-        // Icon and/or clickable: expand to a Button (flat chassis).
+        // Icon and/or clickable: expand to a Button (the bar's chassis), in
+        // the bar's theme.
         let mut b = Button::create(label);
         b.set_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK);
         b.icon = icon;
@@ -1509,6 +1566,7 @@ fn segment_dom(seg: StatusBarSegment, style: &StatusBarStyle) -> Dom {
         b.label_style =
             OptionCssPropertyWithConditionsVec::Some(style.resolved_segment_label_style());
         b.on_click = on_click;
+        b.set_theme(theme);
         return b
             .dom()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_SEGMENT));
@@ -1620,7 +1678,7 @@ extern "C" fn statusbar_label_render_virtual_view(
     VirtualViewReturn::with_dom(dom, rect, rect)
 }
 
-fn views_dom(switcher: StatusBarViewSwitcher, style: &StatusBarStyle) -> Dom {
+fn views_dom(switcher: StatusBarViewSwitcher, style: &StatusBarStyle, theme: UiTheme) -> Dom {
     let StatusBarViewSwitcher {
         views,
         active_view,
@@ -1655,6 +1713,7 @@ fn views_dom(switcher: StatusBarViewSwitcher, style: &StatusBarStyle) -> Dom {
             container,
             style.resolved_view_icon_style(),
             on_click,
+            theme,
         ));
     }
     Dom::create_div()
@@ -1665,7 +1724,7 @@ fn views_dom(switcher: StatusBarViewSwitcher, style: &StatusBarStyle) -> Dom {
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout numeric
                                                                         // cast
-fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle) -> Dom {
+fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle, theme: UiTheme) -> Dom {
     let StatusBarZoom {
         percent,
         min,
@@ -1683,6 +1742,7 @@ fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle) -> Dom {
         style.resolved_zoom_button_style(),
         style.resolved_zoom_icon_style(),
         on_zoom_out,
+        theme,
     ));
 
     // Rail + tick + embedded Slider, layered inside the positioning host.
@@ -1704,6 +1764,8 @@ fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle) -> Dom {
         OptionCssPropertyWithConditionsVec::Some(style.resolved_slider_track_style());
     slider.thumb_style = OptionCssPropertyWithConditionsVec::Some(thumb_style);
     slider.slider_state.on_value_change = on_slider_change;
+    // The slider is part of the bar's look, so it is built in the bar's theme.
+    slider.set_theme(theme);
 
     children.push(
         Dom::create_div()
@@ -1725,6 +1787,7 @@ fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle) -> Dom {
         style.resolved_zoom_button_style(),
         style.resolved_zoom_icon_style(),
         on_zoom_in,
+        theme,
     ));
 
     if show_label {
@@ -1969,7 +2032,7 @@ mod tests {
         // An inert text segment is a plain <div> carrying the flat chassis, so
         // the state rules on it are this widget's alone (a clickable segment
         // expands to a Button, which appends its own on top).
-        let dom = StatusBar::new(segs(1)).dom();
+        let dom = StatusBar::new(segs(1)).with_theme(UiTheme::Flat).dom();
         let segment = &dom.children.as_ref()[0];
         assert_every_state_rule_has_a_dark_twin(
             "segment",

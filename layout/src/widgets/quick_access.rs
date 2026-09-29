@@ -59,7 +59,7 @@ use azul_css::{
 
 use super::{
     button::{Button, OptionButtonOnClick},
-    themes::{flat, system_palette},
+    themes::{flat, style_kit, system_palette, OptionUiTheme, UiTheme},
     titlebar,
 };
 
@@ -806,6 +806,12 @@ pub struct QuickAccessBar {
     /// `PixelValue::to_pixels_absolute()`. `0.0` (the default) is exactly the
     /// old behaviour, so desktop callers need change nothing.
     pub top_inset: f32,
+
+    /// The widget theme, or `None` to follow the app theme
+    /// (`AppConfig::with_theme`). Flat is the Office look [`Self::style`]
+    /// describes; flora lays flora's recessed band and paper keys on the same
+    /// metrics. A part the caller set in [`Self::style`] wins in either theme.
+    pub theme: OptionUiTheme,
 }
 
 // -- CSS classes --
@@ -841,7 +847,22 @@ impl QuickAccessBar {
             on_close: None.into(),
             style: QuickAccessStyle::office_2013(),
             top_inset: 0.0,
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme: the band and its buttons keep this look
+    /// whatever the app theme is. Unset (`None`), the band follows the app
+    /// theme (`AppConfig::with_theme`, flat by default).
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// Sets the safe-area inset above the band - see [`Self::top_inset`].
@@ -897,9 +918,35 @@ impl QuickAccessBar {
         self
     }
 
-    /// Renders the band.
+    /// Renders the band in its theme: a pinned theme is that look; no theme
+    /// follows the app theme (both looks in one tree, each inside its
+    /// `@theme(<name>)` block, in the structure of the theme the DOM is built
+    /// for).
     #[must_use]
     pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(theme) => self.build_in(theme),
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                Self::flat_look,
+                Self::flora_look,
+            ),
+        }
+    }
+
+    /// The band in the flat look (a `follow_app_theme` builder).
+    fn flat_look(self) -> Dom {
+        self.build_in(UiTheme::Flat)
+    }
+
+    /// The band in the flora look (a `follow_app_theme` builder).
+    fn flora_look(self) -> Dom {
+        self.build_in(UiTheme::Flora)
+    }
+
+    /// The band in exactly `theme`'s look: its buttons are built in that
+    /// look too, and the root carries the theme marker.
+    fn build_in(self, theme: UiTheme) -> Dom {
         let Self {
             leading,
             actions,
@@ -914,6 +961,9 @@ impl QuickAccessBar {
             on_close,
             style,
             top_inset,
+            // The look to build is `theme`: the field is the caller's pin,
+            // already resolved by `dom`.
+            theme: _,
         } = self;
 
         // Every part resolved up front: the resolvers borrow `&style`, and
@@ -938,7 +988,7 @@ impl QuickAccessBar {
         }
 
         for action in actions.into_library_owned_vec() {
-            children.push(action_button(action, &part_action_button, &style));
+            children.push(action_button(action, &part_action_button, &style, theme));
         }
 
         if show_menu_arrow {
@@ -955,7 +1005,7 @@ impl QuickAccessBar {
         );
 
         for action in trailing_actions.into_library_owned_vec() {
-            children.push(action_button(action, &part_window_button, &style));
+            children.push(action_button(action, &part_window_button, &style, theme));
         }
 
         // The window controls come from the DESKTOP's icon theme first
@@ -980,6 +1030,7 @@ impl QuickAccessBar {
                 part_window_button.clone(),
                 &style,
                 or_default(on_minimize, titlebar::callbacks::csd_minimize),
+                theme,
             ));
         }
         if show_maximize {
@@ -999,6 +1050,7 @@ impl QuickAccessBar {
                 part_window_button.clone(),
                 &style,
                 or_default(on_maximize, titlebar::callbacks::csd_maximize),
+                theme,
             ));
         }
         if show_close {
@@ -1008,6 +1060,7 @@ impl QuickAccessBar {
                 merged_style(&part_window_button, &part_close_button),
                 &style,
                 or_default(on_close, titlebar::callbacks::csd_close),
+                theme,
             ));
         }
 
@@ -1033,7 +1086,10 @@ impl QuickAccessBar {
         };
 
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_QAB))
+            .with_ids_and_classes(IdOrClassVec::from_vec(vec![
+                CLS_QAB[0].clone(),
+                style_kit::marker(theme),
+            ]))
             .with_css_props(bar_style)
             .with_children(DomVec::from_vec(children))
     }
@@ -1066,11 +1122,13 @@ fn merged_style(
 }
 
 /// Expands one action to the existing [`Button`] widget with the given
-/// container style injected.
+/// container style injected, built in the band's theme: the button is part
+/// of the band's look.
 fn action_button(
     action: QuickAccessAction,
     container: &CssPropertyWithConditionsVec,
     style: &QuickAccessStyle,
+    theme: UiTheme,
 ) -> Dom {
     let mut b = Button::create(AzString::from_const_str(""));
     b.set_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK);
@@ -1078,15 +1136,18 @@ fn action_button(
     b.container_style = OptionCssPropertyWithConditionsVec::Some(container.clone());
     b.icon_style = OptionCssPropertyWithConditionsVec::Some(style.resolved_action_icon_style());
     b.on_click = action.on_click;
+    b.set_theme(theme);
     b.dom()
 }
 
+/// One window control, built in the band's theme (see [`action_button`]).
 fn window_button(
     icon: AzString,
     icon_dom: OptionDom,
     container: CssPropertyWithConditionsVec,
     style: &QuickAccessStyle,
     on_click: OptionButtonOnClick,
+    theme: UiTheme,
 ) -> Dom {
     let mut b = Button::create(AzString::from_const_str(""));
     b.set_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK);
@@ -1095,6 +1156,7 @@ fn window_button(
     b.container_style = OptionCssPropertyWithConditionsVec::Some(container);
     b.icon_style = OptionCssPropertyWithConditionsVec::Some(style.resolved_window_icon_style());
     b.on_click = on_click;
+    b.set_theme(theme);
     b.dom()
 }
 
