@@ -55590,6 +55590,28 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "SpinnerStyle": {
+                        "external": "azul_layout::widgets::spinner::SpinnerStyle",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "Spokes": {},
+                                "Ring": {}
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -57298,6 +57320,9 @@
                                 },
                                 "accessibility_name": {
                                     "type": "OptionString"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -57399,6 +57424,38 @@
                                     "type": "ColorInput"
                                 },
                                 "fn_body": "object.with_accessibility_name(name)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the input renders in the",
+                                    "default theme (`crate::widgets::themes::UiTheme::default()`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ColorInput"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -59217,16 +59274,15 @@
                             {
                                 "title": {
                                     "type": "String"
-                                }
-                            },
-                            {
+                                },
                                 "flex_grow": {
                                     "type": "f32"
-                                }
-                            },
-                            {
+                                },
                                 "content": {
                                     "type": "Dom"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -59303,6 +59359,38 @@
                                     "type": "Frame"
                                 },
                                 "fn_body": "object.swap_with_default()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the frame renders in the",
+                                    "default theme (`crate::widgets::themes::UiTheme::default()`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Frame"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -61978,6 +62066,9 @@
                                 },
                                 "divider_style": {
                                     "type": "OptionCssPropertyWithConditionsVec"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -62060,6 +62151,38 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the divider renders in the",
+                                    "default theme (`crate::widgets::themes::UiTheme::default()`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Divider"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -62103,6 +62226,9 @@
                                 },
                                 "on_click": {
                                     "type": "OptionCardOnClick"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -62246,6 +62372,38 @@
                                     "type": "Card"
                                 },
                                 "fn_body": "object.with_on_click(data, on_click)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the card renders in the default",
+                                    "theme (`crate::widgets::themes::UiTheme::default()`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Card"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -62271,6 +62429,9 @@
                                 },
                                 "badge_style": {
                                     "type": "OptionCssPropertyWithConditionsVec"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -62360,6 +62521,38 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the badge renders in the",
+                                    "default theme (`crate::widgets::themes::UiTheme::default()`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Badge"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -63884,6 +64077,9 @@
                                 },
                                 "container_style": {
                                     "type": "OptionCssPropertyWithConditionsVec"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -64046,6 +64242,38 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the alert renders in the",
+                                    "default theme (`crate::widgets::themes::UiTheme::default()`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Alert"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -64126,6 +64354,9 @@
                                 },
                                 "on_toggle": {
                                     "type": "OptionAccordionOnToggle"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -64214,6 +64445,38 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the accordion renders in the",
+                                    "default theme (`crate::widgets::themes::UiTheme::default()`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Accordion"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -64518,6 +64781,9 @@
                                 },
                                 "container_style": {
                                     "type": "OptionCssPropertyWithConditionsVec"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -64712,6 +64978,38 @@
                                     "type": "Chip"
                                 },
                                 "fn_body": "object.with_on_click(data, on_click)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the chip renders in the default",
+                                    "theme (`crate::widgets::themes::UiTheme::default()`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Chip"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -64786,14 +65084,20 @@
                                 "size": {
                                     "type": "isize"
                                 },
-                                "color": {
-                                    "type": "ColorU"
-                                },
-                                "track_color": {
-                                    "type": "ColorU"
-                                },
                                 "spinner_style": {
                                     "type": "OptionCssPropertyWithConditionsVec"
+                                },
+                                "indicator": {
+                                    "type": "SpinnerStyle"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
+                                },
+                                "color": {
+                                    "type": "OptionColorU"
+                                },
+                                "track_color": {
+                                    "type": "OptionColorU"
                                 }
                             }
                         ],
@@ -64940,6 +65244,69 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the spinner renders in the",
+                                    "default theme (`crate::widgets::themes::UiTheme::default()`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Spinner"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "set_indicator": {
+                                "doc": [
+                                    "Picks the native indicator to draw (`Auto`: the theme's own)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "indicator": "SpinnerStyle"
+                                    }
+                                ],
+                                "fn_body": "object.set_indicator(indicator)"
+                            },
+                            "with_indicator": {
+                                "doc": [
+                                    "Builder-style setter for the indicator."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "indicator": "SpinnerStyle"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Spinner"
+                                },
+                                "fn_body": "object.with_indicator(indicator)"
                             }
                         },
                         "repr": "C"
@@ -66311,6 +66678,9 @@
                                 },
                                 "container_style": {
                                     "type": "OptionCssPropertyWithConditionsVec"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -66380,6 +66750,38 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the breadcrumb renders in the",
+                                    "default theme (`crate::widgets::themes::UiTheme::default()`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Breadcrumb"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
