@@ -1273,6 +1273,7 @@ mod autotest_generated {
             seek_sender: None,
             on_mount: OptionVideoMount::None,
             setup: VideoSetup::new(),
+            theme: crate::widgets::themes::UiTheme::Flat,
         }
     }
 
@@ -3552,5 +3553,108 @@ mod autotest_generated {
             .expect("a frame image must declare accessibility, or it is absent from the tree");
         assert_eq!(info.role, azul_core::a11y::AccessibilityRole::Nothing);
         assert!(info.accessibility_name.as_ref().is_none());
+    }
+
+    // ==================================================================
+    // Theme: the video's own chrome is its "no signal" poster
+    // ==================================================================
+
+    /// The poster a render pass emits for a widget state in `theme` that has
+    /// no decoded frame yet.
+    fn poster_of(theme: crate::widgets::themes::UiTheme) -> Dom {
+        let mut s = base_state(VideoConfig::default());
+        s.theme = theme;
+        let dataset = RefAny::new(s);
+        let ret = with_virtual_view_info(320.0, 180.0, |info| {
+            video_widget_render(dataset.clone(), info)
+        });
+        match ret.dom {
+            OptionDom::Some(d) => d,
+            OptionDom::None => panic!("no frame yet must still render the poster"),
+        }
+    }
+
+    #[test]
+    fn a_video_without_a_theme_renders_flat() {
+        use crate::widgets::themes::{theme_checks as tc, OptionUiTheme};
+        let w = VideoWidget::create(VideoConfig::default());
+        assert_eq!(w.theme, OptionUiTheme::None);
+        assert!(tc::has_class(&w.dom(), "__azul-theme-flat"));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_agree_and_reach_the_widget_state() {
+        use crate::widgets::themes::{theme_checks as tc, OptionUiTheme, UiTheme};
+        let mut a = VideoWidget::create(VideoConfig::default());
+        a.set_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        let b = VideoWidget::create(VideoConfig::default()).with_theme(UiTheme::Flora);
+        assert_eq!(b.theme, a.theme);
+        let dom = b.dom();
+        assert!(tc::has_class(&dom, "__azul-theme-flora"));
+        let mut dataset = dom.root.get_dataset().cloned().expect("the widget state");
+        let theme = dataset.downcast_ref::<VideoWidgetState>().map(|s| s.theme);
+        assert_eq!(
+            theme,
+            Some(UiTheme::Flora),
+            "the render callback reads the theme off the state"
+        );
+    }
+
+    #[test]
+    fn a_flat_poster_is_the_established_dark_screen_in_both_modes() {
+        use crate::widgets::themes::{theme_checks as tc, UiTheme};
+        let p = poster_of(UiTheme::Flat);
+        for dark in [false, true] {
+            assert_eq!(
+                tc::background(&p, dark).and_then(|x| tc::bg_color(&x)),
+                Some(azul_css::props::basic::color::ColorU::rgb(42, 42, 48)),
+                "dark={dark}"
+            );
+            assert_eq!(
+                tc::border_top_color(&p, dark, None),
+                Some(azul_css::props::basic::color::ColorU::rgb(68, 68, 76)),
+                "dark={dark}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_poster_is_an_ink_panel_by_day_and_by_night() {
+        use azul_css::props::basic::color::ColorU;
+
+        use crate::widgets::themes::{theme_checks as tc, UiTheme};
+        let p = poster_of(UiTheme::Flora);
+        assert_eq!(
+            tc::background(&p, false).and_then(|x| tc::bg_color(&x)),
+            Some(ColorU::rgb(33, 31, 27))
+        );
+        assert_eq!(
+            tc::background(&p, true).and_then(|x| tc::bg_color(&x)),
+            Some(ColorU::rgb(20, 20, 20))
+        );
+        assert_eq!(tc::border_top_color(&p, false, None), Some(ColorU::rgb(68, 63, 53)));
+        assert_eq!(tc::border_top_color(&p, true, None), Some(ColorU::rgb(54, 54, 54)));
+        tc::assert_theme_invariants("video poster Flora", &p);
+    }
+
+    #[test]
+    fn a_rebuild_adopts_the_new_theme() {
+        use crate::widgets::themes::UiTheme;
+        let old = state(VideoConfig::default());
+        let mut fresh = base_state(VideoConfig::default());
+        fresh.theme = UiTheme::Flora;
+        let mut merged = merge_video_state(RefAny::new(fresh), old);
+        let theme = merged.downcast_ref::<VideoWidgetState>().map(|s| s.theme);
+        assert_eq!(theme, Some(UiTheme::Flora));
+    }
+
+    #[test]
+    fn the_theme_changes_the_poster_not_the_accessibility_tree() {
+        use crate::widgets::themes::{theme_checks as tc, UiTheme};
+        assert_eq!(
+            tc::a11y_outline(&poster_of(UiTheme::Flat)),
+            tc::a11y_outline(&poster_of(UiTheme::Flora))
+        );
     }
 }
