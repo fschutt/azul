@@ -67,8 +67,80 @@ impl ThemeEnv {
     /// process environment. Values are trimmed; a blank one is unset.
     #[must_use]
     pub fn from_values(az_theme: Option<&str>, az_mode: Option<&str>) -> Self {
-        let _ = (az_theme, az_mode);
-        Self::default()
+        let mut env = Self::default();
+        let az_theme = az_theme.map(str::trim).filter(|value| !value.is_empty());
+        let az_mode = az_mode.map(str::trim).filter(|value| !value.is_empty());
+
+        // `AZ_MODE`, when it reads as a mode, decides the mode - `system`
+        // included, which decides "no pin".
+        let mut mode_decided = false;
+        if let Some(value) = az_mode {
+            let word = ModeWord::of(value);
+            if word == ModeWord::NotAMode {
+                env.warnings.push(format!(
+                    "AZ_MODE={value} is not light, dark or system - ignored."
+                ));
+            } else {
+                env.mode = word.pin();
+                mode_decided = true;
+            }
+        }
+
+        // `AZ_THEME` names a theme - unless it is a mode word, the pin it
+        // used to be (the one-release alias).
+        if let Some(value) = az_theme {
+            let word = ModeWord::of(value);
+            let instead = value.to_ascii_lowercase();
+            if word == ModeWord::NotAMode {
+                env.theme = Some(value.to_string());
+            } else if mode_decided {
+                env.warnings.push(format!(
+                    "AZ_THEME={value} is the deprecated spelling of AZ_MODE={instead}, and \
+                     AZ_MODE is set - ignored. AZ_THEME names the app theme (flat, flora, \
+                     xyz:pink)."
+                ));
+            } else {
+                env.mode = word.pin();
+                env.warnings.push(format!(
+                    "AZ_THEME={value} as the light / dark pin is deprecated: AZ_THEME names \
+                     the app theme (flat, flora, xyz:pink), and from the next release only \
+                     that. Set AZ_MODE={instead} instead."
+                ));
+            }
+        }
+        env
+    }
+}
+
+/// How a value of `AZ_MODE` - or of `AZ_THEME` as the deprecated alias -
+/// reads. The mode's words are exactly the names no theme may take
+/// ([`is_reserved_theme_name`]).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ModeWord {
+    Light,
+    Dark,
+    /// `system` / `auto`: follow the app and the desktop, no pin.
+    System,
+    NotAMode,
+}
+
+impl ModeWord {
+    fn of(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "light" => Self::Light,
+            "dark" => Self::Dark,
+            "system" | "auto" => Self::System,
+            _ => Self::NotAMode,
+        }
+    }
+
+    /// The pin this word asks for; `system` asks for none.
+    const fn pin(self) -> Option<ThemeCondition> {
+        match self {
+            Self::Light => Some(ThemeCondition::Light),
+            Self::Dark => Some(ThemeCondition::Dark),
+            Self::System | Self::NotAMode => None,
+        }
     }
 }
 
@@ -96,8 +168,10 @@ pub fn theme_env() -> &'static ThemeEnv {
 /// is the user's choice for every app they run, and a screenshot run's.
 #[must_use]
 pub const fn resolve_theme_head<'a>(env: Option<&'a str>, app: Option<&'a str>) -> &'a str {
-    let _ = (env, app);
-    DEFAULT_APP_THEME
+    match (env, app) {
+        (Some(name), _) | (None, Some(name)) => name,
+        (None, None) => DEFAULT_APP_THEME,
+    }
 }
 
 /// A theme chain, most specific first, and what building it had to drop or
@@ -110,18 +184,13 @@ pub struct ThemeChain {
     pub warnings: Vec<String>,
 }
 
-/// The mode's words. No theme may take one: `@theme(dark)` is the mode, and a
-/// theme called `dark` would shadow it and the deprecated `AZ_THEME=dark`
-/// alias (§9.1 pitfall 5). Compared case-insensitively.
-pub const RESERVED_THEME_NAMES: [&str; 4] = ["light", "dark", "system", "auto"];
-
-/// Is `name` one of the mode's words ([`RESERVED_THEME_NAMES`])?
+/// Is `name` one of the mode's words - `light`, `dark`, `system`, `auto`, in
+/// any case? No theme may take one: `@theme(dark)` is the mode, and a theme
+/// called `dark` would shadow it and the deprecated `AZ_THEME=dark` alias
+/// (§9.1 pitfall 5).
 #[must_use]
 pub fn is_reserved_theme_name(name: &str) -> bool {
-    let name = name.trim();
-    RESERVED_THEME_NAMES
-        .iter()
-        .any(|word| name.eq_ignore_ascii_case(word))
+    ModeWord::of(name) != ModeWord::NotAMode
 }
 
 /// Can `name` name an app theme: non-empty, and only ASCII letters, digits,

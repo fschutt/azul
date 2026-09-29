@@ -54,9 +54,9 @@ fn fresh_app() -> MutexGuard<'static, ()> {
     guard
 }
 
-/// `AZ_THEME` outranks the app's choice; under it there is nothing to test.
+/// `AZ_MODE` outranks the app's choice; under it there is nothing to test.
 fn env_pinned() -> bool {
-    azul_css::dynamic_selector::theme_pinned_by_env().is_some()
+    azul_css::dynamic_selector::mode_pinned_by_env().is_some()
 }
 
 #[derive(Clone)]
@@ -344,7 +344,7 @@ fn modify_window_state_with_a_new_theme_switches_the_window() {
 }
 
 /// A theme pushed through `modify_window_state` is the WINDOW's own choice,
-/// so the app's choice still outranks it (AZ_THEME > app > window > desktop).
+/// so the app's choice still outranks it (AZ_MODE > app > window > desktop).
 #[test]
 fn modify_window_state_does_not_override_the_apps_pin() {
     let _app = fresh_app();

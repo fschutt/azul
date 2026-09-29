@@ -7922,8 +7922,8 @@ mod autotest_generated {
             queued[0]
         );
 
-        if azul_css::dynamic_selector::theme_pinned_by_env().is_some() {
-            return; // AZ_THEME outranks the choice; nothing to tell apart
+        if azul_css::dynamic_selector::mode_pinned_by_env().is_some() {
+            return; // AZ_MODE outranks the choice; nothing to tell apart
         }
         // A dark pin on a window whose own state is light (the desktop's).
         let mut lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");

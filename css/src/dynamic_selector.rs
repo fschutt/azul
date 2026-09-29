@@ -1004,21 +1004,24 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, Hash]
 );
 
-/// `AZ_THEME=light|dark`, for deterministic rendering (screenshots, reftests,
-/// CI). Returns `None` when unset or unrecognised.
+/// The MODE the environment pins, if any: `AZ_MODE=light|dark`, for
+/// deterministic rendering (screenshots, reftests, CI). `None` when unset,
+/// `system`, or unrecognised.
 ///
-/// Reads the environment directly, like `system.rs`'s `AZ_RICING` override
-/// right next door: this crate is std.
-/// The theme `AZ_THEME=light|dark` pins, if set.
+/// The deprecated `AZ_THEME=light|dark` still pins it for one release
+/// (`AZ_MODE` wins when both are set); `AZ_THEME` otherwise names the app
+/// theme ([`crate::theme_chain::theme_env`] reads both, once per process).
 ///
-/// Public because the pin has to outrank EVERY other source of the theme — the
-/// system style and the window's own theme alike — or a screenshot run that
-/// set it would still come out in whatever theme the machine happened to be
-/// in. `from_system_style` applies it; a caller layering a window theme on
-/// top of that context must check it too.
+/// THE one reader of the pin: every caller that asks "does the environment
+/// pin light / dark?" goes through here. Public because the pin has to
+/// outrank EVERY other source of the mode - the system style and the
+/// window's own theme alike - or a screenshot run that set it would still
+/// come out in whatever mode the machine happened to be in.
+/// `from_system_style` applies it; a caller layering a window's mode on top
+/// of that context must check it too.
 #[must_use]
-pub fn theme_pinned_by_env() -> Option<ThemeCondition> {
-    option_env_theme()
+pub fn mode_pinned_by_env() -> Option<ThemeCondition> {
+    crate::theme_chain::theme_env().mode.clone()
 }
 
 /// `color` with a `system:` keyword token
@@ -1319,20 +1322,6 @@ impl ResolveSystemColors for crate::props::property::CssProperty {
             Self::BackdropFilter(v) => Self::BackdropFilter(v.resolve_system_colors(r)),
             other => other,
         }
-    }
-}
-
-#[must_use]
-fn option_env_theme() -> Option<ThemeCondition> {
-    match std::env::var("AZ_THEME")
-        .ok()?
-        .trim()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "light" => Some(ThemeCondition::Light),
-        "dark" => Some(ThemeCondition::Dark),
-        _ => None,
     }
 }
 
@@ -1640,13 +1629,13 @@ impl DynamicSelectorContext {
         } else {
             OptionLinuxDesktopEnv::None
         };
-        // `AZ_THEME=light|dark` pins the theme. Everything that has to render
+        // `AZ_MODE=light|dark` pins the mode. Everything that has to render
         // the SAME pixels on every machine needs this: the frontpage
-        // screenshots took whatever theme the Mac they ran on happened to be
+        // screenshots took whatever mode the Mac they ran on happened to be
         // in, so a widget with `@theme dark` rules came out dark on the site
         // while every other widget stayed light. Unset (the normal case) keeps
-        // the OS theme.
-        let theme = option_env_theme()
+        // the OS mode.
+        let theme = mode_pinned_by_env()
             .unwrap_or_else(|| ThemeCondition::from_system_theme(system_style.theme));
         // The palette of the theme this context EVALUATES, which the pin can
         // make differ from the desktop's.

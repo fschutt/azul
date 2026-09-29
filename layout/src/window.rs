@@ -383,7 +383,7 @@ pub fn app_color_scheme() -> azul_core::window::OptionWindowTheme {
 /// window shows, given the app's choice and the window's OWN theme.
 ///
 /// ```text
-/// AZ_THEME=light|dark  >  the app's choice  >  the window's own theme
+/// AZ_MODE=light|dark   >  the app's choice  >  the window's own theme
 /// ```
 ///
 /// The window's own theme is what the shells keep in
@@ -405,13 +405,13 @@ pub fn resolve_window_theme(
     window: azul_core::window::WindowTheme,
 ) -> azul_core::window::WindowTheme {
     resolve_window_theme_with(
-        azul_css::dynamic_selector::theme_pinned_by_env(),
+        azul_css::dynamic_selector::mode_pinned_by_env(),
         app,
         window,
     )
 }
 
-/// [`resolve_window_theme`] with the `AZ_THEME` pin passed in rather than
+/// [`resolve_window_theme`] with the `AZ_MODE` pin passed in rather than
 /// read from the environment - the testable core of the decision.
 #[must_use]
 pub fn resolve_window_theme_with(
@@ -2162,13 +2162,13 @@ impl LayoutWindow {
             return true;
         }
         if old.theme != new.theme {
-            // While the app pins its scheme (or `AZ_THEME` does), the
+            // While the app pins its scheme (or `AZ_MODE` does), the
             // desktop's light / dark is not this window's: what `layout()`
             // reads as the theme is the pin, and the pin did not move. Weigh
             // the rest of the change - the palette, fonts, metrics - as if the
             // desktop had kept its polarity.
             let pinned = self.color_scheme.is_some()
-                || azul_css::dynamic_selector::theme_pinned_by_env().is_some();
+                || azul_css::dynamic_selector::mode_pinned_by_env().is_some();
             if pinned {
                 let mut same_polarity = new.clone();
                 same_polarity.theme = old.theme;
@@ -5554,7 +5554,7 @@ impl LayoutWindow {
     /// disagree with the cascade's. One builder, used by both, is the fix.
     ///
     /// The app's colour-scheme choice ([`Self::color_scheme`]) outranks the
-    /// window's theme, and `AZ_THEME` outranks everything, or a pinned
+    /// window's theme, and `AZ_MODE` outranks everything, or a pinned
     /// screenshot run would follow the machine's theme again - both through
     /// the one decision, [`Self::window_theme_for`]. The shells already write
     /// the resolved theme into `window_state.theme`; resolving again here is
@@ -5600,7 +5600,7 @@ impl LayoutWindow {
 
     /// The light / dark this window shows when its own theme is `window`
     /// (the desktop's, while the app follows it): the app's choice
-    /// ([`Self::color_scheme`]) and the `AZ_THEME` pin applied - see
+    /// ([`Self::color_scheme`]) and the `AZ_MODE` pin applied - see
     /// [`resolve_window_theme`], of which this is the per-window call.
     #[must_use]
     pub fn window_theme_for(
@@ -28629,8 +28629,8 @@ mod window_theme_context {
 
     #[test]
     fn the_windows_theme_wins_over_the_system_style() {
-        if azul_css::dynamic_selector::theme_pinned_by_env().is_some() {
-            return; // AZ_THEME outranks both; nothing to compare
+        if azul_css::dynamic_selector::mode_pinned_by_env().is_some() {
+            return; // AZ_MODE outranks both; nothing to compare
         }
         let lw = window_with_system_theme(azul_css::system::Theme::Light);
         let mut ws = FullWindowState {

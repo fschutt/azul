@@ -413,11 +413,11 @@ pub(crate) fn label_dark_twins(reached: bool) -> Vec<CssPropertyWithConditions> 
 }
 
 /// Whether the window renders dark - the cascade's own rule
-/// (`LayoutWindow::dynamic_selector_context`): `AZ_THEME` pins it, else the
+/// (`LayoutWindow::dynamic_selector_context`): `AZ_MODE` pins it, else the
 /// window's theme. The live restyle writes plain overrides, which win over
 /// the dark twins, so it has to pick the theme's colours itself.
 fn renders_dark(info: &CallbackInfo) -> bool {
-    azul_css::dynamic_selector::theme_pinned_by_env().map_or_else(
+    azul_css::dynamic_selector::mode_pinned_by_env().map_or_else(
         || info.get_current_window_state().theme == azul_core::window::WindowTheme::DarkMode,
         |t| t == azul_css::dynamic_selector::ThemeCondition::Dark,
     )

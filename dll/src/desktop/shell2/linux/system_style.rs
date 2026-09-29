@@ -2624,7 +2624,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
     // App-specific ricing stylesheet
     style.app_specific_stylesheet = load_app_specific_stylesheet().map(Box::new);
 
-    // ── 4. `AZ_THEME=light|dark` overrides the lot ──────────────────
+    // ── 4. `AZ_MODE=light|dark` overrides the lot ──────────────────
     // Applied HERE, before DISCOVERED_THEME is written, so the pin reaches the
     // window theme too and not just the cascade. The replacement palette
     // follows the session: a KDE desktop pinned light gets Breeze Light, not
@@ -2633,7 +2633,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
         linux_settings_source(&azul_css::system::detect_linux_desktop_env()),
         LinuxSettingsSource::KdeConfig
     );
-    azul_css::system::apply_env_theme_pin(
+    azul_css::system::apply_env_mode_pin(
         &mut style,
         || {
             if kde_session {

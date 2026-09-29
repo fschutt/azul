@@ -3534,10 +3534,12 @@ impl Runner {
                 // it again, so the next pass rebuilds it under the new theme
                 // (any DOM mutation an earlier op made to it is dropped, as a
                 // rebuilt `layout()` would drop it).
-                if self.layout_window.app_theme == *theme {
+                // `AZ_THEME` outranks the switch here too.
+                let theme = azul_core::app_theme::resolve_app_theme(Some(theme.as_str()));
+                if self.layout_window.app_theme == theme {
                     ProcessEventResult::DoNothing
                 } else {
-                    self.layout_window.app_theme = theme.clone();
+                    self.layout_window.app_theme = theme;
                     let mounted = self.layout_window.e2e_mount.xml().map(str::to_string);
                     if mounted.is_some() {
                         self.layout_window.e2e_mount.set(mounted);

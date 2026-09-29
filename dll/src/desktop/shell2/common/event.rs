@@ -2817,7 +2817,7 @@ pub enum IncrementalRelayout {
 /// creation (theme-chain analysis 2026-09-12, item 5 / I7), in the order of
 /// `azul_layout::window::resolve_window_theme`, which makes the decision:
 ///
-/// 1. `AZ_THEME=light|dark` pins it (a screenshot run must not follow the machine), exactly as it
+/// 1. `AZ_MODE=light|dark` pins it (a screenshot run must not follow the machine), exactly as it
 ///    pins the cascade's context;
 /// 2. else the APP's colour-scheme choice (`AppConfig::color_scheme`, or the last
 ///    `CallbackInfo::set_color_scheme`) when it pins one;
@@ -3322,7 +3322,7 @@ impl CommonWindowState {
     }
 
     /// The light / dark this window must show now: the desktop's, under the
-    /// app's colour-scheme choice and the `AZ_THEME` pin
+    /// app's colour-scheme choice and the `AZ_MODE` pin
     /// (`azul_layout::window::resolve_window_theme`, THE decision).
     #[must_use]
     pub fn resolved_window_theme(&self) -> azul_core::window::WindowTheme {
@@ -5489,7 +5489,7 @@ pub trait PlatformWindow {
 
                 let mouse_state_changed = old_state.mouse_state != state.mouse_state;
 
-                // A pushed theme is the WINDOW's own choice: an AZ_THEME pin
+                // A pushed theme is the WINDOW's own choice: an AZ_MODE pin
                 // and the app's choice still outrank it (the one decision,
                 // `resolve_window_theme`). It used to be compared here and
                 // never written, so the `ThemeChange` rebuild it requested
@@ -7716,10 +7716,13 @@ pub trait PlatformWindow {
                 // carried (the walk asks with a plain `RefreshDom`). One
                 // place, so a window the walk cannot reach (a backend without
                 // a registry) still adopts at its next rebuild.
+                azul_core::app_theme::set_app_theme(theme.as_str());
+                // Against what the app now RESOLVES to, not the name asked
+                // for: under `AZ_THEME` the environment's theme outranks the
+                // switch, and every window already shows it.
                 let already = self
                     .get_layout_window()
-                    .is_some_and(|lw| lw.app_theme == *theme);
-                azul_core::app_theme::set_app_theme(theme.as_str());
+                    .is_some_and(|lw| lw.app_theme == azul_core::app_theme::app_theme());
                 if already {
                     return ProcessEventResult::DoNothing;
                 }
@@ -10249,7 +10252,7 @@ pub trait PlatformWindow {
     /// the theme the window must now show, when that differs from the one it
     /// shows (`None`: nothing to write). The decision is
     /// `CommonWindowState::resolved_window_theme` - the desktop's theme under
-    /// the app's choice and `AZ_THEME`.
+    /// the app's choice and `AZ_MODE`.
     /// What a colour-scheme change of THIS window costs, once `ws.theme`
     /// holds the new scheme - THE trigger's decision (I7), as in
     /// `adopt_system_style` for a theme delta with an unchanged style:
@@ -15683,7 +15686,7 @@ mod initial_window_theme_tests {
     use super::initial_window_theme;
 
     fn pinned() -> bool {
-        azul_css::dynamic_selector::theme_pinned_by_env().is_some()
+        azul_css::dynamic_selector::mode_pinned_by_env().is_some()
     }
 
     #[test]
@@ -15719,8 +15722,8 @@ mod initial_window_theme_tests {
 
     #[test]
     fn the_env_pin_beats_both() {
-        let Some(pin) = azul_css::dynamic_selector::theme_pinned_by_env() else {
-            return; // only meaningful under AZ_THEME
+        let Some(pin) = azul_css::dynamic_selector::mode_pinned_by_env() else {
+            return; // only meaningful under AZ_MODE
         };
         let expected = match pin {
             azul_css::dynamic_selector::ThemeCondition::Dark => WindowTheme::DarkMode,

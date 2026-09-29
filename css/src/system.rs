@@ -87,15 +87,16 @@ pub fn ricing_enabled() -> bool {
     !matches!(ricing_mode(), RicingMode::Off)
 }
 
-/// Force a freshly discovered [`SystemStyle`] to the polarity `AZ_THEME`
-/// pins, swapping in `light` / `dark` as the replacement palette.
+/// Force a freshly discovered [`SystemStyle`] to the polarity `AZ_MODE`
+/// pins (or the deprecated `AZ_THEME=light|dark`), swapping in `light` /
+/// `dark` as the replacement palette.
 ///
-/// `AZ_THEME=light|dark` exists so a screenshot or a reftest renders the same
-/// on any machine. It used to pin only the CASCADE (`@theme` blocks, via
-/// `dynamic_selector::theme_pinned_by_env`) and the WINDOW theme — but the
+/// `AZ_MODE=light|dark` exists so a screenshot or a reftest renders the same
+/// on any machine. The pin used to reach only the CASCADE (`@theme` blocks, via
+/// `dynamic_selector::mode_pinned_by_env`) and the WINDOW theme — but the
 /// window BACKGROUND, the "is this a full regeneration" decision and the
 /// display list's no-context fallback all read `SystemStyle` instead. On a
-/// dark desktop `AZ_THEME=light` therefore rendered light-theme TEXT on the
+/// dark desktop a light pin therefore rendered light-theme TEXT on the
 /// desktop's DARK background: unreadable, and shipped to the website as the
 /// "light" screenshot of the Linux build. A pin that does not reach here is
 /// not a pin.
@@ -107,14 +108,14 @@ pub fn ricing_enabled() -> bool {
 /// closures so the caller picks the palette family that matches what it just
 /// discovered — Breeze on a KDE session, Adwaita on GNOME — and so neither is
 /// built when nothing is pinned, which is every normal run.
-pub fn apply_env_theme_pin(
+pub fn apply_env_mode_pin(
     style: &mut SystemStyle,
     light: impl FnOnce() -> SystemStyle,
     dark: impl FnOnce() -> SystemStyle,
 ) {
     use crate::dynamic_selector::ThemeCondition;
 
-    let Some(pin) = crate::dynamic_selector::theme_pinned_by_env() else {
+    let Some(pin) = crate::dynamic_selector::mode_pinned_by_env() else {
         return;
     };
     let wanted = match pin {
@@ -2095,7 +2096,7 @@ impl SystemStyle {
     /// for `theme` (`SystemColorRef::fallback`).
     ///
     /// The cascade can run in a theme the desktop is not in - an app that
-    /// pins its window light on a dark desktop, `AZ_THEME`, the frames
+    /// pins its window light on a dark desktop, `AZ_MODE`, the frames
     /// between a switch and the re-discovery - and a `system:` colour has to
     /// follow the CASCADE's theme: resolved against the desktop's palette
     /// instead, a light window would get the dark field background under its

@@ -41,10 +41,10 @@ const FLAT: ColorU = ColorU::rgb(0x00, 0x00, 0xff);
 const FLORA: ColorU = ColorU::rgb(0xff, 0x00, 0x00);
 const FLORA_NIGHT: ColorU = ColorU::rgb(0x40, 0x00, 0x00);
 
-/// `AZ_THEME` pins the COLOUR SCHEME; the tests below that vary it have nothing to compare
+/// `AZ_MODE` pins the COLOUR SCHEME; the tests below that vary it have nothing to compare
 /// under a pin.
 fn scheme_pinned() -> bool {
-    azul_css::dynamic_selector::theme_pinned_by_env().is_some()
+    azul_css::dynamic_selector::mode_pinned_by_env().is_some()
 }
 
 fn window(desktop: SystemStyle, app_theme: &str) -> LayoutWindow {

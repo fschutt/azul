@@ -7,7 +7,7 @@
 //! I1), with the precedence
 //!
 //! ```text
-//! AZ_THEME env pin  >  the app's choice  >  the window's own theme  >  the desktop
+//! AZ_MODE env pin  >  the app's choice  >  the window's own theme  >  the desktop
 //! ```
 //!
 //! (the window's own theme is what the shells keep in `FullWindowState::theme`:
@@ -43,10 +43,10 @@ const PIN_LIGHT: OptionWindowTheme = OptionWindowTheme::Some(WindowTheme::LightM
 const PIN_DARK: OptionWindowTheme = OptionWindowTheme::Some(WindowTheme::DarkMode);
 const FOLLOW: OptionWindowTheme = OptionWindowTheme::None;
 
-/// `AZ_THEME` outranks everything these tests vary; under it they have
+/// `AZ_MODE` outranks everything these tests vary; under it they have
 /// nothing to compare (the env test below covers that case).
 fn env_pinned() -> bool {
-    azul_css::dynamic_selector::theme_pinned_by_env().is_some()
+    azul_css::dynamic_selector::mode_pinned_by_env().is_some()
 }
 
 /// A window on `desktop`, with the app's choice `app` mirrored into it.
@@ -408,7 +408,7 @@ fn a_layout_that_read_the_scheme_needs_a_new_dom_on_a_switch() {
 }
 
 /// The precedence itself, on the pure decision function (so it is checked
-/// whatever `AZ_THEME` the test process runs under).
+/// whatever `AZ_MODE` the test process runs under).
 #[test]
 fn the_env_pin_outranks_the_app_which_outranks_the_window() {
     use WindowTheme::{DarkMode, LightMode};
@@ -420,12 +420,12 @@ fn the_env_pin_outranks_the_app_which_outranks_the_window() {
             assert_eq!(
                 resolve_window_theme_with(env_light.clone(), app, own),
                 LightMode,
-                "AZ_THEME=light wins over app {app:?} and window {own:?}"
+                "AZ_MODE=light wins over app {app:?} and window {own:?}"
             );
             assert_eq!(
                 resolve_window_theme_with(env_dark.clone(), app, own),
                 DarkMode,
-                "AZ_THEME=dark wins over app {app:?} and window {own:?}"
+                "AZ_MODE=dark wins over app {app:?} and window {own:?}"
             );
         }
     }
@@ -441,11 +441,11 @@ fn the_env_pin_outranks_the_app_which_outranks_the_window() {
 }
 
 /// The live half of the env rule, meaningful only in a process that runs
-/// under `AZ_THEME` (screenshot / CI runs): there the pin beats the app's
+/// under `AZ_MODE` (screenshot / CI runs): there the pin beats the app's
 /// choice in the context every cascade evaluates against.
 #[test]
 fn under_az_theme_the_env_pin_wins_over_the_apps_choice() {
-    let Some(pinned) = azul_css::dynamic_selector::theme_pinned_by_env() else {
+    let Some(pinned) = azul_css::dynamic_selector::mode_pinned_by_env() else {
         return;
     };
     for app in [FOLLOW, PIN_LIGHT, PIN_DARK] {
@@ -454,7 +454,7 @@ fn under_az_theme_the_env_pin_wins_over_the_apps_choice() {
             assert_eq!(
                 lw.dynamic_selector_context(&window_state(own)).theme,
                 pinned,
-                "AZ_THEME outranks the app's {app:?}"
+                "AZ_MODE outranks the app's {app:?}"
             );
         }
     }

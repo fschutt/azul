@@ -281,7 +281,7 @@ write_scenario() {
     cat > "$dir/screenshot.e2e.json" <<EOF
 {
   "name": "screenshot_${name//-/_}",
-  "description": "Capture the native window of the ${name} example for the website. The theme comes from the desktop (or AZ_THEME where there is none), so this one scenario serves both the light and the dark run.",
+  "description": "Capture the native window of the ${name} example for the website. The theme comes from the desktop (or AZ_MODE where there is none), so this one scenario serves both the light and the dark run.",
   "steps": [
     { "op": "wait", "ms": $(settle_ms "$name"), "real": true },
     { "op": "wait_frame" },
@@ -298,13 +298,13 @@ EOF
 # buys two things a pin cannot:
 #
 #  * the WINDOW DECORATIONS follow. KWin draws the titlebar from the desktop's
-#    colour scheme and `AZ_THEME` cannot reach it, so a pinned-light capture on
+#    colour scheme and `AZ_MODE` cannot reach it, so a pinned-light capture on
 #    a Breeze Dark session came out as a light window under a dark titlebar.
 #  * it exercises the REAL path. A pin tells the app what to think; switching
 #    the desktop makes the app DISCOVER it, through `discover()` and the
 #    portal, the same way it would for a user.
 #
-# AZ_THEME only where there is no desktop to switch; otherwise the app must discover the theme itself.
+# AZ_MODE only where there is no desktop to switch; otherwise the app must discover the theme itself.
 #
 # The desktop is put back the way it was found on ANY exit path (see the trap):
 # a script that leaves the machine in dark mode because that happened to be the
@@ -620,7 +620,7 @@ run_theme() {
     # switching" above.
     local -a theme_pin=()
     if [ -z "$DESKTOP_THEME_TOOL" ]; then
-        theme_pin=(AZ_THEME="$theme")
+        theme_pin=(AZ_MODE="$theme")
     fi
 
     local rc=0

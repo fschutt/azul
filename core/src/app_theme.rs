@@ -20,8 +20,15 @@
 //!   style-dependency recorder (`LayoutCallbackInfo::depends_on_system_style`):
 //!   the build runs synchronously on the calling thread.
 //!
+//! The environment outranks the app: `AZ_THEME=<theme>` (a user's choice for
+//! every app they run, or a screenshot run's) is what [`app_theme`] answers
+//! whatever the app chose - `AZ_THEME` > the app's choice > the default
+//! ([`resolve_app_theme`]). The name is the HEAD of the theme chain; the
+//! cascade expands it (`xyz:pink` -> `[xyz:pink, xyz, flat]`,
+//! `azul_css::theme_chain`).
+//!
 //! Without `std` there is no thread-local and no lock: everything answers the
-//! default theme and a scope is a no-op.
+//! environment's theme or the default, and a scope is a no-op.
 
 use azul_css::{dynamic_selector::DEFAULT_APP_THEME, AzString};
 
@@ -45,7 +52,12 @@ mod state {
 /// Publish the app's theme choice: every window built from now on starts in
 /// it, and every window's next DOM rebuild adopts it. `App::create` calls this
 /// with `AppConfig::theme`; `CallbackInfo::set_theme` with the new name.
+///
+/// `AZ_THEME` outranks the choice ([`app_theme`]). The first call logs, once,
+/// what the environment asked for that is not taken as written (the
+/// deprecated `AZ_THEME=light|dark` mode pin, an unknown `AZ_MODE`).
 pub fn set_app_theme(name: &str) {
+    report_theme_env_once();
     #[cfg(feature = "std")]
     {
         use alloc::string::ToString;
@@ -58,21 +70,48 @@ pub fn set_app_theme(name: &str) {
     let _ = name;
 }
 
-/// The app's theme choice: the last [`set_app_theme`], else
-/// [`DEFAULT_APP_THEME`].
+/// The theme the app runs in: `AZ_THEME` if the environment names one, else
+/// the last [`set_app_theme`], else [`DEFAULT_APP_THEME`]
+/// ([`resolve_app_theme`] of the app's choice).
 #[must_use]
 pub fn app_theme() -> AzString {
     #[cfg(feature = "std")]
     {
-        use alloc::string::ToString;
         let slot = state::APP_THEME
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(name) = slot.as_deref() {
-            return AzString::from(name.to_string());
+            return resolve_app_theme(Some(name));
         }
     }
-    AzString::from_const_str(DEFAULT_APP_THEME)
+    resolve_app_theme(None)
+}
+
+/// THE app-theme decision with the environment applied:
+/// `AZ_THEME` > `choice` > [`DEFAULT_APP_THEME`]
+/// (`azul_css::theme_chain::resolve_theme_head`). [`app_theme`] asks it about
+/// the app's published choice; a host that keeps its own choice per window
+/// (the E2E runner) asks it directly, so the environment outranks it too.
+#[must_use]
+pub fn resolve_app_theme(choice: Option<&str>) -> AzString {
+    let env = azul_css::theme_chain::theme_env().theme.as_deref();
+    AzString::from(azul_css::theme_chain::resolve_theme_head(env, choice))
+}
+
+/// Log, once per process, what the environment asked for that is not taken
+/// as written (`azul_css::theme_chain::ThemeEnv::warnings`): the deprecated
+/// `AZ_THEME=light|dark` mode pin, an unknown `AZ_MODE`. Through the
+/// framework diagnostics, so an app's own sink sees it.
+fn report_theme_env_once() {
+    #[cfg(feature = "std")]
+    {
+        static REPORTED: std::sync::Once = std::sync::Once::new();
+        REPORTED.call_once(|| {
+            for warning in &azul_css::theme_chain::theme_env().warnings {
+                crate::diagnostics::emit(alloc::format!("[azul][warn] {warning}"));
+            }
+        });
+    }
 }
 
 /// The theme the DOM being built on this thread is for: the innermost
