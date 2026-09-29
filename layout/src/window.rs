@@ -7846,6 +7846,7 @@ impl LayoutWindow {
                             timing: anim.timing,
                             scope: ty.relayout_scope(false),
                             last_color: None,
+                            keeps_target: true,
                         })
                     })
                     .collect(),
@@ -12055,6 +12056,7 @@ impl LayoutWindow {
                                     timing: anim.timing,
                                     scope: ty.relayout_scope(false),
                                     last_color: None,
+                                    keeps_target: false,
                                 });
                             }
                         }
@@ -12810,9 +12812,10 @@ impl LayoutWindow {
                     };
                     // The value the frame must SHOW (at t=1 that is `to`
                     // itself); the override written is Initial at t=1 so the
-                    // cascaded target shows through afterwards.
+                    // cascaded target shows through afterwards - unless the
+                    // target IS the override (`keeps_target`).
                     let shown = tr.from.interpolate(&tr.to, tr.t.min(1.0), &resolver);
-                    let over = if tr.t >= 1.0 {
+                    let over = if tr.t >= 1.0 && !tr.keeps_target {
                         azul_css::props::property::CssProperty::initial(tr.prop_type)
                     } else {
                         shown.clone()
@@ -26260,6 +26263,15 @@ pub struct CssTransition {
     /// patch's from-match). `None` until the first patched tick — then the
     /// `from` endpoint's colour.
     pub last_color: Option<azul_css::props::basic::color::ColorU>,
+    /// Where the target lives once the tween is over. A rebuilt DOM's
+    /// transition (`false`) finishes by clearing its override, and the
+    /// cascade - which already holds the target - shows through. An
+    /// IMPERATIVE write's transition (`true`, `apply_content_change`) has no
+    /// cascade behind it: the target was written to the same user-property
+    /// channel the tween walks, so clearing it at the end erased the write
+    /// itself - an accordion body tweened its padding to 12px and then showed
+    /// the 0px its DOM was built with.
+    pub keeps_target: bool,
 }
 
 /// Where a `width` / `height` transition toward a LENGTH starts when the
