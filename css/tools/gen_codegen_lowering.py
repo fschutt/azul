@@ -355,12 +355,15 @@ DOM_EXPORT_TYPES = {'Dom', 'SmallAriaInfo'}
 def gen_api_modules(cl):
     names = sorted(set(t for t, v in cl.items() if v is not None) | HAND_LOWERED | DOM_EXPORT_TYPES)
     out = [
-        '/// The api.json module of every type the lowering can produce, sorted by',
-        '/// name (binary-searchable). Printers whose bindings are split into',
-        '/// modules (Rust `azul::css`, `azul::vec`, ...) import from it.',
+        '/// The api.json module of EVERY api.json class, sorted by name',
+        '/// (binary-searchable): the lowering produces the CSS closure, and a',
+        '/// component\'s constructor (`Button::create`, azul_core\'s',
+        '/// `ComponentCodegen::Call`) may name any class. Printers whose bindings',
+        '/// are split into modules (Rust `azul::css`, `azul::widgets`, ...) import',
+        '/// from it.',
         'pub(crate) static API_MODULES: &[(&str, &str)] = &[',
     ]
-    for t in names:
+    for t in sorted(ALLC.keys()):
         out.append(f'    ("{t}", "{ALLC[t][0]}"),')
     c_like = sorted(
         t for t in names

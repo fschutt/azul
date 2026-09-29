@@ -127,6 +127,16 @@ impl ExprSyntax for Python {
         Doc::text(py_param(name))
     }
 
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `render_card("Hi", title)`: another function of the module (the
+    /// native string arguments are the default `native_string`).
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+        Doc::call(item.snake(), args, broken)
+    }
+
     /// An f-string.
     fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
         let mut f = String::from("f\"");

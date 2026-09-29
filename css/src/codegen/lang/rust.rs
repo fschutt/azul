@@ -122,26 +122,48 @@ impl ExprSyntax for Rust {
     }
 
     fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
-        let mut fmt = String::new();
-        let mut args: Vec<String> = Vec::new();
-        for p in parts {
-            match p {
-                ConcatPart::Lit(s) => {
-                    let quoted = format!("{s:?}");
-                    let body = &quoted[1..quoted.len() - 1];
-                    fmt.push_str(&body.replace('{', "{{").replace('}', "}}"));
-                }
-                ConcatPart::Param(i) => {
-                    fmt.push_str("{}");
-                    args.push(param_ident(i));
-                }
+        Doc::text(format!("azul::str::String::from({})", format_macro(parts)))
+    }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `render_card("Hi", title)`: another function of the module.
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+        Doc::call(item.snake(), args, broken)
+    }
+
+    /// A `&str` argument: a literal, a `&str` parameter passed on, or
+    /// `&format!(..)`.
+    fn native_string(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        match parts {
+            [] => Doc::text("\"\""),
+            [ConcatPart::Lit(s)] => Doc::text(format!("{s:?}")),
+            [ConcatPart::Param(p)] => Doc::text(param_ident(p)),
+            _ => Doc::text(format!("&{}", format_macro(parts))),
+        }
+    }
+}
+
+/// `format!("by {}", author)`: a native `String` joined from `parts`.
+fn format_macro(parts: &[ConcatPart<'_>]) -> String {
+    let mut fmt = String::new();
+    let mut args: Vec<String> = Vec::new();
+    for p in parts {
+        match p {
+            ConcatPart::Lit(s) => {
+                let quoted = format!("{s:?}");
+                let body = &quoted[1..quoted.len() - 1];
+                fmt.push_str(&body.replace('{', "{{").replace('}', "}}"));
+            }
+            ConcatPart::Param(i) => {
+                fmt.push_str("{}");
+                args.push(param_ident(i));
             }
         }
-        Doc::text(format!(
-            "azul::str::String::from(format!(\"{fmt}\", {}))",
-            args.join(", ")
-        ))
     }
+    format!("format!(\"{fmt}\", {})", args.join(", "))
 }
 
 /// A parameter's Rust name (a keyword as a raw identifier: `r#type`).
@@ -184,10 +206,10 @@ fn item_fn(item: &Item) -> String {
 /// What the Rust registration imports (the component types are not in the
 /// IR's types).
 const RUST_REGISTRATION_IMPORTS: &str = "use azul::component::{
-    CompileTarget, ComponentDataField, ComponentDataModel, ComponentDef, ComponentDefaultValue,
+    ComponentCodegen, ComponentDataField, ComponentDataModel, ComponentDef, ComponentDefaultValue,
     ComponentFieldType, ComponentId, ComponentLibrary, ComponentMap, ComponentSource,
 };
-use azul::error::{ResultStringCompileError, ResultStyledDomRenderDomError};
+use azul::error::ResultStyledDomRenderDomError;
 use azul::option::{OptionComponentDefaultValue, OptionString};
 use azul::prelude::StyledDom;
 use azul::vec::{ComponentDataFieldVec, ComponentDataModelVec, ComponentEnumModelVec};
@@ -229,8 +251,9 @@ fn az_str(s: &str) -> String {
 }
 
 /// The registration of a component library: per component a
-/// default-arguments wrapper, a render function reading the data model, a
-/// compile function and its `ComponentDef`; then `register_<lib>_library`.
+/// default-arguments wrapper, a render function reading the data model and
+/// its `ComponentDef` (code calls it through its render function:
+/// `ComponentCodegen::RenderFunction`); then `register_<lib>_library`.
 fn rust_registration(m: &Module, lib: &LibrarySpec) -> String {
     let lsn = Ident::from_text(&lib.name).snake();
     let mut s = String::from("\n// ── registration ──\n\n");
@@ -274,12 +297,6 @@ fn rust_registration(m: &Module, lib: &LibrarySpec) -> String {
             "    ResultStyledDomRenderDomError::Ok(StyledDom::create_from_dom({item_fn}({})))\n}}\n",
             args.join(", ")
         ));
-        s.push_str(&format!(
-            "\nextern \"C\" fn {sn}_compile_fn(\n    _def: &ComponentDef,\n    _target: \
-             &CompileTarget,\n    _model: &ComponentDataModel,\n    _indent: usize,\n) -> \
-             ResultStringCompileError {{\n    ResultStringCompileError::Ok({})\n}}\n",
-            az_str(&format!("{item_fn}_default()"))
-        ));
         let fields = if item.params.is_empty() {
             "ComponentDataFieldVec::create()".to_string()
         } else {
@@ -304,9 +321,9 @@ fn rust_registration(m: &Module, lib: &LibrarySpec) -> String {
              \x20    // The CSS is applied per node by {item_fn}.\n        css: {},\n        \
              source: ComponentSource::UserDefined,\n        data_model: ComponentDataModel {{\n    \
              \x20       name: {},\n            description: {},\n            fields: {fields},\n   \
-             \x20    }},\n        render_fn: {sn}_render_fn,\n        compile_fn: \
-             {sn}_compile_fn,\n        render_fn_source: OptionString::None,\n        \
-             compile_fn_source: OptionString::None,\n    }}\n}}\n",
+             \x20    }},\n        render_fn: {sn}_render_fn,\n        codegen: \
+             ComponentCodegen::RenderFunction,\n        render_fn_source: OptionString::None,\n    \
+             }}\n}}\n",
             az_str(&lib.name),
             az_str(&c.name),
             az_str(&c.display_name),

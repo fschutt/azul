@@ -22,7 +22,7 @@ use alloc::{
 
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{snake_to_lower_camel, EnumShape, Ident, Item, Module, Prim},
+    ir::{snake_to_lower_camel, EnumShape, Expr, Ident, Item, Module, Prim},
     lang::{
         block_comment_safe, c_escape,
         dom::{c_family_registration, unused_params, uses_concat, uses_params, C_CONCAT_HELPER},
@@ -188,7 +188,41 @@ impl ExprSyntax for C {
         args.push("(const char*)NULL".to_string());
         Doc::text(format!("az_concat({})", args.join(", ")))
     }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `render_card("Hi", title)`: another function of the header (defined
+    /// above it: the module lists callees first).
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+        Doc::call(item.snake(), args, broken)
+    }
+
+    /// A `const char*` argument: a literal or a parameter passed on.
+    fn native_string(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        match parts {
+            [] => Doc::text("\"\""),
+            [ConcatPart::Lit(s)] => Doc::text(format!("\"{}\"", c_escape(s))),
+            [ConcatPart::Param(p)] => Doc::text(c_param(p)),
+            _ => self.unsupported(C_JOINED_ARG),
+        }
+    }
+
+    fn limitation(&self, e: &Expr) -> Option<String> {
+        match e {
+            Expr::ItemCall { args, .. } if args.iter().any(|a| matches!(a, Expr::Concat(_))) => {
+                Some(C_JOINED_ARG.to_string())
+            }
+            _ => None,
+        }
+    }
 }
+
+/// Why C cannot pass a text joined from parameters to a component's render
+/// function.
+const C_JOINED_ARG: &str = "a component's text is a `const char*`: a text joined from parameters \
+                            would need a buffer the caller frees";
 
 /// `const char* a, const char* b` (or `void`), and the `(void)x;` lines of
 /// the parameters the body never reads.

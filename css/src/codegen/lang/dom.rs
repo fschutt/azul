@@ -130,9 +130,9 @@ fn c_lit(s: &str) -> String {
 }
 
 /// The C / C++ registration of a component library: per component a
-/// default-arguments wrapper, a render function reading the data model, a
-/// compile function and its `ComponentDef`; then
-/// `register_<library>_library()`. `az_str` spells an `AzString` from a
+/// default-arguments wrapper, a render function reading the data model and
+/// its `ComponentDef` (code calls it through its render function:
+/// `ComponentCodegen::RenderFunction`); then `register_<library>_library()`. `az_str` spells an `AzString` from a
 /// literal in the language. Items the module does not have are skipped.
 #[must_use]
 pub fn c_family_registration(
@@ -195,17 +195,6 @@ pub fn c_family_registration(
         s.push_str(
             "    return AzResultStyledDomRenderDomError_ok(AzStyledDom_createFromDom(dom));\n}\n",
         );
-        let _ = writeln!(
-            s,
-            "\nstatic AzResultStringCompileError {sn}_compile_fn(const AzComponentDef* def, const \
-             AzCompileTarget* target, const AzComponentDataModel* model, size_t indent) {{"
-        );
-        s.push_str("    (void)def;\n    (void)target;\n    (void)model;\n    (void)indent;\n");
-        let _ = writeln!(
-            s,
-            "    return AzResultStringCompileError_ok({});\n}}",
-            az_str(&format!("{item_fn}_default()"))
-        );
         let _ = writeln!(s, "\nstatic AzComponentDef {sn}_def(void) {{");
         s.push_str("    AzComponentDef def;\n");
         let _ = writeln!(
@@ -251,9 +240,8 @@ pub fn c_family_registration(
             );
         }
         let _ = writeln!(s, "    def.render_fn = {sn}_render_fn;");
-        let _ = writeln!(s, "    def.compile_fn = {sn}_compile_fn;");
-        s.push_str("    def.render_fn_source = AzOptionString_none();\n");
-        s.push_str("    def.compile_fn_source = AzOptionString_none();\n    return def;\n}\n");
+        s.push_str("    def.codegen = AzComponentCodegen_renderFunction();\n");
+        s.push_str("    def.render_fn_source = AzOptionString_none();\n    return def;\n}\n");
         defs.push(format!("{sn}_def()"));
     }
     let n = defs.len();
@@ -329,6 +317,16 @@ pub trait WrapperDomSyntax {
     fn param(&self, name: &Ident) -> Doc;
     /// A native string joined from `parts`.
     fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc;
+    /// Why the printer does not call another item of the module yet (see
+    /// [`ExprSyntax::item_call_limitation`]). Default: not implemented.
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        Some(super::ITEM_CALL_LIMITATION)
+    }
+    /// `item(args)`: a call of the module's item `item`, spelled the way
+    /// the printer names its items; `args` are native strings.
+    fn item_call(&self, item: &Ident, _args: Vec<Doc>, _broken: bool) -> Doc {
+        self.base().unsupported(&format!("a call of {}", item.snake()))
+    }
 }
 
 /// The [`ExprSyntax`] of a [`WrapperDomSyntax`]: literals come from its
@@ -393,6 +391,14 @@ impl<W: WrapperDomSyntax> ExprSyntax for WrapperDom<W> {
 
     fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
         self.0.concat(parts)
+    }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        self.0.item_call_limitation()
+    }
+
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+        self.0.item_call(item, args, broken)
     }
 }
 

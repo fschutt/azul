@@ -17,10 +17,10 @@ pub fn render_card(title: &str, text: &str, href: &str, author: &str) -> Dom {
 // ── registration ──
 
 use azul::component::{
-    CompileTarget, ComponentDataField, ComponentDataModel, ComponentDef, ComponentDefaultValue,
+    ComponentCodegen, ComponentDataField, ComponentDataModel, ComponentDef, ComponentDefaultValue,
     ComponentFieldType, ComponentId, ComponentLibrary, ComponentMap, ComponentSource,
 };
-use azul::error::{ResultStringCompileError, ResultStyledDomRenderDomError};
+use azul::error::ResultStyledDomRenderDomError;
 use azul::option::{OptionComponentDefaultValue, OptionString};
 use azul::prelude::StyledDom;
 use azul::vec::{ComponentDataFieldVec, ComponentDataModelVec, ComponentEnumModelVec};
@@ -40,15 +40,6 @@ extern "C" fn card_render_fn(
     let arg_href = model_string(model, "href", "https://azul.rs");
     let arg_author = model_string(model, "author", "me");
     ResultStyledDomRenderDomError::Ok(StyledDom::create_from_dom(render_card(&arg_title, &arg_text, &arg_href, &arg_author)))
-}
-
-extern "C" fn card_compile_fn(
-    _def: &ComponentDef,
-    _target: &CompileTarget,
-    _model: &ComponentDataModel,
-    _indent: usize,
-) -> ResultStringCompileError {
-    ResultStringCompileError::Ok(azul::str::String::from("render_card_default()"))
 }
 
 fn card_def() -> ComponentDef {
@@ -71,9 +62,8 @@ fn card_def() -> ComponentDef {
             .into(),
         },
         render_fn: card_render_fn,
-        compile_fn: card_compile_fn,
+        codegen: ComponentCodegen::RenderFunction,
         render_fn_source: OptionString::None,
-        compile_fn_source: OptionString::None,
     }
 }
 

@@ -95,14 +95,6 @@ static AzResultStyledDomRenderDomError card_render_fn(const AzComponentDef* def,
     return AzResultStyledDomRenderDomError_ok(AzStyledDom_createFromDom(dom));
 }
 
-static AzResultStringCompileError card_compile_fn(const AzComponentDef* def, const AzCompileTarget* target, const AzComponentDataModel* model, size_t indent) {
-    (void)def;
-    (void)target;
-    (void)model;
-    (void)indent;
-    return AzResultStringCompileError_ok(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("render_card_default()"), 0, 21));
-}
-
 static AzComponentDef card_def(void) {
     AzComponentDef def;
     def.id = AzComponentId_create(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("user"), 0, 4), AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("card"), 0, 4));
@@ -122,9 +114,8 @@ static AzComponentDef card_def(void) {
     /* copyFromPtr cloned them. */
     for (size_t i = 0; i < 4; i++) AzComponentDataField_delete(&fields[i]);
     def.render_fn = card_render_fn;
-    def.compile_fn = card_compile_fn;
+    def.codegen = AzComponentCodegen_renderFunction();
     def.render_fn_source = AzOptionString_none();
-    def.compile_fn_source = AzOptionString_none();
     return def;
 }
 

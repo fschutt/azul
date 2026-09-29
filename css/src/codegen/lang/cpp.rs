@@ -172,15 +172,41 @@ impl ExprSyntax for Cpp {
     }
 
     fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
-        let parts: Vec<String> = parts
-            .iter()
-            .map(|p| match p {
-                ConcatPart::Lit(s) => format!("std::string(\"{}\")", c_escape(s)),
-                ConcatPart::Param(i) => cpp_param(i),
-            })
-            .collect();
-        Doc::text(format!("az_string({})", parts.join(" + ")))
+        Doc::text(format!("az_string({})", string_sum(parts)))
     }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `render_card("Hi", title)`: another function of the header (defined
+    /// above it: the module lists callees first).
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+        Doc::call(item.snake(), args, broken)
+    }
+
+    /// A `const std::string&` argument: a literal, a parameter passed on, or
+    /// a `std::string` sum.
+    fn native_string(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        match parts {
+            [] => Doc::text("\"\""),
+            [ConcatPart::Lit(s)] => Doc::text(format!("\"{}\"", c_escape(s))),
+            [ConcatPart::Param(p)] => Doc::text(cpp_param(p)),
+            _ => Doc::text(string_sum(parts)),
+        }
+    }
+}
+
+/// `std::string("by ") + author`: a `std::string` joined from `parts`.
+fn string_sum(parts: &[ConcatPart<'_>]) -> String {
+    parts
+        .iter()
+        .map(|p| match p {
+            ConcatPart::Lit(s) => format!("std::string(\"{}\")", c_escape(s)),
+            ConcatPart::Param(i) => cpp_param(i),
+        })
+        .collect::<Vec<_>>()
+        .join(" + ")
 }
 
 fn cpp_param_type(ty: &str) -> String {

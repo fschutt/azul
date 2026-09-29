@@ -23,13 +23,14 @@
 //! returning the value.
 //!
 //! **DOM construction** (AzBuilder's "Subtree → code" / "Component → code",
-//! lowered in `azul_core::xml`) adds three node kinds:
+//! lowered in `azul_core::codegen::dom`) adds four node kinds:
 //!
 //! | node | api.json concept | C spelling |
 //! |---|---|---|
 //! | [`Expr::Method`] | a by-value `self` method (`Dom.with_child`) | `AzDom_withChild(dom, child)` |
 //! | [`Expr::Param`] | a parameter of the item's function (a native string) | `AzString_copyFromBytes((const uint8_t*)text, 0, strlen(text))` |
 //! | [`Expr::Concat`] | a `String` joined from literals and parameters | a helper call |
+//! | [`Expr::ItemCall`] | a call of another item of the module (a component's render function) | `render_card("Hi", title)` |
 //!
 //! and an [`Item`] may take typed [`ItemParam`]s; a [`Module`] may describe an
 //! app ([`AppSpec`]: `emit_project_files` then writes a program that opens a
@@ -204,6 +205,14 @@ pub enum Expr {
     /// An api.json `String` joined from its parts, each an [`Expr::Str`] or
     /// an [`Expr::Param`] (a template text like `"by {author}"`).
     Concat(Vec<Expr>),
+    /// A call of another item of the SAME module by its name, one argument
+    /// per parameter of that item, in order: a component instance calling
+    /// the component's render function (component boundaries stay calls,
+    /// nothing is inlined). Every argument is a `String` parameter's value,
+    /// passed as the language's NATIVE string (what the callee's parameter
+    /// takes): an [`Expr::Str`], a caller's [`Expr::Param`] or an
+    /// [`Expr::Concat`] of both. The callee returns the item's type.
+    ItemCall { item: Ident, args: Vec<Expr> },
 }
 
 impl Expr {
@@ -306,6 +315,16 @@ impl Expr {
         Self::Param(Ident::from_text(name))
     }
 
+    /// `item(args)`: a call of item `item` of the same module (see
+    /// [`Expr::ItemCall`]).
+    #[must_use]
+    pub fn item_call(item: &str, args: Vec<Self>) -> Self {
+        Self::ItemCall {
+            item: Ident::from_text(item),
+            args,
+        }
+    }
+
     /// A `String` joined from `parts` (literals and parameters). One literal
     /// part is just that literal, one parameter just that parameter.
     #[must_use]
@@ -317,10 +336,13 @@ impl Expr {
     }
 
     /// `true` for the DOM node kinds ([`Expr::Method`], [`Expr::Param`],
-    /// [`Expr::Concat`]).
+    /// [`Expr::Concat`], [`Expr::ItemCall`]).
     #[must_use]
     pub const fn is_dom_node(&self) -> bool {
-        matches!(self, Self::Method { .. } | Self::Param(_) | Self::Concat(_))
+        matches!(
+            self,
+            Self::Method { .. } | Self::Param(_) | Self::Concat(_) | Self::ItemCall { .. }
+        )
     }
 
     /// `true` for literals (no nested construction).
@@ -351,7 +373,9 @@ impl Expr {
             Self::Method { recv, args, .. } => {
                 recv.contains_unsupported() || args.iter().any(Self::contains_unsupported)
             }
-            Self::Concat(parts) => parts.iter().any(Self::contains_unsupported),
+            Self::Concat(parts) | Self::ItemCall { args: parts, .. } => {
+                parts.iter().any(Self::contains_unsupported)
+            }
             Self::Int { .. } | Self::Float { .. } | Self::Bool(_) | Self::Str(_) | Self::Param(_) => {
                 false
             }
@@ -372,7 +396,7 @@ impl Expr {
                     e.unsupported_reasons(out);
                 }
             }
-            Self::Vec { items, .. } | Self::Concat(items) => {
+            Self::Vec { items, .. } | Self::Concat(items) | Self::ItemCall { args: items, .. } => {
                 for e in items {
                     e.unsupported_reasons(out);
                 }
@@ -401,7 +425,7 @@ impl Expr {
                     e.walk(f);
                 }
             }
-            Self::Vec { items, .. } | Self::Concat(items) => {
+            Self::Vec { items, .. } | Self::Concat(items) | Self::ItemCall { args: items, .. } => {
                 for e in items {
                     e.walk(f);
                 }
@@ -860,9 +884,12 @@ fn linearize_into(e: &Expr, out: &mut Vec<(usize, Shallow)>) -> Shallow {
         Expr::Int { .. } | Expr::Float { .. } | Expr::Bool(_) | Expr::Str(_) => Shallow::Lit(e.clone()),
         Expr::Unsupported { what } => Shallow::Unsupported { what: what.clone() },
         // The statement-oriented printers do not print DOM construction.
-        Expr::Method { .. } | Expr::Param(_) | Expr::Concat(_) => Shallow::Unsupported {
-            what: "DOM construction (builder methods, parameters) is not linearized".to_string(),
-        },
+        Expr::Method { .. } | Expr::Param(_) | Expr::Concat(_) | Expr::ItemCall { .. } => {
+            Shallow::Unsupported {
+                what: "DOM construction (builder methods, parameters) is not linearized"
+                    .to_string(),
+            }
+        }
         Expr::Call {
             class,
             method,

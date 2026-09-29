@@ -26,7 +26,7 @@ use alloc::{
     vec::Vec,
 };
 
-use super::{blocker_with, concat_parts, dom::is_dom_item, ConcatPart};
+use super::{blocker_with, concat_parts, dom::is_dom_item, string_parts, ConcatPart};
 use crate::codegen::{
     ir::{is_droppable_vec, EnumShape, Expr, Ident, Item, Prim},
     lower_types::union_tag,
@@ -174,6 +174,33 @@ pub trait LinearSyntax {
 
     /// Statements that make `target` the api `String` joined from `parts`.
     fn concat(&self, _target: &str, _parts: &[ConcatPart<'_>]) -> Vec<String> {
+        Vec::new()
+    }
+
+    // Component boundaries (`Expr::ItemCall`).
+
+    /// Why this language does not print a call of another item of the
+    /// module (a component's render function), or `None` once its printer
+    /// spells [`Self::item_call`] (or [`Self::item_call_expr`]) and
+    /// [`Self::native_string_arg`]. Default: not implemented.
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        Some(super::ITEM_CALL_LIMITATION)
+    }
+
+    /// A `String` argument of an item call, from `parts`, as the language's
+    /// native string (what the callee's parameter takes), as an expression.
+    fn native_string_arg(&self, _parts: &[ConcatPart<'_>]) -> String {
+        String::new()
+    }
+
+    /// The call `item(args)` as an expression. `None`: [`Self::item_call`].
+    fn item_call_expr(&self, _item: &Ident, _args: &[String]) -> Option<String> {
+        None
+    }
+
+    /// Statements that make `target` the `Dom` item `item` returns for
+    /// `args`.
+    fn item_call(&self, _target: &str, _item: &Ident, _args: &[String]) -> Vec<String> {
         Vec::new()
     }
 }
@@ -376,6 +403,19 @@ impl Ctx<'_> {
                 self.out.body.extend(st);
                 t
             }
+            Expr::ItemCall { item, args } => {
+                let args: Vec<String> = args
+                    .iter()
+                    .map(|a| s.native_string_arg(&string_parts(a)))
+                    .collect();
+                if let Some(x) = s.item_call_expr(item, &args) {
+                    return x;
+                }
+                let t = self.temp(s.type_name("Dom"));
+                let st = s.item_call(&t, item, &args);
+                self.out.body.extend(st);
+                t
+            }
         }
     }
 }
@@ -408,11 +448,18 @@ pub fn item_blocker(s: &dyn LinearSyntax, item: &Item) -> Option<String> {
     blocker_with(
         &|n| {
             s.limitation(n).or_else(|| {
-                if n.is_dom_node() {
-                    s.dom_limitation().map(ToString::to_string)
-                } else {
-                    None
+                if !n.is_dom_node() {
+                    return None;
                 }
+                s.dom_limitation()
+                    .or_else(|| {
+                        if matches!(n, Expr::ItemCall { .. }) {
+                            s.item_call_limitation()
+                        } else {
+                            None
+                        }
+                    })
+                    .map(ToString::to_string)
             })
         },
         &item.value,

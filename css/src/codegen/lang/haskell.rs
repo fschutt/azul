@@ -334,6 +334,7 @@ impl HsDom {
                 Ok(HsVal::Io(chained_infix(recv, link)))
             }
             Expr::Unsupported { what } => Err(what.clone()),
+            Expr::ItemCall { .. } => Err(super::ITEM_CALL_LIMITATION.to_string()),
             // Rejected by `wrapper_dom_limitation` above.
             Expr::Variant { ty, .. } | Expr::Struct { ty, .. } | Expr::Vec { ty, .. } => Err(format!(
                 "a raw {ty} value: the Haskell class modules take native values"

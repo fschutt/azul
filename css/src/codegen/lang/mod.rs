@@ -131,7 +131,43 @@ pub trait ExprSyntax {
     fn concat(&self, _parts: &[ConcatPart<'_>]) -> Doc {
         self.unsupported("a string joined from parameters")
     }
+
+    // ── component boundaries (Expr::ItemCall) ──
+
+    /// Why this language does not print a call of another item of the
+    /// module ([`Expr::ItemCall`], a component's render function), or
+    /// `None` once its printer implements [`Self::item_call`] (and, where
+    /// its native string is not its api.json `String`,
+    /// [`Self::native_string`]). Default: not implemented.
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        Some(ITEM_CALL_LIMITATION)
+    }
+
+    /// `item(args)`: a call of the module's item `item` (spelled the way
+    /// the printer names its items); `args` are native strings.
+    fn item_call(&self, item: &Ident, _args: Vec<Doc>, _broken: bool) -> Doc {
+        self.unsupported(&format!("a call of {}", item.snake()))
+    }
+
+    /// A `String` ARGUMENT of an item call, from `parts`: the language's
+    /// native string, which the callee's parameter takes. Default: the
+    /// api.json `String` spelling ([`Self::string`] / [`Self::param`] /
+    /// [`Self::concat`]), right for every binding whose `String` IS its
+    /// native string (Python, the wrapper-layer bindings, ...).
+    fn native_string(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        match parts {
+            [] => self.string(""),
+            [ConcatPart::Lit(s)] => self.string(s),
+            [ConcatPart::Param(p)] => self.param(p),
+            _ => self.concat(parts),
+        }
+    }
 }
+
+/// The default [`ExprSyntax::item_call_limitation`].
+pub const ITEM_CALL_LIMITATION: &str =
+    "calling a component's render function (component boundaries) is not implemented for this \
+     language's printer yet";
 
 /// How a [`ExprSyntax::method`] node lays out.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -151,6 +187,18 @@ pub enum ConcatPart<'a> {
     Param(&'a Ident),
 }
 
+/// The parts of a `String` argument of an [`Expr::ItemCall`]: a literal, a
+/// parameter, or the parts of a joined string.
+#[must_use]
+pub fn string_parts(e: &Expr) -> Vec<ConcatPart<'_>> {
+    match e {
+        Expr::Str(s) => alloc::vec![ConcatPart::Lit(s.as_str())],
+        Expr::Param(i) => alloc::vec![ConcatPart::Param(i)],
+        Expr::Concat(parts) => concat_parts(parts),
+        _ => Vec::new(),
+    }
+}
+
 /// The parts of an [`Expr::Concat`] (anything but a literal or a parameter
 /// is left out; the lowering never produces it).
 #[must_use]
@@ -167,11 +215,18 @@ pub fn concat_parts(parts: &[Expr]) -> Vec<ConcatPart<'_>> {
 
 /// Why `e` itself (a DOM node kind) cannot be printed in language `s`.
 fn dom_node_limitation(s: &dyn ExprSyntax, e: &Expr) -> Option<String> {
-    if e.is_dom_node() {
-        s.dom_limitation().map(ToString::to_string)
-    } else {
-        None
+    if !e.is_dom_node() {
+        return None;
     }
+    s.dom_limitation()
+        .or_else(|| {
+            if matches!(e, Expr::ItemCall { .. }) {
+                s.item_call_limitation()
+            } else {
+                None
+            }
+        })
+        .map(ToString::to_string)
 }
 
 /// Why `e` cannot be built in language `s`: the first [`Expr::Unsupported`]
@@ -203,9 +258,10 @@ pub fn blocker_with(limitation: &dyn Fn(&Expr) -> Option<String>, e: &Expr) -> O
                 items.iter().find_map(|i| blocker_with(limitation, i))
             }
         }
-        Expr::Call { args, .. } | Expr::Variant { args, .. } | Expr::Concat(args) => {
-            args.iter().find_map(|a| blocker_with(limitation, a))
-        }
+        Expr::Call { args, .. }
+        | Expr::Variant { args, .. }
+        | Expr::Concat(args)
+        | Expr::ItemCall { args, .. } => args.iter().find_map(|a| blocker_with(limitation, a)),
         Expr::Method { recv, args, .. } => blocker_with(limitation, recv)
             .or_else(|| args.iter().find_map(|a| blocker_with(limitation, a))),
         Expr::Struct { fields, .. } => fields.iter().find_map(|(_, v)| blocker_with(limitation, v)),
@@ -282,6 +338,7 @@ pub fn is_tall(s: &dyn ExprSyntax, e: &Expr) -> bool {
         | Expr::Str(_)
         | Expr::Param(_)
         | Expr::Concat(_)
+        | Expr::ItemCall { .. }
         | Expr::Unsupported { .. } => false,
     }
 }
@@ -430,6 +487,13 @@ fn expr_doc_inner(s: &dyn ExprSyntax, e: &Expr, broken: bool) -> Doc {
         ),
         Expr::Param(name) => s.param(name),
         Expr::Concat(parts) => s.concat(&concat_parts(parts)),
+        Expr::ItemCall { item, args } => s.item_call(
+            item,
+            args.iter()
+                .map(|a| s.native_string(&string_parts(a)))
+                .collect(),
+            broken,
+        ),
     }
 }
 
