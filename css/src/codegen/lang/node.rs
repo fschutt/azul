@@ -11,6 +11,16 @@
 //! tables (`azul.LayoutDisplay.Flex`), a Vec's items as a JS array
 //! (`lib.AzXxxVec_copyFromPtr([..], n)`), strings through `azul._azString`,
 //! and wraps the finished value in its class (`new azul.CssPropertyWithConditionsVec(..)`).
+//!
+//! A DOM goes through the wrapper classes instead (`lang_node/wrappers.rs`):
+//! static factories keep the lowerCamel api name (`azul.Dom.createDiv()`,
+//! `azul.SmallAriaInfo.label(..)`), a by-value `self` method consumes its
+//! receiver and returns a new `Dom` (`.withChild(..)`, chained), and string
+//! arguments are plain JS strings (double-quoted; a joined text is
+//! `"by " + author`). A DOM item's parameters default to the values it was
+//! made with. An app is `azul.WindowCreateOptions.create(layout)` with the
+//! window title set through `.with({ windowState: { title } })`, and
+//! `azul.App.create(appData, azul.AppConfig.create()).run(window)`.
 
 use alloc::{
     format,
@@ -21,8 +31,12 @@ use alloc::{
 
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{snake_to_lower_camel, EnumShape, Item, Module, Prim},
-    lang::{escape_quoted, item_comments, item_doc, unicode_braced, variant_ctor_method, ExprSyntax},
+    ir::{snake_to_lower_camel, EnumShape, Ident, Item, Module, Prim},
+    lang::{
+        dom::{is_dom_item, one_line, registration_note, WrapperDom, WrapperDomSyntax},
+        escape_quoted, expr_doc, item_comments, item_doc, unicode_braced, variant_ctor_method,
+        ConcatPart, ExprSyntax, MethodLayout,
+    },
     lower_types::union_tag,
     CodegenBackend, GeneratedFile,
 };
@@ -121,6 +135,145 @@ impl ExprSyntax for Node {
     }
 }
 
+/// JS reserved words (the list of `lang_node`'s `sanitize_js_identifier`),
+/// the names strict mode forbids as parameters, and the names a parameter
+/// must not shadow (`azul` is the bindings' module, `lib` its raw layer).
+const RESERVED: &[&str] = &[
+    "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do",
+    "else", "enum", "export", "extends", "false", "finally", "for", "function", "if", "import",
+    "in", "instanceof", "new", "null", "return", "super", "switch", "this", "throw", "true",
+    "try", "typeof", "var", "void", "while", "with", "yield", "let", "static", "implements",
+    "interface", "package", "private", "protected", "public", "await", "async", "eval",
+    "arguments", "azul", "lib",
+];
+
+/// A parameter's JS name (a reserved one gets a `_`, like the bindings'
+/// `withClass(class_)`).
+fn js_param(name: &Ident) -> String {
+    let n = name.lower_camel();
+    if RESERVED.contains(&n.as_str()) {
+        format!("{n}_")
+    } else {
+        n
+    }
+}
+
+/// A double-quoted JS string literal.
+fn js_str(s: &str) -> String {
+    format!("\"{}\"", escape_quoted(s, &[], &unicode_braced))
+}
+
+/// The DOM through the wrapper classes (`azul.Dom`, `azul.SmallAriaInfo`).
+#[derive(Debug, Copy, Clone, Default)]
+struct NodeDom;
+
+impl WrapperDomSyntax for NodeDom {
+    fn base(&self) -> &dyn ExprSyntax {
+        &Node
+    }
+
+    fn native_string(&self, s: &str) -> Doc {
+        Doc::text(js_str(s))
+    }
+
+    fn factory(&self, class: &str, method: &str, args: Vec<Doc>, broken: bool) -> Doc {
+        Doc::call(format!("azul.{class}.{}", snake_to_lower_camel(method)), args, broken)
+    }
+
+    fn method(&self, recv: Doc, _class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
+        Doc::chained(
+            recv,
+            Doc::call(format!(".{}", snake_to_lower_camel(method)), args, layout.args_tall),
+        )
+    }
+
+    fn param(&self, name: &Ident) -> Doc {
+        Doc::text(js_param(name))
+    }
+
+    fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        Doc::text(
+            parts
+                .iter()
+                .map(|p| match p {
+                    ConcatPart::Lit(s) => js_str(s),
+                    ConcatPart::Param(i) => js_param(i),
+                })
+                .collect::<Vec<_>>()
+                .join(" + "),
+        )
+    }
+}
+
+/// A DOM item: a function whose parameters (JS strings) default to the
+/// values the item was made with.
+fn dom_item_fn(item: &Item) -> String {
+    let syntax = WrapperDom(NodeDom);
+    let mut out = String::new();
+    for line in &item_comments(&syntax, item) {
+        out.push_str(&format!("// {line}\n"));
+    }
+    let name = item.name.lower_camel();
+    let params = item
+        .params
+        .iter()
+        .map(|p| match &p.default {
+            Some(d) => format!("{} = {}", js_param(&p.name), expr_doc(&syntax, d).flat()),
+            None => js_param(&p.name),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    match item_doc(&syntax, item) {
+        Ok(doc) => out.push_str(&format!(
+            "function {name}({params}) {{\n    return {};\n}}\n",
+            render(&doc, "    ", 1)
+        )),
+        Err(reason) => out.push_str(&format!(
+            "// not expressible with the Node bindings: {reason}\nfunction {name}({params}) {{\n    \
+             return undefined;\n}}\n"
+        )),
+    }
+    out
+}
+
+/// Why the Node bindings cannot register a component library.
+const NO_REGISTRATION: &str = "the Node bindings build neither: ComponentDef and ComponentLibrary \
+                               have no static factory, and AzComponentRenderFn and \
+                               AzRegisterComponentLibraryFnType are opaque `void *` types in the \
+                               koffi declarations that registerCallback does not cover";
+
+/// The app's `main.js` around a DOM module (`m.app`).
+fn app_main(m: &Module) -> String {
+    let Some(app) = &m.app else {
+        return String::new();
+    };
+    let root = app.root.lower_camel();
+    let body = if app.is_body {
+        format!("{root}()")
+    } else {
+        format!("azul.Dom.createBody().withChild({root}())")
+    };
+    format!(
+        "// {} - generated by AzBuilder (azul-css codegen, Node.js).\n'use strict';\nconst azul = \
+         require('azul');\nconst {{ {root} }} = require('./ui');\n\n// The app's data: the layout \
+         callback gets it back.\nconst appData = {{}};\n\nfunction layout(_data, _info) {{\n    \
+         return {body};\n}}\n\nconst window = azul.WindowCreateOptions.create(layout).with({{\n    \
+         windowState: {{ title: {} }},\n}});\n\nazul.App.create(appData, \
+         azul.AppConfig.create()).run(window);\n",
+        one_line(&app.title),
+        js_str(&app.title)
+    )
+}
+
+/// The `package.json` of a project named `name`.
+fn package_json(name: &str) -> String {
+    format!(
+        "{{\n  \"name\": \"{name}\",\n  \"version\": \"0.1.0\",\n  \"private\": true,\n  \"main\": \
+         \"main.js\",\n  \"dependencies\": {{\n    \"azul\": \"file:./azul-node\",\n    \"koffi\": \
+         \"^2.16.3\"\n  }}\n}}\n"
+    )
+}
+
 fn item_fn(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&Node, item) {
@@ -158,21 +311,57 @@ impl CodegenBackend for Node {
         "js"
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn emit_module(&self, m: &Module) -> String {
+        // The raw layer (`lib`) serves CSS values only; a module without DOM
+        // keeps its exact layout.
+        let css = !m.is_dom() || m.items.iter().any(|i| !is_dom_item(i));
         let mut out = String::from(
             "// Generated by azul-css codegen (Node.js). Do not edit by hand.\n'use strict';\nconst \
-             azul = require('azul');\nconst lib = azul.__lib;\n",
+             azul = require('azul');\n",
         );
+        if css {
+            out.push_str("const lib = azul.__lib;\n");
+        }
         for item in &m.items {
             out.push('\n');
-            out.push_str(&item_fn(item));
+            if is_dom_item(item) {
+                out.push_str(&dom_item_fn(item));
+            } else {
+                out.push_str(&item_fn(item));
+            }
         }
         let names: Vec<String> = m.items.iter().map(|i| i.name.lower_camel()).collect();
         out.push_str(&format!("\nmodule.exports = {{ {} }};\n", names.join(", ")));
+        if let Some(lib) = &m.library {
+            out.push('\n');
+            for line in registration_note(lib, NO_REGISTRATION) {
+                out.push_str(&format!("// {line}\n"));
+            }
+        }
         out
     }
 
     fn emit_project_files(&self, m: &Module) -> Vec<GeneratedFile> {
+        if m.app.is_some() {
+            return vec![
+                GeneratedFile {
+                    path: "package.json".to_string(),
+                    contents: package_json("azul-app"),
+                },
+                GeneratedFile {
+                    path: "ui.js".to_string(),
+                    contents: self.emit_module(m),
+                },
+                GeneratedFile {
+                    path: "main.js".to_string(),
+                    contents: app_main(m),
+                },
+            ];
+        }
         let names: Vec<String> = m.items.iter().map(|i| i.name.lower_camel()).collect();
         let mut main = format!(
             "'use strict';\nconst {{ {} }} = require('./styles');\n",
@@ -186,10 +375,7 @@ impl CodegenBackend for Node {
         vec![
             GeneratedFile {
                 path: "package.json".to_string(),
-                contents: "{\n  \"name\": \"azul-styles\",\n  \"version\": \"0.1.0\",\n  \
-                           \"private\": true,\n  \"main\": \"main.js\",\n  \"dependencies\": {\n    \
-                           \"azul\": \"file:./azul-node\",\n    \"koffi\": \"^2.16.3\"\n  }\n}\n"
-                    .to_string(),
+                contents: package_json("azul-styles"),
             },
             GeneratedFile {
                 path: "styles.js".to_string(),

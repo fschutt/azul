@@ -8,6 +8,19 @@
 //! PHP FFI builds `CData` values with statements, which the generated
 //! `azul_struct` / `azul_union` / `azul_vec` / `azul_str` helpers wrap into
 //! expressions.
+//!
+//! A DOM uses the same raw C API, nested like C++
+//! (`$L->AzDom_withChild($L->AzDom_withCss($L->AzDom_createDiv(), ..), ..)`):
+//! the binding's `Dom` wrapper class cannot chain (its `with_*` methods
+//! return the raw `CData` and assign `null` to the wrapper's non-nullable
+//! `$ptr`). Parameters are typed PHP `string`s defaulting to the values the
+//! item was made with, converted by `azul_str(..)` at every use; a joined
+//! text is `azul_str("by " . $author)`; DOM literals are double-quoted (`$`
+//! escaped). No app can open a window through the FFI binding (every
+//! callback goes through `Azul::registerCallback`, which throws: php-ffi
+//! cannot turn a closure into a C function pointer), and the Zend extension
+//! that can (`php_api.rs`) has no `Dom::create_a` / `SmallAriaInfo`, so an
+//! app's `main.php` builds the window's content and says why on STDERR.
 
 use alloc::{
     format,
@@ -18,8 +31,12 @@ use alloc::{
 
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{snake_to_lower_camel, EnumShape, Item, Module, Prim},
-    lang::{item_comments, item_doc, variant_ctor_method, ExprSyntax},
+    ir::{snake_to_lower_camel, EnumShape, Expr, Ident, Item, Module, Prim},
+    lang::{
+        dom::{is_dom_item, one_line, registration_note},
+        escape_quoted, item_comments, item_doc, unicode_braced, variant_ctor_method, ConcatPart,
+        ExprSyntax, MethodLayout,
+    },
     lower_types::union_tag,
     CodegenBackend, GeneratedFile,
 };
@@ -115,6 +132,189 @@ impl ExprSyntax for Php {
     }
 }
 
+/// A double-quoted PHP literal: `$` escaped (no interpolation), other
+/// non-ASCII as `\u{..}` (PHP 7+).
+fn php_dq(s: &str) -> String {
+    format!("\"{}\"", escape_quoted(s, &['$'], &unicode_braced))
+}
+
+/// A parameter's PHP variable (`$this` cannot be one).
+fn php_param(name: &Ident) -> String {
+    let n = name.snake();
+    if n == "this" {
+        "$this_".to_string()
+    } else {
+        format!("${n}")
+    }
+}
+
+/// The syntax of DOM items: [`Php`]'s raw C API, with double-quoted string
+/// literals (a DOM text is free text) and the DOM nodes.
+#[derive(Debug, Copy, Clone, Default)]
+struct PhpDom;
+
+impl ExprSyntax for PhpDom {
+    fn int(&self, value: i128, ty: Prim) -> String {
+        Php.int(value, ty)
+    }
+
+    fn float(&self, text: &str, ty: Prim) -> String {
+        Php.float(text, ty)
+    }
+
+    fn boolean(&self, b: bool) -> String {
+        Php.boolean(b)
+    }
+
+    fn string(&self, s: &str) -> Doc {
+        Doc::text(format!("azul_str({})", php_dq(s)))
+    }
+
+    fn call(&self, class: &str, method: &str, args: Vec<Doc>, broken: bool) -> Doc {
+        Php.call(class, method, args, broken)
+    }
+
+    fn variant(&self, ty: &str, shape: EnumShape, variant: &str, args: Vec<Doc>, broken: bool) -> Doc {
+        Php.variant(ty, shape, variant, args, broken)
+    }
+
+    fn strukt(&self, ty: &str, fields: Vec<(String, Doc)>, broken: bool) -> Doc {
+        Php.strukt(ty, fields, broken)
+    }
+
+    fn vec(&self, ty: &str, elem: &str, items: Vec<Doc>, broken: bool) -> Doc {
+        Php.vec(ty, elem, items, broken)
+    }
+
+    fn unsupported(&self, what: &str) -> Doc {
+        Php.unsupported(what)
+    }
+
+    fn dom_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `$L->AzDom_withChild(recv, child)`: the C API takes `self` as the
+    /// first argument; a chain nests.
+    fn method(&self, recv: Doc, class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
+        let mut all = vec![recv];
+        all.extend(args);
+        Doc::call(
+            format!("$L->Az{class}_{}", snake_to_lower_camel(method)),
+            all,
+            layout.node_tall,
+        )
+    }
+
+    fn param(&self, name: &Ident) -> Doc {
+        Doc::text(format!("azul_str({})", php_param(name)))
+    }
+
+    fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        let joined = parts
+            .iter()
+            .map(|p| match p {
+                ConcatPart::Lit(s) => php_dq(s),
+                ConcatPart::Param(i) => php_param(i),
+            })
+            .collect::<Vec<_>>()
+            .join(" . ");
+        Doc::text(format!("azul_str({joined})"))
+    }
+}
+
+/// A DOM item: a function taking PHP strings that default to the values
+/// the item was made with, returning the `AzDom` (an `FFI\CData`).
+fn dom_item_fn(item: &Item) -> String {
+    let mut out = String::new();
+    for line in &item_comments(&PhpDom, item) {
+        out.push_str(&format!("// {line}\n"));
+    }
+    let name = item.name.snake();
+    let params = item
+        .params
+        .iter()
+        .map(|p| match &p.default {
+            Some(Expr::Str(d)) => format!("string {} = {}", php_param(&p.name), php_dq(d)),
+            _ => format!("string {}", php_param(&p.name)),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    match item_doc(&PhpDom, item) {
+        Ok(doc) => out.push_str(&format!(
+            "function {name}({params}): \\FFI\\CData\n{{\n    $L = \\Azul\\Azul::lib();\n    return \
+             {};\n}}\n",
+            render(&doc, "    ", 1)
+        )),
+        Err(reason) => out.push_str(&format!(
+            "// not expressible with the PHP bindings: {reason}\nfunction {name}({params})\n{{\n    \
+             return null;\n}}\n"
+        )),
+    }
+    out
+}
+
+/// Why the PHP bindings cannot register a component library.
+const NO_REGISTRATION: &str = "the PHP bindings cannot make one: the FFI binding's cdef declares \
+                               that field void*, php-ffi cannot turn a PHP closure into a C \
+                               function pointer (Azul::registerCallback throws for every callback \
+                               kind), and the Zend extension (libazul's php-extension feature) \
+                               wraps no ComponentDef";
+
+/// Why an app's `main.php` opens no window (the lines it writes to STDERR).
+const NO_APP: &[&str] = &[
+    "No window opens: the PHP FFI binding registers every callback (the window's",
+    "layout callback too) through Azul::registerCallback, which throws: php-ffi cannot",
+    "turn a PHP closure into a C function pointer. The Zend extension (libazul built",
+    "with the php-extension feature) runs apps, but it wraps only Dom, App, AppConfig,",
+    "WindowCreateOptions and Button (no SmallAriaInfo) and cannot take the FFI values",
+    "ui.php builds.",
+];
+
+/// The app's `main.php` around a DOM module (`m.app`) in `ui.php`: it
+/// builds the window's content, then says why no window opens.
+fn app_main(m: &Module) -> String {
+    let Some(app) = &m.app else {
+        return String::new();
+    };
+    let root = format!("{}()", app.root.snake());
+    let body = if app.is_body {
+        root
+    } else {
+        format!("$L->AzDom_withChild($L->AzDom_createBody(), {root})")
+    };
+    let message = NO_APP
+        .iter()
+        .map(|line| php_dq(&format!("{line}\n")))
+        .collect::<Vec<_>>()
+        .join("\n    . ");
+    format!(
+        "<?php\n// {} - generated by AzBuilder (azul-css codegen, PHP).\n// Copy \
+         target/codegen/Azul.php and libazul here, then: php -d ffi.enable=1 main.php\nrequire_once \
+         __DIR__ . \"/ui.php\";\n\n$L = \\Azul\\Azul::lib();\n// The window's content: what the \
+         layout callback would return.\n$root = {body};\n$L->AzDom_delete(\\FFI::addr($root));\n\
+         fwrite(STDERR, {message});\nexit(1);\n",
+        one_line(&app.title)
+    )
+}
+
+/// `azul_str` alone (a DOM module has no struct / union / Vec values).
+/// Guarded: an export writes several modules (the app, one per component
+/// library) that may be included together.
+const DOM_HELPERS: &str = r#"// A PHP string as an AzString (a fresh copy at every use: the C calls take
+// their AzString by value).
+if (!function_exists("azul_str")) {
+    function azul_str(string $s)
+    {
+        $L = \Azul\Azul::lib();
+        $n = strlen($s);
+        $bytes = $L->new("uint8_t[" . max(1, $n) . "]");
+        \FFI::memcpy($bytes, $s, $n);
+        return $L->AzString_fromUtf8($bytes, $n);
+    }
+}
+"#;
+
 const HELPERS: &str = r#"function azul_struct(string $type, array $fields)
 {
     $value = \Azul\Azul::lib()->new($type);
@@ -188,21 +388,49 @@ impl CodegenBackend for Php {
         "php"
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn emit_module(&self, m: &Module) -> String {
         let mut out = String::from(
             "<?php\n// Generated by azul-css codegen (PHP). Do not edit by hand.\n// Needs the FFI \
              binding Azul.php (target/codegen) and `php -d ffi.enable=1`.\nrequire_once __DIR__ . \
              '/Azul.php';\n\n",
         );
-        out.push_str(HELPERS);
+        // A module without CSS values needs `azul_str` alone.
+        let css = !m.is_dom() || m.items.iter().any(|i| !is_dom_item(i));
+        out.push_str(if css { HELPERS } else { DOM_HELPERS });
         for item in &m.items {
             out.push('\n');
-            out.push_str(&item_fn(item));
+            if is_dom_item(item) {
+                out.push_str(&dom_item_fn(item));
+            } else {
+                out.push_str(&item_fn(item));
+            }
+        }
+        if let Some(lib) = &m.library {
+            out.push('\n');
+            for line in registration_note(lib, NO_REGISTRATION) {
+                out.push_str(&format!("// {line}\n"));
+            }
         }
         out
     }
 
     fn emit_project_files(&self, m: &Module) -> Vec<GeneratedFile> {
+        if m.app.is_some() {
+            return vec![
+                GeneratedFile {
+                    path: "ui.php".to_string(),
+                    contents: self.emit_module(m),
+                },
+                GeneratedFile {
+                    path: "main.php".to_string(),
+                    contents: app_main(m),
+                },
+            ];
+        }
         let mut main = String::from(
             "<?php\n// Copy target/codegen/Azul.php and libazul here, then: php -d ffi.enable=1 \
              main.php\nrequire_once __DIR__ . '/styles.php';\n",

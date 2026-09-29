@@ -8,6 +8,17 @@
 //! expressions with `apply` (`AzColorU.ByValue().apply { r = 255.toByte(); .. }`;
 //! a union also calls `setType("Variant")`). A Vec goes through the
 //! generated `azVec(AzulNativeVec::AzXxxVec_copyFromPtr, ..)` helper.
+//!
+//! A DOM goes through the wrapper classes instead (`lang_kotlin/wrappers.rs`):
+//! companion factories keep the lowerCamel api name (`Dom.createDiv()`,
+//! `SmallAriaInfo.label(..)`; always qualified, `NodeData` has the same
+//! names), a by-value `self` method consumes its receiver and returns a new
+//! `Dom` (`.withChild(..)`, chained), and string arguments are
+//! `kotlin.String`s (a joined text is a `"by ${author}"` template). A DOM
+//! item's parameters default to the values it was made with. An app is
+//! `App.create(AppData(), ::layout)` with a typed layout function
+//! (`AzulHostInvoker.LayoutCallbackWithData`) and
+//! `app.run(WindowCreateOptions.create())`.
 
 use alloc::{
     format,
@@ -18,10 +29,11 @@ use alloc::{
 
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{snake_to_lower_camel, EnumShape, Item, Module, Prim},
+    ir::{snake_to_lower_camel, EnumShape, Ident, Item, Module, Prim},
     lang::{
-        escape_quoted, item_comments, item_doc, java::native_class, unicode_u4,
-        variant_ctor_method, ExprSyntax,
+        dom::{is_dom_item, one_line, registration_note, WrapperDom, WrapperDomSyntax},
+        escape_quoted, expr_doc, item_comments, item_doc, java::native_class, unicode_utf16,
+        variant_ctor_method, ConcatPart, ExprSyntax, MethodLayout,
     },
     lower_types::is_c_like_enum,
     CodegenBackend, GeneratedFile,
@@ -79,7 +91,7 @@ impl ExprSyntax for Kotlin {
     }
 
     fn string(&self, s: &str) -> Doc {
-        Doc::text(format!("azStr(\"{}\")", escape_quoted(s, &['$'], &unicode_u4)))
+        Doc::text(format!("azStr(\"{}\")", escape_quoted(s, &['$'], &unicode_utf16)))
     }
 
     fn call(&self, class: &str, method: &str, args: Vec<Doc>, broken: bool) -> Doc {
@@ -132,6 +144,123 @@ impl ExprSyntax for Kotlin {
     fn unsupported(&self, _what: &str) -> Doc {
         Doc::text("TODO(\"not expressible with the Kotlin bindings\")")
     }
+}
+
+/// A parameter's Kotlin name (a keyword in backticks, the way the bindings
+/// spell `withClass`'s parameter `class`).
+fn kotlin_param(name: &Ident) -> String {
+    field(&name.lower_camel())
+}
+
+/// The body of a `kotlin.String` literal (`$` escaped: Kotlin interpolates it).
+fn kotlin_str_body(s: &str) -> String {
+    escape_quoted(s, &['$'], &unicode_utf16)
+}
+
+/// A `kotlin.String` literal.
+fn kotlin_str(s: &str) -> String {
+    format!("\"{}\"", kotlin_str_body(s))
+}
+
+/// The DOM through the wrapper classes (`Dom`, `SmallAriaInfo`).
+#[derive(Debug, Copy, Clone, Default)]
+struct KotlinDom;
+
+impl WrapperDomSyntax for KotlinDom {
+    fn base(&self) -> &dyn ExprSyntax {
+        &Kotlin
+    }
+
+    fn native_string(&self, s: &str) -> Doc {
+        Doc::text(kotlin_str(s))
+    }
+
+    fn factory(&self, class: &str, method: &str, args: Vec<Doc>, broken: bool) -> Doc {
+        Doc::call(format!("{class}.{}", snake_to_lower_camel(method)), args, broken)
+    }
+
+    fn method(&self, recv: Doc, _class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
+        Doc::chained(
+            recv,
+            Doc::call(format!(".{}", snake_to_lower_camel(method)), args, layout.args_tall),
+        )
+    }
+
+    fn param(&self, name: &Ident) -> Doc {
+        Doc::text(kotlin_param(name))
+    }
+
+    /// A string template: `"by ${author}"`.
+    fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        let mut out = String::from("\"");
+        for p in parts {
+            match p {
+                ConcatPart::Lit(s) => out.push_str(&kotlin_str_body(s)),
+                ConcatPart::Param(i) => out.push_str(&format!("${{{}}}", kotlin_param(i))),
+            }
+        }
+        out.push('"');
+        Doc::text(out)
+    }
+}
+
+/// A DOM item: a top-level function taking its parameters as `String`s
+/// that default to the values the item was made with.
+fn dom_item_fn(item: &Item) -> String {
+    let syntax = WrapperDom(KotlinDom);
+    let mut out = String::new();
+    for line in &item_comments(&syntax, item) {
+        out.push_str(&format!("// {line}\n"));
+    }
+    let name = item.name.lower_camel();
+    let params = item
+        .params
+        .iter()
+        .map(|p| match &p.default {
+            Some(d) => format!("{}: String = {}", kotlin_param(&p.name), expr_doc(&syntax, d).flat()),
+            None => format!("{}: String", kotlin_param(&p.name)),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    match item_doc(&syntax, item) {
+        Ok(doc) => out.push_str(&format!(
+            "fun {name}({params}): Dom {{\n    return {}\n}}\n",
+            render(&doc, "    ", 1)
+        )),
+        Err(reason) => out.push_str(&format!(
+            "// not expressible with the Kotlin bindings: {reason}\nfun {name}({params}): Dom? = null\n"
+        )),
+    }
+    out
+}
+
+/// Why the Kotlin bindings cannot register a component library.
+const NO_REGISTRATION: &str = "the Kotlin bindings build neither: ComponentDef and \
+                               ComponentLibrary have no public factory, and AzulHostInvoker has \
+                               no ComponentRenderFn kind (the raw AzComponentRenderFn JNA \
+                               callback returns an AzResultStyledDomRenderDomError.ByValue)";
+
+/// The app's `Main.kt` around a DOM module (`m.app`), in the package of the
+/// bindings and the ui module. The wrapper layer sets no window title (it
+/// is a raw `window_state` field).
+fn app_main(m: &Module) -> String {
+    let Some(app) = &m.app else {
+        return String::new();
+    };
+    let root = format!("{}()", app.root.lower_camel());
+    let body = if app.is_body {
+        root
+    } else {
+        format!("Dom.createBody().withChild({root})")
+    };
+    format!(
+        "// {} - generated by AzBuilder (azul-css codegen, Kotlin).\npackage com.azul\n\n// The \
+         app's data: the layout callback gets it back.\nclass AppData\n\nfun layout(data: \
+         AppData, info: LayoutCallbackInfo): Dom {{\n    return {body}\n}}\n\nfun main() {{\n    \
+         App.create(AppData(), ::layout).use {{ app ->\n        \
+         app.run(WindowCreateOptions.create())\n    }}\n}}\n",
+        one_line(&app.title)
+    )
 }
 
 const HELPERS: &str = r"// Copies the items into native memory; AzXxxVec_copyFromPtr clones them.
@@ -200,22 +329,67 @@ impl CodegenBackend for Kotlin {
         "kt"
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn emit_module(&self, m: &Module) -> String {
+        // The raw-layer helpers (and their imports) serve CSS values only; a
+        // module without DOM keeps its exact layout.
+        let css = !m.is_dom() || m.items.iter().any(|i| !is_dom_item(i));
         let mut out = String::from(
-            "// Generated by azul-css codegen (Kotlin). Do not edit by hand.\npackage \
-             com.azul\n\nimport com.sun.jna.Memory\nimport com.sun.jna.Pointer\nimport \
-             com.sun.jna.Structure\n",
+            "// Generated by azul-css codegen (Kotlin). Do not edit by hand.\npackage com.azul\n",
         );
+        if css {
+            out.push_str(
+                "\nimport com.sun.jna.Memory\nimport com.sun.jna.Pointer\nimport \
+                 com.sun.jna.Structure\n",
+            );
+        }
         for item in &m.items {
             out.push('\n');
-            out.push_str(&item_fn(item));
+            if is_dom_item(item) {
+                out.push_str(&dom_item_fn(item));
+            } else {
+                out.push_str(&item_fn(item));
+            }
         }
-        out.push('\n');
-        out.push_str(HELPERS);
+        if css {
+            out.push('\n');
+            out.push_str(HELPERS);
+        }
+        if let Some(lib) = &m.library {
+            out.push('\n');
+            for line in registration_note(lib, NO_REGISTRATION) {
+                out.push_str(&format!("// {line}\n"));
+            }
+        }
         out
     }
 
     fn emit_project_files(&self, m: &Module) -> Vec<GeneratedFile> {
+        if m.app.is_some() {
+            let mut build = gradle("azul-app");
+            build.push_str(APP_JAR);
+            return vec![
+                GeneratedFile {
+                    path: "build.gradle.kts".to_string(),
+                    contents: build,
+                },
+                GeneratedFile {
+                    path: "settings.gradle.kts".to_string(),
+                    contents: settings("azul-app"),
+                },
+                GeneratedFile {
+                    path: "src/main/kotlin/Ui.kt".to_string(),
+                    contents: self.emit_module(m),
+                },
+                GeneratedFile {
+                    path: "src/main/kotlin/Main.kt".to_string(),
+                    contents: app_main(m),
+                },
+            ];
+        }
         let mut main = String::from("package com.azul\n\nfun main() {\n");
         for item in &m.items {
             let name = item.name.lower_camel();
@@ -227,11 +401,11 @@ impl CodegenBackend for Kotlin {
         vec![
             GeneratedFile {
                 path: "build.gradle.kts".to_string(),
-                contents: GRADLE.to_string(),
+                contents: gradle("azul-styles"),
             },
             GeneratedFile {
                 path: "settings.gradle.kts".to_string(),
-                contents: "rootProject.name = \"azul-styles\"\n".to_string(),
+                contents: settings("azul-styles"),
             },
             GeneratedFile {
                 path: "src/main/kotlin/Styles.kt".to_string(),
@@ -244,6 +418,33 @@ impl CodegenBackend for Kotlin {
         ]
     }
 }
+
+/// The Gradle build of a project named `name` (its jar is
+/// `build/libs/<name>.jar`).
+fn gradle(name: &str) -> String {
+    GRADLE.replace("azul-styles", name)
+}
+
+/// The `settings.gradle.kts` of a project named `name`.
+fn settings(name: &str) -> String {
+    format!("rootProject.name = \"{name}\"\n")
+}
+
+/// Appended to an app's build: `java -jar` needs kotlin-stdlib and JNA
+/// inside the jar and the main class in its manifest (the setup of
+/// `lang_kotlin/gradle.rs`).
+const APP_JAR: &str = r#"
+// A runnable jar: kotlin-stdlib and JNA inside, the main class in the
+// manifest. macOS: java -XstartOnFirstThread -Djna.library.path=.. -jar ..
+tasks.jar {
+    manifest {
+        attributes["Main-Class"] = "com.azul.MainKt"
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
+    from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) })
+}
+"#;
 
 const GRADLE: &str = r#"// Copy target/codegen/kotlin/Azul.kt into src/main/kotlin/, then
 //   gradle build && java -Djna.library.path=<dir of libazul> -jar build/libs/azul-styles.jar

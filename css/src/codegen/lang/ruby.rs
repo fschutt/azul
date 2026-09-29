@@ -10,6 +10,18 @@
 //! `AzulCodegen.struct` / `.union` / `.vec` helpers do that and return the
 //! value (a union is `{ tag, payload: { Variant: { payload } } }` in
 //! `azul.rb`). Strings go through `Azul._az_string`.
+//!
+//! A DOM goes through the wrapper classes instead (`lang_ruby/wrappers.rs`):
+//! factories keep the api snake_case name (`Azul::Dom.create_div`,
+//! `Azul::SmallAriaInfo.label(..)`), a by-value `self` method consumes its
+//! receiver and returns a new `Dom` (`.with_child(..)`, chained with the dot
+//! leading the line), string arguments are Ruby strings (the wrappers convert
+//! them) and a joined text is an interpolation (`"by #{author}"`). A DOM
+//! module is `module AzulUi`; its functions default their parameters to the
+//! values the item was made with. An app is
+//! `Azul::WindowCreateOptions.create_with_layout(layout)` with a layout
+//! lambda, the title through `.with(window_state: { title: .. })`, and
+//! `Azul::App.create(AppData.new, Azul::AppConfig.create)` + `app.run(window)`.
 
 use alloc::{
     format,
@@ -20,10 +32,11 @@ use alloc::{
 
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{snake_to_lower_camel, EnumShape, Item, Module, Prim},
+    ir::{snake_to_lower_camel, EnumShape, Expr, Ident, Item, Module, Prim},
     lang::{
+        dom::{is_dom_item, one_line, registration_note, WrapperDom, WrapperDomSyntax},
         escape_quoted, item_comments, item_doc, simple_snake, unicode_braced, variant_ctor_method,
-        ExprSyntax,
+        ConcatPart, ExprSyntax, MethodLayout,
     },
     lower_types::{is_c_like_enum, union_tag},
     CodegenBackend, GeneratedFile,
@@ -116,6 +129,163 @@ impl ExprSyntax for Ruby {
     }
 }
 
+/// Ruby's keywords, as the generator lists them (`RUBY_RESERVED` in
+/// `lang_ruby/wrappers.rs`): a method or parameter named like one gets a
+/// trailing `_` there, and a parameter here.
+const RESERVED: &[&str] = &[
+    "alias", "and", "begin", "break", "case", "class", "def", "defined", "do", "else", "elsif",
+    "end", "ensure", "false", "for", "if", "in", "module", "next", "nil", "not", "or", "redo",
+    "rescue", "retry", "return", "self", "super", "then", "true", "undef", "unless", "until",
+    "when", "while", "yield",
+];
+
+/// `name`, or `name_` when it is a Ruby keyword (the generator's rule for
+/// method and argument names).
+fn ruby_name(name: &str) -> String {
+    if RESERVED.contains(&name) {
+        format!("{name}_")
+    } else {
+        name.to_string()
+    }
+}
+
+/// A parameter's Ruby name.
+fn ruby_param(name: &Ident) -> String {
+    ruby_name(&name.snake())
+}
+
+/// A double-quoted Ruby string (`#` escaped: no interpolation).
+fn ruby_str(s: &str) -> String {
+    format!("\"{}\"", escape_quoted(s, &['#'], &unicode_braced))
+}
+
+/// The DOM through the wrapper classes (`Azul::Dom`, `Azul::SmallAriaInfo`).
+#[derive(Debug, Copy, Clone, Default)]
+struct RubyDom;
+
+impl WrapperDomSyntax for RubyDom {
+    fn base(&self) -> &dyn ExprSyntax {
+        &Ruby
+    }
+
+    fn native_string(&self, s: &str) -> Doc {
+        Doc::text(ruby_str(s))
+    }
+
+    /// `Azul::Dom.create_div` (no parentheses without arguments, like the
+    /// bindings' hello world), `Azul::Dom.create_h2_with_text(..)`.
+    fn factory(&self, class: &str, method: &str, args: Vec<Doc>, broken: bool) -> Doc {
+        let name = format!("Azul::{class}.{}", ruby_name(method));
+        if args.is_empty() {
+            Doc::text(name)
+        } else {
+            Doc::call(name, args, broken)
+        }
+    }
+
+    fn method(&self, recv: Doc, _class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
+        Doc::chained(
+            recv,
+            Doc::call(format!(".{}", ruby_name(method)), args, layout.args_tall),
+        )
+    }
+
+    fn param(&self, name: &Ident) -> Doc {
+        Doc::text(ruby_param(name))
+    }
+
+    /// String interpolation.
+    fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        let mut out = String::from("\"");
+        for p in parts {
+            match p {
+                ConcatPart::Lit(s) => out.push_str(&escape_quoted(s, &['#'], &unicode_braced)),
+                ConcatPart::Param(i) => out.push_str(&format!("#{{{}}}", ruby_param(i))),
+            }
+        }
+        out.push('"');
+        Doc::text(out)
+    }
+}
+
+/// A DOM item: a module function taking Ruby strings that default to the
+/// values the item was made with.
+fn dom_item_fn(item: &Item) -> String {
+    let syntax = WrapperDom(RubyDom);
+    let mut out = String::new();
+    for line in &item_comments(&syntax, item) {
+        out.push_str(&format!("  # {line}\n"));
+    }
+    let name = item.name.snake();
+    let params = if item.params.is_empty() {
+        String::new()
+    } else {
+        let list = item
+            .params
+            .iter()
+            .map(|p| match &p.default {
+                Some(Expr::Str(d)) => format!("{} = {}", ruby_param(&p.name), ruby_str(d)),
+                _ => ruby_param(&p.name),
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("({list})")
+    };
+    match item_doc(&syntax, item) {
+        Ok(doc) => out.push_str(&format!(
+            "  def self.{name}{params}\n    {}\n  end\n",
+            render(&doc, "  ", 2)
+        )),
+        Err(reason) => out.push_str(&format!(
+            "  # not expressible with the Ruby bindings: {reason}\n  def self.{name}{params}\n    \
+             nil\n  end\n"
+        )),
+    }
+    out
+}
+
+/// Why the Ruby bindings cannot register a component library.
+const NO_REGISTRATION: &str = "the Ruby bindings cannot make one: they declare the FFI callback \
+                               az_component_render_fn with a :pointer return (the generator types \
+                               every non-primitive callback return that way), so no Ruby block \
+                               can return the ResultStyledDomRenderDomError by value, and \
+                               ComponentDef / ComponentLibrary have no factory";
+
+/// The module a module's functions live in.
+fn module_name(m: &Module) -> &'static str {
+    if m.is_dom() {
+        "AzulUi"
+    } else {
+        "AzulStyles"
+    }
+}
+
+/// The app's `main.rb` around a DOM module (`m.app`) in `ui.rb`.
+fn app_main(m: &Module) -> String {
+    let Some(app) = &m.app else {
+        return String::new();
+    };
+    let root = format!("{}.{}", module_name(m), app.root.snake());
+    let body = if app.is_body {
+        root
+    } else {
+        format!("Azul::Dom.create_body.with_child({root})")
+    };
+    format!(
+        "# {} - generated by AzBuilder (azul-css codegen, Ruby).\n# Copy target/codegen/azul.rb \
+         and libazul next to this file, then: ruby -I. main.rb\nrequire_relative \"ui\"\n\n# The \
+         app's data: the layout callback gets it back.\nclass AppData\nend\n\nlayout = lambda do \
+         |_data, _info|\n  {body}\nend\n\nwindow = \
+         Azul::WindowCreateOptions.create_with_layout(layout).with(window_state: {{ title: {} \
+         }})\napp = Azul::App.create(AppData.new, Azul::AppConfig.create)\napp.run(window)\n",
+        one_line(&app.title),
+        ruby_str(&app.title)
+    )
+}
+
+/// The project's `Gemfile`.
+const GEMFILE: &str = "source 'https://rubygems.org'\n\ngem 'ffi'\n";
+
 const HELPERS: &str = r"module AzulCodegen
   N = Azul::Native
 
@@ -199,21 +369,61 @@ impl CodegenBackend for Ruby {
         "rb"
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn emit_module(&self, m: &Module) -> String {
+        // The raw-layer helpers (and `N`) serve CSS values only.
+        let css = !m.is_dom() || m.items.iter().any(|i| !is_dom_item(i));
         let mut out = String::from(
             "# Generated by azul-css codegen (Ruby). Do not edit by hand.\nrequire 'azul'\n\n",
         );
-        out.push_str(HELPERS);
-        out.push_str("\nmodule AzulStyles\n  N = Azul::Native\n");
-        for item in &m.items {
+        if css {
+            out.push_str(HELPERS);
             out.push('\n');
-            out.push_str(&item_fn(item));
+        }
+        out.push_str(&format!("module {}\n", module_name(m)));
+        if css {
+            out.push_str("  N = Azul::Native\n");
+        }
+        for (i, item) in m.items.iter().enumerate() {
+            if css || i > 0 {
+                out.push('\n');
+            }
+            if is_dom_item(item) {
+                out.push_str(&dom_item_fn(item));
+            } else {
+                out.push_str(&item_fn(item));
+            }
         }
         out.push_str("end\n");
+        if let Some(lib) = &m.library {
+            out.push('\n');
+            for line in registration_note(lib, NO_REGISTRATION) {
+                out.push_str(&format!("# {line}\n"));
+            }
+        }
         out
     }
 
     fn emit_project_files(&self, m: &Module) -> Vec<GeneratedFile> {
+        if m.app.is_some() {
+            return vec![
+                GeneratedFile {
+                    path: "Gemfile".to_string(),
+                    contents: GEMFILE.to_string(),
+                },
+                GeneratedFile {
+                    path: "ui.rb".to_string(),
+                    contents: self.emit_module(m),
+                },
+                GeneratedFile {
+                    path: "main.rb".to_string(),
+                    contents: app_main(m),
+                },
+            ];
+        }
         let mut main = String::from(
             "# Copy target/codegen/azul.rb and libazul next to this file, then: ruby -I. \
              main.rb\nrequire_relative 'styles'\n",
@@ -227,7 +437,7 @@ impl CodegenBackend for Ruby {
         vec![
             GeneratedFile {
                 path: "Gemfile".to_string(),
-                contents: "source 'https://rubygems.org'\n\ngem 'ffi'\n".to_string(),
+                contents: GEMFILE.to_string(),
             },
             GeneratedFile {
                 path: "styles.rb".to_string(),

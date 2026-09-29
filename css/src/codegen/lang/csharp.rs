@@ -12,6 +12,16 @@
 //! the generated `AzulCodegen.Vec` helper does that and calls
 //! `NativeMethods.AzXxxVec_copyFromPtr(ptr, len)`; `AzulCodegen.Str` builds
 //! an `AzString` from UTF-8 bytes like the generated wrappers do.
+//!
+//! A DOM goes through the wrapper classes instead (`lang_csharp/wrappers.rs`):
+//! static factories and methods are PascalCase (`Dom.CreateDiv()`,
+//! `SmallAriaInfo.Label(..)`), a by-value `self` method consumes its
+//! receiver and returns a new `Dom` (`.WithChild(..)`, chained), and string
+//! arguments are C# `string`s. A DOM module is `namespace AzulUi`, `static
+//! class Ui`; a DOM item's trailing parameters are optional, defaulting to
+//! the values it was made with. An app is `App.Create(new AppData(),
+//! AppConfig.Create())` + `app.Run(WindowCreateOptions.Create<AppData>(Layout))`
+//! with a typed layout method (`HostInvoker.LayoutCallbackWithData<T>`).
 
 use alloc::{
     format,
@@ -22,9 +32,14 @@ use alloc::{
 
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{snake_to_lower_camel, EnumShape, Item, Module, Prim},
+    ir::{
+        snake_to_lower_camel, snake_to_upper_camel, EnumShape, Expr, Ident, Item, ItemParam,
+        Module, Prim,
+    },
     lang::{
-        escape_quoted, item_comments, item_doc, unicode_u4, variant_ctor_method, ExprSyntax,
+        dom::{is_dom_item, one_line, registration_note, WrapperDom, WrapperDomSyntax},
+        escape_quoted, item_comments, item_doc, unicode_u4, variant_ctor_method, ConcatPart,
+        ExprSyntax, MethodLayout,
     },
     lower_types::is_c_like_enum,
     CodegenBackend, GeneratedFile,
@@ -164,6 +179,146 @@ impl ExprSyntax for CSharp {
     }
 }
 
+/// A parameter's C# name (a keyword gets `@`, like the bindings'
+/// `WithClass(string @class)`).
+fn cs_param(name: &Ident) -> String {
+    field(&name.lower_camel())
+}
+
+/// A C# `string` literal.
+fn cs_str(s: &str) -> String {
+    format!("\"{}\"", escape_quoted(s, &[], &unicode_u4))
+}
+
+/// The DOM through the wrapper classes (`Dom`, `SmallAriaInfo`).
+#[derive(Debug, Copy, Clone, Default)]
+struct CSharpDom;
+
+impl WrapperDomSyntax for CSharpDom {
+    fn base(&self) -> &dyn ExprSyntax {
+        &CSharp
+    }
+
+    fn native_string(&self, s: &str) -> Doc {
+        Doc::text(cs_str(s))
+    }
+
+    fn factory(&self, class: &str, method: &str, args: Vec<Doc>, broken: bool) -> Doc {
+        Doc::call(format!("{class}.{}", snake_to_upper_camel(method)), args, broken)
+    }
+
+    fn method(&self, recv: Doc, _class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
+        Doc::chained(
+            recv,
+            Doc::call(format!(".{}", snake_to_upper_camel(method)), args, layout.args_tall),
+        )
+    }
+
+    fn param(&self, name: &Ident) -> Doc {
+        Doc::text(cs_param(name))
+    }
+
+    fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        Doc::text(
+            parts
+                .iter()
+                .map(|p| match p {
+                    ConcatPart::Lit(s) => cs_str(s),
+                    ConcatPart::Param(i) => cs_param(i),
+                })
+                .collect::<Vec<_>>()
+                .join(" + "),
+        )
+    }
+}
+
+/// A parameter's default as a C# constant (a string literal), if it has one.
+fn cs_default(p: &ItemParam) -> Option<String> {
+    match &p.default {
+        Some(Expr::Str(s)) => Some(cs_str(s)),
+        _ => None,
+    }
+}
+
+/// A DOM item: a static method taking its parameters as `string`s; the
+/// trailing ones with a default are optional (C# puts every optional
+/// parameter after the required ones).
+fn dom_item_method(item: &Item) -> String {
+    let syntax = WrapperDom(CSharpDom);
+    let mut out = String::new();
+    for line in &item_comments(&syntax, item) {
+        out.push_str(&format!("        // {line}\n"));
+    }
+    let name = item.name.upper_camel();
+    let first_optional = item
+        .params
+        .iter()
+        .rposition(|p| cs_default(p).is_none())
+        .map_or(0, |i| i + 1);
+    let params = item
+        .params
+        .iter()
+        .enumerate()
+        .map(|(i, p)| match cs_default(p) {
+            Some(d) if i >= first_optional => format!("string {} = {d}", cs_param(&p.name)),
+            _ => format!("string {}", cs_param(&p.name)),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    match item_doc(&syntax, item) {
+        Ok(doc) => out.push_str(&format!(
+            "        public static Dom {name}({params})\n        {{\n            return {};\n        \
+             }}\n",
+            render(&doc, "    ", 3)
+        )),
+        Err(reason) => out.push_str(&format!(
+            "        // not expressible with the C# bindings: {reason}\n        public static Dom \
+             {name}({params}) => null;\n"
+        )),
+    }
+    out
+}
+
+/// Why the C# bindings cannot register a component library.
+const NO_REGISTRATION: &str = "the C# bindings build neither: ComponentDef and ComponentLibrary \
+                               have no public factory, and HostInvoker has no ComponentRenderFn \
+                               kind (AzComponentDef.render_fn is a bare IntPtr for a native \
+                               function that returns an AzResultStyledDomRenderDomError by value)";
+
+/// The namespace and class a module's methods live in.
+fn module_names(m: &Module) -> (&'static str, &'static str) {
+    if m.is_dom() {
+        ("AzulUi", "Ui")
+    } else {
+        ("AzulStyles", "Styles")
+    }
+}
+
+/// The app's `Program.cs` around a DOM module (`m.app`). The wrapper layer
+/// sets no window title (it is a raw `window_state` field).
+fn app_main(m: &Module) -> String {
+    let Some(app) = &m.app else {
+        return String::new();
+    };
+    let (ns, class) = module_names(m);
+    let root = format!("{ns}.{class}.{}()", app.root.upper_camel());
+    let body = if app.is_body {
+        root
+    } else {
+        format!("Dom.CreateBody().WithChild({root})")
+    };
+    format!(
+        "// {} - generated by AzBuilder (azul-css codegen, C#).\n// Copy Azul.cs (target/codegen) \
+         and the azul library next to this file.\nusing Azul;\n\n// The app's data: the layout \
+         callback gets it back.\npublic sealed class AppData\n{{\n}}\n\npublic static class \
+         Program\n{{\n    private static Dom Layout(AppData data, LayoutCallbackInfo info)\n    \
+         {{\n        return {body};\n    }}\n\n    public static int Main(string[] args)\n    {{\n        \
+         using var app = App.Create(new AppData(), AppConfig.Create());\n        \
+         app.Run(WindowCreateOptions.Create<AppData>(Layout));\n        return 0;\n    }}\n}}\n",
+        one_line(&app.title)
+    )
+}
+
 /// The marshalling helpers every generated file carries.
 const HELPERS: &str = r"    internal static class AzulCodegen
     {
@@ -240,25 +395,64 @@ impl CodegenBackend for CSharp {
         "cs"
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn emit_module(&self, m: &Module) -> String {
-        let mut out = String::from(
-            "// Generated by azul-css codegen (C#). Do not edit by hand.\nusing System;\nusing \
-             System.Runtime.InteropServices;\nusing System.Text;\nusing Azul;\n\nnamespace \
-             AzulStyles\n{\n    public static class Styles\n    {\n",
-        );
+        // The raw-layer helpers (and their usings) serve CSS values only; a
+        // module without DOM keeps its exact layout.
+        let css = !m.is_dom() || m.items.iter().any(|i| !is_dom_item(i));
+        let (ns, class) = module_names(m);
+        let mut out = String::from("// Generated by azul-css codegen (C#). Do not edit by hand.\n");
+        if css {
+            out.push_str("using System;\nusing System.Runtime.InteropServices;\nusing System.Text;\n");
+        }
+        out.push_str(&format!(
+            "using Azul;\n\nnamespace {ns}\n{{\n    public static class {class}\n    {{\n"
+        ));
         for (i, item) in m.items.iter().enumerate() {
             if i > 0 {
                 out.push('\n');
             }
-            out.push_str(&item_method(item));
+            if is_dom_item(item) {
+                out.push_str(&dom_item_method(item));
+            } else {
+                out.push_str(&item_method(item));
+            }
         }
-        out.push_str("    }\n\n");
-        out.push_str(HELPERS);
+        out.push_str("    }\n");
+        if css {
+            out.push('\n');
+            out.push_str(HELPERS);
+        }
         out.push_str("}\n");
+        if let Some(lib) = &m.library {
+            out.push('\n');
+            for line in registration_note(lib, NO_REGISTRATION) {
+                out.push_str(&format!("// {line}\n"));
+            }
+        }
         out
     }
 
     fn emit_project_files(&self, m: &Module) -> Vec<GeneratedFile> {
+        if m.app.is_some() {
+            return vec![
+                GeneratedFile {
+                    path: "AzulApp.csproj".to_string(),
+                    contents: CSPROJ.to_string(),
+                },
+                GeneratedFile {
+                    path: "Ui.cs".to_string(),
+                    contents: self.emit_module(m),
+                },
+                GeneratedFile {
+                    path: "Program.cs".to_string(),
+                    contents: app_main(m),
+                },
+            ];
+        }
         let mut main = String::from(
             "// Copy Azul.cs (target/codegen) and the azul library next to this file.\nusing \
              System;\n\nclass Program\n{\n    static void Main()\n    {\n",
@@ -283,14 +477,7 @@ impl CodegenBackend for CSharp {
         vec![
             GeneratedFile {
                 path: "AzulStyles.csproj".to_string(),
-                contents: "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    \
-                           <OutputType>Exe</OutputType>\n    \
-                           <TargetFramework>net8.0</TargetFramework>\n    \
-                           <RollForward>Major</RollForward>\n    \
-                           <Nullable>enable</Nullable>\n    \
-                           <AllowUnsafeBlocks>true</AllowUnsafeBlocks>\n  </PropertyGroup>\n\
-                           </Project>\n"
-                    .to_string(),
+                contents: CSPROJ.to_string(),
             },
             GeneratedFile {
                 path: "Styles.cs".to_string(),
@@ -303,3 +490,16 @@ impl CodegenBackend for CSharp {
         ]
     }
 }
+
+/// The project file of the CSS project and of an app (the project is named
+/// after the file).
+const CSPROJ: &str = r#"<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RollForward>Major</RollForward>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+</Project>
+"#;

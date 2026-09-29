@@ -517,6 +517,18 @@ pub fn unicode_u4(cp: u32) -> String {
     }
 }
 
+/// `é`; above U+FFFF a UTF-16 surrogate pair (`😀`): Java
+/// and Kotlin have no `\U` escape.
+#[must_use]
+pub fn unicode_utf16(cp: u32) -> String {
+    if cp < 0x1_0000 {
+        format!("\\u{cp:04x}")
+    } else {
+        let v = cp - 0x1_0000;
+        format!("\\u{:04x}\\u{:04x}", 0xD800 + (v >> 10), 0xDC00 + (v & 0x3FF))
+    }
+}
+
 /// `\u{e9}` (Rust-, Swift-, Ruby-, Lua-style).
 #[must_use]
 pub fn unicode_braced(cp: u32) -> String {
