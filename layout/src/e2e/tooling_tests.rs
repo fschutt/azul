@@ -404,3 +404,102 @@ fn assert_notification_checks_the_payload_a_notification_was_posted_with() {
         step_errors(&other)
     );
 }
+
+// ==== `ScrollFocusedContainer` in the headless runner ====
+
+/// `body > div[tabindex]` (node 1): a 200x100 box that scrolls 20 rows of
+/// 30px, so its range is 500px.
+fn focusable_scroll_box() -> azul_core::styled_dom::StyledDom {
+    use azul_core::dom::{Dom, TabIndex};
+
+    let mut rows = Dom::create_div()
+        .with_tab_index(TabIndex::Auto)
+        .with_css(
+            "display: block; width: 200px; height: 100px; margin: 0; padding: 0; \
+             overflow-y: auto;",
+        );
+    for _ in 0..20 {
+        rows = rows.with_child(
+            Dom::create_div()
+                .with_css("display: block; width: 200px; height: 30px; margin: 0; padding: 0;"),
+        );
+    }
+    azul_core::styled_dom::StyledDom::create_from_dom(
+        Dom::create_body()
+            .with_css("margin: 0; padding: 0;")
+            .with_child(rows),
+    )
+}
+
+/// Run `steps` on [`focusable_scroll_box`] and read the box's scroll offset.
+fn scroll_box_offset_after(name: &str, steps: serde_json::Value) -> f32 {
+    use azul_core::dom::{DomId, NodeId};
+
+    let test: E2eTest = serde_json::from_value(serde_json::json!({
+        "name": name,
+        "setup": { "window_width": 400, "window_height": 300, "dpi": 96 },
+        "steps": steps,
+    }))
+    .expect("scenario json");
+    let (result, runner) = super::run_e2e_test_keeping_runner(&test, Some(focusable_scroll_box()));
+    assert_eq!(result.status, "pass", "{:#?}", result.steps);
+    runner
+        .layout_window
+        .scroll_manager
+        .get_current_offset(DomId::ROOT_ID, NodeId::new(1))
+        .unwrap_or_default()
+        .y
+}
+
+fn key(name: &str) -> [serde_json::Value; 3] {
+    [
+        serde_json::json!({ "op": "key_down", "key": name }),
+        serde_json::json!({ "op": "key_up", "key": name }),
+        serde_json::json!({ "op": "wait_frame" }),
+    ]
+}
+
+/// PgUp / PgDn / Space / Home / End (and an arrow with nowhere to go) are
+/// `DefaultAction::ScrollFocusedContainer`, which the dll scrolls and the
+/// runner dropped (`_ => DoNothing`): headless, those keys did nothing.
+#[test]
+fn page_down_end_and_home_scroll_the_focused_scroll_box_headless() {
+    let tab = key("Tab");
+    let focus: Vec<serde_json::Value> = std::iter::once(serde_json::json!({ "op": "wait_frame" }))
+        .chain(tab.iter().cloned())
+        .collect();
+    let with = |keys: &[&str]| -> serde_json::Value {
+        let mut steps = focus.clone();
+        for k in keys {
+            steps.extend(key(k));
+        }
+        serde_json::Value::Array(steps)
+    };
+
+    let paged = scroll_box_offset_after("page_down", with(&["PageDown"]));
+    let ended = scroll_box_offset_after("end", with(&["End"]));
+    let homed = scroll_box_offset_after("end_then_home", with(&["End", "Home"]));
+
+    assert!(
+        paged > 50.0 && paged < 150.0,
+        "PageDown scrolls the focused box by about a page (90% of its 100px), got {paged:.1}"
+    );
+    assert!(ended > 400.0, "End scrolls it to its 500px bottom, got {ended:.1}");
+    assert!(homed.abs() < 0.5, "Home scrolls it back to the top, got {homed:.1}");
+}
+
+/// With nothing focused the key scrolls the box under the mouse pointer,
+/// like the dll (its anchor is the topmost hovered node).
+#[test]
+fn page_down_scrolls_the_box_under_the_pointer_when_nothing_is_focused() {
+    let mut steps = vec![
+        serde_json::json!({ "op": "wait_frame" }),
+        serde_json::json!({ "op": "mouse_move", "x": 50.0, "y": 50.0 }),
+        serde_json::json!({ "op": "wait_frame" }),
+    ];
+    steps.extend(key("PageDown"));
+
+    let paged = scroll_box_offset_after("page_down_hovered", serde_json::Value::Array(steps));
+
+    assert!(paged > 50.0, "PageDown scrolled the hovered box, got {paged:.1}");
+}
