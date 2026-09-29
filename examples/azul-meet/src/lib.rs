@@ -1672,7 +1672,7 @@ fn probe(url: &str) -> Result<(), String> {
         .unwrap_or_else(|_| Err(String::from("no answer")))
 }
 
-/// The meeting server to use, or why there is none.
+/// The meeting server to use, or the line the demo shows instead.
 fn meeting_server() -> Result<String, String> {
     let configured = std::env::var("AZMEET_WORKER")
         .ok()
@@ -1680,12 +1680,17 @@ fn meeting_server() -> Result<String, String> {
         .filter(|url| !url.is_empty())
         .or_else(|| (!PRODUCTION_WORKER.is_empty()).then(|| PRODUCTION_WORKER.to_string()));
     let Some(url) = configured else {
-        return Err(String::from("no meeting server is set (AZMEET_WORKER)"));
+        return Err(String::from(
+            "Local demo: no meeting server is set. Start AzMeet with AZMEET_WORKER=<url> to meet \
+             other people.",
+        ));
     };
     let url = url.trim_end_matches('/').to_string();
     match probe(&url) {
         Ok(()) => Ok(url),
-        Err(e) => Err(format!("the meeting server at {url} is unreachable ({e})")),
+        Err(e) => Err(format!(
+            "Local demo: the meeting server at {url} does not answer ({e})."
+        )),
     }
 }
 
@@ -1725,10 +1730,10 @@ fn start_rooms(worker: String) {
 }
 
 /// The in-process demo: two participants linked by two iroh endpoints, or one without a link.
-fn start_demo(reason: &str) {
+/// `notice` says why there is no meeting server; both windows show it.
+fn start_demo(notice: &str) {
     let meeting = gen_link();
-    let notice =
-        format!("Local demo, no meeting server: {reason}. Set AZMEET_WORKER to meet other people.");
+    let notice = notice.to_string();
     eprintln!("[azmeet] {notice}");
     let ada_link = bind_endpoint(&Relay::Off);
     let ben_link = bind_endpoint(&Relay::Off);
