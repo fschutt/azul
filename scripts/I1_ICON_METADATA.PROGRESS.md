@@ -8,9 +8,13 @@ Design: `scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md` section
 - `3a2c83b43` plan checkpoint
 - `8e1d021ac` RED: metadata defaults, variant per mode, request x capability (layout/src/icon.rs tests)
 - `b4fa0dc75` impl: IconMeta & friends (core), capability-aware resolver (layout), CURRENT_COLOR_TOKEN (css)
+- `35cb194ff` RED: E15 pixel test (layout/tests/a_tinted_raster_icon_is_tinted_inside_its_own_alpha.rs),
+  CPU flood/composite unit tests, WR fold tests (css filter.rs)
+- `4452689d9` fix: filter => stacking context; currentColor flood token per node; CPU flood + composite +
+  isolated filter group; WR fold_flood_in + column-major colour matrix
 
 ## IN PROGRESS
-- step 2: E15 headless pixel test
+- step 3: SVG currentColor + palette + register_svg_icon
 
 ## NEXT (in order)
 1. RED + impl: `IconMeta` (designed_for / variants / recolor / monochrome) on the registered data,
