@@ -662,3 +662,18 @@ fn comboboxes_follow_the_app_theme() {
         });
     }
 }
+
+#[test]
+fn file_inputs_follow_the_app_theme() {
+    use azul_css::OptionString;
+    use azul_layout::widgets::file_input::FileInput;
+    for path in [None, Some("/tmp/report.pdf")] {
+        assert_follows_the_app_theme(&format!("file input {path:?}"), |t| {
+            let path = match path {
+                Some(p) => OptionString::Some(AzString::from(p.to_string())),
+                None => OptionString::None,
+            };
+            pinned(FileInput::create(path), t, FileInput::with_theme).dom()
+        });
+    }
+}

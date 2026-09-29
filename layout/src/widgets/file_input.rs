@@ -1671,3 +1671,80 @@ mod autotest_generated {
         }
     }
 }
+
+#[cfg(all(test, feature = "std"))]
+mod theme_tests {
+    //! A file input renders AS a `Button`, so its theme is the button's: flat's
+    //! or flora's button face, light and dark, ringed on focus in both. With no
+    //! theme it follows the app theme.
+
+    use azul_core::dom::Dom;
+
+    use super::*;
+    use crate::widgets::themes::{theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLAT: &str = "__azul-theme-flat";
+    const FLORA: &str = "__azul-theme-flora";
+
+    fn input(theme: Option<UiTheme>) -> Dom {
+        let f = FileInput::create(OptionString::Some(AzString::from("/tmp/report.pdf")));
+        match theme {
+            Some(t) => f.with_theme(t).dom(),
+            None => f.dom(),
+        }
+    }
+
+    #[test]
+    fn a_file_input_without_a_theme_follows_the_app_theme_flat_by_default() {
+        let f = FileInput::create(OptionString::None);
+        assert_eq!(f.theme, OptionUiTheme::None, "no opinion until the app picks one");
+        assert!(tc::has_class(&input(None), FLAT));
+        let dom = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            input(None)
+        };
+        assert!(tc::has_class(&dom, FLORA), "built for flora, it is flora's");
+        assert!(!tc::has_class(&dom, FLAT));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_agree() {
+        let mut a = FileInput::create(OptionString::None);
+        a.set_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(a, FileInput::create(OptionString::None).with_theme(UiTheme::Flora));
+    }
+
+    #[test]
+    fn a_pinned_file_input_is_that_themes_button_in_both_modes() {
+        for (theme, marker) in [(UiTheme::Flat, FLAT), (UiTheme::Flora, FLORA)] {
+            let dom = input(Some(theme));
+            assert!(tc::has_class(&dom, marker), "{theme:?}");
+            let button = Button::create(AzString::from("report.pdf"))
+                .with_theme(theme)
+                .dom();
+            // The button's own suite pins its faces and rings in both modes.
+            assert_eq!(
+                dom.root.style, button.root.style,
+                "{theme:?}: the file input is styled exactly as that theme's button"
+            );
+        }
+    }
+
+    #[test]
+    fn the_theme_changes_the_look_not_the_accessibility_tree() {
+        assert_eq!(
+            tc::a11y_outline(&input(Some(UiTheme::Flat))),
+            tc::a11y_outline(&input(Some(UiTheme::Flora)))
+        );
+    }
+
+    #[test]
+    fn the_style_resolvers_answer_for_the_theme() {
+        let f = FileInput::create(OptionString::None).with_theme(UiTheme::Flora);
+        let b = Button::create(AzString::from_const_str("")).with_theme(UiTheme::Flora);
+        assert_eq!(f.resolved_container_style(), b.resolved_container_style());
+        assert_eq!(f.resolved_label_style(), b.resolved_label_style());
+        assert_eq!(f.resolved_image_style(), b.resolved_image_style());
+    }
+}
