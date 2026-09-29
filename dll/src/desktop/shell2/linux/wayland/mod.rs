@@ -1524,11 +1524,28 @@ fn apply_input_region_from_shape(
 }
 
 impl PlatformWindow for WaylandWindow {
-    /// `handle_key` forwards every key to the `active_popup` (the
+    /// `handle_key` forwards every key to a focus-taking `active_popup` (the
     /// `xdg_popup` grab) before the shared pass sees it, so the shared
-    /// mailbox forwarding must not deliver it a second time.
+    /// mailbox forwarding must not deliver it a second time. (A list popup's
+    /// keys run the parent's pipeline; see `deliver_forwarded_keys`.)
     fn popups_route_keys_natively(&self) -> bool {
         true
+    }
+
+    /// Replay, in the `active_popup`, the keys the parent's pass just
+    /// forwarded to it (a list popup's navigation keys), then service
+    /// whatever that asked for (an Enter that picked an option closes it).
+    fn deliver_forwarded_keys(&mut self) {
+        use crate::desktop::shell2::common::event::PlatformWindow as _;
+        if let Some(popup) = self.active_popup.as_mut() {
+            if crate::desktop::shell2::common::transient::has_forwarded_keys(
+                popup.common.current_window_state(),
+            ) {
+                let r = popup.process_window_events(0);
+                popup.apply_event_result(r);
+            }
+        }
+        self.drive_active_popup();
     }
 
     /// The window publishes on ITSELF. The registry route would turn a raw
@@ -3639,7 +3656,18 @@ impl WaylandWindow {
         // focused, typing lands in the popup's text fields. The typed text is
         // resolved here through the parent's xkb state, since the popup has
         // none of its own.
-        if self.active_popup.is_some() {
+        //
+        // Not a popup that LEAVES focus on its invoker (a combobox's list):
+        // typing keeps editing the field, so its keys run the parent's own
+        // pipeline, which forwards the list's navigation keys through the
+        // mailbox (`common::transient::parent_key_route`) and replays them in
+        // the popup (`deliver_forwarded_keys`).
+        let popup_holds_keyboard = self.active_popup.as_ref().is_some_and(|p| {
+            crate::desktop::shell2::common::transient::popup_takes_focus(
+                p.common.current_window_state(),
+            )
+        });
+        if popup_holds_keyboard {
             let text = if is_pressed {
                 let mut buffer: [core::ffi::c_char; 32] = [0; 32];
                 let len = unsafe {

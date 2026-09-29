@@ -4916,21 +4916,26 @@ pub trait PlatformWindow {
     /// gesture. Default: no-op (headless, or a backend without click-through).
     fn set_window_mouse_transparent(&mut self, _transparent: bool) {}
 
-    /// Does this backend deliver keys to a focus-taking popup BY ITSELF, so
+    /// Does this backend deliver keys to a focus-TAKING popup BY ITSELF, so
     /// that a key this (parent) window receives while one is open is really
-    /// meant for the parent? macOS and Win32 make the popup the key / active
-    /// window; Wayland's parent forwards every key to its `active_popup` in
-    /// `handle_key` before the shared pass ever sees it. Default `false`: the
-    /// popup never gets the keyboard (X11 override-redirect, headless), so the
-    /// shared rule in [`Self::forward_keys_to_popup`] hands it over.
+    /// meant for the parent? macOS and Win32 make that popup the key / active
+    /// window; Wayland's parent forwards every key to such an `active_popup`
+    /// in `handle_key` before the shared pass ever sees it. Default `false`:
+    /// the popup never gets the keyboard (X11 override-redirect, headless),
+    /// so the shared rule in [`Self::forward_keys_to_popup`] hands it over.
+    ///
+    /// A popup that LEAVES focus on its invoker (a combobox's list) is never
+    /// the key window on any backend, whatever this answers: its navigation
+    /// keys always come through the parent (`parent_key_route`).
     fn popups_route_keys_natively(&self) -> bool {
         false
     }
 
     /// Run the pass of every popup this window just forwarded a key to,
-    /// where this backend can reach the popup's window (X11: the registry).
-    /// The default reaches none: such a popup replays the key on its own next
-    /// pass (headless: the test drives it).
+    /// where this backend can reach the popup's window (X11, macOS and
+    /// Win32: the registry; Wayland: its `active_popup`). The default
+    /// reaches none: such a popup replays the key on its own next pass
+    /// (headless: the test drives it).
     fn deliver_forwarded_keys(&mut self) {}
 
     /// `<transient-window>`, parent side: after a layout pass, turn the
@@ -5132,12 +5137,13 @@ pub trait PlatformWindow {
             return;
         }
 
-        let (by_press, by_escape) = match self.get_layout_window_mut() {
+        let (by_press, by_escape, by_deactivation) = match self.get_layout_window_mut() {
             Some(lw) => (
                 dismiss_outside_on_press(&previous, &current, lw),
                 super::transient::dismiss_on_escape(&previous, &current, lw),
+                super::transient::dismiss_list_popups_on_deactivation(&previous, &current, lw),
             ),
-            None => (false, false),
+            None => (false, false, false),
         };
         if by_escape {
             // The Escape that closed the popups is SPENT - the parent-side
@@ -5148,11 +5154,12 @@ pub trait PlatformWindow {
             // never has the keyboard and every Escape lands here).
             self.consume_keyboard_delta("transient.escape_dismissed");
         }
-        let dismissed_any = by_press || by_escape;
+        let dismissed_any = by_press || by_escape || by_deactivation;
         if dismissed_any {
             log_debug!(
                 super::debug_server::LogCategory::Window,
-                "[transient] press in the parent dismissed its popups"
+                "[transient] the parent dismissed its popups (press={by_press} escape={by_escape} \
+                 deactivation={by_deactivation})"
             );
             // The Dismissed lifecycle event is queued; a regeneration drains it.
             self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
@@ -5168,10 +5175,14 @@ pub trait PlatformWindow {
     /// see it - no spatial navigation off the invoker, no default action, no
     /// text typed into the invoker. Its focus stays on the invoker.
     ///
-    /// A backend whose popups get the keyboard natively opts out
-    /// ([`Self::popups_route_keys_natively`]); on X11 the popup is
+    /// A backend whose focus-taking popups get the keyboard natively opts out
+    /// for those ([`Self::popups_route_keys_natively`]); on X11 the popup is
     /// override-redirect and never does, which is report 2 (arrows did
-    /// nothing in the colour picker). Returns whether a key was forwarded.
+    /// nothing in the colour picker). An open LIST popup (a combobox's
+    /// options) is never the key window anywhere: its navigation keys are
+    /// forwarded on every backend and everything else stays with the field
+    /// ([`super::transient::parent_key_route`]). Returns whether a key was
+    /// forwarded.
     fn forward_keys_to_popup(&mut self) -> bool {
         use azul_layout::managers::text_input::TextInputSource;
 
@@ -5249,71 +5260,6 @@ pub trait PlatformWindow {
         self.consume_keyboard_delta("transient.key_forwarded");
         self.deliver_forwarded_keys();
         true
-    }
-
-    /// `<transient-window>`, popup side: a popup that leaves focus on its
-    /// invoker (a combobox's list) takes the keyboard on the first
-    /// NAVIGATION key it gets while nothing in it is focused - Down, PageDown
-    /// or Home onto its first control, Up, PageUp or End onto its last - and
-    /// that key is spent on getting there. From then on arrows walk the list
-    /// and Enter picks, like in any focused popup. Without this a list that
-    /// did not autofocus would be unreachable from the keyboard: an arrow
-    /// with no focused node only scrolls.
-    fn focus_list_popup_on_navigation(&mut self) -> ProcessEventResult {
-        use azul_core::{callbacks::FocusTarget, window::VirtualKeyCode as K};
-        use azul_layout::managers::focus_cursor::{resolve_focus_target, FocusResolution};
-
-        let state = self.get_current_window_state();
-        if super::transient::mailbox_of(state).is_none()
-            || super::transient::popup_takes_focus(state)
-        {
-            return ProcessEventResult::DoNothing;
-        }
-        if self
-            .get_layout_window()
-            .is_none_or(|lw| lw.focus_manager.get_focused_node().is_some())
-        {
-            return ProcessEventResult::DoNothing;
-        }
-        let fresh_key = {
-            let current = self
-                .get_current_window_state()
-                .keyboard_state
-                .current_virtual_keycode
-                .into_option();
-            let previous = self
-                .get_previous_window_state()
-                .as_ref()
-                .and_then(|p| p.keyboard_state.current_virtual_keycode.into_option());
-            current.filter(|k| Some(*k) != previous)
-        };
-        let target = match fresh_key {
-            Some(K::Down | K::PageDown | K::Home) => FocusTarget::First,
-            Some(K::Up | K::PageUp | K::End) => FocusTarget::Last,
-            _ => return ProcessEventResult::DoNothing,
-        };
-        let node = self.get_layout_window().and_then(|lw| {
-            match resolve_focus_target(
-                &target,
-                &lw.layout_results,
-                None,
-                &lw.focus_out_of_scope_doms(),
-            ) {
-                Ok(FocusResolution::Resolved(n)) => Some(n),
-                _ => None,
-            }
-        });
-        let Some(node) = node else {
-            return ProcessEventResult::DoNothing;
-        };
-        focus_trace!("list popup takes the keyboard on {fresh_key:?}: focus {node:?}");
-        let r = self.apply_system_change(&SystemChange::SetFocus {
-            new_focus: Some(node),
-            old_focus: None,
-            visible: true,
-        });
-        self.consume_keyboard_delta("transient.list_navigation_entered");
-        r
     }
 
     // REQUIRED: Menu Display (Platform-Specific Implementation)
@@ -10711,11 +10657,9 @@ pub trait PlatformWindow {
             }
         }
 
-        // A list popup (no autofocus) takes the keyboard on its first
-        // navigation key - one the OS delivered to it directly.
-        if depth == 0 {
-            restored = restored.max(self.focus_list_popup_on_navigation());
-        }
+        // A list popup (no autofocus) never takes focus at all: its invoker
+        // keeps it (WAI-ARIA combobox), and the list's own window key handler
+        // moves its ACTIVE option on the navigation keys the parent forwards.
 
         let mut result = self.process_window_events_inner(depth).max(restored);
 
@@ -10748,9 +10692,6 @@ pub trait PlatformWindow {
                         let _ = lw.record_text_input(text);
                     }
                 }
-                // ...and the same entry into a list popup for a forwarded
-                // navigation key (the parent kept every other one).
-                result = result.max(self.focus_list_popup_on_navigation());
                 result = result.max(self.process_window_events_inner(depth));
             }
         }

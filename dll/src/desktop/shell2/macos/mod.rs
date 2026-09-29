@@ -179,6 +179,33 @@ define_class!(
     }
 );
 
+define_class!(
+    // A popup that LEAVES focus on its invoker - a combobox's list (WAI-ARIA
+    // combobox: DOM focus stays on the field). It must never become the key
+    // window: as an `AzulPopupWindow` it did, and every key typed while the
+    // list was open went to the list and was lost. Answering NO here makes
+    // `makeKeyAndOrderFront` merely order it front, and a click in it does
+    // not take the keyboard either; the parent keeps every key and forwards
+    // the list's navigation keys through the mailbox
+    // (`common::transient::parent_key_route`).
+    #[unsafe(super(NSWindow, NSResponder, NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "AzulListPopupWindow"]
+    pub struct ListPopupWindow;
+
+    impl ListPopupWindow {
+        #[unsafe(method(canBecomeKeyWindow))]
+        fn can_become_key_window(&self) -> bool {
+            false
+        }
+
+        #[unsafe(method(canBecomeMainWindow))]
+        fn can_become_main_window(&self) -> bool {
+            false
+        }
+    }
+);
+
 /// What a `CVDisplayLink` callback is handed for a window: the `NSWindow`
 /// behind a liveness flag, with a lock around the retain.
 ///
@@ -1520,9 +1547,19 @@ define_class!(
 
             // Create new tracking area for mouse enter/exit/move events
             let bounds = unsafe { self.bounds() };
+            // A window that can never be key (a combobox's list popup,
+            // `ListPopupWindow`) would never see a mouse move under
+            // `ActiveInKeyWindow`, so its rows could not hover: it tracks
+            // while the app is active instead.
+            let can_be_key = self.window().is_none_or(|w| w.canBecomeKeyWindow());
+            let activity = if can_be_key {
+                NSTrackingAreaOptions::ActiveInKeyWindow
+            } else {
+                NSTrackingAreaOptions::ActiveInActiveApp
+            };
             let options = NSTrackingAreaOptions::MouseEnteredAndExited
                 | NSTrackingAreaOptions::MouseMoved
-                | NSTrackingAreaOptions::ActiveInKeyWindow
+                | activity
                 | NSTrackingAreaOptions::InVisibleRect;
 
             let tracking_area = unsafe {
@@ -2464,9 +2501,19 @@ define_class!(
 
             // Create new tracking area for mouse enter/exit/move events
             let bounds = unsafe { self.bounds() };
+            // A window that can never be key (a combobox's list popup,
+            // `ListPopupWindow`) would never see a mouse move under
+            // `ActiveInKeyWindow`, so its rows could not hover: it tracks
+            // while the app is active instead.
+            let can_be_key = self.window().is_none_or(|w| w.canBecomeKeyWindow());
+            let activity = if can_be_key {
+                NSTrackingAreaOptions::ActiveInKeyWindow
+            } else {
+                NSTrackingAreaOptions::ActiveInActiveApp
+            };
             let options = NSTrackingAreaOptions::MouseEnteredAndExited
                 | NSTrackingAreaOptions::MouseMoved
-                | NSTrackingAreaOptions::ActiveInKeyWindow
+                | activity
                 | NSTrackingAreaOptions::InVisibleRect;
 
             let tracking_area = unsafe {
@@ -4562,8 +4609,29 @@ impl PlatformWindow for MacOSWindow {
     fn popups_route_keys_natively(&self) -> bool {
         // `AzulPopupWindow` answers `canBecomeKeyWindow = YES` and is shown
         // with `makeKeyAndOrderFront`: AppKit sends the popup its own keys,
-        // and a key that reaches the parent was typed INTO the parent.
+        // and a key that reaches the parent was typed INTO the parent. (A
+        // list popup is an `AzulListPopupWindow`, never key: its keys reach
+        // the parent, which forwards the navigation ones.)
         true
+    }
+
+    fn deliver_forwarded_keys(&mut self) {
+        // The popups are this app's own windows: run the pass of every one
+        // the parent just forwarded a key to, right now, as X11 does - a
+        // list popup is never the key window, so nothing else would wake it.
+        let me: *mut Self = self;
+        for wptr in registry::get_all_window_ptrs() {
+            if wptr.is_null() || core::ptr::eq(wptr, me) {
+                continue;
+            }
+            let w = unsafe { &mut *wptr };
+            if crate::desktop::shell2::common::transient::has_forwarded_keys(
+                w.common.current_window_state(),
+            ) {
+                let r = w.process_window_events(0);
+                w.apply_activation_pass_result(r);
+            }
+        }
     }
 
     // REQUIRED: Menu Display
@@ -5328,8 +5396,27 @@ impl MacOSWindow {
         let is_popup_child = options.window_state.flags.window_type
             == azul_core::window::WindowType::Menu
             && options.parent_window_id != 0;
+        // A popup that leaves focus on its invoker (a combobox's list) is
+        // never the key window - see `ListPopupWindow`.
+        let keeps_invoker_focus = is_popup_child
+            && !crate::desktop::shell2::common::transient::popup_takes_focus(
+                &options.window_state,
+            );
         let window: Retained<NSWindow> =
-            if is_popup_child {
+            if keeps_invoker_focus {
+                let popup: Option<Retained<ListPopupWindow>> = unsafe {
+                    msg_send_id![
+                        mtm.alloc::<ListPopupWindow>(),
+                        initWithContentRect: content_rect,
+                        styleMask: style_mask,
+                        backing: NSBackingStoreType::Buffered,
+                        defer: false,
+                    ]
+                };
+                Retained::into_super(popup.ok_or_else(|| {
+                    WindowError::PlatformError("AzulListPopupWindow init failed".into())
+                })?)
+            } else if is_popup_child {
                 let popup: Option<Retained<PopupWindow>> = unsafe {
                     msg_send_id![
                         mtm.alloc::<PopupWindow>(),
@@ -6091,8 +6178,13 @@ impl MacOSWindow {
                 LogCategory::Window,
                 "[Window Init] Making window visible (first frame will be rendered in drawRect)..."
             );
-            unsafe {
+            // A window that can never be key (a combobox's list popup) is
+            // only ordered front: asking AppKit to make it key merely logs
+            // a complaint, and the parent must keep the keyboard anyway.
+            if window.window.canBecomeKeyWindow() {
                 window.window.makeKeyAndOrderFront(None);
+            } else {
+                window.window.orderFront(None);
             }
         } else {
             log_debug!(
@@ -8887,7 +8979,9 @@ impl MacOSWindow {
     /// MWA-A3d: apply a `process_window_events` result from a window-delegate
     /// notification context (activation / deactivation), where no NSView
     /// caller consumes an `EventProcessResult`. Mirrors the mouseDown result
-    /// match in the view event path.
+    /// match in the view event path. Also the tail of a popup's replay of
+    /// keys its parent forwarded (`deliver_forwarded_keys`), which no NSView
+    /// event of the popup's own triggers either.
     fn apply_activation_pass_result(&mut self, result: azul_core::events::ProcessEventResult) {
         use azul_core::events::ProcessEventResult as PER;
         match result {

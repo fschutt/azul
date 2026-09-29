@@ -6277,3 +6277,13 @@ pub(crate) fn titlebar_look(
         marker: Some(super::style_kit::FLORA_CLASS),
     }
 }
+
+// ==== combobox (active option) ====
+//
+// The option the arrow keys made ACTIVE (the field keeps focus; WAI-ARIA
+// combobox) wears the `--fl-hov` wash its rows take under the pointer, so the
+// keyboard's "you are here" reads like the mouse's. Light, then dark.
+
+/// The fill of a flora combobox's active option, `[light, dark]`.
+pub(crate) const COMBOBOX_ACTIVE_OPTION: [ColorU; 2] =
+    [RADIO_GROUP_HOVER_LIGHT, RADIO_GROUP_HOVER_DARK];

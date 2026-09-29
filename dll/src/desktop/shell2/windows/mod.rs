@@ -1539,13 +1539,7 @@ impl Win32Window {
                     self.request_redraw();
                 } else {
                     if self.common.current_window_state().flags.is_visible {
-                        use azul_core::window::WindowFrame;
-                        use dlopen::constants::{SW_MAXIMIZE, SW_MINIMIZE, SW_SHOWNORMAL};
-                        let show_cmd = match self.common.current_window_state().flags.frame {
-                            WindowFrame::Normal => SW_SHOWNORMAL,
-                            WindowFrame::Minimized => SW_MINIMIZE,
-                            WindowFrame::Maximized | WindowFrame::Fullscreen => SW_MAXIMIZE,
-                        };
+                        let show_cmd = self.show_command();
                         unsafe {
                             (self.win32.user32.ShowWindow)(self.hwnd, show_cmd);
                             (self.win32.user32.UpdateWindow)(self.hwnd);
@@ -1774,13 +1768,7 @@ impl Win32Window {
                     if let Some(ref dwmapi) = self.win32.dwmapi_funcs {
                         (dwmapi.DwmFlush)();
                     }
-                    use azul_core::window::WindowFrame;
-                    use dlopen::constants::{SW_MAXIMIZE, SW_MINIMIZE, SW_SHOWNORMAL};
-                    let show_cmd = match self.common.current_window_state().flags.frame {
-                        WindowFrame::Normal => SW_SHOWNORMAL,
-                        WindowFrame::Minimized => SW_MINIMIZE,
-                        WindowFrame::Maximized | WindowFrame::Fullscreen => SW_MAXIMIZE,
-                    };
+                    let show_cmd = self.show_command();
                     (self.win32.user32.ShowWindow)(self.hwnd, show_cmd);
                     (self.win32.user32.UpdateWindow)(self.hwnd);
                 }
@@ -2013,6 +2001,26 @@ impl Win32Window {
     /// - `ShouldUpdateDisplayListCurrentWindow | ShouldReRenderCurrentWindow` → invalidate only
     ///   (preserves the old `!DoNothing` repaint).
     /// - `DoNothing` → nothing (preserves the old no-op).
+    /// The `ShowWindow` command that first shows this window, from its frame
+    /// state - and, for a popup that LEAVES focus on its invoker (a
+    /// combobox's list), without activating it: its owner keeps every key
+    /// (see the `WS_EX_NOACTIVATE` in `wcreate::create_hwnd`).
+    fn show_command(&self) -> i32 {
+        use azul_core::window::WindowFrame;
+        use dlopen::constants::{SW_MAXIMIZE, SW_MINIMIZE, SW_SHOWNOACTIVATE, SW_SHOWNORMAL};
+        let state = self.common.current_window_state();
+        match state.flags.frame {
+            WindowFrame::Normal
+                if !crate::desktop::shell2::common::transient::popup_takes_focus(state) =>
+            {
+                SW_SHOWNOACTIVATE
+            }
+            WindowFrame::Normal => SW_SHOWNORMAL,
+            WindowFrame::Minimized => SW_MINIMIZE,
+            WindowFrame::Maximized | WindowFrame::Fullscreen => SW_MAXIMIZE,
+        }
+    }
+
     fn route_main_window_result(
         &mut self,
         hwnd: HWND,
@@ -7265,11 +7273,34 @@ impl PlatformWindow for Win32Window {
         Win32Window::handle_begin_interactive_move(self);
     }
 
-    /// `ShowWindow(SW_SHOWNORMAL)` activates the owned popup, so Windows
-    /// sends it its own keys; a key that reaches the parent was typed into
-    /// the parent.
+    /// `ShowWindow(SW_SHOWNORMAL)` activates the owned popup that takes
+    /// focus, so Windows sends it its own keys; a key that reaches the parent
+    /// was typed into the parent. (A list popup is shown without activation
+    /// and never activated: its keys reach the parent, which forwards the
+    /// navigation ones.)
     fn popups_route_keys_natively(&self) -> bool {
         true
+    }
+
+    fn deliver_forwarded_keys(&mut self) {
+        // The popups are this app's own windows: run the pass of every one
+        // the parent just forwarded a key to, right now - a list popup is
+        // never the active window, so nothing else would wake it.
+        let hwnd = self.hwnd;
+        for other_hwnd in registry::get_all_window_handles() {
+            if other_hwnd == hwnd {
+                continue;
+            }
+            if let Some(wptr) = registry::get_window(other_hwnd) {
+                let w = unsafe { &mut *wptr };
+                if crate::desktop::shell2::common::transient::has_forwarded_keys(
+                    w.common.current_window_state(),
+                ) {
+                    let r = w.process_window_events(0);
+                    w.route_main_window_result(other_hwnd, r);
+                }
+            }
+        }
     }
 
     fn capture_screen_for_eyedropper(&mut self) -> Option<crate::desktop::eyedropper::Screenshot> {

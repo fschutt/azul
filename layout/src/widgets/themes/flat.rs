@@ -4575,3 +4575,12 @@ pub(crate) fn titlebar_look(
         marker: None,
     }
 }
+
+// ==== combobox (active option) ====
+//
+// The option the arrow keys made ACTIVE (the field keeps focus; WAI-ARIA
+// combobox) wears the row-hover wash its options take under the pointer, so
+// the keyboard's "you are here" reads like the mouse's. Light, then dark.
+
+/// The fill of a flat combobox's active option, `[light, dark]`.
+pub(crate) const COMBOBOX_ACTIVE_OPTION: [ColorU; 2] = [LIGHT_OPTION_HOVER, DARK_ROW_HOVER];

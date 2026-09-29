@@ -308,6 +308,12 @@ pub enum ParentKeyRoute {
 /// focus-taking popup (`keyboard_owner`) and a list popup (`list_popup`) are
 /// open with a window, and whether this backend gives a focus-taking popup
 /// its keys by itself (`PlatformWindow::popups_route_keys_natively`).
+///
+/// `native` only concerns the focus-taking popup: where it is the key /
+/// active window (macOS, Win32, Wayland's grab) a key that reached the
+/// parent was typed INTO the parent. A list popup is never the key window
+/// on any backend - its invoker keeps focus - so its navigation keys always
+/// come through here.
 #[must_use]
 pub fn parent_key_route(
     keyboard_owner: bool,
@@ -315,11 +321,12 @@ pub fn parent_key_route(
     native: bool,
     key: Option<VirtualKeyCode>,
 ) -> ParentKeyRoute {
-    if native {
-        return ParentKeyRoute::Parent;
-    }
     if keyboard_owner {
-        return ParentKeyRoute::KeyboardOwner;
+        return if native {
+            ParentKeyRoute::Parent
+        } else {
+            ParentKeyRoute::KeyboardOwner
+        };
     }
     if list_popup && key.is_some_and(is_list_navigation_key) {
         return ParentKeyRoute::ListPopup;
@@ -1293,6 +1300,57 @@ pub fn dismiss_outside_on_press(
         })
         .map(|w| w.source_node)
         .collect();
+    let mut any = false;
+    for node in targets {
+        if let Some(closed) = lw.dismiss_transient_window(node) {
+            if let OptionRefAny::Some(m) = &closed.surface {
+                write(m, |d| d.closed = true);
+            }
+            any = true;
+        }
+    }
+    any
+}
+
+/// The parent side: this window was DEACTIVATED (the user went to another
+/// window or app) while popups that leave focus on their invoker are open -
+/// a combobox's list. Such a popup is never the active window, so it has no
+/// focus loss of its own to close on; its parent's is the one. Dismisses
+/// those with a light-dismiss policy; returns whether any were.
+///
+/// A popup that TAKES focus is left alone: its parent resigns the keyboard
+/// TO it (macOS, Win32), which is no reason to close it - it closes on its
+/// own focus loss.
+pub fn dismiss_list_popups_on_deactivation(
+    previous: &FullWindowState,
+    current: &FullWindowState,
+    lw: &mut LayoutWindow,
+) -> bool {
+    if !(previous.is_window_active() && !current.is_window_active()) {
+        return false;
+    }
+    let targets: Vec<NodeId> = {
+        let Some(root) = lw
+            .layout_results
+            .get(&DomId::ROOT_ID)
+            .map(|r| &r.styled_dom)
+        else {
+            return false;
+        };
+        lw.transient_windows
+            .open_windows()
+            .iter()
+            .filter(|w| !w.is_inline() && w.torn.is_none())
+            .filter(|w| {
+                matches!(
+                    w.placement.dismiss,
+                    TransientDismiss::Outside | TransientDismiss::OutsideOnly
+                )
+            })
+            .filter(|w| !azul_layout::transient::transient_takes_focus(root, w.source_node))
+            .map(|w| w.source_node)
+            .collect()
+    };
     let mut any = false;
     for node in targets {
         if let Some(closed) = lw.dismiss_transient_window(node) {
