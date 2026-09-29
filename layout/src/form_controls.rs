@@ -29,7 +29,7 @@
 //! # The mapping
 //!
 //! ONE table, [`INPUT_TYPE_WIDGETS`]: an HTML `type` (or `<select>` /
-//! `<textarea>`) to a [`FormWidget`]. A missing or unknown `type` is the
+//! `<textarea>` / `<button>` / `<form>`) to a [`FormWidget`]. A missing or unknown `type` is the
 //! text state, as in HTML. A text-like input whose `list` attribute names a
 //! `<datalist>` with options becomes a [`ComboBox`]. Every type has a widget
 //! of its own, and the variant carries the mode that widget is built in:
@@ -226,7 +226,8 @@ pub enum FormWidget {
     /// `datetime-local`: a date picker and a time picker in one row.
     DateTimeLocal,
     TimePicker,
-    /// `button`, `submit`, `reset`: what the button does to its form.
+    /// `button`, `submit`, `reset` - and a `<button>` element, labelled by
+    /// its content: what the button does to its form.
     Button(ButtonFormAction),
     /// `image`: a submit button named by its `alt`. With no loader for `src`
     /// here, the `alt` text is also its label - HTML's own rendering of an
@@ -288,11 +289,14 @@ impl FormWidget {
 }
 
 /// THE mapping: an `<input>`'s `type` (lower-case), or the element itself
-/// for `<select>` / `<textarea>`, to the widget it becomes.
+/// for `<select>` / `<textarea>` / `<button>` / `<form>`, to the widget it
+/// becomes.
 ///
 /// Glue for a new widget is one row. A missing or unknown `type` is the
 /// text state (HTML's rule), which is why `"text"` is also the fallback in
-/// [`widget_for`].
+/// [`widget_for`]. A `<button>` whose `type` is `submit`, `reset` or `button`
+/// takes that `<input>` row; any other is the `<button>` row - a submit
+/// button, HTML's default for the element.
 pub static INPUT_TYPE_WIDGETS: &[(&str, FormWidget)] = &[
     ("text", FormWidget::TextInput(TextInputKind::Text)),
     ("password", FormWidget::TextInput(TextInputKind::Password)),
@@ -318,6 +322,7 @@ pub static INPUT_TYPE_WIDGETS: &[(&str, FormWidget)] = &[
     ("hidden", FormWidget::Hidden),
     ("<select>", FormWidget::DropDown),
     ("<textarea>", FormWidget::TextArea),
+    ("<button>", FormWidget::Button(ButtonFormAction::Submit)),
     ("<form>", FormWidget::Form),
 ];
 
@@ -703,6 +708,9 @@ fn prepass(dom: &Dom, out: &mut Prepass) {
         NodeType::Form if !opted_out(node) && !is_form_widget(node) => {
             out.has_controls = true;
         }
+        NodeType::Button if !opted_out(node) && !is_button_widget(node) => {
+            out.has_controls = true;
+        }
         NodeType::Input | NodeType::Select | NodeType::TextArea if !opted_out(node) => {
             out.has_controls = true;
             if matches!(node.get_node_type(), NodeType::Input) && input_type(node) == "radio" {
@@ -803,6 +811,16 @@ fn is_form_widget(node: &NodeData) -> bool {
     })
 }
 
+/// The class every Button WIDGET's root wears (`themes::flat::button`,
+/// `themes::flora::button`).
+const BUTTON_WIDGET_CLASS: &str = "__azul-native-button";
+
+/// A `<button>` node that already IS a Button widget's root - the app built
+/// one, or this pass did on an earlier run - is no raw `<button>`.
+fn is_button_widget(node: &NodeData) -> bool {
+    node.has_class(BUTTON_WIDGET_CLASS)
+}
+
 /// Which widget `node` becomes, through [`INPUT_TYPE_WIDGETS`].
 fn widget_for(node: &NodeData, pre: &Prepass) -> Option<FormWidget> {
     let row = match node.get_node_type() {
@@ -811,6 +829,19 @@ fn widget_for(node: &NodeData, pre: &Prepass) -> Option<FormWidget> {
         NodeType::Select => String::from("<select>"),
         NodeType::TextArea => String::from("<textarea>"),
         NodeType::Form if !is_form_widget(node) => String::from("<form>"),
+        NodeType::Button if !is_button_widget(node) => {
+            // `type=submit|reset|button` acts as the `<input>` of that type;
+            // a missing or unknown `type` is the `<button>` row.
+            let ty = input_type(node);
+            let as_input = INPUT_TYPE_WIDGETS
+                .iter()
+                .any(|(t, kind)| *t == ty && matches!(kind, FormWidget::Button(_)));
+            if as_input {
+                ty
+            } else {
+                String::from("<button>")
+            }
+        }
         _ => return None,
     };
     let kind = INPUT_TYPE_WIDGETS
@@ -875,7 +906,7 @@ struct Spec {
     choices: Vec<Choice>,
     /// A `<select>`'s `<optgroup>`s, over runs of `choices`.
     groups: Vec<Group>,
-    /// A `<textarea>`'s text content.
+    /// A `<textarea>`'s text content; a `<button>`'s (its label).
     text: String,
 }
 
@@ -906,6 +937,8 @@ impl Spec {
             } else {
                 content
             }
+        } else if matches!(node.get_node_type(), NodeType::Button) {
+            text_content(raw).trim().to_string()
         } else {
             String::new()
         };
@@ -1010,7 +1043,8 @@ fn radio_value(node: &NodeData) -> String {
     attr_value(node, "value").unwrap_or_else(|| String::from("on"))
 }
 
-/// Every text leaf under `dom`, concatenated.
+/// Every text leaf under `dom`, concatenated - the text a reader sees: an
+/// `<icon>`'s spec text names a glyph and is left out.
 fn text_content(dom: &Dom) -> String {
     let mut out = String::new();
     push_text(dom, &mut out);
@@ -1018,8 +1052,10 @@ fn text_content(dom: &Dom) -> String {
 }
 
 fn push_text(dom: &Dom, out: &mut String) {
-    if let NodeType::Text(t) = dom.root.get_node_type() {
-        out.push_str(t.as_str());
+    match dom.root.get_node_type() {
+        NodeType::Icon(_) => return,
+        NodeType::Text(t) => out.push_str(t.as_str()),
+        _ => {}
     }
     for child in dom.children.iter() {
         push_text(child, out);
@@ -1648,19 +1684,49 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
             w.dom()
         }
         FormWidget::Button(action) => {
-            // A button's label is its value; HTML's defaults otherwise. The
-            // form action is what makes submit / reset act on their form.
-            let label = spec.value.clone().unwrap_or_else(|| match action {
-                ButtonFormAction::Submit => String::from("Submit"),
-                ButtonFormAction::Reset => String::from("Reset"),
-                ButtonFormAction::None => String::new(),
-            });
+            // An `<input>`'s label is its `value` (HTML's defaults
+            // otherwise); a `<button>`'s is its content - its text, or, when
+            // that content is richer than text (an icon, an image, markup),
+            // the content itself, as the app wrote it. The form action is
+            // what makes submit / reset act on their form.
+            let element = matches!(node.get_node_type(), NodeType::Button);
+            let rich = element
+                && !raw
+                    .children
+                    .iter()
+                    .all(|c| matches!(c.root.get_node_type(), NodeType::Text(_)));
+            let label = if element {
+                if rich {
+                    String::new()
+                } else {
+                    spec.text.clone()
+                }
+            } else {
+                spec.value.clone().unwrap_or_else(|| match action {
+                    ButtonFormAction::Submit => String::from("Submit"),
+                    ButtonFormAction::Reset => String::from("Reset"),
+                    ButtonFormAction::None => String::new(),
+                })
+            };
             let w = match action {
                 ButtonFormAction::Submit => Button::create_submit(label.into()),
                 ButtonFormAction::Reset => Button::create_reset(label.into()),
                 ButtonFormAction::None => Button::create(label.into()),
             };
-            w.dom()
+            let mut dom = w.dom();
+            if rich {
+                dom.children = raw.children.clone();
+            }
+            // The app's name (`aria-label`, `title`), else - rich content
+            // announces no label of its own - the content's text.
+            let a11y_name = name.or_else(|| (rich && !spec.text.is_empty()).then(|| spec.text.clone()));
+            if let Some(a11y_name) = a11y_name {
+                if let Some(mut a11y) = dom.root.get_accessibility_info().cloned() {
+                    a11y.accessibility_name = Some(AzString::from(a11y_name)).into();
+                    dom.root.set_accessibility_info(a11y);
+                }
+            }
+            dom
         }
         FormWidget::ImageButton => {
             // Nothing here loads `src`, so there is no image to show: HTML

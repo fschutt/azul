@@ -35,11 +35,16 @@ Nothing is compiled by this agent (house rules); the parent compiles and runs th
   `xml::styled_xml_document` behind it and `parse_xml_to_styled_dom_resolving_icons`; the DLL
   mount calls the window's)
 
+- item 2 fix `3501809ce`
+- item 3: RED `65204755d`, fix = next commit (`("<button>", Button(Submit))` row; a typed
+  `<button>` takes its `<input>` row; text content = label, rich content kept; Button widget roots
+  (class `__azul-native-button`) never replaced)
+
 ## IN PROGRESS
-- item 3 (raw `<button>`)
+- item 4 (raw `<form>` dataset)
 
 ## NEXT
-- items 3, 4, 5, 8c, 7 (hand-built part), 9 (list + FFI-shaped method)
+- items 4, 5, 8c, 7 (hand-built part), 9 (list + FFI-shaped method)
 
 ## Open questions
 - none yet
