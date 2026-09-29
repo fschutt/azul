@@ -16,15 +16,18 @@ Branch `wt/e1-e2e-tooling`, based on `0a326afe5`. Nothing compiled (house rule).
 
 ## DONE
 
-(none yet)
+- `53ebc1803` audit
+- item 1: `61799c708` RED (tooling_tests.rs, 7 tests), `b3ebe4615` fix (gate, SKIP tally,
+  run.rs uses `render_report` + `load_e2e_tests`, loader reads arrays, CI sed, debugger icon),
+  `c562b79f8` scenario split + guide, `841921086` RED (`parse_summary` stub),
+  `b89b1ecc5` fix (dispatcher sums the children's tallies; mobile reader uses `parse_summary`)
 
 ## IN PROGRESS
 
-- item 1 RED
+- item 2 RED
 
 ## NEXT
 
-1. item 1: RED, fix (gate + SKIP tally, run.rs uses `render_report`), scenario split, docs
 2. item 2 + 7: RED, op + payload + OP_POLICY row + docs + demo scenario
 3. item 5: RED, `LayoutWindow::scroll_focused_container_by_keyboard` used by runner and dll
 4. item 6: RED, runner fires `Dismissed`
