@@ -2084,6 +2084,24 @@ mod app_theme_tests {
             |t: UiTheme| accordion().with_theme(t).dom(),
         );
     }
+
+    /// R5: the accordion's layout - the panel's clipped column, each
+    /// section's column, each header's row with its pointer and unselectable
+    /// title, the indicator's box, the body's clip - is its BASE: declared
+    /// once, outside every `@theme` block, so it also holds under a theme no
+    /// widget knows. An open and a closed section.
+    #[test]
+    fn an_accordion_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for t in checks::BOTH {
+            let dom = checks::under(t, || accordion().dom());
+            assert_structure_is_shared(
+                &format!("accordion built for {}", t.name()),
+                &dom,
+                &[],
+            );
+        }
+    }
 }
 
 /// The disclosure indicator (the old TODO2): every header ends in the

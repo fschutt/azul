@@ -3374,4 +3374,41 @@ mod app_theme_tests {
             }
         }
     }
+
+    extern "C" fn clicked(_: RefAny, _: CallbackInfo, _: ChipState) -> Update {
+        Update::DoNothing
+    }
+
+    /// R5: the pill's hugging row, the label's hug and unselectable text, the
+    /// remove button's pointer are the chip's BASE, declared once outside
+    /// every `@theme` block. Every kind; plain, removable, clickable.
+    #[test]
+    fn a_chip_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for t in checks::BOTH {
+            for kind in KINDS {
+                for (removable, clickable) in [(false, false), (true, false), (true, true)] {
+                    let dom = checks::under(t, || {
+                        let chip = Chip::with_kind(azul_css::AzString::from("tag"), kind)
+                            .with_removable(removable);
+                        if clickable {
+                            chip.with_on_click(RefAny::new(0u8), clicked as ChipOnClickCallbackType)
+                                .dom()
+                        } else {
+                            chip.dom()
+                        }
+                    });
+                    assert_structure_is_shared(
+                        &format!(
+                            "chip {kind:?} removable={removable} clickable={clickable} built for \
+                             {}",
+                            t.name()
+                        ),
+                        &dom,
+                        &[],
+                    );
+                }
+            }
+        }
+    }
 }

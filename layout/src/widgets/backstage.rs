@@ -1803,6 +1803,26 @@ mod flora_tests {
         }
     }
 
+    /// R5: the backstage's layout - the root's row, the column, the right
+    /// side and the content host, every nav item's row with its pointer and
+    /// unselectable label, the back button's centred circle - is its BASE:
+    /// flora paints the flat part's geometry (`chrome_geometry`), so every
+    /// structure declaration is declared once, outside every `@theme` block.
+    /// The first, a middle and the item after the gap selected.
+    #[test]
+    fn a_backstage_declares_its_structure_once_for_every_theme() {
+        for t in checks::BOTH {
+            for active in [0usize, 2, 9] {
+                let dom = checks::under(t, || fixture().with_active_item(active).dom());
+                tc::assert_structure_is_shared(
+                    &format!("backstage, item {active} active, built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
+
     #[test]
     fn a_part_the_caller_set_is_the_callers_in_both_looks() {
         let custom = CssPropertyWithConditionsVec::from_vec(vec![Cond::simple(P::const_width(

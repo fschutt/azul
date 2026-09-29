@@ -4196,4 +4196,59 @@ mod app_theme_tests {
             |t: UiTheme| ColorInput::create(color).with_theme(t).dom(),
         );
     }
+
+    /// The classes of the widgets the picker nests (the hex field and the
+    /// channel fields are text inputs, the channel names labels). Each
+    /// follows the app theme on its own and answers for its own structure in
+    /// its own tests.
+    const NESTED_WIDGETS: [&str; 2] = [
+        crate::widgets::text_input::TEXT_INPUT_CONTAINER_CLASS,
+        "__azul-native-label",
+    ];
+
+    /// `dom` with every nested widget's subtree replaced by an empty div:
+    /// what the colour input itself builds.
+    fn own_nodes(mut dom: Dom) -> Dom {
+        use crate::widgets::themes::theme_checks::has_class;
+        let children = core::mem::take(&mut dom.children).into_library_owned_vec();
+        dom.children = children
+            .into_iter()
+            .map(|child| {
+                if NESTED_WIDGETS.iter().any(|c| has_class(&child, c)) {
+                    Dom::create_div()
+                } else {
+                    own_nodes(child)
+                }
+            })
+            .collect::<Vec<Dom>>()
+            .into();
+        dom
+    }
+
+    /// R5: the swatch's box and pointer, the picker panel's column, the
+    /// preview's positioned clip, the eyedropper's centred box and pointer,
+    /// the grip's and the rows' layout are the colour input's BASE, declared
+    /// once outside every `@theme` block. An opaque colour and a translucent
+    /// one (the swatch then clips a checkerboard).
+    #[test]
+    fn a_color_input_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        let opaque = azul_css::props::basic::ColorU {
+            r: 200,
+            g: 60,
+            b: 20,
+            a: 255,
+        };
+        let translucent = azul_css::props::basic::ColorU { a: 128, ..opaque };
+        for t in checks::BOTH {
+            for color in [opaque, translucent] {
+                let dom = checks::under(t, || ColorInput::create(color).dom());
+                assert_structure_is_shared(
+                    &format!("color_input alpha {} built for {}", color.a, t.name()),
+                    &own_nodes(dom),
+                    &[],
+                );
+            }
+        }
+    }
 }

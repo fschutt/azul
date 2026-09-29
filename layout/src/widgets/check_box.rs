@@ -1628,4 +1628,25 @@ mod app_theme_tests {
             );
         }
     }
+
+    /// R5: the box's and the mark's layout is the check box's BASE, declared
+    /// once outside every `@theme` block. Checked and unchecked.
+    #[test]
+    fn a_check_box_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for t in checks::BOTH {
+            for checked in [false, true] {
+                let dom = checks::under(t, || {
+                    CheckBox::create(checked)
+                        .with_accessibility_name("Remember me")
+                        .dom()
+                });
+                assert_structure_is_shared(
+                    &format!("check_box checked={checked} built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
 }

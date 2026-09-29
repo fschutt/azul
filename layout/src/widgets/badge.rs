@@ -1540,4 +1540,21 @@ mod app_theme_tests {
             );
         }
     }
+
+    /// R5: the pill's centred, hugging row is the badge's BASE, declared once
+    /// outside every `@theme` block. Every kind.
+    #[test]
+    fn a_badge_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for t in checks::BOTH {
+            for kind in KINDS {
+                let dom = checks::under(t, || Badge::with_kind(AzString::from("99+"), kind).dom());
+                assert_structure_is_shared(
+                    &format!("badge {kind:?} built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
 }

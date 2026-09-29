@@ -2121,6 +2121,44 @@ mod app_theme_tests {
         }
     }
 
+    /// R5: the button's centred inline row, its pointer, the label's and the
+    /// icons' unselectable text are the button's BASE, declared once outside
+    /// every `@theme` block. Every type; plain, with a leading icon and with a
+    /// trailing one; a submit button.
+    #[test]
+    fn a_button_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for t in checks::BOTH {
+            for ty in TYPES {
+                let plain = || Button::create(azul_css::AzString::from("OK")).with_button_type(ty);
+                let variants = [
+                    ("plain", plain()),
+                    ("with an icon", plain().with_icon(azul_css::AzString::from("add"))),
+                    (
+                        "with a trailing icon",
+                        plain().with_trailing_icon(azul_css::AzString::from("arrow_drop_down")),
+                    ),
+                ];
+                for (what, button) in variants {
+                    let dom = checks::under(t, || button.dom());
+                    assert_structure_is_shared(
+                        &format!("button {ty:?} {what} built for {}", t.name()),
+                        &dom,
+                        &[],
+                    );
+                }
+            }
+            let submit = checks::under(t, || {
+                Button::create_submit(azul_css::AzString::from("Send")).dom()
+            });
+            assert_structure_is_shared(
+                &format!("submit button built for {}", t.name()),
+                &submit,
+                &[],
+            );
+        }
+    }
+
     #[test]
     fn a_submit_button_without_a_theme_follows_the_app_theme() {
         let button = || Button::create_submit(azul_css::AzString::from("Send"));

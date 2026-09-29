@@ -1635,6 +1635,30 @@ mod app_theme_tests {
         );
     }
 
+    /// R5: the trail's row, every crumb's hug and unselectable text, and the
+    /// clickable crumb's pointer are the breadcrumb's BASE, declared once
+    /// outside every `@theme` block. A trail of links, separators and the
+    /// current page, and a trail of the current page alone.
+    #[test]
+    fn a_breadcrumb_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        let alone = || {
+            Breadcrumb::create(azul_css::StringVec::from_vec(alloc::vec![
+                azul_css::AzString::from("Home"),
+            ]))
+        };
+        for t in checks::BOTH {
+            let dom = checks::under(t, || trail().dom());
+            assert_structure_is_shared(&format!("breadcrumb built for {}", t.name()), &dom, &[]);
+            let dom = checks::under(t, || alone().dom());
+            assert_structure_is_shared(
+                &format!("one-crumb breadcrumb built for {}", t.name()),
+                &dom,
+                &[],
+            );
+        }
+    }
+
     #[test]
     fn a_followed_trail_writes_the_app_themes_separator() {
         // Structure follows the app theme: flat's "/" and flora's chevron are

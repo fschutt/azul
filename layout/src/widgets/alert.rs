@@ -2169,4 +2169,30 @@ mod app_theme_tests {
             );
         }
     }
+
+    /// R5: the banner's row, the message's growth, the close button's
+    /// pointer and unselectable glyph are the alert's BASE, declared once
+    /// outside every `@theme` block. Every kind, with and without the close
+    /// button.
+    #[test]
+    fn an_alert_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for t in checks::BOTH {
+            for kind in KINDS {
+                for dismissible in [false, true] {
+                    let dom = checks::under(t, || {
+                        alert(kind).with_dismissible(dismissible).dom()
+                    });
+                    assert_structure_is_shared(
+                        &format!(
+                            "alert {kind:?} dismissible={dismissible} built for {}",
+                            t.name()
+                        ),
+                        &dom,
+                        &[],
+                    );
+                }
+            }
+        }
+    }
 }

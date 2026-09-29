@@ -1194,4 +1194,33 @@ mod app_theme_tests {
             |t: UiTheme| Avatar::create(AzString::from("AB")).with_theme(t).dom(),
         );
     }
+
+    /// R5: the circle's centred row and its clip are the avatar's BASE,
+    /// declared once outside every `@theme` block. Initials and an image,
+    /// every size.
+    #[test]
+    fn an_avatar_declares_its_structure_once_for_every_theme() {
+        use azul_core::resources::RawImageFormat;
+
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        let image = || ImageRef::null_image(2, 2, RawImageFormat::RGBA8, Vec::new());
+        for t in checks::BOTH {
+            for size in [AvatarSize::Small, AvatarSize::Medium, AvatarSize::Large] {
+                let initials =
+                    checks::under(t, || Avatar::create(AzString::from("AB")).with_size(size).dom());
+                assert_structure_is_shared(
+                    &format!("avatar {size:?} with initials built for {}", t.name()),
+                    &initials,
+                    &[],
+                );
+                let picture =
+                    checks::under(t, || Avatar::create_with_image(image()).with_size(size).dom());
+                assert_structure_is_shared(
+                    &format!("avatar {size:?} with an image built for {}", t.name()),
+                    &picture,
+                    &[],
+                );
+            }
+        }
+    }
 }

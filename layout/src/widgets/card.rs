@@ -1592,4 +1592,25 @@ mod app_theme_tests {
             |t: UiTheme| Card::create(Dom::create_div()).with_theme(t).dom(),
         );
     }
+
+    /// R5: the card's growth and its column are its BASE, declared once
+    /// outside every `@theme` block. A card that hugs and one that grows.
+    #[test]
+    fn a_card_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for t in checks::BOTH {
+            for grow in [0.0, 2.0] {
+                let dom = checks::under(t, || {
+                    Card::create(Dom::create_p_with_text("body"))
+                        .with_flex_grow(grow)
+                        .dom()
+                });
+                assert_structure_is_shared(
+                    &format!("card flex-grow {grow} built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
 }
