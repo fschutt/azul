@@ -24,13 +24,17 @@ Restarted after a power loss (2026-09-29): the first run left no commits.
   FIX 22e922976 (`find_scrollable_ancestors` on `ScrollChain`; `ScrollChain::of_node`;
   cfg(test) `LayoutTree::mirroring_dom`; scroll_into_view unit fixtures mirror the DOM)
 
+- 1b: RED c72fd920d (`layout/tests/an_arrow_reads_the_action_of_the_scroll_box_it_is_painted_in.rs`),
+  FIX 0881fd44e (`spatial_navigation_action` on the chain; `scroll_chain::is_css_scroll_container` +
+  `ScrollChain::innermost_scroll_container`; focus_cursor / scroll_registration twins call it)
+
 ## IN PROGRESS
 
-- 1b RED (spatial_navigation_action)
+- 1c RED (sticky)
 
 ## NEXT
 
-- 1b fix, 1c (sticky, unit tests in positioning.rs), 1d (containers + is_visible; focus_cursor
+- 1c (sticky, unit tests in positioning.rs), 1d (containers + is_visible; focus_cursor
   unit fixture -> mirroring_dom), 2, 3, 4, (5), report
 
 ## Open questions
