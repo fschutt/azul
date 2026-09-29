@@ -4,6 +4,10 @@ pub mod flat;
 pub mod flora;
 pub mod system_palette;
 
+// ==== W3b: shared style builders + the theme marker, and their test helpers ====
+#[cfg(test)]
+pub(crate) mod theme_checks;
+
 /// The visual theme for a widget.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]

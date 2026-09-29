@@ -2028,3 +2028,257 @@ mod tests {
         assert_eq!(return_value(&merged), "");
     }
 }
+
+#[cfg(test)]
+mod theme_tests {
+    //! The theme is a DOM-level choice: `Dialog`, `Modal` and `Popover`
+    //! build their parts from the skin of the theme they carry, flat by
+    //! default. The builder is shared, so one set of tests covers all three.
+
+    use azul_core::dom::Dom;
+    use azul_css::{
+        dynamic_selector::{CssPropertyWithConditions, PseudoStateType},
+        props::{
+            basic::color::ColorU,
+            property::{CssProperty, CssPropertyType},
+            style::StyleTextColor,
+        },
+        AzString,
+    };
+
+    use super::*;
+    use crate::widgets::{
+        modal::Modal,
+        popover::Popover,
+        themes::{flora, system_palette, theme_checks as tc, OptionUiTheme, UiTheme},
+    };
+
+    const FLAT: &str = "__azul-theme-flat";
+    const FLORA: &str = "__azul-theme-flora";
+    const PANEL: &str = "__azul-native-dialog-panel";
+    const TITLE: &str = "__azul-native-dialog-title";
+    const CLOSE: &str = "__azul-native-dialog-close";
+    const WINDOW: &str = "__azul-native-dialog-window";
+
+    fn body() -> Dom {
+        Dom::create_div()
+    }
+
+    fn titled(theme: Option<UiTheme>) -> Dialog {
+        let d = Dialog::create(body())
+            .with_title(AzString::from_const_str("Settings"))
+            .show_modal();
+        match theme {
+            Some(t) => d.with_theme(t),
+            None => d,
+        }
+    }
+
+    fn panel_of(dom: &Dom) -> &Dom {
+        tc::find(dom, PANEL).expect("the dialog has a panel")
+    }
+
+    fn bg(node: &Dom, dark: bool) -> Option<ColorU> {
+        tc::background(node, dark).and_then(|p| tc::bg_color(&p))
+    }
+
+    #[test]
+    fn a_dialog_without_a_theme_renders_flat() {
+        let d = Dialog::create(body());
+        assert_eq!(d.theme, OptionUiTheme::None, "no opinion until the app picks one");
+        let dom = d.dom();
+        assert!(tc::has_class(&dom, FLAT), "the default theme is flat");
+        assert!(!tc::has_class(&dom, FLORA));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_agree() {
+        let mut a = Dialog::create(body());
+        a.set_theme(UiTheme::Flora);
+        let b = Dialog::create(body()).with_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(a, b);
+        let mut m = Modal::create(body());
+        m.set_theme(UiTheme::Flora);
+        assert_eq!(m, Modal::create(body()).with_theme(UiTheme::Flora));
+        let mut p = Popover::new(body(), body());
+        p.set_theme(UiTheme::Flora);
+        assert_eq!(p, Popover::new(body(), body()).with_theme(UiTheme::Flora));
+    }
+
+    #[test]
+    fn a_flat_dialog_keeps_its_look_and_takes_the_desktop_palette_in_the_dark() {
+        let dom = titled(Some(UiTheme::Flat)).dom();
+        assert!(tc::has_class(&dom, FLAT));
+        let panel = panel_of(&dom);
+        assert_eq!(bg(panel, false), Some(ColorU::rgb(255, 255, 255)), "white paper");
+        assert_eq!(
+            tc::background(panel, true).map(|p| tc::bg_layers(&p)),
+            Some(system_palette::WINDOW_BACKGROUND.as_ref().to_vec()),
+            "the dark panel is the desktop's window surface"
+        );
+    }
+
+    #[test]
+    fn a_flora_dialog_panel_is_a_leaf_of_flora_paper_in_light_and_dark() {
+        let dom = titled(Some(UiTheme::Flora)).dom();
+        assert!(tc::has_class(&dom, FLORA), "the wrapper carries the flora marker");
+        let panel = panel_of(&dom);
+        assert_eq!(bg(panel, false), Some(flora::LIGHT_SUR));
+        assert_eq!(bg(panel, true), Some(flora::DARK_SUR));
+        assert_eq!(tc::border_top_color(panel, false, None), Some(flora::LIGHT_BD2));
+        assert_eq!(tc::border_top_color(panel, true, None), Some(flora::DARK_BD2));
+        assert_eq!(tc::text_color(panel, false), Some(flora::LIGHT_INK));
+        assert_eq!(tc::text_color(panel, true), Some(flora::DARK_INK));
+    }
+
+    #[test]
+    fn a_flora_dialog_title_is_ruled_off_from_its_content() {
+        let dom = titled(Some(UiTheme::Flora)).dom();
+        let title = tc::find(&dom, TITLE).expect("a titled dialog has a title row");
+        let rule = |dark: bool| match tc::resolve(
+            title,
+            CssPropertyType::BorderBottomColor,
+            dark,
+            None,
+        ) {
+            Some(CssProperty::BorderBottomColor(v)) => v.get_property().map(|c| c.inner),
+            _ => None,
+        };
+        assert_eq!(rule(false), Some(flora::LIGHT_SEP));
+        assert_eq!(rule(true), Some(flora::DARK_SEP));
+        assert_eq!(tc::text_color(title, false), Some(flora::LIGHT_INK));
+        assert_eq!(tc::text_color(title, true), Some(flora::DARK_INK));
+    }
+
+    #[test]
+    fn a_flora_dialog_close_button_is_written_in_brass_ink() {
+        let dom = titled(Some(UiTheme::Flora)).dom();
+        let close = tc::find(&dom, CLOSE).expect("the dialog has a close button");
+        assert_eq!(tc::text_color(close, false), Some(flora::LIGHT_QT));
+        assert_eq!(tc::text_color(close, true), Some(flora::DARK_QT));
+    }
+
+    #[test]
+    fn the_dialog_close_button_shows_a_focus_ring_in_every_theme_and_mode() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = titled(Some(theme)).dom();
+            let close = tc::find(&dom, CLOSE).expect("the dialog has a close button");
+            assert!(tc::has_focus_ring(close, false), "{theme:?}: no light focus ring");
+            assert!(tc::has_focus_ring(close, true), "{theme:?}: no dark focus ring");
+            tc::assert_theme_invariants(&format!("dialog {theme:?}"), &dom);
+        }
+    }
+
+    #[test]
+    fn a_flora_focus_ring_lifts_to_the_glow_in_the_dark() {
+        let dom = titled(Some(UiTheme::Flora)).dom();
+        let close = tc::find(&dom, CLOSE).expect("the dialog has a close button");
+        let focus = Some(PseudoStateType::Focus);
+        assert_eq!(tc::border_top_color(close, false, focus), Some(flora::LIGHT_ACC));
+        assert_eq!(tc::border_top_color(close, true, focus), Some(flora::DARK_GLOW));
+    }
+
+    #[test]
+    fn a_flora_modal_dims_the_window_with_flora_s_warm_backdrop() {
+        let modal = Modal::create(body())
+            .with_open(true)
+            .with_theme(UiTheme::Flora);
+        let warm = ColorU::new(20, 19, 16, 115);
+        assert_eq!(
+            modal
+                .resolved_backdrop_style()
+                .as_ref()
+                .iter()
+                .find_map(|p| tc::bg_color(&p.property)),
+            Some(warm)
+        );
+        let dom = modal.dom();
+        assert!(tc::has_class(&dom, FLORA));
+        let window = tc::find(&dom, WINDOW).expect("the modal has a window");
+        assert_eq!(bg(window, false), Some(warm));
+        assert_eq!(bg(panel_of(&dom), false), Some(flora::LIGHT_SUR));
+        tc::assert_theme_invariants("modal Flora", &dom);
+    }
+
+    #[test]
+    fn a_flat_modal_keeps_the_default_dim() {
+        let modal = Modal::create(body())
+            .with_open(true)
+            .with_theme(UiTheme::Flat);
+        assert_eq!(modal.resolved_backdrop_style(), default_backdrop_style());
+    }
+
+    #[test]
+    fn a_flora_popover_panel_floats_on_flora_paper() {
+        let pop = Popover::new(body(), body()).with_theme(UiTheme::Flora);
+        assert_eq!(
+            pop.resolved_content_style()
+                .as_ref()
+                .iter()
+                .find_map(|p| tc::bg_color(&p.property)),
+            Some(flora::LIGHT_SUR)
+        );
+        let dom = pop.dom();
+        assert!(tc::has_class(&dom, FLORA));
+        let panel = tc::find(&dom, "__azul-native-popover-content").expect("popover panel");
+        assert_eq!(bg(panel, false), Some(flora::LIGHT_SUR));
+        assert_eq!(bg(panel, true), Some(flora::DARK_SUR));
+        assert_eq!(tc::border_top_color(panel, true, None), Some(flora::DARK_BD2));
+        tc::assert_theme_invariants("popover Flora", &dom);
+        tc::assert_theme_invariants(
+            "popover Flat",
+            &Popover::new(body(), body()).with_theme(UiTheme::Flat).dom(),
+        );
+    }
+
+    #[test]
+    fn the_theme_changes_the_look_not_the_accessibility_tree() {
+        let pairs: [(&str, Dom, Dom); 3] = [
+            (
+                "dialog",
+                titled(Some(UiTheme::Flat)).dom(),
+                titled(Some(UiTheme::Flora)).dom(),
+            ),
+            (
+                "modal",
+                Modal::create(body())
+                    .with_open(true)
+                    .with_theme(UiTheme::Flat)
+                    .dom(),
+                Modal::create(body())
+                    .with_open(true)
+                    .with_theme(UiTheme::Flora)
+                    .dom(),
+            ),
+            (
+                "popover",
+                Popover::new(body(), body()).with_theme(UiTheme::Flat).dom(),
+                Popover::new(body(), body()).with_theme(UiTheme::Flora).dom(),
+            ),
+        ];
+        for (name, flat, flora_dom) in &pairs {
+            assert!(!tc::a11y_outline(flat).is_empty(), "{name}: the outline sees the dialog");
+            assert_eq!(tc::a11y_outline(flat), tc::a11y_outline(flora_dom), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_caller_panel_style_wins_over_either_theme() {
+        let own = CssPropertyWithConditionsVec::from_vec(alloc::vec![
+            CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+                inner: ColorU::rgb(1, 2, 3),
+            })),
+        ]);
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = titled(Some(theme)).with_panel_style(own.clone()).dom();
+            let props: alloc::vec::Vec<CssProperty> = panel_of(&dom)
+                .root
+                .style
+                .iter_inline_properties()
+                .map(|(p, _)| p.clone())
+                .collect();
+            assert_eq!(props, alloc::vec![own.as_ref()[0].property.clone()], "{theme:?}");
+        }
+    }
+}
