@@ -2779,4 +2779,188 @@ mod autotest_generated {
         let stop = page_node(seg_node(2));
         assert_eq!(rv::tab_walk(&styled, None, true, 2), vec![stop, stop]);
     }
+
+    /// The click restyle writes the colours of the theme the control was BUILT
+    /// in (read back from its marker class): a flora control must not be
+    /// repainted in flat's white and blue on the first click.
+    #[test]
+    fn a_click_on_a_flora_segmented_restyles_in_flora_s_colours() {
+        use crate::widgets::themes::{flora, theme_checks as tc, UiTheme};
+
+        let (styled, state) =
+            flatten(Segmented::create(labels(&["Day", "Week", "Month"])).with_theme(UiTheme::Flora));
+        let (_, changes) = run_click(Some(styled), seg_node(2), state);
+        let writes: Vec<(usize, CssProperty)> = changes
+            .iter()
+            .filter_map(|c| match c {
+                CallbackChange::ChangeNodeCssProperties {
+                    node_id,
+                    properties,
+                    ..
+                } => Some((node_id.index(), properties.as_ref()[0].clone())),
+                _ => None,
+            })
+            .collect();
+        let bg_of = |node: usize| {
+            writes
+                .iter()
+                .find(|(n, p)| *n == node && matches!(p, CssProperty::BackgroundContent(_)))
+                .map(|(_, p)| tc::bg_layers(p))
+        };
+        let ink_of = |node: usize| {
+            writes.iter().find_map(|(n, p)| match p {
+                CssProperty::TextColor(v) if *n == node => v.get_property().map(|c| c.inner),
+                _ => None,
+            })
+        };
+
+        let first = bg_of(seg_node(0)).expect("segment 0 is restyled");
+        assert!(
+            first == vec![flora::RAISED_FACE_LIGHT] || first == vec![flora::RAISED_FACE_DARK],
+            "an unselected segment goes back to flora paper: {first:?}"
+        );
+        let third = bg_of(seg_node(2)).expect("segment 2 is restyled");
+        assert_eq!(third, flora::selected_stone(), "the selected segment is the stone");
+        assert_eq!(ink_of(seg_node(2)), Some(flora::LIGHT_ON_ACC));
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    //! Segmented's theme is a DOM-level choice: the segments are built from
+    //! the skin of the theme the control carries, flat by default, and the
+    //! selection restyle writes that theme's colours.
+
+    use azul_core::dom::Dom;
+    use azul_css::{
+        dynamic_selector::PseudoStateType,
+        props::{basic::color::ColorU, property::CssPropertyType, style::StyleBackgroundContent},
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, system_palette, theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLAT: &str = "__azul-theme-flat";
+    const FLORA: &str = "__azul-theme-flora";
+
+    /// `Day | Week | Month` with `Week` selected.
+    fn control(theme: Option<UiTheme>) -> Dom {
+        let s = Segmented::create(StringVec::from_vec(vec![
+            AzString::from("Day"),
+            AzString::from("Week"),
+            AzString::from("Month"),
+        ]))
+        .with_selected_index(1);
+        match theme {
+            Some(t) => s.with_theme(t).dom(),
+            None => s.dom(),
+        }
+    }
+
+    fn segment(dom: &Dom, i: usize) -> &Dom {
+        &dom.children.as_ref()[i]
+    }
+
+    fn layers(node: &Dom, dark: bool) -> Vec<StyleBackgroundContent> {
+        tc::background(node, dark)
+            .map(|p| tc::bg_layers(&p))
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_segmented_without_a_theme_renders_flat() {
+        let s = Segmented::create(StringVec::from_const_slice(&[]));
+        assert_eq!(s.theme, OptionUiTheme::None);
+        assert!(tc::has_class(&control(None), FLAT));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_agree() {
+        let mut a = Segmented::create(StringVec::from_const_slice(&[]));
+        a.set_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(
+            a,
+            Segmented::create(StringVec::from_const_slice(&[])).with_theme(UiTheme::Flora)
+        );
+    }
+
+    #[test]
+    fn a_flat_segmented_keeps_its_look_and_takes_the_desktop_palette_in_the_dark() {
+        let dom = control(Some(UiTheme::Flat));
+        let selected = segment(&dom, 1);
+        let other = segment(&dom, 0);
+        assert_eq!(
+            tc::background(selected, false).and_then(|p| tc::bg_color(&p)),
+            Some(ColorU::rgb(13, 110, 253))
+        );
+        assert_eq!(layers(selected, true), system_palette::ACCENT_BACKGROUND.as_ref().to_vec());
+        assert_eq!(
+            tc::background(other, false).and_then(|p| tc::bg_color(&p)),
+            Some(ColorU::rgb(255, 255, 255))
+        );
+        assert_eq!(layers(other, true), system_palette::BUTTON_FACE.as_ref().to_vec());
+    }
+
+    #[test]
+    fn a_flora_segmented_is_raised_paper_with_the_choice_a_sunken_stone() {
+        let dom = control(Some(UiTheme::Flora));
+        assert!(tc::has_class(&dom, FLORA));
+        let other = segment(&dom, 0);
+        assert_eq!(layers(other, false), vec![flora::RAISED_FACE_LIGHT]);
+        assert_eq!(layers(other, true), vec![flora::RAISED_FACE_DARK]);
+        assert_eq!(tc::text_color(other, false), Some(flora::LIGHT_INK));
+        assert_eq!(tc::text_color(other, true), Some(flora::DARK_INK));
+        assert_eq!(tc::border_top_color(other, false, None), Some(flora::LIGHT_BD2));
+        assert_eq!(tc::border_top_color(other, true, None), Some(flora::DARK_BD2));
+
+        let selected = segment(&dom, 1);
+        for dark in [false, true] {
+            assert_eq!(layers(selected, dark), flora::selected_stone(), "dark={dark}");
+            assert_eq!(tc::text_color(selected, dark), Some(flora::LIGHT_ON_ACC));
+        }
+    }
+
+    #[test]
+    fn a_flora_segment_hovers_and_presses_like_flora_paper() {
+        let dom = control(Some(UiTheme::Flora));
+        let other = segment(&dom, 2);
+        for (state, light, dark) in [
+            (PseudoStateType::Hover, flora::HOVER_FACE_LIGHT, flora::HOVER_FACE_DARK),
+            (PseudoStateType::Active, flora::PRESSED_FACE_LIGHT, flora::PRESSED_FACE_DARK),
+        ] {
+            let at = |d: bool| {
+                tc::resolve(other, CssPropertyType::BackgroundContent, d, Some(state))
+                    .map(|p| tc::bg_layers(&p))
+            };
+            assert_eq!(at(false), Some(vec![light]), "{state:?}");
+            assert_eq!(at(true), Some(vec![dark]), "{state:?} dark");
+        }
+    }
+
+    #[test]
+    fn every_segment_shows_a_focus_ring_in_every_theme_and_mode() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = control(Some(theme));
+            // One Tab stop; the arrows focus the others, so every segment owes
+            // a ring.
+            for i in 0..3 {
+                let s = segment(&dom, i);
+                assert!(tc::has_focus_ring(s, false), "{theme:?}: segment {i}, light");
+                assert!(tc::has_focus_ring(s, true), "{theme:?}: segment {i}, dark");
+            }
+            tc::assert_theme_invariants(&format!("segmented {theme:?}"), &dom);
+        }
+        let dom = control(Some(UiTheme::Flora));
+        assert_eq!(tc::focus_ring_color(segment(&dom, 0), false), Some(flora::LIGHT_ACC));
+        assert_eq!(tc::focus_ring_color(segment(&dom, 0), true), Some(flora::DARK_GLOW));
+    }
+
+    #[test]
+    fn the_theme_changes_the_look_not_the_accessibility_tree() {
+        let flat = control(Some(UiTheme::Flat));
+        let flora_dom = control(Some(UiTheme::Flora));
+        assert_eq!(tc::a11y_outline(&flat).len(), 3);
+        assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora_dom));
+    }
 }
