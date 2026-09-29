@@ -580,3 +580,5 @@ mod a_grown_scroll_box_paints_its_thumb_from_the_layout_that_grew_it;
 mod a_drag_autoscrolls_the_box_its_containing_block_scrolls_in;
 #[path = "a_thin_scrollbar_is_pressed_where_it_is_painted.rs"]
 mod a_thin_scrollbar_is_pressed_where_it_is_painted;
+#[path = "backdrop_follows_window_activation.rs"]
+mod backdrop_follows_window_activation;

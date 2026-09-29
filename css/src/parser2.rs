@@ -2528,6 +2528,17 @@ mod autotest_generated {
         );
     }
 
+    /// GTK's `:backdrop` (the window is not the active one) has a selector
+    /// variant, a printer and a cascade state, but the parser did not know
+    /// the name: every `.x:backdrop { .. }` rule was dropped as unknown.
+    #[test]
+    fn backdrop_is_a_pseudo_class_the_stylesheet_parser_knows() {
+        assert_eq!(
+            pseudo_selector_from_str("backdrop", None),
+            Ok(CssPathPseudoSelector::Backdrop)
+        );
+    }
+
     #[test]
     fn pseudo_selector_from_str_nth_child_needs_a_value() {
         assert_eq!(
