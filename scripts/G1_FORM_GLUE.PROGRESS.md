@@ -23,12 +23,15 @@ display:none. NEVER compile. Report: `scripts/G1_FORM_GLUE_2026_09_29.md`.
   registry holds spelling/built/default, widgets::form probe -> registry -> value attr,
   raw-child initial values via default_submission, disabled/empty names skipped
 
+- 316d053f0 RED step 5: `mod datalist`
+- 72908c162 step 5: hide_datalist (UA `display:none` prepended, idempotent), prepass has_datalists
+
 ## IN PROGRESS
-- step 5 RED: `<datalist>` display:none
+- final compile-by-reading review pass, then the report
 
 ## NEXT
-5. RED + impl: `<datalist>` display:none
-6. report
+6. review pass over form_controls.rs / widgets/form.rs / the test file; report
+   `scripts/G1_FORM_GLUE_2026_09_29.md`
 
 ## Design decisions
 - `FormWidget` variants carry the HTML type: `TextInput(TextInputKind)`, `DatePicker(DatePickerMode)`,
