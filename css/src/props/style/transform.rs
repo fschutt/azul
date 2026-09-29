@@ -1138,6 +1138,133 @@ pub fn parse_style_backface_visibility(
     }
 }
 
+// -- Interpolation
+
+/// `from` -> `to` at `t` (0..=1, already eased), function by function - the
+/// CSS Transforms 1 (section 9) rule for two lists of the same functions:
+/// each pair tweens its own arguments, so `rotate(0) -> rotate(180deg)`
+/// TURNS through 90deg rather than decomposing a matrix (where half a turn
+/// is ambiguous). An empty list (`none`, or no value) stands for the
+/// identity of the other side's functions.
+///
+/// `None` when the lists do not pair up (different lengths or different
+/// functions, a matrix, a 3D rotation about an axis): the caller keeps its
+/// discrete switch for those.
+#[must_use]
+pub fn interpolate_transform_lists(
+    from: &[StyleTransform],
+    to: &[StyleTransform],
+    t: f32,
+) -> Option<Vec<StyleTransform>> {
+    let identities = |list: &[StyleTransform]| -> Option<Vec<StyleTransform>> {
+        list.iter().map(transform_identity).collect()
+    };
+    let (from, to): (Vec<StyleTransform>, Vec<StyleTransform>) = match (from.len(), to.len()) {
+        (0, 0) => return Some(Vec::new()),
+        (0, _) => (identities(to)?, to.to_vec()),
+        (_, 0) => (from.to_vec(), identities(from)?),
+        (a, b) if a == b => (from.to_vec(), to.to_vec()),
+        _ => return None,
+    };
+    from.iter()
+        .zip(to.iter())
+        .map(|(a, b)| interpolate_transform(a, b, t))
+        .collect()
+}
+
+/// The function that leaves a box where it is, of `f`'s kind: no turn, no
+/// shift, no skew, a scale of 1. `None` for the kinds without a simple one.
+fn transform_identity(f: &StyleTransform) -> Option<StyleTransform> {
+    use StyleTransform as T;
+    let no_turn = AngleValue::const_deg(0);
+    let no_shift = PixelValue::const_px(0);
+    let one = FloatValue::const_new(1);
+    Some(match f {
+        T::Rotate(_) => T::Rotate(no_turn),
+        T::RotateX(_) => T::RotateX(no_turn),
+        T::RotateY(_) => T::RotateY(no_turn),
+        T::RotateZ(_) => T::RotateZ(no_turn),
+        T::SkewX(_) => T::SkewX(no_turn),
+        T::SkewY(_) => T::SkewY(no_turn),
+        T::Skew(_) => T::Skew(StyleTransformSkew2D {
+            x: no_turn,
+            y: no_turn,
+        }),
+        T::TranslateX(_) => T::TranslateX(no_shift),
+        T::TranslateY(_) => T::TranslateY(no_shift),
+        T::TranslateZ(_) => T::TranslateZ(no_shift),
+        T::Translate(_) => T::Translate(StyleTransformTranslate2D {
+            x: no_shift,
+            y: no_shift,
+        }),
+        T::Translate3D(_) => T::Translate3D(StyleTransformTranslate3D {
+            x: no_shift,
+            y: no_shift,
+            z: no_shift,
+        }),
+        T::Scale(_) => T::Scale(StyleTransformScale2D { x: one, y: one }),
+        T::Scale3D(_) => T::Scale3D(StyleTransformScale3D {
+            x: one,
+            y: one,
+            z: one,
+        }),
+        T::ScaleX(_) => T::ScaleX(PercentageValue::const_new(100)),
+        T::ScaleY(_) => T::ScaleY(PercentageValue::const_new(100)),
+        T::ScaleZ(_) => T::ScaleZ(PercentageValue::const_new(100)),
+        T::Matrix(_) | T::Matrix3D(_) | T::Rotate3D(_) | T::Perspective(_) => return None,
+    })
+}
+
+/// One pair of functions of the same kind at `t`; `None` for a pair of
+/// different kinds (or a kind without a per-argument tween).
+fn interpolate_transform(a: &StyleTransform, b: &StyleTransform, t: f32) -> Option<StyleTransform> {
+    use StyleTransform as T;
+    // Degrees, UNFOLDED: `rotate(720deg)` is two turns, not none.
+    let angle = |x: &AngleValue, y: &AngleValue| {
+        let (x, y) = (x.to_degrees_raw(), y.to_degrees_raw());
+        AngleValue::deg(x + (y - x) * t)
+    };
+    Some(match (a, b) {
+        (T::Rotate(x), T::Rotate(y)) => T::Rotate(angle(x, y)),
+        (T::RotateX(x), T::RotateX(y)) => T::RotateX(angle(x, y)),
+        (T::RotateY(x), T::RotateY(y)) => T::RotateY(angle(x, y)),
+        (T::RotateZ(x), T::RotateZ(y)) => T::RotateZ(angle(x, y)),
+        (T::SkewX(x), T::SkewX(y)) => T::SkewX(angle(x, y)),
+        (T::SkewY(x), T::SkewY(y)) => T::SkewY(angle(x, y)),
+        (T::Skew(x), T::Skew(y)) => T::Skew(StyleTransformSkew2D {
+            x: angle(&x.x, &y.x),
+            y: angle(&x.y, &y.y),
+        }),
+        (T::TranslateX(x), T::TranslateX(y)) => T::TranslateX(x.interpolate(y, t)),
+        (T::TranslateY(x), T::TranslateY(y)) => T::TranslateY(x.interpolate(y, t)),
+        (T::TranslateZ(x), T::TranslateZ(y)) => T::TranslateZ(x.interpolate(y, t)),
+        (T::Translate(x), T::Translate(y)) => T::Translate(StyleTransformTranslate2D {
+            x: x.x.interpolate(&y.x, t),
+            y: x.y.interpolate(&y.y, t),
+        }),
+        (T::Translate3D(x), T::Translate3D(y)) => T::Translate3D(StyleTransformTranslate3D {
+            x: x.x.interpolate(&y.x, t),
+            y: x.y.interpolate(&y.y, t),
+            z: x.z.interpolate(&y.z, t),
+        }),
+        (T::Scale(x), T::Scale(y)) => T::Scale(StyleTransformScale2D {
+            x: x.x.interpolate(&y.x, t),
+            y: x.y.interpolate(&y.y, t),
+        }),
+        (T::Scale3D(x), T::Scale3D(y)) => T::Scale3D(StyleTransformScale3D {
+            x: x.x.interpolate(&y.x, t),
+            y: x.y.interpolate(&y.y, t),
+            z: x.z.interpolate(&y.z, t),
+        }),
+        (T::ScaleX(x), T::ScaleX(y)) => T::ScaleX(x.interpolate(y, t)),
+        (T::ScaleY(x), T::ScaleY(y)) => T::ScaleY(x.interpolate(y, t)),
+        (T::ScaleZ(x), T::ScaleZ(y)) => T::ScaleZ(x.interpolate(y, t)),
+        (T::Perspective(x), T::Perspective(y)) => T::Perspective(x.interpolate(y, t)),
+        _ if a == b => *a,
+        _ => return None,
+    })
+}
+
 #[cfg(all(test, feature = "parser"))]
 mod tests {
     // Tests assert that parsed values equal the exact source literals.

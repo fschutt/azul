@@ -5280,10 +5280,34 @@ impl CssProperty {
                     }
                 }
             }
+            // Two lists of the same functions tween function by function, and
+            // `none` / no value stands for the identity of the other side's
+            // (`interpolate_transform_lists`): a chevron turned by a seeded
+            // transition TURNS. Lists that do not pair up keep the half-way
+            // switch below.
+            (Self::Transform(start), Self::Transform(end)) => {
+                let from: &[StyleTransform] = match start.get_property() {
+                    Some(list) => list.as_ref(),
+                    None => &[],
+                };
+                let to: &[StyleTransform] = match end.get_property() {
+                    Some(list) => list.as_ref(),
+                    None => &[],
+                };
+                match interpolate_transform_lists(from, to, t) {
+                    Some(list) => {
+                        Self::Transform(CssPropertyValue::Exact(StyleTransformVec::from_vec(list)))
+                    }
+                    None => {
+                        if t > 0.5 {
+                            other.clone()
+                        } else {
+                            self.clone()
+                        }
+                    }
+                }
+            }
             /*
-            animate transform:
-            CssProperty::Transform(CssPropertyValue<StyleTransformVec>),
-
             animate box shadow:
             CssProperty::BoxShadowLeft(CssPropertyValue<StyleBoxShadow>),
             CssProperty::BoxShadowRight(CssPropertyValue<StyleBoxShadow>),
