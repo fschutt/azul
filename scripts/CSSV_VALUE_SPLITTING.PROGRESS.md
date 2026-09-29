@@ -22,15 +22,17 @@ Branch `wt/cssv-value-splitting`, base `d240a1b1d`.
 
 - 43aebb545 RED tests: `css/tests/a_list_value_splits_only_at_its_top_level.rs` + 5 unit tests in
   `css/src/props/basic/parse.rs` (`mod tests`).
+- daaa1df93 the fix: `find_top_level` / `split_top_level` in `basic::parse`, the two public
+  splitters on it, twins removed (grid, animation token scan, var split), font-family /
+  animation lists / font-family printer fixed. (Resumed after a power loss: the 6 uncommitted
+  files were complete and were committed as-is.)
 
 ## IN PROGRESS
 
-- The fix: one scanner in `basic::parse`.
+- Report.
 
 ## NEXT
 
-- One scanner in `basic::parse` (paren + quote aware), the two public splitters on it,
-  twins removed, font-family / animation lists / font-family printer fixed.
 - Report `scripts/CSSV_VALUE_SPLITTING_2026_09_29.md`.
 
 ## Open questions
