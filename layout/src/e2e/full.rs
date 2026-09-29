@@ -1653,13 +1653,14 @@ pub struct VirtualViewScrollStateInfo {
 pub struct SelectionStateResponse {
     /// Whether any selection exists
     pub has_selection: bool,
-    /// Number of DOMs with selections
+    /// Number of entries in `selections`
     pub selection_count: usize,
-    /// Selections per DOM
+    /// One entry per text block holding a selection: the editing session's
+    /// block, or every block a document selection spans (document order)
     pub selections: Vec<DomSelectionInfo>,
 }
 
-/// Selection info for a single DOM
+/// Selection info for a single text block
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DomSelectionInfo {
@@ -1686,7 +1687,8 @@ pub struct DomSelectionInfo {
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SelectionRangeInfo {
-    /// Selection type: "cursor", "range", or "block"
+    /// Selection type: "cursor", "range" (in the editing session), or
+    /// "block" (one block's part of a document selection)
     pub selection_type: String,
     /// For cursor: the caret's byte offset in the block's text
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1758,16 +1760,47 @@ fn selection_range_info(
     }
 }
 
-/// What `get_selection_state` reports: the editing session's selections, in
-/// its block (`selector_of` names a node for the response - the handler's
-/// `build_selector_for_node`, which needs the callback).
+/// What `get_selection_state` reports (`selector_of` names a node for the
+/// response - the handler's `build_selector_for_node`, which needs the
+/// callback):
+///
+/// - a DOCUMENT selection (a drag or Ctrl+A across blocks) as it is shown: one entry per text
+///   block it spans, in document order, each with that block's part of it as a "block" range
+///   and the whole selection's direction. It used to report only the editing session - the
+///   caret a drag leaves at its anchor - so a script saw a caret where the user saw paragraphs
+///   selected;
+/// - otherwise the editing session's selections, in its block.
 #[cfg(feature = "std")]
 fn selection_state(
     lw: &azul_layout::window::LayoutWindow,
     selector_of: impl Fn(azul_core::dom::DomId, azul_core::dom::NodeId) -> Option<String>,
 ) -> SelectionStateResponse {
     let mut selections = Vec::new();
-    if let Some(mc) = lw.text_edit_manager.multi_cursor.as_ref() {
+    if let Some(cb) = lw.text_edit_manager.get_cross_block_selection() {
+        let direction = if cb.is_forward { "forward" } else { "backward" };
+        // `TextBlock`'s order is document order.
+        for (block, ranges) in &cb.affected_blocks {
+            let node = block.container();
+            selections.push(DomSelectionInfo {
+                dom_id: block.dom().inner as u32,
+                node_id: Some(node.index() as u64),
+                selector: selector_of(block.dom(), node),
+                ranges: ranges
+                    .iter()
+                    .map(|range| SelectionRangeInfo {
+                        selection_type: "block".to_string(),
+                        direction: Some(direction.to_string()),
+                        ..selection_range_info(
+                            lw,
+                            *block,
+                            &azul_core::selection::Selection::Range(*range),
+                        )
+                    })
+                    .collect(),
+                rectangles: Vec::new(),
+            });
+        }
+    } else if let Some(mc) = lw.text_edit_manager.multi_cursor.as_ref() {
         let dom_id = mc.block.dom();
         let node = mc.block.container();
         let ranges = mc
