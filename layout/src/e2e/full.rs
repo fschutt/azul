@@ -2913,7 +2913,8 @@ pub enum DebugEvent {
         /// Library name to delete
         name: String,
     },
-    /// Create a new empty component in a library
+    /// Create a new component in a library — empty, or (with `render_tree`)
+    /// from a DOM subtree, whose text and attributes become its parameters.
     CreateComponent {
         /// Library name
         library: String,
@@ -2922,6 +2923,16 @@ pub enum DebugEvent {
         /// Human-readable display name
         #[serde(default)]
         display_name: Option<String>,
+        /// Markdown description
+        #[serde(default)]
+        description: Option<String>,
+        /// The component's DOM as the builder UI sends it: a node
+        /// `{tag, text?, classes?, id?, attrs?, children?, _component?}` (`tag`
+        /// `"__text__"` is a text node) or an array of them. Stored as the
+        /// component's template, with its text / attributes inferred as
+        /// String parameters (`text`, `text_2`, …, `href`, …).
+        #[serde(default)]
+        render_tree: Option<serde_json::Value>,
     },
     /// Delete a component from a library
     DeleteComponent {
@@ -2949,6 +2960,11 @@ pub enum DebugEvent {
         /// Unified list: includes both data fields and callbacks.
         #[serde(default)]
         fields: Option<Vec<ExportedDataField>>,
+        /// Replace the component's template with this tree (same shape as
+        /// `create_component`'s). Taken as it is: `{placeholders}` in it stay
+        /// placeholders and the data model is kept.
+        #[serde(default)]
+        render_tree: Option<serde_json::Value>,
     },
     /// Render a component to a PNG image via CPU renderer.
     /// Uses the existing window's fonts — no expensive font rebuild.
@@ -3035,6 +3051,99 @@ pub enum DebugEvent {
         /// Line number (1-based, 0 = don't jump)
         #[serde(default)]
         line: u32,
+    },
+
+    // ── AzBuilder document (layout/src/e2e/builder.rs) ──
+    //
+    // The visual builder edits a DOCUMENT (a tree with stable node `uid`s,
+    // root `<body>` = uid 0), not the live flat StyledDom. Every edit answers
+    // with the whole document (the UI's tree) and remounts it over the window
+    // through the `mount` pipeline. The first edit starts from what the window
+    // shows. Every edit is one undo step.
+    /// The builder document: `{active, can_undo, can_redo, root}`. Before the
+    /// first edit (`active: false`) it is what the first edit would start from.
+    BuilderGetDocument,
+    /// Insert a node — a palette drop. Answers the document plus `inserted`
+    /// (the new node's uid).
+    BuilderInsert {
+        /// uid of the new node's parent (an element).
+        parent: u64,
+        /// Child slot to insert at; omit to append.
+        #[serde(default)]
+        index: Option<usize>,
+        /// Component library; omit (or `"builtin"`) for a plain element.
+        #[serde(default)]
+        library: Option<String>,
+        /// Element tag (`"div"`, `"p"`, …), the component's name, or `"#text"`.
+        component: String,
+        /// Attributes / component arguments; `text` is an element's text.
+        #[serde(default)]
+        attrs: BTreeMap<String, String>,
+    },
+    /// Move a node (and its subtree) — a tree row dragged elsewhere.
+    BuilderMove {
+        /// uid of the node to move.
+        node: u64,
+        /// uid of the new parent.
+        parent: u64,
+        /// Slot among the new parent's children AS THEY ARE BEFORE THE MOVE
+        /// (the drop indicator's position); omit to append.
+        #[serde(default)]
+        index: Option<usize>,
+    },
+    /// Delete a node and its subtree.
+    BuilderDelete {
+        /// uid of the node.
+        node: u64,
+    },
+    /// Set or remove one attribute (a text node's only attribute is `text`).
+    BuilderSetAttribute {
+        /// uid of the node.
+        node: u64,
+        /// Attribute name.
+        name: String,
+        /// New value; omit to remove the attribute.
+        #[serde(default)]
+        value: Option<String>,
+    },
+    /// Undo the last builder edit.
+    BuilderUndo,
+    /// Redo the last undone builder edit.
+    BuilderRedo,
+    /// Drop the builder document and give the window back to the app.
+    BuilderReset,
+    /// Register the subtree at `node` as a new template component (its text
+    /// and attributes become String parameters) and replace the subtree by an
+    /// instance of it. Creates the library if it does not exist.
+    BuilderConvertToComponent {
+        /// uid of the subtree's root (an element).
+        node: u64,
+        /// Library to add the component to.
+        library: String,
+        /// The component's tag name.
+        name: String,
+        /// Human-readable name; derived from `name` when omitted.
+        #[serde(default)]
+        display_name: Option<String>,
+        /// Leave the subtree in the document instead of replacing it by an
+        /// instance of the new component (default: replace).
+        #[serde(default)]
+        keep_subtree: bool,
+    },
+    /// A component's default instance rendered by the CPU renderer as a PNG
+    /// data URI — the palette thumbnail. Cached per window until the
+    /// component changes (`cached: true` on a hit).
+    GetComponentThumbnail {
+        /// Library name.
+        library: String,
+        /// Component tag name.
+        name: String,
+        /// Layout width in logical px (default 160; the height fits the content).
+        #[serde(default)]
+        width: Option<f32>,
+        /// Device pixel ratio (default 2).
+        #[serde(default)]
+        dpi: Option<f32>,
     },
 }
 
@@ -3555,6 +3664,10 @@ pub struct E2eScratch {
     /// step has begun yet, which is why X8 hard-fails rather than passing when
     /// it finds none — an invariant with no subject must not report success.
     composition_trace: Option<CompositionTrace>,
+    /// The AzBuilder document this window shows once the builder took it
+    /// over, and the palette thumbnail cache (the `builder_*` ops and
+    /// `get_component_thumbnail`). Per window, like everything here.
+    builder: super::builder::BuilderSession,
 }
 
 /// Lock this window's E2E scratch. A poisoned lock is recovered rather than
@@ -3628,6 +3741,65 @@ fn build_mount_document(html: &TextLines, css: &TextLines) -> String {
         format!("<body>\n{html_src}\n</body>")
     };
     format!("<html>\n<head>\n<style>\n{css_src}\n</style>\n</head>\n{body}\n</html>")
+}
+
+/// Answer a builder op and hand its document to the window: a `Mount` goes
+/// through the same `CallbackChange::RemountDom` the `mount` op uses (the
+/// shell stores it on `LayoutWindow::e2e_mount`, `regenerate_layout` parses
+/// it). Returns whether the DOM must be regenerated.
+#[cfg(feature = "std")]
+fn finish_builder_op(
+    request: &DebugRequest,
+    callback_info: &mut azul_layout::callbacks::CallbackInfo,
+    result: Result<super::builder::BuilderReply, String>,
+) -> bool {
+    match result {
+        Ok(reply) => {
+            let needs_update = match reply.remount {
+                super::builder::Remount::Keep => false,
+                super::builder::Remount::Mount(xml) => {
+                    callback_info.push_change(azul_layout::callbacks::CallbackChange::RemountDom {
+                        xml: Some(xml.into()),
+                    });
+                    true
+                }
+                super::builder::Remount::Unmount => {
+                    callback_info.push_change(azul_layout::callbacks::CallbackChange::RemountDom {
+                        xml: None,
+                    });
+                    true
+                }
+            };
+            send_ok(request, None, Some(ResponseData::Json(reply.json)));
+            needs_update
+        }
+        Err(e) => {
+            send_err(request, e);
+            false
+        }
+    }
+}
+
+/// A component changed: if the builder document is on screen, mount it again
+/// so its instances show the new version. Returns whether it remounted.
+#[cfg(feature = "std")]
+fn remount_builder_if_active(
+    callback_info: &mut azul_layout::callbacks::CallbackInfo,
+    component_map: &Arc<Mutex<azul_core::xml::ComponentMap>>,
+) -> bool {
+    let xml = {
+        let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+        scratch(callback_info).builder.remount_xml(&map_guard)
+    };
+    match xml {
+        Some(xml) => {
+            callback_info.push_change(azul_layout::callbacks::CallbackChange::RemountDom {
+                xml: Some(xml.into()),
+            });
+            true
+        }
+        None => false,
+    }
 }
 
 /// Snapshot the (already `pub`) resource + font-manager counters that a leak
@@ -19061,6 +19233,8 @@ pub fn process_debug_event(
             library,
             name,
             display_name,
+            description,
+            render_tree,
         } => {
             use azul_core::xml::{
                 ComponentDataFieldVec, ComponentDataModel, ComponentDef, ComponentId,
@@ -19081,12 +19255,29 @@ pub fn process_debug_event(
                     map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                     drop(map_guard);
                     send_err(request, format!("Library '{}' is not modifiable", library));
+                } else if lib
+                    .components
+                    .iter()
+                    .any(|c| c.id.name.as_str() == name.as_str())
+                {
+                    // It used to push a SECOND def of the same name, which every
+                    // lookup then shadowed — the new one could never be reached.
+                    map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                    drop(map_guard);
+                    send_err(
+                        request,
+                        format!(
+                            "Component '{}' already exists in library '{}'",
+                            name, library
+                        ),
+                    );
                 } else {
                     let display = display_name.as_deref().unwrap_or(name.as_str());
-                    let new_def = ComponentDef {
+                    let mut new_def = ComponentDef {
                         id: ComponentId::new(library.as_str(), name.as_str()),
                         display_name: AzString::from(display),
-                        description: AzString::from_const_str(""),
+                        // `description` used to be dropped by serde without a word.
+                        description: AzString::from(description.as_deref().unwrap_or("")),
                         css: AzString::from_const_str(""),
                         source: ComponentSource::UserDefined,
                         data_model: ComponentDataModel {
@@ -19099,6 +19290,19 @@ pub fn process_debug_event(
                         render_fn_source: None.into(),
                         compile_fn_source: None.into(),
                     };
+                    // The builder UI's "create component from subtree" sends the
+                    // subtree here; it used to be dropped by serde without a word
+                    // and an EMPTY component came back.
+                    let installed = match render_tree {
+                        Some(tree) => super::builder::install_inferred_template(&mut new_def, tree),
+                        None => Ok(()),
+                    };
+                    if let Err(e) = installed {
+                        map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                        drop(map_guard);
+                        send_err(request, format!("create_component '{}': {}", name, e));
+                        return needs_update;
+                    }
                     let mut comps = core::mem::replace(&mut lib.components, Vec::new().into())
                         .into_library_owned_vec();
                     comps.push(new_def);
@@ -19137,6 +19341,11 @@ pub fn process_debug_event(
                     lib.components = azul_core::xml::ComponentDefVec::from_vec(comps);
                     map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                     drop(map_guard);
+                    // Its instances in a builder document become visible
+                    // "missing component" placeholders rather than stale DOM.
+                    if remount_builder_if_active(callback_info, component_map) {
+                        needs_update = true;
+                    }
                     send_ok(request, None, None);
                 }
             } else {
@@ -19153,6 +19362,7 @@ pub fn process_debug_event(
             description,
             display_name,
             fields,
+            render_tree,
         } => {
             use azul_core::xml::ComponentLibraryVec;
             use azul_css::corety::AzString;
@@ -19205,10 +19415,28 @@ pub fn process_debug_event(
                                 }
                             }
                         }
+                        // The component detail's tree editor (drop / insert /
+                        // move / delete in "Render Output") sends its tree here;
+                        // it used to be dropped by serde, answered `ok`, and the
+                        // edit was gone on the next reload.
+                        if let Some(tree) = render_tree {
+                            if let Err(e) = super::builder::install_template(comp, tree) {
+                                lib.components = azul_core::xml::ComponentDefVec::from_vec(comps);
+                                map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                                drop(map_guard);
+                                send_err(
+                                    request,
+                                    format!("render_tree of component '{}': {}", name, e),
+                                );
+                                return needs_update;
+                            }
+                        }
                         lib.components = azul_core::xml::ComponentDefVec::from_vec(comps);
                         map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                         drop(map_guard);
                         needs_update = true;
+                        // A builder document on screen shows the new version.
+                        let _ = remount_builder_if_active(callback_info, component_map);
                         send_ok(request, None, None);
                     } else {
                         lib.components = azul_core::xml::ComponentDefVec::from_vec(comps);
@@ -19382,6 +19610,15 @@ pub fn process_debug_event(
                 .cloned();
 
             if let Some(comp) = comp_found {
+                // A builder template answers with the TEMPLATE (placeholders
+                // and all), so the tree editor edits the component, not one
+                // rendering of it — and its edits round-trip through
+                // `update_component {render_tree}`.
+                if let Some(tree) = super::builder::template_render_tree_json(&comp) {
+                    drop(map_guard);
+                    send_ok(request, None, Some(ResponseData::Json(tree)));
+                    return needs_update;
+                }
                 // Build default data model
                 let render_data_model = match override_data_model_defaults(&comp.data_model, None) {
                     Ok(v) => v,
@@ -19519,9 +19756,18 @@ pub fn process_debug_event(
                     {
                         comp.render_fn_source =
                             Some(azul_css::corety::AzString::from(source.as_str())).into();
+                        // A builder template IS live source: editing it in the
+                        // render_fn editor changes what the component renders.
+                        if source
+                            .trim_start()
+                            .starts_with(super::builder::TEMPLATE_MARKER)
+                        {
+                            comp.render_fn = super::builder::builder_template_render_fn;
+                        }
                         lib.components = comps.into();
                         map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
                         drop(map_guard);
+                        let _ = remount_builder_if_active(callback_info, component_map);
                         send_ok(request, None, None);
                         needs_update = true;
                     } else {
@@ -19629,6 +19875,191 @@ pub fn process_debug_event(
             match result {
                 Ok(_) => send_ok(request, None, None),
                 Err(e) => send_err(request, format!("Failed to open {}: {}", file, e)),
+            }
+        }
+
+        // === AzBuilder document (layout/src/e2e/builder.rs) ===
+        //
+        // Each edit validates against the document, answers with the whole
+        // document and REMOUNTS it (`finish_builder_op`): the window then shows
+        // exactly the document, and a later RefreshDom keeps it (the mounted
+        // DOM is cloned forward, see `E2eMountOverride`).
+        DebugEvent::BuilderGetDocument => {
+            let json = {
+                let layout_window = callback_info.get_layout_window();
+                let live = layout_window
+                    .layout_results
+                    .get(&ROOT_DOM_ID)
+                    .map(|lr| &lr.styled_dom);
+                scratch(callback_info).builder.document_json(live)
+            };
+            send_ok(request, None, Some(ResponseData::Json(json)));
+        }
+
+        DebugEvent::BuilderInsert {
+            parent,
+            index,
+            library,
+            component,
+            attrs,
+        } => {
+            let result = {
+                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let layout_window = callback_info.get_layout_window();
+                let live = layout_window
+                    .layout_results
+                    .get(&ROOT_DOM_ID)
+                    .map(|lr| &lr.styled_dom);
+                scratch(callback_info).builder.insert(
+                    live,
+                    &map_guard,
+                    *parent,
+                    *index,
+                    library.as_deref(),
+                    component,
+                    attrs.clone(),
+                )
+            };
+            if finish_builder_op(request, callback_info, result) {
+                needs_update = true;
+            }
+        }
+
+        DebugEvent::BuilderMove {
+            node,
+            parent,
+            index,
+        } => {
+            let result = {
+                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let layout_window = callback_info.get_layout_window();
+                let live = layout_window
+                    .layout_results
+                    .get(&ROOT_DOM_ID)
+                    .map(|lr| &lr.styled_dom);
+                scratch(callback_info)
+                    .builder
+                    .move_node(live, &map_guard, *node, *parent, *index)
+            };
+            if finish_builder_op(request, callback_info, result) {
+                needs_update = true;
+            }
+        }
+
+        DebugEvent::BuilderDelete { node } => {
+            let result = {
+                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let layout_window = callback_info.get_layout_window();
+                let live = layout_window
+                    .layout_results
+                    .get(&ROOT_DOM_ID)
+                    .map(|lr| &lr.styled_dom);
+                scratch(callback_info)
+                    .builder
+                    .delete(live, &map_guard, *node)
+            };
+            if finish_builder_op(request, callback_info, result) {
+                needs_update = true;
+            }
+        }
+
+        DebugEvent::BuilderSetAttribute { node, name, value } => {
+            let result = {
+                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let layout_window = callback_info.get_layout_window();
+                let live = layout_window
+                    .layout_results
+                    .get(&ROOT_DOM_ID)
+                    .map(|lr| &lr.styled_dom);
+                scratch(callback_info).builder.set_attribute(
+                    live,
+                    &map_guard,
+                    *node,
+                    name,
+                    value.clone(),
+                )
+            };
+            if finish_builder_op(request, callback_info, result) {
+                needs_update = true;
+            }
+        }
+
+        DebugEvent::BuilderUndo => {
+            let result = {
+                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                scratch(callback_info).builder.undo(&map_guard)
+            };
+            if finish_builder_op(request, callback_info, result) {
+                needs_update = true;
+            }
+        }
+
+        DebugEvent::BuilderRedo => {
+            let result = {
+                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                scratch(callback_info).builder.redo(&map_guard)
+            };
+            if finish_builder_op(request, callback_info, result) {
+                needs_update = true;
+            }
+        }
+
+        DebugEvent::BuilderReset => {
+            let reply = scratch(callback_info).builder.reset();
+            if finish_builder_op(request, callback_info, Ok(reply)) {
+                needs_update = true;
+            }
+        }
+
+        DebugEvent::BuilderConvertToComponent {
+            node,
+            library,
+            name,
+            display_name,
+            keep_subtree,
+        } => {
+            let result = {
+                let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let layout_window = callback_info.get_layout_window();
+                let live = layout_window
+                    .layout_results
+                    .get(&ROOT_DOM_ID)
+                    .map(|lr| &lr.styled_dom);
+                scratch(callback_info).builder.convert_to_component(
+                    live,
+                    &mut map_guard,
+                    *node,
+                    library,
+                    name,
+                    display_name.as_deref(),
+                    !*keep_subtree,
+                )
+            };
+            if finish_builder_op(request, callback_info, result) {
+                needs_update = true;
+            }
+        }
+
+        DebugEvent::GetComponentThumbnail {
+            library,
+            name,
+            width,
+            dpi,
+        } => {
+            let result = {
+                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                scratch(callback_info).builder.thumbnail(
+                    callback_info,
+                    &map_guard,
+                    library,
+                    name,
+                    *width,
+                    *dpi,
+                )
+            };
+            match result {
+                Ok(json) => send_ok(request, None, Some(ResponseData::Json(json))),
+                Err(e) => send_err(request, e),
             }
         }
 

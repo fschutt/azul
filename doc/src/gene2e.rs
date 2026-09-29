@@ -551,6 +551,19 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("get_library_components",     Some("visual-editor/IDE surface, not engine behaviour")),
     ("import_component_library",   Some("visual-editor/IDE surface, not engine behaviour")),
     ("export_component_library",   Some("visual-editor/IDE surface, not engine behaviour")),
+    // AzBuilder's document ops (layout/src/e2e/builder.rs): they REPLACE the
+    // app's DOM with the builder's document — pinned by the builder_tests
+    // module, never a generated behaviour test.
+    ("builder_get_document",       Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_insert",             Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_move",               Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_delete",             Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_set_attribute",      Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_undo",               Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_redo",               Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_reset",              Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_convert_to_component", Some("visual-editor/IDE surface, not engine behaviour")),
+    ("get_component_thumbnail",    Some("visual-editor/IDE surface, not engine behaviour")),
     ("export_code",                Some("codegen surface, not engine behaviour")),
     ("export_code_zip",            Some("codegen surface, not engine behaviour")),
     ("resolve_function_pointers",  Some("editor/codegen plumbing, not engine behaviour")),

@@ -235,7 +235,12 @@ fn the_builder_refuses_edits_that_would_corrupt_the_tree_and_says_why() {
     }
     for (i, needle) in [(2, "descendant"), (3, "root"), (4, "99"), (5, "nope")] {
         let (st, err) = status(i);
-        assert_eq!(st, "fail", "step {i} must be refused:\n{}", failures(&result));
+        assert_eq!(
+            st,
+            "fail",
+            "step {i} must be refused:\n{}",
+            failures(&result)
+        );
         assert!(
             err.contains(needle),
             "step {i}'s refusal must say why (expected '{needle}' in: {err})"

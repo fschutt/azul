@@ -23,6 +23,10 @@
 mod full;
 pub use full::*;
 
+// AzBuilder's document model (drag and drop, undo, convert-to-component,
+// template components, palette thumbnails) behind the `builder_*` ops.
+mod builder;
+
 mod cpu_backend;
 
 mod runner;
