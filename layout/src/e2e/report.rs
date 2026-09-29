@@ -58,6 +58,16 @@ impl E2eVerdict {
             0
         }
     }
+
+    /// The tally back out of the `test result:` line [`render_report`]
+    /// wrote (ANSI colour included), for a process that reads another's run
+    /// - the AZ_E2E directory dispatcher reading a child's, `azul-doc mobile`
+    /// reading a device log. `None` when `line` is not a summary line.
+    #[must_use]
+    pub fn parse_summary(line: &str) -> Option<Self> {
+        let _ = line;
+        None
+    }
 }
 
 /// Whether `test` is marked as a known failure.

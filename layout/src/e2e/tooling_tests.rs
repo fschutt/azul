@@ -213,3 +213,47 @@ fn the_widgets_hotkey_scenario_has_exactly_one_variant_per_desktop_host() {
         );
     }
 }
+
+/// `AZ_E2E=<directory>` runs each file in a child process and tallied only
+/// the child's exit code, so a file whose tests were all SKIPPED printed
+/// "ok": a pass it did not earn. The parent reads the child's summary line
+/// back into the verdict `render_report` wrote.
+#[test]
+fn a_summary_line_reads_back_into_the_verdict_that_wrote_it() {
+    use crate::e2e::E2eVerdict;
+
+    let tests = vec![
+        gated("skipped_here", serde_json::json!(["windows"])),
+        gated("failed_here", serde_json::json!(["linux"])),
+    ];
+    let results = vec![
+        result(serde_json::json!({
+            "name": "skipped_here",
+            "status": "skip",
+            "skip_reason": "only on windows; this host is linux",
+            "duration_ms": 0,
+            "step_count": 3,
+            "steps_passed": 0,
+            "steps_failed": 0,
+            "steps": []
+        })),
+        result(serde_json::json!({
+            "name": "failed_here",
+            "status": "fail",
+            "duration_ms": 4,
+            "step_count": 3,
+            "steps_passed": 2,
+            "steps_failed": 1,
+            "steps": []
+        })),
+    ];
+    let (report, verdict) = render_report(&tests, &results);
+    let line = report
+        .lines()
+        .rev()
+        .find(|l| l.contains("test result:"))
+        .expect("the report ends in a summary line");
+
+    assert_eq!(E2eVerdict::parse_summary(line), Some(verdict), "{line}");
+    assert_eq!(E2eVerdict::parse_summary("running 2 tests"), None);
+}
