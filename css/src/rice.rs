@@ -68,7 +68,9 @@ pub use crate::system::{ricing_mode, ricing_mode_from, RicingMode};
 use crate::{
     corety::{AzString, StringVec},
     css::{rule_priority, Css, CssRuleBlock},
-    dynamic_selector::{DynamicSelector, DynamicSelectorContext, ThemeCondition, DEFAULT_APP_THEME},
+    dynamic_selector::{
+        DynamicSelector, DynamicSelectorContext, ThemeCondition, DEFAULT_APP_THEME,
+    },
     system::SystemStyle,
 };
 
@@ -429,11 +431,7 @@ pub fn version_satisfies(range: &str, version: &str) -> bool {
         ">" => have > base,
         "<" => have < base,
         "=" => given.iter().enumerate().all(|(i, g)| have[i] == *g),
-        "~" => {
-            have >= base
-                && have[0] == base[0]
-                && (given.len() < 2 || have[1] == base[1])
-        }
+        "~" => have >= base && have[0] == base[0] && (given.len() < 2 || have[1] == base[1]),
         _ => {
             // Caret: the left-most non-zero GIVEN component may not change.
             if have < base {
@@ -689,11 +687,14 @@ pub fn theme_dir_segments(name: &str) -> Option<Vec<&str>> {
     let valid = segments.iter().all(|s| {
         !s.is_empty()
             && s.len() <= 64
-            && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
     });
-    let reserved = segments
-        .first()
-        .is_some_and(|first| RESERVED_THEME_NAMES.iter().any(|r| r.eq_ignore_ascii_case(first)));
+    let reserved = segments.first().is_some_and(|first| {
+        RESERVED_THEME_NAMES
+            .iter()
+            .any(|r| r.eq_ignore_ascii_case(first))
+    });
     (valid && !reserved).then_some(segments)
 }
 
@@ -802,7 +803,12 @@ pub fn legacy_stylesheet_path(app: &str) -> Option<PathBuf> {
     } else {
         env_path("XDG_CONFIG_HOME").or_else(|| home_dir().map(|h| h.join(".config")))?
     };
-    Some(config.join("azul").join("styles").join(format!("{app}.css")))
+    Some(
+        config
+            .join("azul")
+            .join("styles")
+            .join(format!("{app}.css")),
+    )
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -937,7 +943,10 @@ impl RiceStatus {
     pub fn is_beyond_base(&self) -> bool {
         self.files.iter().any(|f| {
             f.state == RiceFileState::Applied
-                && matches!(f.priority, RicePriority::App | RicePriority::Widgets | RicePriority::Force)
+                && matches!(
+                    f.priority,
+                    RicePriority::App | RicePriority::Widgets | RicePriority::Force
+                )
         })
     }
 
@@ -967,7 +976,11 @@ impl RiceStatus {
                 "  [{}] {} {}{} {}: {} rules, {} live, {} inert",
                 f.state.label(),
                 f.priority.name(),
-                if f.theme.as_str().is_empty() { "(every theme)" } else { f.theme.as_str() },
+                if f.theme.as_str().is_empty() {
+                    "(every theme)"
+                } else {
+                    f.theme.as_str()
+                },
                 if f.version.as_str().is_empty() {
                     String::new()
                 } else {
@@ -1111,7 +1124,12 @@ fn read_rice_file(path: &Path, root: Option<&Path>) -> Result<String, String> {
     String::from_utf8(bytes).map_err(|_| "not UTF-8".to_string())
 }
 
-fn load_raw(path: PathBuf, dir_theme: Option<String>, legacy: bool, root: Option<&Path>) -> RawFile {
+fn load_raw(
+    path: PathBuf,
+    dir_theme: Option<String>,
+    legacy: bool,
+    root: Option<&Path>,
+) -> RawFile {
     match read_rice_file(&path, root) {
         Ok(text) => {
             let header = parse_rice_header(&text);
@@ -1251,7 +1269,12 @@ impl Entry {
 fn resolve(raw: RawFile, env: &RiceEnv, warnings: &mut Vec<String>) -> Entry {
     let label = raw.path.display().to_string();
     let mut notes = Vec::new();
-    for w in raw.header.warnings.iter().chain(raw.sanitize_warnings.iter()) {
+    for w in raw
+        .header
+        .warnings
+        .iter()
+        .chain(raw.sanitize_warnings.iter())
+    {
         warnings.push(format!("{label}: {w}"));
     }
 
@@ -1398,7 +1421,10 @@ fn clamp_unthemed(entries: &mut [Entry], warnings: &mut Vec<String>) {
     for e in entries.iter_mut() {
         if e.theme.is_none()
             && e.state == RiceFileState::Applied
-            && matches!(e.priority, RicePriority::App | RicePriority::Widgets | RicePriority::Force)
+            && matches!(
+                e.priority,
+                RicePriority::App | RicePriority::Widgets | RicePriority::Force
+            )
         {
             warnings.push(format!(
                 "{}: priority {} clamped to base: a file without a theme is live under every \
@@ -1406,7 +1432,8 @@ fn clamp_unthemed(entries: &mut [Entry], warnings: &mut Vec<String>) {
                 e.label(),
                 e.priority.name()
             ));
-            e.notes.push(format!("clamped to base (was {})", e.priority.name()));
+            e.notes
+                .push(format!("clamped to base (was {})", e.priority.name()));
             e.priority = RicePriority::Base;
         }
     }
@@ -1541,9 +1568,9 @@ pub fn load_rice(env: &RiceEnv, chain: &[String]) -> LoadedRice {
                 rule.priority = slot;
                 if let Some(theme) = &e.theme {
                     let mut conditions = Vec::with_capacity(rule.conditions.as_ref().len() + 1);
-                    conditions.push(DynamicSelector::Theme(ThemeCondition::Custom(AzString::from(
-                        theme.clone(),
-                    ))));
+                    conditions.push(DynamicSelector::Theme(ThemeCondition::Custom(
+                        AzString::from(theme.clone()),
+                    )));
                     conditions.extend(rule.conditions.as_ref().iter().cloned());
                     rule.conditions = conditions.into();
                 }
@@ -1686,7 +1713,13 @@ pub fn rice_for_theme(head: &str) -> Option<Arc<LoadedRice>> {
         loaded.status.mode = p.mode;
         if !chain_warnings.is_empty() {
             let mut warnings = chain_warnings;
-            warnings.extend(loaded.status.warnings.iter().map(|w| w.as_str().to_string()));
+            warnings.extend(
+                loaded
+                    .status
+                    .warnings
+                    .iter()
+                    .map(|w| w.as_str().to_string()),
+            );
             loaded.status.warnings = StringVec::from(warnings);
         }
         if p.mode == RicingMode::Watch && p.fingerprint.is_none() {
@@ -1781,9 +1814,9 @@ pub fn rice_status(ctx: Option<&DynamicSelectorContext>) -> RiceStatus {
         None => (None, ricing_mode(), None),
     });
     if let Some(loaded) = loaded {
-        let mut ctx = ctx.cloned().unwrap_or_else(|| {
-            DynamicSelectorContext::from_system_style(&SystemStyle::default())
-        });
+        let mut ctx = ctx
+            .cloned()
+            .unwrap_or_else(|| DynamicSelectorContext::from_system_style(&SystemStyle::default()));
         ctx.theme_chain = loaded.status.chain.clone();
         return loaded.status_under(&ctx);
     }
@@ -1850,7 +1883,12 @@ fn fingerprint_file(path: &Path, hasher: &mut impl core::hash::Hasher) {
     }
 }
 
-fn fingerprint_dir(dir: &Path, depth: usize, hasher: &mut impl core::hash::Hasher, budget: &mut usize) {
+fn fingerprint_dir(
+    dir: &Path,
+    depth: usize,
+    hasher: &mut impl core::hash::Hasher,
+    budget: &mut usize,
+) {
     if depth > 8 || *budget == 0 {
         return;
     }
