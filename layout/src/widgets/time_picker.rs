@@ -654,6 +654,8 @@ impl Default for TimePicker {
 }
 
 /// Builds one spinner column in the flat theme - see [`build_spinner_skinned`].
+/// The tests' entry point; the widget itself builds through its skin.
+#[cfg(test)]
 fn build_spinner(
     value: AzString,
     state: RefAny,
