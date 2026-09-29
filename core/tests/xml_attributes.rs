@@ -1,0 +1,197 @@
+//! ONE table maps an XML attribute to what it sets on a node
+//! (`azul_core::xml::attributes`). The XML → DOM builders apply every
+//! attribute through it; the code generator writes the builder call from the
+//! same entry (core/tests/codegen_attributes.rs), so the two cannot disagree.
+//!
+//! These are the PARSING half: markup → the node's `NodeData`, one test per
+//! attribute family, and an attribute an app registers.
+
+use azul_core::{
+    dom::{AttributeNameValue, AttributeType, Dom, NodeData, TabIndex},
+    window::{AzStringPair, StringPairVec},
+    xml::{
+        attributes::{
+            builtin_attributes, register_xml_attribute, AttributeScope, NodeSetting, XmlAttribute,
+        },
+        str_to_dom_unstyled, ComponentMap, XmlAttributeMap, XmlNode, XmlNodeChild,
+    },
+};
+use azul_css::AzString;
+
+fn node(tag: &str, attrs: &[(&str, &str)], children: Vec<XmlNodeChild>) -> XmlNode {
+    XmlNode {
+        node_type: tag.into(),
+        attributes: XmlAttributeMap::from(StringPairVec::from_vec(
+            attrs
+                .iter()
+                .map(|(k, v)| AzStringPair {
+                    key: AzString::from(*k),
+                    value: AzString::from(*v),
+                })
+                .collect::<Vec<_>>(),
+        )),
+        children: children.into(),
+    }
+}
+
+fn txt(s: &str) -> XmlNodeChild {
+    XmlNodeChild::Text(AzString::from(s))
+}
+
+/// The `NodeData` the XML → DOM builder makes of `<body><{tag} ..></body>`.
+fn parsed(tag: &str, attrs: &[(&str, &str)], children: Vec<XmlNodeChild>) -> NodeData {
+    let body = node("body", &[], vec![XmlNodeChild::Element(node(tag, attrs, children))]);
+    let map = ComponentMap::with_builtin();
+    let dom: Dom = str_to_dom_unstyled(&[XmlNodeChild::Element(body)], &map).expect("parses");
+    // html > body > the element
+    let body = &dom.children.as_ref()[0];
+    body.children.as_ref()[0].root.clone()
+}
+
+fn attrs_of(nd: &NodeData) -> Vec<AttributeType> {
+    nd.attributes().as_ref().to_vec()
+}
+
+#[test]
+fn every_attribute_the_builders_understand_is_one_entry_of_the_table() {
+    let names: Vec<&str> = builtin_attributes().iter().map(|a| a.name).collect();
+    for want in [
+        "id", "class", "style", "tabindex", "focusable", "contenteditable", "autofocus",
+        "placeholder", "colspan", "rowspan", "dir", "type", "name", "value", "min", "max",
+        "step", "pattern", "autocomplete", "aria-label", "title", "alt", "src", "minlength",
+        "maxlength", "required", "disabled", "readonly", "selected", "checked", "data-l10n*",
+        "data-*", "on*",
+    ] {
+        assert!(names.contains(&want), "{want} is not in the table: {names:?}");
+    }
+}
+
+#[test]
+fn id_and_class_become_the_nodes_ids_and_classes() {
+    let nd = parsed("div", &[("id", "main"), ("class", "a b")], vec![]);
+    let got: Vec<String> = nd
+        .get_ids_and_classes()
+        .as_ref()
+        .iter()
+        .map(|x| format!("{x:?}"))
+        .collect();
+    assert_eq!(got.len(), 3, "{got:?}");
+    assert!(got[0].contains("main"), "{got:?}");
+}
+
+#[test]
+fn tabindex_and_focusable_set_the_keyboard_focus() {
+    assert_eq!(
+        parsed("div", &[("tabindex", "3")], vec![]).get_tab_index(),
+        Some(TabIndex::OverrideInParent(3))
+    );
+    assert_eq!(
+        parsed("div", &[("tabindex", "0")], vec![]).get_tab_index(),
+        Some(TabIndex::Auto)
+    );
+    assert_eq!(
+        parsed("div", &[("tabindex", "-1")], vec![]).get_tab_index(),
+        Some(TabIndex::NoKeyboardFocus)
+    );
+    assert_eq!(
+        parsed("div", &[("focusable", "false")], vec![]).get_tab_index(),
+        Some(TabIndex::NoKeyboardFocus)
+    );
+    // A later tabindex wins over focusable, as before.
+    assert_eq!(
+        parsed("div", &[("tabindex", "2"), ("focusable", "false")], vec![]).get_tab_index(),
+        Some(TabIndex::OverrideInParent(2))
+    );
+}
+
+#[test]
+fn contenteditable_true_makes_the_node_editable_and_false_walls_it_off() {
+    assert!(parsed("div", &[("contenteditable", "true")], vec![]).is_contenteditable());
+    // An explicit false is NOT "no attribute": it walls the subtree off inside
+    // an editable host. The two XML loaders used to disagree here (this one
+    // dropped it); the table has one answer.
+    let off = parsed("div", &[("contenteditable", "false")], vec![]);
+    assert!(!off.is_contenteditable());
+    assert!(
+        attrs_of(&off).contains(&AttributeType::ContentEditable(false)),
+        "{:?}",
+        attrs_of(&off)
+    );
+}
+
+#[test]
+fn autofocus_placeholder_and_cell_spans_are_typed_attributes() {
+    let a = attrs_of(&parsed(
+        "td",
+        &[("autofocus", ""), ("placeholder", "Name"), ("colspan", "2"), ("rowspan", "3")],
+        vec![txt("x")],
+    ));
+    assert!(a.contains(&AttributeType::Autofocus), "{a:?}");
+    assert!(a.contains(&AttributeType::Placeholder("Name".into())), "{a:?}");
+    assert!(a.contains(&AttributeType::ColSpan(2)), "{a:?}");
+    assert!(a.contains(&AttributeType::RowSpan(3)), "{a:?}");
+}
+
+#[test]
+fn a_form_controls_attributes_are_typed_and_data_attributes_ride_along() {
+    let a = attrs_of(&parsed(
+        "input",
+        &[
+            ("type", "range"),
+            ("min", "0"),
+            ("max", "10"),
+            ("required", ""),
+            ("disabled", "false"),
+            ("data-azul-widget", "none"),
+        ],
+        vec![],
+    ));
+    assert!(a.contains(&AttributeType::InputType("range".into())), "{a:?}");
+    assert!(a.contains(&AttributeType::Min("0".into())), "{a:?}");
+    assert!(a.contains(&AttributeType::Max("10".into())), "{a:?}");
+    assert!(a.contains(&AttributeType::Required), "{a:?}");
+    assert!(!a.contains(&AttributeType::Disabled), "disabled=\"false\" is off: {a:?}");
+    assert!(
+        a.contains(&AttributeType::Data(AttributeNameValue {
+            attr_name: "data-azul-widget".into(),
+            value: "none".into(),
+        })),
+        "{a:?}"
+    );
+    // Only form controls take them.
+    let div = attrs_of(&parsed("div", &[("min", "0"), ("data-x", "1")], vec![]));
+    assert!(div.is_empty(), "{div:?}");
+}
+
+#[test]
+fn dir_and_style_become_the_nodes_inline_css_style_last() {
+    let nd = parsed("div", &[("style", "color: red"), ("dir", "rtl")], vec![]);
+    let css = format!("{:?}", nd.style);
+    let dir = css.find("Rtl").expect("the direction");
+    let color = css.find("TextColor").expect("the style attribute");
+    assert!(dir < color, "direction first, the author's style last: {css}");
+}
+
+#[test]
+fn an_attribute_an_app_registers_is_applied_by_the_builders() {
+    fn hint(_name: &str, value: &str) -> Option<NodeSetting> {
+        Some(NodeSetting::Attribute(AttributeType::Custom(AttributeNameValue {
+            attr_name: "hint".into(),
+            value: value.into(),
+        })))
+    }
+    register_xml_attribute(XmlAttribute {
+        name: "x-b6-parse-hint",
+        scope: AttributeScope::AnyElement,
+        order: 50,
+        setting: hint,
+    });
+    let a = attrs_of(&parsed("div", &[("x-b6-parse-hint", "hello")], vec![]));
+    assert!(
+        a.contains(&AttributeType::Custom(AttributeNameValue {
+            attr_name: "hint".into(),
+            value: "hello".into(),
+        })),
+        "{a:?}"
+    );
+}

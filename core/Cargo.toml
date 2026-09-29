@@ -87,3 +87,8 @@ required-features = ["codegen"]
 name = "codegen_components"
 path = "tests/codegen_components.rs"
 required-features = ["codegen"]
+
+[[test]]
+name = "codegen_attributes"
+path = "tests/codegen_attributes.rs"
+required-features = ["codegen"]
