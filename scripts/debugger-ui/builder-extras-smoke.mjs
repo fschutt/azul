@@ -58,14 +58,34 @@ function handle(msg) {
         case 'get_component_thumbnail':
             return { library: msg.library, name: msg.name, key: '0', data: PNG, empty: false,
                 width: 8, height: 4, cached: false };
-        case 'get_node_hierarchy': return { root: 0, node_count: 1,
-            nodes: [{ index: 0, type: 'Body', tag: 'body', parent: -1, children: [], classes: [] }] };
+        case 'get_node_hierarchy': return liveHierarchy();
         case 'get_app_state': return {};
         default: {
             const v = builder.ops(msg);
             return v === undefined ? null : v;
         }
     }
+}
+
+/**
+ * The live DOM as get_node_hierarchy answers it since B5: a mounted document
+ * element's marker `azb-<uid>` is NOT in `classes`, it is `builder_uid`.
+ */
+function liveHierarchy() {
+    const nodes = [{ index: 0, type: 'Html', tag: 'html', parent: -1, children: [], classes: [] }];
+    const root = builder.doc ? builder.doc.root : { uid: 0, kind: 'element', tag: 'body', attrs: {}, children: [] };
+    (function walk(n, parent) {
+        const index = nodes.length;
+        const text = n.kind === 'text';
+        const entry = { index, type: text ? 'Text' : 'Div', tag: text ? undefined : n.tag, parent, children: [],
+            classes: text ? [] : String((n.attrs || {}).class || '').split(/\s+/).filter(Boolean), events: [] };
+        if (!text) entry.builder_uid = n.uid;
+        if (text) entry.text = n.text;
+        nodes.push(entry);
+        nodes[parent].children.push(index);
+        for (const c of n.children) walk(c, index);
+    })(root, 0);
+    return { root: 0, node_count: nodes.length, nodes };
 }
 
 const lastSent = (op) => [...sent].reverse().find((m) => m.op === op);
@@ -296,6 +316,15 @@ async function main() {
         await waitFor(cdp, `azDnd.state.selected === 2 && !!__t.prop('href')`);
         check('clicking the picture selects the node under the pointer (tree and Properties)',
             await cdp.eval(`azDnd.state.selected === 2 && __t.row(2).classList.contains('selected') && !!__t.prop('href')`));
+
+        // ── 4. the markers stay out of the inspector ──
+        await cdp.eval(`__t.row(1).click(); true`);
+        const detail = await waitFor(cdp, `(document.getElementById('node-detail-panel').textContent || '').includes('lead')`);
+        const liveIndex = await cdp.eval(`app.state.selectedNodeId`);
+        check("selecting a Document row finds its live node by builder_uid and shows it in the detail panel",
+            detail && liveIndex === 2, { liveIndex });
+        check('...whose class list has no builder marker',
+            await cdp.eval(`!document.getElementById('node-detail-panel').textContent.includes('azb-')`));
 
         // ── Live DOM hides the builder panels ──
         await cdp.eval(`document.querySelector('.azb-seg button[data-mode=live]').click(); true`);

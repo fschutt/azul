@@ -234,5 +234,21 @@ test('the drop indicator on the picture: the node for INTO, a line for BEFORE / 
     assert.strictEqual(L.canvasIndicator(hit, 'into', shown, null), null);
 });
 
+// ── 4. the markers stay out of the inspector ────────────────────────────
+
+test("a document node's live node is found by builder_uid (and by an older server's marker class)", () => {
+    const nodes = [
+        { index: 0, tag: 'html', classes: [] },
+        { index: 1, tag: 'body', classes: [], builder_uid: 0 },
+        { index: 2, tag: 'p', classes: ['note'], builder_uid: 3 },
+        { index: 3, tag: 'div', classes: ['azb-card', 'azb-5'] },
+    ];
+    assert.strictEqual(L.liveNodeOf(nodes, 3).index, 2);
+    assert.strictEqual(L.liveNodeOf(nodes, 0).index, 1);
+    assert.strictEqual(L.liveNodeOf(nodes, 5).index, 3, 'a server before B5 still answers the class');
+    assert.strictEqual(L.liveNodeOf(nodes, 9), null);
+    assert.strictEqual(L.liveNodeOf(null, 3), null);
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

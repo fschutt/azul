@@ -554,3 +554,34 @@ fn a_point_in_the_window_hit_tests_to_the_document_node_under_it_through_its_mar
         "a node inside an instance belongs to the instance: {card}"
     );
 }
+
+// ── B5: the builder's markers stay out of the inspector ──
+
+#[test]
+fn the_live_dom_answers_a_mounted_nodes_marker_as_builder_uid_not_as_a_class() {
+    let [wf, w] = settle();
+    let result = run(
+        "builder_markers_hidden",
+        false,
+        steps(vec![
+            serde_json::json!({ "op": "builder_insert", "parent": 0, "component": "p",
+                                "attrs": { "id": "a", "class": "note azb-card", "text": "A" } }),
+            wf,
+            w,
+            // The engine still has the marker (the builder's hit test and the
+            // Inspector's lookup need it)...
+            serde_json::json!({ "op": "assert_exists", "selector": ".azb-1" }),
+            // ...but the Live DOM tree and the Inspector's class list do not
+            // show it: it is answered as `builder_uid`.
+            serde_json::json!({ "op": "get_node_hierarchy" }),
+            serde_json::json!({ "op": "assert_response", "contains": "\"builder_uid\":1" }),
+            serde_json::json!({ "op": "assert_response", "contains": "\"builder_uid\":0" }),
+            serde_json::json!({ "op": "assert_response", "contains": "\"note\"" }),
+            // An ordinary class that happens to start with `azb-` stays.
+            serde_json::json!({ "op": "assert_response", "contains": "\"azb-card\"" }),
+            serde_json::json!({ "op": "assert_response", "not_contains": "\"azb-1\"" }),
+            serde_json::json!({ "op": "assert_response", "not_contains": "\"azb-0\"" }),
+        ]),
+    );
+    assert_passes(&result);
+}
