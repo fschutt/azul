@@ -100,11 +100,15 @@ is shared with other agents!). Append to files via Write-to-scratch + `cat >>`.
   (flat rings; flora paper calendar). API: `DatePicker.theme` appended after
   `accessibility_name`; set_theme / with_theme.
 
+- self-review: 18604cd4b (drop unused decl::border_top), 4e6e9ea25 (ASCII doc).
+- final report: fad47c6b9 (scripts/W3A_WIDGET_THEMES_2026_09_29.md).
+
 ## IN PROGRESS
-Self-review pass for compile risks, then the final report.
+Nothing.
 
 ## NEXT
-final report scripts/W3A_WIDGET_THEMES_2026_09_29.md
+Done - hand back to the parent (integrate, compile once, run the suites,
+api.json via autofix from the report's API list).
 
 ## Open questions
 - ENGINE GAP (spinner): `-azul-animation-in` tracks are started only by
