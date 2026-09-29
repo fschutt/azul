@@ -983,11 +983,22 @@ pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
 
 #[must_use]
 pub fn progressbar(bar: crate::widgets::progressbar::ProgressBar) -> Dom {
+    progressbar_mount(bar, progressbar_render_virtual_view)
+}
+
+/// The `VirtualView` wrapper a progress bar mounts - the same box in every
+/// theme - rendering its bar through `render` (a theme's callback, or the
+/// one an unpinned bar follows the app theme with).
+#[must_use]
+pub(crate) fn progressbar_mount(
+    bar: crate::widgets::progressbar::ProgressBar,
+    render: azul_core::callbacks::VirtualViewCallbackType,
+) -> Dom {
     let height = bar.height;
     let dataset = RefAny::new(crate::widgets::progressbar::ProgressBarLocalDataset { bar });
     Dom::create_virtual_view(
         dataset.clone(),
-        azul_core::callbacks::VirtualViewCallback::create(progressbar_render_virtual_view),
+        azul_core::callbacks::VirtualViewCallback::create(render),
     )
     .with_dataset(Some(dataset).into())
     .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![

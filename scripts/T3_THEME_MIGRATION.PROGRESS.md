@@ -82,9 +82,14 @@ Recipe: scripts/T1_APP_THEME_2026_09_29.md §4. Nothing is compiled here (house 
   flora spokes) - the structure theme's subtree is kept, its own component sheet (@keyframes) too;
   no pin needed changing)
 
+- progressbar: RED 375e4141f, impl: see git log (`create` theme `Some(Flat)` -> `None`; unpinned
+  `dom()` mounts `flat::progressbar_mount(bar, render_virtual_view_following)` - the VirtualView
+  renders both themes' bars and merges them under `UiTheme::current()`; `render_bar()` merges
+  the same way (`follow_bar`); 13 autotest `render_bar` mechanics pins now pin `FLAT`)
+
 ## IN PROGRESS
 
-- progressbar
+- video
 
 ## NEXT
 

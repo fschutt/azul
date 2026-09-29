@@ -253,9 +253,8 @@ impl ProgressBar {
                 STYLE_BACKGROUND_CONTENT_14586281004485141058_ITEMS,
             ),
             accessibility_name: OptionString::None,
-            theme: crate::widgets::themes::OptionUiTheme::Some(
-                crate::widgets::themes::UiTheme::Flat,
-            ),
+            // No opinion: the bar follows the app theme (`dom`).
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
 
@@ -310,11 +309,8 @@ impl ProgressBar {
         self
     }
 
-    /// Build the widget: a `VirtualView` node (explicitly sized to
-    /// [`height`](Self::height)) whose callback renders [`render_bar`]
-    /// (`Self::render_bar`) into the node's bounds. The node carries the
-    /// widget's private dataset so [`update_progress`](Self::update_progress)
-    /// can find and mutate it later - see the module docs for the fast path.
+    /// Pick the widget theme. Unset (`None`), the bar follows the app theme
+    /// (`AppConfig::with_theme`, flat by default).
     #[inline]
     pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
@@ -327,19 +323,23 @@ impl ProgressBar {
         self
     }
 
+    /// Build the widget: a `VirtualView` node (explicitly sized to
+    /// [`height`](Self::height)) whose callback renders [`render_bar`]
+    /// (`Self::render_bar`) into the node's bounds. The node carries the
+    /// widget's private dataset so [`update_progress`](Self::update_progress)
+    /// can find and mutate it later - see the module docs for the fast path.
+    ///
+    /// Unpinned (`theme: None`, the default), the bar follows the APP theme:
+    /// its `VirtualView` renders the bar in both themes and merges them in
+    /// the structure of the theme it is rendered for
+    /// (`render_virtual_view_following`).
     #[must_use]
     pub fn dom(self) -> Dom {
-        let theme = self
-            .theme
-            .into_option()
-            .unwrap_or(crate::widgets::themes::UiTheme::Flat);
-        match theme {
-            crate::widgets::themes::UiTheme::Flat => {
-                crate::widgets::themes::flat::progressbar(self)
-            }
-            crate::widgets::themes::UiTheme::Flora => {
-                crate::widgets::themes::flora::progressbar(self)
-            }
+        use crate::widgets::themes::{flat, flora, UiTheme};
+        match self.theme.into_option() {
+            Some(UiTheme::Flat) => flat::progressbar(self),
+            Some(UiTheme::Flora) => flora::progressbar(self),
+            None => flat::progressbar_mount(self, render_virtual_view_following),
         }
     }
 
@@ -371,19 +371,44 @@ impl ProgressBar {
     /// embedding in a context that manages its own updates.
     #[must_use]
     pub fn render_bar(self) -> Dom {
-        let theme = self
-            .theme
-            .into_option()
-            .unwrap_or(crate::widgets::themes::UiTheme::Flat);
-        match theme {
-            crate::widgets::themes::UiTheme::Flat => {
-                crate::widgets::themes::flat::progressbar_render_bar_impl(self, None)
-            }
-            crate::widgets::themes::UiTheme::Flora => {
-                crate::widgets::themes::flora::progressbar_render_bar_impl(self, None)
-            }
+        use crate::widgets::themes::{flat, flora, UiTheme};
+        match self.theme.into_option() {
+            Some(UiTheme::Flat) => flat::progressbar_render_bar_impl(self, None),
+            Some(UiTheme::Flora) => flora::progressbar_render_bar_impl(self, None),
+            None => follow_bar(self, None),
         }
     }
+}
+
+/// An UNPINNED bar's tree: rendered by BOTH themes and merged in the
+/// structure of the theme the DOM is built for (`themes::flat::follow_dom`).
+fn follow_bar(bar: ProgressBar, bounds_px: Option<(f32, f32)>) -> Dom {
+    use crate::widgets::themes::{flat, flora, UiTheme};
+    flat::follow_dom(
+        UiTheme::current(),
+        flat::progressbar_render_bar_impl(bar.clone(), bounds_px),
+        flora::progressbar_render_bar_impl(bar, bounds_px),
+    )
+}
+
+/// The `VirtualView` callback of an UNPINNED bar: the stored bar rendered
+/// into the node's bounds by both themes ([`follow_bar`]) - in the theme of
+/// the pass that lays it out (`UiTheme::current`).
+extern "C" fn render_virtual_view_following(
+    mut data: RefAny,
+    info: VirtualViewCallbackInfo,
+) -> VirtualViewReturn {
+    let Some(state) = data.downcast_ref::<ProgressBarLocalDataset>() else {
+        // Foreign payload: render nothing rather than lying about bounds.
+        return VirtualViewReturn::default();
+    };
+    let size = info.bounds.get_logical_size();
+    let rect = LogicalRect::new(LogicalPosition::zero(), size);
+    VirtualViewReturn::with_dom(
+        follow_bar(state.bar.clone(), Some((size.width, size.height))),
+        rect,
+        rect,
+    )
 }
 
 #[cfg(test)]
@@ -404,6 +429,11 @@ mod autotest_generated {
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
+
+    /// The theme the `render_bar` mechanics below are pinned to: an unpinned
+    /// bar follows the app theme, so its tree is two themes' builds merged
+    /// (cloned, not moved), which is not what these tests are about.
+    const FLAT: crate::widgets::themes::UiTheme = crate::widgets::themes::UiTheme::Flat;
 
     /// Every `f32` a caller can realistically hand to `ProgressBar::create`.
     /// The percentage is stored raw and only clamped inside `dom()`, where it is
@@ -900,7 +930,7 @@ mod autotest_generated {
         assert_eq!(pb.bar_background.len(), 0);
         assert!(pb.container_background.is_empty());
 
-        let dom = pb.render_bar();
+        let dom = pb.with_theme(FLAT).render_bar();
         assert_eq!(
             background_of(bar(&dom)),
             Some(Vec::new()),
@@ -948,7 +978,7 @@ mod autotest_generated {
             "the setter deep-copied a 10k-layer background"
         );
 
-        let dom = pb.render_bar();
+        let dom = pb.with_theme(FLAT).render_bar();
         assert_eq!(
             background_of(bar(&dom)).map(|v| v.len()),
             Some(10_000),
@@ -1093,7 +1123,7 @@ mod autotest_generated {
 
     #[test]
     fn render_bar_is_a_container_div_with_exactly_two_leaf_children() {
-        let dom = ProgressBar::create(50.0).render_bar();
+        let dom = ProgressBar::create(50.0).with_theme(FLAT).render_bar();
 
         assert!(matches!(dom.root.get_node_type(), NodeType::Div));
         assert_eq!(
@@ -1144,7 +1174,7 @@ mod autotest_generated {
         ];
 
         for (input, bar_width, remaining_width) in CASES {
-            let dom = ProgressBar::create(input).render_bar();
+            let dom = ProgressBar::create(input).with_theme(FLAT).render_bar();
             let b = width_of(bar(&dom)).expect("the bar must declare a width");
             let r = width_of(remaining(&dom)).expect("the remaining space must declare a width");
 
@@ -1175,7 +1205,7 @@ mod autotest_generated {
         // cast inside `FloatValue::new` then turns it into 0. The documented result:
         // BOTH children get 0% — the bar renders as an empty container instead of
         // falling back to 0%/100%. It does not panic, and it is deterministic.
-        let dom = ProgressBar::create(f32::NAN).render_bar();
+        let dom = ProgressBar::create(f32::NAN).with_theme(FLAT).render_bar();
         let b = width_of(bar(&dom)).expect("the bar must declare a width");
         let r = width_of(remaining(&dom)).expect("the remaining space must declare a width");
 
@@ -1193,7 +1223,7 @@ mod autotest_generated {
     #[test]
     fn render_bar_splits_the_container_exactly_for_whole_percentages() {
         for i in 0..=100_isize {
-            let dom = ProgressBar::create(i as f32).render_bar();
+            let dom = ProgressBar::create(i as f32).with_theme(FLAT).render_bar();
             let b = raw(width_of(bar(&dom)).unwrap());
             let r = raw(width_of(remaining(&dom)).unwrap());
 
@@ -1222,7 +1252,7 @@ mod autotest_generated {
             f32::EPSILON,
             f32::MIN_POSITIVE,
         ] {
-            let dom = ProgressBar::create(p).render_bar();
+            let dom = ProgressBar::create(p).with_theme(FLAT).render_bar();
             let b = raw(width_of(bar(&dom)).unwrap());
             let r = raw(width_of(remaining(&dom)).unwrap());
 
@@ -1247,7 +1277,7 @@ mod autotest_generated {
         let dom = ProgressBar::create(25.0)
             .with_bar_background(bar_bg)
             .with_container_background(container_bg)
-            .render_bar();
+            .with_theme(FLAT).render_bar();
 
         assert_eq!(
             background_of(&dom).map(|v| v.len()),
@@ -1284,7 +1314,7 @@ mod autotest_generated {
     #[test]
     fn render_bar_forwards_any_height_to_the_container_and_to_nobody_else() {
         for h in adversarial_heights() {
-            let dom = ProgressBar::create(50.0).with_height(h).render_bar();
+            let dom = ProgressBar::create(50.0).with_height(h).with_theme(FLAT).render_bar();
             let got = height_of(&dom).expect("the container must declare a height");
 
             assert_eq!(
@@ -1318,7 +1348,7 @@ mod autotest_generated {
     fn render_bar_declares_the_expected_style_blocks_and_no_property_twice() {
         let dom = ProgressBar::create(50.0)
             .with_bar_background(solid(1))
-            .render_bar();
+            .with_theme(FLAT).render_bar();
 
         // `render_bar()` is the percentage-sized entry point (`bounds_px: None`),
         // so the container declares no `width` — the VirtualView path, which
@@ -1363,7 +1393,7 @@ mod autotest_generated {
         // Only the two child widths are relative. A border or radius that slipped
         // into `em`/`%` would resolve against the parent font or box and either
         // vanish or blow up.
-        let dom = ProgressBar::create(50.0).render_bar();
+        let dom = ProgressBar::create(50.0).with_theme(FLAT).render_bar();
         for node in [&dom, bar(&dom), remaining(&dom)] {
             for p in inline_props(node) {
                 for length in lengths_of(&p) {
@@ -1427,7 +1457,7 @@ mod autotest_generated {
             (f32::NAN, "0%"),
             (f32::INFINITY, "100%"),
         ] {
-            let dom = ProgressBar::create(input).render_bar();
+            let dom = ProgressBar::create(input).with_theme(FLAT).render_bar();
             let info = dom
                 .root
                 .get_accessibility_info()
@@ -1449,7 +1479,7 @@ mod autotest_generated {
                     .with_bar_background(solid(layers))
                     .with_container_background(solid(layers))
                     .with_height(PixelValue::px(f32::MAX))
-                    .render_bar();
+                    .with_theme(FLAT).render_bar();
 
                 assert_eq!(
                     kids(&dom).len(),
