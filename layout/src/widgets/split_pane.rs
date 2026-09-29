@@ -3732,10 +3732,16 @@ mod theme_tests {
     }
 
     #[test]
-    fn a_split_pane_without_a_theme_renders_flat() {
+    fn a_split_pane_without_a_theme_follows_the_app_theme_flat_by_default() {
         let sp = SplitPane::create(SplitDirection::Horizontal, Dom::create_div(), Dom::create_div());
         assert_eq!(sp.theme, OptionUiTheme::None);
         assert!(tc::has_class(&split(SplitDirection::Horizontal, None), FLAT));
+        let dom = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            split(SplitDirection::Horizontal, None)
+        };
+        assert!(tc::has_class(&dom, FLORA), "built for flora, it is flora's");
+        assert!(!tc::has_class(&dom, FLAT));
     }
 
     #[test]

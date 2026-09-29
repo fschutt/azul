@@ -312,3 +312,22 @@ fn tooltips_follow_the_app_theme() {
         .dom()
     });
 }
+
+#[test]
+fn split_panes_follow_the_app_theme() {
+    use azul_layout::widgets::split_pane::{SplitDirection, SplitPane};
+    for dir in [SplitDirection::Horizontal, SplitDirection::Vertical] {
+        assert_follows_the_app_theme(&format!("split pane {dir:?}"), |t| {
+            pinned(
+                SplitPane::create(
+                    dir,
+                    Dom::create_p_with_text("First"),
+                    Dom::create_p_with_text("Second"),
+                ),
+                t,
+                SplitPane::with_theme,
+            )
+            .dom()
+        });
+    }
+}
