@@ -6010,7 +6010,30 @@ pub(crate) fn tree_view_look() -> crate::widgets::tree_view::TreeViewLook {
 
 // ==== tabs ====
 //
-// PLACEHOLDER until the flora tab bar lands: the flat look.
+// A flora tab bar is flora's navigation strip (`.navbar`, `.nav-links a`):
+// raised CHROME (`--fl-rT` over `--fl-rB` - chrome is a smooth face, no
+// grain) closed along its foot by a 2px rule of metal. The unselected tabs
+// sit BEHIND the rule - it runs across their feet - written in `--fl-soft1`,
+// with 4px shoulders and an invisible 1px edge on their other three sides;
+// under the pointer they lift to the hover face, the edge turns `--fl-bd` and
+// the label darkens to `--fl-ink`; pressed, they sink to the pressed face in
+// a `--fl-bd3` edge. The SELECTED tab is the sunken accent stone
+// (`selected_stone`) in `--fl-on-acc`, cut from the rule's metal on three
+// sides at the rule's gauge, with 6px shoulders and no foot: it sits above
+// the rule and breaks it, which is what "selected" means in a tab bar. Its
+// label sits on the same line as the others' (4px + the 2px rule below an
+// unselected label, 6px below the selected one). flora.css's corner assembly
+// (flare, cove and run-out - radial masks around the selected tab's foot) is
+// not drawn; its metal is `--fl-metal-turn`, the value the ribbon has where
+// that corner would be. The tabs start 8px in and the rule runs on to the end
+// of the strip. The tab widths and the strip's height follow the label, as
+// flora's navigation does, not the flat bar's fixed 21 / 23px. Every tab
+// rings on focus with an inset ring: the accent by day, the glow by night and
+// on the stone.
+//
+// The panel the selected tab opens onto is a LEAF (`--fl-sur`) in a `--fl-bd`
+// hairline on three sides with the house radius at its foot, open at the top
+// where the strip's rule closes it; padded, it breathes 10px.
 
 /// `--fl-metal-turn` (#C6B279): the value flora's ribbon has where the rule
 /// that closes a tab strip turns and climbs the selected tab - the one metal
@@ -6021,11 +6044,147 @@ pub const TAB_METAL: ColorU = ColorU::rgb(0xC6, 0xB2, 0x79);
 /// Flora's tab-bar look.
 #[must_use]
 pub(crate) fn tab_header_look() -> crate::widgets::tabs::TabHeaderLook {
-    super::flat::tab_header_look()
+    use super::style_kit as kit;
+    type P = CssPropertyWithConditions;
+    let part = CssPropertyWithConditionsVec::from_vec;
+    // The strip's rule: 2px of metal along a foot.
+    let rule = || kit::border(kit::Edges::BOTTOM, 2, TAB_METAL, TAB_METAL);
+    let three_sides = kit::Edges {
+        top: true,
+        right: true,
+        bottom: false,
+        left: true,
+    };
+
+    let mut header = vec![
+        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        P::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+        P::simple(CssProperty::const_align_items(LayoutAlignItems::End)),
+        P::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+        kit::font_size(13),
+        P::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(6))),
+    ];
+    header.extend(kit::themed_layers(
+        vec![RAISED_FACE_LIGHT],
+        vec![RAISED_FACE_DARK],
+    ));
+
+    let mut before = vec![
+        P::simple(CssProperty::const_width(LayoutWidth::const_px(8))),
+        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    ];
+    before.extend(rule());
+    let mut after = vec![P::simple(CssProperty::const_flex_grow(
+        LayoutFlexGrow::const_new(1),
+    ))];
+    after.extend(rule());
+
+    // A tab's box: the centred label, the pointer, the gap to the next tab.
+    let tab_box = |top: isize, bottom: isize| {
+        let mut v = vec![
+            P::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
+            P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+            P::simple(CssProperty::const_margin_right(LayoutMarginRight::const_px(2))),
+        ];
+        v.extend(kit::padding(top, 12, bottom, 12));
+        v
+    };
+
+    // An unselected tab, behind the rule.
+    let mut tab = tab_box(3, 4);
+    tab.extend(kit::border(
+        three_sides,
+        1,
+        ColorU::TRANSPARENT,
+        ColorU::TRANSPARENT,
+    ));
+    tab.extend(rule());
+    tab.extend(kit::radius_corners(4, 4, 0, 0));
+    tab.extend(kit::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    // States last: a resting dark twin matches in every state. The edge
+    // states colour the three edges the tab owns - never the foot, which is
+    // the strip's rule.
+    let edges = |light: ColorU, dark: ColorU| {
+        [
+            (
+                CssProperty::const_border_top_color(StyleBorderTopColor { inner: light }),
+                CssProperty::const_border_top_color(StyleBorderTopColor { inner: dark }),
+            ),
+            (
+                CssProperty::const_border_right_color(StyleBorderRightColor { inner: light }),
+                CssProperty::const_border_right_color(StyleBorderRightColor { inner: dark }),
+            ),
+            (
+                CssProperty::const_border_left_color(StyleBorderLeftColor { inner: light }),
+                CssProperty::const_border_left_color(StyleBorderLeftColor { inner: dark }),
+            ),
+        ]
+    };
+    tab.extend(kit::hover_layers(
+        vec![HOVER_FACE_LIGHT],
+        vec![HOVER_FACE_DARK],
+    ));
+    tab.extend(kit::hover_ink(LIGHT_INK, DARK_INK));
+    for (light, dark) in edges(LIGHT_BD, DARK_BD) {
+        tab.extend(P::themed_on_hover(light, dark));
+    }
+    tab.extend(kit::active_layers(
+        vec![PRESSED_FACE_LIGHT],
+        vec![PRESSED_FACE_DARK],
+    ));
+    for (light, dark) in edges(LIGHT_BD3, DARK_BD3) {
+        tab.extend(P::themed_on_active(light, dark));
+    }
+    tab.extend(kit::focus_shadow_ring(LIGHT_ACC, DARK_GLOW));
+
+    // The selected tab: the stone in the rule's metal, open at its foot.
+    let mut active = tab_box(3, 6);
+    active.extend(kit::border(three_sides, 2, TAB_METAL, TAB_METAL));
+    active.extend(kit::radius_corners(6, 6, 0, 0));
+    active.push(P::simple(kit::layers(selected_stone())));
+    active.push(P::simple(kit::ink(LIGHT_ON_ACC)));
+    active.extend(kit::focus_shadow_ring(LIGHT_GLOW, DARK_GLOW));
+
+    // No seams: a tab next to the selected one is a tab like any other.
+    let tab = part(tab);
+    crate::widgets::tabs::TabHeaderLook {
+        header: part(header),
+        before: part(before),
+        after: part(after),
+        active: part(active),
+        before_active: tab.clone(),
+        after_active: tab.clone(),
+        inactive: tab,
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
 }
 
 /// Flora's tab-panel look.
 #[must_use]
 pub(crate) fn tab_content_look() -> crate::widgets::tabs::TabContentLook {
-    super::flat::tab_content_look()
+    use super::style_kit as kit;
+    type P = CssPropertyWithConditions;
+    let leaf = || {
+        let mut v = vec![P::simple(CssProperty::const_flex_grow(
+            LayoutFlexGrow::const_new(1),
+        ))];
+        v.extend(kit::themed_bg(LIGHT_SUR, DARK_SUR));
+        v
+    };
+    let mut padded = leaf();
+    padded.extend(kit::padding(10, 10, 10, 10));
+    let open_top = kit::Edges {
+        top: false,
+        right: true,
+        bottom: true,
+        left: true,
+    };
+    padded.extend(kit::border(open_top, 1, LIGHT_BD, DARK_BD));
+    padded.extend(kit::radius_corners(0, 0, 3, 3));
+
+    crate::widgets::tabs::TabContentLook {
+        padded: CssPropertyWithConditionsVec::from_vec(padded),
+        unpadded: CssPropertyWithConditionsVec::from_vec(leaf()),
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
 }
