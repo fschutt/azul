@@ -43,6 +43,7 @@ use std::fmt::Write as _;
 
 use super::{
     super::{
+        c_layout::union_payload_layout,
         config::CodegenConfig,
         ir::{
             ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldRefKind,
@@ -70,7 +71,7 @@ pub fn generate_c_decls(ir: &CodegenIR, config: &CodegenConfig) -> String {
             continue;
         }
         if e.is_union {
-            emit_tagged_union(&mut out, e, config);
+            emit_tagged_union(&mut out, e, ir, config);
         } else {
             emit_unit_enum(&mut out, e, config);
         }
@@ -85,7 +86,7 @@ pub fn generate_c_decls(ir: &CodegenIR, config: &CodegenConfig) -> String {
         if !config.should_include_type(&ta.name) {
             continue;
         }
-        emit_type_alias(&mut out, ta, config);
+        emit_type_alias(&mut out, ta, ir, config);
     }
 
     if !ir.constants.is_empty() {
@@ -290,17 +291,28 @@ fn is_u8_repr(repr: Option<&str>) -> bool {
     repr.map(|r| r.contains("u8")).unwrap_or(false)
 }
 
-fn emit_tagged_union(out: &mut String, e: &EnumDef, config: &CodegenConfig) {
+/// The bytes azul.h puts between a variant's tag and its payload
+/// (`uint8_t _pad0[N]`, from `c_layout::union_payload_layout`: Rust puts
+/// every payload at the largest alignment of any variant).
+fn padding_line(out: &mut String, padding: usize) {
+    if padding > 0 {
+        field_line(out, "_pad0", &format!("[{}]u8", padding));
+    }
+}
+
+fn emit_tagged_union(out: &mut String, e: &EnumDef, ir: &CodegenIR, config: &CodegenConfig) {
     let name = config.apply_prefix(&e.name);
     let u8_repr = is_u8_repr(e.repr.as_deref());
     let tag_name = format!("{}_Tag", name);
     let variants: Vec<&str> = e.variants.iter().map(|v| v.name.as_str()).collect();
     emit_c_enum(out, &tag_name, &variants, u8_repr, "__Force8Bit");
     let tag_ty = if u8_repr { "u8".to_string() } else { tag_name.clone() };
+    let payload = union_payload_layout(&e.name, ir);
 
     for v in &e.variants {
         let _ = writeln!(out, "pub const {}Variant_{} = extern struct {{", name, v.name);
         field_line(out, "tag", &tag_ty);
+        padding_line(out, payload.as_ref().map_or(0, |p| p.padding(&v.name)));
         match &v.kind {
             EnumVariantKind::Tuple(types) if !types.is_empty() => {
                 for (i, (ty, rk)) in types.iter().enumerate() {
@@ -365,10 +377,10 @@ fn emit_callback_typedef(out: &mut String, cb: &CallbackTypedefDef, config: &Cod
     );
 }
 
-fn emit_type_alias(out: &mut String, ta: &TypeAliasDef, config: &CodegenConfig) {
+fn emit_type_alias(out: &mut String, ta: &TypeAliasDef, ir: &CodegenIR, config: &CodegenConfig) {
     let name = config.apply_prefix(&ta.name);
     if let Some(mono) = &ta.monomorphized_def {
-        emit_monomorphized(out, &name, mono, config);
+        emit_monomorphized(out, &ta.name, &name, mono, ir, config);
         return;
     }
     let target = ta.target.trim();
@@ -380,8 +392,10 @@ fn emit_type_alias(out: &mut String, ta: &TypeAliasDef, config: &CodegenConfig) 
 
 fn emit_monomorphized(
     out: &mut String,
+    api_name: &str,
     name: &str,
     mono: &MonomorphizedTypeDef,
+    ir: &CodegenIR,
     config: &CodegenConfig,
 ) {
     match &mono.kind {
@@ -391,9 +405,11 @@ fn emit_monomorphized(
             let names: Vec<&str> = variants.iter().map(|v| v.name.as_str()).collect();
             emit_c_enum(out, &tag_name, &names, u8_repr, "__Force8Bit");
             let tag_ty = if u8_repr { "u8".to_string() } else { tag_name.clone() };
+            let payload = union_payload_layout(api_name, ir);
             for v in variants {
                 let _ = writeln!(out, "pub const {}Variant_{} = extern struct {{", name, v.name);
                 field_line(out, "tag", &tag_ty);
+                padding_line(out, payload.as_ref().map_or(0, |p| p.padding(&v.name)));
                 if let Some(p) = &v.payload_type {
                     let zt = field_type(p, &v.payload_ref_kind, config);
                     field_line(out, "payload", &zt);

@@ -23,6 +23,7 @@ use anyhow::Result;
 
 use super::{
     super::{
+        c_layout::union_payload_layout,
         config::CodegenConfig,
         generator::CodeBuilder,
         ir::{
@@ -176,7 +177,18 @@ fn generate_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR)
     builder.line("]");
     builder.blank();
 
-    // 2. Per-variant payload struct (tag + payload field(s)).
+    // 2. Per-variant payload struct (tag, azul.h's padding, payload
+    // field(s)). The tag field is the C tag's width: `uint8` for a
+    // `repr(C, u8)` union - an FFIExternalEnumeration field is int-sized, which
+    // put every payload 3 bytes past the C one - else the enumeration. The
+    // padding comes from `c_layout::union_payload_layout`: Rust puts every
+    // payload at the largest alignment of any variant.
+    let payload = union_payload_layout(&e.name, ir);
+    let tag_field = if e.repr.as_deref().is_some_and(|r| r.contains("u8")) {
+        "uint8".to_string()
+    } else {
+        tag_name.clone()
+    };
     for v in &e.variants {
         let variant_struct = format!("{}Variant_{}", name, v.name);
         emit_class_header(
@@ -193,7 +205,11 @@ fn generate_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR)
         builder.indent();
         builder.line("^ #(");
         builder.indent();
-        builder.line(&format!("({} tag)", tag_name));
+        builder.line(&format!("({} tag)", tag_field));
+        let padding = payload.as_ref().map_or(0, |p| p.padding(&v.name));
+        if padding > 0 {
+            builder.line(&format!("(uint8 _pad0[{}])", padding));
+        }
         match &v.kind {
             EnumVariantKind::Unit => {}
             EnumVariantKind::Tuple(types) => {
