@@ -329,6 +329,8 @@ fn handle_http_connection(
     static DEBUGGER_JS_BR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/debugger.js.br"));
     static DEBUGGER_DND_JS_BR: &[u8] =
         include_bytes!(concat!(env!("OUT_DIR"), "/debugger-dnd.js.br"));
+    static DEBUGGER_EXPORT_JS_BR: &[u8] =
+        include_bytes!(concat!(env!("OUT_DIR"), "/debugger-export.js.br"));
     static DEBUGGER_HTML_BR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/debugger.html.br"));
 
     // ── Route: GET /debugger.css → serve brotli-compressed CSS ──
@@ -363,6 +365,18 @@ fn handle_http_connection(
             DEBUGGER_DND_JS_BR.len()
         );
         serve_response(stream, &header, DEBUGGER_DND_JS_BR);
+        return;
+    }
+
+    // ── Route: GET /debugger-export.js → the builder's quick export dialogs ──
+    if method == "GET" && path == "/debugger-export.js" {
+        let header = format!(
+            "HTTP/1.0 200 OK\r\nContent-Type: application/javascript; \
+             charset=utf-8\r\nContent-Encoding: br\r\nContent-Length: {}\r\nConnection: \
+             close\r\n\r\n",
+            DEBUGGER_EXPORT_JS_BR.len()
+        );
+        serve_response(stream, &header, DEBUGGER_EXPORT_JS_BR);
         return;
     }
 
