@@ -641,3 +641,24 @@ fn videos_follow_the_app_theme() {
         .dom()
     });
 }
+
+#[test]
+fn comboboxes_follow_the_app_theme() {
+    use azul_css::StringVec;
+    use azul_layout::widgets::combobox::ComboBox;
+    for text in ["", "Two"] {
+        assert_follows_the_app_theme(&format!("combobox {text:?}"), |t| {
+            pinned(
+                ComboBox::new(StringVec::from_vec(vec![
+                    AzString::from("One"),
+                    AzString::from("Two"),
+                ]))
+                .with_text(AzString::from_const_str(text))
+                .with_accessibility_name("Pick"),
+                t,
+                ComboBox::with_theme,
+            )
+            .dom()
+        });
+    }
+}

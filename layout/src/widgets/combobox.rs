@@ -3093,3 +3093,170 @@ mod autotest_generated {
         SHARED_ALIAS.with(|a| *a.borrow_mut() = None);
     }
 }
+
+#[cfg(test)]
+mod theme_tests {
+    //! The combobox takes a theme like every other widget: the field, its
+    //! arrow, the options list and its rows are built from the skin of the
+    //! theme it carries - and, with none, it follows the app theme. Flat is the
+    //! established look; flora is a field of flora paper over a leaf.
+
+    use azul_core::dom::Dom;
+    use azul_css::{
+        dynamic_selector::{CssPropertyWithConditions, PseudoStateType},
+        props::{basic::color::ColorU, property::CssProperty, style::StyleTextColor},
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLAT: &str = "__azul-theme-flat";
+    const FLORA: &str = "__azul-theme-flora";
+
+    fn items() -> StringVec {
+        StringVec::from_vec(alloc::vec![AzString::from("One"), AzString::from("Two")])
+    }
+
+    fn combo(theme: Option<UiTheme>) -> Dom {
+        let c = ComboBox::new(items()).with_accessibility_name("Pick");
+        match theme {
+            Some(t) => c.with_theme(t).dom(),
+            None => c.dom(),
+        }
+    }
+
+    fn field(dom: &Dom) -> &Dom {
+        tc::find(dom, "__azul-native-combobox-input").expect("the combobox has a field")
+    }
+
+    fn list(dom: &Dom) -> &Dom {
+        tc::find(dom, "__azul-native-combobox-list").expect("the combobox has a list")
+    }
+
+    fn bg(node: &Dom, dark: bool) -> Option<ColorU> {
+        tc::background(node, dark).and_then(|p| tc::bg_color(&p))
+    }
+
+    #[test]
+    fn a_combobox_without_a_theme_follows_the_app_theme_flat_by_default() {
+        let c = ComboBox::new(items());
+        assert_eq!(c.theme, OptionUiTheme::None, "no opinion until the app picks one");
+        assert!(tc::has_class(&combo(None), FLAT));
+        let dom = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            combo(None)
+        };
+        assert!(tc::has_class(&dom, FLORA), "built for flora, it is flora's");
+        assert!(!tc::has_class(&dom, FLAT));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_agree() {
+        let mut a = ComboBox::new(items());
+        a.set_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(a, ComboBox::new(items()).with_theme(UiTheme::Flora));
+    }
+
+    #[test]
+    fn a_flat_combobox_keeps_its_established_field_and_list() {
+        let dom = combo(Some(UiTheme::Flat));
+        assert!(tc::has_class(&dom, FLAT));
+        let f = field(&dom);
+        assert_eq!(bg(f, false), Some(ColorU::rgb(255, 255, 255)), "white field");
+        assert_eq!(
+            tc::border_top_color(f, false, None),
+            Some(ColorU::rgb(172, 172, 172)),
+            "the #acacac hairline"
+        );
+        assert_eq!(bg(list(&dom), false), Some(ColorU::rgb(255, 255, 255)));
+    }
+
+    #[test]
+    fn a_flora_combobox_is_a_field_of_flora_paper_over_a_leaf() {
+        let dom = combo(Some(UiTheme::Flora));
+        assert!(tc::has_class(&dom, FLORA));
+        let f = field(&dom);
+        assert_eq!(bg(f, false), Some(flora::LIGHT_FLD), "the field's paper by day");
+        assert_eq!(bg(f, true), Some(flora::DARK_SUR), "flora's night field");
+        assert_eq!(tc::border_top_color(f, false, None), Some(flora::LIGHT_BD2));
+        assert_eq!(tc::border_top_color(f, true, None), Some(flora::DARK_BD));
+        assert_eq!(tc::text_color(f, false), Some(flora::LIGHT_INK));
+        assert_eq!(tc::text_color(f, true), Some(flora::DARK_INK));
+        let l = list(&dom);
+        assert_eq!(bg(l, false), Some(flora::LIGHT_SUR), "the list is a leaf");
+        assert_eq!(bg(l, true), Some(flora::DARK_SUR));
+        assert_eq!(tc::border_top_color(l, true, None), Some(flora::DARK_BD2));
+        for row in tc::find_all(&dom, "__azul-native-combobox-option") {
+            assert_eq!(tc::text_color(row, false), Some(flora::LIGHT_INK));
+            assert_eq!(tc::text_color(row, true), Some(flora::DARK_INK));
+        }
+    }
+
+    #[test]
+    fn every_combobox_tab_stop_is_ringed_in_every_theme_and_mode() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = combo(Some(theme));
+            assert!(tc::focusable(&dom).len() >= 3, "{theme:?}: the field and both rows");
+            tc::assert_theme_invariants(&format!("combobox {theme:?}"), &dom);
+        }
+    }
+
+    #[test]
+    fn a_flora_focus_ring_lifts_to_the_glow_in_the_dark() {
+        let dom = combo(Some(UiTheme::Flora));
+        let focus = Some(PseudoStateType::Focus);
+        assert_eq!(tc::border_top_color(field(&dom), false, focus), Some(flora::LIGHT_ACC));
+        assert_eq!(tc::border_top_color(field(&dom), true, focus), Some(flora::DARK_GLOW));
+    }
+
+    #[test]
+    fn the_theme_changes_the_look_not_the_accessibility_tree() {
+        let flat = combo(Some(UiTheme::Flat));
+        let flora_dom = combo(Some(UiTheme::Flora));
+        assert!(!tc::a11y_outline(&flat).is_empty());
+        assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora_dom));
+    }
+
+    #[test]
+    fn a_caller_field_style_wins_over_either_theme() {
+        let own = CssPropertyWithConditionsVec::from_vec(alloc::vec![
+            CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+                inner: ColorU::rgb(1, 2, 3),
+            })),
+        ]);
+        for theme in [None, Some(UiTheme::Flat), Some(UiTheme::Flora)] {
+            let mut c = ComboBox::new(items());
+            c.field_style = OptionCssPropertyWithConditionsVec::Some(own.clone());
+            if let Some(t) = theme {
+                c.set_theme(t);
+            }
+            let dom = c.dom();
+            let props: alloc::vec::Vec<CssPropertyWithConditions> = field(&dom)
+                .root
+                .style
+                .iter_inline_properties()
+                .map(|(p, c)| CssPropertyWithConditions {
+                    property: p.clone(),
+                    apply_if: c.clone(),
+                })
+                .collect();
+            assert_eq!(props, own.as_ref().to_vec(), "{theme:?}");
+        }
+    }
+
+    #[test]
+    fn the_style_resolvers_answer_for_the_theme() {
+        let flora_combo = ComboBox::new(items()).with_theme(UiTheme::Flora);
+        assert!(flora_combo
+            .resolved_field_style()
+            .as_ref()
+            .iter()
+            .any(|p| tc::bg_color(&p.property) == Some(flora::LIGHT_FLD)));
+        let flat_combo = ComboBox::new(items()).with_theme(UiTheme::Flat);
+        assert_eq!(
+            flat_combo.resolved_field_style(),
+            CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_INPUT_STYLE)
+        );
+    }
+}
