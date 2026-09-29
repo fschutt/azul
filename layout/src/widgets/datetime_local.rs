@@ -431,7 +431,8 @@ mod tests {
 
     fn seen(log: &RefAny) -> Vec<DateTimeLocalPickerState> {
         let mut log = log.clone();
-        log.downcast_ref::<Seen>().expect("the log changed type").0.clone()
+        let entries = log.downcast_ref::<Seen>().expect("the log changed type").0.clone();
+        entries
     }
 
     fn shared_of(dom: &Dom) -> RefAny {
@@ -443,10 +444,11 @@ mod tests {
 
     fn state_of(shared: &RefAny) -> DateTimeLocalPickerState {
         let mut shared = shared.clone();
-        shared
+        let inner = shared
             .downcast_ref::<DateTimeLocalPickerStateWrapper>()
             .expect("the dataset is the picker's state")
-            .inner
+            .inner;
+        inner
     }
 
     #[test]

@@ -423,24 +423,35 @@ struct ControlValue {
 /// The value of the control whose state is `dataset` (if it is a widget this
 /// module knows) or, failing that, its `value` attribute.
 fn control_value(dataset: Option<RefAny>, value_attribute: Option<AzString>) -> Option<ControlValue> {
+    // One probe per statement: each shared borrow of the state ends before
+    // the next one is taken.
     if let Some(mut dataset) = dataset {
-        if let Some(w) = dataset.downcast_ref::<TextInputStateWrapper>() {
-            return Some(ControlValue {
+        let text = dataset
+            .downcast_ref::<TextInputStateWrapper>()
+            .map(|w| ControlValue {
                 value: AzString::from(w.inner.get_text()),
                 valid: w.inner.compute_validity().is_valid(),
             });
+        if text.is_some() {
+            return text;
         }
-        if let Some(d) = dataset.downcast_ref::<DatePickerData>() {
-            return Some(ControlValue {
+        let date = dataset
+            .downcast_ref::<DatePickerData>()
+            .map(|d| ControlValue {
                 value: AzString::from(d.form_value()),
                 valid: true,
             });
+        if date.is_some() {
+            return date;
         }
-        if let Some(w) = dataset.downcast_ref::<DateTimeLocalPickerStateWrapper>() {
-            return Some(ControlValue {
+        let date_time = dataset
+            .downcast_ref::<DateTimeLocalPickerStateWrapper>()
+            .map(|w| ControlValue {
                 value: AzString::from(w.inner.to_html_value()),
                 valid: true,
             });
+        if date_time.is_some() {
+            return date_time;
         }
     }
     value_attribute.map(|value| ControlValue { value, valid: true })
@@ -448,10 +459,17 @@ fn control_value(dataset: Option<RefAny>, value_attribute: Option<AzString>) -> 
 
 /// Whether `dataset` is the state of a control this module reads.
 fn is_control_state(dataset: &RefAny) -> bool {
+    // One probe per statement: each shared borrow must end before the next
+    // one is taken.
     let mut d = dataset.clone();
-    d.downcast_ref::<TextInputStateWrapper>().is_some()
-        || d.downcast_ref::<DatePickerData>().is_some()
-        || d.downcast_ref::<DateTimeLocalPickerStateWrapper>().is_some()
+    if d.downcast_ref::<TextInputStateWrapper>().is_some() {
+        return true;
+    }
+    if d.downcast_ref::<DatePickerData>().is_some() {
+        return true;
+    }
+    let is_datetime = d.downcast_ref::<DateTimeLocalPickerStateWrapper>().is_some();
+    is_datetime
 }
 
 /// The dataset of an UNSTYLED named node: its own, or - for a widget whose
@@ -624,10 +642,14 @@ pub fn submit_form(info: &mut CallbackInfo, form: DomNodeId) -> Update {
 
     // A refused submit is the other moment `:user-invalid` starts to apply.
     for node in invalid_nodes {
-        if let Some(mut field) = info.get_dataset(node) {
-            if let Some(w) = field.downcast_ref::<TextInputStateWrapper>() {
-                crate::widgets::text_input::mark_user_invalid(info, node, &w.inner);
-            }
+        let Some(mut field) = info.get_dataset(node) else {
+            continue;
+        };
+        let state = field
+            .downcast_ref::<TextInputStateWrapper>()
+            .map(|w| w.inner.clone());
+        if let Some(state) = state {
+            crate::widgets::text_input::mark_user_invalid(info, node, &state);
         }
     }
 
@@ -678,16 +700,13 @@ pub fn reset_form(info: &mut CallbackInfo, form: DomNodeId) -> Update {
             continue;
         };
         let (field_node, dataset) = control_state(info, node);
-        if let Some(mut field) = dataset {
-            if let Some(mut w) = field.downcast_mut::<TextInputStateWrapper>() {
-                crate::widgets::text_input::restore_text_input(
-                    info,
-                    field_node,
-                    &mut w,
-                    value.as_str(),
-                );
-            }
-        }
+        let Some(mut field) = dataset else {
+            continue;
+        };
+        let Some(mut w) = field.downcast_mut::<TextInputStateWrapper>() else {
+            continue;
+        };
+        crate::widgets::text_input::restore_text_input(info, field_node, &mut w, value.as_str());
     }
 
     let Some(mut wrapper) = dataset.downcast_mut::<FormStateWrapper>() else {
@@ -961,12 +980,14 @@ mod tests {
 
     fn submitted(log: &RefAny) -> Vec<FormData> {
         let mut log = log.clone();
-        log.downcast_ref::<Log>().expect("log").submitted.clone()
+        let entries = log.downcast_ref::<Log>().expect("log").submitted.clone();
+        entries
     }
 
     fn resets(log: &RefAny) -> Vec<FormData> {
         let mut log = log.clone();
-        log.downcast_ref::<Log>().expect("log").reset.clone()
+        let entries = log.downcast_ref::<Log>().expect("log").reset.clone();
+        entries
     }
 
     fn pairs(data: &FormData) -> Vec<(String, String)> {

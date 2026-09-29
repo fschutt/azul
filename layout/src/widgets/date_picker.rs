@@ -4868,10 +4868,12 @@ mod autotest_generated {
 
         fn seen(log: &RefAny) -> Vec<DatePickerState> {
             let mut log = log.clone();
-            log.downcast_ref::<ChangeLog>()
+            let entries = log
+                .downcast_ref::<ChangeLog>()
                 .expect("the log changed type")
                 .seen
-                .clone()
+                .clone();
+            entries
         }
 
         fn texts_written(changes: &[CallbackChange]) -> Vec<String> {
