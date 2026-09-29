@@ -2338,3 +2338,82 @@ mod raw_form_dataset {
         assert_eq!(submits(&calls), vec![owned(&[("user", "ann")])]);
     }
 }
+
+// ── <input list>: the text typed into the combobox is its value ────────────
+
+/// A text input with a `list` of suggestions is a ComboBox. The user may
+/// pick a suggestion OR type a value of their own, and in HTML what they
+/// typed IS the value: it reaches the form, and it survives the app's
+/// rebuilds - without a pick. Only a pick used to reach anything.
+mod combobox_text {
+    use azul_core::dom::FocusEventFilter;
+    use azul_layout::{managers::text_input::PendingTextEdit, widgets::form::collect_form_data};
+
+    use super::{
+        forms::{mount, named, owned, pairs, the_form},
+        *,
+    };
+
+    const COMBOBOX_INPUT_CLASS: &str = "__azul-native-combobox-input";
+    const COMBOBOX_TEXT_CLASS: &str = "__azul-native-combobox-text";
+
+    fn fruit_form() -> Dom {
+        page(
+            Dom::create_form_no_a11y()
+                .with_child(named("text", "fruit").with_attribute(attr("list", "fruits")))
+                .with_child(
+                    Dom::create_datalist_no_a11y()
+                        .with_id("fruits".into())
+                        .with_child(Dom::create_option_no_a11y("Apple".into(), "Apple".into()))
+                        .with_child(Dom::create_option_no_a11y("Pear".into(), "Pear".into())),
+                ),
+        )
+    }
+
+    /// The user types `text` into the combobox field of `styled`: its
+    /// text-input handler runs on the pending edit, as the shell's text
+    /// ingress runs it.
+    fn type_into(lw: &mut LayoutWindow, styled: &StyledDom, text: &str) {
+        let field = one_with_class(styled, COMBOBOX_INPUT_CLASS);
+        let handler = node(styled, field)
+            .get_callbacks()
+            .as_slice()
+            .iter()
+            .find(|c| c.event == EventFilter::Focus(FocusEventFilter::TextInput))
+            .cloned()
+            .expect("the field takes typing");
+        lw.text_input_manager.set_changeset(PendingTextEdit {
+            node: dom_node(field),
+            inserted_text: text.into(),
+            old_text: "".into(),
+        });
+        let _ = with_info(lw, dom_node(field), |info| {
+            Callback::from_core(handler.callback).invoke(handler.refany.clone(), info)
+        });
+    }
+
+    #[test]
+    fn text_typed_into_a_combobox_is_its_value_without_a_pick() {
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(fruit_form());
+        mount(&mut lw, styled.clone());
+        type_into(&mut lw, &styled, "Kiwi");
+
+        let form = the_form(&styled);
+        let data = with_info(&lw, dom_node(form), |mut info| {
+            collect_form_data(&mut info, dom_node(form))
+        })
+        .0
+        .expect("the form node is in a form");
+        assert_eq!(
+            pairs(&data),
+            owned(&[("fruit", "Kiwi")]),
+            "the typed text is the value"
+        );
+
+        // The app rebuilds from its (unchanged) DOM: the typing survives.
+        let rebuilt = lw.style_user_dom(fruit_form());
+        let text = one_with_class(&rebuilt, COMBOBOX_TEXT_CLASS);
+        assert_eq!(text_under(&rebuilt, text), "Kiwi");
+    }
+}
