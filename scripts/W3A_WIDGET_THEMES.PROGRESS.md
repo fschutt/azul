@@ -38,10 +38,13 @@ is shared with other agents!). Append to files via Write-to-scratch + `cat >>`.
   `set_theme(&mut self, UiTheme)`, `with_theme(self, UiTheme) -> Badge`.
   Flora stones palette `FloraStone` + STONE_ACCENT/LEAF/CLAY/SLATE/AMBER in flora.rs.
 
+- label: 1e9bf0f55 (plumbing), e4c375e9c (RED), 323a262a1 (flora ink INTRO).
+  API: `Label.theme` appended after `label_style`; set_theme / with_theme.
+
 ## IN PROGRESS
 
 ## NEXT
-label, divider, spinner, chip, alert, card, frame, breadcrumb,
+divider, spinner, chip, alert, card, frame, breadcrumb,
 accordion, menubar, color_input, date_picker
 
 ## Open questions
