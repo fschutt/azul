@@ -6049,14 +6049,18 @@ mod tests {
         .expect("scenario json");
 
         let (_r, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
-        let states = runner
-            .layout_window
-            .scroll_manager
-            .get_scroll_states_for_dom(DomId::ROOT_ID);
-        let node = *states
-            .keys()
-            .next()
-            .expect("the overflowing box must register as a scroll node");
+        // THE BOX (the body's first child), not the first registered scroll
+        // node: the body's 8px default margins overflow the 300px window by
+        // 16px, so the root viewport is a scroll node too - and sorts first.
+        let node = NodeId::new(1);
+        assert!(
+            runner
+                .layout_window
+                .scroll_manager
+                .get_scroll_states_for_dom(DomId::ROOT_ID)
+                .contains_key(&node),
+            "the overflowing box must register as a scroll node"
+        );
         let st = runner
             .layout_window
             .scroll_manager
@@ -6447,14 +6451,15 @@ mod tests {
         use azul_core::dom::ScrollbarOrientation;
 
         let sm = &runner.layout_window.scroll_manager;
-        let (dom, node) = sm
-            .state_keys()
-            .into_iter()
-            .find(|&(d, n)| {
-                sm.get_scrollbar_state(d, n, ScrollbarOrientation::Vertical)
-                    .is_some()
-            })
-            .expect("the overflowing box must carry a vertical scrollbar");
+        // THE BOX (the body's first child), not merely the first scroll node
+        // with a bar: the body's 8px default margins overflow the 300px
+        // window by 16px, so the root viewport scrolls and carries a bar too.
+        let (dom, node) = (DomId::ROOT_ID, NodeId::new(1));
+        assert!(
+            sm.get_scrollbar_state(dom, node, ScrollbarOrientation::Vertical)
+                .is_some(),
+            "the overflowing box must carry a vertical scrollbar"
+        );
         let bar = *sm
             .get_scrollbar_state(dom, node, ScrollbarOrientation::Vertical)
             .expect("found above");
