@@ -5869,6 +5869,20 @@ fn apply_xml_node_attributes(
         node.set_attributes(attrs.into());
     }
 
+    // Form controls: `type`, `value`, `min`, `checked`, ... onto the node as
+    // the typed attributes a `Dom::create_input(..).with_attribute(..)` would
+    // carry. Without them `<input type="range">` parsed to an Input with no
+    // type at all, so neither form validation nor the replacement by the
+    // matching widget (azul-layout's `form_controls`) could see what it was.
+    if is_form_control_tag(component_name) {
+        let form_attrs = form_control_attributes(xml_node);
+        if !form_attrs.is_empty() {
+            let mut attrs = node.attributes().clone().into_library_owned_vec();
+            attrs.extend(form_attrs);
+            node.set_attributes(attrs.into());
+        }
+    }
+
     // Handle tabindex attribute
     if let Some(tab_index) = xml_node
         .attributes
@@ -6319,6 +6333,91 @@ fn l10n_key_of(xml_node: &XmlNode) -> Option<&str> {
         .get_key("data-l10n")
         .map(AzString::as_str)
         .filter(|key| !key.is_empty())
+}
+
+/// The elements whose HTML attributes [`form_control_attributes`] reads.
+///
+/// `<button>` is here for its `type` / `name` / `value` / `disabled`: a
+/// `type="reset"` button is recognised by its `InputType` attribute alone.
+fn is_form_control_tag(component_name: &str) -> bool {
+    matches!(
+        component_name,
+        "input" | "select" | "option" | "optgroup" | "textarea" | "datalist" | "button"
+    )
+}
+
+/// A form element's HTML attributes as the typed `AttributeType`s the
+/// DOM builder API produces (`AttributeType::InputType`, `Min`, `Required`,
+/// ...), plus the ones with no typed variant (`size`, `rows`, `cols`,
+/// `multiple`, `accept`, `list`, `label`) as `Custom` and every `data-*` as
+/// `Data`.
+///
+/// Boolean attributes follow HTML - PRESENT means on, whatever the value -
+/// except that an explicit `"false"` means off, which is what an XML author
+/// writing `disabled="false"` meant. `id`, `class`, `style`, `tabindex`,
+/// `placeholder` and `autofocus` are handled by the caller for every element
+/// and are skipped here.
+fn form_control_attributes(xml_node: &XmlNode) -> Vec<crate::dom::AttributeType> {
+    use crate::dom::{AttributeNameValue, AttributeType as A};
+
+    let mut out = Vec::new();
+    for pair in xml_node.attributes.inner.iter() {
+        let key = pair.key.as_str().trim().to_ascii_lowercase();
+        let value = pair.value.as_str();
+        let on = !value.trim().eq_ignore_ascii_case("false");
+        let custom = |name: &str| {
+            A::Custom(AttributeNameValue {
+                attr_name: name.into(),
+                value: value.into(),
+            })
+        };
+        let attr = match key.as_str() {
+            "type" => A::InputType(value.trim().into()),
+            "name" => A::Name(value.into()),
+            "value" => A::Value(value.into()),
+            "min" => A::Min(value.into()),
+            "max" => A::Max(value.into()),
+            "step" => A::Step(value.into()),
+            "pattern" => A::Pattern(value.into()),
+            "autocomplete" => A::Autocomplete(value.into()),
+            "aria-label" => A::AriaLabel(value.into()),
+            "title" => A::Title(value.into()),
+            "alt" => A::Alt(value.into()),
+            "src" => A::Src(value.into()),
+            "minlength" => match value.trim().parse::<i32>() {
+                Ok(n) => A::MinLength(n),
+                Err(_) => continue,
+            },
+            "maxlength" => match value.trim().parse::<i32>() {
+                Ok(n) => A::MaxLength(n),
+                Err(_) => continue,
+            },
+            "required" if on => A::Required,
+            "disabled" if on => A::Disabled,
+            "readonly" if on => A::Readonly,
+            "selected" if on => A::Selected,
+            "checked" => {
+                if on {
+                    A::CheckedTrue
+                } else {
+                    A::CheckedFalse
+                }
+            }
+            "size" | "rows" | "cols" | "multiple" | "accept" | "list" | "label" | "wrap"
+            | "form" | "inputmode" | "dirname" | "capture" => custom(key.as_str()),
+            // `data-l10n` / `data-l10n-*` are the localization channel, read
+            // straight off the XML node elsewhere.
+            k if k.starts_with("data-") && !k.starts_with("data-l10n") => {
+                A::Data(AttributeNameValue {
+                    attr_name: k.into(),
+                    value: value.into(),
+                })
+            }
+            _ => continue,
+        };
+        out.push(attr);
+    }
+    out
 }
 
 /// Parse the HTML `colspan` / `rowspan` presentational attributes into
