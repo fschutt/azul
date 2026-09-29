@@ -232,6 +232,32 @@ impl TextTarget {
             .or_else(|| self.blank_line_caret())
     }
 
+    /// The caret at column `x` - in the block's own (scrolled content)
+    /// space - on the block's first line, or with `last_line` on its last:
+    /// where Down off the last line of the block above lands, and Up off the
+    /// first line of the block below. On a blank editable line, the one
+    /// position it owns.
+    #[must_use]
+    pub fn caret_on_edge_line(&self, x: f32, last_line: bool) -> Option<TextCursor> {
+        let clusters = || {
+            self.layout
+                .items
+                .iter()
+                .filter(|item| matches!(item.item, ShapedItem::Cluster(_)))
+        };
+        let line = if last_line {
+            clusters().map(|item| item.line_index).max()
+        } else {
+            clusters().map(|item| item.line_index).min()
+        };
+        let Some(line) = line else {
+            return self.blank_line_caret();
+        };
+        let on_line = clusters().find(|item| item.line_index == line)?;
+        let y = on_line.position.y + on_line.item.bounds().height / 2.0;
+        self.hittest(ScrolledContentPoint::new(LogicalPosition::new(x, y)))
+    }
+
     /// The scroll box this block's text scrolls in: its IFC root itself when
     /// that scrolls (a TextInput's value `<p>`), else the nearest scrolling
     /// box above it (a TextArea's container, a page) - along the block box's

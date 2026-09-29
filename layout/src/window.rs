@@ -11414,8 +11414,8 @@ impl LayoutWindow {
     ///
     /// Ctrl+Shift+Home/End go to the extent's first / last caret. Home/End
     /// (`Line`) never leave their line. Down/Up off a block's last/first line
-    /// land on the next block's first / the previous block's last caret, not
-    /// at the same x.
+    /// land in the next block's first / the previous block's last line at
+    /// the same column on screen.
     fn extend_document_selection(
         &mut self,
         target: DomNodeId,
@@ -11559,10 +11559,41 @@ impl LayoutWindow {
         let Some(&next) = neighbour else {
             return Some((focus.0, stepped));
         };
+        // Down / Up: into the next block's first line / the previous one's
+        // last, at the column the focus stands in - as between two lines of
+        // one block.
+        if matches!(op.step, SelectionStep::VisualLine) {
+            if let Some(caret) = self.caret_at_column_in(&target, &focus.1, next, !forward) {
+                return Some((next, caret));
+            }
+        }
         // Into the next block at its first caret, into the previous one at
         // its last.
         let caret = self.block_edge_caret(next, !forward)?;
         Some((next, caret))
+    }
+
+    /// The caret in `block`'s first line - with `last_line` its last - at
+    /// the column on screen where `cursor`, a caret of `from`, stands.
+    /// Through the window, so two blocks in different boxes, scrolls or
+    /// DOMs agree on the column. `None` when either is not laid out.
+    fn caret_at_column_in(
+        &self,
+        from: &crate::text_block::TextTarget,
+        cursor: &TextCursor,
+        block: TextBlock,
+        last_line: bool,
+    ) -> Option<TextCursor> {
+        let caret = from.caret_rect_on_screen(self, cursor)?.get();
+        let into = self.text_target(block)?;
+        let column = into.point_from_window(
+            self,
+            WindowPoint::new(LogicalPosition::new(
+                caret.origin.x,
+                caret.origin.y + caret.size.height / 2.0,
+            )),
+        )?;
+        into.caret_on_edge_line(column.x(), last_line)
     }
 
     /// Apply a unified selection operation (navigation, extend, or delete).
