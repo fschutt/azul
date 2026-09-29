@@ -9798,6 +9798,121 @@ mod autotest_generated {
     }
 
     // ------------------------------------------------------------------
+    // inspect_delete_changeset / inspect_select_all_changeset read the
+    // caret's own block, as the delete and Ctrl+A they preview do.
+    //
+    // Both read the NAMED node's flattened text - the host's, every
+    // paragraph one run after the other and no list marker - and indexed it
+    // with the session's carets, which number the runs of their own block.
+    // ------------------------------------------------------------------
+
+    /// `body(0) > div[contenteditable](1) > [div.p(2) > "one"(3),
+    /// div.p(4) > "two"(5)]`, the session in the block of `session_node`.
+    fn two_paragraphs_with_a_session(session_node: usize) -> LayoutWindow {
+        let p = |s: &str| {
+            azul_core::dom::Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("p".into())].into())
+                .with_child(caret_test_text(s))
+        };
+        laid_out_with_a_session(
+            azul_core::dom::Dom::create_body().with_child(
+                azul_core::dom::Dom::create_div()
+                    .with_contenteditable(true)
+                    .with_child(p("one"))
+                    .with_child(p("two")),
+            ),
+            session_node,
+        )
+    }
+
+    fn put_caret(lw: &mut LayoutWindow, run: u32, byte: u32) {
+        lw.text_edit_manager
+            .multi_cursor
+            .as_mut()
+            .expect("a session is open")
+            .set_single_cursor(TextCursor {
+                cluster_id: azul_core::selection::GraphemeClusterId {
+                    source_run: run,
+                    start_byte_in_run: byte,
+                },
+                affinity: azul_core::selection::CursorAffinity::Leading,
+            });
+    }
+
+    #[test]
+    fn inspect_backspace_in_the_second_paragraph_previews_its_own_character() {
+        let mut lw = two_paragraphs_with_a_session(4);
+        // "tw|o"
+        put_caret(&mut lw, 0, 2);
+
+        let previewed = with_info_on(lw, caret_test_node(1), |info| {
+            info.inspect_backspace(caret_test_node(1))
+                .map(|d| d.deleted_text.as_str().to_string())
+        });
+
+        assert_eq!(
+            previewed.as_deref(),
+            Some("w"),
+            "Backspace at \"tw|o\" deletes the 'w' - not byte 2 of the host's \"onetwo\""
+        );
+    }
+
+    #[test]
+    fn inspect_backspace_in_a_list_item_previews_the_character_before_the_caret() {
+        // `body(0) > div[contenteditable](1) > div(2, list-item) > "alpha"(3)`
+        let mut lw = laid_out_with_a_session(
+            azul_core::dom::Dom::create_body().with_child(
+                azul_core::dom::Dom::create_div()
+                    .with_contenteditable(true)
+                    .with_child(
+                        azul_core::dom::Dom::create_div()
+                            .with_css("display: list-item;")
+                            .with_child(caret_test_text("alpha")),
+                    ),
+            ),
+            2,
+        );
+        // "al|pha": the item's text is run 1, behind its `::marker`.
+        put_caret(&mut lw, 1, 2);
+
+        let previewed = with_info_on(lw, caret_test_node(1), |info| {
+            info.inspect_backspace(caret_test_node(1))
+                .map(|d| d.deleted_text.as_str().to_string())
+        });
+
+        assert_eq!(previewed.as_deref(), Some("l"));
+    }
+
+    #[test]
+    fn inspect_select_all_previews_every_paragraph_of_the_host() {
+        let lw = two_paragraphs_with_a_session(2);
+        let block = |n: usize| {
+            lw.text_block_of(caret_test_node(n))
+                .and_then(|b| lw.text_target(b))
+                .expect("premise: the paragraph is laid out")
+        };
+        let first = block(2).first_caret().expect("premise: \"one\" has a first caret");
+        let last = block(4).last_caret().expect("premise: \"two\" has a last caret");
+
+        let previewed = with_info_on(lw, caret_test_node(1), |info| {
+            info.inspect_select_all_changeset(caret_test_node(1))
+                .map(|r| (r.full_text.as_str().to_string(), r.selection_range))
+        });
+
+        assert_eq!(
+            previewed,
+            Some((
+                "one\ntwo".to_string(),
+                SelectionRange {
+                    start: first,
+                    end: last
+                }
+            )),
+            "Ctrl+A selects from the first paragraph's first caret to the last one's last"
+        );
+    }
+
+    // ------------------------------------------------------------------
     // CallbackChange payload smoke test
     // ------------------------------------------------------------------
 
