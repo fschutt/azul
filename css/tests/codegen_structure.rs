@@ -154,6 +154,21 @@ fn revert_and_unset_use_the_variant_over_the_value_alias() {
     );
 }
 
+#[test]
+fn julia_builds_a_union_variant_by_field_name_so_the_c_padding_cannot_shift_its_payload() {
+    // azul.h puts `uint8_t _pad0[N]` between a variant's tag and a payload
+    // that is less aligned than the union, and azul.jl mirrors it as a
+    // `_pad0` field of the variant struct. A positional
+    // `AzXVariant_Y(tag, payload)` would hand the payload to the pad.
+    let m = lower_property_list("keywords", &keyword_list());
+    let src = azul_css::codegen::backend_for("julia").unwrap().emit_module(&m);
+    assert!(
+        src.contains("az_union(Azul.AzCssProperty, Azul.AzCssPropertyVariant_Width, UInt8("),
+        "{src}"
+    );
+    assert!(!src.contains("Azul.AzCssPropertyVariant_Width(UInt8("), "{src}");
+}
+
 // ------------------------------------------------------ names vs. azul.h
 
 fn azul_h() -> Option<String> {
