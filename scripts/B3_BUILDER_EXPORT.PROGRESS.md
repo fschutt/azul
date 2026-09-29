@@ -81,11 +81,20 @@ limitations, `all()` / `backend_for` / `supported_languages()`, goldens in
    bless".
 UI (`debugger-export.js`) stays as is.
 
+- `9d5bf7a36` merge of `fix/input-bugs-2026-09-19` @ 095df1ffb (B2) - clean
+- `970013edc` test(css): DOM goldens in B2's harness (RED; rust/c/cpp/python dom_card by hand)
+- `18d0b219d` feat(css): Expr::Method/Param/Concat, ItemParam, AppSpec, LibrarySpec,
+  Doc::Chain, ExprSyntax::method/param/concat/dom_limitation; rust/c/cpp/python implement
+  them (+ apps, registration); every other printer reports the limitation.
+
 ## IN PROGRESS
-- step 1 (merge).
+- step 3: core `xml_fragment_codegen.rs` → lowering only (XmlNode → ir::Module).
 
 ## NEXT
-- steps 2-6, report.
+- step 4/5: layout export.rs on the shared path (languages = all_backends, CSS via backend_for,
+  component code = LibrarySpec module, project = emit_project_files), platform.rs
+  supported_languages(); page walkers: list what remains.
+- more printers (C#, Java, ...) if time allows; report.
 
 ## Open questions / notes for the parent
 - target/codegen/azul.h (06:00 today, main checkout) does not compile as C on its own:
