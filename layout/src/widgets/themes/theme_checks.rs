@@ -529,7 +529,7 @@ mod structure_tests {
 
     fn look(direction: LayoutFlexDirection) -> Dom {
         Dom::create_div()
-            .with_class("probe")
+            .with_class("probe".into())
             .with_css_props(
                 vec![
                     CssPropertyWithConditions::simple(CssProperty::const_display(
@@ -562,7 +562,7 @@ mod structure_tests {
         );
         let themed = themed_structure(&dom, &[]);
         assert_eq!(themed.len(), 2, "{themed:?}");
-        assert!(themed.iter().all(|l| l.contains(".probe FlexDirection")), "{themed:?}");
+        assert!(themed.iter().all(|l| l.contains(".probe flex-direction")), "{themed:?}");
         let allowed = [("probe", CssPropertyType::FlexDirection, "the probe differs")];
         assert!(themed_structure(&dom, &allowed).is_empty());
     }
