@@ -4262,6 +4262,24 @@ impl BuiltinPreview {
             children: &[],
         }
     }
+
+    /// Its example as `(attrs, text, children)`; empty for the other kinds.
+    const fn example(
+        self,
+    ) -> (
+        &'static [(&'static str, &'static str)],
+        &'static str,
+        &'static [PreviewNode],
+    ) {
+        match self {
+            Self::Example {
+                attrs,
+                text,
+                children,
+            } => (attrs, text, children),
+            Self::Itself | Self::NoVisual(_) => (&[], "", &[]),
+        }
+    }
 }
 
 /// One element of a [`BuiltinPreview::Example`]: `<tag attrs>text children</tag>`.
@@ -4581,15 +4599,10 @@ pub fn builtin_preview_dom(tag: &str, data: &ComponentDataModel) -> Dom {
 /// one attribute table), so an example attribute sets exactly what markup
 /// would. An unknown tag is the node `tag_to_node_type` makes, with its text.
 fn builtin_dom(tag: &str, data: &ComponentDataModel, example: bool) -> Dom {
-    let (attrs, example_text, children): (&[(&str, &str)], &str, &[PreviewNode]) =
-        match builtin_element(tag).map(|e| e.preview) {
-            Some(BuiltinPreview::Example {
-                attrs,
-                text,
-                children,
-            }) if example => (attrs, text, children),
-            _ => (&[], "", &[]),
-        };
+    let (attrs, example_text, children) = builtin_element(tag)
+        .filter(|_| example)
+        .map_or(BuiltinPreview::Itself, |e| e.preview)
+        .example();
     let own = data
         .get_default_string("text")
         .map(|t| prepare_string(t.as_str()))
