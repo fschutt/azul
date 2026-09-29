@@ -338,13 +338,16 @@ fn a_converted_component_exports_to_code_that_recreates_its_subtree() {
         /* 7 */
         serde_json::json!({ "op": "export_component_code", "library": "user",
                             "name": "my-card", "language": "python" }),
-        /* 8: the Components view's "compile_fn" is the template as code now */
+        /* 8: the Components view's "compile_fn" is the component as code (the
+         * same printers as export_component_code) */
         serde_json::json!({ "op": "get_component_source", "library": "user",
                             "name": "my-card", "source_type": "compile_fn",
                             "language": "rust" }),
-        /* 9: the subtree export of the document still shows the card (the
-         * instance is expanded) */
+        /* 9: the subtree export of the document CALLS the card's function
+         * (component boundaries stay calls) and defines it once */
         serde_json::json!({ "op": "export_subtree_code", "node": 0, "language": "rust" }),
+        /* 11: the same in C: the card's function comes before its caller */
+        serde_json::json!({ "op": "export_subtree_code", "node": 0, "language": "c" }),
         /* 10 */
         serde_json::json!({ "op": "export_component_code", "library": "user",
                             "name": "nope", "language": "rust" }),
@@ -419,10 +422,26 @@ fn a_converted_component_exports_to_code_that_recreates_its_subtree() {
     has_not(&source, "children.push");
 
     let doc = code(&result, 9);
-    has(&doc, "Dom::create_h2_with_text(azul::str::String::from(\"Hello\"))");
+    // The instance is a call with the converted values …
+    has(&doc, "render_my_card(\"Hello\", \"https://azul.rs\", \"Docs\")");
+    // … of the card's function, defined once from its template.
+    has(
+        &doc,
+        "pub fn render_my_card(text: &str, href: &str, text_2: &str) -> Dom {",
+    );
+    assert_eq!(doc.matches("create_h2_with_text").count(), 1, "{doc}");
     has_not(&doc, "azb-");
 
     has(&refusal(&result, 10), "nope");
+
+    let c_doc = code(&result, 11);
+    let def_at = c_doc
+        .find("static AzDom render_my_card(")
+        .expect("the card's function");
+    let call_at = c_doc
+        .find("render_my_card(\"Hello\"")
+        .expect("the call");
+    assert!(def_at < call_at, "defined before its use:\n{c_doc}");
 }
 
 #[test]
@@ -496,9 +515,10 @@ fn export_code_writes_a_project_with_the_document_its_components_and_a_build_fil
     let files = value(&result, 4)["files"].clone();
     let main = files["src/main.rs"].as_str().expect("src/main.rs").to_string();
     let ui = files["src/ui.rs"].as_str().expect("src/ui.rs").to_string();
-    // The builder document is the app (its instance expanded), not the live
-    // DOM with the builder's marker classes.
-    has(&ui, "Dom::create_h2_with_text(azul::str::String::from(\"Hello\"))");
+    // The builder document is the app (its instance a call of the card's
+    // function), not the live DOM with the builder's marker classes.
+    has(&ui, "render_my_card(\"Hello\", \"https://azul.rs\", \"Docs\")");
+    has(&ui, "Dom::create_h2_with_text(azul::str::String::from(text))");
     has_not(&ui, "azb-");
     has(&main, "mod ui;");
     has(&main, "mod components;");
