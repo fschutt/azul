@@ -1067,6 +1067,21 @@ mod makeover_tests {
         assert!(with_class(&dom, "__azul-spinner-spoke").is_empty());
     }
 
+    /// Unpinned, the STRUCTURE follows the app theme too: built for flora,
+    /// the spinner is flora's spoke wheel, marked flora's.
+    #[test]
+    fn an_unpinned_spinner_built_for_flora_draws_flora_s_spokes() {
+        let dom = {
+            let _app = azul_core::app_theme::ThemeScope::enter(
+                azul_css::AzString::from_const_str("flora"),
+            );
+            Spinner::create().dom()
+        };
+        assert!(has_class(&dom, "__azul-spinner-spokes"), "{:?}", classes(&dom));
+        assert!(has_class(&dom, "__azul-theme-flora"), "{:?}", classes(&dom));
+        assert_eq!(with_class(&dom, "__azul-spinner-spoke").len(), 8);
+    }
+
     #[test]
     fn a_flora_spinner_draws_the_macos_spokes_by_default() {
         let dom = Spinner::create().with_theme(UiTheme::Flora).dom();

@@ -580,3 +580,22 @@ fn switches_follow_the_app_theme() {
         });
     }
 }
+
+#[test]
+fn spinners_follow_the_app_theme() {
+    use azul_css::props::basic::color::ColorU;
+    use azul_layout::widgets::spinner::{Spinner, SpinnerStyle};
+    for style in [SpinnerStyle::Auto, SpinnerStyle::Spokes, SpinnerStyle::Ring] {
+        for track in [false, true] {
+            assert_follows_the_app_theme(&format!("spinner {style:?} track={track}"), |t| {
+                let s = Spinner::create().with_indicator(style);
+                let s = if track {
+                    s.with_track_color(ColorU::rgb(200, 200, 200))
+                } else {
+                    s
+                };
+                pinned(s, t, Spinner::with_theme).dom()
+            });
+        }
+    }
+}
