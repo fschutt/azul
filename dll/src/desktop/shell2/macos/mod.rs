@@ -1547,15 +1547,17 @@ define_class!(
 
             // Create new tracking area for mouse enter/exit/move events
             let bounds = unsafe { self.bounds() };
-            // A window that can never be key (a combobox's list popup,
-            // `ListPopupWindow`) would never see a mouse move under
-            // `ActiveInKeyWindow`, so its rows could not hover: it tracks
-            // while the app is active instead.
-            let can_be_key = self.window().is_none_or(|w| w.canBecomeKeyWindow());
-            let activity = if can_be_key {
-                NSTrackingAreaOptions::ActiveInKeyWindow
-            } else {
+            // A combobox's list popup (`ListPopupWindow`) is never the key
+            // window, so under `ActiveInKeyWindow` it would never see a mouse
+            // move and its rows could not hover: it tracks while the app is
+            // active instead.
+            let list_popup = self
+                .window()
+                .is_some_and(|w| w.isKindOfClass(ListPopupWindow::class()));
+            let activity = if list_popup {
                 NSTrackingAreaOptions::ActiveInActiveApp
+            } else {
+                NSTrackingAreaOptions::ActiveInKeyWindow
             };
             let options = NSTrackingAreaOptions::MouseEnteredAndExited
                 | NSTrackingAreaOptions::MouseMoved
@@ -2501,15 +2503,17 @@ define_class!(
 
             // Create new tracking area for mouse enter/exit/move events
             let bounds = unsafe { self.bounds() };
-            // A window that can never be key (a combobox's list popup,
-            // `ListPopupWindow`) would never see a mouse move under
-            // `ActiveInKeyWindow`, so its rows could not hover: it tracks
-            // while the app is active instead.
-            let can_be_key = self.window().is_none_or(|w| w.canBecomeKeyWindow());
-            let activity = if can_be_key {
-                NSTrackingAreaOptions::ActiveInKeyWindow
-            } else {
+            // A combobox's list popup (`ListPopupWindow`) is never the key
+            // window, so under `ActiveInKeyWindow` it would never see a mouse
+            // move and its rows could not hover: it tracks while the app is
+            // active instead.
+            let list_popup = self
+                .window()
+                .is_some_and(|w| w.isKindOfClass(ListPopupWindow::class()));
+            let activity = if list_popup {
                 NSTrackingAreaOptions::ActiveInActiveApp
+            } else {
+                NSTrackingAreaOptions::ActiveInKeyWindow
             };
             let options = NSTrackingAreaOptions::MouseEnteredAndExited
                 | NSTrackingAreaOptions::MouseMoved
@@ -6178,10 +6182,13 @@ impl MacOSWindow {
                 LogCategory::Window,
                 "[Window Init] Making window visible (first frame will be rendered in drawRect)..."
             );
-            // A window that can never be key (a combobox's list popup) is
-            // only ordered front: asking AppKit to make it key merely logs
-            // a complaint, and the parent must keep the keyboard anyway.
-            if window.window.canBecomeKeyWindow() {
+            // A popup that leaves focus on its invoker (a combobox's list,
+            // an `AzulListPopupWindow`) is only ordered front: it can never
+            // be key, asking AppKit to make it so merely logs a complaint,
+            // and the parent must keep the keyboard anyway.
+            if crate::desktop::shell2::common::transient::popup_takes_focus(
+                window.common.current_window_state(),
+            ) {
                 window.window.makeKeyAndOrderFront(None);
             } else {
                 window.window.orderFront(None);
