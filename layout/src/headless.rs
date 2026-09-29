@@ -344,19 +344,68 @@ pub fn node_rect_to_screen(
     resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
     resolve_transform: &dyn Fn(DomId, NodeId) -> Option<azul_core::transform::ComputedTransform3D>,
 ) -> LogicalRect {
+    rect_to_screen(
+        layout_result,
+        dom_id,
+        layout_idx,
+        rect,
+        Inclusivity::AncestorsOnly,
+        resolve_scroll,
+        resolve_transform,
+    )
+}
+
+/// [`node_rect_to_screen`] for a rect in the node's CONTENT - a caret, a
+/// selection rect, a glyph run: the node's own scroll frame moves it, and
+/// the node's own reference frame (its `transform`) wraps it, on top of
+/// every ancestor's.
+///
+/// THE answer for the IME's caret rects (`LayoutWindow::
+/// cursor_rect_viewport_for`, `TextTarget::rect_to_window`): they applied
+/// the INVERSE of a per-ancestor map that held scrollbar thumb offsets, not
+/// the forward transforms the raster paints with.
+pub fn content_rect_to_screen(
+    layout_result: &DomLayoutResult,
+    dom_id: DomId,
+    layout_idx: usize,
+    rect: LogicalRect,
+    resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
+    resolve_transform: &dyn Fn(DomId, NodeId) -> Option<azul_core::transform::ComputedTransform3D>,
+) -> LogicalRect {
+    rect_to_screen(
+        layout_result,
+        dom_id,
+        layout_idx,
+        rect,
+        Inclusivity::SelfAndAncestors,
+        resolve_scroll,
+        resolve_transform,
+    )
+}
+
+/// The raster's forward rule `screen = T_total(corner - scroll_total)` over
+/// the transforms and scroll frames of `layout_idx`'s chain - its BOX's
+/// ([`Inclusivity::AncestorsOnly`]: a scroll container's own offset moves
+/// its content, never its own border box) or its CONTENT's
+/// ([`Inclusivity::SelfAndAncestors`]) - as the AABB of the four corners.
+fn rect_to_screen(
+    layout_result: &DomLayoutResult,
+    dom_id: DomId,
+    layout_idx: usize,
+    rect: LogicalRect,
+    inclusivity: Inclusivity,
+    resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
+    resolve_transform: &dyn Fn(DomId, NodeId) -> Option<azul_core::transform::ComputedTransform3D>,
+) -> LogicalRect {
     let nodes = &layout_result.layout_tree.nodes;
 
-    // The transformed layout ancestors, walking child→root; reversing yields
-    // outermost-first, the order their reference frames nest in.
-    //
-    // ANCESTORS ONLY, and said so out loud: a scroll container's own offset
-    // moves its CONTENT, so it must not move the container's own box.
-    // `LayoutWindow::accumulated_scroll` answers the same question with an
-    // explicit `Inclusivity`.
+    // The transformed layout ancestors (and the node itself, for its
+    // content), walking child→root; reversing yields outermost-first, the
+    // order their reference frames nest in.
     let mut links_rev: Vec<HitChainLink> = Vec::new();
     for anc in layout_result
         .layout_tree
-        .ancestor_chain(LayoutNodeId::new(layout_idx), Inclusivity::AncestorsOnly)
+        .ancestor_chain(LayoutNodeId::new(layout_idx), inclusivity)
     {
         let Some(anc_node) = nodes.get(anc.index()) else {
             break;
@@ -378,7 +427,7 @@ pub fn node_rect_to_screen(
             &layout_result.styled_dom,
             &layout_result.scroll_ids,
             LayoutNodeId::new(layout_idx),
-            Inclusivity::AncestorsOnly,
+            inclusivity,
         )
         .scrolling()
         .map(|link| HitChainLink::Scroll(dom_id, link.node)),

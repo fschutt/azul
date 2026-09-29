@@ -3339,13 +3339,7 @@ impl LayoutWindow {
     /// consumers: raster, hit-test, and this.
     pub fn window_space_offset_of_dom(&self, dom_id: DomId) -> LogicalPosition {
         let resolve_scroll = |d: DomId, n: NodeId| self.scroll_manager.get_current_offset(d, n);
-        let resolve_transform = |d: DomId, n: NodeId| {
-            self.gpu_state_manager
-                .caches
-                .get(&d)
-                .and_then(|c| c.css_current_transform_values.get(&n))
-                .copied()
-        };
+        let resolve_transform = |d: DomId, n: NodeId| self.css_transform_of(d, n);
         crate::headless::nested_dom_window_origin(
             &self.layout_results,
             dom_id,
@@ -9180,13 +9174,7 @@ impl LayoutWindow {
                 idx.index(),
                 rect,
                 &|d, n| self.scroll_manager.get_current_offset(d, n),
-                &|d, n| {
-                    self.gpu_state_manager
-                        .caches
-                        .get(&d)
-                        .and_then(|c| c.css_current_transform_values.get(&n))
-                        .copied()
-                },
+                &|d, n| self.css_transform_of(d, n),
             );
         }
         Some(rect)
@@ -10970,13 +10958,7 @@ impl LayoutWindow {
             DomId,
             NodeId,
         ) -> Option<crate::managers::scroll_state::ScrollNodeInfo> = &scroll_info;
-        let transform = |dom: DomId, node: NodeId| {
-            self.gpu_state_manager
-                .caches
-                .get(&dom)
-                .and_then(|c| c.css_current_transform_values.get(&node))
-                .copied()
-        };
+        let transform = |dom: DomId, node: NodeId| self.css_transform_of(dom, node);
         let transform_dyn: &dyn Fn(
             DomId,
             NodeId,
@@ -14941,16 +14923,15 @@ impl LayoutWindow {
         self.cursor_rect_viewport_for(caret.block, rect)
     }
 
-    /// `get_focused_cursor_rect_viewport`'s scroll and transform walk for any
-    /// caret rectangle in `block`.
+    /// `get_focused_cursor_rect_viewport`'s scroll and transform mapping for
+    /// any caret rectangle in `block`: where the raster paints it, in WINDOW
+    /// space.
     #[must_use]
     pub fn cursor_rect_viewport_for(
         &self,
         block: TextBlock,
-        mut cursor_rect: LogicalRect,
+        cursor_rect: LogicalRect,
     ) -> Option<LogicalRect> {
-        // Start with absolute position
-
         // Correct the SAME layout node the rect was measured on, in the
         // session's OWN dom. This used to walk `layout_cache.tree` (the ROOT
         // dom only) anchored on `focus_manager.focused_node`, matching a bare
@@ -14959,43 +14940,24 @@ impl LayoutWindow {
         // — so every IME candidate window inside a virtualized view was placed
         // at the wrong spot on screen.
         let (layout_result, layout_idx) = self.block_geometry_node(block)?;
-        let layout_tree = &layout_result.layout_tree;
 
-        // STEP 1: Apply scroll offsets from the node and all scrollable
-        // ancestors. SELF-inclusive on purpose: the caret is CONTENT of the
-        // node it sits on, so that node's own scrolling moves it.
-        let scroll = self
-            .accumulated_scroll(block.dom(), layout_idx.index(), Inclusivity::SelfAndAncestors)
-            .get();
-        cursor_rect.origin.x -= scroll.x;
-        cursor_rect.origin.y -= scroll.y;
-
-        // STEP 2: Apply inverse GPU transforms from all transformed ancestors
-        let gpu_cache = self.gpu_state_manager.caches.get(&block.dom());
-        let mut current_layout_idx = layout_idx.index();
-
-        while let Some(parent_idx) = layout_tree.nodes.get(current_layout_idx)?.parent {
-            // Get the DOM node ID of the parent (if it's not anonymous)
-            if let Some(parent_dom_node_id) = layout_tree.nodes.get(parent_idx)?.dom_node_id {
-                if let Some(cache) = gpu_cache {
-                    if let Some(transform) = cache.current_transform_values.get(&parent_dom_node_id)
-                    {
-                        // Apply the INVERSE transform to get back to viewport coordinates
-                        // The transform moves the element, so we need to reverse it for the cursor
-                        let inverse = transform.inverse();
-                        if let Some(transformed_origin) =
-                            inverse.transform_point2d(cursor_rect.origin)
-                        {
-                            cursor_rect.origin = transformed_origin;
-                        }
-                        // Note: We don't transform the size, only the position
-                    }
-                }
-            }
-
-            // Move to parent for next iteration
-            current_layout_idx = parent_idx;
-        }
+        // STEPS 1-2: the raster's rule, `T_total(static - scroll_total)`, over
+        // the caret's chain - the scroll frames and the reference frames it is
+        // painted in, the block's own included (the caret is CONTENT of the
+        // node it sits on, so that node's own scrolling and transform move
+        // it). This applied the scroll and then the INVERSE of a per-layout-
+        // ancestor value from `current_transform_values` - the vertical
+        // SCROLLBAR THUMB map: a caret under a CSS transform was reported
+        // untransformed, and one on a scrolled page was moved by the page's
+        // thumb offset.
+        let on_screen = crate::headless::content_rect_to_screen(
+            layout_result,
+            block.dom(),
+            layout_idx.index(),
+            cursor_rect,
+            &|d, n| self.scroll_manager.get_current_offset(d, n),
+            &|d, n| self.css_transform_of(d, n),
+        );
 
         // STEP 3: lift out of the node's own dom into WINDOW space. A nested
         // dom's display list is 0-relative, so everything above is measured as
@@ -15004,10 +14966,29 @@ impl LayoutWindow {
         // window in screen coordinates — without this the popup appears at the
         // top-left of the window instead of under the caret.
         let host_offset = self.window_space_offset_of_dom(block.dom());
-        cursor_rect.origin.x += host_offset.x;
-        cursor_rect.origin.y += host_offset.y;
+        Some(LogicalRect::new(
+            LogicalPosition::new(
+                on_screen.origin.x + host_offset.x,
+                on_screen.origin.y + host_offset.y,
+            ),
+            on_screen.size,
+        ))
+    }
 
-        Some(cursor_rect)
+    /// The CSS transform the raster applies to `node` of `dom` right now:
+    /// the value the display list's reference frame for it is bound to
+    /// (`GpuValueCache::css_current_transform_values`). THE lookup every
+    /// "where is it on screen" question passes as its `resolve_transform`.
+    fn css_transform_of(
+        &self,
+        dom: DomId,
+        node: NodeId,
+    ) -> Option<azul_core::transform::ComputedTransform3D> {
+        self.gpu_state_manager
+            .caches
+            .get(&dom)
+            .and_then(|c| c.css_current_transform_values.get(&node))
+            .copied()
     }
 
     /// Find the nearest scrollable ancestor for a given node
