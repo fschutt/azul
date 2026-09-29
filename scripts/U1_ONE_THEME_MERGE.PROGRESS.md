@@ -36,12 +36,16 @@ Nothing is compiled here (house rule).
 - 4 RED bb3ddfcdc, fix 6820d6bd8 (audit: pinned embedders already pass; single-look embedders
   ribbon / statusbar / quick_access / backstage / node_graph pin to `UiTheme::SINGLE_LOOK`)
 
+- 5 9edbd35ce (frame built once from the merged look; accordion left to after V1)
+- style 6b28c0738, reuse of `CssPropertyWithConditions::in_theme` 38f1d7046
+- report `scripts/U1_ONE_THEME_MERGE_2026_09_29.md`
+
 ## IN PROGRESS
 
-- 5 frame skin merge (accordion: V1 owns it, call-site switch only)
+- none
 
 ## NEXT
 
-- report
+- parent: compile + run the suites in the report's section 4
 
 ## Open questions
