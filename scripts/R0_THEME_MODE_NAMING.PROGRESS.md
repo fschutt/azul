@@ -5,11 +5,15 @@ Branch `wt/r0-theme-mode-naming` (from 0a326afe5). "Theme" = app theme (flat / f
 
 ## DONE
 - edcacd820 RED: `dll/tests/theme_and_mode_are_two_names.rs` (does not compile before the rename).
-- (next commit) core: LayoutCallbackInfo get_mode / get_theme, RelayoutReason ModeChange = 3 /
-  ThemeChange = 6, AppConfig.mode + with_mode / set_mode, core tests + docs.
+- fb98155ea core: LayoutCallbackInfo get_mode / get_theme, RelayoutReason
+  ModeChange = 3 / ThemeChange = 6, AppConfig.mode + with_mode / set_mode, core tests + docs.
+- (next commit) layout: CallbackInfo set_mode / get_mode / get_resolved_mode,
+  CallbackChange::SetMode { mode }, window.rs APP_MODE / set_app_mode / app_mode /
+  resolve_window_mode(_with) / LayoutWindow.mode / window_mode_for / mode_change_needs_new_dom,
+  e2e runner, layout/tests/app_color_scheme_override.rs (file name kept: all.rs untouched).
 
 ## IN PROGRESS
-- layout crate: CallbackInfo, CallbackChange::SetMode, window.rs internals, e2e runner, tests.
+- dll: app.rs, shells, event.rs, tests (color_scheme_headless -> mode_headless), examples.
 
 ## NEXT
 1. LayoutCallbackInfo::get_theme -> get_mode, then get_theme_name -> get_theme.

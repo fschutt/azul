@@ -310,11 +310,11 @@ pub enum CallbackChange {
     SetLocale {
         locale: AzString,
     },
-    /// Switch the APP's colour scheme - every window, and every window opened
-    /// later: `None` follows the desktop, `Some` pins light / dark
-    /// (`CallbackInfo::set_color_scheme`).
-    SetColorScheme {
-        scheme: azul_core::window::OptionWindowTheme,
+    /// Switch the APP's light / dark MODE - every window, and every window
+    /// opened later: `None` follows the desktop, `Some` pins light / dark
+    /// (`CallbackInfo::set_mode`).
+    SetMode {
+        mode: azul_core::window::OptionWindowTheme,
     },
     /// Switch the APP THEME (`"flat"`, `"flora"`, ...) - every window's DOM
     /// is RECREATED under it, and every window opened later starts in it
@@ -1789,45 +1789,47 @@ impl CallbackInfo {
         self.push_change(CallbackChange::SetLocale { locale });
     }
 
-    /// Switch the app's colour scheme: `Some(theme)` pins EVERY window of
-    /// the app to light or dark, whatever the desktop says; `None` follows
-    /// the desktop again, at once and through every later change of it.
+    /// Switch the app's light / dark MODE: `Some(mode)` pins EVERY window of
+    /// the app to light or dark, whatever the desktop says; `None` ("system")
+    /// follows the desktop again, at once and through every later change of
+    /// it. Not the app theme ([`Self::set_theme`]).
     ///
     /// Applied after the callback returns, to every open window and to every
     /// window opened afterwards. It is a restyle - colours only, the DOM is
     /// kept, `layout()` does not run - unless a window's `layout()` read the
-    /// scheme (`LayoutCallbackInfo::get_theme`), in which case that window's
-    /// `layout()` runs again. The `AZ_THEME` environment pin still wins. The
-    /// startup value is `AppConfig::color_scheme`.
-    pub fn set_color_scheme(&mut self, scheme: azul_core::window::OptionWindowTheme) {
-        self.push_change(CallbackChange::SetColorScheme { scheme });
+    /// mode (`LayoutCallbackInfo::get_mode`), in which case that window's
+    /// `layout()` runs again (`RelayoutReason::ModeChange`). The `AZ_THEME`
+    /// environment pin still wins. The startup value is `AppConfig::mode`.
+    pub fn set_mode(&mut self, mode: azul_core::window::OptionWindowTheme) {
+        self.push_change(CallbackChange::SetMode { mode });
     }
 
-    /// The app's colour-scheme CHOICE: `None` = follows the desktop,
-    /// `Some(theme)` = pinned. Not what the window shows - that is
-    /// [`Self::get_resolved_color_scheme`]; an app showing "System (dark)"
-    /// needs both. A `set_color_scheme` in the same callback is not visible
-    /// here yet (it applies when the callback returns).
+    /// The app's mode CHOICE: `None` = follows the desktop ("system"),
+    /// `Some(mode)` = pinned light or dark. Not what the window shows - that
+    /// is [`Self::get_resolved_mode`]; an app showing "System (dark)" needs
+    /// both. A `set_mode` in the same callback is not visible here yet (it
+    /// applies when the callback returns).
     #[must_use]
-    pub const fn get_color_scheme(&self) -> azul_core::window::OptionWindowTheme {
-        self.get_layout_window().color_scheme
+    pub const fn get_mode(&self) -> azul_core::window::OptionWindowTheme {
+        self.get_layout_window().mode
     }
 
-    /// The light / dark this window shows: the app's choice resolved against
-    /// the window's own (desktop-following) theme and the `AZ_THEME` pin.
+    /// The light / dark mode this window shows: the app's choice resolved
+    /// against the window's own (desktop-following) mode and the `AZ_THEME`
+    /// pin.
     #[must_use]
-    pub fn get_resolved_color_scheme(&self) -> azul_core::window::WindowTheme {
+    pub fn get_resolved_mode(&self) -> azul_core::window::WindowTheme {
         self.get_layout_window()
-            .window_theme_for(self.get_current_window_state().theme)
+            .window_mode_for(self.get_current_window_state().theme)
     }
 
     /// Switch the app's THEME to `name` (`"flat"`, `"flora"`, ...): the
     /// `@theme(<name>)` blocks every widget carries apply, the other themes'
-    /// go inert. Not the colour scheme ([`Self::set_color_scheme`]).
+    /// go inert. Not the light / dark mode ([`Self::set_mode`]).
     ///
     /// Applied after the callback returns, to EVERY window, as a DOM
     /// RECREATION - each window's `layout()` runs again with
-    /// `RelayoutReason::AppThemeChange` - never a restyle: a theme may change
+    /// `RelayoutReason::ThemeChange` - never a restyle: a theme may change
     /// a widget's structure (flora wraps nodes flat does not). Windows opened
     /// afterwards start in it. Switching to the theme already shown does
     /// nothing. The startup value is `AppConfig::theme`.
@@ -1837,7 +1839,7 @@ impl CallbackInfo {
 
     /// The app theme this window's DOM is built under. A `set_theme` in the
     /// same callback is not visible here yet (it applies when the callback
-    /// returns). In `layout()`: `LayoutCallbackInfo::get_theme_name`.
+    /// returns). In `layout()`: `LayoutCallbackInfo::get_theme`.
     #[must_use]
     pub fn get_theme(&self) -> AzString {
         self.get_layout_window().app_theme.clone()
@@ -7898,24 +7900,24 @@ mod autotest_generated {
         assert!(with_info_on(lw, node0(), |info| info.get_deepest_hovered_node()).is_none());
     }
 
-    /// `set_color_scheme` queues ONE app-wide change (applied after the
-    /// callback returns). `get_color_scheme` reads the CHOICE the window
-    /// holds, `get_resolved_color_scheme` the light/dark that choice gives
-    /// this window - the pair an app needs to show "System (dark)".
+    /// `set_mode` queues ONE app-wide change (applied after the callback
+    /// returns). `get_mode` reads the CHOICE the window holds,
+    /// `get_resolved_mode` the light/dark that choice gives this window - the
+    /// pair an app needs to show "System (dark)".
     #[test]
-    fn set_color_scheme_queues_the_choice_and_the_getters_tell_choice_from_result() {
+    fn set_mode_queues_the_choice_and_the_getters_tell_choice_from_result() {
         use azul_core::window::{OptionWindowTheme, WindowTheme};
 
         let queued = with_info(node_none(), |info| {
-            info.set_color_scheme(OptionWindowTheme::Some(WindowTheme::DarkMode));
+            info.set_mode(OptionWindowTheme::Some(WindowTheme::DarkMode));
             info.take_changes()
         });
         assert_eq!(queued.len(), 1, "expected exactly one queued change");
         assert!(
             matches!(
                 queued[0],
-                CallbackChange::SetColorScheme {
-                    scheme: OptionWindowTheme::Some(WindowTheme::DarkMode)
+                CallbackChange::SetMode {
+                    mode: OptionWindowTheme::Some(WindowTheme::DarkMode)
                 }
             ),
             "queued the wrong CallbackChange: {:?}",
@@ -7927,19 +7929,19 @@ mod autotest_generated {
         }
         // A dark pin on a window whose own state is light (the desktop's).
         let mut lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
-        lw.color_scheme = OptionWindowTheme::Some(WindowTheme::DarkMode);
+        lw.mode = OptionWindowTheme::Some(WindowTheme::DarkMode);
         let (choice, resolved) = with_info_on(lw, node0(), |info| {
-            (info.get_color_scheme(), info.get_resolved_color_scheme())
+            (info.get_mode(), info.get_resolved_mode())
         });
         assert_eq!(choice, OptionWindowTheme::Some(WindowTheme::DarkMode));
         assert_eq!(resolved, WindowTheme::DarkMode, "the pin outranks the window's light");
 
         // Following the system: the choice says so, the result is the
-        // window's own theme (`FullWindowState::default()` is light).
+        // window's own mode (`FullWindowState::default()` is light).
         let mut lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
-        lw.color_scheme = OptionWindowTheme::None;
+        lw.mode = OptionWindowTheme::None;
         let (choice, resolved) = with_info_on(lw, node0(), |info| {
-            (info.get_color_scheme(), info.get_resolved_color_scheme())
+            (info.get_mode(), info.get_resolved_mode())
         });
         assert_eq!(choice, OptionWindowTheme::None);
         assert_eq!(resolved, WindowTheme::LightMode);
