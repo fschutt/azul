@@ -570,3 +570,5 @@ mod an_svg_icon_follows_the_colour_of_its_node;
 mod user_icon_rules_follow_the_theme_chain;
 #[path = "a_scroll_box_keeps_its_blit_on_a_scrolled_page.rs"]
 mod a_scroll_box_keeps_its_blit_on_a_scrolled_page;
+#[path = "a_layout_blit_repaints_the_scrollbar_it_dragged.rs"]
+mod a_layout_blit_repaints_the_scrollbar_it_dragged;

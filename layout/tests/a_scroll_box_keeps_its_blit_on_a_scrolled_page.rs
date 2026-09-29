@@ -38,21 +38,21 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
-const W: u32 = 200;
-const H: u32 = 200;
+pub(crate) const W: u32 = 200;
+pub(crate) const H: u32 = 200;
 
 const PAGE: u64 = 1;
 const BOX: u64 = 2;
 
-fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+pub(crate) fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
     LogicalRect::new(LogicalPosition::new(x, y), LogicalSize::new(w, h))
 }
 
-const fn rgb(r: u8, g: u8, b: u8) -> ColorU {
+pub(crate) const fn rgb(r: u8, g: u8, b: u8) -> ColorU {
     ColorU { r, g, b, a: 255 }
 }
 
-fn fill(r: LogicalRect, color: ColorU) -> DisplayListItem {
+pub(crate) fn fill(r: LogicalRect, color: ColorU) -> DisplayListItem {
     DisplayListItem::Rect {
         bounds: WindowLogicalRect(r),
         color,
@@ -88,14 +88,14 @@ fn offsets(pairs: &[(u64, (f32, f32))]) -> ScrollOffsetMap {
     pairs.iter().copied().collect()
 }
 
-struct Raster {
+pub(crate) struct Raster {
     fonts: FontManager<FontRef>,
     resources: RendererResources,
     glyphs: GlyphCache,
 }
 
 impl Raster {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             // No text in these lists: an empty manager is the honest input.
             fonts: FontManager::new(FcFontCache::default()).expect("FontManager::new"),
@@ -105,7 +105,7 @@ impl Raster {
     }
 
     /// The frame a full repaint draws at `at`.
-    fn full(&mut self, dl: &DisplayList, at: &ScrollOffsetMap) -> AzulPixmap {
+    pub(crate) fn full(&mut self, dl: &DisplayList, at: &ScrollOffsetMap) -> AzulPixmap {
         cpurender::render_with_font_manager_and_scroll(
             dl,
             &self.resources,
@@ -141,18 +141,30 @@ impl Raster {
             );
             damage.extend(out.damage);
         }
+        self.repaint(dl, &mut frame, after, &damage);
+        (frame, damage)
+    }
+
+    /// Repaint `damage` of `frame` from `dl` at `at`, the backends'
+    /// damage-only raster (`render_display_list_damaged`).
+    pub(crate) fn repaint(
+        &mut self,
+        dl: &DisplayList,
+        frame: &mut AzulPixmap,
+        at: &ScrollOffsetMap,
+        damage: &[LogicalRect],
+    ) {
         cpurender::render_display_list_damaged(
             dl,
-            &mut frame,
+            frame,
             1.0,
             &self.resources,
             &self.fonts,
             &mut self.glyphs,
-            &CpuRenderState::new(after.clone()),
-            &damage,
+            &CpuRenderState::new(at.clone()),
+            damage,
         )
         .expect("the damage repaints");
-        (frame, damage)
     }
 }
 
@@ -174,7 +186,7 @@ fn damaged_pixels(damage: &[LogicalRect]) -> usize {
 }
 
 /// The first pixel where two frames differ.
-fn first_difference(a: &AzulPixmap, b: &AzulPixmap) -> Option<(u32, u32, [u8; 4], [u8; 4])> {
+pub(crate) fn first_difference(a: &AzulPixmap, b: &AzulPixmap) -> Option<(u32, u32, [u8; 4], [u8; 4])> {
     let (da, db) = (a.data(), b.data());
     for y in 0..H {
         for x in 0..W {
