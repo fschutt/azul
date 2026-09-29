@@ -26,13 +26,17 @@ Nothing is compiled here (house rule). The parent compiles once.
   pixel helpers of the item-1 file), FIX 7a7a7a78a (`execute_translate_blit` damages every scrollbar
   crossing a blit clip + its dragged copy).
 
+- item 2: RED 75220dde1 (`layout/tests/a_scrollbar_in_a_virtual_view_is_pressed_where_it_is_painted.rs`),
+  FIX f5ee65096 (`NestedDomPlacement` + `ScrollManager::{set_nested_dom_placements, dom_window_origin}`,
+  `headless::nested_dom_viewports`, `scroll_registration::publish_nested_dom_placements`).
+
 ## IN PROGRESS
 
-- item 2 (VirtualView child bars)
+- item 4 (thumb lag)
 
 ## NEXT
 
-2, 4, 6, 3 (guard), 8 (implement small or plan), report.
+4, 6, 3 (guard), 8 (implement small or plan), report.
 
 ## Open questions
 
