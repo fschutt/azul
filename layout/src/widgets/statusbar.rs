@@ -1458,9 +1458,15 @@ impl StatusBar {
         self.build_in(UiTheme::Flora)
     }
 
-    /// The bar in exactly `theme`'s look: its buttons and its zoom slider
-    /// are built in that look too, and the root carries the theme marker.
-    fn build_in(self, theme: UiTheme) -> Dom {
+    /// The bar in exactly `theme`'s look: flat is the palette's own parts;
+    /// flora fills every part the caller left `None` with flora's paint on
+    /// the same geometry (`themes::flora::statusbar_style`). Its buttons and
+    /// its zoom slider are built in that look too, and the root carries the
+    /// theme marker.
+    fn build_in(mut self, theme: UiTheme) -> Dom {
+        if theme == UiTheme::Flora {
+            self.style = crate::widgets::themes::flora::statusbar_style(self.style);
+        }
         let Self {
             segments,
             views,

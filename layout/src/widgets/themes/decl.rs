@@ -212,6 +212,18 @@ pub(crate) fn themed_border_left_color(
     )
 }
 
+/// See [`themed_border_bottom_color`].
+#[must_use]
+pub(crate) fn themed_border_right_color(
+    light: ColorU,
+    dark: ColorU,
+) -> [CssPropertyWithConditions; 2] {
+    CssPropertyWithConditions::themed(
+        CssProperty::const_border_right_color(StyleBorderRightColor { inner: light }),
+        CssProperty::const_border_right_color(StyleBorderRightColor { inner: dark }),
+    )
+}
+
 /// The focus ring: all four border colours on `:focus`, each with its dark
 /// twin. Only visible on a node with a border (see the module note).
 #[must_use]

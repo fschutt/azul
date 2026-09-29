@@ -3244,8 +3244,13 @@ impl Ribbon {
         }
     }
 
-    /// `mode`'s chrome in exactly `theme`'s look.
-    fn build_in(self, theme: UiTheme, mode: RibbonChromeMode) -> Dom {
+    /// `mode`'s chrome in exactly `theme`'s look: flat is the palette's own
+    /// parts; flora fills every part the caller left `None` with flora's
+    /// paint on the same geometry (`themes::flora::ribbon_style`).
+    fn build_in(mut self, theme: UiTheme, mode: RibbonChromeMode) -> Dom {
+        if theme == UiTheme::Flora {
+            self.style = crate::widgets::themes::flora::ribbon_style(self.style);
+        }
         self.build_chrome(mode, theme)
     }
 

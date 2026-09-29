@@ -5380,3 +5380,512 @@ pub(crate) fn chrome_metric_findings(flat: &Dom, flora: &Dom) -> Vec<String> {
     }
     out
 }
+
+/// Whether a declaration of `ty` is PAINT - a fill, an ink, a border colour
+/// or a shadow: what a look decides, as opposed to where a box sits and how
+/// big it is.
+const fn is_chrome_paint(ty: CssPropertyType) -> bool {
+    matches!(
+        ty,
+        CssPropertyType::BackgroundContent
+            | CssPropertyType::TextColor
+            | CssPropertyType::BorderTopColor
+            | CssPropertyType::BorderRightColor
+            | CssPropertyType::BorderBottomColor
+            | CssPropertyType::BorderLeftColor
+            | CssPropertyType::BoxShadowTop
+            | CssPropertyType::BoxShadowRight
+            | CssPropertyType::BoxShadowBottom
+            | CssPropertyType::BoxShadowLeft
+    )
+}
+
+/// An established (flat) chrome part's GEOMETRY: its declarations without
+/// their paint ([`is_chrome_paint`]), without the dark twins and without the
+/// state rules - the unconditional (and viewport-conditioned) metrics the
+/// widget's layout was measured with, in the part's own order.
+fn chrome_geometry(part: &CssPropertyWithConditionsVec) -> Vec<CssPropertyWithConditions> {
+    use azul_css::dynamic_selector::DynamicSelector;
+    part.as_ref()
+        .iter()
+        .filter(|p| {
+            !is_chrome_paint(p.property.get_type())
+                && p.apply_if.as_ref().iter().all(|c| {
+                    !matches!(c, DynamicSelector::Theme(_) | DynamicSelector::PseudoState(_))
+                })
+        })
+        .cloned()
+        .collect()
+}
+
+/// One chrome part in the flora look. A part the caller set (`Some`) is the
+/// caller's and stays as it is, in this look as in the flat one; a part left
+/// `None` becomes `established`'s geometry with `paint` laid on it.
+fn chrome_part(
+    slot: &mut azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec,
+    established: &CssPropertyWithConditionsVec,
+    paint: impl FnOnce(&mut Vec<CssPropertyWithConditions>),
+) {
+    if slot.is_some() {
+        return;
+    }
+    let mut part = chrome_geometry(established);
+    paint(&mut part);
+    *slot = azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(
+        CssPropertyWithConditionsVec::from_vec(part),
+    );
+}
+
+/// A chrome control's lift under the pointer: flora's hover face
+/// (`--fl-hT` -> `--fl-hB`) in a `--fl-bd` hairline.
+fn chrome_lift(v: &mut Vec<CssPropertyWithConditions>) {
+    use super::style_kit as kit;
+    v.extend(kit::hover_layers(
+        vec![HOVER_FACE_LIGHT],
+        vec![HOVER_FACE_DARK],
+    ));
+    v.extend(kit::hover_border(LIGHT_BD, DARK_BD));
+}
+
+/// A toolbar key's states: [`chrome_lift`] under the pointer, the pressed
+/// face (`--fl-pT` -> `--fl-pB`) while held, and the focus ring - the accent
+/// by day, the stone's glow by night (flora.css `--focus-color`). Appended
+/// again after any resting face a part lays over the key (a toggled button,
+/// the active view), so that face never shadows them.
+fn chrome_key_states(v: &mut Vec<CssPropertyWithConditions>) {
+    use super::style_kit as kit;
+    chrome_lift(v);
+    v.extend(kit::active_layers(
+        vec![PRESSED_FACE_LIGHT],
+        vec![PRESSED_FACE_DARK],
+    ));
+    v.extend(kit::focus_ring(LIGHT_ACC, DARK_GLOW));
+}
+
+/// A flora toolbar key (`.nav-links a`, cut for the chrome): bare at rest - a
+/// transparent face in a transparent hairline, so the strip shows through -
+/// with the house radius, then [`chrome_key_states`]. The key keeps the 1px
+/// border its geometry has; the hover and the ring colour it.
+fn chrome_key(v: &mut Vec<CssPropertyWithConditions>) {
+    use super::style_kit as kit;
+    v.extend(kit::radius(3));
+    v.push(CssPropertyWithConditions::simple(kit::bg(ColorU::TRANSPARENT)));
+    v.extend(
+        super::decl::border_colors(ColorU::TRANSPARENT).map(CssPropertyWithConditions::simple),
+    );
+    chrome_key_states(v);
+}
+
+/// A floating chrome leaf (the gallery's expansion panel, the touch tab
+/// picker): the popover's small leaf - `--fl-sur` in a `--fl-bd2` hairline,
+/// the house radius, the nearer shadow of `--fl-shadow-2`.
+fn chrome_leaf(v: &mut Vec<CssPropertyWithConditions>) {
+    use super::{decl, style_kit as kit};
+    v.extend(kit::radius(3));
+    v.extend(kit::themed_bg(LIGHT_SUR, DARK_SUR));
+    v.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
+    v.extend(kit::drop_shadow(
+        2,
+        5,
+        POPOVER_SHADOW_LIGHT,
+        POPOVER_SHADOW_DARK,
+    ));
+}
+
+// ==== ribbon ====
+//
+// A flora ribbon is flora's toolbar strip (`--fl-strip`, closed along its foot
+// by a `--fl-bd` rule) over a leaf (`--fl-sur`) that holds the groups, each
+// ruled off from the next by a `--fl-sep` hairline and captioned in soft ink
+// (`--fl-soft1`). Its tabs are flora's nav tabs (`.nav-links a`): soft ink on
+// the strip, square-shouldered at the foot, lifting to the hover face and the
+// house ink under the pointer; the selected tab is the sunken accent stone
+// (`.nav-links a.active`: `--fl-gem-sunken` under the sunken rig, set in its
+// `--fl-deep` edge) written in `--fl-on-acc` - its own colour by day and by
+// night. The application button is the raised accent stone of a primary
+// command (`.btn-primary`: the accent under the depth rig and its streak).
+// Every command is a toolbar key: bare paper at rest, the hover face in a
+// hairline under the pointer, the pressed face while held, ringed on focus; a
+// toggled one stays pushed in, in a `--fl-bd3` hairline. The gallery is a well
+// of field paper (`--fl-fld` in `--fl-bd2`, sunk by `--fl-well`) whose picked
+// cell is washed in the accent's soft tint (`--fl-soft`; by night the lifted
+// face `--fl-hT`, a light tint being a light island there) and rimmed in the
+// accent; its expansion panel and the touch chrome's tab picker are popover
+// leaves. Labels are `--fl-ink`, glyphs `--fl-icon`, chevrons and captions
+// `--fl-soft1` / `--fl-soft2`; the accent as text is `--fl-acc` by day and
+// `--fl-glow` by night. The touch chrome's picked group is the sunken stone,
+// its own colour in either mode.
+
+/// Flora's ribbon: every part the caller left `None` in `s` filled with
+/// flora's paint on the flat part's geometry (see the chrome section above).
+#[must_use]
+pub(crate) fn ribbon_style(
+    mut s: crate::widgets::ribbon::RibbonStyle,
+) -> crate::widgets::ribbon::RibbonStyle {
+    use super::{decl, style_kit as kit};
+    type P = CssPropertyWithConditions;
+
+    let e = s.resolved_container_style();
+    chrome_part(&mut s.container_style, &e, |v| {
+        v.extend(kit::themed_bg(LIGHT_STRIP, DARK_STRIP));
+        v.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
+        v.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+    });
+    let e = s.resolved_tab_bar_style();
+    chrome_part(&mut s.tab_bar_style, &e, |v| {
+        v.extend(kit::themed_bg(LIGHT_STRIP, DARK_STRIP));
+    });
+    let e = s.resolved_app_button_style();
+    chrome_part(&mut s.app_button_style, &e, |v| {
+        v.extend(kit::radius_corners(3, 3, 0, 0));
+        v.push(P::simple(kit::layers(stone_face(LIGHT_ACC, STONE_STREAK))));
+        v.push(P::simple(kit::ink(LIGHT_ON_ACC)));
+        // A stone is its own colour in both modes, so its states repeat for
+        // the night: every state rule keeps its twin.
+        let lit = stone_face(LIGHT_ACC, STONE_STREAK_HOVER);
+        v.extend(kit::hover_layers(lit.clone(), lit));
+        let held = sunken_stone_face(LIGHT_DEEP);
+        v.extend(kit::active_layers(held.clone(), held));
+    });
+    let e = s.resolved_tab_style();
+    chrome_part(&mut s.tab_style, &e, |v| {
+        v.extend(kit::radius_corners(4, 4, 0, 0));
+        v.extend(kit::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+        v.push(P::simple(kit::bg(ColorU::TRANSPARENT)));
+        // The strip's rule runs across an unselected tab's foot.
+        v.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+        v.extend(kit::hover_layers(
+            vec![HOVER_FACE_LIGHT],
+            vec![HOVER_FACE_DARK],
+        ));
+        v.extend(kit::hover_ink(LIGHT_INK, DARK_INK));
+        v.extend(kit::active_layers(
+            vec![PRESSED_FACE_LIGHT],
+            vec![PRESSED_FACE_DARK],
+        ));
+    });
+    let e = s.resolved_tab_active_style();
+    chrome_part(&mut s.tab_active_style, &e, |v| {
+        v.extend(kit::radius_corners(4, 4, 0, 0));
+        v.push(P::simple(kit::layers(selected_stone())));
+        v.push(P::simple(kit::ink(LIGHT_ON_ACC)));
+        v.extend(decl::border_colors(LIGHT_DEEP).map(P::simple));
+    });
+    let e = s.resolved_tab_filler_style();
+    chrome_part(&mut s.tab_filler_style, &e, |v| {
+        v.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+    });
+    let e = s.resolved_content_style();
+    chrome_part(&mut s.content_style, &e, |v| {
+        v.extend(kit::themed_bg(LIGHT_SUR, DARK_SUR));
+    });
+    let e = s.resolved_group_style();
+    chrome_part(&mut s.group_style, &e, |v| {
+        v.extend(decl::themed_border_right_color(LIGHT_SEP, DARK_SEP));
+    });
+    let e = s.resolved_group_label_style();
+    chrome_part(&mut s.group_label_style, &e, |v| {
+        v.extend(kit::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    });
+    let e = s.resolved_launcher_button_style();
+    chrome_part(&mut s.launcher_button_style, &e, chrome_key);
+    let e = s.resolved_launcher_icon_style();
+    chrome_part(&mut s.launcher_icon_style, &e, |v| {
+        v.extend(kit::themed_ink(LIGHT_SOFT2, DARK_SOFT2));
+    });
+    let e = s.resolved_separator_style();
+    chrome_part(&mut s.separator_style, &e, |v| {
+        v.extend(kit::themed_bg(LIGHT_SEP, DARK_SEP));
+    });
+    let e = s.resolved_large_button_style();
+    chrome_part(&mut s.large_button_style, &e, chrome_key);
+    let e = s.resolved_small_button_style();
+    chrome_part(&mut s.small_button_style, &e, chrome_key);
+    let (large, small) = (s.resolved_large_icon_style(), s.resolved_small_icon_style());
+    for (slot, e) in [
+        (&mut s.large_icon_style, large),
+        (&mut s.small_icon_style, small),
+    ] {
+        chrome_part(slot, &e, |v| v.extend(kit::themed_ink(LIGHT_ICON, DARK_ICON)));
+    }
+    let e = s.resolved_large_label_style();
+    chrome_part(&mut s.large_label_style, &e, |v| {
+        v.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
+    });
+    let e = s.resolved_small_label_style();
+    chrome_part(&mut s.small_label_style, &e, |v| {
+        v.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
+    });
+    let e = s.resolved_arrow_icon_style();
+    chrome_part(&mut s.arrow_icon_style, &e, |v| {
+        v.extend(kit::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    });
+    // APPENDED to a toggled button's key: pushed-in paper, the key's states
+    // after it again.
+    let e = s.resolved_checked_style();
+    chrome_part(&mut s.checked_style, &e, |v| {
+        v.extend(kit::themed_layers(
+            vec![PRESSED_FACE_LIGHT],
+            vec![PRESSED_FACE_DARK],
+        ));
+        v.extend(decl::themed_border_color(LIGHT_BD3, DARK_BD3));
+        chrome_key_states(v);
+    });
+    let e = s.resolved_gallery_frame_style();
+    chrome_part(&mut s.gallery_frame_style, &e, |v| {
+        v.extend(kit::radius(3));
+        v.extend(kit::themed_bg(LIGHT_FLD, DARK_FLD));
+        v.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
+        v.extend(kit::inset_shadow(
+            1,
+            2,
+            NUMBER_INPUT_WELL_LIGHT,
+            NUMBER_INPUT_WELL_DARK,
+        ));
+    });
+    let e = s.resolved_gallery_cell_style();
+    chrome_part(&mut s.gallery_cell_style, &e, |v| {
+        v.push(P::simple(kit::bg(ColorU::TRANSPARENT)));
+        v.extend(decl::border_colors(ColorU::TRANSPARENT).map(P::simple));
+        // Cells are divided by a hairline on their right edge.
+        v.extend(decl::themed_border_right_color(LIGHT_SEP, DARK_SEP));
+        chrome_lift(v);
+    });
+    // APPENDED to the picked cell: the accent's soft wash, rimmed in the
+    // accent, the lift after it again.
+    let e = s.resolved_gallery_cell_selected_style();
+    chrome_part(&mut s.gallery_cell_selected_style, &e, |v| {
+        v.extend(kit::themed_bg(LIGHT_SOFT, DARK_HT));
+        v.extend(decl::themed_border_color(LIGHT_ACC, DARK_GLOW));
+        chrome_lift(v);
+    });
+    let e = s.resolved_gallery_cell_label_style();
+    chrome_part(&mut s.gallery_cell_label_style, &e, |v| {
+        v.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
+    });
+    let e = s.resolved_gallery_spinner_style();
+    chrome_part(&mut s.gallery_spinner_style, &e, |v| {
+        v.extend(decl::themed_border_left_color(LIGHT_SEP, DARK_SEP));
+    });
+    let e = s.resolved_gallery_panel_style();
+    chrome_part(&mut s.gallery_panel_style, &e, chrome_leaf);
+    // The spinner's buttons have no border to colour: they ring with an
+    // inset halo (the frame clips an outer one).
+    let e = s.resolved_gallery_spinner_button_style();
+    chrome_part(&mut s.gallery_spinner_button_style, &e, |v| {
+        v.push(P::simple(kit::bg(ColorU::TRANSPARENT)));
+        v.extend(kit::hover_layers(
+            vec![HOVER_FACE_LIGHT],
+            vec![HOVER_FACE_DARK],
+        ));
+        v.extend(kit::active_layers(
+            vec![PRESSED_FACE_LIGHT],
+            vec![PRESSED_FACE_DARK],
+        ));
+        v.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+    });
+    let e = s.resolved_gallery_spinner_icon_style();
+    chrome_part(&mut s.gallery_spinner_icon_style, &e, |v| {
+        v.extend(kit::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    });
+    let e = s.resolved_mobile_tab_button_style();
+    chrome_part(&mut s.mobile_tab_button_style, &e, |v| {
+        v.extend(kit::themed_ink(LIGHT_ACC, DARK_GLOW));
+        v.extend(kit::themed_bg(LIGHT_STRIP, DARK_STRIP));
+        v.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+    });
+    let e = s.resolved_mobile_tab_arrow_style();
+    chrome_part(&mut s.mobile_tab_arrow_style, &e, |v| {
+        v.extend(kit::themed_ink(LIGHT_ACC, DARK_GLOW));
+    });
+    let e = s.resolved_mobile_tab_overlay_style();
+    chrome_part(&mut s.mobile_tab_overlay_style, &e, chrome_leaf);
+    let (overlay_item, group_item) = (
+        s.resolved_mobile_tab_overlay_item_style(),
+        s.resolved_mobile_group_list_item_style(),
+    );
+    for (slot, e) in [
+        (&mut s.mobile_tab_overlay_item_style, overlay_item),
+        (&mut s.mobile_group_list_item_style, group_item),
+    ] {
+        chrome_part(slot, &e, |v| {
+            v.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
+            v.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+            v.extend(kit::hover_layers(
+                vec![HOVER_FACE_LIGHT],
+                vec![HOVER_FACE_DARK],
+            ));
+        });
+    }
+    let e = s.resolved_mobile_group_list_style();
+    chrome_part(&mut s.mobile_group_list_style, &e, |v| {
+        v.extend(kit::themed_bg(LIGHT_STRIP, DARK_STRIP));
+        // The divider sits on whichever side faces the content (the
+        // handedness decides which edge has a width); both are coloured.
+        v.extend(decl::themed_border_left_color(LIGHT_SEP, DARK_SEP));
+        v.extend(decl::themed_border_right_color(LIGHT_SEP, DARK_SEP));
+    });
+    // APPENDED to the picked group: the sunken stone, which stays the stone
+    // under the pointer (the lift would un-pick it).
+    let e = s.resolved_mobile_group_list_item_selected_style();
+    chrome_part(&mut s.mobile_group_list_item_selected_style, &e, |v| {
+        v.push(P::simple(kit::layers(selected_stone())));
+        v.push(P::simple(kit::ink(LIGHT_ON_ACC)));
+        v.extend(kit::hover_layers(selected_stone(), selected_stone()));
+    });
+    s
+}
+
+// ==== statusbar ====
+//
+// A flora status bar is flora's toolbar strip (`--fl-strip`) closed along its
+// TOP by a `--fl-bd` hairline - the menubar's strip, turned over for the foot
+// of the window - with the status written in soft ink (`--fl-soft1`) and the
+// glyphs in `--fl-icon`. Clickable segments, the view switcher and the zoom
+// buttons are toolbar keys; the active view stays pushed in (the pressed face
+// in a `--fl-bd3` hairline). The zoom slider runs on a `--fl-bd3` hairline
+// rail with a tick at 100% under a thumb of raised paper (`--fl-rT` ->
+// `--fl-rB` in `--fl-bd2`); the slider rings with an inset halo on focus.
+// Where the Office bar is an accent strip, flora keeps its accent for stones
+// and rings: a bar of paper at the foot of the page.
+
+/// Flora's status bar: every part the caller left `None` in `s` filled with
+/// flora's paint on the flat part's geometry (see the chrome section above).
+#[must_use]
+pub(crate) fn statusbar_style(
+    mut s: crate::widgets::statusbar::StatusBarStyle,
+) -> crate::widgets::statusbar::StatusBarStyle {
+    use super::{decl, style_kit as kit};
+    type P = CssPropertyWithConditions;
+
+    let e = s.resolved_bar_style();
+    chrome_part(&mut s.bar_style, &e, |v| {
+        v.extend(kit::themed_bg(LIGHT_STRIP, DARK_STRIP));
+        v.extend(kit::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+        // The hairline along the top: an inset line, so it costs no height.
+        v.extend(kit::inset_shadow(1, 0, LIGHT_BD, DARK_BD));
+    });
+    let keys = (
+        s.resolved_segment_style(),
+        s.resolved_view_button_style(),
+        s.resolved_zoom_button_style(),
+    );
+    for (slot, e) in [
+        (&mut s.segment_style, keys.0),
+        (&mut s.view_button_style, keys.1),
+        (&mut s.zoom_button_style, keys.2),
+    ] {
+        chrome_part(slot, &e, chrome_key);
+    }
+    let glyphs = (
+        s.resolved_segment_icon_style(),
+        s.resolved_view_icon_style(),
+        s.resolved_zoom_icon_style(),
+    );
+    for (slot, e) in [
+        (&mut s.segment_icon_style, glyphs.0),
+        (&mut s.view_icon_style, glyphs.1),
+        (&mut s.zoom_icon_style, glyphs.2),
+    ] {
+        chrome_part(slot, &e, |v| v.extend(kit::themed_ink(LIGHT_ICON, DARK_ICON)));
+    }
+    let e = s.resolved_segment_label_style();
+    chrome_part(&mut s.segment_label_style, &e, |v| {
+        v.extend(kit::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    });
+    // APPENDED to the active view's key: pushed-in paper, the key's states
+    // after it again.
+    let e = s.resolved_view_button_active_style();
+    chrome_part(&mut s.view_button_active_style, &e, |v| {
+        v.extend(kit::themed_layers(
+            vec![PRESSED_FACE_LIGHT],
+            vec![PRESSED_FACE_DARK],
+        ));
+        v.extend(decl::themed_border_color(LIGHT_BD3, DARK_BD3));
+        chrome_key_states(v);
+    });
+    let (rail, tick) = (s.resolved_zoom_rail_style(), s.resolved_zoom_tick_style());
+    for (slot, e) in [(&mut s.zoom_rail_style, rail), (&mut s.zoom_tick_style, tick)] {
+        chrome_part(slot, &e, |v| v.extend(kit::themed_bg(LIGHT_BD3, DARK_BD3)));
+    }
+    // The slider's hit area stays transparent (the rail is drawn by its host)
+    // and rings with an inset halo: it has no border to colour.
+    let e = s.resolved_slider_track_style();
+    chrome_part(&mut s.slider_track_style, &e, |v| {
+        v.push(P::simple(kit::bg(ColorU::TRANSPARENT)));
+        v.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+    });
+    let e = s.resolved_slider_thumb_style();
+    chrome_part(&mut s.slider_thumb_style, &e, |v| {
+        v.extend(kit::radius(2));
+        v.extend(kit::themed_layers(
+            vec![RAISED_FACE_LIGHT],
+            vec![RAISED_FACE_DARK],
+        ));
+        v.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
+    });
+    let e = s.resolved_zoom_label_style();
+    chrome_part(&mut s.zoom_label_style, &e, |v| {
+        v.extend(kit::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+        chrome_key(v);
+    });
+    s
+}
+
+// ==== quick_access ====
+//
+// A flora title band is the recessed band behind the leaves (`--fl-desk`):
+// window chrome, one step deeper than the ribbon's toolbar strip under it,
+// with the window's title in `--fl-intro` and the glyphs in `--fl-icon` (the
+// customize chevron in `--fl-soft2`). Every action and window control is a
+// toolbar key. The close key warms to clay under the pointer - flora's
+// warning stone (`--fl-clay`) as a soft wash by day, its deep by night, rimmed
+// in its glow, and the stone itself while held: the caption red of a desktop
+// titlebar, said in flora's palette.
+
+/// Flora's title band: every part the caller left `None` in `s` filled with
+/// flora's paint on the flat part's geometry (see the chrome section above).
+#[must_use]
+pub(crate) fn quick_access_style(
+    mut s: crate::widgets::quick_access::QuickAccessStyle,
+) -> crate::widgets::quick_access::QuickAccessStyle {
+    use super::style_kit as kit;
+
+    let e = s.resolved_bar_style();
+    chrome_part(&mut s.bar_style, &e, |v| {
+        v.extend(kit::themed_bg(LIGHT_DESK, DARK_DESK));
+        v.extend(kit::themed_ink(LIGHT_INTRO, DARK_INTRO));
+    });
+    let (action, window) = (
+        s.resolved_action_button_style(),
+        s.resolved_window_button_style(),
+    );
+    for (slot, e) in [
+        (&mut s.action_button_style, action),
+        (&mut s.window_button_style, window),
+    ] {
+        chrome_part(slot, &e, chrome_key);
+    }
+    let (action, window) = (s.resolved_action_icon_style(), s.resolved_window_icon_style());
+    for (slot, e) in [(&mut s.action_icon_style, action), (&mut s.window_icon_style, window)] {
+        chrome_part(slot, &e, |v| v.extend(kit::themed_ink(LIGHT_ICON, DARK_ICON)));
+    }
+    let e = s.resolved_menu_arrow_style();
+    chrome_part(&mut s.menu_arrow_style, &e, |v| {
+        v.extend(kit::themed_ink(LIGHT_SOFT2, DARK_SOFT2));
+    });
+    let e = s.resolved_title_style();
+    chrome_part(&mut s.title_style, &e, |v| {
+        v.extend(kit::themed_ink(LIGHT_INTRO, DARK_INTRO));
+    });
+    // APPENDED to the close key's window key: clay under the pointer and while
+    // held, then the ring again so the clay rim never hides it.
+    let e = s.resolved_close_button_style();
+    chrome_part(&mut s.close_button_style, &e, |v| {
+        v.extend(kit::hover_bg(STONE_CLAY.soft, STONE_CLAY.deep));
+        v.extend(kit::hover_border(STONE_CLAY.glow, STONE_CLAY.glow));
+        v.extend(kit::active_bg(STONE_CLAY.glow, STONE_CLAY.stone));
+        v.extend(kit::focus_ring(LIGHT_ACC, DARK_GLOW));
+    });
+    s
+}

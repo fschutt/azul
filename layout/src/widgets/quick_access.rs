@@ -944,9 +944,14 @@ impl QuickAccessBar {
         self.build_in(UiTheme::Flora)
     }
 
-    /// The band in exactly `theme`'s look: its buttons are built in that
-    /// look too, and the root carries the theme marker.
-    fn build_in(self, theme: UiTheme) -> Dom {
+    /// The band in exactly `theme`'s look: flat is the palette's own parts;
+    /// flora fills every part the caller left `None` with flora's paint on
+    /// the same geometry (`themes::flora::quick_access_style`). Its buttons
+    /// are built in that look too, and the root carries the theme marker.
+    fn build_in(mut self, theme: UiTheme) -> Dom {
+        if theme == UiTheme::Flora {
+            self.style = crate::widgets::themes::flora::quick_access_style(self.style);
+        }
         let Self {
             leading,
             actions,
