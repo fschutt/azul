@@ -787,6 +787,294 @@ fn callback_return_sizes_are_the_c_layout() {
 }
 
 // ============================================================================
+// Tagged-union layout
+// ============================================================================
+
+/// One tagged union of the IR as the layout tests see it: its api name,
+/// whether its tag is a `uint8_t` (`repr(C, u8)`) or the int-sized C tag
+/// enum (`repr(C)`), and per variant its name and payload members
+/// `(C member name, api type, ref kind)` - empty for a unit variant.
+struct TaggedUnion {
+    name: String,
+    u8_tag: bool,
+    variants: Vec<(String, Vec<(String, String, FieldRefKind)>)>,
+}
+
+fn is_u8_repr(repr: Option<&str>) -> bool {
+    repr.is_some_and(|r| r.contains("u8"))
+}
+
+/// Every tagged union the IR declares: each data-carrying enum and each
+/// monomorphized generic alias (`CaretColorValue = CssPropertyValue<..>`).
+/// Not a sample - the layout tests run over all of them.
+fn every_tagged_union() -> Vec<TaggedUnion> {
+    let mut out = Vec::new();
+    for e in &ir().enums {
+        if !e.is_union || !e.generic_params.is_empty() {
+            continue;
+        }
+        let variants = e
+            .variants
+            .iter()
+            .map(|v| {
+                let members = match &v.kind {
+                    EnumVariantKind::Unit => Vec::new(),
+                    EnumVariantKind::Tuple(ts) if ts.len() == 1 => {
+                        vec![("payload".to_string(), ts[0].0.clone(), ts[0].1)]
+                    }
+                    EnumVariantKind::Tuple(ts) => ts
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (t, rk))| (format!("payload_{i}"), t.clone(), *rk))
+                        .collect(),
+                    EnumVariantKind::Struct(fs) => fs
+                        .iter()
+                        .map(|f| {
+                            (
+                                super::lang_c::escape_cpp_keyword_for_c(&f.name),
+                                f.type_name.clone(),
+                                f.ref_kind,
+                            )
+                        })
+                        .collect(),
+                };
+                (v.name.clone(), members)
+            })
+            .collect();
+        out.push(TaggedUnion {
+            name: e.name.clone(),
+            u8_tag: is_u8_repr(e.repr.as_deref()),
+            variants,
+        });
+    }
+    for ta in &ir().type_aliases {
+        let Some(MonomorphizedKind::TaggedUnion { repr, variants }) =
+            ta.monomorphized_def.as_ref().map(|m| &m.kind)
+        else {
+            continue;
+        };
+        let variants = variants
+            .iter()
+            .map(|v| {
+                let members = v
+                    .payload_type
+                    .iter()
+                    .map(|t| ("payload".to_string(), t.clone(), v.payload_ref_kind))
+                    .collect();
+                (v.name.clone(), members)
+            })
+            .collect();
+        out.push(TaggedUnion {
+            name: ta.name.clone(),
+            u8_tag: is_u8_repr(repr.as_deref()),
+            variants,
+        });
+    }
+    out
+}
+
+/// The C layout of one payload member: its type by value, or a pointer.
+fn member_abi(ty: &str, rk: FieldRefKind) -> Option<super::c_layout::AbiLayout> {
+    match rk {
+        FieldRefKind::Owned => super::c_layout::type_layout(ty, ir()),
+        _ => Some(super::c_layout::AbiLayout { size: 8, align: 8 }),
+    }
+}
+
+fn round_up(off: usize, align: usize) -> usize {
+    off.div_ceil(align.max(1)) * align.max(1)
+}
+
+/// Rust's layout of a `#[repr(C, u8)]` / `#[repr(C)]` enum (the Rust
+/// reference, "Primitive representation of enums with fields" and
+/// "`repr(C)`"): a `struct { tag; union { one repr(C) struct per variant } }`.
+/// Returns `(payload offset, size, align)`: EVERY variant's payload starts
+/// at the tag's size rounded up to the largest alignment of ANY variant -
+/// not at its own alignment. Pinned against the real Rust layout by
+/// `css/tests/a_union_payload_sits_after_the_largest_alignment.rs`.
+fn rust_union_layout(u: &TaggedUnion) -> Option<(usize, usize, usize)> {
+    let tag = if u.u8_tag { 1 } else { 4 };
+    let mut union_align = 1;
+    let mut union_size = 0;
+    for (_, members) in &u.variants {
+        let (mut off, mut align) = (0, 1);
+        for (_, ty, rk) in members {
+            let l = member_abi(ty, *rk)?;
+            off = round_up(off, l.align) + l.size;
+            align = align.max(l.align);
+        }
+        union_size = union_size.max(round_up(off, align));
+        union_align = union_align.max(align);
+    }
+    let payload = round_up(tag, union_align);
+    let align = union_align.max(tag);
+    Some((payload, round_up(payload + union_size, align), align))
+}
+
+/// Every `struct Name { ... };` of a C header: name -> trimmed member lines.
+fn c_struct_members(header: &str) -> BTreeMap<String, Vec<String>> {
+    let mut out = BTreeMap::new();
+    let mut current: Option<(String, Vec<String>)> = None;
+    for line in header.lines() {
+        let t = line.trim();
+        if current.is_some() {
+            if t.starts_with("};") {
+                if let Some((name, members)) = current.take() {
+                    out.insert(name, members);
+                }
+            } else if !t.is_empty() {
+                if let Some((_, members)) = current.as_mut() {
+                    members.push(t.to_string());
+                }
+            }
+            continue;
+        }
+        if let Some(name) = t.strip_prefix("struct ").and_then(|r| r.strip_suffix(" {")) {
+            current = Some((name.trim().to_string(), Vec::new()));
+        }
+    }
+    out
+}
+
+/// Where a C compiler puts the member `first` of a variant struct the header
+/// declares: every member before it must be the tag (`uint8_t` or the
+/// int-sized `_Tag` enum) or `uint8_t` padding, laid out by C's rules, and
+/// `first` is aligned to its own C alignment `first_align`.
+fn header_member_offset(members: &[String], first: &str, first_align: usize) -> Result<usize, String> {
+    let mut off = 0usize;
+    for m in members {
+        let decl = m.trim_end_matches(';').trim();
+        let (decl, count) = match decl.strip_suffix(']').and_then(|d| d.rsplit_once('[')) {
+            Some((d, n)) => (
+                d.trim(),
+                n.trim()
+                    .parse::<usize>()
+                    .map_err(|_| format!("unreadable array length in `{m}`"))?,
+            ),
+            None => (decl, 1),
+        };
+        let Some((ty, name)) = decl.rsplit_once(' ') else {
+            return Err(format!("unreadable member `{m}`"));
+        };
+        if name == first {
+            return Ok(round_up(off, first_align));
+        }
+        let (size, align) = match ty.trim() {
+            "uint8_t" => (1, 1),
+            t if t.ends_with("_Tag") => (4, 4),
+            _ => return Err(format!("`{m}` before the payload is neither the tag nor padding")),
+        };
+        off = round_up(off, align) + size * count;
+    }
+    Err(format!("declares no member `{first}`"))
+}
+
+/// The C header, generated in memory from the same IR.
+fn azul_h() -> &'static str {
+    static H: OnceLock<String> = OnceLock::new();
+    H.get_or_init(|| {
+        super::CodeGenerator::generate(ir(), &super::CodegenConfig::c_header())
+            .expect("azul.h generates")
+    })
+}
+
+/// X3 (B2, 2026-09-29): every variant payload of every tagged union in
+/// azul.h sits where Rust's `repr(C, u8)` / `repr(C)` puts it - after the
+/// tag, aligned to the largest alignment of ANY variant. azul.h declared
+/// each variant as `{ tag; payload; }`, which aligns the payload to its OWN
+/// alignment: `StyleBackgroundContent::Color` (ColorU, align 1) sat at
+/// offset 1 in C and at 8 in Rust, so every C reader, the `matchRef` /
+/// `matchMut` helpers and every binding mirroring the header read the wrong
+/// bytes. The union sizes agreed, so nothing crashed.
+#[test]
+fn a_union_variant_payload_starts_where_rust_puts_it() {
+    let structs = c_struct_members(azul_h());
+    let mut offenders = Vec::new();
+    let mut unions = BTreeSet::new();
+    for u in every_tagged_union() {
+        let Some((want, _, _)) = rust_union_layout(&u) else {
+            offenders.push(format!("Az{}: a payload type has no C layout", u.name));
+            continue;
+        };
+        for (variant, members) in &u.variants {
+            let Some((first, ty, rk)) = members.first() else {
+                continue;
+            };
+            let s = format!("Az{}Variant_{}", u.name, variant);
+            let Some(lines) = structs.get(&s) else {
+                offenders.push(format!("{s}: not declared in azul.h"));
+                continue;
+            };
+            let align = member_abi(ty, *rk).map_or(1, |l| l.align);
+            match header_member_offset(lines, first, align) {
+                Ok(got) if got == want => {}
+                Ok(got) => {
+                    unions.insert(format!("Az{}", u.name));
+                    offenders.push(format!("{s}: azul.h puts `{first}` at {got}, Rust at {want}"));
+                }
+                Err(e) => offenders.push(format!("{s}: {e}")),
+            }
+        }
+    }
+    if !offenders.is_empty() {
+        panic!(
+            "{} tagged union(s) place a variant payload unlike Rust:\n  {}\n\n{} offender(s):\n  {}",
+            unions.len(),
+            unions.into_iter().collect::<Vec<_>>().join("\n  "),
+            offenders.len(),
+            offenders.join("\n  ")
+        );
+    }
+}
+
+/// Every variant whose payload a C compiler would NOT put where Rust does
+/// on its own (the payload's alignment is smaller than the union's) is
+/// pinned in azul.h by a compile-time `offsetof` check, so every C and C++
+/// build that includes the header verifies the layout it declares.
+#[test]
+fn azul_h_checks_every_padded_variant_payload_at_compile_time() {
+    let header = azul_h();
+    let mut offenders = Vec::new();
+    for u in every_tagged_union() {
+        let Some((want, _, _)) = rust_union_layout(&u) else {
+            continue; // reported by a_union_variant_payload_starts_where_rust_puts_it
+        };
+        let tag = if u.u8_tag { 1 } else { 4 };
+        for (variant, members) in &u.variants {
+            let Some((first, ty, rk)) = members.first() else {
+                continue;
+            };
+            let Some(l) = member_abi(ty, *rk) else {
+                continue;
+            };
+            if round_up(tag, l.align) == want {
+                continue; // C's own alignment already puts it there
+            }
+            let check = format!("offsetof(Az{}Variant_{}, {}) == {}", u.name, variant, first, want);
+            if !header.contains(&check) {
+                offenders.push(format!("Az{}Variant_{variant}: no `{check}` check", u.name));
+            }
+        }
+    }
+    assert_none("padded union variants without a compile-time offset check", offenders);
+}
+
+/// c_layout (the Fortran union blobs, `return_c_size`) sizes and aligns
+/// every tagged union exactly as Rust does.
+#[test]
+fn c_layout_sizes_every_tagged_union_like_rust() {
+    let mut offenders = Vec::new();
+    for u in every_tagged_union() {
+        let want = rust_union_layout(&u).map(|(_, size, align)| (size, align));
+        let got = super::c_layout::type_layout(&u.name, ir()).map(|l| (l.size, l.align));
+        if want != got {
+            offenders.push(format!("{}: Rust (size, align) {want:?}, c_layout {got:?}", u.name));
+        }
+    }
+    assert_none("tagged unions c_layout sizes unlike Rust", offenders);
+}
+
+// ============================================================================
 // Emitter lint
 // ============================================================================
 
