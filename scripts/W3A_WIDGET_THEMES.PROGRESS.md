@@ -72,10 +72,15 @@ is shared with other agents!). Append to files via Write-to-scratch + `cat >>`.
   b5a8cfa9e (RED), 7888c9b46 (flora label + BD rules). API: `Frame.theme`
   appended after `content`; set_theme / with_theme.
 
+- breadcrumb: d4693525e (plumbing: BreadcrumbLook + breadcrumb::build),
+  4cef5c643 (RED), e042d5f31 (flat hover underline + halo; flora brass trail,
+  chevron separator). API: `Breadcrumb.theme` appended after
+  `container_style`; set_theme / with_theme.
+
 ## IN PROGRESS
 
 ## NEXT
-breadcrumb, accordion, menubar, color_input, date_picker
+accordion, menubar, color_input, date_picker
 
 ## Open questions
 - ENGINE GAP (spinner): `-azul-animation-in` tracks are started only by
