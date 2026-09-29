@@ -8,12 +8,15 @@
   form_scope_of_virtual_view, VirtualView + measure scopes, dll regenerate_layout resolves before
   the pre-cascade fingerprint, E2E XML mount (parse_xml_to_styled_dom_resolving_icons)
 
-## IN PROGRESS
-- core/src/xml.rs: form_control_attributes() in apply_xml_node_attributes (written, uncommitted)
+- 4800b3cf5 fix(xml): form_control_attributes() in apply_xml_node_attributes
+- b1a7b5bb1 test cleanup (unused import)
+- final report scripts/W2_INPUT_REPLACEMENT_2026_09_29.md (committed with this checkpoint)
 
-## NEXT (in order)
-1. commit the XML attribute translation
-2. final report scripts/W2_INPUT_REPLACEMENT_2026_09_29.md
+## IN PROGRESS
+- nothing: task complete, waiting for the parent's compile + RED pass
+
+## NEXT
+- (parent) compile, run layout --lib + --test all, RED pass by reverting 59fd16e7e + 4800b3cf5
 
 ## Design decisions (so a resumed session does not re-derive them)
 - resolver lives in azul-layout (widgets are there), gated on `widgets`; runs FIRST in
