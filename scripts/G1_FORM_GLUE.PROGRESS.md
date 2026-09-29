@@ -18,11 +18,15 @@ display:none. NEVER compile. Report: `scripts/G1_FORM_GLUE_2026_09_29.md`.
 - 4ccbd9a68 step 3: MEMORY_KEY_ATTRIBUTE on replaced roots, memory registry (`controls` map,
   `register`, `reset_control`), reset_form forgets + RefreshDom
 
+- f951dd3ea RED step 4: `mod form_data`
+- f723c1bb8 step 4: default_value/resolved_value refactor of build(), Spelling + Submission,
+  registry holds spelling/built/default, widgets::form probe -> registry -> value attr,
+  raw-child initial values via default_submission, disabled/empty names skipped
+
 ## IN PROGRESS
-- step 4 RED: FormData collects replaced controls
+- step 5 RED: `<datalist>` display:none
 
 ## NEXT
-4. RED + impl: FormData collects replaced checkbox/radio/range/colour/number/date/time/select/...
 5. RED + impl: `<datalist>` display:none
 6. report
 
