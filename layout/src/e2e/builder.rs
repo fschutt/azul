@@ -2406,6 +2406,23 @@ mod tests {
             .insert(br, None, el("p"), BTreeMap::new())
             .unwrap_err()
             .contains("void"));
+        let card = doc
+            .insert(
+                0,
+                None,
+                BuilderNodeKind::Component {
+                    library: "user".into(),
+                    name: "card".into(),
+                },
+                BTreeMap::new(),
+            )
+            .expect("insert");
+        assert!(doc
+            .insert(card, None, el("p"), BTreeMap::new())
+            .unwrap_err()
+            .contains("instance of the component user:card"));
+        // A refused edit leaves the tree as it was.
+        assert_eq!(kids(&doc, 0), vec![t, br, card]);
     }
 
     #[test]
