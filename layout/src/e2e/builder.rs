@@ -898,6 +898,16 @@ impl BuilderSession {
             .map(|d| d.to_mount_xml_with(map, &self.stylesheet))
     }
 
+    /// The document the code export reads: the builder's, or — before the
+    /// first edit — what the window shows (imported, not stored).
+    #[must_use]
+    pub fn export_document(&self, live: Option<&StyledDom>) -> std::borrow::Cow<'_, BuilderDocument> {
+        match &self.doc {
+            Some(d) => std::borrow::Cow::Borrowed(d),
+            None => std::borrow::Cow::Owned(BuilderDocument::from_styled_dom(live)),
+        }
+    }
+
     /// Run one edit. The first edit imports the live DOM; an edit that fails
     /// leaves the session exactly as it was (a failed FIRST edit does not
     /// take the window over).
@@ -1509,6 +1519,63 @@ fn rendered_roots(sd: &StyledDom) -> Vec<BuilderNode> {
         .collect()
 }
 
+// ── for the code export (layout/src/e2e/export.rs) ──
+
+/// A node and its subtree as plain XML for the code export: component
+/// instances expanded (like the mount), NO `azb-<uid>` markers; plus the CSS
+/// of every component it uses.
+#[must_use]
+pub fn export_node_xml(node: &BuilderNode, map: &ComponentMap) -> (String, String) {
+    let mut w = XmlWriter::new(map);
+    let mut out = String::new();
+    w.write_node(&mut out, node, false, 0);
+    (out, w.css)
+}
+
+/// A component's markup for the code export, `(xml, css, is_template)`: a
+/// template component's template WITH its `{placeholders}` (nested instances
+/// expanded), else what its `render_fn` draws for its default data. `css` is
+/// the component's own CSS, then that of the components it uses.
+///
+/// # Errors
+/// A template that does not parse, a failing `render_fn`.
+pub fn component_export_xml(
+    def: &ComponentDef,
+    map: &ComponentMap,
+) -> Result<(String, String, bool), String> {
+    let mut w = XmlWriter::new(map);
+    let mut out = String::new();
+    let is_template = if let Some(template) = template_of(def) {
+        for r in &parse_fragment(template)? {
+            w.write_node(&mut out, r, false, 0);
+        }
+        true
+    } else {
+        let sd = match (def.render_fn)(def, &def.data_model, map) {
+            ResultStyledDomRenderDomError::Ok(sd) => sd,
+            ResultStyledDomRenderDomError::Err(e) => {
+                return Err(format!(
+                    "render_fn failed for '{}:{}': {e:?}",
+                    def.id.collection.as_str(),
+                    def.id.name.as_str()
+                ))
+            }
+        };
+        for r in &rendered_roots(&sd) {
+            w.write_node(&mut out, r, false, 0);
+        }
+        false
+    };
+    let mut css = def.css.as_str().trim().to_string();
+    if !w.css.trim().is_empty() {
+        if !css.is_empty() {
+            css.push('\n');
+        }
+        css.push_str(&w.css);
+    }
+    Ok((out, css, is_template))
+}
+
 /// One live `StyledDom` node (and its subtree) as a document node. `import`:
 /// leave out engine-internal subtrees and the builder's own marker classes.
 fn node_from_styled(
@@ -2006,8 +2073,13 @@ pub fn template_component_def(
     def
 }
 
-fn set_template(def: &mut ComponentDef, template: &str) {
+/// Make `def` a template component: `template` (placeholders and all) is its
+/// markup, it renders through [`builder_template_render_fn`] and compiles
+/// through `export::builder_template_compile_fn` (the template as code, not
+/// its default texts).
+pub fn set_template(def: &mut ComponentDef, template: &str) {
     def.render_fn = builder_template_render_fn;
+    def.compile_fn = super::export::builder_template_compile_fn;
     def.render_fn_source = Some(AzString::from(
         format!("{TEMPLATE_MARKER}\n{template}").as_str(),
     ))

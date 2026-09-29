@@ -589,6 +589,13 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("project_import_zip",         Some("visual-editor/IDE surface (project files), not engine behaviour")),
     ("export_code",                Some("codegen surface, not engine behaviour")),
     ("export_code_zip",            Some("codegen surface, not engine behaviour")),
+    // AzBuilder's quick exports (layout/src/e2e/export.rs), pinned by the
+    // export_tests module.
+    ("get_codegen_languages",      Some("codegen surface, not engine behaviour")),
+    ("get_css_rules",              Some("codegen surface, not engine behaviour")),
+    ("compile_css",                Some("codegen surface, not engine behaviour")),
+    ("export_subtree_code",        Some("codegen surface, not engine behaviour")),
+    ("export_component_code",      Some("codegen surface, not engine behaviour")),
     ("resolve_function_pointers",  Some("editor/codegen plumbing, not engine behaviour")),
     ("run_e2e_tests",              Some("the test runner itself — a test may not recurse into it")),
     ("get_logs",                   Some("debug-server tooling, asserts nothing about the engine")),

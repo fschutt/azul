@@ -31,6 +31,10 @@ mod builder;
 // into (the `project_*` ops), every path confined to the project root.
 mod project;
 
+// AzBuilder's quick exports ("Compile CSS to…", "Subtree → code",
+// "Component → code") and what Export > Code writes.
+mod export;
+
 mod cpu_backend;
 
 mod runner;

@@ -557,6 +557,10 @@ pub struct ComponentInfo {
     pub callback_slots: Vec<ComponentCallbackSlotInfo>,
     /// CSS
     pub css: String,
+    /// A component made in AzBuilder ("Convert to component"): its template,
+    /// `{placeholders}` and all (`builder::template_of`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template: Option<String>,
 }
 
 /// Info about an attribute a component accepts
@@ -783,6 +787,11 @@ pub struct ExportedComponentDef {
     /// CSS for the component
     #[serde(default)]
     pub css: String,
+    /// A component made in AzBuilder: its template (`{placeholders}` and
+    /// all). Importing it makes the component a template component again
+    /// (it renders and compiles its markup, not its default texts).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template: Option<String>,
 }
 
 #[cfg(feature = "std")]
@@ -3217,6 +3226,79 @@ pub enum DebugEvent {
     ProjectImportZip {
         /// The archive, base64 or a `data:` URI.
         data: String,
+
+    // ── AzBuilder quick exports (layout/src/e2e/export.rs) ──
+    //
+    // Text in, text out — no zip: the "Compile CSS to…", "Subtree → code"
+    // and "Component → code" dialogs of the builder UI.
+    /// The languages the export dialogs offer: `{dom: [{id, label, ext}],
+    /// css: [{id, label, ext}]}` (`css` = every CSS code generator the server
+    /// has).
+    GetCodegenLanguages,
+    /// The rules of a stylesheet, for picking which to compile:
+    /// `{css, rules: [{index, selector, declarations, classes, conditional}],
+    /// warnings}`.
+    GetCssRules {
+        /// `text` (default: the `css` field), `document` (every component
+        /// stylesheet the builder document uses), `node` (the rules that
+        /// apply to document node `node` plus its `style` attribute) or
+        /// `component` (`library` / `name`'s CSS).
+        #[serde(default)]
+        source: Option<String>,
+        #[serde(default)]
+        css: Option<String>,
+        #[serde(default)]
+        node: Option<u64>,
+        #[serde(default)]
+        library: Option<String>,
+        #[serde(default)]
+        name: Option<String>,
+    },
+    /// Compile CSS with a CSS code generator: `{language, file_name, code,
+    /// warnings, rule_count}`.
+    CompileCss {
+        /// A CSS code generator's id (see `get_codegen_languages`).
+        language: String,
+        /// The stylesheet source, as in `get_css_rules`.
+        #[serde(default)]
+        source: Option<String>,
+        #[serde(default)]
+        css: Option<String>,
+        #[serde(default)]
+        node: Option<u64>,
+        #[serde(default)]
+        library: Option<String>,
+        #[serde(default)]
+        name: Option<String>,
+        /// Only these rules (indices from `get_css_rules`); omit for all.
+        #[serde(default)]
+        rules: Option<Vec<usize>>,
+    },
+    /// A builder-document subtree as code: `{language, file_name, code,
+    /// warnings}`.
+    ExportSubtreeCode {
+        /// Document uid of the subtree's root (0 = the whole document).
+        node: u64,
+        /// `rust`, `c`, `cpp` or `python`.
+        language: String,
+        /// `function` (default: one render function) or `app` (a runnable
+        /// program).
+        #[serde(default)]
+        mode: Option<String>,
+        /// The render function's name (default: from the node's id / class /
+        /// tag).
+        #[serde(default)]
+        function_name: Option<String>,
+    },
+    /// A component as code — its render function (a converted component's
+    /// parameters become arguments), a default-arguments wrapper and, for
+    /// Rust / C / C++, its registration: `{language, file_name, code,
+    /// warnings}`.
+    ExportComponentCode {
+        library: String,
+        name: String,
+        /// `rust`, `c`, `cpp` or `python`.
+        language: String,
     },
 }
 
@@ -3901,6 +3983,79 @@ fn run_project_op(
         super::project::handle(op, &mut s.project, &mut s.builder, &mut map_guard, live)
     };
     finish_builder_op(request, callback_info, result)
+
+/// Run `f` on the document the code export reads — the builder's, or (before
+/// the builder took the window over) what the window shows — and the
+/// component map. Locks the map, then the scratch (the builder ops' order).
+#[cfg(feature = "std")]
+fn with_export_document<R>(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+    component_map: &Arc<Mutex<azul_core::xml::ComponentMap>>,
+    f: impl FnOnce(&super::builder::BuilderDocument, &azul_core::xml::ComponentMap) -> R,
+) -> R {
+    let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+    let layout_window = callback_info.get_layout_window();
+    let live = layout_window
+        .layout_results
+        .get(&ROOT_DOM_ID)
+        .map(|lr| &lr.styled_dom);
+    let guard = scratch(callback_info);
+    let doc = guard.builder.export_document(live);
+    f(&doc, &map_guard)
+}
+
+/// The stylesheet a `get_css_rules` / `compile_css` names.
+#[cfg(feature = "std")]
+#[allow(clippy::too_many_arguments)]
+fn export_css_text(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+    component_map: &Arc<Mutex<azul_core::xml::ComponentMap>>,
+    source: Option<&str>,
+    css: Option<&str>,
+    node: Option<u64>,
+    library: Option<&str>,
+    name: Option<&str>,
+) -> Result<String, String> {
+    let src = super::export::CssSource::from_op(source, css, node, library, name)?;
+    with_export_document(callback_info, component_map, |doc, map| {
+        super::export::resolve_css(&src, doc, map)
+    })
+}
+
+/// Export > Code's app: the builder document when the builder has taken the
+/// window over (its markup, its component CSS, no `azb-*` markers), else the
+/// live page.
+#[cfg(feature = "std")]
+fn build_app_code(
+    language: &str,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+    component_map: &Arc<Mutex<azul_core::xml::ComponentMap>>,
+) -> Result<super::export::CodeFile, String> {
+    let builder_active = scratch(callback_info).builder.is_active();
+    if builder_active {
+        with_export_document(callback_info, component_map, |doc, map| {
+            super::export::document_app(doc, map, language)
+        })
+    } else {
+        let (path, contents) = build_live_page_code(language, callback_info)?;
+        Ok(super::export::CodeFile { path, contents })
+    }
+}
+
+/// Export > Code's files and warnings (see `export::project_files`).
+#[cfg(feature = "std")]
+fn build_project_files(
+    language: &str,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+    component_map: &Arc<Mutex<azul_core::xml::ComponentMap>>,
+    library: Option<&str>,
+) -> Result<(Vec<super::export::CodeFile>, Vec<String>), String> {
+    let app = build_app_code(language, callback_info, component_map)?;
+    let mut warnings = Vec::new();
+    let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+    let files =
+        super::export::project_files(language, app, &map_guard, library, &mut warnings)?;
+    Ok((files, warnings))
 }
 
 /// Snapshot the (already `pub`) resource + font-manager counters that a leak
@@ -12309,6 +12464,7 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
                 universal_attributes,
                 callback_slots,
                 css: def.css.as_str().to_string(),
+                template: super::builder::template_of(def).map(str::to_string),
             });
         }
 
@@ -12707,151 +12863,6 @@ fn build_live_page_code(
     Ok((fname.to_string(), src))
 }
 
-/// Build exported code for all exportable component libraries.
-///
-/// Uses `compile_fn` on each exportable component to generate source code
-/// in the target language, then packages the result as a set of files.
-/// For the "builtin" library this is a no-op (builtin components are not exported).
-#[cfg(feature = "std")]
-fn build_exported_code(
-    language: &str,
-    map_ref: &azul_core::xml::ComponentMap,
-) -> Result<ExportedCodeResponse, String> {
-    use azul_core::xml::{CompileTarget, ComponentDef, ComponentMap, ResultStringCompileError};
-
-    let target = match language {
-        "rust" => CompileTarget::Rust,
-        "c" => CompileTarget::C,
-        "cpp" | "c++" => CompileTarget::Cpp,
-        "python" => CompileTarget::Python,
-        other => {
-            return Err(format!(
-                "Unsupported language: '{}'. Use: rust, c, cpp, python",
-                other
-            ))
-        }
-    };
-
-    let mut files = std::collections::HashMap::new();
-    let mut warnings = Vec::new();
-
-    // Collect all exportable component definitions with their data models
-    let exportable = map_ref.get_exportable_libraries();
-
-    // Gather component info for scaffold generation
-    let mut component_infos: Vec<ScaffoldComponentInfo> = Vec::new();
-
-    for lib in &exportable {
-        for def in lib.components.iter() {
-            let compiled_code = match (def.compile_fn)(def, &target, &def.data_model, 0) {
-                ResultStringCompileError::Ok(code) => Some(code.as_str().to_string()),
-                ResultStringCompileError::Err(e) => {
-                    warnings.push(format!(
-                        "Failed to compile component '{}': {:?}",
-                        def.id.qualified_name(),
-                        e
-                    ));
-                    None
-                }
-            };
-
-            component_infos.push(ScaffoldComponentInfo {
-                name: def.id.name.as_str().to_string(),
-                display_name: def.display_name.as_str().to_string(),
-                data_model_name: def.data_model.name.as_str().to_string(),
-                compiled_code,
-                data_fields: def
-                    .data_model
-                    .fields
-                    .as_ref()
-                    .iter()
-                    .filter(|f| {
-                        !matches!(
-                            f.field_type,
-                            azul_core::xml::ComponentFieldType::Callback(..)
-                                | azul_core::xml::ComponentFieldType::StyledDom
-                        )
-                    })
-                    .map(|f| {
-                        (
-                            f.name.as_str().to_string(),
-                            field_type_to_string(&f.field_type),
-                            default_value_to_opt_string(&f.default_value),
-                        )
-                    })
-                    .collect(),
-                callback_slots: def
-                    .data_model
-                    .fields
-                    .as_ref()
-                    .iter()
-                    .filter_map(|f| {
-                        if let azul_core::xml::ComponentFieldType::Callback(ref signature) =
-                            f.field_type
-                        {
-                            Some((
-                                f.name.as_str().to_string(),
-                                format!("Callback({})", signature.return_type.as_str()),
-                            ))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect(),
-                slot_fields: def
-                    .data_model
-                    .fields
-                    .as_ref()
-                    .iter()
-                    .filter(|f| {
-                        matches!(f.field_type, azul_core::xml::ComponentFieldType::StyledDom)
-                    })
-                    .map(|f| {
-                        (
-                            f.name.as_str().to_string(),
-                            f.description.as_str().to_string(),
-                        )
-                    })
-                    .collect(),
-            });
-        }
-    }
-
-    let scaffold_files = generate_scaffold(&target, &component_infos);
-    for (filename, content) in scaffold_files {
-        files.insert(filename, content);
-    }
-
-    if component_infos.is_empty() {
-        warnings.push(
-            "No user-defined component libraries to export. Generated minimal scaffold."
-                .to_string(),
-        );
-    }
-
-    Ok(ExportedCodeResponse {
-        language: language.to_string(),
-        files,
-        warnings,
-    })
-}
-
-/// Collected info about a component for scaffold generation
-#[cfg(feature = "std")]
-struct ScaffoldComponentInfo {
-    name: String,
-    display_name: String,
-    /// Name of the data model struct (e.g. "CardData")
-    data_model_name: String,
-    compiled_code: Option<String>,
-    /// Data fields: (name, type_string, default_value)
-    data_fields: Vec<(String, String, Option<String>)>,
-    /// Callback slots: (name, callback_type_string)
-    callback_slots: Vec<(String, String)>,
-    /// Slot fields (StyledDom children): (name, description)
-    slot_fields: Vec<(String, String)>,
-}
-
 /// Convert a `ComponentFieldType` to a JSON-friendly string for the debug protocol (legacy flat
 /// format).
 #[cfg(feature = "std")]
@@ -13234,609 +13245,6 @@ pub(super) fn validate_exported_fields(
     }
 
     Ok(validated)
-}
-
-/// Convert a snake_case or kebab-case name to PascalCase
-#[cfg(feature = "std")]
-fn to_pascal_case(s: &str) -> String {
-    s.split(['_', '-'])
-        .filter(|part| !part.is_empty())
-        .map(|part| {
-            let mut chars = part.chars();
-            match chars.next() {
-                Some(first) => {
-                    let mut s = first.to_uppercase().to_string();
-                    s.extend(chars);
-                    s
-                }
-                None => String::new(),
-            }
-        })
-        .collect()
-}
-
-/// Map component type strings to Rust types
-#[cfg(feature = "std")]
-fn map_type_to_rust(type_str: &str) -> &str {
-    match type_str {
-        "String" | "string" => "String",
-        "bool" | "Bool" | "boolean" => "bool",
-        "i32" | "int" | "Int" => "i32",
-        "i64" => "i64",
-        "f32" | "float" | "Float" => "f32",
-        "f64" | "double" | "Double" => "f64",
-        "u32" | "uint" => "u32",
-        "u64" => "u64",
-        "usize" => "usize",
-        _ => "String", // fallback
-    }
-}
-
-/// Map component type strings to C types
-#[cfg(feature = "std")]
-fn map_type_to_c(type_str: &str) -> &str {
-    match type_str {
-        "String" | "string" => "AzString",
-        "bool" | "Bool" | "boolean" => "bool",
-        "i32" | "int" | "Int" => "int32_t",
-        "i64" => "int64_t",
-        "f32" | "float" | "Float" => "float",
-        "f64" | "double" | "Double" => "double",
-        "u32" | "uint" => "uint32_t",
-        "u64" => "uint64_t",
-        "usize" => "size_t",
-        "ColorU" | "color" => "AzColorU",
-        "StyledDom" | "dom" => "AzStyledDom",
-        _ => "AzString",
-    }
-}
-
-/// Map component type strings to C++ types
-#[cfg(feature = "std")]
-fn map_type_to_cpp(type_str: &str) -> &str {
-    match type_str {
-        "String" | "string" => "std::string",
-        "bool" | "Bool" | "boolean" => "bool",
-        "i32" | "int" | "Int" => "int32_t",
-        "i64" => "int64_t",
-        "f32" | "float" | "Float" => "float",
-        "f64" | "double" | "Double" => "double",
-        "u32" | "uint" => "uint32_t",
-        "u64" => "uint64_t",
-        "usize" => "size_t",
-        "ColorU" | "color" => "ColorU",
-        "StyledDom" | "dom" => "StyledDom",
-        _ => "std::string",
-    }
-}
-
-/// Generate C++ default initializer expression
-#[cfg(feature = "std")]
-fn cpp_default_init(type_str: &str) -> String {
-    match type_str {
-        "String" | "string" => String::new(),
-        "bool" | "Bool" | "boolean" => " = false".to_string(),
-        "f32" | "float" | "Float" | "f64" | "double" | "Double" => " = 0.0".to_string(),
-        _ => " = 0".to_string(),
-    }
-}
-
-/// Generate default value expression for a type in Rust
-#[cfg(feature = "std")]
-fn rust_default_for_type(type_str: &str, default_val: Option<&str>) -> String {
-    if let Some(val) = default_val {
-        match type_str {
-            "String" | "string" => format!("\"{}\".to_string()", val),
-            "bool" | "Bool" | "boolean" => val.to_string(),
-            _ => val.to_string(),
-        }
-    } else {
-        match type_str {
-            "String" | "string" => "String::new()".to_string(),
-            "bool" | "Bool" | "boolean" => "false".to_string(),
-            "i32" | "int" | "Int" | "i64" | "u32" | "u64" | "usize" => "0".to_string(),
-            "f32" | "float" | "Float" | "f64" | "double" | "Double" => "0.0".to_string(),
-            _ => "String::new()".to_string(),
-        }
-    }
-}
-
-/// Generate a project scaffold for the given target language
-#[cfg(feature = "std")]
-fn generate_scaffold(
-    target: &azul_core::xml::CompileTarget,
-    components: &[ScaffoldComponentInfo],
-) -> Vec<(String, String)> {
-    use azul_core::xml::CompileTarget;
-
-    match target {
-        CompileTarget::Rust => generate_rust_scaffold(components),
-        CompileTarget::C => generate_c_scaffold(components),
-        CompileTarget::Cpp => generate_cpp_scaffold(components),
-        CompileTarget::Python => generate_python_scaffold(components),
-    }
-}
-
-/// Generate a complete Rust project scaffold
-#[cfg(feature = "std")]
-fn generate_rust_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String, String)> {
-    let mut files = Vec::new();
-
-    // --- Cargo.toml ---
-    let cargo_toml = r#"[package]
-name = "my-azul-app"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-azul = "0.0.1"
-"#;
-    files.push(("Cargo.toml".to_string(), cargo_toml.to_string()));
-
-    // --- Per-component data structs ---
-    let mut component_structs = String::new();
-    let mut component_render_fns = String::new();
-    let mut callback_stubs = String::new();
-
-    for comp in components {
-        let struct_name = &comp.data_model_name;
-        let pascal_name = to_pascal_case(&comp.name);
-
-        // Generate the struct
-        component_structs.push_str(&format!(
-            "/// Data model for the {} component\n",
-            comp.display_name
-        ));
-        component_structs.push_str(&format!("pub struct {} {{\n", struct_name));
-        for (field_name, field_type, _default) in &comp.data_fields {
-            let rust_type = map_type_to_rust(field_type);
-            component_structs.push_str(&format!("    pub {}: {},\n", field_name, rust_type));
-        }
-        for (slot_name, _desc) in &comp.slot_fields {
-            component_structs.push_str(&format!("    pub {}: StyledDom,\n", slot_name));
-        }
-        for (cb_name, _cb_type) in &comp.callback_slots {
-            component_structs.push_str(&format!("    pub {}: Option<Callback>,\n", cb_name));
-        }
-        component_structs.push_str("}\n\n");
-
-        // Generate Default impl
-        component_structs.push_str(&format!("impl Default for {} {{\n", struct_name));
-        component_structs.push_str("    fn default() -> Self {\n");
-        component_structs.push_str("        Self {\n");
-        for (field_name, field_type, default_val) in &comp.data_fields {
-            component_structs.push_str(&format!(
-                "            {}: {},\n",
-                field_name,
-                rust_default_for_type(field_type, default_val.as_deref())
-            ));
-        }
-        for (slot_name, _desc) in &comp.slot_fields {
-            component_structs.push_str(&format!(
-                "            {}: StyledDom::default(),\n",
-                slot_name
-            ));
-        }
-        for (cb_name, _cb_type) in &comp.callback_slots {
-            component_structs.push_str(&format!("            {}: None,\n", cb_name));
-        }
-        component_structs.push_str("        }\n    }\n}\n\n");
-
-        // Generate render function
-        component_render_fns.push_str(&format!("/// Render the {} component\n", comp.display_name));
-        component_render_fns.push_str(&format!(
-            "fn render_{}(data: &{}) -> Dom {{\n",
-            comp.name, struct_name
-        ));
-        if let Some(ref code) = comp.compiled_code {
-            component_render_fns.push_str(&format!("    {}\n", code));
-        } else {
-            component_render_fns.push_str(&format!(
-                "    Dom::create_div() // TODO: implement {} rendering\n",
-                comp.display_name
-            ));
-        }
-        component_render_fns.push_str("}\n\n");
-
-        // Generate callback stubs
-        for (slot_name, _cb_type) in &comp.callback_slots {
-            callback_stubs.push_str(&format!(
-                r#"
-extern "C" fn {slot_name}(data: &mut RefAny, info: &mut CallbackInfo) -> Update {{
-    // TODO: implement {slot_name} callback
-    Update::DoNothing
-}}
-"#,
-                slot_name = slot_name
-            ));
-        }
-    }
-
-    // --- Build layout function ---
-    let mut layout_body = String::new();
-    if components.is_empty() {
-        layout_body.push_str("    Dom::create_body()\n");
-        layout_body.push_str(
-            "        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(\"Hello \
-             from Azul!\"))\n",
-        );
-        layout_body.push_str("        .with_css(\"\")\n");
-    } else {
-        layout_body.push_str("    Dom::create_body()\n");
-        for comp in components {
-            layout_body.push_str(&format!(
-                "        .with_child(render_{}(&{}::default()))\n",
-                comp.name, comp.data_model_name
-            ));
-        }
-        layout_body.push_str("        .with_css(\"\")\n");
-    }
-
-    let main_rs = format!(
-        r#"//! Auto-generated by Azul debugger
-//! Customize this file to build your application.
-
-extern crate azul;
-use azul::prelude::*;
-
-// =============================================================================
-// Component Data Models
-// =============================================================================
-
-{component_structs}
-// =============================================================================
-// Component Render Functions
-// =============================================================================
-
-{render_fns}
-// =============================================================================
-// Callbacks
-// =============================================================================
-{callbacks}
-/// Layout callback — returns the DOM tree for a window
-extern "C" fn layout(data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> Dom {{
-{layout_body}}}
-
-fn main() {{
-    let app = App::create(RefAny::new(()), AppConfig::create());
-    let window = WindowCreateOptions::create(layout);
-    app.run(window);
-}}
-"#,
-        component_structs = component_structs,
-        render_fns = component_render_fns,
-        callbacks = callback_stubs,
-        layout_body = layout_body,
-    );
-    files.push(("src/main.rs".to_string(), main_rs));
-
-    files
-}
-
-/// Generate a complete C project scaffold
-#[cfg(feature = "std")]
-fn generate_c_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String, String)> {
-    let mut files = Vec::new();
-
-    // --- Per-component typedefs ---
-    let mut component_typedefs = String::new();
-    let mut render_fns = String::new();
-    let mut callback_stubs = String::new();
-
-    for comp in components {
-        let struct_name = to_pascal_case(&comp.name);
-
-        component_typedefs.push_str(&format!("/* Data model for {} */\n", comp.display_name));
-        component_typedefs.push_str("typedef struct {\n");
-        for (field_name, field_type, _default) in &comp.data_fields {
-            let c_type = map_type_to_c(field_type);
-            component_typedefs.push_str(&format!("    {} {};\n", c_type, field_name));
-        }
-        for (slot_name, _desc) in &comp.slot_fields {
-            component_typedefs.push_str(&format!("    AzStyledDom {};\n", slot_name));
-        }
-        if comp.data_fields.is_empty() && comp.slot_fields.is_empty() {
-            component_typedefs.push_str("    int _placeholder;\n");
-        }
-        component_typedefs.push_str(&format!("}} {}Data;\n\n", struct_name));
-
-        // Render function
-        render_fns.push_str(&format!("/* Render {} */\n", comp.display_name));
-        render_fns.push_str(&format!(
-            "AzDom render_{}(const {}Data* data) {{\n",
-            comp.name, struct_name
-        ));
-        if let Some(ref code) = comp.compiled_code {
-            render_fns.push_str(&format!("    return {};\n", code));
-        } else {
-            render_fns.push_str(&format!(
-                "    return AzDom_createDiv(); /* TODO: implement {} */\n",
-                comp.display_name
-            ));
-        }
-        render_fns.push_str("}\n\n");
-
-        for (slot_name, _cb_type) in &comp.callback_slots {
-            callback_stubs.push_str(&format!(
-                "AzUpdate {slot_name}(AzRefAny* data, AzCallbackInfo* info) {{\n    /* TODO: \
-                 implement {slot_name} */\n    return AzUpdate_DoNothing;\n}}\n\n",
-                slot_name = slot_name
-            ));
-        }
-    }
-
-    // Layout function
-    let mut layout_body = String::new();
-    layout_body.push_str("    AzDom body = AzDom_createBody();\n");
-    if components.is_empty() {
-        layout_body.push_str(
-            "    AzDom_addChild(&body, \
-             AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"Hello from Azul!\")));\n",
-        );
-    } else {
-        for comp in components {
-            let struct_name = to_pascal_case(&comp.name);
-            layout_body.push_str(&format!(
-                "    {}Data {}_data = {{ 0 }};\n",
-                struct_name, comp.name
-            ));
-            layout_body.push_str(&format!(
-                "    AzDom_addChild(&body, render_{}(&{}_data));\n",
-                comp.name, comp.name
-            ));
-        }
-    }
-    layout_body.push_str("    return body;\n");
-
-    let main_c = format!(
-        r#"/* Auto-generated by Azul debugger */
-#include "azul.h"
-#include <string.h>
-
-#define AZ_STR(s) AzString_copyFromBytes((const uint8_t*)(s), 0, strlen(s))
-
-{typedefs}
-{render_fns}
-{callbacks}
-AzDom layout(AzRefAny* data, AzLayoutCallbackInfo* info) {{
-{layout_body}}}
-
-int main() {{
-    AzString data_type = AZ_STR("Data");
-    AzRefAny data = AzRefAny_newC((AzGlVoidPtrConst){{ .ptr = NULL }}, 0, 1, 0, data_type, NULL, 0, 0);
-    AzApp app = AzApp_create(data, AzAppConfig_create());
-    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
-    AzApp_run(&app, window);
-    AzApp_delete(&app);
-    return 0;
-}}
-"#,
-        typedefs = component_typedefs,
-        render_fns = render_fns,
-        callbacks = callback_stubs,
-        layout_body = layout_body,
-    );
-    files.push(("main.c".to_string(), main_c));
-    files
-}
-
-/// Generate a complete C++ project scaffold
-#[cfg(feature = "std")]
-fn generate_cpp_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String, String)> {
-    let mut files = Vec::new();
-
-    let mut component_structs = String::new();
-    let mut render_fns = String::new();
-
-    for comp in components {
-        let struct_name = to_pascal_case(&comp.name);
-
-        component_structs.push_str(&format!("// Data model for {}\n", comp.display_name));
-        component_structs.push_str(&format!("struct {}Data {{\n", struct_name));
-        for (field_name, field_type, default_val) in &comp.data_fields {
-            let cpp_type = map_type_to_cpp(field_type);
-            let default_str = match default_val.as_deref() {
-                Some(v) => format!(" = {}", v),
-                None => cpp_default_init(field_type),
-            };
-            component_structs.push_str(&format!(
-                "    {} {}{};\n",
-                cpp_type, field_name, default_str
-            ));
-        }
-        for (slot_name, _desc) in &comp.slot_fields {
-            component_structs.push_str(&format!("    StyledDom {};\n", slot_name));
-        }
-        if comp.data_fields.is_empty() && comp.slot_fields.is_empty() {
-            component_structs.push_str("    int _placeholder = 0;\n");
-        }
-        component_structs.push_str("};\n\n");
-
-        render_fns.push_str(&format!("// Render {}\n", comp.display_name));
-        render_fns.push_str(&format!(
-            "Dom render_{}(const {}Data& data) {{\n",
-            comp.name, struct_name
-        ));
-        if let Some(ref code) = comp.compiled_code {
-            render_fns.push_str(&format!("    return {};\n", code));
-        } else {
-            render_fns.push_str(&format!(
-                "    return Dom::create_div(); // TODO: {}\n",
-                comp.display_name
-            ));
-        }
-        render_fns.push_str("}\n\n");
-    }
-
-    let mut layout_body = String::new();
-    layout_body.push_str("    auto body = Dom::create_body();\n");
-    if components.is_empty() {
-        layout_body.push_str(
-            "    body.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(String(\"\
-             Hello from Azul!\")));\n",
-        );
-    } else {
-        for comp in components {
-            let struct_name = to_pascal_case(&comp.name);
-            layout_body.push_str(&format!(
-                "    body.add_child(render_{}({}Data{{}}));\n",
-                comp.name, struct_name
-            ));
-        }
-    }
-    layout_body.push_str("    return body.with_css(\"\");\n");
-
-    let main_cpp = format!(
-        r#"// Auto-generated by Azul debugger
-#include "azul20.hpp"
-using namespace azul;
-
-{structs}
-{render_fns}
-Dom layout(RefAny& data, LayoutCallbackInfo& info) {{
-{layout_body}}}
-
-int main() {{
-    RefAny data = RefAny::create(0);
-    WindowCreateOptions window = WindowCreateOptions::create(layout);
-    App app = App::create(std::move(data), AppConfig::create());
-    app.run(std::move(window));
-    return 0;
-}}
-"#,
-        structs = component_structs,
-        render_fns = render_fns,
-        layout_body = layout_body,
-    );
-    files.push(("main.cpp".to_string(), main_cpp));
-    files
-}
-
-/// Generate a complete Python project scaffold
-#[cfg(feature = "std")]
-fn generate_python_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String, String)> {
-    let mut files = Vec::new();
-
-    // --- Per-component data classes ---
-    let mut component_classes = String::new();
-    let mut render_fns = String::new();
-
-    for comp in components {
-        let class_name = format!("{}Data", to_pascal_case(&comp.name));
-
-        // Data class with typed fields
-        component_classes.push_str(&format!("class {}:\n", class_name));
-        component_classes.push_str("    def __init__(self):\n");
-
-        let mut has_fields = false;
-
-        for (field_name, field_type, default_val) in &comp.data_fields {
-            has_fields = true;
-            let default_str = python_default_value(field_type, default_val.as_deref());
-            component_classes.push_str(&format!("        self.{} = {}\n", field_name, default_str));
-        }
-
-        for (slot_name, _slot_type) in &comp.slot_fields {
-            has_fields = true;
-            component_classes.push_str(&format!(
-                "        self.{} = None  # StyledDom slot\n",
-                slot_name
-            ));
-        }
-
-        for (cb_name, _cb_type) in &comp.callback_slots {
-            has_fields = true;
-            component_classes.push_str(&format!("        self.{} = None  # callback\n", cb_name));
-        }
-
-        if !has_fields {
-            component_classes.push_str("        pass\n");
-        }
-
-        component_classes.push_str("\n\n");
-
-        // Render function
-        render_fns.push_str(&format!("def render_{}(data):\n", comp.name));
-        render_fns.push_str(&format!(
-            "    \"\"\"Render the {} component.\"\"\"\n",
-            comp.display_name
-        ));
-
-        if let Some(ref code) = comp.compiled_code {
-            for line in code.lines() {
-                render_fns.push_str(&format!("    {}\n", line));
-            }
-        } else {
-            render_fns.push_str("    dom = Dom.create_div()\n");
-            render_fns.push_str("    # TODO: build DOM from component data\n");
-            render_fns.push_str("    return dom\n");
-        }
-
-        render_fns.push_str("\n\n");
-    }
-
-    // --- Layout function ---
-    let mut layout_body = String::new();
-    layout_body.push_str("    body = Dom.create_body()\n");
-    if components.is_empty() {
-        layout_body.push_str(
-            "    body = \
-             body.with_child(Dom.create_text_do_not_use_without_block_level_wrapper(\"Hello from \
-             Azul!\"))\n",
-        );
-    } else {
-        for comp in components {
-            let class_name = format!("{}Data", to_pascal_case(&comp.name));
-            layout_body.push_str(&format!(
-                "    body = body.with_child(render_{}({}()))\n",
-                comp.name, class_name
-            ));
-        }
-    }
-    layout_body.push_str("    return body.with_css(\"\")\n");
-
-    let main_py = format!(
-        r#"# Auto-generated by Azul debugger
-from azul import *
-
-{classes}{render_fns}def layout(data, info):
-{layout_body}
-
-app = App.create(None, AppConfig.create())
-app.run(WindowCreateOptions.create(layout))
-"#,
-        classes = component_classes,
-        render_fns = render_fns,
-        layout_body = layout_body,
-    );
-    files.push(("main.py".to_string(), main_py));
-    files
-}
-
-/// Return a Python default value expression for a given field type
-#[cfg(feature = "std")]
-fn python_default_value(field_type: &str, default_val: Option<&str>) -> String {
-    match default_val {
-        Some(v) => match field_type {
-            "String" | "string" => format!("\"{}\"", v),
-            "bool" | "Bool" | "boolean" => {
-                if v == "true" {
-                    "True".to_string()
-                } else {
-                    "False".to_string()
-                }
-            }
-            _ => v.to_string(),
-        },
-        None => match field_type {
-            "String" | "string" => "\"\"".to_string(),
-            "bool" | "Bool" | "boolean" => "False".to_string(),
-            "f32" | "f64" | "float" | "double" | "Float" | "Double" => "0.0".to_string(),
-            "ColorU" => "ColorU(0, 0, 0, 255)".to_string(),
-            "StyledDom" => "Dom.create_div()".to_string(),
-            _ => "0".to_string(),
-        },
-    }
 }
 
 /// Convert an `azul_core::json::Json` value to `serde_json::Value`.
@@ -18973,27 +18381,23 @@ pub fn process_debug_event(
             }
         }
 
+        // Export > Code (layout/src/e2e/export.rs::project_files): the app —
+        // the builder document when the builder has the window, else the live
+        // page —, its build file, every exportable component library as code
+        // (render functions + registration) and a README. `export_code`
+        // answers the files, `export_code_zip` a zip of them.
         DebugEvent::ExportCode { language } => {
-            // Primary: the live page compiled to a runnable app. Best-effort:
-            // also fold in any exportable component-library sources.
-            match build_live_page_code(language, callback_info) {
-                Ok((fname, src)) => {
-                    let mut files = std::collections::HashMap::new();
-                    files.insert(fname, src);
-                    let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
-                    if let Ok(comp) = build_exported_code(language, &map_guard) {
-                        for (k, v) in comp.files {
-                            files.entry(k).or_insert(v);
-                        }
-                    }
-                    drop(map_guard);
+            match build_project_files(language, callback_info, component_map, None) {
+                Ok((files, warnings)) => {
+                    let files: std::collections::HashMap<String, String> =
+                        files.into_iter().map(|f| (f.path, f.contents)).collect();
                     send_ok(
                         request,
                         None,
                         Some(ResponseData::ExportedCode(ExportedCodeResponse {
                             language: language.clone(),
                             files,
-                            warnings: Vec::new(),
+                            warnings,
                         })),
                     );
                 }
@@ -19003,67 +18407,22 @@ pub fn process_debug_event(
             }
         }
 
-        DebugEvent::ExportCodeZip {
-            language,
-            library: _lib_filter,
-        } => {
-            // G1/G3: Package exported code into a downloadable ZIP
-            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
-            let result = build_exported_code(language, &map_guard);
-
-            // Also collect component CSS
-            let mut css_files = Vec::new();
-            for lib in map_guard.libraries.iter() {
-                if lib.exportable {
-                    for comp in lib.components.iter() {
-                        if !comp.css.as_str().is_empty() {
-                            let css_path = format!("css/{}.css", comp.id.name.as_str());
-                            css_files.push((css_path, comp.css.as_str().as_bytes().to_vec()));
-                        }
+        DebugEvent::ExportCodeZip { language, library } => {
+            match build_project_files(language, callback_info, component_map, library.as_deref())
+            {
+                Ok((files, warnings)) => {
+                    let paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
+                    let mut zip_entries: Vec<(String, Vec<u8>)> = files
+                        .into_iter()
+                        .map(|f| (f.path, f.contents.into_bytes()))
+                        .collect();
+                    if !warnings.is_empty() {
+                        zip_entries.push((
+                            "WARNINGS.txt".to_string(),
+                            warnings.join("\n").into_bytes(),
+                        ));
                     }
-                }
-            }
-            drop(map_guard);
-
-            match result {
-                Ok(response) => {
-                    // Build ZIP entries from exported files (scaffold already includes build
-                    // config)
-                    let mut zip_entries: Vec<(String, Vec<u8>)> = Vec::new();
-                    let mut seen_paths = std::collections::HashSet::new();
-
-                    // The live page app is the primary artifact.
-                    if let Ok((fname, src)) = build_live_page_code(language, callback_info) {
-                        if seen_paths.insert(fname.clone()) {
-                            zip_entries.push((fname, src.into_bytes()));
-                        }
-                    }
-
-                    // Add generated source files (from generate_scaffold — includes Cargo.toml
-                    // etc.)
-                    for (path, content) in &response.files {
-                        if seen_paths.insert(path.clone()) {
-                            zip_entries.push((path.clone(), content.as_bytes().to_vec()));
-                        }
-                    }
-
-                    // Add component CSS files (skip duplicates)
-                    for (path, data) in css_files {
-                        if seen_paths.insert(path.clone()) {
-                            zip_entries.push((path, data));
-                        }
-                    }
-
-                    // Add warnings as README
-                    if !response.warnings.is_empty() {
-                        let warnings_text = response.warnings.join("\n");
-                        let path = "WARNINGS.txt".to_string();
-                        if seen_paths.insert(path.clone()) {
-                            zip_entries.push((path, warnings_text.into_bytes()));
-                        }
-                    }
-
-                    // Create ZIP
+                    let file_count = zip_entries.len();
                     let config = azul_layout::zip::ZipWriteConfig::default();
                     match azul_layout::zip::zip_create_from_files(zip_entries, &config) {
                         Ok(zip_bytes) => {
@@ -19076,7 +18435,9 @@ pub fn process_debug_event(
                                     "download_url": data_uri,
                                     "filename": format!("azul-export-{}.zip", language),
                                     "size_bytes": zip_bytes.len(),
-                                    "file_count": response.files.len(),
+                                    "file_count": file_count,
+                                    "files": paths,
+                                    "warnings": warnings,
                                 }))),
                             );
                         }
@@ -19120,7 +18481,7 @@ pub fn process_debug_event(
                 } else {
                     &c.display_name
                 };
-                defs.push(ComponentDef {
+                let mut def = ComponentDef {
                     id: ComponentId::new(&lib_name, &c.name),
                     display_name: AzString::from(display_name_str.as_str()),
                     description: AzString::from(c.description.as_str()),
@@ -19135,7 +18496,13 @@ pub fn process_debug_event(
                     compile_fn: azul_core::xml::user_defined_compile_fn,
                     render_fn_source: None.into(),
                     compile_fn_source: None.into(),
-                });
+                };
+                // A component made in AzBuilder comes back as its template,
+                // not as a div of its default texts.
+                if let Some(template) = c.template.as_deref() {
+                    super::builder::set_template(&mut def, template);
+                }
+                defs.push(def);
             }
 
             if !validation_errors.is_empty() {
@@ -19257,6 +18624,7 @@ pub fn process_debug_event(
                                 description: c.description.clone(),
                                 fields,
                                 css: c.css.clone(),
+                                template: c.template.clone(),
                             }
                         })
                         .collect(),
@@ -19866,6 +19234,7 @@ pub fn process_debug_event(
                             .starts_with(super::builder::TEMPLATE_MARKER)
                         {
                             comp.render_fn = super::builder::builder_template_render_fn;
+                            comp.compile_fn = super::export::builder_template_compile_fn;
                         }
                         lib.components = comps.into();
                         map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
@@ -20305,6 +19674,111 @@ pub fn process_debug_event(
                 component_map,
                 super::project::ProjectOp::ImportZip { data },
             );
+
+        // === AzBuilder quick exports (layout/src/e2e/export.rs) ===
+        //
+        // Text in, text out: nothing here changes the window.
+        DebugEvent::GetCodegenLanguages => {
+            send_ok(
+                request,
+                None,
+                Some(ResponseData::Json(super::export::languages_json())),
+            );
+        }
+
+        DebugEvent::GetCssRules {
+            source,
+            css,
+            node,
+            library,
+            name,
+        } => {
+            match export_css_text(
+                callback_info,
+                component_map,
+                source.as_deref(),
+                css.as_deref(),
+                *node,
+                library.as_deref(),
+                name.as_deref(),
+            ) {
+                Ok(text) => send_ok(
+                    request,
+                    None,
+                    Some(ResponseData::Json(super::export::css_rules_json(&text))),
+                ),
+                Err(e) => send_err(request, e),
+            }
+        }
+
+        DebugEvent::CompileCss {
+            language,
+            source,
+            css,
+            node,
+            library,
+            name,
+            rules,
+        } => {
+            let result = export_css_text(
+                callback_info,
+                component_map,
+                source.as_deref(),
+                css.as_deref(),
+                *node,
+                library.as_deref(),
+                name.as_deref(),
+            )
+            .and_then(|text| super::export::compile_css(&text, language, rules.as_deref()));
+            match result {
+                Ok((code, rule_count)) => {
+                    let mut json = code.to_json();
+                    if let Some(obj) = json.as_object_mut() {
+                        obj.insert("rule_count".into(), serde_json::json!(rule_count));
+                    }
+                    send_ok(request, None, Some(ResponseData::Json(json)));
+                }
+                Err(e) => send_err(request, e),
+            }
+        }
+
+        DebugEvent::ExportSubtreeCode {
+            node,
+            language,
+            mode,
+            function_name,
+        } => {
+            let result = super::export::SubtreeMode::parse(mode.as_deref()).and_then(|mode| {
+                with_export_document(callback_info, component_map, |doc, map| {
+                    super::export::subtree_code(
+                        doc,
+                        map,
+                        *node,
+                        language,
+                        mode,
+                        function_name.as_deref(),
+                    )
+                })
+            });
+            match result {
+                Ok(code) => send_ok(request, None, Some(ResponseData::Json(code.to_json()))),
+                Err(e) => send_err(request, e),
+            }
+        }
+
+        DebugEvent::ExportComponentCode {
+            library,
+            name,
+            language,
+        } => {
+            let result = {
+                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                super::export::component_code(&map_guard, library, name, language)
+            };
+            match result {
+                Ok(code) => send_ok(request, None, Some(ResponseData::Json(code.to_json()))),
+                Err(e) => send_err(request, e),
+            }
         }
 
         // UNREACHABLE TODAY — and that is the point. Every `DebugEvent` variant
