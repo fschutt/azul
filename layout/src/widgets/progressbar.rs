@@ -235,6 +235,60 @@ pub struct ProgressBarLocalDataset {
     pub bar: ProgressBar,
 }
 
+/// The bar container's BASE: how the bar lays out, the same in every theme
+/// (R5) - the fill and the remaining space side by side in a flex row. Every
+/// theme's `progressbar_render_bar_impl` (`themes::flat`, `themes::flora`)
+/// starts the container with it and adds its skin after it: the height, the
+/// border ring, the radii, the surface, the shadows.
+///
+/// `display: flex` is LOAD-BEARING: azul's default display is BLOCK, so
+/// `flex-direction: row` alone stacks the two children as full-width,
+/// zero-height block boxes - the fill never painted anywhere the widget was
+/// used (found 2026-08-29 via the azpaint pressure meter; also the real
+/// culprit behind the "inline-width meter never repaints" ledger entry).
+///
+/// Declared once here, it is declared once in a bar that follows the app
+/// theme too (`themes::theme_blocks`): outside every `@theme` block, so it
+/// holds under an app theme no widget knows.
+pub(crate) static BAR_CONTAINER_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+];
+
+/// The `VirtualView` wrapper a progress bar mounts - the same box in every
+/// theme (the widget's height, the full width, clipping what it renders) -
+/// rendering its bar through `render`: a theme's callback
+/// (`themes::flat::progressbar_render_virtual_view`,
+/// `themes::flora::progressbar_render_virtual_view`), or the one an unpinned
+/// bar follows the app theme with.
+#[must_use]
+pub(crate) fn mount(
+    bar: ProgressBar,
+    render: azul_core::callbacks::VirtualViewCallbackType,
+) -> Dom {
+    let height = bar.height;
+    let dataset = RefAny::new(ProgressBarLocalDataset { bar });
+    Dom::create_virtual_view(
+        dataset.clone(),
+        azul_core::callbacks::VirtualViewCallback::create(render),
+    )
+    .with_dataset(Some(dataset).into())
+    .with_css_props(CssPropertyWithConditionsVec::from_vec(alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
+            LayoutHeight::Px(height),
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
+            LayoutWidth::Px(PixelValue::percent(100.0)),
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::OverflowX(LayoutOverflowValue::Exact(
+            LayoutOverflow::Hidden,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::OverflowY(LayoutOverflowValue::Exact(
+            LayoutOverflow::Hidden,
+        ))),
+    ]))
+}
+
 impl ProgressBar {
     /// Creates a new progress bar with the given completion percentage (0.0 to 100.0).
     #[inline]
@@ -339,7 +393,7 @@ impl ProgressBar {
         match self.theme.into_option() {
             Some(UiTheme::Flat) => flat::progressbar(self),
             Some(UiTheme::Flora) => flora::progressbar(self),
-            None => flat::progressbar_mount(self, render_virtual_view_following),
+            None => mount(self, render_virtual_view_following),
         }
     }
 

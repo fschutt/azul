@@ -981,40 +981,11 @@ pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
 // PROGRESSBAR
 // -----------------------------------------------------------------------------
 
+/// The flat bar, mounted in the widget's `VirtualView` wrapper (the same box
+/// in every theme: `progressbar::mount`).
 #[must_use]
 pub fn progressbar(bar: crate::widgets::progressbar::ProgressBar) -> Dom {
-    progressbar_mount(bar, progressbar_render_virtual_view)
-}
-
-/// The `VirtualView` wrapper a progress bar mounts - the same box in every
-/// theme - rendering its bar through `render` (a theme's callback, or the
-/// one an unpinned bar follows the app theme with).
-#[must_use]
-pub(crate) fn progressbar_mount(
-    bar: crate::widgets::progressbar::ProgressBar,
-    render: azul_core::callbacks::VirtualViewCallbackType,
-) -> Dom {
-    let height = bar.height;
-    let dataset = RefAny::new(crate::widgets::progressbar::ProgressBarLocalDataset { bar });
-    Dom::create_virtual_view(
-        dataset.clone(),
-        azul_core::callbacks::VirtualViewCallback::create(render),
-    )
-    .with_dataset(Some(dataset).into())
-    .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
-        CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
-            LayoutHeight::Px(height),
-        ))),
-        CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
-            LayoutWidth::Px(PixelValue::percent(100.0)),
-        ))),
-        CssPropertyWithConditions::simple(CssProperty::OverflowX(LayoutOverflowValue::Exact(
-            LayoutOverflow::Hidden,
-        ))),
-        CssPropertyWithConditions::simple(CssProperty::OverflowY(LayoutOverflowValue::Exact(
-            LayoutOverflow::Hidden,
-        ))),
-    ]))
+    crate::widgets::progressbar::mount(bar, progressbar_render_virtual_view)
 }
 
 /// The render core behind [`ProgressBar::render_bar`] (percentage widths,
@@ -1062,23 +1033,13 @@ pub fn progressbar_render_bar_impl(
             None => this.height,
         };
 
-        let mut container_props = vec![
-            // .__azul-native-progress-bar-container
+        // .__azul-native-progress-bar-container: the widget's base (its
+        // structure, the same in every theme), then flat's skin.
+        let mut container_props = crate::widgets::progressbar::BAR_CONTAINER_BASE.to_vec();
+        container_props.extend(vec![
             CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
                 LayoutHeight::Px(container_height),
             ))),
-            // `display: flex` is LOAD-BEARING: azul's default display is
-            // BLOCK, so `flex-direction: row` alone stacks the two
-            // children as full-width, zero-height block boxes - the fill
-            // never painted anywhere the widget was used (found 2026-08-29
-            // via the azpaint pressure meter; also the real culprit behind
-            // the "inline-width meter never repaints" ledger entry).
-            CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
-                LayoutDisplay::Flex,
-            ))),
-            CssPropertyWithConditions::simple(CssProperty::FlexDirection(
-                LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Row),
-            )),
             CssPropertyWithConditions::simple(CssProperty::BorderBottomRightRadius(
                 StyleBorderBottomRightRadiusValue::Exact(StyleBorderBottomRightRadius {
                     inner: PixelValue::const_px(3),
@@ -1154,7 +1115,7 @@ pub fn progressbar_render_bar_impl(
             CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
                 StyleBackgroundContentVecValue::Exact(this.container_background.clone()),
             )),
-        ];
+        ]);
         if let Some((w, _)) = bounds_px {
             container_props.push(CssPropertyWithConditions::simple(CssProperty::Width(
                 LayoutWidthValue::Exact(LayoutWidth::Px(PixelValue::px((w - 2.0).max(0.0)))),

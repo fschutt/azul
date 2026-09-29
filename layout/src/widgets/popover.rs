@@ -173,14 +173,27 @@ static POPOVER_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
 ];
 
-/// The floating panel: a small bordered, rounded surface in the window's own
-/// colours. The flat theme's panel.
+/// The floating panel's BASE: how it lays out, the same in every theme (R5)
+/// - the positioning context of what it holds. Every theme's panel starts
+/// with it - flat's [`build_panel_style`], `themes::flora::popover_panel_style`
+/// - and adds its skin after it: size, padding, border, radius, surface,
+/// shadow.
+///
+/// Declared once here, it is declared once in a popover that follows the app
+/// theme too (`themes::theme_blocks`): outside every `@theme` block, so it
+/// holds under an app theme no widget knows.
+pub(crate) static POPOVER_PANEL_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
+];
+
+/// The floating panel: the [`POPOVER_PANEL_BASE`], then a small bordered,
+/// rounded surface in the window's own colours. The flat theme's panel.
 pub(crate) fn build_panel_style() -> CssPropertyWithConditionsVec {
     let bg_vec = StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(
         CONTENT_BG_COLOR
     )]);
-    CssPropertyWithConditionsVec::from_vec(alloc::vec![
-        CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
+    let mut v = POPOVER_PANEL_BASE.to_vec();
+    v.extend([
         CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(
             CONTENT_MIN_WIDTH,
         ))),
@@ -272,7 +285,8 @@ pub(crate) fn build_panel_style() -> CssPropertyWithConditionsVec {
         crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
         crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_LEFT,
         crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_RIGHT,
-    ])
+    ]);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// The skin an UNPINNED popover is built with, so it follows the app theme:
