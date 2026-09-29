@@ -1204,7 +1204,7 @@ mod autotest_generated {
     };
 
     use azul_core::{
-        dom::{DomId, DomNodeId, NodeId, NodeType},
+        dom::{DomId, DomNodeId, NodeId, NodeType, WindowEventFilter},
         geom::{LogicalRect, OptionLogicalPosition},
         gl::OptionGlContextPtr,
         hit_test::ScrollPosition,
@@ -1997,11 +1997,28 @@ mod autotest_generated {
         );
         assert_eq!(cbs.as_ref()[2].callback.cb, on_combobox_key_down as usize);
 
-        // every option is focusable and carries exactly one click handler
+        // The list answers the keys the field forwards to it (WAI-ARIA
+        // combobox: focus stays on the field, the list moves its ACTIVE
+        // option) - a WINDOW key handler, since nothing in the list window is
+        // ever focused.
+        assert!(
+            list.root
+                .get_callbacks()
+                .as_ref()
+                .iter()
+                .any(|cb| cb.event == EventFilter::Window(WindowEventFilter::VirtualKeyDown)),
+            "the list carries the key handler for its active option"
+        );
+
+        // every option is clickable (exactly one click handler) and NEVER
+        // focused - not even reachable by Tab inside the list window
         for (i, option) in list.children.as_ref().iter().enumerate() {
             assert!(has_class(option, "__azul-native-combobox-option"));
             assert_eq!(text_of(option), Some(["one", "two"][i]));
-            assert!(matches!(option.root.get_tab_index(), Some(TabIndex::Auto)));
+            assert!(
+                option.root.get_tab_index().is_none(),
+                "option {i} must not be focusable: the field keeps focus"
+            );
             let cbs = option.root.get_callbacks();
             assert_eq!(cbs.len(), 1);
             assert_eq!(
@@ -2260,6 +2277,112 @@ mod autotest_generated {
         assert_eq!(update, Update::DoNothing);
         assert_eq!(transient_writes(&changes), alloc::vec![(fx.popup, false)]);
         assert!(!inner_of(&mut data).open);
+    }
+
+    // ------------------------------------------------------------------
+    // The keyboard and the field (WAI-ARIA combobox): focus stays on the
+    // field, Down / Up open the list, and the field says whether it is open.
+    // ------------------------------------------------------------------
+
+    /// Down (or Up) on a CLOSED field opens its list - the keyboard's way to
+    /// what a click on the field does. The key is the field's: spatial
+    /// navigation must not also move focus off it.
+    #[test]
+    fn down_or_up_on_a_closed_field_opens_the_list() {
+        for key in [VirtualKeyCode::Down, VirtualKeyCode::Up] {
+            let fx = fixture(&["a", "b"]);
+            let mut data = state(&["a", "b"], "", false, 0);
+            let (_, changes) = run(
+                Env {
+                    styled: Some(fx.styled),
+                    keycode: Some(key),
+                    ..Env::default()
+                },
+                fx.field,
+                data.clone(),
+                |r, ci| on_combobox_key_down(r, ci),
+            );
+            assert_eq!(
+                transient_writes(&changes),
+                alloc::vec![(fx.popup, true)],
+                "{key:?} opens the list"
+            );
+            assert!(inner_of(&mut data).open, "{key:?}");
+            assert!(
+                changes
+                    .iter()
+                    .any(|c| matches!(c, CallbackChange::PreventDefault)),
+                "{key:?} is the field's key"
+            );
+        }
+    }
+
+    /// The field says whether its list is open (aria-expanded) from the
+    /// moment it is built.
+    #[test]
+    fn the_field_says_whether_its_list_is_open() {
+        use azul_core::a11y::AccessibilityState::{Collapsed, Expanded};
+
+        for (open, expected) in [(false, Collapsed), (true, Expanded)] {
+            let mut combo = ComboBox::new(sv(&["a"]));
+            combo.combo_state.inner.open = open;
+            let dom = combo.dom();
+            let states = parts(&dom)
+                .0
+                .root
+                .get_accessibility_info()
+                .map(|a| a.states.as_ref().to_vec());
+            assert_eq!(states, Some(alloc::vec![expected]), "open={open}");
+        }
+    }
+
+    /// ...and says it LIVE when a click opens or closes the list, or the
+    /// list is dismissed - none of which rebuilds the field.
+    #[test]
+    fn opening_and_closing_the_list_is_announced_on_the_field() {
+        use azul_core::a11y::AccessibilityState::{Collapsed, Expanded};
+
+        use crate::widgets::roving::test_support::announced_states;
+
+        let fx = fixture(&["a", "b"]);
+        let data = state(&["a", "b"], "", false, 0);
+        let toggle = |data: &RefAny| {
+            run(
+                Env {
+                    styled: Some(fx.styled.clone()),
+                    ..Env::default()
+                },
+                fx.field,
+                data.clone(),
+                |r, ci| on_combobox_toggle(r, ci),
+            )
+            .1
+        };
+        assert_eq!(
+            announced_states(&toggle(&data)),
+            alloc::vec![(node(fx.field), alloc::vec![Expanded])],
+            "a click opens it"
+        );
+        assert_eq!(
+            announced_states(&toggle(&data)),
+            alloc::vec![(node(fx.field), alloc::vec![Collapsed])],
+            "a second click closes it"
+        );
+
+        let (_, changes) = run(
+            Env {
+                styled: Some(fx.styled.clone()),
+                ..Env::default()
+            },
+            fx.popup,
+            state(&["a", "b"], "", true, 0),
+            |r, ci| on_combobox_dismissed(r, ci),
+        );
+        assert_eq!(
+            announced_states(&changes),
+            alloc::vec![(node(fx.field), alloc::vec![Collapsed])],
+            "a dismissal closes it"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -3312,7 +3435,9 @@ mod theme_tests {
     fn every_combobox_tab_stop_is_ringed_in_every_theme_and_mode() {
         for theme in [UiTheme::Flat, UiTheme::Flora] {
             let dom = combo(Some(theme));
-            assert!(tc::focusable(&dom).len() >= 3, "{theme:?}: the field and both rows");
+            // The field is the one stop: the options are never focused (the
+            // field keeps focus and the list moves its ACTIVE option).
+            assert_eq!(tc::focusable(&dom).len(), 1, "{theme:?}: the field alone");
             tc::assert_theme_invariants(&format!("combobox {theme:?}"), &dom);
         }
     }

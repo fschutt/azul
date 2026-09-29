@@ -5175,9 +5175,8 @@ pub trait PlatformWindow {
     fn forward_keys_to_popup(&mut self) -> bool {
         use azul_layout::managers::text_input::TextInputSource;
 
-        if self.popups_route_keys_natively() {
-            return false;
-        }
+        use super::transient::ParentKeyRoute;
+
         let (keyboard, previous_key) = {
             let current = self.get_current_window_state();
             match self.get_previous_window_state() {
@@ -5191,28 +5190,31 @@ pub trait PlatformWindow {
         // A popup that holds the keyboard takes every key. An open LIST
         // popup (a combobox's options) leaves focus with its invoker, so it
         // takes only the keys that walk and pick from a list; the rest keep
-        // editing the field.
-        let (mailbox, whole_keyboard) = {
+        // editing the field. One rule, `parent_key_route`.
+        let (owner, list) = {
             let Some(lw) = self.get_layout_window() else {
                 return false;
             };
-            if let Some(m) = super::transient::keyboard_owner_mailbox(lw) {
-                (m, true)
-            } else if let Some(m) = super::transient::list_popup_mailbox(lw) {
-                (m, false)
-            } else {
-                return false;
-            }
+            (
+                super::transient::keyboard_owner_mailbox(lw),
+                super::transient::list_popup_mailbox(lw),
+            )
         };
-        if !whole_keyboard {
-            let key = keyboard
-                .current_virtual_keycode
-                .into_option()
-                .or_else(|| previous_key.into_option());
-            if !key.is_some_and(super::transient::is_list_navigation_key) {
-                return false;
-            }
-        }
+        let key = keyboard
+            .current_virtual_keycode
+            .into_option()
+            .or_else(|| previous_key.into_option());
+        let route = super::transient::parent_key_route(
+            owner.is_some(),
+            list.is_some(),
+            self.popups_route_keys_natively(),
+            key,
+        );
+        let (mailbox, whole_keyboard) = match (route, owner, list) {
+            (ParentKeyRoute::KeyboardOwner, Some(m), _) => (m, true),
+            (ParentKeyRoute::ListPopup, _, Some(m)) => (m, false),
+            _ => return false,
+        };
         // The text this key typed was recorded against THIS window's focused
         // node (the invoker) by the backend's key handler: move it over. (A
         // list navigation key types none.)

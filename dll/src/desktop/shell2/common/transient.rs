@@ -289,6 +289,44 @@ pub const fn is_list_navigation_key(key: VirtualKeyCode) -> bool {
     )
 }
 
+/// Where a keyboard transition the PARENT received goes while popups are
+/// open - the one routing rule `PlatformWindow::forward_keys_to_popup`
+/// applies on every backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParentKeyRoute {
+    /// The parent's own key: it runs through the parent's pass.
+    Parent,
+    /// The key of the popup that holds the keyboard (a picker): forwarded
+    /// with the text it typed; the parent's pass does not see it.
+    KeyboardOwner,
+    /// A key of the open LIST popup (a combobox's options): forwarded; the
+    /// field keeps its focus and every other key.
+    ListPopup,
+}
+
+/// Decides [`ParentKeyRoute`] for one transition of `key`, given whether a
+/// focus-taking popup (`keyboard_owner`) and a list popup (`list_popup`) are
+/// open with a window, and whether this backend gives a focus-taking popup
+/// its keys by itself (`PlatformWindow::popups_route_keys_natively`).
+#[must_use]
+pub fn parent_key_route(
+    keyboard_owner: bool,
+    list_popup: bool,
+    native: bool,
+    key: Option<VirtualKeyCode>,
+) -> ParentKeyRoute {
+    if native {
+        return ParentKeyRoute::Parent;
+    }
+    if keyboard_owner {
+        return ParentKeyRoute::KeyboardOwner;
+    }
+    if list_popup && key.is_some_and(is_list_navigation_key) {
+        return ParentKeyRoute::ListPopup;
+    }
+    ParentKeyRoute::Parent
+}
+
 /// Parent side: hand one keyboard transition to the popup behind `mailbox`,
 /// which replays it on its next pass ([`take_forwarded_keys`]). Returns
 /// whether the mailbox took it - a popup the parent already closed takes
@@ -1376,6 +1414,48 @@ mod tests {
         assert_eq!(w.placement.anchor, TransientAnchor::Bottom);
         assert!(mailbox_of(st).is_some(), "the ctx IS the mailbox");
         assert_eq!(read(&mailbox, |d| d.generation), Some(0));
+    }
+
+    /// A popup that leaves focus on its invoker (a combobox's list) is never
+    /// the key / active window, on ANY backend: the parent keeps every key
+    /// (typing keeps editing the field) and hands the list its navigation
+    /// keys through the mailbox. So the list route cannot depend on whether
+    /// the backend gives a FOCUS-TAKING popup its keys by itself (macOS and
+    /// Win32 make that one the key window; X11 never does). It used to: on
+    /// macOS / Win32 every popup was the key window, the list included, and
+    /// text typed while it was open went to the list and was lost.
+    #[test]
+    fn a_list_popup_gets_its_navigation_keys_through_the_parent_on_every_backend() {
+        use azul_core::window::VirtualKeyCode::{Down, Return, A};
+
+        for native in [false, true] {
+            for key in [Down, Return] {
+                assert_eq!(
+                    parent_key_route(false, true, native, Some(key)),
+                    ParentKeyRoute::ListPopup,
+                    "{key:?} belongs to the open list, native={native}"
+                );
+            }
+            assert_eq!(
+                parent_key_route(false, true, native, Some(A)),
+                ParentKeyRoute::Parent,
+                "text keeps editing the field, native={native}"
+            );
+        }
+        // A popup that TAKES focus: forwarded where it never gets the
+        // keyboard itself (X11), the parent's own key where it does.
+        assert_eq!(
+            parent_key_route(true, false, false, Some(A)),
+            ParentKeyRoute::KeyboardOwner
+        );
+        assert_eq!(
+            parent_key_route(true, false, true, Some(A)),
+            ParentKeyRoute::Parent
+        );
+        assert_eq!(
+            parent_key_route(false, false, false, Some(Down)),
+            ParentKeyRoute::Parent
+        );
     }
 
     /// Escape dismisses under `outside` and `escape`; focus loss only under

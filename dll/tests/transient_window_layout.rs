@@ -2843,9 +2843,9 @@ fn a_popup_autofocuses_only_once() {
     );
 }
 
-/// A ComboBox whose list was opened by a click on its field: `(parent,
-/// popup, field)`, the popup after its first pass.
-fn open_combobox() -> (HeadlessWindow, HeadlessWindow, DomNodeId) {
+/// The showcase ComboBox (Red, Green, Blue) in a laid-out parent, its list
+/// closed, plus the app data the popup windows share.
+fn combobox_parent() -> (HeadlessWindow, Arc<RefCell<RefAny>>) {
     let app_data = Arc::new(RefCell::new(RefAny::new(0u8)));
     let mut options = WindowCreateOptions::default();
     options.window_state.size.dimensions = LogicalSize {
@@ -2856,6 +2856,13 @@ fn open_combobox() -> (HeadlessWindow, HeadlessWindow, DomNodeId) {
     options.window_state.layout_callback = LayoutCallback::create(cb);
     let mut parent = headless(options, app_data.clone());
     parent.regenerate_layout().expect("layout");
+    (parent, app_data)
+}
+
+/// A ComboBox whose list was opened by a click on its field: `(parent,
+/// popup, field)`, the popup after its first pass.
+fn open_combobox() -> (HeadlessWindow, HeadlessWindow, DomNodeId) {
+    let (mut parent, app_data) = combobox_parent();
     let field_rect = rect_of_class(&parent, "combobox-input");
     click_at(
         &mut parent,
@@ -2873,43 +2880,224 @@ fn open_combobox() -> (HeadlessWindow, HeadlessWindow, DomNodeId) {
     (parent, popup, field)
 }
 
-/// P0-3, the other half of the list model: the list keeps no focus while
-/// the user types, but a NAVIGATION key takes the keyboard into it - Down
-/// lands on the first option, from where arrows walk the options and Enter
-/// picks one. Delivered to the popup here, as macOS / Win32 / Wayland do
-/// (their popup gets the key natively).
+/// Every node of `window`'s root dom carrying exactly the class `class`, in
+/// document order.
+fn nodes_classed(window: &HeadlessWindow, class: &str) -> Vec<DomNodeId> {
+    let lw = window.get_layout_window().unwrap();
+    let root = lw.layout_results.get(&DomId::ROOT_ID).unwrap();
+    let nodes = root.styled_dom.node_data.as_container();
+    nodes
+        .linear_iter()
+        .filter(|n| {
+            nodes.get(*n).is_some_and(|nd| {
+                nd.get_ids_and_classes().as_ref().iter().any(|c| {
+                    matches!(c, azul_core::dom::IdOrClass::Class(s) if s.as_str() == class)
+                })
+            })
+        })
+        .map(|n| DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(n)),
+        })
+        .collect()
+}
+
+const COMBOBOX_OPTION: &str = "__azul-native-combobox-option";
+const COMBOBOX_OPTION_ACTIVE: &str = "__azul-native-combobox-option-active";
+
+/// The options the list SHOWS as active (the widget's marker class), as
+/// indices into the list.
+fn active_options(popup: &HeadlessWindow) -> Vec<usize> {
+    let active = nodes_classed(popup, COMBOBOX_OPTION_ACTIVE);
+    nodes_classed(popup, COMBOBOX_OPTION)
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| active.contains(o))
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// The options the list ANNOUNCES as selected (their accessibility state),
+/// as indices into the list.
+fn announced_options(popup: &HeadlessWindow) -> Vec<usize> {
+    let lw = popup.get_layout_window().unwrap();
+    let root = lw.layout_results.get(&DomId::ROOT_ID).unwrap();
+    let nodes = root.styled_dom.node_data.as_container();
+    nodes_classed(popup, COMBOBOX_OPTION)
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| {
+            nodes
+                .get(o.node.into_crate_internal().unwrap())
+                .and_then(|nd| nd.get_accessibility_info())
+                .is_some_and(|a| {
+                    a.states
+                        .as_ref()
+                        .contains(&azul_core::a11y::AccessibilityState::Selected)
+                })
+        })
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// The combobox's shared state, read through the field's own callback.
+fn combobox_state(parent: &HeadlessWindow) -> azul_layout::widgets::combobox::ComboBoxState {
+    let field = node_with_class(parent, "combobox-input");
+    let lw = parent.get_layout_window().unwrap();
+    let root = lw.layout_results.get(&DomId::ROOT_ID).unwrap();
+    let nodes = root.styled_dom.node_data.as_container();
+    let mut data = nodes
+        .get(field.node.into_crate_internal().unwrap())
+        .unwrap()
+        .get_callbacks()
+        .as_ref()[0]
+        .refany
+        .clone();
+    let wrapper = data
+        .downcast_ref::<azul_layout::widgets::combobox::ComboBoxStateWrapper>()
+        .expect("the field's callback carries the combobox state");
+    wrapper.inner.clone()
+}
+
+/// One key typed in the PARENT while the list is open, the popup running a
+/// pass after each transition - the parent forwards the list's keys, the
+/// popup replays them (X11 delivers at once; headless drives it here).
+fn type_into_combobox(
+    parent: &mut HeadlessWindow,
+    popup: &mut HeadlessWindow,
+    key: VirtualKeyCode,
+    site: &str,
+) {
+    key_down(parent, key, &[], site);
+    let _ = popup.process_window_events(0);
+    keys_up(parent, site);
+    let _ = popup.process_window_events(0);
+}
+
+/// WAI-ARIA combobox (items 1 + 2 of the focus leftovers): DOM focus never
+/// leaves the field. A navigation key typed while the list is open moves
+/// the list's ACTIVE option - shown, and announced as the selected one -
+/// while the field keeps focus (so typing keeps editing it) and the list
+/// window takes none. The first navigation key used to move REAL focus into
+/// the list's first option.
 #[test]
-fn down_delivered_to_an_unfocused_list_popup_focuses_its_first_option() {
+fn down_in_the_field_makes_an_option_active_and_focus_stays_on_the_field() {
+    let (mut parent, mut popup, field) = open_combobox();
+
+    type_into_combobox(&mut parent, &mut popup, VirtualKeyCode::Down, "t.down1");
+    assert_eq!(focused(&popup), None, "the list never takes focus");
+    assert_eq!(focused(&parent), Some(field), "the field keeps it");
+    assert_eq!(active_options(&popup), vec![0], "Down: the first option is active");
+    assert_eq!(announced_options(&popup), vec![0], "and announced as selected");
+
+    type_into_combobox(&mut parent, &mut popup, VirtualKeyCode::Down, "t.down2");
+    assert_eq!(active_options(&popup), vec![1], "Down again: the second");
+    assert_eq!(announced_options(&popup), vec![1]);
+
+    type_into_combobox(&mut parent, &mut popup, VirtualKeyCode::Up, "t.up");
+    assert_eq!(active_options(&popup), vec![0], "Up: back to the first");
+
+    type_into_combobox(&mut parent, &mut popup, VirtualKeyCode::End, "t.end");
+    assert_eq!(active_options(&popup), vec![2], "End: the last");
+    assert_eq!(focused(&popup), None);
+    assert_eq!(focused(&parent), Some(field));
+}
+
+/// The same when the list window gets the key itself (no parent involved):
+/// it moves the active option, it never focuses one.
+#[test]
+fn a_navigation_key_the_list_window_receives_moves_its_active_option_not_focus() {
     let (_parent, mut popup, _field) = open_combobox();
     assert_eq!(focused(&popup), None, "premise: the list took no focus");
     key_down(&mut popup, VirtualKeyCode::Down, &[], "t.down");
     keys_up(&mut popup, "t.down.up");
+    assert_eq!(focused(&popup), None, "no option is focused");
+    assert_eq!(active_options(&popup), vec![0], "the first option is active");
+}
+
+/// Enter picks the ACTIVE option, like a click on it: the field's value
+/// becomes that option's, and the list closes.
+#[test]
+fn enter_in_the_field_picks_the_active_option_and_closes_the_list() {
+    let (mut parent, mut popup, field) = open_combobox();
+    type_into_combobox(&mut parent, &mut popup, VirtualKeyCode::Down, "t.down1");
+    type_into_combobox(&mut parent, &mut popup, VirtualKeyCode::Down, "t.down2");
+    type_into_combobox(&mut parent, &mut popup, VirtualKeyCode::Return, "t.enter");
+
+    assert!(close_requested(&popup), "Enter closed the list");
+    let state = combobox_state(&parent);
+    assert_eq!(state.selected, 1, "the active option was picked");
+    assert_eq!(state.text.as_str(), "Green");
+    assert_eq!(focused(&parent), Some(field), "the field keeps focus");
+}
+
+/// Down on a CLOSED combobox opens its list - the keyboard's way to what a
+/// click on the field does - and focus stays on the field.
+#[test]
+fn down_on_a_closed_combobox_opens_its_list() {
+    let (mut parent, _) = combobox_parent();
+    key_down(&mut parent, VirtualKeyCode::Tab, &[], "t.tab");
+    keys_up(&mut parent, "t.tab.up");
+    let field = node_with_class(&parent, "combobox-input");
+    assert_eq!(focused(&parent), Some(field), "premise: Tab focused the field");
+
+    key_down(&mut parent, VirtualKeyCode::Down, &[], "t.down");
+    keys_up(&mut parent, "t.down.up");
+    parent.regenerate_layout().expect("reconcile");
     assert_eq!(
-        focused(&popup),
-        Some(node_with_class(&popup, "combobox-option")),
-        "Down into an unfocused list focuses its FIRST option"
+        parent
+            .get_layout_window()
+            .unwrap()
+            .transient_windows
+            .open_windows()
+            .len(),
+        1,
+        "Down opened the list"
+    );
+    assert_eq!(focused(&parent), Some(field), "focus stayed on the field");
+}
+
+/// The list is not the active window (nothing would dismiss it for losing
+/// focus it never had), so it closes with its PARENT's deactivation - the
+/// user went to another window or app, as a native list does.
+#[test]
+fn a_list_popup_closes_when_its_parent_window_is_deactivated() {
+    let (mut parent, _popup, _field) = open_combobox();
+    parent.snapshot_window_state_baseline("t.deactivate");
+    parent
+        .common
+        .update_unsynced_state(|ws| ws.window_focused = false);
+    let _ = parent.process_window_events(0);
+    assert!(
+        parent
+            .get_layout_window()
+            .unwrap()
+            .transient_windows
+            .open_windows()
+            .is_empty(),
+        "the list closed with its window's deactivation"
     );
 }
 
-/// The same from the field, the way X11 delivers it (and headless): the
-/// parent keeps every key that edits the field, but a navigation key while
-/// the list is open belongs to the list, and the field keeps its focus.
+/// GUARD for the rule above: a popup that TAKES focus (the picker) makes
+/// its parent resign the keyboard to it - that is no reason to close it.
 #[test]
-fn down_in_the_combobox_field_moves_into_its_open_list() {
-    let (mut parent, mut popup, field) = open_combobox();
-    key_down(&mut parent, VirtualKeyCode::Down, &[], "t.down");
-    let _ = popup.process_window_events(0);
-    keys_up(&mut parent, "t.down.up");
-    let _ = popup.process_window_events(0);
+fn a_focus_taking_popup_survives_its_parent_resigning_the_keyboard() {
+    let (mut parent, _popup) = open_picker_by_click();
+    parent.snapshot_window_state_baseline("t.resign");
+    parent
+        .common
+        .update_unsynced_state(|ws| ws.window_focused = false);
+    let _ = parent.process_window_events(0);
     assert_eq!(
-        focused(&popup),
-        Some(node_with_class(&popup, "combobox-option")),
-        "Down in the field focused the list's first option"
-    );
-    assert_eq!(
-        focused(&parent),
-        Some(field),
-        "the field keeps its own focus"
+        parent
+            .get_layout_window()
+            .unwrap()
+            .transient_windows
+            .open_windows()
+            .len(),
+        1,
+        "the picker stays open"
     );
 }
 
