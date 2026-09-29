@@ -541,3 +541,23 @@ fn text_areas_follow_the_app_theme() {
         });
     }
 }
+
+#[test]
+fn sliders_follow_the_app_theme() {
+    use azul_layout::widgets::{slider::Slider, themes::OptionUiTheme};
+    assert_eq!(
+        Slider::create(0.0, 0.0, 100.0).theme,
+        OptionUiTheme::None,
+        "a fresh slider has no theme opinion: it follows the app"
+    );
+    for value in [0.0f32, 40.0, 100.0] {
+        assert_follows_the_app_theme(&format!("slider {value}"), |t| {
+            pinned(
+                Slider::create(value, 0.0, 100.0).with_accessibility_name("Volume"),
+                t,
+                Slider::with_theme,
+            )
+            .dom()
+        });
+    }
+}
