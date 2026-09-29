@@ -603,3 +603,32 @@ fn get_cursor_state_reports_the_caret_after_the_last_character_as_the_text_lengt
 
     assert_eq!(result.status, "pass", "{:#?}", step_errors(&result));
 }
+
+/// A button whose label is a `<span>` - an inline box with no layout rect of
+/// its own - is clicked by its text: the target is the nearest ancestor that
+/// has bounds (the text's parent span has none). AzMeet's toolbar buttons are
+/// built this way, and `click {text: "Mute"}` could not resolve them.
+#[test]
+fn a_click_by_text_finds_the_label_inside_an_inline_span() {
+    let test: E2eTest = serde_json::from_value(serde_json::json!({
+        "name": "click_text_in_span",
+        "config": { "continue_on_failure": true },
+        "setup": { "window_width": 400, "window_height": 300, "dpi": 96 },
+        "steps": [
+            { "op": "mount", "html": [
+                "<div style=\"display: block; width: 120px; height: 40px;\"><span>Mute</span></div>"
+            ] },
+            { "op": "wait_frame" },
+            { "op": "click", "text": "Mute" }
+        ]
+    }))
+    .expect("a valid E2eTest");
+    let r = run_e2e_test(&test);
+    let failed: Vec<String> = r
+        .steps
+        .iter()
+        .filter(|s| s.status != "pass")
+        .map(|s| format!("step {} `{}`: {}", s.step_index, s.op, s.error.clone().unwrap_or_default()))
+        .collect();
+    assert!(failed.is_empty(), "{failed:#?}");
+}
