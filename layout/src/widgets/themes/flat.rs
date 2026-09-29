@@ -4421,3 +4421,264 @@ pub fn date_picker(d: crate::widgets::date_picker::DatePicker) -> Dom {
     look.day_other.extend(decl::focus_halo(FIELD_RING, DARK_ACC));
     crate::widgets::date_picker::build(d, &look)
 }
+
+// ==== follow the app theme (T3) ====
+
+#[cfg(test)]
+mod follow_tests {
+    //! The merge a widget that follows the APP theme builds its styles with:
+    //! every theme's declarations on one node, each theme's block
+    //! conditioned `@theme(<name>)`, resolving under either app theme
+    //! exactly as that theme's own build does.
+    use azul_core::dom::{Dom, IdOrClassVec};
+    use azul_css::{
+        dynamic_selector::{
+            CssPropertyWithConditions as P, DynamicSelector, DynamicSelectorContext,
+            PseudoStateType, ThemeCondition,
+        },
+        props::{
+            basic::color::ColorU,
+            layout::{LayoutDisplay, LayoutPaddingTop},
+            property::{CssProperty, CssPropertyType},
+        },
+    };
+
+    use super::{follow_dom, follow_props};
+    use crate::widgets::themes::{style_kit, UiTheme};
+
+    const STATES: [Option<PseudoStateType>; 4] = [
+        None,
+        Some(PseudoStateType::Hover),
+        Some(PseudoStateType::Active),
+        Some(PseudoStateType::Focus),
+    ];
+
+    /// Last match wins per property, the way inline declarations resolve.
+    fn resolve(
+        props: &[P],
+        app_theme: &str,
+        dark: bool,
+        state: Option<PseudoStateType>,
+    ) -> Vec<(CssPropertyType, CssProperty)> {
+        let ctx = DynamicSelectorContext {
+            theme: if dark {
+                ThemeCondition::Dark
+            } else {
+                ThemeCondition::Light
+            },
+            ..Default::default()
+        }
+        .with_app_theme(app_theme);
+        let mut out: Vec<(CssPropertyType, CssProperty)> = Vec::new();
+        for p in props {
+            let applies = p.apply_if.as_slice().iter().all(|c| match c {
+                DynamicSelector::PseudoState(s) => Some(*s) == state,
+                other => other.matches(&ctx),
+            });
+            if !applies {
+                continue;
+            }
+            let ty = p.property.get_type();
+            match out.iter_mut().find(|(t, _)| *t == ty) {
+                Some(slot) => slot.1 = p.property.clone(),
+                None => out.push((ty, p.property.clone())),
+            }
+        }
+        out.sort_by_key(|(t, _)| *t);
+        out
+    }
+
+    fn inline(dom: &Dom) -> Vec<P> {
+        dom.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, c)| P {
+                property: p.clone(),
+                apply_if: c.clone(),
+            })
+            .collect()
+    }
+
+    fn pad(px: isize) -> CssProperty {
+        CssProperty::const_padding_top(LayoutPaddingTop::const_px(px))
+    }
+
+    fn flex() -> CssProperty {
+        CssProperty::const_display(LayoutDisplay::Flex)
+    }
+
+    fn c(v: u8) -> ColorU {
+        ColorU::rgb(v, v, v)
+    }
+
+    /// A flat part and a flora part that agree on some properties and not
+    /// on others - in their resting value, their dark twin, a state, or
+    /// only in how many declarations they make.
+    fn parts() -> (Vec<P>, Vec<P>) {
+        let flat = vec![
+            P::simple(flex()),
+            P::simple(pad(8)),
+            P::on_hover(pad(4)),
+            P::simple(style_kit::bg(c(250))),
+            P::dark_theme(style_kit::bg(c(30))),
+            P::on_hover(style_kit::bg(c(240))),
+            P::dark_on_hover(style_kit::bg(c(40))),
+        ];
+        let flora = vec![
+            P::simple(flex()),
+            P::simple(pad(8)),
+            P::simple(style_kit::bg(c(200))),
+            P::dark_theme(style_kit::bg(c(60))),
+            P::on_focus(style_kit::bg(c(210))),
+        ];
+        (flat, flora)
+    }
+
+    #[test]
+    fn a_followed_part_resolves_like_each_themes_own_part_in_every_mode_and_state() {
+        let (flat, flora) = parts();
+        let merged = follow_props(&flat, &flora);
+        for (name, own) in [("flat", &flat), ("flora", &flora)] {
+            for dark in [false, true] {
+                for state in STATES {
+                    assert_eq!(
+                        resolve(merged.as_slice(), name, dark, state),
+                        resolve(own, name, dark, state),
+                        "{name}, dark {dark}, {state:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_property_both_themes_declare_alike_stays_unconditional_once() {
+        let (flat, flora) = parts();
+        let merged = follow_props(&flat, &flora);
+        let displays: Vec<&P> = merged
+            .as_slice()
+            .iter()
+            .filter(|p| p.property.get_type() == CssPropertyType::Display)
+            .collect();
+        assert_eq!(displays.len(), 1, "{displays:?}");
+        assert!(displays[0].apply_if.as_slice().is_empty(), "{displays:?}");
+    }
+
+    #[test]
+    fn a_property_the_themes_declare_differently_is_written_per_theme_flat_first() {
+        let (flat, flora) = parts();
+        let merged = follow_props(&flat, &flora);
+        // padding: equal at rest, but flat also pads on hover - so it is NOT
+        // shared, or flora would inherit flat's hover padding.
+        let pads: Vec<Vec<&str>> = merged
+            .as_slice()
+            .iter()
+            .filter(|p| p.property.get_type() == CssPropertyType::PaddingTop)
+            .map(P::theme_names)
+            .collect();
+        assert_eq!(pads, vec![vec!["flat"], vec!["flat"], vec!["flora"]]);
+        // every themed declaration carries its theme name FIRST
+        for p in merged.as_slice() {
+            if p.theme_names().is_empty() {
+                continue;
+            }
+            assert!(
+                matches!(
+                    p.apply_if.as_slice().first(),
+                    Some(DynamicSelector::Theme(ThemeCondition::Custom(_)))
+                ),
+                "{p:?}"
+            );
+        }
+        // the flat block comes before the flora block
+        let names: Vec<&str> = merged
+            .as_slice()
+            .iter()
+            .flat_map(P::theme_names)
+            .collect();
+        let last_flat = names.iter().rposition(|n| *n == "flat").expect("a flat block");
+        let first_flora = names.iter().position(|n| *n == "flora").expect("a flora block");
+        assert!(last_flat < first_flora, "{names:?}");
+    }
+
+    #[test]
+    fn under_an_unknown_theme_only_the_shared_declarations_of_a_followed_part_apply() {
+        let (flat, flora) = parts();
+        let merged = follow_props(&flat, &flora);
+        let got = resolve(merged.as_slice(), "monokai", false, None);
+        let types: Vec<CssPropertyType> = got.iter().map(|(t, _)| *t).collect();
+        assert_eq!(types, vec![CssPropertyType::Display], "{got:?}");
+    }
+
+    fn node(theme: UiTheme, props: Vec<P>, children: Vec<Dom>) -> Dom {
+        Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_vec(vec![style_kit::marker(theme)]))
+            .with_css_props(props.into())
+            .with_children(children.into())
+    }
+
+    #[test]
+    fn a_followed_dom_is_the_structure_themes_tree_with_every_themes_styles() {
+        let (flat_props, flora_props) = parts();
+        let flat = node(
+            UiTheme::Flat,
+            flat_props.clone(),
+            vec![Dom::create_div().with_css_props(vec![P::simple(pad(1))].into())],
+        );
+        let flora = node(
+            UiTheme::Flora,
+            flora_props.clone(),
+            vec![Dom::create_div().with_css_props(vec![P::simple(pad(2))].into())],
+        );
+        for structure in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = follow_dom(structure, flat.clone(), flora.clone());
+            assert_eq!(
+                dom.root.get_ids_and_classes(),
+                IdOrClassVec::from_vec(vec![style_kit::marker(structure)]),
+                "{structure:?}: the root is the structure theme's node"
+            );
+            for (name, own_root, own_child) in [
+                ("flat", &flat_props, pad(1)),
+                ("flora", &flora_props, pad(2)),
+            ] {
+                for dark in [false, true] {
+                    for state in STATES {
+                        assert_eq!(
+                            resolve(&inline(&dom), name, dark, state),
+                            resolve(own_root, name, dark, state),
+                            "{structure:?} root under {name}, dark {dark}, {state:?}"
+                        );
+                    }
+                }
+                let child = &dom.children.as_ref()[0];
+                assert_eq!(
+                    resolve(&inline(child), name, false, None),
+                    vec![(CssPropertyType::PaddingTop, own_child)],
+                    "{structure:?} child under {name}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_subtree_only_the_structure_theme_builds_is_kept_as_it_is() {
+        let only_flora = Dom::create_div().with_css_props(vec![P::simple(pad(3))].into());
+        let flat = node(UiTheme::Flat, vec![P::simple(pad(1))], vec![]);
+        let flora = node(UiTheme::Flora, vec![P::simple(pad(2))], vec![only_flora.clone()]);
+        let dom = follow_dom(UiTheme::Flora, flat, flora);
+        assert!(dom.children.as_ref() == &[only_flora][..]);
+    }
+
+    #[test]
+    fn a_dom_both_themes_build_alike_comes_back_unchanged() {
+        let (flat_props, _) = parts();
+        let same = node(
+            UiTheme::Flat,
+            flat_props,
+            vec![Dom::create_div().with_css_props(vec![P::simple(pad(1))].into())],
+        );
+        for structure in [UiTheme::Flat, UiTheme::Flora] {
+            assert!(follow_dom(structure, same.clone(), same.clone()) == same, "{structure:?}");
+        }
+    }
+}
