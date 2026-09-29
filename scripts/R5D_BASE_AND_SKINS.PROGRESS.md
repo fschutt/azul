@@ -17,15 +17,24 @@ text_input, time_picker, titlebar, toast, tooltip, tree_view, video.
   (end of flat.rs) replaces the tabs' `tab_part`.
 - 92b516d0b GREEN toast: `TOAST_CARD_BASE` (incl. placement) / `TOAST_CLOSE_BASE`.
 - e2c27bddf GREEN tooltip: `TIP_BASE` (placement, nowrap, opacity 0); 7 tests read the base / flat tip.
+- daa25f33a GREEN tree_view: `TREE_CONTAINER_BASE` / `ROW_BASE` / `CHILDREN_BASE` / `ICON_BASE` /
+  `LABEL_BASE`; `style_is` checks read base + static.
 
 ## IN PROGRESS
 
-- GREEN time_picker / toast / tooltip / tree_view.
+- Final review of the diff, then the report.
 
 ## NEXT
 
-4. GREEN (already shared, flora restates): time_picker, toast, tooltip, tree_view bases.
 5. Report `scripts/R5D_BASE_AND_SKINS_2026_09_29.md`.
+
+## Coordinator facts (after the power cut)
+
+- The cascade ranks a live `@theme` block above unthemed declarations, whatever the order: a later
+  shared declaration loses to an earlier themed one when parts are STACKED after the merge. The parent
+  added `theme_blocks::stack_parts` in the main checkout (not in this base). R5-D stacks no merged parts:
+  every base + skin composition happens inside one theme's builder, before `follow_props` /
+  `follow_dom`, on plain declarations. statusbar's `merged_style` is left as it is.
 
 ## Audit (read from the builders)
 
