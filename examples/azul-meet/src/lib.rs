@@ -8,6 +8,14 @@
 //! on the network. Once connected, every captured frame is JPEG-encoded and sent to each peer as
 //! one QUIC stream, and each peer's frames are decoded into its own tiles.
 //!
+//! Audio (see `audio.rs`): the microphone's chunks are cut into 20 ms mono 16-bit PCM packets and
+//! sent on their own track, three packets to a frame (iroh frames are latest-wins, so a skipped
+//! frame loses nothing). Each peer's packets go into its own jitter buffer, which a playout thread
+//! drains every 20 ms into that peer's `AudioSink`; the UI thread only pushes packets. Mute and
+//! deafen travel as a two-byte control message and show in the people list ("Ben · connected ·
+//! muted"). Leave disconnects every peer, stops announcing, removes this participant from the
+//! room on the meeting server, and returns to the start screen.
+//!
 //! Without a reachable meeting server it runs the in-process demo: two participants, Ada in a
 //! CPU-rendered window and Ben in a GPU-rendered one, linked by two iroh endpoints.
 //!
@@ -19,16 +27,24 @@
 //! - `AZMEET_JOIN=<link>`: join that meeting at start.
 //! - `AZMEET_RELAY`: `off`, `default` or a relay URL (default: off for a meeting server on this
 //!   machine, the public iroh relays otherwise).
+//! - `AZMEET_TEST_TONE=1`: a 440 Hz tone replaces the microphone, which starts unmuted.
+//! - `AZ_BACKEND=headless`: no audio device is opened: the microphone is the tone (muted until
+//!   switched on, unless `AZMEET_TEST_TONE=1`), and received audio is counted, not played.
 
 mod audio;
 mod rooms;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::{Arc, Mutex, MutexGuard, PoisonError, Weak},
+};
 
 use azul::{
     app::RendererOptions,
-    audio::{AudioConfig, AudioDeviceList, AudioDeviceListResult, AudioFrame},
-    callbacks::{CallbackInfo, TimerCallbackInfo, TimerCallbackReturn, UpdateImageType},
+    audio::{AudioConfig, AudioDeviceList, AudioDeviceListResult, AudioFrame, AudioSink},
+    callbacks::{
+        CallbackInfo, CallbackType, TimerCallbackInfo, TimerCallbackReturn, UpdateImageType,
+    },
     camera::CameraConfig,
     css::{LogicalSize, PhysicalPositionI32, Srgb, WindowPosition},
     dom::{Callback, ClipboardContent, DomNodeId, NodeId},
@@ -44,7 +60,7 @@ use azul::{
     task::{Thread, ThreadId, ThreadReceiver, ThreadSender, Timer, TimerId},
     time::{Duration, SystemTimeDiff},
     url::Url,
-    vec::{StyledTextRunVec, U8Vec, U8VecRef},
+    vec::{F32Vec, StyledTextRunVec, U8Vec, U8VecRef},
     widgets::{
         ButtonType, CameraWidget, ConsumerFrame, FrameConsumer, MicrophoneWidget,
         OnTextInputReturn, ProgressBar, ScreenCaptureWidget, TextInputState, TextInputValid,
@@ -56,6 +72,11 @@ use rooms::{Dialed, PeerRecord, Relay, RoomKey};
 const ALPN: &str = "azmeet/mjpeg/1";
 const CAMERA_TRACK: u32 = 1;
 const SCREEN_TRACK: u32 = 2;
+/// The audio track: 20 ms PCM packets, three to a frame (`audio.rs`).
+const AUDIO_TRACK: u32 = 3;
+/// The rate the microphone (or the test tone) is asked for.
+const MIC_RATE: u32 = 48_000;
+const TONE_HZ: f32 = 440.0;
 const FEED_W: u32 = 320;
 const FEED_H: u32 = 180;
 const JPEG_QUALITY: u8 = 75;
@@ -85,6 +106,8 @@ struct Remote {
     node_id: String,
     /// Which of the peer's tracks (camera, screen) have a tile.
     tracks: [bool; 2],
+    /// Muted and deafened, from the peer's last control message; `None` until the first.
+    state: Option<audio::PeerState>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -122,11 +145,15 @@ struct RoomSession {
     busy_polls: u32,
     /// The last request failed and `MeetState::notice` says why.
     trouble: bool,
+    /// Counts the meetings entered and left. A request carries the session it was sent in, and
+    /// an answer from an earlier session (a meeting since left) is ignored.
+    session: u32,
 }
 
 impl RoomSession {
     fn new(worker: String, name: String) -> Self {
         RoomSession {
+            session: 0,
             worker,
             name,
             stage: Stage::Start,
@@ -148,6 +175,7 @@ impl RoomSession {
     }
 
     fn enter(&mut self, found: RoomInfo) {
+        self.session = self.session.wrapping_add(1);
         self.stage = Stage::InRoom;
         self.room_id = found.room;
         self.code = found.code;
@@ -160,6 +188,7 @@ impl RoomSession {
     }
 
     fn leave(&mut self) {
+        self.session = self.session.wrapping_add(1);
         self.stage = Stage::Start;
         self.room_id.clear();
         self.code.clear();
@@ -237,6 +266,17 @@ struct MeetState {
     devices_requested: bool,
     /// Some when a meeting server is in use.
     room: Option<RoomSession>,
+    /// This participant hears nobody: received audio is dropped.
+    deafened: bool,
+    /// The microphone is the test tone (`AZMEET_TEST_TONE=1`, and every headless run).
+    tone_mic: bool,
+    /// The tone while the microphone is on, and when it started.
+    tone: Option<(audio::ToneSource, std::time::Instant)>,
+    packetizer: audio::Packetizer,
+    /// Received audio, shared with the playout thread; started with the first packet.
+    playout: Option<Arc<Mutex<Playout>>>,
+    /// Received audio may be played on a device (false in a headless run).
+    play_audio: bool,
 }
 
 impl MeetState {
@@ -261,6 +301,12 @@ impl MeetState {
             speakers: Vec::new(),
             devices_requested: false,
             room: None,
+            deafened: false,
+            tone_mic: false,
+            tone: None,
+            packetizer: audio::Packetizer::new(),
+            playout: None,
+            play_audio: true,
         }
     }
 }
@@ -288,6 +334,9 @@ const BTN: &str = "padding: 10px 18px; margin: 0 6px; border-radius: 8px; backgr
                    color: #e6e6f0; font-size: 14px; white-space: nowrap; flex-shrink: 0;";
 const BTN_ON: &str = "padding: 10px 18px; margin: 0 6px; border-radius: 8px; background: #2f6db0; \
                       color: #ffffff; font-size: 14px; white-space: nowrap; flex-shrink: 0;";
+const BTN_LEAVE: &str = "padding: 10px 18px; margin: 0 6px 0 24px; border-radius: 8px; \
+                         background: #b03a3a; color: #ffffff; font-size: 14px; white-space: \
+                         nowrap; flex-shrink: 0;";
 const NOTICE: &str = "padding: 6px 12px; font-size: 13px; color: #f0b060; background: #15151c;";
 
 fn track_slot(track: u32) -> Option<usize> {
@@ -423,6 +472,13 @@ struct LayoutSnapshot {
     mics: Vec<String>,
     speakers: Vec<String>,
     room: Option<RoomView>,
+    deafened: bool,
+    /// The microphone is the test tone, so no `MicrophoneWidget` is mounted.
+    tone_mic: bool,
+    /// "Audio from Ben: ..." for every connected peer whose audio arrived.
+    audio_lines: Vec<String>,
+    /// Audio packets sent since the start.
+    packets_sent: u32,
 }
 
 fn short_id(id: &str) -> &str {
@@ -447,21 +503,25 @@ fn remote_name(s: &MeetState, node_id: &str) -> String {
 }
 
 fn roster(s: &MeetState, room: &RoomSession) -> Vec<String> {
-    let mut rows = vec![format!("{} (you)", s.name)];
+    let me = format!("{} (you)", s.name);
+    let mut rows = vec![audio::person_line(&me, Some(my_state(s)))];
     for p in &room.peers {
-        let status = if s.remotes.iter().any(|r| r.node_id == p.node_id) {
+        let remote = s.remotes.iter().find(|r| r.node_id == p.node_id);
+        let status = if remote.is_some() {
             "connected"
         } else if rooms::dials(&room.node_id, &p.node_id) {
             "connecting"
         } else {
             "waiting for them to connect"
         };
-        rows.push(format!("{} · {}", p.name, status));
+        let label = format!("{} · {}", p.name, status);
+        rows.push(audio::person_line(&label, remote.and_then(|r| r.state)));
     }
     // Connected peers whose record expired from the server stay listed.
     for r in &s.remotes {
         if !room.peers.iter().any(|p| p.node_id == r.node_id) {
-            rows.push(format!("{} · connected", short_id(&r.node_id)));
+            let label = format!("{} · connected", short_id(&r.node_id));
+            rows.push(audio::person_line(&label, r.state));
         }
     }
     rows
@@ -522,6 +582,10 @@ fn snapshot(s: &MeetState) -> LayoutSnapshot {
             copied: room.copied,
             roster: roster(s, room),
         }),
+        deafened: s.deafened,
+        tone_mic: s.tone_mic,
+        audio_lines: audio_lines(s),
+        packets_sent: s.packetizer.next_sequence(),
     }
 }
 
@@ -665,50 +729,43 @@ fn call_layout(view: &LayoutSnapshot, data: &RefAny) -> Dom {
         grid = grid.with_child(participant("Waiting for others to join"));
     }
 
-    let toolbar = Dom::create_div()
+    let mut toolbar = Dom::create_div()
         .with_css("display: flex; justify-content: center; padding: 14px; background: #15151c;")
-        .with_child(
-            Dom::create_div()
-                .with_css(if view.mic { BTN_ON } else { BTN })
-                .with_child(Dom::create_span_with_text(if view.mic {
-                    "Mute"
-                } else {
-                    "Unmute mic"
-                }))
-                .with_callback(
-                    EventFilter::Hover(HoverEventFilter::MouseUp),
-                    data.clone(),
-                    mic_toggle,
-                ),
-        )
-        .with_child(
-            Dom::create_div()
-                .with_css(if view.cam { BTN_ON } else { BTN })
-                .with_child(Dom::create_span_with_text(if view.cam {
-                    "Stop video"
-                } else {
-                    "Start video"
-                }))
-                .with_callback(
-                    EventFilter::Hover(HoverEventFilter::MouseUp),
-                    data.clone(),
-                    cam_toggle,
-                ),
-        )
-        .with_child(
-            Dom::create_div()
-                .with_css(if view.screen { BTN_ON } else { BTN })
-                .with_child(Dom::create_span_with_text(if view.screen {
-                    "Stop share"
-                } else {
-                    "Share screen"
-                }))
-                .with_callback(
-                    EventFilter::Hover(HoverEventFilter::MouseUp),
-                    data.clone(),
-                    screen_toggle,
-                ),
-        );
+        .with_child(toolbar_button(
+            if view.mic { "Mute" } else { "Unmute mic" },
+            if view.mic { BTN_ON } else { BTN },
+            data,
+            mic_toggle,
+        ))
+        .with_child(toolbar_button(
+            if view.deafened { "Undeafen" } else { "Deafen" },
+            if view.deafened { BTN_ON } else { BTN },
+            data,
+            deafen_toggle,
+        ))
+        .with_child(toolbar_button(
+            if view.cam {
+                "Stop video"
+            } else {
+                "Start video"
+            },
+            if view.cam { BTN_ON } else { BTN },
+            data,
+            cam_toggle,
+        ))
+        .with_child(toolbar_button(
+            if view.screen {
+                "Stop share"
+            } else {
+                "Share screen"
+            },
+            if view.screen { BTN_ON } else { BTN },
+            data,
+            screen_toggle,
+        ));
+    if view.room.is_some() {
+        toolbar = toolbar.with_child(toolbar_button("Leave", BTN_LEAVE, data, on_leave));
+    }
 
     let link_line = if view.linked {
         format!("{FEED_W}x{FEED_H} JPEG over iroh · {}", view.link_status)
@@ -722,7 +779,8 @@ fn call_layout(view: &LayoutSnapshot, data: &RefAny) -> Dom {
         )
         .with_child(device_col("Microphones", &view.mics))
         .with_child(device_col("Speakers", &view.speakers))
-        .with_child(device_col("Video link", &[link_line]));
+        .with_child(device_col("Video link", &[link_line]))
+        .with_child(device_col("Audio", &audio_col(view)));
 
     let mut body = Dom::create_body().with_css(
         "display: flex; flex-direction: column; height: 100%; margin: 0; background: #0e0e14; \
@@ -768,16 +826,18 @@ fn call_layout(view: &LayoutSnapshot, data: &RefAny) -> Dom {
         }
         body = body.with_child(people);
     }
-    if view.mic {
+    if view.mic && !view.tone_mic {
         body = body.with_child(
             MicrophoneWidget::create(AudioConfig {
-                sample_rate: 48_000,
+                sample_rate: MIC_RATE,
                 channels: 1,
             })
             .with_on_frame(data.clone(), mic_on_frame)
             .dom()
             .with_css("width: 1px; height: 1px; overflow: hidden;"),
         );
+    }
+    if view.mic {
         body = body.with_child(
             Dom::create_div()
                 .with_css(
@@ -807,6 +867,41 @@ fn call_layout(view: &LayoutSnapshot, data: &RefAny) -> Dom {
     body.with_child(grid)
         .with_child(toolbar)
         .with_child(devices_panel)
+}
+
+/// A toolbar button: `label` in the `style` box, `on_click` on mouse-up.
+fn toolbar_button(label: &str, style: &str, data: &RefAny, on_click: CallbackType) -> Dom {
+    Dom::create_div()
+        .with_css(style)
+        .with_child(Dom::create_span_with_text(label))
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::MouseUp),
+            data.clone(),
+            on_click,
+        )
+}
+
+/// The devices panel's audio column: what is sent, then one line per peer heard.
+fn audio_col(view: &LayoutSnapshot) -> Vec<String> {
+    let source = if view.tone_mic {
+        format!("{TONE_HZ} Hz test tone")
+    } else {
+        String::from("microphone")
+    };
+    let sending = if view.mic {
+        format!(
+            "Sending: {source}, 16-bit PCM, 20 ms packets, {} so far",
+            view.packets_sent
+        )
+    } else {
+        String::from("Sending: nothing (muted)")
+    };
+    let mut lines = vec![sending];
+    if view.deafened {
+        lines.push(String::from("Deafened: nothing is played"));
+    }
+    lines.extend(view.audio_lines.iter().cloned());
+    lines
 }
 
 extern "C" fn meter_mounted(mut data: RefAny, info: CallbackInfo) -> Update {
@@ -868,6 +963,18 @@ fn apply_link_event(s: &mut MeetState, event: &IrohEvent) -> bool {
         }
         IrohEventKind::PeerConnected => {
             let node_id = event.text.as_str().to_string();
+            if !accepts_peers(s) {
+                // Not in a meeting (after Leave): a peer that still dials is refused.
+                if let Some(endpoint) = s.endpoint.as_ref() {
+                    endpoint.disconnect(event.peer);
+                }
+                eprintln!(
+                    "[azmeet] {}: refused {} (not in a meeting)",
+                    s.name,
+                    short_id(&node_id)
+                );
+                return false;
+            }
             eprintln!("[azmeet] {}: connected to {}", s.name, short_id(&node_id));
             s.link_status = format!("connected to {}", short_id(&node_id));
             if !s.remotes.iter().any(|r| r.handle == event.peer) {
@@ -875,8 +982,10 @@ fn apply_link_event(s: &mut MeetState, event: &IrohEvent) -> bool {
                     handle: event.peer,
                     node_id,
                     tracks: [false; 2],
+                    state: None,
                 });
             }
+            send_state(s, &[event.peer]);
             true
         }
         IrohEventKind::PeerDisconnected => {
@@ -884,6 +993,7 @@ fn apply_link_event(s: &mut MeetState, event: &IrohEvent) -> bool {
                 return false;
             };
             let gone = s.remotes.remove(pos);
+            drop_audio(s, Some(gone.handle));
             // Dial again on the next poll if the peer is still listed.
             if let Some(room) = s.room.as_mut() {
                 room.dialed.remove(&gone.node_id);
@@ -902,8 +1012,36 @@ fn apply_link_event(s: &mut MeetState, event: &IrohEvent) -> bool {
             s.link_status = format!("error: {}", event.text.as_str());
             true
         }
+        IrohEventKind::Message => {
+            let Some(audio::Control::State(state)) = audio::decode_control(event.data.as_ref())
+            else {
+                return false;
+            };
+            let Some(remote) = s.remotes.iter_mut().find(|r| r.handle == event.peer) else {
+                return false;
+            };
+            if remote.state == Some(state) {
+                return false;
+            }
+            remote.state = Some(state);
+            let node_id = remote.node_id.clone();
+            let label = format!("{} · connected", remote_name(s, &node_id));
+            eprintln!(
+                "[azmeet] {}: {}",
+                s.name,
+                audio::person_line(&label, Some(state))
+            );
+            true
+        }
         _ => false,
     }
+}
+
+/// Whether a peer may connect: always in the demo; with a meeting server only in a meeting.
+fn accepts_peers(s: &MeetState) -> bool {
+    s.room.as_ref().map_or(true, |room| {
+        matches!(room.stage, Stage::InRoom | Stage::Ended)
+    })
 }
 
 fn show_remote_frame(data: &mut RefAny, info: &mut TimerCallbackInfo, frame: &IrohEvent) -> bool {
@@ -959,7 +1097,11 @@ extern "C" fn pump_link(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
     let mut refresh = false;
     let mut frames = Vec::new();
     while let Some(event) = endpoint.recv().into_option() {
-        if event.kind == IrohEventKind::Frame {
+        if event.kind == IrohEventKind::Frame && event.track == AUDIO_TRACK {
+            if let Some(mut s) = data.downcast_mut::<MeetState>() {
+                receive_audio(&mut s, &event);
+            }
+        } else if event.kind == IrohEventKind::Frame {
             frames.push(event);
         } else if let Some(mut s) = data.downcast_mut::<MeetState>() {
             refresh |= apply_link_event(&mut s, &event);
@@ -968,6 +1110,7 @@ extern "C" fn pump_link(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
     for frame in &frames {
         refresh |= show_remote_frame(&mut data, &mut info, frame);
     }
+    pump_tone(&mut data, &mut info);
     if let Some(mut s) = data.downcast_mut::<MeetState>() {
         s.ticks = s.ticks.wrapping_add(1);
         if s.ticks % STATS_EVERY_TICKS == 0 && !s.remotes.is_empty() {
@@ -999,6 +1142,283 @@ extern "C" fn pump_link(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
     }
 }
 
+// ==== Audio: packets out on the audio track, jitter buffers in, a playout thread ====
+
+/// Received audio, shared by the UI thread (which pushes each peer's packets) and the playout
+/// thread (which takes one turn from every peer's jitter buffer each 20 ms). Either holds the
+/// lock only to move packets, never while a device plays.
+struct Playout {
+    /// One jitter buffer per connection handle.
+    peers: BTreeMap<u64, audio::JitterBuffer>,
+    /// Play through an `AudioSink` per peer. False in a headless run: the buffers are drained
+    /// and counted, and no device is opened.
+    play: bool,
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Starts the playout thread. It ends once the returned handle (kept in `MeetState`) is gone.
+fn start_playout(play: bool) -> Arc<Mutex<Playout>> {
+    let shared = Arc::new(Mutex::new(Playout {
+        peers: BTreeMap::new(),
+        play,
+    }));
+    let weak = Arc::downgrade(&shared);
+    let spawned = std::thread::Builder::new()
+        .name(String::from("azmeet-playout"))
+        .spawn(move || playout_loop(weak));
+    if let Err(e) = spawned {
+        eprintln!("[azmeet] could not start the audio playout thread: {e}");
+    }
+    shared
+}
+
+/// Every 20 ms, one turn (a packet, or silence) from each peer's jitter buffer, played through
+/// that peer's own `AudioSink`, opened at the peer's rate, so the system mixes the peers. A sink's
+/// `play` may block (an ALSA write does); that paces this thread, never the UI thread.
+fn playout_loop(shared: Weak<Mutex<Playout>>) {
+    let started = std::time::Instant::now();
+    let mut clock = audio::PlayoutClock::new();
+    let mut sinks: BTreeMap<u64, (u32, AudioSink)> = BTreeMap::new();
+    loop {
+        let turns = clock.due(started.elapsed().as_millis() as u64);
+        let mut out: Vec<(u64, u32, Vec<i16>)> = Vec::new();
+        let (play, live) = {
+            let Some(strong) = shared.upgrade() else {
+                return;
+            };
+            let mut playout = lock(&strong);
+            for _ in 0..turns {
+                for (handle, jitter) in playout.peers.iter_mut() {
+                    if let Some(samples) = jitter.pop() {
+                        out.push((*handle, jitter.sample_rate(), samples));
+                    }
+                }
+            }
+            let play = playout.play;
+            let live: BTreeSet<u64> = playout.peers.keys().copied().collect();
+            (play, live)
+        };
+        // Close the sinks of peers that are gone, outside the lock.
+        sinks.retain(|handle, _| live.contains(handle));
+        if play {
+            for (handle, rate, samples) in out {
+                let reopen = sinks
+                    .get(&handle)
+                    .map_or(true, |(open_rate, _)| *open_rate != rate);
+                if reopen {
+                    let sink = AudioSink::open(AudioConfig {
+                        sample_rate: rate,
+                        channels: 1,
+                    });
+                    eprintln!(
+                        "[azmeet] playing connection {handle} at {rate} Hz: {}",
+                        if sink.is_open() {
+                            "output open"
+                        } else {
+                            "no audio output"
+                        }
+                    );
+                    sinks.insert(handle, (rate, sink));
+                }
+                if let Some((_, sink)) = sinks.get(&handle) {
+                    sink.play(AudioFrame {
+                        sample_rate: rate,
+                        channels: 1,
+                        samples: F32Vec::from(audio::pcm_to_f32(&samples)),
+                    });
+                }
+            }
+        }
+        let wait = clock.wait_ms(started.elapsed().as_millis() as u64);
+        std::thread::sleep(std::time::Duration::from_millis(wait.max(1)));
+    }
+}
+
+/// Whether this run may open audio devices: not under `AZ_BACKEND=headless`, where a test must
+/// never capture or play real audio.
+fn audio_devices_allowed() -> bool {
+    std::env::var("AZ_BACKEND").map_or(true, |backend| {
+        !backend.trim().eq_ignore_ascii_case("headless")
+    })
+}
+
+/// The audio settings of this run: `AZMEET_TEST_TONE=1` makes the microphone a tone and starts
+/// it unmuted; a headless run uses the tone too (muted until switched on) and plays nothing.
+fn configure_audio(s: &mut MeetState) {
+    let devices = audio_devices_allowed();
+    let tone = std::env::var("AZMEET_TEST_TONE").is_ok_and(|v| v.trim() == "1");
+    s.tone_mic = tone || !devices;
+    s.play_audio = devices;
+    if tone {
+        s.mic_on = true;
+    }
+    sync_mic(s);
+    if !devices {
+        eprintln!(
+            "[azmeet] {}: no audio device is opened: the microphone is a {TONE_HZ} Hz test tone and \
+             received audio is counted, not played",
+            s.name
+        );
+    } else if tone {
+        eprintln!(
+            "[azmeet] {}: the microphone is a {TONE_HZ} Hz test tone (AZMEET_TEST_TONE=1)",
+            s.name
+        );
+    }
+}
+
+/// Starts or stops the test tone with the microphone; a mute forgets the unfinished packet.
+fn sync_mic(s: &mut MeetState) {
+    if !s.mic_on {
+        s.packetizer.reset();
+        s.tone = None;
+    } else if s.tone_mic && s.tone.is_none() {
+        s.tone = Some((
+            audio::ToneSource::new(TONE_HZ, MIC_RATE),
+            std::time::Instant::now(),
+        ));
+    }
+}
+
+/// Sends captured audio to every connected peer as 20 ms packets on the audio track.
+fn send_audio(s: &mut MeetState, sample_rate: u32, channels: u16, samples: &[f32]) {
+    if !s.mic_on {
+        return;
+    }
+    if s.remotes.is_empty() {
+        // Nobody listens: the first frame to the next peer starts with fresh audio.
+        s.packetizer.reset();
+        return;
+    }
+    let Some(endpoint) = s.endpoint.as_ref() else {
+        return;
+    };
+    for frame in s.packetizer.push(sample_rate, channels, samples) {
+        endpoint.broadcast_frame(AUDIO_TRACK, frame);
+    }
+}
+
+/// Takes a frame of a peer's audio track into that peer's jitter buffer.
+fn receive_audio(s: &mut MeetState, frame: &IrohEvent) {
+    if s.deafened || !s.remotes.iter().any(|r| r.handle == frame.peer) {
+        return;
+    }
+    let Some(wire) = audio::decode_frame(frame.data.as_ref()) else {
+        return;
+    };
+    let play = s.play_audio;
+    let shared = s.playout.get_or_insert_with(|| start_playout(play));
+    let mut playout = lock(shared);
+    let jitter = playout
+        .peers
+        .entry(frame.peer)
+        .or_insert_with(|| audio::JitterBuffer::new(audio::TARGET_PACKETS, audio::MAX_PACKETS));
+    for packet in wire.packets {
+        jitter.push(wire.sample_rate, packet);
+    }
+}
+
+/// Forgets a peer's received audio (it left, or everyone did).
+fn drop_audio(s: &MeetState, handle: Option<u64>) {
+    let Some(shared) = s.playout.as_ref() else {
+        return;
+    };
+    let mut playout = lock(shared);
+    match handle {
+        Some(handle) => {
+            playout.peers.remove(&handle);
+        }
+        None => playout.peers.clear(),
+    }
+}
+
+/// This participant's audio state, as its control message tells the others.
+fn my_state(s: &MeetState) -> audio::PeerState {
+    audio::PeerState {
+        muted: !s.mic_on,
+        deafened: s.deafened,
+    }
+}
+
+/// Tells the peers behind `handles` this participant's audio state.
+fn send_state(s: &MeetState, handles: &[u64]) {
+    let Some(endpoint) = s.endpoint.as_ref() else {
+        return;
+    };
+    let message = audio::encode_state(my_state(s));
+    for handle in handles {
+        endpoint.send_message(*handle, message.clone());
+    }
+}
+
+fn send_state_to_all(s: &MeetState) {
+    let handles: Vec<u64> = s.remotes.iter().map(|r| r.handle).collect();
+    send_state(s, &handles);
+}
+
+/// One line per connected peer whose audio arrived: what its jitter buffer took in and played,
+/// and whether it waits to fill up (the peer went quiet).
+fn audio_lines(s: &MeetState) -> Vec<String> {
+    let Some(shared) = s.playout.as_ref() else {
+        return Vec::new();
+    };
+    let playout = lock(shared);
+    let lines: Vec<String> = s
+        .remotes
+        .iter()
+        .filter_map(|r| {
+            let jitter = playout.peers.get(&r.handle)?;
+            let mut line = audio::audio_line(
+                &remote_name(s, &r.node_id),
+                &jitter.stats(),
+                jitter.buffered(),
+            );
+            if !jitter.is_playing() {
+                line.push_str(", filling up");
+            }
+            Some(line)
+        })
+        .collect();
+    lines
+}
+
+/// The level meter's new value, when it moved by half a percent or more and the meter is shown.
+fn meter_change(s: &mut MeetState, samples: &[f32]) -> Option<(DomNodeId, f32)> {
+    let level = mic_level_percent(samples).round();
+    if (s.mic_level - level).abs() < 0.5 {
+        return None;
+    }
+    s.mic_level = level;
+    s.meter_bar.map(|bar| (bar, level))
+}
+
+fn show_level(mut info: CallbackInfo, bar: DomNodeId, level: f32) {
+    ProgressBar::update_progress(info, bar, level);
+    info.set_accessibility_value(bar, format!("{level:.0}%"));
+}
+
+/// Every pump while the microphone is the tone: the samples due since the last pump, sent like
+/// microphone audio.
+fn pump_tone(data: &mut RefAny, info: &mut TimerCallbackInfo) {
+    let meter = data.downcast_mut::<MeetState>().and_then(|mut guard| {
+        let s = &mut *guard;
+        let (source, started) = s.tone.as_mut()?;
+        let samples = source.take(started.elapsed().as_millis() as u64);
+        let rate = source.sample_rate();
+        if samples.is_empty() {
+            return None;
+        }
+        send_audio(s, rate, 1, &samples);
+        meter_change(s, &samples)
+    });
+    if let Some((bar, level)) = meter {
+        show_level(info.callback_info, bar, level);
+    }
+}
+
 // ==== Meeting server: requests on an azul Thread, answers on the UI thread ====
 
 /// The callback a finished request resumes into, on the UI thread.
@@ -1008,6 +1428,7 @@ type ResumeFn = extern "C" fn(RefAny, CallbackInfo, RefAny) -> Update;
 enum Verb {
     Get,
     Post,
+    Delete,
 }
 
 /// One request to the meeting server.
@@ -1016,24 +1437,28 @@ struct HttpJob {
     url: String,
     body: String,
     on_result: ResumeFn,
+    /// The room session the request was sent in (see `RoomSession::session`).
+    session: u32,
 }
 
 impl HttpJob {
-    fn create_room(worker: &str) -> Self {
+    fn create_room(room: &RoomSession) -> Self {
         HttpJob {
             verb: Verb::Post,
-            url: format!("{worker}/rooms"),
+            url: format!("{}/rooms", room.worker),
             body: String::from("{}"),
             on_result: on_room_opened,
+            session: room.session,
         }
     }
 
-    fn look_up(worker: &str, key: &RoomKey) -> Self {
+    fn look_up(room: &RoomSession, key: &RoomKey) -> Self {
         HttpJob {
             verb: Verb::Get,
-            url: format!("{worker}/rooms/{}?format=json", key.as_str()),
+            url: format!("{}/rooms/{}?format=json", room.worker, key.as_str()),
             body: String::new(),
             on_result: on_room_opened,
+            session: room.session,
         }
     }
 
@@ -1048,6 +1473,7 @@ impl HttpJob {
             url: format!("{}/rooms/{}/peers", room.worker, room.room_id),
             body: body.to_string().as_str().to_string(),
             on_result: on_announced,
+            session: room.session,
         }
     }
 
@@ -1060,33 +1486,67 @@ impl HttpJob {
             ),
             body: String::new(),
             on_result: on_peers,
+            session: room.session,
+        }
+    }
+
+    /// Takes this participant off the room's list (Leave).
+    fn leave(room: &RoomSession) -> Self {
+        HttpJob {
+            verb: Verb::Delete,
+            url: format!(
+                "{}/rooms/{}/peers/{}",
+                room.worker, room.room_id, room.node_id
+            ),
+            body: String::new(),
+            on_result: on_left,
+            session: room.session,
         }
     }
 }
 
 struct HttpThreadInit {
     job: HttpJob,
-    /// The participant's `MeetState`, handed back to `job.on_result`.
+    /// The participant's `MeetState`, handed back to `job.on_result` in a `Reply`.
     app: RefAny,
+}
+
+/// What a finished request resumes with: the participant's `MeetState` and the room session the
+/// request was sent in.
+struct Reply {
+    app: RefAny,
+    session: u32,
+}
+
+/// The participant and the session of a resumed request.
+fn reply_parts(mut data: RefAny) -> Option<(RefAny, u32)> {
+    let reply = data.downcast_ref::<Reply>()?;
+    Some((reply.app.clone(), reply.session))
 }
 
 /// Runs one request on a worker thread. `http_request` blocks here, then queues its answer,
 /// which the UI thread delivers to `on_result` on its next pump (the 15 ms link timer).
 extern "C" fn http_thread(mut init: RefAny, _sender: ThreadSender, _receiver: ThreadReceiver) {
-    let Some((verb, url, body, on_result, app)) = init.downcast_ref::<HttpThreadInit>().map(|i| {
-        (
-            i.job.verb,
-            i.job.url.clone(),
-            i.job.body.clone(),
-            i.job.on_result,
-            i.app.clone(),
-        )
-    }) else {
+    let Some((verb, url, body, on_result, reply)) =
+        init.downcast_ref::<HttpThreadInit>().map(|i| {
+            (
+                i.job.verb,
+                i.job.url.clone(),
+                i.job.body.clone(),
+                i.job.on_result,
+                Reply {
+                    app: i.app.clone(),
+                    session: i.job.session,
+                },
+            )
+        })
+    else {
         return;
     };
     let method = match verb {
         Verb::Get => HttpMethod::Get,
         Verb::Post => HttpMethod::Post,
+        Verb::Delete => HttpMethod::Delete,
     };
     let _request = HttpRequestConfig::create()
         .with_timeout(HTTP_TIMEOUT_SECS)
@@ -1097,7 +1557,7 @@ extern "C" fn http_thread(mut init: RefAny, _sender: ThreadSender, _receiver: Th
             url.as_str(),
             U8Vec::from(body.into_bytes()),
             "application/json",
-            app,
+            RefAny::new(reply),
             on_result,
         );
 }
@@ -1215,7 +1675,10 @@ fn meeting_gone(s: &mut MeetState) {
 }
 
 /// The answer to `POST /rooms` (a new meeting) or `GET /rooms/<key>` (joining a link).
-extern "C" fn on_room_opened(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+extern "C" fn on_room_opened(data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    let Some((mut data, session)) = reply_parts(data) else {
+        return Update::DoNothing;
+    };
     let answer = http_answer(result);
     let follow_up = {
         let Some(mut guard) = data.downcast_mut::<MeetState>() else {
@@ -1225,6 +1688,9 @@ extern "C" fn on_room_opened(mut data: RefAny, mut info: CallbackInfo, result: R
         let Some(room) = s.room.as_mut() else {
             return Update::DoNothing;
         };
+        if room.session != session || room.stage != Stage::Opening {
+            return Update::DoNothing;
+        }
         room.busy = false;
         let found = match &answer {
             Ok((200 | 201, Some(json))) => room_info(json),
@@ -1266,7 +1732,10 @@ extern "C" fn on_room_opened(mut data: RefAny, mut info: CallbackInfo, result: R
 }
 
 /// The answer to an announcement; a successful one is followed by a read of the peers list.
-extern "C" fn on_announced(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+extern "C" fn on_announced(data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    let Some((mut data, session)) = reply_parts(data) else {
+        return Update::DoNothing;
+    };
     let answer = http_answer(result);
     let (follow_up, update) = {
         let Some(mut guard) = data.downcast_mut::<MeetState>() else {
@@ -1276,6 +1745,10 @@ extern "C" fn on_announced(mut data: RefAny, mut info: CallbackInfo, result: Ref
         let Some(room) = s.room.as_mut() else {
             return Update::DoNothing;
         };
+        if room.session != session || room.stage != Stage::InRoom {
+            // An answer from a meeting since left.
+            return Update::DoNothing;
+        }
         room.busy = false;
         match &answer {
             Ok((200, _)) => {
@@ -1309,7 +1782,10 @@ extern "C" fn on_announced(mut data: RefAny, mut info: CallbackInfo, result: Ref
 }
 
 /// The peers list: dial who this side should dial.
-extern "C" fn on_peers(mut data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
+extern "C" fn on_peers(data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
+    let Some((mut data, session)) = reply_parts(data) else {
+        return Update::DoNothing;
+    };
     let answer = http_answer(result);
     let Some(mut guard) = data.downcast_mut::<MeetState>() else {
         return Update::DoNothing;
@@ -1318,6 +1794,10 @@ extern "C" fn on_peers(mut data: RefAny, _info: CallbackInfo, result: RefAny) ->
     let Some(room) = s.room.as_mut() else {
         return Update::DoNothing;
     };
+    if room.session != session || room.stage != Stage::InRoom {
+        // An answer from a meeting since left.
+        return Update::DoNothing;
+    }
     room.busy = false;
     match answer {
         Ok((200, Some(json))) => {
@@ -1380,6 +1860,32 @@ extern "C" fn on_peers(mut data: RefAny, _info: CallbackInfo, result: RefAny) ->
     }
 }
 
+/// The answer to the leave request; nothing waits on it.
+extern "C" fn on_left(data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
+    let name = match reply_parts(data) {
+        Some((mut app, _)) => {
+            let name = app.downcast_ref::<MeetState>().map(|s| s.name.clone());
+            name.unwrap_or_default()
+        }
+        None => String::new(),
+    };
+    match http_answer(result) {
+        Ok((200, _)) => {
+            eprintln!("[azmeet] {name}: the meeting server no longer lists this participant")
+        }
+        Ok((404, _)) => eprintln!("[azmeet] {name}: the meeting had already ended on the server"),
+        Ok((status, _)) => eprintln!(
+            "[azmeet] {name}: the meeting server answered {status} to leaving; the record expires \
+             by itself"
+        ),
+        Err(e) => eprintln!(
+            "[azmeet] {name}: could not reach the meeting server to leave ({e}); the record \
+             expires by itself"
+        ),
+    }
+    Update::DoNothing
+}
+
 /// Every 2 seconds in a room: announce when due, else read the peers list.
 extern "C" fn room_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
     let job = match data.downcast_mut::<MeetState>() {
@@ -1407,7 +1913,7 @@ fn begin_new_meeting(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
         room.stage = Stage::Opening;
         room.busy = true;
         s.notice = String::from("Asking the meeting server for a new meeting...");
-        HttpJob::create_room(&room.worker)
+        HttpJob::create_room(room)
     };
     spawn_http(info, data.clone(), job);
     Update::RefreshDom
@@ -1435,7 +1941,7 @@ fn begin_join(data: &mut RefAny, info: &mut CallbackInfo, text: &str) -> Update 
         room.stage = Stage::Opening;
         room.busy = true;
         s.notice = String::from("Looking up the meeting...");
-        HttpJob::look_up(&room.worker, &key)
+        HttpJob::look_up(room, &key)
     };
     spawn_http(info, data.clone(), job);
     Update::RefreshDom
@@ -1547,29 +2053,82 @@ fn renderer(hw_accel: HwAcceleration) -> OptionRendererOptions {
     })
 }
 
-extern "C" fn mic_on_frame(mut data: RefAny, mut info: CallbackInfo, frame: AudioFrame) -> Update {
-    let level = mic_level_percent(frame.samples.as_ref()).round();
-    let bar = {
-        let Some(mut s) = data.downcast_mut::<MeetState>() else {
+/// A chunk from the microphone: sent to the peers, and shown on the level meter.
+extern "C" fn mic_on_frame(mut data: RefAny, info: CallbackInfo, frame: AudioFrame) -> Update {
+    let samples: &[f32] = frame.samples.as_ref();
+    let meter = {
+        let Some(mut guard) = data.downcast_mut::<MeetState>() else {
             return Update::DoNothing;
         };
-        if (s.mic_level - level).abs() < 0.5 {
-            return Update::DoNothing;
-        }
-        s.mic_level = level;
-        let Some(bar) = s.meter_bar else {
-            return Update::DoNothing;
-        };
-        bar
+        let s = &mut *guard;
+        send_audio(s, frame.sample_rate, frame.channels, samples);
+        meter_change(s, samples)
     };
-    ProgressBar::update_progress(info, bar, level);
-    info.set_accessibility_value(bar, format!("{level:.0}%"));
+    if let Some((bar, level)) = meter {
+        show_level(info, bar, level);
+    }
     Update::DoNothing
 }
 
 extern "C" fn mic_toggle(mut data: RefAny, _info: CallbackInfo) -> Update {
-    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+    if let Some(mut guard) = data.downcast_mut::<MeetState>() {
+        let s = &mut *guard;
         s.mic_on = !s.mic_on;
+        sync_mic(s);
+        send_state_to_all(s);
+    }
+    Update::RefreshDom
+}
+
+extern "C" fn deafen_toggle(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut guard) = data.downcast_mut::<MeetState>() {
+        let s = &mut *guard;
+        s.deafened = !s.deafened;
+        if s.deafened {
+            if let Some(shared) = s.playout.as_ref() {
+                for jitter in lock(shared).peers.values_mut() {
+                    jitter.clear();
+                }
+            }
+        }
+        send_state_to_all(s);
+    }
+    Update::RefreshDom
+}
+
+/// Leaves the meeting: disconnects every peer, stops announcing and polling, and returns to the
+/// start screen. Returns the request that takes this participant off the room's list at once
+/// (without it the meeting server drops the record after its peer TTL).
+fn leave_meeting(s: &mut MeetState) -> Option<HttpJob> {
+    if let Some(endpoint) = s.endpoint.as_ref() {
+        for r in &s.remotes {
+            endpoint.disconnect(r.handle);
+        }
+    }
+    s.remotes.clear();
+    drop_audio(s, None);
+    s.packetizer.reset();
+    s.link_status = String::from("not in a meeting");
+    s.notice = String::from("You left the meeting.");
+    let room = s.room.as_mut()?;
+    // An ended meeting is gone from the server already.
+    let job = if room.stage == Stage::InRoom && !room.node_id.is_empty() {
+        Some(HttpJob::leave(room))
+    } else {
+        None
+    };
+    eprintln!("[azmeet] {}: left meeting {}", s.name, room.code);
+    room.leave();
+    job
+}
+
+extern "C" fn on_leave(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let job = match data.downcast_mut::<MeetState>() {
+        Some(mut guard) => leave_meeting(&mut guard),
+        None => return Update::DoNothing,
+    };
+    if let Some(job) = job {
+        spawn_http(&mut info, data.clone(), job);
     }
     Update::RefreshDom
 }
@@ -1727,6 +2286,7 @@ fn start_rooms(worker: String) {
         me.link_status = reason;
     }
     me.room = Some(room);
+    configure_audio(&mut me);
     run(vec![RefAny::new(me)], false);
 }
 
@@ -1753,6 +2313,8 @@ fn start_demo(notice: &str) {
         ben.notice = notice;
         ben.endpoint = Some(ben_link);
         ben.screen_on = true;
+        configure_audio(&mut ada);
+        configure_audio(&mut ben);
         vec![RefAny::new(ada), RefAny::new(ben)]
     } else {
         let failure = bind_failure(&ada_link);
@@ -1761,6 +2323,7 @@ fn start_demo(notice: &str) {
         solo.meeting = meeting;
         solo.notice = notice;
         solo.link_status = failure;
+        configure_audio(&mut solo);
         vec![RefAny::new(solo)]
     };
     let linked = peers.len() == 2;
