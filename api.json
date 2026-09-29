@@ -9005,6 +9005,61 @@
                                     }
                                 ],
                                 "fn_body": "object.set_app_name(app_name.as_str())"
+                            },
+                            "register_image_icon_with_meta": {
+                                "doc": [
+                                    "Register an image icon with metadata: how it may be recoloured, the",
+                                    "mode it was drawn for and its variants for other modes. The bitmap's own",
+                                    "size is the natural size, as in `register_image_icon`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "pack_name": "String"
+                                    },
+                                    {
+                                        "icon_name": "String"
+                                    },
+                                    {
+                                        "image": "ImageRef"
+                                    },
+                                    {
+                                        "meta": "IconMeta"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::icon::register_image_icon_with_meta(iconproviderhandle, pack_name.as_str(), icon_name.as_str(), image, meta)"
+                            },
+                            "register_svg_icon": {
+                                "doc": [
+                                    "Register an SVG document as an icon, with its metadata (see",
+                                    "`IconMeta::create_for_svg` for what a plain `currentColor` icon wants).",
+                                    "",
+                                    "Returns `false`, registering nothing, when `svg_bytes` is too large or is",
+                                    "not an SVG document."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "pack_name": "String"
+                                    },
+                                    {
+                                        "icon_name": "String"
+                                    },
+                                    {
+                                        "svg_bytes": "U8VecRef"
+                                    },
+                                    {
+                                        "meta": "IconMeta"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "azul_layout::icon::register_svg_icon(iconproviderhandle, pack_name.as_str(), icon_name.as_str(), svg_bytes.as_slice(), meta)"
                             }
                         },
                         "repr": "C"
@@ -10132,6 +10187,55 @@
                                 }
                             }
                         ],
+                        "constructors": {
+                            "create_for_font": {
+                                "doc": [
+                                    "The default for font icons: the glyph IS the text colour."
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "IconMeta"
+                                },
+                                "fn_body": "azul_core::icon::IconMeta::for_font()"
+                            },
+                            "create_for_image": {
+                                "doc": [
+                                    "The default for images: full-colour artwork, never recoloured."
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "IconMeta"
+                                },
+                                "fn_body": "azul_core::icon::IconMeta::for_image()"
+                            },
+                            "create_for_mask": {
+                                "doc": [
+                                    "Monochrome ink on alpha that a tint may flood (a symbolic PNG)."
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "IconMeta"
+                                },
+                                "fn_body": "azul_core::icon::IconMeta::for_mask()"
+                            },
+                            "create_for_svg": {
+                                "doc": [
+                                    "The metadata an SVG document implies when its registration states none:",
+                                    "a document that paints in `currentColor` follows the text colour, and is",
+                                    "`monochrome` when every paint is `currentColor` or `none`; anything else",
+                                    "is full-colour artwork, never recoloured."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "svg_bytes": "U8VecRef"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IconMeta"
+                                },
+                                "fn_body": "azul_layout::icon::default_svg_icon_meta(svg_bytes.as_slice())"
+                            }
+                        },
                         "functions": {
                             "with_light_variant": {
                                 "fn_args": [
@@ -56137,6 +56241,22 @@
                                 }
                             }
                         ],
+                        "constructors": {
+                            "create_same": {
+                                "doc": [
+                                    "The same colour in both modes."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "color": "ColorU"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IconModeColors"
+                                },
+                                "fn_body": "azul_core::icon::IconModeColors::same(color)"
+                            }
+                        },
                         "functions": {
                             "for_mode": {
                                 "doc": [
@@ -72170,6 +72290,9 @@
                                 },
                                 "style": {
                                     "type": "BackstageStyle"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -72410,6 +72533,39 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme: the backstage and its back button keep this",
+                                    "look whatever the app theme is. Unset (`None`), the backstage follows",
+                                    "the app theme (`AppConfig::with_theme`, flat by default)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Backstage"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -135265,24 +135421,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "ResultStringCompileError": {
-                        "external": "azul_core::xml::ResultStringCompileError",
-                        "derive": [
-                            "Debug",
-                            "Clone"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Ok": {
-                                    "type": "String"
-                                },
-                                "Err": {
-                                    "type": "CompileError"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
                     "KeyringResult": {
                         "external": "azul_core::keyring::KeyringResult",
                         "derive": [
@@ -138546,28 +138684,6 @@
                         },
                         "repr": "C"
                     },
-                    "CompileTarget": {
-                        "priority": 22.0,
-                        "external": "azul_core::xml::CompileTarget",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Rust": {},
-                                "C": {},
-                                "Cpp": {},
-                                "Python": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "ComponentDef": {
                         "priority": 40.0,
                         "external": "azul_core::xml::ComponentDef",
@@ -138600,59 +138716,15 @@
                                 "render_fn": {
                                     "type": "ComponentRenderFn"
                                 },
-                                "compile_fn": {
-                                    "type": "ComponentCompileFn"
+                                "codegen": {
+                                    "type": "ComponentCodegen"
                                 },
                                 "render_fn_source": {
-                                    "type": "OptionString"
-                                },
-                                "compile_fn_source": {
                                     "type": "OptionString"
                                 }
                             }
                         ],
                         "functions": {},
-                        "repr": "C"
-                    },
-                    "ComponentCompileFn": {
-                        "doc": [
-                            "Opaque compile function pointer for component code generation."
-                        ],
-                        "external": "azul_core::xml::ComponentCompileFn",
-                        "derive": [
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "_internal": {
-                                    "type": "usize"
-                                }
-                            }
-                        ],
-                        "callback_typedef": {
-                            "fn_args": [
-                                {
-                                    "type": "ComponentDef",
-                                    "ref_kind": "ref"
-                                },
-                                {
-                                    "type": "CompileTarget",
-                                    "ref_kind": "ref"
-                                },
-                                {
-                                    "type": "ComponentDataModel",
-                                    "ref_kind": "ref"
-                                },
-                                {
-                                    "name": "indent",
-                                    "type": "usize"
-                                }
-                            ],
-                            "returns": {
-                                "type": "ResultStringCompileError"
-                            }
-                        },
                         "repr": "C"
                     },
                     "ComponentRenderFn": {
@@ -139354,6 +139426,86 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "ComponentCallCodegen": {
+                        "external": "azul_core::xml::ComponentCallCodegen",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "class": {
+                                    "type": "String"
+                                },
+                                "constructor": {
+                                    "type": "String"
+                                },
+                                "args": {
+                                    "type": "StringVec"
+                                },
+                                "setters": {
+                                    "type": "StringPairVec"
+                                },
+                                "finish": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A widget constructor in api.json vocabulary: `class::constructor(args..)`,",
+                                    "then `finish` (e.g. `dom`). The setters start empty."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "class": "String"
+                                    },
+                                    {
+                                        "constructor": "String"
+                                    },
+                                    {
+                                        "args": "StringVec"
+                                    },
+                                    {
+                                        "finish": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComponentCallCodegen"
+                                },
+                                "fn_body": "azul_core::xml::ComponentCallCodegen::create(class, constructor, args, finish)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "ComponentCodegen": {
+                        "external": "azul_core::xml::ComponentCodegen",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "RenderFunction": {},
+                                "Element": {},
+                                "Call": {
+                                    "type": "ComponentCallCodegen"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
