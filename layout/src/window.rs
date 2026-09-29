@@ -16357,6 +16357,8 @@ impl LayoutWindow {
     /// its widget several). The later call then finds nothing to replace.
     #[cfg(feature = "widgets")]
     pub fn resolve_form_controls(&self, dom: &mut Dom) -> usize {
+        // Widgets built here are built for this window's app theme.
+        let _theme = azul_core::app_theme::ThemeScope::enter(self.app_theme.clone());
         crate::form_controls::resolve_form_controls_in_dom(
             dom,
             &self.form_control_memory,
