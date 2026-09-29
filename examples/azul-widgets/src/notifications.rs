@@ -16,7 +16,7 @@ use azul::{
     notification::{Notification, NotificationEvent, NotificationEventType},
     prelude::*,
     widgets::*,
-    window::PlatformCapability,
+    window::{PlatformCapability, UiTheme},
 };
 
 use crate::{labelled, section, Showcase};
@@ -117,18 +117,25 @@ extern "C" fn on_withdraw(mut data: RefAny, mut info: CallbackInfo) -> Update {
     )
 }
 
-pub(crate) fn notifications_section(data: &RefAny, state: &NotificationsDemo) -> Dom {
+/// `theme` is the page's widget theme (the toolbar's Flat / Flora).
+pub(crate) fn notifications_section(
+    data: &RefAny,
+    state: &NotificationsDemo,
+    theme: UiTheme,
+) -> Dom {
     let buttons = Dom::create_div()
         .with_css("display: flex; flex-direction: row;")
         .with_child(
             Button::with_type("Post a notification", ButtonType::Primary)
                 .with_on_click(data.clone(), on_post)
+                .with_theme(theme)
                 .dom()
                 .with_css("margin-right: 8px;"),
         )
         .with_child(
             Button::create("Withdraw it")
                 .with_on_click(data.clone(), on_withdraw)
+                .with_theme(theme)
                 .dom(),
         );
     section(

@@ -26,7 +26,7 @@ use azul::{
     dom::VirtualKeyCode,
     prelude::*,
     widgets::Button,
-    window::PlatformCapability,
+    window::{PlatformCapability, UiTheme},
 };
 
 use super::{captioned, labelled, section, Showcase};
@@ -120,8 +120,14 @@ fn text(s: String) -> Dom {
 
 /// The section. Called from `layout()`, which is where the hotkey is
 /// declared: `info` is that layout's info. Reads the capability on every
-/// layout: the probe is cached after the first call.
-pub fn hotkey_section(data: &RefAny, demo: &HotkeyDemo, info: &LayoutCallbackInfo) -> Dom {
+/// layout: the probe is cached after the first call. `theme` is the page's
+/// widget theme (the toolbar's Flat / Flora).
+pub fn hotkey_section(
+    data: &RefAny,
+    demo: &HotkeyDemo,
+    info: &LayoutCallbackInfo,
+    theme: UiTheme,
+) -> Dom {
     let label = demo_hotkey_label();
 
     // The hotkey is part of what this state renders - declared here, the
@@ -155,6 +161,7 @@ pub fn hotkey_section(data: &RefAny, demo: &HotkeyDemo, info: &LayoutCallbackInf
         format!("Enable {label}")
     })
     .with_on_click(data.clone(), on_toggle)
+    .with_theme(theme)
     .dom();
 
     let (status_line, failed) = match status {
@@ -186,6 +193,7 @@ pub fn hotkey_section(data: &RefAny, demo: &HotkeyDemo, info: &LayoutCallbackInf
             "Refused",
             Button::create(format!("Retry {label}"))
                 .with_on_click(data.clone(), on_retry)
+                .with_theme(theme)
                 .dom(),
         ));
     }

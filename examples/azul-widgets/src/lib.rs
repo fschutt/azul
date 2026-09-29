@@ -11,9 +11,10 @@ use azul::dom::{
 use azul::{
     menu::{Menu, MenuItem, StringMenuItem},
     misc::{TransientDock, TransientTearoff},
+    option::OptionWindowTheme,
     prelude::*,
     widgets::*,
-    window::TransientWindowConfig,
+    window::{TransientWindowConfig, UiTheme, WindowTheme},
 };
 
 mod hotkeys;
@@ -57,6 +58,14 @@ struct Showcase {
     /// The Video card's own state (see `video.rs`).
     video: RefAny,
     hotkey: hotkeys::HotkeyDemo,
+    /// The toolbar's colour-scheme segment: 0 System, 1 Light, 2 Dark. The
+    /// choice itself is the ENGINE's (`CallbackInfo::set_color_scheme`,
+    /// app-wide); this is only the controlled segment's selection.
+    color_scheme_index: usize,
+    /// The widget theme every themed widget on the page is built in (the
+    /// toolbar's Flat / Flora toggle). A switch rebuilds the DOM in the other
+    /// theme: unlike light / dark, a theme may change a widget's DOM.
+    widget_theme: UiTheme,
 }
 
 const CHOICES: &[&str] = &["Red", "Green", "Blue"];
@@ -116,7 +125,7 @@ fn section(title: &str, items: Vec<Dom>) -> Dom {
     col
 }
 
-fn dock_zones() -> Dom {
+fn dock_zones(theme: UiTheme) -> Dom {
     let zone = |name: &str, child: Option<Dom>| {
         let mut z = Dom::create_div()
             .with_attributes(vec![AttributeType::custom(AttributeNameValue {
@@ -172,7 +181,7 @@ fn dock_zones() -> Dom {
             .with_child(Dom::create_span_with_text("Drag the grip bar.").with_css(
                 "font-size: 12px; color: system:secondary-text;",
             ))
-            .with_child(Button::create("A tool button").dom()),
+            .with_child(Button::create("A tool button").with_theme(theme).dom()),
     );
     Dom::create_div()
         .with_css("display: flex; flex-direction: row; gap: 12px;")
@@ -480,11 +489,121 @@ fn tabs_section(data: &RefAny, tabs: &[azul::str::String], active: usize) -> Dom
     )
 }
 
+/// A toolbar label.
+const TOOLBAR_CAPTION_CSS: &str =
+    "font-size: 12px; font-weight: bold; color: system:secondary-text; margin-right: 8px;";
+
+/// The bar under the titlebar: the app's COLOUR SCHEME (System / Light /
+/// Dark - the engine's `CallbackInfo::set_color_scheme`, for every window)
+/// and the WIDGET THEME every themed widget on the page is built in (Flat /
+/// Flora - the demo's own state, handed to each widget's `with_theme`).
+///
+/// `shown` is the light / dark the window shows, read in `layout()` with
+/// `LayoutCallbackInfo::get_theme` so "System (dark)" can say which. Reading
+/// it is what makes a scheme switch - or a desktop flip while on System -
+/// re-run this `layout()`; an app whose `layout()` never reads it is only
+/// re-styled, its DOM kept.
+fn toolbar(data: &RefAny, color_scheme_index: usize, widget_theme: UiTheme, shown: WindowTheme) -> Dom {
+    let shown = match shown {
+        WindowTheme::DarkMode => "dark",
+        WindowTheme::LightMode => "light",
+    };
+    let scheme_note = match color_scheme_index {
+        1 | 2 => format!("pinned {shown}"),
+        _ => format!("System ({shown})"),
+    };
+    let theme_index = match widget_theme {
+        UiTheme::Flat => 0,
+        UiTheme::Flora => 1,
+    };
+    let group = |caption: &str, control: Dom| {
+        Dom::create_div()
+            .with_css("display: flex; flex-direction: row; align-items: center;")
+            .with_child(Dom::create_span_with_text(caption).with_css(TOOLBAR_CAPTION_CSS))
+            .with_child(control)
+    };
+    Dom::create_div()
+        .with_css(
+            "display: flex; flex-direction: row; align-items: center; gap: 24px; flex-grow: 0; \
+             flex-shrink: 0; padding: 8px 24px; border-bottom: 1px solid system:separator; \
+             background-color: system:window-background;",
+        )
+        .with_child(group(
+            "Colour scheme",
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: row; align-items: center; gap: 8px;")
+                .with_child(
+                    Segmented::create(strs(&["System", "Light", "Dark"]))
+                        .with_selected_index(color_scheme_index)
+                        .with_on_change(data.clone(), on_color_scheme)
+                        .dom()
+                        .with_accessibility_name("Colour scheme"),
+                )
+                .with_child(
+                    Dom::create_span_with_text(scheme_note.as_str())
+                        .with_css("font-size: 12px; color: system:tertiary-text;"),
+                ),
+        ))
+        .with_child(group(
+            "Widget theme",
+            Segmented::create(strs(&["Flat", "Flora"]))
+                .with_selected_index(theme_index)
+                .with_on_change(data.clone(), on_widget_theme)
+                .dom()
+                .with_accessibility_name("Widget theme"),
+        ))
+}
+
+/// The colour-scheme segment: the APP-wide choice, applied by the engine to
+/// every window when this returns - a restyle (colours only) for a window
+/// whose `layout()` never read the scheme. This page reads it (the
+/// "System (dark)" note), and the segment is a controlled widget, so the
+/// demo asks for its own rebuild as well.
+extern "C" fn on_color_scheme(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    state: SegmentedState,
+) -> Update {
+    let scheme = match state.selected_index {
+        1 => OptionWindowTheme::Some(WindowTheme::LightMode),
+        2 => OptionWindowTheme::Some(WindowTheme::DarkMode),
+        _ => OptionWindowTheme::None,
+    };
+    info.set_color_scheme(scheme);
+    match data.downcast_mut::<Showcase>() {
+        Some(mut s) => {
+            s.color_scheme_index = state.selected_index;
+            Update::RefreshDom
+        }
+        None => Update::DoNothing,
+    }
+}
+
+/// The widget-theme segment: every themed widget is rebuilt in the other
+/// theme (a theme may change a widget's DOM, so this is a rebuild, never a
+/// restyle).
+extern "C" fn on_widget_theme(mut data: RefAny, _: CallbackInfo, state: SegmentedState) -> Update {
+    match data.downcast_mut::<Showcase>() {
+        Some(mut s) => {
+            s.widget_theme = if state.selected_index == 1 {
+                UiTheme::Flora
+            } else {
+                UiTheme::Flat
+            };
+            Update::RefreshDom
+        }
+        None => Update::DoNothing,
+    }
+}
+
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let s = match data.downcast_ref::<Showcase>() {
         Some(s) => (*s).clone(),
         None => return Dom::create_body(),
     };
+    // THE widget theme of this pass: every widget below that has a theme
+    // (`with_theme`) is built in it.
+    let theme = s.widget_theme;
 
     let inputs = section(
         "Inputs",
@@ -495,6 +614,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                     .with_text(s.text.clone())
                     .with_placeholder("Type something...")
                     .with_on_text_input(data.clone(), on_text_input)
+                    .with_theme(theme)
                     .dom(),
             ),
             labelled(
@@ -511,6 +631,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                         data.clone(),
                         on_textarea_focus_lost,
                     )
+                    .with_theme(theme)
                     .dom(),
             ),
             captioned(
@@ -528,6 +649,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                         data.clone(),
                         on_slider,
                     )
+                    .with_theme(theme)
                     .dom(),
             ),
             captioned(
@@ -538,6 +660,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                         data.clone(),
                         on_switch,
                     )
+                    .with_theme(theme)
                     .dom(),
             ),
         ],
@@ -551,6 +674,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 CheckBox::create(s.checkbox_checked)
                     .with_accessibility_name("CheckBox")
                     .with_on_toggle(data.clone(), on_checkbox)
+                    .with_theme(theme)
                     .dom(),
             ),
             captioned(
@@ -579,6 +703,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 DropDown::create(strs(CHOICES))
                     .with_selected(s.selected_choice)
                     .with_on_choice_change(data.clone(), on_dropdown)
+                    .with_theme(theme)
                     .dom(),
             ),
             labelled(
@@ -605,15 +730,21 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                     .with_child(
                         Button::create("Default")
                             .with_on_click(data.clone(), on_button)
+                            .with_theme(theme)
                             .dom()
                             .with_css("margin-right: 8px;"),
                     )
                     .with_child(
                         Button::with_type("Primary", ButtonType::Primary)
+                            .with_theme(theme)
                             .dom()
                             .with_css("margin-right: 8px;"),
                     )
-                    .with_child(Button::with_type("Danger", ButtonType::Danger).dom()),
+                    .with_child(
+                        Button::with_type("Danger", ButtonType::Danger)
+                            .with_theme(theme)
+                            .dom(),
+                    ),
             ),
             labelled(
                 "Badge",
@@ -643,7 +774,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             ),
             labelled(
                 "Avatar",
-                Avatar::create("FS").with_size(AvatarSize::Large).dom(),
+                Avatar::create("FS")
+                    .with_size(AvatarSize::Large)
+                    .with_theme(theme)
+                    .dom(),
             ),
             labelled(
                 "Card",
@@ -656,6 +790,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 "ProgressBar",
                 ProgressBar::create(s.progress)
                     .with_accessibility_name("ProgressBar")
+                    .with_theme(theme)
                     .dom()
                     .with_css("width: 240px;"),
             ),
@@ -691,17 +826,23 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             // button inside is the control, named by its own text.
             captioned(
                 "Tooltip (hover the button)",
-                Tooltip::create(Button::create("Hover me").dom(), "I am a tooltip!").dom(),
+                Tooltip::create(
+                    Button::create("Hover me").with_theme(theme).dom(),
+                    "I am a tooltip!",
+                )
+                .dom(),
             ),
             labelled(
                 "Dialog (modal: Escape, a button or \u{00D7} closes it)",
                 Dom::create_div()
                     .with_css("display: flex; flex-direction: column; align-items: flex-start;")
                     .with_child(
-                        Dialog::create(dialog_body(&data))
+                        Dialog::create(dialog_body(&data, theme))
                             .with_title("Delete \u{201C}report.pdf\u{201D}?")
                             .with_invoker(
-                                Button::with_type("Delete file\u{2026}", ButtonType::Danger).dom(),
+                                Button::with_type("Delete file\u{2026}", ButtonType::Danger)
+                                    .with_theme(theme)
+                                    .dom(),
                             )
                             .with_modal(true)
                             .with_close_button(true)
@@ -719,16 +860,20 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         "Docking",
         vec![labelled(
             "Dockable panel (drag the grip out; drop it on the other zone)",
-            dock_zones(),
+            dock_zones(theme),
         )],
     );
 
-    let notifications = notifications::notifications_section(&data, &s.notifications);
+    let notifications = notifications::notifications_section(&data, &s.notifications, theme);
     let video_card = video::card(&s.video);
     let menus = menus_section(&data, s.menu_status.as_str());
-    let hotkey = hotkeys::hotkey_section(&data, &s.hotkey, &info);
+    let hotkey = hotkeys::hotkey_section(&data, &s.hotkey, &info, theme);
     let files = files_section(&data, &s.dropped, s.file_hovering);
     let tabs = tabs_section(&data, &s.tabs, s.active_tab);
+    // `get_theme` DECLARES that this DOM depends on the light / dark the
+    // window shows (the "System (dark)" note): a scheme switch re-runs this
+    // `layout()` rather than only re-styling the page.
+    let bar = toolbar(&data, s.color_scheme_index, theme, info.get_theme());
 
     let navigation = section(
         "Navigation",
@@ -798,7 +943,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                             "A non-modal dialog below its button.",
                         ))
                         .with_title("Popover")
-                        .with_invoker(Button::create("Open popover").dom())
+                        .with_invoker(Button::create("Open popover").with_theme(theme).dom())
                         .with_closed_by(DialogClosedBy::Any)
                         .with_close_button(true)
                         .with_on_close(data.clone(), on_popover_close)
@@ -899,6 +1044,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
              system:background; display: flex; flex-direction: column; height: 100%;",
         )
         .with_child(titlebar)
+        .with_child(bar)
         .with_child(
             Dom::create_div()
                 .with_css(
@@ -1036,7 +1182,7 @@ extern "C" fn on_alert_dismiss(mut data: RefAny, _: CallbackInfo, _: AlertState)
 }
 /// The modal dialog's content: a message and two buttons that close it
 /// with a return value (HTML `dialog.close(value)`).
-fn dialog_body(data: &RefAny) -> Dom {
+fn dialog_body(data: &RefAny, theme: UiTheme) -> Dom {
     Dom::create_div()
         .with_css("display: flex; flex-direction: column;")
         .with_child(
@@ -1049,12 +1195,14 @@ fn dialog_body(data: &RefAny) -> Dom {
                 .with_child(
                     Button::create("Keep")
                         .with_on_click(data.clone(), on_dialog_keep)
+                        .with_theme(theme)
                         .dom()
                         .with_css("margin-right: 8px;"),
                 )
                 .with_child(
                     Button::with_type("Delete", ButtonType::Danger)
                         .with_on_click(data.clone(), on_dialog_delete)
+                        .with_theme(theme)
                         .dom(),
                 ),
         )
@@ -1176,8 +1324,13 @@ pub fn start() {
         notifications: notifications::NotificationsDemo::probe(),
         video: video::new_state(),
         hotkey: hotkeys::HotkeyDemo::default(),
+        // Follow the desktop's light / dark (the toolbar's "System").
+        color_scheme_index: 0,
+        widget_theme: UiTheme::Flat,
     });
-    let config = AppConfig::create();
+    // `None` follows the desktop - the default, spelled out: an app that
+    // starts pinned passes `OptionWindowTheme::Some(WindowTheme::DarkMode)`.
+    let config = AppConfig::create().with_color_scheme(OptionWindowTheme::None);
     let app = App::create(data, config);
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.title = "Azul Widget Showcase".into();
