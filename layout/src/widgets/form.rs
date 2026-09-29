@@ -1183,4 +1183,77 @@ mod tests {
             "the field still shows the edited text: {changes:?}"
         );
     }
+
+    // ------------------------------------------------------------------
+    // <input type=hidden>
+    // ------------------------------------------------------------------
+
+    mod hidden {
+        use azul_css::props::{layout::LayoutDisplay, property::CssProperty};
+
+        use super::*;
+
+        #[test]
+        fn a_hidden_input_renders_nothing_but_carries_its_name_and_value() {
+            let dom = HiddenInput::create("token".into(), "abc123".into()).dom();
+            assert!(dom.children.as_ref().is_empty(), "a hidden input has no content");
+            assert!(dom.root.get_tab_index().is_none(), "a hidden input is not focusable");
+            let display = dom
+                .root
+                .style
+                .iter_inline_properties()
+                .filter_map(|(p, _)| match p {
+                    CssProperty::Display(v) => v.get_property().cloned(),
+                    _ => None,
+                })
+                .last();
+            assert_eq!(display, Some(LayoutDisplay::None), "it must take no space");
+            let attrs = dom.root.attributes();
+            assert!(attrs
+                .as_ref()
+                .iter()
+                .any(|a| matches!(a, AttributeType::Name(n) if n.as_str() == "token")));
+            assert!(attrs
+                .as_ref()
+                .iter()
+                .any(|a| matches!(a, AttributeType::Value(v) if v.as_str() == "abc123")));
+            assert!(attrs
+                .as_ref()
+                .iter()
+                .any(|a| matches!(a, AttributeType::InputType(t) if t.as_str() == "hidden")));
+        }
+
+        #[test]
+        fn a_hidden_input_is_submitted_with_its_form() {
+            let log = RefAny::new(Log::default());
+            let form = Form::create(DomVec::from_vec(vec![
+                HiddenInput::create("token".into(), "abc123".into()).dom(),
+                TextInput::create()
+                    .with_name("user".into())
+                    .with_text("ann".into())
+                    .dom(),
+            ]))
+            .with_on_submit(log.clone(), record_submit as FormOnSubmitCallbackType)
+            .with_on_reset(log.clone(), record_reset as FormOnResetCallbackType);
+            let sd = StyledDom::create_from_dom(form.dom());
+            let (_, _) = run(sd.clone(), dom_node(0), None, |mut info| {
+                submit_form(&mut info, dom_node(0))
+            });
+            let got = submitted(&log);
+            assert_eq!(got.len(), 1);
+            assert_eq!(
+                pairs(&got[0]),
+                vec![
+                    ("token".to_string(), "abc123".to_string()),
+                    ("user".to_string(), "ann".to_string()),
+                ]
+            );
+
+            // A reset leaves it alone and reports it among the initial values.
+            let (_, _) = run(sd, dom_node(0), None, |mut info| reset_form(&mut info, dom_node(0)));
+            let reset = resets(&log);
+            assert_eq!(reset.len(), 1);
+            assert!(reset[0].has("token".into()));
+        }
+    }
 }
