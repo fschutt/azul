@@ -4229,4 +4229,235 @@ mod autotest_generated {
             assert_eq!(masked_to_real_offset(real, 99 * BULLET.len()), real.len());
         }
     }
+
+    // ==================================================================
+    // <input type=search>: a clear button while non-empty, Escape clears
+    // ==================================================================
+
+    mod search {
+        use azul_core::a11y::AccessibilityRole;
+
+        use super::*;
+
+        // Flattened: wrapper(0) > field(1) > line <p>(2) > text(3),
+        //            clear <p>(4) > text(5).
+        const FIELD: usize = 1;
+        const LINE_TEXT: usize = 3;
+        const CLEAR: usize = 4;
+
+        fn field_of(dom: &Dom) -> &Dom {
+            &dom.children.as_ref()[0]
+        }
+
+        fn clear_of(dom: &Dom) -> &Dom {
+            &dom.children.as_ref()[1]
+        }
+
+        fn rendered_search(input: TextInput) -> (StyledDom, RefAny) {
+            let dom = input.dom();
+            let state = field_of(&dom)
+                .root
+                .get_dataset()
+                .cloned()
+                .expect("the search FIELD carries the widget state");
+            (StyledDom::create_from_dom(dom), state)
+        }
+
+        /// The resting (unconditional) `display` the node was built with.
+        fn built_display(node: &Dom) -> Option<LayoutDisplay> {
+            node.root
+                .style
+                .iter_inline_properties()
+                .filter(|(_, conds)| conds.as_ref().is_empty())
+                .filter_map(|(p, _)| match p {
+                    CssProperty::Display(v) => v.get_property().cloned(),
+                    _ => None,
+                })
+                .last()
+        }
+
+        /// Every `display` a handler pushed onto `node`, in push order.
+        fn displays_pushed_to(changes: &[CallbackChange], node: usize) -> Vec<LayoutDisplay> {
+            changes
+                .iter()
+                .filter_map(|c| match c {
+                    CallbackChange::ChangeNodeCssProperties {
+                        node_id,
+                        properties,
+                        ..
+                    } if *node_id == NodeId::new(node) => {
+                        properties.as_ref().iter().find_map(|p| match p {
+                            CssProperty::Display(v) => v.get_property().cloned(),
+                            _ => None,
+                        })
+                    }
+                    _ => None,
+                })
+                .collect()
+        }
+
+        #[test]
+        fn a_search_input_is_its_field_followed_by_a_clear_button() {
+            let dom = TextInput::create_search().with_text("abc".into()).dom();
+            assert_eq!(dom.children.as_ref().len(), 2);
+
+            let field = field_of(&dom);
+            assert_eq!(classes(field), vec![TEXT_INPUT_CONTAINER_CLASS.to_string()]);
+            assert!(field.root.is_contenteditable());
+            assert!(field.root.attributes().as_ref().iter().any(
+                |a| matches!(a, AttributeType::InputType(t) if t.as_str() == "search")
+            ));
+
+            let clear = clear_of(&dom);
+            let a11y = clear
+                .root
+                .get_accessibility_info()
+                .expect("the clear button must be announced");
+            assert_eq!(a11y.role, AccessibilityRole::PushButton);
+            assert!(a11y.accessibility_name.is_some(), "the clear button has no name");
+            assert!(
+                clear
+                    .root
+                    .callbacks
+                    .as_ref()
+                    .iter()
+                    .any(|c| c.event == EventFilter::Hover(HoverEventFilter::Click)
+                        && c.callback.cb == default_on_search_clear_click as usize),
+                "the clear button does not clear on click"
+            );
+            // The clear button must not sit INSIDE the editable host, or a
+            // click on it would place a caret in its glyph.
+            assert_eq!(field.children.as_ref().len(), 1);
+        }
+
+        #[test]
+        fn the_clear_button_is_hidden_while_the_search_field_is_empty() {
+            let empty = TextInput::create_search().dom();
+            assert_eq!(built_display(clear_of(&empty)), Some(LayoutDisplay::None));
+
+            let filled = TextInput::create_search().with_text("abc".into()).dom();
+            let shown = built_display(clear_of(&filled));
+            assert!(
+                shown.is_some() && shown != Some(LayoutDisplay::None),
+                "a non-empty search field hides its clear button: {shown:?}"
+            );
+        }
+
+        #[test]
+        fn clicking_the_clear_button_empties_the_field_and_tells_the_hook() {
+            let probe = recorder(Update::RefreshDom, TextInputValid::Yes);
+            let (styled_dom, state) = rendered_search(
+                TextInput::create_search()
+                    .with_text("abc".into())
+                    .with_on_text_input(
+                        probe.clone(),
+                        record_text_input as TextInputOnTextInputCallbackType,
+                    ),
+            );
+            let (update, changes, _) = run(Env::new(styled_dom).hit(dom_node(CLEAR)), |info| {
+                default_on_search_clear_click(state.clone(), info)
+            });
+
+            assert_eq!(update, Update::RefreshDom, "the hook's Update was swallowed");
+            assert_eq!(state_of(&state).get_text(), "");
+            let seen = recorded(&probe);
+            assert_eq!(seen.len(), 1);
+            assert_eq!(seen[0].get_text(), "", "the hook was not shown the cleared value");
+
+            assert!(
+                pushed_texts(&changes)
+                    .iter()
+                    .any(|(node, text)| *node == dom_node(LINE_TEXT) && text.is_empty()),
+                "the field's line was not emptied: {changes:?}"
+            );
+            assert_eq!(
+                displays_pushed_to(&changes, CLEAR),
+                vec![LayoutDisplay::None],
+                "the clear button must hide once the field is empty"
+            );
+        }
+
+        #[test]
+        fn a_hook_rejecting_the_clear_keeps_the_text() {
+            let probe = recorder(Update::DoNothing, TextInputValid::No);
+            let (styled_dom, state) = rendered_search(
+                TextInput::create_search()
+                    .with_text("abc".into())
+                    .with_on_text_input(
+                        probe.clone(),
+                        record_text_input as TextInputOnTextInputCallbackType,
+                    ),
+            );
+            let (_, changes, _) = run(Env::new(styled_dom).hit(dom_node(CLEAR)), |info| {
+                default_on_search_clear_click(state.clone(), info)
+            });
+            assert_eq!(state_of(&state).get_text(), "abc");
+            assert!(pushed_texts(&changes).is_empty());
+        }
+
+        #[test]
+        fn escape_in_a_non_empty_search_field_clears_it_and_keeps_focus() {
+            let (styled_dom, state) =
+                rendered_search(TextInput::create_search().with_text("abc".into()));
+            let (_, changes, _) = run(
+                Env::new(styled_dom)
+                    .hit(dom_node(FIELD))
+                    .key(VirtualKeyCode::Escape),
+                |info| default_on_virtual_key_down(state.clone(), info),
+            );
+            assert_eq!(state_of(&state).get_text(), "");
+            assert!(
+                changes
+                    .iter()
+                    .any(|c| matches!(c, CallbackChange::PreventDefault)),
+                "Escape's default (dropping focus) must not run when it cleared the field"
+            );
+        }
+
+        #[test]
+        fn escape_in_an_empty_search_field_keeps_its_default() {
+            let (styled_dom, state) = rendered_search(TextInput::create_search());
+            let (_, changes, _) = run(
+                Env::new(styled_dom)
+                    .hit(dom_node(FIELD))
+                    .key(VirtualKeyCode::Escape),
+                |info| default_on_virtual_key_down(state.clone(), info),
+            );
+            assert!(!changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::PreventDefault)));
+        }
+
+        #[test]
+        fn escape_in_a_plain_text_field_does_not_clear_it() {
+            let (styled_dom, state) = rendered(TextInput::create().with_text("abc".into()));
+            let _ = run(Env::new(styled_dom).key(VirtualKeyCode::Escape), |info| {
+                default_on_virtual_key_down(state.clone(), info)
+            });
+            assert_eq!(state_of(&state).get_text(), "abc");
+        }
+
+        #[test]
+        fn typing_the_first_character_shows_the_clear_button_once() {
+            let (styled_dom, state) = rendered_search(TextInput::create_search());
+            let (_, changes, _) = run(
+                Env::new(styled_dom).hit(dom_node(FIELD)).insert("a"),
+                |info| default_on_text_input(state.clone(), info),
+            );
+            assert_eq!(state_of(&state).get_text(), "a");
+            let shown = displays_pushed_to(&changes, CLEAR);
+            assert_eq!(shown.len(), 1, "the clear button was not shown: {changes:?}");
+            assert_ne!(shown[0], LayoutDisplay::None);
+
+            // The second character changes nothing about the button: no
+            // same-value `display` write (each one costs a relayout).
+            let (styled_dom, state) =
+                rendered_search(TextInput::create_search().with_text("a".into()));
+            let (_, changes, _) = run(
+                Env::new(styled_dom).hit(dom_node(FIELD)).insert("b"),
+                |info| default_on_text_input(state.clone(), info),
+            );
+            assert!(displays_pushed_to(&changes, CLEAR).is_empty());
+        }
+    }
 }
