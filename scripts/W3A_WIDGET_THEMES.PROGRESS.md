@@ -64,11 +64,14 @@ is shared with other agents!). Append to files via Write-to-scratch + `cat >>`.
   flora.rs consts LEAF_SHADOW_LIGHT/DARK (= --fl-shadow-1) live in the alert
   section; reuse for card/frame.
 
+- card: c0616d9bb (plumbing: card::build(card, style, classes)), 7d6ac6427 (RED),
+  691f3714f (flora leaf card). API: `Card.theme` appended after `on_click`;
+  set_theme / with_theme.
+
 ## IN PROGRESS
 
 ## NEXT
-card, frame, breadcrumb,
-accordion, menubar, color_input, date_picker
+frame, breadcrumb, accordion, menubar, color_input, date_picker
 
 ## Open questions
 - ENGINE GAP (spinner): `-azul-animation-in` tracks are started only by
