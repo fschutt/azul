@@ -6172,6 +6172,63 @@ mod tests {
         );
     }
 
+    /// A PASSWORD field keeps no undo history, as in GTK and Qt: its engine
+    /// buffer holds the mask, so an undo restores BULLETS the widget cannot
+    /// map back onto the real value - the screen and the value part ways (the
+    /// undo shortcut is consumed before any callback, so the widget cannot
+    /// refuse it) - and a history of a secret is a leak waiting to happen. A
+    /// plain field keeps its history.
+    #[test]
+    fn a_password_field_keeps_no_undo_history() {
+        use azul_layout::widgets::text_input::TextInput;
+
+        /// `widget` alone in a window, focused by Tab and typed into.
+        fn typed_into(widget: Dom) -> (Runner, NodeId) {
+            let mut dom = Dom::create_body().with_child(widget);
+            let (css, _) = azul_css::parser2::new_from_str(
+                "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; }",
+            );
+            let styled_dom = StyledDom::create(&mut dom, css);
+            let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+                "name": "type_into_a_field",
+                "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+                "steps": [
+                    { "op": "wait_frame" },
+                    { "op": "key_down", "key": "Tab" }, { "op": "key_up", "key": "Tab" },
+                    { "op": "wait_frame" },
+                    { "op": "key_down", "key": "a", "text": "a" }, { "op": "key_up", "key": "a" },
+                    { "op": "key_down", "key": "b", "text": "b" }, { "op": "key_up", "key": "b" },
+                    { "op": "wait_frame" }
+                ]
+            }))
+            .expect("scenario json");
+            let (result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+            assert_eq!(result.status, "pass", "{:#?}", result.steps);
+            let host = runner
+                .layout_window
+                .focus_manager
+                .get_focused_node()
+                .copied()
+                .expect("Tab focuses the field")
+                .node
+                .into_crate_internal()
+                .expect("the field has a node id");
+            (runner, host)
+        }
+
+        let (plain, plain_host) = typed_into(TextInput::create().dom());
+        assert!(
+            plain.layout_window.undo_redo_manager.can_undo(plain_host),
+            "premise: typing into a plain field is undoable"
+        );
+
+        let (password, host) = typed_into(TextInput::create_password().dom());
+        assert!(
+            !password.layout_window.undo_redo_manager.can_undo(host),
+            "a password field must record no undo history"
+        );
+    }
+
     /// The placeholder must not FLICKER while the window is slowly resized.
     ///
     /// User report: "Type something..." blinks during a slow drag-resize. The
