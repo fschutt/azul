@@ -3634,13 +3634,15 @@ pub fn segmented(s: crate::widgets::segmented::Segmented) -> Dom {
 // lights in `FIELD_RING` / `DARK_ACC` and carries an inset ring of the same
 // colour: on a 6px bar a ring alone would be two hairlines.
 
-/// Renders a [`crate::widgets::split_pane::SplitPane`] in the flat theme.
+/// Flat's split-pane skin for a pane split in `direction`.
 #[must_use]
-pub fn split_pane(sp: crate::widgets::split_pane::SplitPane) -> Dom {
+pub(crate) fn split_pane_skin(
+    direction: crate::widgets::split_pane::SplitDirection,
+) -> crate::widgets::split_pane::SplitPaneSkin {
     use super::style_kit as kit;
     use crate::widgets::split_pane as s;
 
-    let mut divider = s::divider_style(sp.split_pane_state.inner.direction).into_library_owned_vec();
+    let mut divider = s::divider_style(direction).into_library_owned_vec();
     // States last: the resting dark twin matches in every state.
     divider.extend(CssPropertyWithConditions::themed_on_focus(
         kit::bg(FIELD_RING),
@@ -3648,10 +3650,17 @@ pub fn split_pane(sp: crate::widgets::split_pane::SplitPane) -> Dom {
     ));
     divider.extend(kit::focus_shadow_ring(FIELD_RING, DARK_ACC));
 
-    sp.build(s::SplitPaneSkin {
+    s::SplitPaneSkin {
         theme: super::UiTheme::Flat,
         divider: CssPropertyWithConditionsVec::from_vec(divider),
-    })
+    }
+}
+
+/// Renders a [`crate::widgets::split_pane::SplitPane`] in the flat theme.
+#[must_use]
+pub fn split_pane(sp: crate::widgets::split_pane::SplitPane) -> Dom {
+    let skin = split_pane_skin(sp.split_pane_state.inner.direction);
+    sp.build(skin)
 }
 
 // ==== stepper ====

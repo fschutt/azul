@@ -29,13 +29,17 @@ Recipe: scripts/T1_APP_THEME_2026_09_29.md §4. Nothing is compiled here (house 
 - tooltip: RED 086a479be, impl: see git log (`tooltip::{follow_skin, skin_of}`; two autotest
   pins that compare against flat's const tables now pin `with_theme(Flat)`)
 
+- split_pane: RED 7ad8c09a1, impl: see git log (`flat::split_pane_skin` / `flora::split_pane_skin`
+  extracted inside their sections; `split_pane::{skin_for, follow_skin}`; the flat-divider pin
+  now pins `with_theme(Flat)`)
+
 ## IN PROGRESS
 
-- split_pane
+- radio_group
 
 ## NEXT
 
-split_pane, radio_group, time_picker, toast,
+radio_group, time_picker, toast,
 pagination, segmented, stepper, number_input, progressbar, slider, spinner, switch, text_area,
 text_input, video, combobox (+ theme option + flora look), file_input (same), then the six
 single-look widgets (ribbon, quick_access, statusbar, tabs, titlebar, tree_view).

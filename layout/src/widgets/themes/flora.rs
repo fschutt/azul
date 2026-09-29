@@ -3416,14 +3416,16 @@ pub fn segmented(s: crate::widgets::segmented::Segmented) -> Dom {
 // the pointer, sinks to `--fl-pT` while dragged, and is ringed on focus with an
 // inset ring that fills the channel - the accent by day, the glow by night.
 
-/// Renders a [`crate::widgets::split_pane::SplitPane`] in the flora theme.
+/// Flora's split-pane skin for a pane split in `direction`.
 #[must_use]
-pub fn split_pane(sp: crate::widgets::split_pane::SplitPane) -> Dom {
+pub(crate) fn split_pane_skin(
+    direction: crate::widgets::split_pane::SplitDirection,
+) -> crate::widgets::split_pane::SplitPaneSkin {
     use super::style_kit as kit;
     use crate::widgets::split_pane::{self as s, SplitDirection};
     type P = CssPropertyWithConditions;
 
-    let (size, cursor, edges) = match sp.split_pane_state.inner.direction {
+    let (size, cursor, edges) = match direction {
         SplitDirection::Horizontal => (
             CssProperty::const_width(LayoutWidth::const_px(s::DIVIDER_THICKNESS)),
             StyleCursor::ColResize,
@@ -3463,10 +3465,17 @@ pub fn split_pane(sp: crate::widgets::split_pane::SplitPane) -> Dom {
     divider.extend(kit::active_bg(LIGHT_PT, DARK_PT));
     divider.extend(kit::focus_shadow_ring(LIGHT_ACC, DARK_GLOW));
 
-    sp.build(s::SplitPaneSkin {
+    s::SplitPaneSkin {
         theme: super::UiTheme::Flora,
         divider: CssPropertyWithConditionsVec::from_vec(divider),
-    })
+    }
+}
+
+/// Renders a [`crate::widgets::split_pane::SplitPane`] in the flora theme.
+#[must_use]
+pub fn split_pane(sp: crate::widgets::split_pane::SplitPane) -> Dom {
+    let skin = split_pane_skin(sp.split_pane_state.inner.direction);
+    sp.build(skin)
 }
 
 // ==== stepper ====
