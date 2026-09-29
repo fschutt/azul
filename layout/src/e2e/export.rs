@@ -82,7 +82,8 @@ pub fn languages_json() -> serde_json::Value {
 pub enum CssSource {
     /// CSS text the user typed or pasted.
     Text(String),
-    /// Every component stylesheet the builder document uses.
+    /// The builder document's stylesheet: every component stylesheet it
+    /// uses, then its own (`builder_set_stylesheet`).
     Document,
     /// One document node's style: the document rules that apply to it, and
     /// its own `style` attribute as a rule of its own.
@@ -135,7 +136,7 @@ pub fn resolve_css(
 ) -> Result<String, String> {
     match source {
         CssSource::Text(t) => Ok(t.clone()),
-        CssSource::Document => Ok(builder::export_node_xml(&doc.root, map).1),
+        CssSource::Document => Ok(document_css(doc, map)),
         CssSource::Component { library, name } => map
             .get(library, name)
             .map(|d| d.css.as_str().to_string())
@@ -168,7 +169,7 @@ fn node_css(doc: &BuilderDocument, map: &ComponentMap, uid: u64) -> Result<Strin
             ))
         }
         BuilderNodeKind::Element { tag } => {
-            let sheet = builder::export_node_xml(&doc.root, map).1;
+            let sheet = document_css(doc, map);
             let (css, _) = azul_css::parser2::new_from_str(&sheet);
             for rule in css.rules.as_ref() {
                 if rule_matches(&rule.path, tag, &classes, &ids) {
@@ -198,6 +199,24 @@ fn node_css(doc: &BuilderDocument, map: &ComponentMap, uid: u64) -> Result<Strin
         }
     }
     Ok(out)
+}
+
+/// The document's stylesheet as the window applies it: the CSS of every
+/// component it uses, then the document's own (B5), which comes last.
+fn document_css(doc: &BuilderDocument, map: &ComponentMap) -> String {
+    with_own_stylesheet(builder::export_node_xml(&doc.root, map).1, doc)
+}
+
+/// `css` followed by the document's own stylesheet.
+fn with_own_stylesheet(mut css: String, doc: &BuilderDocument) -> String {
+    if !doc.stylesheet.trim().is_empty() {
+        if !css.is_empty() && !css.ends_with('\n') {
+            css.push('\n');
+        }
+        css.push_str(&doc.stylesheet);
+        css.push('\n');
+    }
+    css
 }
 
 /// `.a.b` if the node has classes, else `#id`, else its tag.
@@ -425,11 +444,18 @@ fn default_fn_name(node: &BuilderNode) -> String {
 }
 
 /// The builder's markup of `node` for the code export (instances as tags)
-/// and the CSS of every component it uses (global on the page, as when it
-/// is mounted).
-fn builder_markup(node: &BuilderNode, map: &ComponentMap) -> Result<(Vec<XmlNodeChild>, String), String> {
+/// and the CSS of every component it uses plus the document's own
+/// stylesheet (global on the page, as when it is mounted).
+fn builder_markup(
+    doc: &BuilderDocument,
+    node: &BuilderNode,
+    map: &ComponentMap,
+) -> Result<(Vec<XmlNodeChild>, String), String> {
     let (_, css) = builder::export_node_xml(node, map);
-    Ok((parse_xml(&builder::export_node_markup(node))?, css))
+    Ok((
+        parse_xml(&builder::export_node_markup(node))?,
+        with_own_stylesheet(css, doc),
+    ))
 }
 
 /// `export_subtree_code`: the document subtree at `uid` as code.
@@ -445,7 +471,7 @@ pub fn subtree_code(
     fn_name: Option<&str>,
 ) -> Result<CodeExport, String> {
     let node = doc.node(uid)?;
-    let (nodes, css) = builder_markup(node, map)?;
+    let (nodes, css) = builder_markup(doc, node, map)?;
     let name = fn_name
         .filter(|n| !n.trim().is_empty())
         .map_or_else(|| default_fn_name(node), str::to_string);
@@ -593,12 +619,13 @@ fn xml_error_position(e: &azul_core::xml::XmlError) -> Option<azul_core::xml::Xm
 // ===========================================================================
 
 /// The builder document (`<body>`, instances as tags, the component CSS it
-/// uses) as the app of a project.
+/// uses and its own stylesheet - the app's stylesheet, which
+/// `project_files` writes as named styles) as the app of a project.
 ///
 /// # Errors
 /// The document's markup does not parse.
 pub fn document_app(doc: &BuilderDocument, map: &ComponentMap) -> Result<AppMarkup, String> {
-    let (nodes, css) = builder_markup(&doc.root, map)?;
+    let (nodes, css) = builder_markup(doc, &doc.root, map)?;
     Ok(AppMarkup::Fragment { nodes, css })
 }
 

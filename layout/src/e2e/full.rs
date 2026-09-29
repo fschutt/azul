@@ -3203,6 +3203,17 @@ pub enum DebugEvent {
         #[serde(default)]
         value: Option<String>,
     },
+    /// The document's own stylesheet: `{active, stylesheet, css, rules,
+    /// warnings}` (`rules` / `warnings` as `get_css_rules` answers them).
+    BuilderGetStylesheet,
+    /// Replace the document's own stylesheet — mounted after the component
+    /// CSS and the project's stylesheets, saved with the document, exported
+    /// as the app's stylesheet. One undo step. Answers the document plus the
+    /// parser's `warnings`.
+    BuilderSetStylesheet {
+        /// The whole stylesheet (empty clears it).
+        css: String,
+    },
     /// Undo the last builder edit.
     BuilderUndo,
     /// Redo the last undone builder edit.
@@ -19715,6 +19726,54 @@ pub fn process_debug_event(
                     value.clone(),
                 )
             };
+            if finish_builder_op(request, callback_info, result) {
+                needs_update = true;
+            }
+        }
+
+        DebugEvent::BuilderGetStylesheet => {
+            let (active, stylesheet) = {
+                let layout_window = callback_info.get_layout_window();
+                let live = layout_window
+                    .layout_results
+                    .get(&ROOT_DOM_ID)
+                    .map(|lr| &lr.styled_dom);
+                let guard = scratch(callback_info);
+                let active = guard.builder.is_active();
+                let stylesheet = guard.builder.export_document(live).stylesheet.clone();
+                (active, stylesheet)
+            };
+            let mut json = super::export::css_rules_json(&stylesheet);
+            if let Some(obj) = json.as_object_mut() {
+                obj.insert("active".into(), serde_json::json!(active));
+                obj.insert("stylesheet".into(), serde_json::json!(stylesheet));
+            }
+            send_ok(request, None, Some(ResponseData::Json(json)));
+        }
+
+        DebugEvent::BuilderSetStylesheet { css } => {
+            let result = {
+                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let layout_window = callback_info.get_layout_window();
+                let live = layout_window
+                    .layout_results
+                    .get(&ROOT_DOM_ID)
+                    .map(|lr| &lr.styled_dom);
+                scratch(callback_info)
+                    .builder
+                    .set_document_stylesheet(live, &map_guard, css)
+            };
+            let result = result.map(|mut reply| {
+                // What the parser skipped, so the editor can say so.
+                let warnings = super::export::css_rules_json(css)
+                    .get("warnings")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!([]));
+                if let Some(obj) = reply.json.as_object_mut() {
+                    obj.insert("warnings".into(), warnings);
+                }
+                reply
+            });
             if finish_builder_op(request, callback_info, result) {
                 needs_update = true;
             }

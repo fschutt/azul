@@ -364,11 +364,29 @@ impl BuilderNode {
 pub struct BuilderDocument {
     /// Always an element `body` with uid [`ROOT_UID`].
     pub root: BuilderNode,
+    /// The document's own stylesheet (B5): mounted after the component CSS
+    /// and the project's stylesheets, saved with the document, exported as
+    /// the app's stylesheet. Part of every undo step.
+    pub stylesheet: String,
     /// Never reused, not even by undo: a uid names one node forever.
     next_uid: u64,
-    undo: Vec<BuilderNode>,
-    redo: Vec<BuilderNode>,
+    undo: Vec<Snapshot>,
+    redo: Vec<Snapshot>,
 }
+
+/// One undo step: everything an edit can change.
+#[derive(Debug, Clone)]
+struct Snapshot {
+    root: BuilderNode,
+    stylesheet: String,
+}
+
+/// The `format` of a saved builder document (`document.json`,
+/// `builder_save_document`).
+pub const DOCUMENT_FORMAT: &str = "azul-builder-document";
+
+/// Largest document stylesheet `builder_set_stylesheet` takes.
+const MAX_STYLESHEET: usize = 4 * 1024 * 1024;
 
 impl Default for BuilderDocument {
     fn default() -> Self {
@@ -382,6 +400,7 @@ impl BuilderDocument {
     pub fn new() -> Self {
         Self {
             root: BuilderNode::element(ROOT_UID, "body"),
+            stylesheet: String::new(),
             next_uid: ROOT_UID + 1,
             undo: Vec::new(),
             redo: Vec::new(),
@@ -454,10 +473,60 @@ impl BuilderDocument {
         number(&mut root, &mut next);
         Self {
             root,
+            stylesheet: String::new(),
             next_uid: next.max(ROOT_UID + 1),
             undo: Vec::new(),
             redo: Vec::new(),
         }
+    }
+
+    /// The document as a file (`document.json`, `builder_save_document`):
+    /// `{format, version, root, stylesheet}`, the tree without the session's
+    /// uids.
+    #[must_use]
+    pub fn to_file_json(&self) -> serde_json::Value {
+        fn strip(v: &mut serde_json::Value) {
+            if let serde_json::Value::Object(m) = v {
+                m.remove("uid");
+                if let Some(serde_json::Value::Array(cs)) = m.get_mut("children") {
+                    for c in cs {
+                        strip(c);
+                    }
+                }
+            }
+        }
+        let mut tree = self.root.to_json();
+        strip(&mut tree);
+        serde_json::json!({
+            "format": DOCUMENT_FORMAT,
+            "version": 1,
+            "root": tree,
+            "stylesheet": self.stylesheet,
+        })
+    }
+
+    /// The inverse of [`BuilderDocument::to_file_json`]: a fresh document
+    /// (DFS uids, an empty history). Also accepted: a file without
+    /// `stylesheet` (written before B5) and a bare node tree.
+    ///
+    /// # Errors
+    /// Another `format`, a `stylesheet` that is not a string, or a tree
+    /// [`BuilderNode::from_json`] refuses.
+    pub fn from_file_json(v: &serde_json::Value) -> Result<Self, String> {
+        if let Some(f) = v.get("format").and_then(serde_json::Value::as_str) {
+            if f != DOCUMENT_FORMAT {
+                return Err(format!("the format is {f:?}, not {DOCUMENT_FORMAT:?}"));
+            }
+        }
+        let stylesheet = match v.get("root").and(v.get("stylesheet")) {
+            None | Some(serde_json::Value::Null) => String::new(),
+            Some(serde_json::Value::String(s)) => s.clone(),
+            Some(_) => return Err("`stylesheet` must be a string".to_string()),
+        };
+        let root = v.get("root").unwrap_or(v);
+        let mut doc = Self::from_root(BuilderNode::from_json(root)?);
+        doc.stylesheet = stylesheet;
+        Ok(doc)
     }
 
     #[must_use]
@@ -473,12 +542,28 @@ impl BuilderDocument {
     /// Record the state before an edit. Called only AFTER an edit validated,
     /// so a refused edit leaves no empty undo step behind.
     fn checkpoint(&mut self) {
-        self.undo.push(self.root.clone());
+        let snap = self.snapshot();
+        self.undo.push(snap);
         if self.undo.len() > MAX_UNDO {
             let excess = self.undo.len() - MAX_UNDO;
             self.undo.drain(..excess);
         }
         self.redo.clear();
+    }
+
+    fn snapshot(&self) -> Snapshot {
+        Snapshot {
+            root: self.root.clone(),
+            stylesheet: self.stylesheet.clone(),
+        }
+    }
+
+    /// Put `snap` in place; answers what it replaced.
+    fn restore(&mut self, snap: Snapshot) -> Snapshot {
+        Snapshot {
+            root: core::mem::replace(&mut self.root, snap.root),
+            stylesheet: core::mem::replace(&mut self.stylesheet, snap.stylesheet),
+        }
     }
 
     fn alloc_uid(&mut self) -> u64 {
@@ -493,7 +578,8 @@ impl BuilderDocument {
     /// There is nothing to undo.
     pub fn undo(&mut self) -> Result<(), String> {
         let prev = self.undo.pop().ok_or("nothing to undo")?;
-        self.redo.push(core::mem::replace(&mut self.root, prev));
+        let current = self.restore(prev);
+        self.redo.push(current);
         Ok(())
     }
 
@@ -503,7 +589,27 @@ impl BuilderDocument {
     /// There is nothing to redo.
     pub fn redo(&mut self) -> Result<(), String> {
         let next = self.redo.pop().ok_or("nothing to redo")?;
-        self.undo.push(core::mem::replace(&mut self.root, next));
+        let current = self.restore(next);
+        self.undo.push(current);
+        Ok(())
+    }
+
+    /// Replace the document's own stylesheet: one undo step; the same text
+    /// again is no step at all.
+    ///
+    /// # Errors
+    /// A stylesheet larger than 4 MiB.
+    pub fn set_stylesheet(&mut self, css: &str) -> Result<(), String> {
+        if css.len() > MAX_STYLESHEET {
+            return Err(format!(
+                "the stylesheet is {} bytes; the limit is {MAX_STYLESHEET}",
+                css.len()
+            ));
+        }
+        if self.stylesheet != css {
+            self.checkpoint();
+            self.stylesheet = css.to_string();
+        }
         Ok(())
     }
 
@@ -759,6 +865,7 @@ impl BuilderDocument {
             "can_undo": self.can_undo(),
             "can_redo": self.can_redo(),
             "root": self.root.to_json(),
+            "stylesheet": self.stylesheet,
         })
     }
 
@@ -772,6 +879,16 @@ impl BuilderDocument {
     /// [`BuilderDocument::to_mount_xml`] plus the project's stylesheet (B4),
     /// written AFTER the component CSS so the project's rules win on equal
     /// specificity, as an app stylesheet does.
+    ///
+    /// The document's own stylesheet (B5) comes last, in a `<style>` of its
+    /// own. Every `<head><style>` becomes the stylesheet the parser hangs on
+    /// the document ROOT (`str_to_dom_unstyled`: `Dom.css` of `<html>`, what
+    /// `with_component_css` does), so the sheet is part of what is mounted
+    /// and survives every remount - unlike the Inspector's
+    /// `set_node_css_override`, which edits the live node. It is not a
+    /// `<style>` inside `<body>`: that would be an INNER sheet, which the
+    /// cascade ranks below the outer one (`collect_css_from_dom`), and a
+    /// component's CSS would beat the document's on equal specificity.
     #[must_use]
     pub fn to_mount_xml_with(&self, map: &ComponentMap, stylesheet: &str) -> String {
         let mut w = XmlWriter::new(map);
@@ -782,8 +899,13 @@ impl BuilderDocument {
             css.push_str(stylesheet);
             css.push('\n');
         }
+        let own = if self.stylesheet.trim().is_empty() {
+            String::new()
+        } else {
+            format!("<style>{}</style>", escape_xml(&self.stylesheet))
+        };
         format!(
-            "<html><head><style>{}</style></head>{body}</html>",
+            "<html><head><style>{}</style>{own}</head>{body}</html>",
             escape_xml(&css)
         )
     }
@@ -837,16 +959,17 @@ impl BuilderSession {
         self.doc.is_some()
     }
 
-    /// The project stylesheet the document is mounted with.
+    /// The project stylesheet (`styles/**.css`, B4) the document is mounted
+    /// with — not the document's own ([`BuilderDocument::stylesheet`]).
     #[must_use]
-    pub fn stylesheet(&self) -> &str {
+    pub fn project_stylesheet(&self) -> &str {
         &self.stylesheet
     }
 
     /// Replace the project stylesheet. Answers the remount that shows it:
     /// the document again if the builder has the window, else nothing (the
     /// next edit mounts it).
-    pub fn set_stylesheet(&mut self, map: &ComponentMap, css: String) -> Remount {
+    pub fn set_project_stylesheet(&mut self, map: &ComponentMap, css: String) -> Remount {
         if self.stylesheet == css {
             return Remount::Keep;
         }
@@ -857,20 +980,10 @@ impl BuilderSession {
         }
     }
 
-    /// The tree a project save writes: the document, or — before the first
-    /// edit — what the window shows (what the first edit would start from).
-    #[must_use]
-    pub fn root_for_save(&self, live: Option<&StyledDom>) -> BuilderNode {
-        match &self.doc {
-            Some(d) => d.root.clone(),
-            None => BuilderDocument::from_styled_dom(live).root,
-        }
-    }
-
-    /// Take the window over with a document read back from a project: its
-    /// history starts empty, the window shows it at once.
-    pub fn load_document(&mut self, map: &ComponentMap, root: BuilderNode) -> BuilderReply {
-        let doc = BuilderDocument::from_root(root);
+    /// Take the window over with a document read back from a file (a
+    /// project's `document.json`): its history starts empty, the window
+    /// shows it at once.
+    pub fn load_document(&mut self, map: &ComponentMap, doc: BuilderDocument) -> BuilderReply {
         let reply = BuilderReply {
             json: doc.to_json(true),
             remount: Remount::Mount(doc.to_mount_xml_with(map, &self.stylesheet)),
@@ -1010,6 +1123,20 @@ impl BuilderSession {
         Ok(self
             .edit(live, map, |doc| doc.set_attribute(node, name, value))?
             .1)
+    }
+
+    /// `builder_set_stylesheet`: the document's own stylesheet (one undo
+    /// step; like every edit, the first one takes the window over).
+    ///
+    /// # Errors
+    /// See [`BuilderDocument::set_stylesheet`].
+    pub fn set_document_stylesheet(
+        &mut self,
+        live: Option<&StyledDom>,
+        map: &ComponentMap,
+        css: &str,
+    ) -> Result<BuilderReply, String> {
+        Ok(self.edit(live, map, |doc| doc.set_stylesheet(css))?.1)
     }
 
     /// `builder_undo`.
@@ -3033,25 +3160,122 @@ mod tests {
         let map = ComponentMap::default();
         let mut session = BuilderSession::default();
         assert_eq!(
-            session.set_stylesheet(&map, "#a { width: 1px; }".into()),
+            session.set_project_stylesheet(&map, "#a { width: 1px; }".into()),
             Remount::Keep,
             "no document on screen: nothing to remount"
         );
-        let reply = session.load_document(&map, BuilderNode::element(0, "body"));
+        let reply = session.load_document(
+            &map,
+            BuilderDocument::from_root(BuilderNode::element(0, "body")),
+        );
         match reply.remount {
             Remount::Mount(xml) => assert!(xml.contains("#a { width: 1px; }"), "{xml}"),
             other => panic!("load mounts the document, got {other:?}"),
         }
-        match session.set_stylesheet(&map, "#a { width: 2px; }".into()) {
+        match session.set_project_stylesheet(&map, "#a { width: 2px; }".into()) {
             Remount::Mount(xml) => {
                 assert!(xml.contains("#a { width: 2px; }") && !xml.contains("1px"), "{xml}");
             }
             other => panic!("a new stylesheet remounts, got {other:?}"),
         }
         assert_eq!(
-            session.set_stylesheet(&map, "#a { width: 2px; }".into()),
+            session.set_project_stylesheet(&map, "#a { width: 2px; }".into()),
             Remount::Keep,
             "the same text again changes nothing"
         );
+    }
+
+    // ── B5: the document's own stylesheet ──
+
+    #[test]
+    fn the_documents_stylesheet_is_one_undo_step_and_the_same_text_is_none() {
+        let mut doc = three_paragraphs();
+        let steps = doc.undo.len();
+        doc.set_stylesheet(".a { color: red; }").expect("set");
+        assert_eq!(doc.undo.len(), steps + 1);
+        doc.set_stylesheet(".a { color: red; }").expect("same");
+        assert_eq!(doc.undo.len(), steps + 1, "the same text is no step");
+        doc.delete(2).expect("delete");
+        // Undo walks back through tree edits and stylesheet edits alike.
+        doc.undo().expect("undo the delete");
+        assert_eq!(kids(&doc, 0), vec![1, 2, 3]);
+        assert_eq!(doc.stylesheet, ".a { color: red; }");
+        doc.undo().expect("undo the stylesheet");
+        assert_eq!(doc.stylesheet, "");
+        doc.redo().expect("redo the stylesheet");
+        assert_eq!(doc.stylesheet, ".a { color: red; }");
+        assert_eq!(kids(&doc, 0), vec![1, 2, 3], "the tree is untouched by it");
+        assert!(doc
+            .set_stylesheet(&"x".repeat(MAX_STYLESHEET + 1))
+            .unwrap_err()
+            .contains("limit"));
+    }
+
+    #[test]
+    fn the_documents_stylesheet_is_mounted_last_in_a_style_of_its_own() {
+        let mut map = ComponentMap::default();
+        let def = template_component_def(
+            "user",
+            "badge",
+            "Badge",
+            "",
+            ".badge { color: red; }",
+            "<span class=\"badge\">x</span>",
+            Vec::new(),
+        );
+        add_component(&mut map, "user", def).expect("added");
+        let mut doc = BuilderDocument::new();
+        doc.insert(
+            0,
+            None,
+            BuilderNodeKind::Component {
+                library: "user".into(),
+                name: "badge".into(),
+            },
+            BTreeMap::new(),
+        )
+        .expect("instance");
+        assert!(
+            !doc.to_mount_xml(&map).contains("</style><style>"),
+            "no sheet: no second <style>"
+        );
+        doc.set_stylesheet(".badge > b { color: blue; }").expect("set");
+        let xml = doc.to_mount_xml_with(&map, "#p { width: 1px; }");
+        let component = xml.find(".badge { color: red; }").expect("component css");
+        let project = xml.find("#p { width: 1px; }").expect("project css");
+        let own = xml
+            .find("<style>.badge &gt; b { color: blue; }</style></head>")
+            .expect("the document's own sheet, escaped, last in the <head>");
+        assert!(component < project && project < own, "{xml}");
+    }
+
+    #[test]
+    fn a_document_file_carries_the_stylesheet_and_older_files_and_bare_trees_still_read() {
+        let mut doc = three_paragraphs();
+        doc.set_stylesheet("#a { width: 1px; }").expect("set");
+        let file = doc.to_file_json();
+        assert_eq!(file["format"], DOCUMENT_FORMAT);
+        assert_eq!(file["stylesheet"], "#a { width: 1px; }");
+        assert!(!file.to_string().contains("\"uid\""), "{file}");
+        let back = BuilderDocument::from_file_json(&file).expect("reads back");
+        assert_eq!(back.stylesheet, "#a { width: 1px; }");
+        assert_eq!(kids(&back, 0), vec![1, 2, 3]);
+        assert!(!back.can_undo(), "reading a file is not an edit");
+
+        // Written before B5: no stylesheet.
+        let old = serde_json::json!({ "format": DOCUMENT_FORMAT, "version": 1, "root": file["root"] });
+        assert_eq!(BuilderDocument::from_file_json(&old).expect("old").stylesheet, "");
+        // A bare tree.
+        let bare = BuilderDocument::from_file_json(&file["root"]).expect("bare");
+        assert_eq!(kids(&bare, 0), vec![1, 2, 3]);
+        // Refusals.
+        let wrong = serde_json::json!({ "format": "azul-project", "root": file["root"] });
+        assert!(BuilderDocument::from_file_json(&wrong)
+            .unwrap_err()
+            .contains("format"));
+        let bad = serde_json::json!({ "root": file["root"], "stylesheet": 3 });
+        assert!(BuilderDocument::from_file_json(&bad)
+            .unwrap_err()
+            .contains("stylesheet"));
     }
 }

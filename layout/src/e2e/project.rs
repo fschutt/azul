@@ -40,7 +40,7 @@ use azul_core::{
 use azul_css::AzString;
 use serde_json::{json, Value};
 
-use super::builder::{self, BuilderNode, BuilderReply, BuilderSession, Remount};
+use super::builder::{self, BuilderDocument, BuilderReply, BuilderSession, Remount};
 
 /// The manifest file at the project root.
 pub const MANIFEST: &str = "azul-project.json";
@@ -54,7 +54,6 @@ const SKELETON: &[&str] = &["components", "styles", "tests", "snapshots"];
 const SKIP: &[&str] = &[".git", "target", "node_modules", ".DS_Store"];
 
 const MANIFEST_FORMAT: &str = "azul-project";
-const DOCUMENT_FORMAT: &str = "azul-builder-document";
 const COMPONENT_FORMAT: &str = "azul-component";
 
 /// Largest file `project_read_file` answers with.
@@ -137,7 +136,7 @@ pub fn handle(
         }
         ProjectOp::Close => {
             project.root = None;
-            let remount = builder.set_stylesheet(map, String::new());
+            let remount = builder.set_project_stylesheet(map, String::new());
             Ok(BuilderReply {
                 json: project.info_json(),
                 remount,
@@ -479,7 +478,7 @@ impl ProjectSession {
     /// they changed and the document is on screen).
     fn apply_stylesheets(&self, builder: &mut BuilderSession, map: &ComponentMap) -> Remount {
         let (css, _) = self.read_stylesheets();
-        builder.set_stylesheet(map, css)
+        builder.set_project_stylesheet(map, css)
     }
 
     fn apply_written(
@@ -515,10 +514,10 @@ impl ProjectSession {
         } else if norm == DOCUMENT {
             match serde_json::from_str::<Value>(content)
                 .map_err(|e| format!("not JSON: {e}"))
-                .and_then(|v| document_root(&v))
+                .and_then(|v| BuilderDocument::from_file_json(&v))
             {
-                Ok(node) => {
-                    let reply = builder.load_document(map, node);
+                Ok(doc) => {
+                    let reply = builder.load_document(map, doc);
                     applied.what = Some("document");
                     applied.document = Some(reply.json);
                     applied.remount = reply.remount;
@@ -552,7 +551,9 @@ impl ProjectSession {
             written.push(MANIFEST.to_string());
         }
 
-        let doc = document_file_json(&builder.root_for_save(live));
+        // The document (its stylesheet too), or - before the first edit -
+        // what the window shows.
+        let doc = builder.export_document(live).to_file_json();
         let text = serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?;
         self.write_file(DOCUMENT, &text, None)?;
         written.push(DOCUMENT.to_string());
@@ -616,7 +617,7 @@ impl ProjectSession {
         }
 
         let (css, stylesheets) = self.read_stylesheets();
-        let mut remount = builder.set_stylesheet(map, css);
+        let mut remount = builder.set_project_stylesheet(map, css);
 
         let mut document = Value::Null;
         let doc_path = root.join(DOCUMENT);
@@ -626,10 +627,10 @@ impl ProjectSession {
                 .and_then(|s| {
                     serde_json::from_str::<Value>(&s).map_err(|e| format!("not JSON: {e}"))
                 })
-                .and_then(|v| document_root(&v));
+                .and_then(|v| BuilderDocument::from_file_json(&v));
             match result {
-                Ok(node) => {
-                    let reply = builder.load_document(map, node);
+                Ok(doc) => {
+                    let reply = builder.load_document(map, doc);
                     document = reply.json;
                     remount = reply.remount;
                 }
@@ -997,34 +998,6 @@ fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
 // ===========================================================================
 // File formats
 // ===========================================================================
-
-/// `document.json`: the document tree without the session's uids.
-fn document_file_json(root: &BuilderNode) -> Value {
-    fn strip(v: &mut Value) {
-        if let Value::Object(m) = v {
-            m.remove("uid");
-            if let Some(Value::Array(cs)) = m.get_mut("children") {
-                for c in cs {
-                    strip(c);
-                }
-            }
-        }
-    }
-    let mut tree = root.to_json();
-    strip(&mut tree);
-    json!({ "format": DOCUMENT_FORMAT, "version": 1, "root": tree })
-}
-
-/// The root node of a `document.json` (also accepted: the bare tree).
-fn document_root(v: &Value) -> Result<BuilderNode, String> {
-    if let Some(f) = v.get("format").and_then(Value::as_str) {
-        if f != DOCUMENT_FORMAT {
-            return Err(format!("the format is {f:?}, not {DOCUMENT_FORMAT:?}"));
-        }
-    }
-    let root = v.get("root").unwrap_or(v);
-    BuilderNode::from_json(root)
-}
 
 /// `components/<library>/<name>.json` → `(library, name)`.
 fn component_path_names(norm: &str) -> Option<(String, String)> {

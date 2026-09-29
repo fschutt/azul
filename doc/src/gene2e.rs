@@ -577,6 +577,10 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("builder_redo",               Some("visual-editor/IDE surface, not engine behaviour")),
     ("builder_reset",              Some("visual-editor/IDE surface, not engine behaviour")),
     ("builder_convert_to_component", Some("visual-editor/IDE surface, not engine behaviour")),
+    // B5: the document's own stylesheet (a builder edit that remounts the
+    // document; pinned by builder_tests / export_tests / project_tests).
+    ("builder_get_stylesheet",     Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_set_stylesheet",     Some("visual-editor/IDE surface, not engine behaviour")),
     ("get_component_thumbnail",    Some("visual-editor/IDE surface, not engine behaviour")),
     // AzBuilder's project folder ops (layout/src/e2e/project.rs): they read
     // and write the user's disk — pinned by the project_tests module, never a

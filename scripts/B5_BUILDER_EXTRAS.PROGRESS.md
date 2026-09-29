@@ -16,10 +16,11 @@ Branch `wt/b5-builder-extras`, base `d240a1b1d`. Nothing is compiled here (house
 
 - 1 RED `bb244292b` (node test + smoke + lib/smoke.mjs)
 - 1 GREEN `68b3a492b` properties panel (node 7/7, smoke 17/17, other smokes unchanged)
+- 2 RED `c196ff546` (builder_tests / export_tests / project_tests scenarios, node, smoke)
 
 ## IN PROGRESS
 
-2. Document stylesheet: RED tests committed (this commit), implementation next.
+2. Document stylesheet: implementation commit (this one).
 
 ## NEXT
 

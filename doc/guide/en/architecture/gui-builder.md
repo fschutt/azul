@@ -68,6 +68,19 @@ A field is sent when you press Enter or leave it (a checkbox at once), as one ed
 undoes it like any other. Emptying a field removes the attribute, so an argument takes its default
 again. The context menu and F2 still work as shortcuts.
 
+## The document's stylesheet
+
+Below the properties sits the document's own **Stylesheet**. Type CSS and press **Apply** (or
+**Ctrl/Cmd+Enter**): it styles the native window at once, after the components' CSS and the
+project's `styles/`, so it wins over them on equal specificity - the way an app's stylesheet
+does. It is part of the document: it survives every later edit, **Ctrl/Cmd+Z** undoes a change of
+it like any other edit, it is saved in `document.json`, and **Export > Code** writes it as the
+app's stylesheet (named styles, `src/styles.rs` in Rust). A dot next to the title means the text
+has not been applied yet; what the CSS parser skipped shows under the editor.
+
+Use it instead of the Inspector's CSS override for anything you want to keep: the override edits
+the live node and is gone the next time the document is mounted.
+
 ## Undo and redo
 
 Every edit of the document is one undo step: **Ctrl/Cmd+Z** undoes, **Shift+Ctrl/Cmd+Z** or
@@ -96,7 +109,7 @@ icon in the activity bar), type a path and click **Create** (or **Open** for an 
 The folder gets this layout:
 
 - `azul-project.json` - the manifest (the project's name).
-- `document.json` - the builder document.
+- `document.json` - the builder document: its tree and its own stylesheet.
 - `components/<library>/<name>.json` - one file per component you made: its parameters, its CSS
   and its template.
 - `styles/` - stylesheets. Every `.css` file here applies to the document, in path order, after
@@ -246,8 +259,11 @@ commands).
 
 **Document** - `builder_get_document`, `builder_insert`, `builder_move`, `builder_delete`,
 `builder_set_attribute`, `builder_undo`, `builder_redo`, `builder_reset`. Every edit answers
-with the whole document (a tree of nodes with stable `uid`s, `<body>` is uid 0) and re-mounts it
-over the window; `builder_move` takes the slot as the drop indicator shows it, before the move.
+with the whole document (a tree of nodes with stable `uid`s, `<body>` is uid 0, and its
+`stylesheet`) and re-mounts it over the window; `builder_move` takes the slot as the drop
+indicator shows it, before the move. `builder_get_stylesheet` answers the document's own
+stylesheet with its rules and the parser's warnings; `builder_set_stylesheet {css}` replaces it
+(one undo step).
 
 **Components** - `builder_convert_to_component`, `get_component_thumbnail` (a PNG from the CPU
 renderer, cached until the component changes), `get_component_registry`, `create_component`

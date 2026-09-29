@@ -349,6 +349,23 @@
     /** Whether the panel edits an argument of this (parsed) type as one attribute. */
     function editableType(type) { return EDITABLE_TYPES.indexOf(type) !== -1; }
 
+    // ── B5: the document's stylesheet ──
+
+    /** The message "Apply" sends for `text`, or null when the document has it already. */
+    function stylesheetMessage(doc, text) {
+        if (!doc) return null;
+        text = text == null ? '' : String(text);
+        return text === (doc.stylesheet || '') ? null : { op: 'builder_set_stylesheet', css: text };
+    }
+
+    /**
+     * What the editor shows: the document's stylesheet (after an undo, a load,
+     * an apply), unless it holds text the user has not applied yet.
+     */
+    function sheetText(shown, docSheet, dirty) {
+        return dirty ? shown : (docSheet || '');
+    }
+
     var logic = {
         NON_VISUAL: NON_VISUAL, VOID: VOID, AUTO_CLOSE: AUTO_CLOSE,
         acceptsChildren: acceptsChildren, canContain: canContain, dropZone: dropZone, flatten: flatten,
@@ -360,6 +377,7 @@
         // B5
         componentDef: componentDef, propertyRows: propertyRows, propertyMessage: propertyMessage,
         attrString: attrString, typedValue: typedValue, editableType: editableType,
+        stylesheetMessage: stylesheetMessage, sheetText: sheetText,
     };
 
     if (typeof module !== 'undefined' && module.exports) module.exports = logic;
@@ -392,6 +410,7 @@
         observer: null,
         liveCache: null,         // last get_node_hierarchy value
         registry: null,          // last get_component_registry value (the panel's data models)
+        sheetDirty: false,       // the stylesheet editor holds text not applied yet
     };
 
     var origRefreshSidebar = app.handlers.refreshSidebar;
@@ -1220,6 +1239,7 @@
         props.className = 'azb-props';
         side.appendChild(head);
         side.appendChild(props);
+        side.appendChild(buildSheetEditor());
         row.appendChild(side);
     }
 
@@ -1228,7 +1248,106 @@
         var docMode = S.mode === 'document';
         var side = document.getElementById('azb-side');
         if (side) side.classList.toggle('hidden', !docMode);
-        if (docMode) renderProps();
+        if (docMode) {
+            renderProps();
+            renderSheet();
+        }
+    }
+
+    // ── the document's stylesheet ──
+
+    var SHEET_HINT = "The document's own CSS: applied after the components' CSS, saved with "
+        + 'the document, exported as the app’s stylesheet. Ctrl/Cmd+Enter applies.';
+
+    function buildSheetEditor() {
+        var box = document.createElement('div');
+        box.id = 'azb-sheet';
+        box.className = 'azb-sheet';
+        var head = document.createElement('div');
+        head.className = 'sidebar-header azb-sheet-head';
+        head.innerHTML = '<span>Stylesheet <span class="azb-sheet-dot" title="Not applied yet">●</span></span>';
+        var apply = document.createElement('button');
+        apply.id = 'azb-sheet-apply';
+        apply.className = 'btn-sm';
+        apply.type = 'button';
+        apply.textContent = 'Apply';
+        apply.title = 'Apply to the document (one undo step)';
+        apply.addEventListener('click', applySheet);
+        head.appendChild(apply);
+        var text = document.createElement('textarea');
+        text.id = 'azb-sheet-text';
+        text.className = 'azb-sheet-text';
+        text.spellcheck = false;
+        text.placeholder = '.card { padding: 12px; }';
+        text.addEventListener('input', function () {
+            S.sheetDirty = true;
+            box.classList.add('azb-dirty');
+        });
+        text.addEventListener('keydown', function (e) {
+            var mod = e.ctrlKey || e.metaKey;
+            if (mod && (e.key === 'Enter' || e.key === 's' || e.key === 'S')) {
+                e.preventDefault();
+                applySheet();
+            } else if (e.key === 'Tab' && !mod && !e.altKey && !e.shiftKey) {
+                e.preventDefault();
+                var s = text.selectionStart;
+                text.value = text.value.slice(0, s) + '    ' + text.value.slice(text.selectionEnd);
+                text.selectionStart = text.selectionEnd = s + 4;
+                text.dispatchEvent(new Event('input'));
+            }
+        });
+        var status = document.createElement('div');
+        status.id = 'azb-sheet-status';
+        status.className = 'azb-sheet-status';
+        status.textContent = SHEET_HINT;
+        box.appendChild(head);
+        box.appendChild(text);
+        box.appendChild(status);
+        return box;
+    }
+
+    function renderSheet() {
+        var text = document.getElementById('azb-sheet-text');
+        var box = document.getElementById('azb-sheet');
+        if (!text || !box) return;
+        var want = sheetText(text.value, S.doc && S.doc.stylesheet, S.sheetDirty);
+        // Only when it differs: re-setting the value would move the caret.
+        if (text.value !== want) text.value = want;
+        box.classList.toggle('azb-dirty', S.sheetDirty);
+    }
+
+    function sheetStatus(message, kind) {
+        var status = document.getElementById('azb-sheet-status');
+        if (!status) return;
+        status.textContent = message;
+        status.className = 'azb-sheet-status' + (kind ? ' azb-sheet-' + kind : '');
+    }
+
+    async function applySheet() {
+        var text = document.getElementById('azb-sheet-text');
+        if (!text || !S.doc) return;
+        var msg = stylesheetMessage(S.doc, text.value);
+        if (!msg) {
+            S.sheetDirty = false;
+            renderSheet();
+            sheetStatus('Unchanged: the document already has this stylesheet.');
+            return;
+        }
+        // Clean BEFORE the answer renders, so the editor takes the applied text.
+        S.sheetDirty = false;
+        var doc = await send(msg, 'Set the document stylesheet');
+        if (!doc) {
+            S.sheetDirty = true;
+            renderSheet();
+            sheetStatus('Not applied - see the terminal.', 'error');
+            return;
+        }
+        var warnings = doc.warnings || [];
+        if (warnings.length) {
+            sheetStatus('Applied, but the parser skipped: ' + warnings.join('; '), 'warning');
+        } else {
+            sheetStatus('Applied to the window.', 'ok');
+        }
     }
 
     function nodeTitle(node) {
@@ -1374,6 +1493,9 @@
         C.builder_delete = { desc: 'Delete a builder node', examples: ['/builder_delete node 1'], params: [{ name: 'node', type: 'number', value: 1 }] };
         C.builder_set_attribute = { desc: 'Set an attribute of a builder node', examples: ['/builder_set_attribute node 1 name text value Hello'],
             params: [{ name: 'node', type: 'number', value: 1 }, { name: 'name', type: 'text', placeholder: 'text' }, { name: 'value', type: 'text', placeholder: 'Hello', optional: true }] };
+        C.builder_get_stylesheet = { desc: "The builder document's own stylesheet", examples: ['/builder_get_stylesheet'], params: [] };
+        C.builder_set_stylesheet = { desc: "Set the builder document's own stylesheet (undoable)", examples: ['/builder_set_stylesheet css ".card { padding: 8px; }"'],
+            params: [{ name: 'css', type: 'text', placeholder: '.card { padding: 8px; }' }] };
         C.builder_undo = { desc: 'Undo the last builder edit', examples: ['/builder_undo'], params: [] };
         C.builder_redo = { desc: 'Redo the last undone builder edit', examples: ['/builder_redo'], params: [] };
         C.builder_reset = { desc: 'Discard the builder document', examples: ['/builder_reset'], params: [] };
@@ -1432,6 +1554,16 @@
             '.azb-prop .azd-input-string,.azb-prop .azd-input-int,.azb-prop .azd-input-float{background:var(--bg-input);color:var(--text-main)}',
             '.azb-prop-readonly .azd-field-label{color:var(--text-muted)}',
             '.azb-prop-note{flex:1;font-size:11px;color:var(--text-muted);font-style:italic}',
+            '.azb-sheet{flex:0 0 38%;display:flex;flex-direction:column;min-height:120px;border-top:1px solid var(--border)}',
+            '.azb-sheet-head .btn-sm{text-transform:none;font-weight:400}',
+            '.azb-sheet-dot{color:var(--warning);font-size:9px;visibility:hidden}',
+            '.azb-sheet.azb-dirty .azb-sheet-dot{visibility:visible}',
+            '.azb-sheet-text{flex:1;min-height:60px;margin:0 8px;resize:none;background:var(--bg-input);color:var(--text-main);border:1px solid var(--border);border-radius:3px;padding:6px;font:12px/18px Consolas,Monaco,"Courier New",monospace;tab-size:4;white-space:pre;overflow:auto}',
+            '.azb-sheet-text:focus{border-color:var(--accent)}',
+            '.azb-sheet-status{font-size:11px;line-height:1.4;color:var(--text-muted);padding:5px 8px 8px}',
+            '.azb-sheet-ok{color:var(--success)}',
+            '.azb-sheet-warning{color:var(--warning)}',
+            '.azb-sheet-error{color:var(--error)}',
         ].join('\n');
         document.head.appendChild(s);
     }
