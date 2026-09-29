@@ -19,8 +19,10 @@
   FormEntry, FormStateWrapper, submit_form/reset_form, default_on_form_*; Button.form_action + Button.alt +
   create_submit/create_reset/create_image; TextInput Enter = implicit submission; restore_text_input)
 
+- 6 hidden: RED e689fa68f, impl 4b7496f5a (HiddenInput in widgets/form.rs)
+
 ## IN PROGRESS
-- 6 hidden (HiddenInput in widgets/form.rs)
+- 7 select optgroup (drop_down)
 
 ## NEXT (in order)
 2. search (wrapper div [container, clear x]; x hidden when empty; Escape + x clear)
