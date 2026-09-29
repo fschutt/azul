@@ -68,9 +68,13 @@ Recipe: scripts/T1_APP_THEME_2026_09_29.md §4. Nothing is compiled here (house 
   pin flat. NOTE: a caller's container/label style is repeated in both theme blocks for the
   properties the two themes twin differently (dark bg/ink/borders) - see report)
 
+- text_area: RED 5f4de8513, impl: see git log (`Default` theme `Some(Flat)` -> `None`; `dom()`
+  None = DOM merge instead of an EMPTY div (a pre-existing bug: an explicitly unpinned area
+  rendered nothing); 1 pin: the border-states test pins flat)
+
 ## IN PROGRESS
 
-- text_area
+- slider
 
 ## NEXT
 
