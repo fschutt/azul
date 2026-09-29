@@ -1113,7 +1113,7 @@ fn drain_pending_theme(window: &mut AndroidWindow) {
         return;
     };
     window.snapshot_window_state_baseline("android.drain_pending_theme");
-    window.common.update_unsynced_state(|ws| ws.theme = theme);
+    window.common.write_shown_mode(theme);
     window
         .common
         .request_regeneration(RelayoutReason::ThemeChange);

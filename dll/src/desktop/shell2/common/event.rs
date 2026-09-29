@@ -2985,6 +2985,9 @@ pub struct CommonWindowState {
     /// [`Self::adopt_desktop_theme`], which every shell's appearance probe
     /// reports through.
     desktop_theme: azul_core::window::WindowTheme,
+    /// The clear colour WebRender was last told
+    /// ([`Self::sync_renderer_clear_color`]); `None` before the first frame.
+    renderer_clear_color: Option<azul_css::props::basic::ColorU>,
 }
 
 impl CommonWindowState {
@@ -3301,6 +3304,7 @@ impl CommonWindowState {
             a11y_dirty: true,
             app_order: azul_layout::managers::app_target::WindowActivationOrder::for_new_window(),
             desktop_theme,
+            renderer_clear_color: None,
         }
     }
 
@@ -3357,6 +3361,105 @@ impl CommonWindowState {
         self.desktop_theme = desktop;
         let target = self.resolved_window_theme();
         (target != self.current_window_state.theme).then_some(target)
+    }
+
+    /// Write the light / dark this window SHOWS, and move a background the
+    /// scheme derived along with it ([`Self::move_scheme_background`]).
+    ///
+    /// The write for a mode change under an unchanged system style - the
+    /// app's colour-scheme switch and the device-appearance adopters that do
+    /// not re-discover the style. The caller still owns the event baseline
+    /// (snapshot before, pass after), exactly as for any other write.
+    pub fn write_shown_mode(&mut self, mode: azul_core::window::WindowTheme) {
+        self.update_unsynced_state(|ws| ws.theme = mode);
+        let held = Arc::clone(&self.system_style);
+        self.move_scheme_background(&held);
+    }
+
+    /// THE helper that moves a SCHEME-DERIVED `background_color` with the
+    /// mode: when the window's background is one `derived_from` derives for a
+    /// mode ([`super::scheme_background`] - the app's per-mode background, or
+    /// the system palette's), it becomes the one the CURRENT style derives for
+    /// the mode the window shows now. A background the app set is the app's
+    /// decision and stays; `None` (a material, an offscreen canvas) stays
+    /// `None`.
+    ///
+    /// Either mode's derivation counts, so it does not matter whether the
+    /// mode was written before this runs (the desktop adopters write it, run
+    /// the event pass, and only then hand `adopt_system_style` the new
+    /// style) or is written together with it ([`Self::write_shown_mode`]).
+    /// `derived_from` is the style the background was derived from: the held
+    /// one for a mode-only change, the OLD one when a new style arrives.
+    ///
+    /// The seed at creation is the same derivation
+    /// (`common::resolve_initial_background_color`). Before this existed only
+    /// a desktop style change moved the background, and only between the two
+    /// desktop palettes: an app pin left the canvas in the desktop's colours.
+    pub fn move_scheme_background(&mut self, derived_from: &azul_css::system::SystemStyle) {
+        use azul_core::window::WindowTheme;
+        use azul_css::props::basic::OptionColorU;
+
+        let Some(background) = self.current_window_state.background_color.into_option() else {
+            return;
+        };
+        let (light, dark) = (self.background_color_light, self.background_color_dark);
+        let derived = |mode| super::scheme_background(mode, derived_from, light, dark);
+        if background != derived(WindowTheme::LightMode)
+            && background != derived(WindowTheme::DarkMode)
+        {
+            return;
+        }
+        let target = super::scheme_background(
+            self.current_window_state.theme,
+            &self.system_style,
+            light,
+            dark,
+        );
+        if target != background {
+            self.update_unsynced_state(|ws| ws.background_color = OptionColorU::Some(target));
+        }
+    }
+
+    /// THE clear colour ([`super::window_clear_color`]) of this window as a
+    /// desktop shows it: its background, else the system window background
+    /// of the mode it shows; transparent for a background material.
+    #[must_use]
+    pub fn clear_color(&self) -> azul_css::props::basic::ColorU {
+        let ws = &self.current_window_state;
+        super::window_clear_color(
+            ws.background_color,
+            ws.theme,
+            Some(&*self.system_style),
+            true,
+            !matches!(
+                ws.flags.background_material,
+                azul_core::window::WindowBackgroundMaterial::Opaque
+            ),
+        )
+    }
+
+    /// Keep WebRender clearing to [`Self::clear_color`]. Every GPU shell calls
+    /// this right before `Renderer::render`; it answers the colour, for a
+    /// shell that clears its own backbuffer too.
+    ///
+    /// The renderer's clear colour used to be chosen once, at creation, from
+    /// the creation options - so a mode change repainted every widget and
+    /// left the canvas around them in the old mode. When the colour moves the
+    /// whole frame is redrawn (`force_redraw`): a partial present repaints
+    /// only the damaged rectangles, and the old canvas would stand
+    /// everywhere else - the CPU compositor's `clear_color_changed` rule.
+    pub fn sync_renderer_clear_color(&mut self) -> azul_css::props::basic::ColorU {
+        let color = self.clear_color();
+        if self.renderer_clear_color != Some(color) {
+            if let Some(renderer) = self.renderer.as_mut() {
+                renderer.set_clear_color(crate::desktop::wr_translate2::wr_translate_color_f(
+                    azul_css::props::basic::ColorF::from(color),
+                ));
+                renderer.force_redraw();
+                self.renderer_clear_color = Some(color);
+            }
+        }
+        color
     }
 
     /// The OS just gave this window the keyboard focus. Called from every
@@ -5579,6 +5682,14 @@ pub trait PlatformWindow {
                         current.window_focused = state.window_focused;
                         current.theme = theme;
                                             });
+                // The pushed state carries the background the app read; when
+                // the scheme derived it, it moves with the pushed mode (a
+                // background the app set in this push stays its own).
+                if theme_changed {
+                    let common = self.get_common_mut();
+                    let held = Arc::clone(&common.system_style);
+                    common.move_scheme_background(&held);
+                }
 
                 if state.flags.close_requested {
                     return ProcessEventResult::DoNothing;
@@ -7712,8 +7823,8 @@ pub trait PlatformWindow {
                 // `ThemeChanged`.
                 let old_state = self.get_current_window_state().clone();
                 self.set_previous_window_state(old_state);
-                self.get_common_mut()
-                    .update_unsynced_state(|ws| ws.theme = target);
+                // The canvas moves with the mode when the scheme derived it.
+                self.get_common_mut().write_shown_mode(target);
                 let nested = self.process_window_events(0);
 
                 self.color_scheme_change_tier().max(nested)
@@ -10184,26 +10295,11 @@ pub trait PlatformWindow {
 
         self.get_common_mut().system_style = Arc::clone(&new_style);
 
-        let custom_bg_light = self.get_common_mut().background_color_light;
-        let custom_bg_dark = self.get_common_mut().background_color_dark;
-
-        self.get_common_mut()
-            .update_window_state(WindowStateSource::App, |current| {
-                // The window's OWN theme picks the background, like it picks
-                // the cascade — not the system style's.
-                let use_dark = current.theme == azul_core::window::WindowTheme::DarkMode;
-                let custom_bg = if use_dark {
-                    custom_bg_dark
-                } else {
-                    custom_bg_light
-                };
-
-                if custom_bg.is_some() {
-                    current.background_color = custom_bg;
-                } else if current.background_color == old_style.colors.window_background {
-                    current.background_color = new_style.colors.window_background;
-                }
-            });
+        // A background the scheme derived (the creation seed, or the app's
+        // per-mode one) is re-derived for the mode the window shows, from the
+        // NEW style; one the app set stays. The window's OWN mode picks it,
+        // like it picks the cascade - not the system style's theme.
+        self.get_common_mut().move_scheme_background(&old_style);
 
         if let Some(lw) = self.get_layout_window_mut() {
             // `regenerate_layout` pushes the style into the LayoutWindow on
@@ -10309,8 +10405,7 @@ pub trait PlatformWindow {
             return false;
         };
         self.snapshot_window_state_baseline("adopt_app_color_scheme");
-        self.get_common_mut()
-            .update_unsynced_state(|ws| ws.theme = target);
+        self.get_common_mut().write_shown_mode(target);
         let _ = self.process_window_events(0);
         let held = Arc::clone(&self.get_common_mut().system_style);
         self.adopt_system_style(held);
@@ -10330,8 +10425,7 @@ pub trait PlatformWindow {
             return false;
         };
         self.snapshot_window_state_baseline("adopt_app_color_scheme_deferred");
-        self.get_common_mut()
-            .update_unsynced_state(|ws| ws.theme = target);
+        self.get_common_mut().write_shown_mode(target);
         self.discard_input_delta("adopt_app_color_scheme_deferred");
         if let Some(lw) = self.get_layout_window_mut() {
             lw.layout_cache.reset_incremental();

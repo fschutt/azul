@@ -1157,7 +1157,7 @@ unsafe fn adopt_device_appearance(
     // The diff pipeline compares against previous_window_state to decide a
     // ThemeChanged event fired; without this snapshot no callback runs.
     common.snapshot_window_state_baseline("ios.adopt_device_appearance");
-    common.update_unsynced_state(|ws| ws.theme = theme);
+    common.write_shown_mode(theme);
     true
 }
 

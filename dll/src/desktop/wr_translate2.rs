@@ -288,58 +288,32 @@ pub fn default_renderer_options(
     partial_present: Option<PartialPresentDamage>,
 ) -> WrRendererOptions {
     use azul_core::window::WindowBackgroundMaterial;
-    use azul_css::props::basic::color::ColorU;
-    use webrender::{api::ColorF as WrColorF, ShaderPrecacheFlags};
+    use webrender::ShaderPrecacheFlags;
 
-    // Determine background color for WebRender clear
-    // If a material effect is used (not Opaque), use fully transparent clear color
-    // so the material effect shows through from behind
-    let bg = if !matches!(
-        options.window_state.flags.background_material,
-        WindowBackgroundMaterial::Opaque
-    ) {
-        // Material effect - need transparent background
-        // Note: We use alpha=0 with non-zero RGB to avoid pre-multiplied alpha issues
-        // Some OpenGL implementations render (0,0,0,0) as black
-        ColorU {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 0,
-        }
-    } else {
-        // Use background_color if specified, otherwise default to white
-        options
-            .window_state
-            .background_color
-            .as_option()
-            .copied()
-            .unwrap_or_else(|| {
-                use azul_core::window::WindowTheme;
-                if options.window_state.theme == WindowTheme::DarkMode {
-                    ColorU {
-                        r: 42,
-                        g: 46,
-                        b: 50,
-                        a: 255,
-                    }
-                } else {
-                    ColorU::WHITE
-                }
-            })
-    };
+    // THE clear colour (`common::window_clear_color`), as far as it is known
+    // before the window exists: a material clears to transparent so the
+    // effect shows through; an opaque window to its `background_color`, which
+    // every GPU shell has seeded for the mode it will show
+    // (`resolve_initial_background_color`) by now. This is only the first
+    // frame's: `CommonWindowState::sync_renderer_clear_color` keeps the
+    // renderer on the same function from then on, so a mode change moves it.
+    let bg = crate::desktop::shell2::common::window_clear_color(
+        options.window_state.background_color,
+        options.window_state.theme,
+        None,
+        false,
+        !matches!(
+            options.window_state.flags.background_material,
+            WindowBackgroundMaterial::Opaque
+        ),
+    );
 
     WrRendererOptions {
         resource_override_path: None,
         use_optimized_shaders: true,
         enable_aa: true,
         enable_subpixel_aa: true,
-        clear_color: WrColorF {
-            r: bg.r as f32 / 255.0,
-            g: bg.g as f32 / 255.0,
-            b: bg.b as f32 / 255.0,
-            a: bg.a as f32 / 255.0,
-        },
+        clear_color: wr_translate_color_f(CssColorF::from(bg)),
         enable_multithreading: false,
         // AZ_OVERLAY is merged in, so the webrender verbs (overdraw, profiler,
         // primitives, ...) can be switched on from the environment exactly like

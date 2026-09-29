@@ -7361,6 +7361,8 @@ impl X11Window {
 
         // Step 5's framebuffer size, read BEFORE the renderer is borrowed mutably.
         let physical_size = self.common.current_window_state().size.get_physical_size();
+        // The canvas follows the mode the window shows (THE clear colour).
+        self.common.sync_renderer_clear_color();
 
         // Step 4: Update WebRender (re-borrow renderer after layout_window borrow)
         let renderer = match self.common.renderer.as_mut() {

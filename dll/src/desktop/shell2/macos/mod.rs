@@ -8430,6 +8430,8 @@ impl MacOSWindow {
 
         // Step 2: Call WebRender to composite the scene
         let physical_size = self.common.current_window_state().size.get_physical_size();
+        // The canvas follows the mode the window shows (THE clear colour).
+        self.common.sync_renderer_clear_color();
         if let Some(ref mut renderer) = self.common.renderer {
             log_trace!(LogCategory::Rendering, "[WebRender] renderer.update()");
             renderer.update();

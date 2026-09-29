@@ -7383,6 +7383,9 @@ impl WaylandWindow {
         };
         // Read before `self.common.renderer` is borrowed mutably below.
         let physical_size = self.common.current_window_state().size.get_physical_size();
+        // The canvas follows the mode the window shows (THE clear colour),
+        // WebRender's and the backbuffer's below alike.
+        let clear = self.common.sync_renderer_clear_color();
 
         match &mut self.render_mode {
             RenderMode::Gpu(gl_context, gl_functions) => {
@@ -7435,7 +7438,12 @@ impl WaylandWindow {
                     // preserved — a full clear would wipe the regions
                     // WebRender is about to SKIP (partial render).
                     if buffer_age == 0 {
-                        gl_functions.functions.clear_color(0.937, 0.941, 0.945, 1.0);
+                        gl_functions.functions.clear_color(
+                            f32::from(clear.r) / 255.0,
+                            f32::from(clear.g) / 255.0,
+                            f32::from(clear.b) / 255.0,
+                            f32::from(clear.a) / 255.0,
+                        );
                         gl_functions
                             .functions
                             .clear(gl_types::COLOR_BUFFER_BIT | gl_types::DEPTH_BUFFER_BIT);

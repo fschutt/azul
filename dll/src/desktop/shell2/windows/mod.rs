@@ -1722,7 +1722,9 @@ impl Win32Window {
                 }
             }
 
-            // Update and render WebRender
+            // Update and render WebRender. The canvas follows the mode the
+            // window shows (THE clear colour).
+            self.common.sync_renderer_clear_color();
             let renderer = self
                 .common
                 .renderer

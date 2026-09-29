@@ -295,8 +295,9 @@ pub struct CpuBackend {
     /// Whether an unstyled window follows the SYSTEM background colour.
     ///
     /// True for a real window on a desktop: an app that sets no
-    /// `background_color` should get the desktop's own window background, so a
-    /// dark system theme does not produce a white sheet. False for offscreen
+    /// `background_color` should get the system window background of the mode
+    /// the window shows (`common::window_clear_color`), so a dark system theme
+    /// - or a dark app pin - does not produce a white sheet. False for offscreen
     /// rendering, where there is no desktop to follow and the output has to be
     /// reproducible byte for byte — the headless renderer backs screenshots,
     /// PDF export and the reference images the scroll tests diff against, and
@@ -587,43 +588,25 @@ impl CpuBackend {
 
         // Allocate or resize compositor.
         //
-        // The canvas colour, in precedence order: a transparent window clears
-        // to nothing; otherwise the app's own `background_color` if it set
-        // one; otherwise the SYSTEM window background. That last step is what
-        // makes a dark desktop produce a dark window — hardcoding white here
-        // painted every window white and left dark-themed widgets sitting on
-        // a white sheet, because this backend is the shared CPU path for
-        // macOS, X11 and Wayland alike.
-        let clear_color: [u8; 4] = if self.transparent {
-            [0, 0, 0, 0]
-        } else {
-            let app_choice = match layout_window.current_window_state.background_color {
-                azul_css::props::basic::color::OptionColorU::Some(c) => Some(c),
-                azul_css::props::basic::color::OptionColorU::None => None,
-            };
-            let system_choice = if self.follow_system_background {
-                layout_window
-                    .system_style
-                    .as_ref()
-                    .and_then(|s| match s.colors.window_background {
-                        azul_css::props::basic::color::OptionColorU::Some(c) => Some(c),
-                        azul_css::props::basic::color::OptionColorU::None => None,
-                    })
-            } else {
-                None
-            };
-            app_choice.or(system_choice).map_or_else(
-                || {
-                    if layout_window.current_window_state.theme
-                        == azul_core::window::WindowTheme::DarkMode
-                    {
-                        [42, 46, 50, 255]
-                    } else {
-                        [255, 255, 255, 255]
-                    }
-                },
-                |c| [c.r, c.g, c.b, 255],
-            )
+        // The canvas colour is THE clear colour (`common::window_clear_color`),
+        // the one WebRender is kept on too: transparent for a material, else
+        // the window's `background_color` (the app's, or the one its MODE
+        // derived), else - for a real window on a desktop - the system window
+        // background of the mode the window SHOWS. The mode is asked of the
+        // layout window (`window_theme_for`, the one decision) rather than
+        // read raw: the desktop's palette under a dark app pin painted a light
+        // sheet around dark widgets, on every backend this path serves (macOS,
+        // X11, Wayland, Windows, iOS, Android and headless).
+        let clear_color: [u8; 4] = {
+            let ws = &layout_window.current_window_state;
+            let c = crate::desktop::shell2::common::window_clear_color(
+                ws.background_color,
+                layout_window.window_theme_for(ws.theme),
+                layout_window.system_style.as_deref(),
+                self.follow_system_background,
+                self.transparent,
+            );
+            [c.r, c.g, c.b, c.a]
         };
         let compositor = self
             .compositor
@@ -2083,7 +2066,7 @@ impl HeadlessWindow {
         // decide that a ThemeChanged event fired; without this snapshot the
         // event is never determined and the callbacks never run.
         self.snapshot_window_state_baseline("headless.set_system_theme");
-        self.common.update_unsynced_state(|ws| ws.theme = theme);
+        self.common.write_shown_mode(theme);
 
         // Same shape as the HeadlessEvent arms in `run()`: pump the events the
         // state change implies and let the result speak; there is no window
