@@ -2800,34 +2800,9 @@ pub fn parse_style_animation(input: &str) -> Result<StyleAnimation, StyleAnimati
     let mut timing: Option<AnimationTiming> = None;
     let mut iterations: Option<AnimationIterationCount> = None;
     let mut clip: Option<bool> = None;
-    // Paren-aware token scan: `cubic-bezier(0.4, 0, 0.2, 1)` contains spaces
-    // and must arrive as ONE token, so whitespace only splits at depth 0.
-    let mut tokens: Vec<&str> = Vec::new();
-    {
-        let bytes = input.as_bytes();
-        let mut depth = 0usize;
-        let mut start: Option<usize> = None;
-        for (i, b) in bytes.iter().enumerate() {
-            match b {
-                b'(' => depth += 1,
-                b')' => depth = depth.saturating_sub(1),
-                b' ' | b'\t' | b'\n' | b'\r' if depth == 0 => {
-                    if let Some(st) = start.take() {
-                        tokens.push(&input[st..i]);
-                    }
-                    continue;
-                }
-                _ => {}
-            }
-            if start.is_none() {
-                start = Some(i);
-            }
-        }
-        if let Some(st) = start {
-            tokens.push(&input[st..]);
-        }
-    }
-    for tok in tokens {
+    // Top-level whitespace only: `cubic-bezier(0.4, 0, 0.2, 1)` contains
+    // spaces and must arrive as ONE token.
+    for tok in crate::props::basic::parse::split_string_respect_whitespace(input) {
         if let Ok(d) = crate::props::basic::time::parse_duration(tok) {
             if duration.is_none() {
                 duration = Some(d);
@@ -2886,7 +2861,9 @@ pub fn parse_style_animation_vec(
     input: &str,
 ) -> Result<StyleAnimationVec, StyleAnimationParseError<'_>> {
     let mut out = Vec::new();
-    for seg in input.split(',') {
+    // Top-level commas only: the commas inside `cubic-bezier(0.4, 0, 0.2, 1)`
+    // do not end an entry.
+    for seg in crate::props::basic::parse::split_string_respect_comma(input) {
         let seg = seg.trim();
         if seg.is_empty() {
             continue;

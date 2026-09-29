@@ -1953,8 +1953,8 @@ mod autotest_generated {
 
     #[test]
     fn transform_vec_unbalanced_parens_do_not_underflow_the_depth_counter() {
-        // split_string_respect_whitespace does `depth -= 1` on every ')' with no
-        // floor; a run of closers drives it negative. Must not panic in debug.
+        // A ')' with no '(' open ends the splitter's search (the depth counter
+        // never goes below zero), so the rest is one token. Must not panic in debug.
         let closers = ")".repeat(10_000);
         assert!(parse_style_transform_vec(&closers).is_err());
         let mixed = alloc::format!("{} {}", ")".repeat(5_000), "(".repeat(5_000));

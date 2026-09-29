@@ -316,23 +316,13 @@ pub fn is_custom_property_name(name: &str) -> bool {
 /// The inside of a `var( ... )` call split into the variable name (without
 /// `--`) and the fallback text, untrimmed: `"--a, rgb(1, 2, 3)"` ->
 /// `("a", Some(" rgb(1, 2, 3)"))`, `"--a"` -> `("a", None)`. The split is at
-/// the first TOP-LEVEL comma. `None` when the name is not a custom-property
-/// name (`var(a)`, `var(--)`, `var(--a b)`).
+/// the first TOP-LEVEL comma (the crate's one scanner,
+/// [`find_top_level`](crate::props::basic::parse::find_top_level)). `None`
+/// when the name is not a custom-property name (`var(a)`, `var(--)`,
+/// `var(--a b)`).
 #[must_use]
 pub fn split_var_arguments(inner: &str) -> Option<(&str, Option<&str>)> {
-    let mut depth = 0usize;
-    let mut comma = None;
-    for (i, b) in inner.bytes().enumerate() {
-        match b {
-            b'(' => depth += 1,
-            b')' => depth = depth.saturating_sub(1),
-            b',' if depth == 0 => {
-                comma = Some(i);
-                break;
-            }
-            _ => {}
-        }
-    }
+    let comma = crate::props::basic::parse::find_top_level(inner, |byte| byte == b',');
     let (name, fallback) = match comma {
         Some(i) => (&inner[..i], Some(&inner[i + 1..])),
         None => (inner, None),

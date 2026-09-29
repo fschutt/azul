@@ -19,7 +19,7 @@ use core::{
 };
 
 #[cfg(feature = "parser")]
-use crate::props::basic::parse::{strip_quotes, UnclosedQuotesError};
+use crate::props::basic::parse::{split_top_level, strip_quotes, UnclosedQuotesError};
 #[cfg(feature = "codegen")]
 use crate::codegen::format::FormatAsRustCode;
 use crate::{
@@ -335,8 +335,10 @@ impl StyleFontFamily {
     pub fn as_string(&self) -> String {
         match &self {
             Self::System(s) => {
+                // Quoted when it holds whitespace, or a comma - unquoted, the
+                // comma would read back as the end of the family.
                 let owned = s.clone().into_library_owned_string();
-                if owned.contains(char::is_whitespace) {
+                if owned.contains(|c: char| c.is_whitespace() || c == ',') {
                     format!("\"{owned}\"")
                 } else {
                     owned
@@ -648,8 +650,11 @@ impl CssStyleFontFamilyParseErrorOwned {
 pub fn parse_style_font_family(
     input: &str,
 ) -> Result<StyleFontFamilyVec, CssStyleFontFamilyParseError<'_>> {
-    let multiple_fonts = input.split(',');
-    let mut fonts = Vec::with_capacity(1);
+    // Top-level commas only: `"Foo, Bar", serif` is TWO families. Otherwise
+    // like `str::split` (an empty input is one empty family, a trailing comma
+    // adds one).
+    let multiple_fonts = split_top_level(input, |byte| byte == b',');
+    let mut fonts = Vec::with_capacity(multiple_fonts.len());
 
     for font in multiple_fonts {
         let font = font.trim();
@@ -2165,13 +2170,14 @@ mod autotest_generated {
 
     #[cfg(feature = "parser")]
     #[test]
-    fn style_font_family_as_string_does_not_escape_commas() {
-        // LOSSY: `as_string()` quotes on whitespace only, so a comma inside a family
-        // name re-parses as two families. Asserted as-is; reported as a defect.
+    fn style_font_family_as_string_quotes_a_name_with_a_comma() {
+        // `as_string()` quotes a name with a comma, and the parser splits the
+        // list only at top-level commas, so the name round-trips as ONE family
+        // (it used to print bare and re-parse as two).
         let family = StyleFontFamily::System("Foo,Bar".into());
-        assert_eq!(family.as_string(), "Foo,Bar");
+        assert_eq!(family.as_string(), "\"Foo,Bar\"");
         let parsed = parse_style_font_family(&family.as_string()).unwrap();
-        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed.as_slice(), &[family]);
     }
 
     #[cfg(feature = "parser")]
