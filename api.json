@@ -19555,6 +19555,62 @@
                                     "type": "GlobalHotkeyStatus"
                                 },
                                 "fn_body": "object.get_global_hotkey_status(hotkey)"
+                            },
+                            "get_color_scheme": {
+                                "doc": [
+                                    "The app's colour-scheme CHOICE: `None` = follows the desktop,",
+                                    "`Some(theme)` = pinned. Not what the window shows - that is",
+                                    "[`Self::get_resolved_color_scheme`]; an app showing \"System (dark)\"",
+                                    "needs both. A `set_color_scheme` in the same callback is not visible",
+                                    "here yet (it applies when the callback returns)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionWindowTheme"
+                                },
+                                "fn_body": "object.get_color_scheme()"
+                            },
+                            "get_resolved_color_scheme": {
+                                "doc": [
+                                    "The light / dark this window shows: the app's choice resolved against",
+                                    "the window's own (desktop-following) theme and the `AZ_THEME` pin."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "WindowTheme"
+                                },
+                                "fn_body": "object.get_resolved_color_scheme()"
+                            },
+                            "set_color_scheme": {
+                                "doc": [
+                                    "Switch the app's colour scheme: `Some(theme)` pins EVERY window of",
+                                    "the app to light or dark, whatever the desktop says; `None` follows",
+                                    "the desktop again, at once and through every later change of it.",
+                                    "",
+                                    "Applied after the callback returns, to every open window and to every",
+                                    "window opened afterwards. It is a restyle - colours only, the DOM is",
+                                    "kept, `layout()` does not run - unless a window's `layout()` read the",
+                                    "scheme (`LayoutCallbackInfo::get_theme`), in which case that window's",
+                                    "`layout()` runs again. The `AZ_THEME` environment pin still wins. The",
+                                    "startup value is `AppConfig::color_scheme`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "scheme": "OptionWindowTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_color_scheme(scheme)"
                             }
                         },
                         "repr": "C"
@@ -67601,6 +67657,9 @@
                                 },
                                 "mode": {
                                     "type": "DatePickerMode"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -67800,6 +67859,38 @@
                                     "type": "DatePicker"
                                 },
                                 "fn_body": "object.with_name(name)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the picker renders in the",
+                                    "default theme (`crate::widgets::themes::UiTheme::default()`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DatePicker"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -133840,6 +133931,9 @@
                                 "global_hotkeys_callback": {
                                     "type": "OptionGlobalHotkeysCallback"
                                 },
+                                "color_scheme": {
+                                    "type": "OptionWindowTheme"
+                                },
                                 "log_level": {
                                     "type": "AppLogLevel"
                                 },
@@ -133994,6 +134088,40 @@
                                     "type": "AppConfig"
                                 },
                                 "fn_body": "object.with_global_hotkeys_callback(cb)"
+                            },
+                            "set_color_scheme": {
+                                "doc": [
+                                    "In-place [`Self::with_color_scheme`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "scheme": "OptionWindowTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_color_scheme(scheme)"
+                            },
+                            "with_color_scheme": {
+                                "doc": [
+                                    "Start the app in a colour scheme: `Some(theme)` pins every window to",
+                                    "light or dark, `None` (the default) follows the desktop. See",
+                                    "[`Self::color_scheme`]; switch it later with",
+                                    "`CallbackInfo::set_color_scheme`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "scheme": "OptionWindowTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AppConfig"
+                                },
+                                "fn_body": "object.with_color_scheme(scheme)"
                             }
                         },
                         "repr": "C"
