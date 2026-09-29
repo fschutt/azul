@@ -1546,4 +1546,121 @@ mod autotest_generated {
             "the widget's own `selected` stays where the caller put it",
         );
     }
+
+    // ==================================================================
+    // <optgroup>: labelled, non-selectable group headings
+    // ==================================================================
+
+    mod optgroups {
+        use azul_core::menu::MenuItemState;
+
+        use super::*;
+
+        const INDENT: &str = "\u{2003}";
+
+        fn grouped() -> DropDown {
+            DropDown::new(choices(&["None"]))
+                .with_optgroup("Fruit".into(), choices(&["Apple", "Pear"]))
+                .with_optgroup("Veg".into(), choices(&["Leek"]))
+        }
+
+        /// `(label, state, choice index its callback reports)` per menu item.
+        fn items(dd: &DropDown) -> Vec<(String, MenuItemState, Option<usize>)> {
+            build_menu_items(dd)
+                .iter()
+                .map(|i| match i {
+                    MenuItem::String(s) => {
+                        let choice = s.callback.as_ref().and_then(|cb| {
+                            let mut data = cb.refany.clone();
+                            data.downcast_ref::<ChoiceCallbackData>().map(|d| d.choice_id)
+                        });
+                        (s.label.as_str().to_string(), s.menu_item_state, choice)
+                    }
+                    other => panic!("the dropdown emits string items only, got {other:?}"),
+                })
+                .collect()
+        }
+
+        #[test]
+        fn an_optgroup_appends_its_options_and_remembers_its_range() {
+            let dd = grouped();
+            let all: Vec<&str> = dd.choices.as_slice().iter().map(AzString::as_str).collect();
+            assert_eq!(all, vec!["None", "Apple", "Pear", "Leek"], "headings are never choices");
+            let groups: Vec<(String, usize, usize)> = dd
+                .groups
+                .as_ref()
+                .iter()
+                .map(|g| (g.label.as_str().to_string(), g.first_choice, g.len))
+                .collect();
+            assert_eq!(
+                groups,
+                vec![("Fruit".to_string(), 1, 2), ("Veg".to_string(), 3, 1)]
+            );
+        }
+
+        #[test]
+        fn the_menu_shows_each_heading_before_its_options_and_never_as_a_choice() {
+            assert_eq!(
+                items(&grouped()),
+                vec![
+                    ("None".to_string(), MenuItemState::Normal, Some(0)),
+                    ("Fruit".to_string(), MenuItemState::Disabled, None),
+                    (format!("{INDENT}Apple"), MenuItemState::Normal, Some(1)),
+                    (format!("{INDENT}Pear"), MenuItemState::Normal, Some(2)),
+                    ("Veg".to_string(), MenuItemState::Disabled, None),
+                    (format!("{INDENT}Leek"), MenuItemState::Normal, Some(3)),
+                ],
+                "a heading is a disabled item with no callback - the menu's keyboard \
+                 navigation passes over it and nothing can pick it"
+            );
+        }
+
+        #[test]
+        fn a_dropdown_without_groups_builds_the_menu_it_always_did() {
+            let dd = DropDown::new(choices(&["a", "b"]));
+            assert_eq!(
+                items(&dd),
+                vec![
+                    ("a".to_string(), MenuItemState::Normal, Some(0)),
+                    ("b".to_string(), MenuItemState::Normal, Some(1)),
+                ]
+            );
+        }
+
+        #[test]
+        fn an_empty_group_still_shows_its_heading() {
+            let dd = DropDown::new(choices(&["a"])).with_optgroup("Empty".into(), choices(&[]));
+            assert_eq!(
+                items(&dd),
+                vec![
+                    ("a".to_string(), MenuItemState::Normal, Some(0)),
+                    ("Empty".to_string(), MenuItemState::Disabled, None),
+                ]
+            );
+        }
+
+        #[test]
+        fn choosing_a_grouped_option_reports_its_index_among_the_options() {
+            let log = log();
+            let dd = grouped()
+                .with_on_choice_change(RefAny::new(log.clone()), cb(record_choice));
+            let pear = build_menu_items(&dd)
+                .into_iter()
+                .find_map(|i| match i {
+                    MenuItem::String(s) if s.label.as_str().ends_with("Pear") => s.callback.into_option(),
+                    _ => None,
+                })
+                .expect("Pear has a callback");
+            with_env(|env| {
+                let _ = on_choice_selected(pear.refany.clone(), env.info());
+            });
+            assert_eq!(entries(&log), vec![2]);
+        }
+
+        #[test]
+        fn the_trigger_shows_the_selected_option_without_its_heading() {
+            let dom = grouped().with_selected(2).dom();
+            assert_eq!(label_of(&dom), "Pear");
+        }
+    }
 }
