@@ -479,6 +479,29 @@ fn no_output_calls_a_constructor_named_new() {
 }
 
 #[test]
+fn racket_sets_a_union_variant_by_field_name_so_the_binding_padding_needs_no_value() {
+    // The bindings pad a variant between its tag and its payload where Rust
+    // puts the payload (`c_layout::union_payload_layout`), and the positional
+    // `make-<Union>_Variant_<V>` of `define-cstruct` then takes the pad as an
+    // argument too. The printer sets `variant-tag` / `payload` by name instead.
+    for (lang, what, src) in all_outputs() {
+        if lang != "racket" {
+            continue;
+        }
+        for (at, _) in src.match_indices("(make-Az") {
+            let ctor: String = src[at + 1..]
+                .chars()
+                .take_while(|c| !c.is_whitespace() && *c != ')')
+                .collect();
+            assert!(
+                !ctor.contains("_Variant_"),
+                "racket {what}: `{ctor}` builds a union variant positionally\n{src}"
+            );
+        }
+    }
+}
+
+#[test]
 fn every_backend_is_reachable_by_its_id_and_aliases() {
     for backend in all_backends() {
         let found = azul_css::codegen::backend_for(backend.lang()).unwrap();

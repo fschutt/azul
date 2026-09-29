@@ -11,10 +11,14 @@
     (ptr-set! arr type i item))
   (copy arr n))
 
-;; A union value: VARIANT (a variant struct, tag first) written into its memory.
-(define (css-union type variant-type variant)
+;; A union value of TYPE holding one variant. The variant struct's `variant-tag`
+;; and `payload` are set by name (VARIANT-TAG is the struct's pointer tag), so
+;; the padding the binding puts between them needs no value.
+(define (css-union type variant-tag set-tag! tag [set-payload! #f] [payload #f])
   (define p (malloc type))
-  (ptr-set! p variant-type variant)
+  (cpointer-push-tag! p variant-tag)
+  (set-tag! p tag)
+  (when set-payload! (set-payload! p payload))
   (ptr-ref p type))
 
 ;; CSS: .btn, .btn:hover
@@ -28,7 +32,7 @@
       (css-property-with-conditions-simple (css-property-display AzLayoutDisplay_Flex))
       (css-property-with-conditions-simple (css-property-flex-grow (make-AzLayoutFlexGrow (float-value-create 1.0))))
       (css-property-with-conditions-simple (css-property-inherit AzCssPropertyType_MinWidth))
-      (css-property-with-conditions-simple (css-property-white-space (css-union _AzStyleWhiteSpaceValue _AzStyleWhiteSpaceValue_Variant_Exact (make-AzStyleWhiteSpaceValue_Variant_Exact AzStyleWhiteSpaceValue_Tag_Exact AzStyleWhiteSpace_Nowrap))))
+      (css-property-with-conditions-simple (css-property-white-space (css-union _AzStyleWhiteSpaceValue AzStyleWhiteSpaceValue_Variant_Exact-tag set-AzStyleWhiteSpaceValue_Variant_Exact-variant-tag! AzStyleWhiteSpaceValue_Tag_Exact set-AzStyleWhiteSpaceValue_Variant_Exact-payload! AzStyleWhiteSpace_Nowrap)))
       (css-property-with-conditions-on-hover (css-property-font-weight AzStyleFontWeight_Bold))
     )
   ))

@@ -11,10 +11,14 @@
     (ptr-set! arr type i item))
   (copy arr n))
 
-;; A union value: VARIANT (a variant struct, tag first) written into its memory.
-(define (css-union type variant-type variant)
+;; A union value of TYPE holding one variant. The variant struct's `variant-tag`
+;; and `payload` are set by name (VARIANT-TAG is the struct's pointer tag), so
+;; the padding the binding puts between them needs no value.
+(define (css-union type variant-tag set-tag! tag [set-payload! #f] [payload #f])
   (define p (malloc type))
-  (ptr-set! p variant-type variant)
+  (cpointer-push-tag! p variant-tag)
+  (set-tag! p tag)
+  (when set-payload! (set-payload! p payload))
   (ptr-ref p type))
 
 ;; dropped `text-shadow: 1px 1px 2px`: CssProperty::TextShadow holds a BoxOrStaticStyleBoxShadow (a pointer wrapper) and api.json has no constructor for it
@@ -23,8 +27,8 @@
     css-property-with-conditions-vec-copy-from-ptr
     _AzCssPropertyWithConditions
     (list
-      (css-property-with-conditions-simple (css-union _AzCssProperty _AzCssProperty_Variant_Width (make-AzCssProperty_Variant_Width AzCssProperty_Tag_Width (css-union _AzLayoutWidthValue _AzLayoutWidthValue_Variant_Revert (make-AzLayoutWidthValue_Variant_Revert AzLayoutWidthValue_Tag_Revert)))))
-      (css-property-with-conditions-simple (css-property-caret-width (css-union _AzCaretWidthValue _AzCaretWidthValue_Variant_Unset (make-AzCaretWidthValue_Variant_Unset AzCaretWidthValue_Tag_Unset))))
+      (css-property-with-conditions-simple (css-union _AzCssProperty AzCssProperty_Variant_Width-tag set-AzCssProperty_Variant_Width-variant-tag! AzCssProperty_Tag_Width set-AzCssProperty_Variant_Width-payload! (css-union _AzLayoutWidthValue AzLayoutWidthValue_Variant_Revert-tag set-AzLayoutWidthValue_Variant_Revert-variant-tag! AzLayoutWidthValue_Tag_Revert)))
+      (css-property-with-conditions-simple (css-property-caret-width (css-union _AzCaretWidthValue AzCaretWidthValue_Variant_Unset-tag set-AzCaretWidthValue_Variant_Unset-variant-tag! AzCaretWidthValue_Tag_Unset)))
       (css-property-with-conditions-simple (css-property-auto AzCssPropertyType_Height))
       (css-property-with-conditions-simple (css-property-none AzCssPropertyType_TextShadow))
     )
