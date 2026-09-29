@@ -3810,3 +3810,30 @@ pub(crate) fn tooltip_skin() -> crate::widgets::tooltip::TooltipSkin {
 pub fn tooltip(t: crate::widgets::tooltip::Tooltip) -> Dom {
     t.build(tooltip_skin())
 }
+
+// ==== video ====
+//
+// The picture is the source's own; the video widget's only chrome is the
+// "no signal" poster it shows until the first frame arrives. Flat's is the
+// established dark screen - #2a2a30 under a #44444c hairline - the same by day
+// and by night: a screen is dark whatever the window around it is. Nothing in
+// the widget takes focus (the app builds and names the controls).
+
+/// Flat's "no signal" poster.
+#[must_use]
+pub(crate) fn video_poster_style() -> CssPropertyWithConditionsVec {
+    use super::style_kit as kit;
+    const SCREEN: ColorU = ColorU::new(42, 42, 48, 255);
+    const SCREEN_EDGE: ColorU = ColorU::new(68, 68, 76, 255);
+
+    let mut v = kit::fill().to_vec();
+    v.push(CssPropertyWithConditions::simple(kit::bg(SCREEN)));
+    v.extend(kit::border(kit::Edges::ALL, 1, SCREEN_EDGE, SCREEN_EDGE));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// Renders a [`crate::widgets::video::VideoWidget`] in the flat theme.
+#[must_use]
+pub fn video(w: crate::widgets::video::VideoWidget) -> Dom {
+    w.build(super::UiTheme::Flat)
+}

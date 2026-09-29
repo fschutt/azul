@@ -3903,3 +3903,32 @@ pub(crate) fn tooltip_skin() -> crate::widgets::tooltip::TooltipSkin {
 pub fn tooltip(t: crate::widgets::tooltip::Tooltip) -> Dom {
     t.build(tooltip_skin())
 }
+
+// ==== video ====
+//
+// The picture is the source's own; the widget's only chrome is its "no signal"
+// poster. Flora draws it as the ink panel it sets code and tooltips in
+// (`--fl-code-bg` under a `--fl-code-bd` hairline, by day and by night) - a
+// screen reads as ink on the page in both modes.
+
+/// Flora's "no signal" poster.
+#[must_use]
+pub(crate) fn video_poster_style() -> CssPropertyWithConditionsVec {
+    use super::style_kit as kit;
+
+    let mut v = kit::fill().to_vec();
+    v.extend(kit::themed_bg(TOOLTIP_INK_BG.0, TOOLTIP_INK_BG.1));
+    v.extend(kit::border(
+        kit::Edges::ALL,
+        1,
+        TOOLTIP_INK_BD.0,
+        TOOLTIP_INK_BD.1,
+    ));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// Renders a [`crate::widgets::video::VideoWidget`] in the flora theme.
+#[must_use]
+pub fn video(w: crate::widgets::video::VideoWidget) -> Dom {
+    w.build(super::UiTheme::Flora)
+}

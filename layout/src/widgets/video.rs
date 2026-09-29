@@ -33,6 +33,7 @@ use crate::{
         OptionThreadPool, Thread, ThreadCallback, ThreadPool, ThreadReceiveMsg, ThreadSender,
         ThreadWriteBackMsg, WriteBackCallback,
     },
+    widgets::themes::{style_kit, OptionUiTheme, UiTheme},
 };
 
 /// Default decode size for the test pattern (the real decoder reports the
@@ -102,6 +103,10 @@ pub struct VideoWidgetState {
     /// What the decode worker runs on, as the `on_mount` hook last returned it.
     /// Written on mount, never by a rebuild (see [`merge_video_state`]).
     pub setup: VideoSetup,
+    /// The theme the widget was built in: the render callback draws the
+    /// "no signal" poster in it. Adopted from every rebuild (see
+    /// [`merge_video_state`]).
+    pub theme: UiTheme,
 }
 
 /// The runtime-installed streaming decode worker every video picks up when it
@@ -148,6 +153,11 @@ pub struct VideoWidget {
     pub on_mount: OptionVideoMount,
     /// Optional hook fired with every [`VideoStatus`] the decoder reports.
     pub on_status: OptionOnVideoStatus,
+    /// The widget theme, or `None` for the default (`UiTheme::Flat`). The
+    /// picture is the source's own; the theme draws the widget's chrome - the
+    /// "no signal" poster shown until the first frame. A DOM-level choice:
+    /// switching it rebuilds the widget.
+    pub theme: OptionUiTheme,
 }
 
 impl VideoWidget {
@@ -160,7 +170,23 @@ impl VideoWidget {
             frames: OptionRefAny::None,
             on_mount: OptionVideoMount::None,
             on_status: OptionOnVideoStatus::None,
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the widget renders in the
+    /// default theme (`UiTheme::default()`, flat).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// Set a hook fired whenever the video's pipeline reports a
@@ -252,8 +278,22 @@ impl VideoWidget {
     /// without one it shows the built-in test pattern. Pools for the decoder come
     /// from the `on_mount` hook, never from here: building the `Dom` only
     /// describes the UI.
+    ///
+    /// Rendering goes through the theme modules (as `Button::dom` does);
+    /// `UiTheme::default()` is flat.
     #[must_use]
     pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::video(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::video(self),
+        }
+    }
+
+    /// Builds the widget in `theme` - what `themes::flat::video` /
+    /// `themes::flora::video` call. The theme travels in the widget state, so
+    /// the render callback draws the poster in it.
+    #[must_use]
+    pub(crate) fn build(self, theme: UiTheme) -> Dom {
         let state = VideoWidgetState {
             config: self.config,
             started: false,
@@ -268,6 +308,7 @@ impl VideoWidget {
             seek_sender: None,
             on_mount: self.on_mount,
             setup: VideoSetup::new(),
+            theme,
         };
         let dataset = RefAny::new(state);
         let vv_data = dataset.clone();
@@ -280,6 +321,9 @@ impl VideoWidget {
         // re-render in place (no DOM rebuild) — see `video_writeback`. The caller
         // sizes the outer node via `.with_css(...)` on the returned Dom.
         Dom::create_div()
+            .with_ids_and_classes(azul_core::dom::IdOrClassVec::from_vec(alloc::vec![
+                style_kit::marker(theme)
+            ]))
             .with_dataset(OptionRefAny::Some(dataset.clone()))
             .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(merge_video_state))
             .with_callback(
@@ -301,6 +345,14 @@ impl VideoWidget {
                 )
                 .with_css("width: 100%; height: 100%; overflow: hidden;"),
             )
+    }
+}
+
+/// The "no signal" poster in `theme` - the video widget's only chrome.
+fn poster_style(theme: UiTheme) -> azul_css::dynamic_selector::CssPropertyWithConditionsVec {
+    match theme {
+        UiTheme::Flat => crate::widgets::themes::flat::video_poster_style(),
+        UiTheme::Flora => crate::widgets::themes::flora::video_poster_style(),
     }
 }
 
@@ -353,11 +405,8 @@ extern "C" fn video_widget_render(
                         // Vulkan init failure, network stall) was
                         // indistinguishable from a black video — the shipped
                         // azul-video "black frame" bug. A dead pipeline must be
-                        // visibly dead.
-                        OptionDom::Some(Dom::create_div().with_css(
-                            "width: 100%; height: 100%; background: #2a2a30; border: 1px solid \
-                             #44444c;",
-                        ))
+                        // visibly dead. Drawn in the widget's theme.
+                        OptionDom::Some(Dom::create_div().with_css_props(poster_style(s.theme)))
                     },
                     |img| OptionDom::Some(frame_image(img.clone())),
                 )
@@ -806,6 +855,8 @@ extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> R
             // The hook is adopted; `setup` and the decode worker were installed on
             // mount and belong to the running widget, so they stay.
             old_g.on_mount = new_g.on_mount.clone();
+            // The app's theme is adopted like its config: the poster follows it.
+            old_g.theme = new_g.theme;
             true
         } else {
             // Foreign / mismatched payloads (one side is not this widget's

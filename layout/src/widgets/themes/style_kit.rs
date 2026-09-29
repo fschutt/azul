@@ -130,6 +130,19 @@ pub const fn radius_corners(tl: isize, tr: isize, br: isize, bl: isize) -> [P; 4
     ]
 }
 
+/// `width: 100%; height: 100%` - a part that fills its box.
+#[must_use]
+pub fn fill() -> [P; 2] {
+    [
+        P::simple(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth::Px(
+            PixelValue::percent(100.0),
+        )))),
+        P::simple(CssProperty::Height(LayoutHeightValue::Exact(LayoutHeight::Px(
+            PixelValue::percent(100.0),
+        )))),
+    ]
+}
+
 /// `font-size: <px>`.
 #[must_use]
 pub const fn font_size(px: isize) -> P {
