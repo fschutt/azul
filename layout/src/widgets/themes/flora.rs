@@ -4755,9 +4755,55 @@ pub fn card(c: crate::widgets::card::Card) -> Dom {
 }
 
 // ==== frame ====
+//
+// A flora group box keeps the frame's shape - a rule, the title, a rule, then
+// the bordered content - and speaks flora in the two places a group box has a
+// voice. The title is flora.css's `.fl-label`, "the small-caps label that
+// sits over every group": bold, tracked out, in --fl-soft1. The rules are
+// --fl-bd, the house's hairline, instead of a neutral grey. At night the
+// label and the rules take their night values. A frame takes no focus.
 
-/// The flora frame.
+/// The flora frame: the frame's own geometry, flora's label and rules.
 #[must_use]
 pub fn frame(f: crate::widgets::frame::Frame) -> Dom {
-    super::flat::frame(f)
+    use super::decl;
+    use crate::widgets::frame::{
+        FrameLook, FRAME_AFTER_STYLE, FRAME_BEFORE_STYLE, FRAME_CONTENT_STYLE,
+        FRAME_HEADER_STYLE, FRAME_ROOT_STYLE, FRAME_TITLE_STYLE,
+    };
+
+    // Each rule keeps the frame's geometry; its colour is appended after the
+    // flat one (and its system twin), so flora's pair is the one that wins.
+    let mut before = FRAME_BEFORE_STYLE.to_vec();
+    before.extend(decl::themed_border_top_color(LIGHT_BD, DARK_BD));
+    before.extend(decl::themed_border_left_color(LIGHT_BD, DARK_BD));
+
+    let mut after = FRAME_AFTER_STYLE.to_vec();
+    after.extend(decl::themed_border_top_color(LIGHT_BD, DARK_BD));
+    after.extend(CssPropertyWithConditions::themed(
+        CssProperty::const_border_right_color(StyleBorderRightColor { inner: LIGHT_BD }),
+        CssProperty::const_border_right_color(StyleBorderRightColor { inner: DARK_BD }),
+    ));
+
+    let mut content = FRAME_CONTENT_STYLE.to_vec();
+    content.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
+
+    // `.fl-label`: font-weight 700, letter-spacing 0.12em, --fl-soft1.
+    let mut title = FRAME_TITLE_STYLE.to_vec();
+    title.push(decl::bold());
+    title.push(decl::letter_spacing_em(0.12));
+    title.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    crate::widgets::frame::build(
+        f,
+        &FrameLook {
+            root: FRAME_ROOT_STYLE.to_vec(),
+            header: FRAME_HEADER_STYLE.to_vec(),
+            before,
+            title,
+            after,
+            content,
+            marker: Some("__azul-theme-flora"),
+        },
+    )
 }
