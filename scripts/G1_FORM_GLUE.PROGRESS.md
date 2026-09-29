@@ -26,12 +26,14 @@ display:none. NEVER compile. Report: `scripts/G1_FORM_GLUE_2026_09_29.md`.
 - 316d053f0 RED step 5: `mod datalist`
 - 72908c162 step 5: hide_datalist (UA `display:none` prepended, idempotent), prepass has_datalists
 
+- 61c15644e review pass (evict closure pattern, docs)
+- report `scripts/G1_FORM_GLUE_2026_09_29.md` (committed with this checkpoint)
+
 ## IN PROGRESS
-- final compile-by-reading review pass, then the report
+- nothing: task complete, waiting for the parent's compile + test run
 
 ## NEXT
-6. review pass over form_controls.rs / widgets/form.rs / the test file; report
-   `scripts/G1_FORM_GLUE_2026_09_29.md`
+- (parent) compile, run `layout --lib` + `layout --test all`, check the RED commits fail
 
 ## Design decisions
 - `FormWidget` variants carry the HTML type: `TextInput(TextInputKind)`, `DatePicker(DatePickerMode)`,
