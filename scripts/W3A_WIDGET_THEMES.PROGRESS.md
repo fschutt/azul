@@ -88,10 +88,17 @@ is shared with other agents!). Append to files via Write-to-scratch + `cat >>`.
   (create / set_theme / with_theme / dom) - not in api.json (neither was the
   function).
 
+- color_input: 0482f8bc2 (plumbing: ColorInputLook + color_input::build,
+  PANEL/PREVIEW/EYEDROPPER/GRIP_HANDLE_CSS consts), 8e4a9f7a4 (RED; also
+  updates 2 existing tests to the focus-ring contract), b5415b72f (flat
+  halos + night preview/grip; flora framed swatch + leaf picker).
+  API: `ColorInput.theme` appended after `accessibility_name`; set_theme /
+  with_theme.
+
 ## IN PROGRESS
 
 ## NEXT
-color_input, date_picker
+date_picker, then final report
 
 ## Open questions
 - ENGINE GAP (spinner): `-azul-animation-in` tracks are started only by
