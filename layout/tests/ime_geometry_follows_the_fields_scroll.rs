@@ -226,3 +226,42 @@ fn the_byte_under_a_point_is_the_one_painted_under_it() {
          character about {SCROLL_X}px to its left"
     );
 }
+
+/// The selection handles hang under the carets where those are PAINTED -
+/// and are grabbed there.
+///
+/// `selection_handle_geometry` (what a shell that draws its own handles
+/// asks, and what `selection_handle_at` hit-tests a window point against)
+/// measured the two ends with a STATIC caret rect, documented as window
+/// coordinates: in a field scrolled by S the handles were S px right of the
+/// selection they mark, and a press on the painted handle missed it (the M5
+/// class, left open by the text-scroll-reveal work).
+#[test]
+fn the_selection_handles_hang_under_the_carets_where_they_are_painted() {
+    let (mut h, _) = Harness::scrolled_with_the_caret_on_the_byte();
+    // The engine's own handles (Android's), so `selection_handle_at` answers.
+    h.lw.text_edit_manager.selection_handles = true;
+    assert!(
+        h.lw.set_focused_selection_from_byte_range(BYTE, BYTE + 3),
+        "harness: a range in the session"
+    );
+    let start = h
+        .lw
+        .focused_rect_for_byte_offset(BYTE)
+        .expect("the range's start has an on-screen rect");
+    let [first, _] = h
+        .lw
+        .selection_handle_geometry()
+        .expect("a range has two handles");
+    assert!(
+        (first.center.x - start.origin.x).abs() < 0.5,
+        "THE BUG: the start handle hangs at x={}, the caret it marks is painted at x={} - off by \
+         the field's own scroll ({SCROLL_X}px)",
+        first.center.x,
+        start.origin.x
+    );
+    assert!(
+        h.lw.selection_handle_at(first.center).is_some(),
+        "a press on the handle where it hangs grabs it"
+    );
+}
