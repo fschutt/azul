@@ -113,15 +113,28 @@ extern "C" fn scheme_reading_layout(mut data: RefAny, info: LayoutCallbackInfo) 
 }
 
 fn make_window(model: Model, layout: LayoutCallbackType) -> HeadlessWindow {
-    let mut config = AppConfig::default();
-    // Hermetic: a light desktop whatever the host is in.
-    config.system_style = azul_css::system::defaults::macos_modern_light();
+    make_window_from(model, window_options(layout))
+}
 
+/// Hermetic: a light desktop whatever the host is in.
+fn light_desktop() -> azul_css::system::SystemStyle {
+    azul_css::system::defaults::macos_modern_light()
+}
+
+/// What `make_window` opens: the layout callback and nothing else.
+fn window_options(layout: LayoutCallbackType) -> WindowCreateOptions {
     let mut options = WindowCreateOptions::default();
     options.window_state.layout_callback = LayoutCallback {
         cb: layout,
         ctx: OptionRefAny::None,
     };
+    options
+}
+
+/// Opens `options` on the light desktop.
+fn make_window_from(model: Model, options: WindowCreateOptions) -> HeadlessWindow {
+    let mut config = AppConfig::default();
+    config.system_style = light_desktop();
 
     HeadlessWindow::new(
         options,
@@ -359,4 +372,226 @@ fn modify_window_state_does_not_override_the_apps_pin() {
     state.theme = WindowTheme::DarkMode;
     let _ = window.apply_user_change(&CallbackChange::ModifyWindowState { state });
     assert_eq!(theme_of(&window), WindowTheme::LightMode);
+}
+
+// ---------------------------------------------------------------------------
+// The window's clear colour follows the MODE the window shows (W4 item 6.3)
+// ---------------------------------------------------------------------------
+
+/// A window as a DESKTOP shell opens it: the background is seeded from the
+/// scheme at creation (`resolve_initial_background_color`, which every shell
+/// calls before its `CommonWindowState`), and the CPU canvas follows the
+/// system background (every shell's `CpuBackend`; the headless one keeps a
+/// fixed canvas so offscreen output does not change with the machine).
+fn make_desktop_window_from(model: Model, mut options: WindowCreateOptions) -> HeadlessWindow {
+    azul::desktop::shell2::common::resolve_initial_background_color(
+        &mut options,
+        &light_desktop(),
+    );
+    let mut window = make_window_from(model, options);
+    window.cpu_backend.follow_system_background = true;
+    window
+}
+
+fn make_desktop_window(model: Model, layout: LayoutCallbackType) -> HeadlessWindow {
+    make_desktop_window_from(model, window_options(layout))
+}
+
+/// Paints one frame on the CPU backend - the canvas macOS, X11 and Wayland
+/// share - and answers the colour it cleared the window to: what shows
+/// wherever the app's body does not paint.
+fn paint_and_read_clear_color(window: &mut HeadlessWindow) -> [u8; 4] {
+    let (width, height, dpi) = {
+        let ws = window.common.current_window_state();
+        (
+            ws.size.dimensions.width,
+            ws.size.dimensions.height,
+            ws.size.dpi as f32 / 96.0,
+        )
+    };
+    let lw = window
+        .common
+        .layout_window
+        .as_ref()
+        .expect("a layout window");
+    let _ = window.cpu_backend.render_frame(
+        lw,
+        &window.common.renderer_resources,
+        width,
+        height,
+        dpi,
+    );
+    window
+        .cpu_backend
+        .last_clear_color
+        .expect("a painted frame records its clear colour")
+}
+
+fn is_dark_rgba(c: [u8; 4]) -> bool {
+    u32::from(c[0]) + u32::from(c[1]) + u32::from(c[2]) < 3 * 128
+}
+
+fn rgba(c: ColorU) -> [u8; 4] {
+    [c.r, c.g, c.b, c.a]
+}
+
+/// The clear colour follows the scheme the window SHOWS. The background a
+/// shell seeds at creation came from the DESKTOP's palette and nothing moved
+/// it, so a dark pin on a light desktop painted dark widgets on a light
+/// canvas wherever the body did not reach.
+#[test]
+fn a_dark_pin_clears_the_window_dark_on_a_light_desktop() {
+    let _app = fresh_app();
+    if env_pinned() {
+        return;
+    }
+    let mut window = make_desktop_window(Model::new(), scheme_blind_layout);
+    window.regenerate_layout().expect("first layout");
+    assert!(
+        !is_dark_rgba(paint_and_read_clear_color(&mut window)),
+        "premise: a light desktop clears light"
+    );
+
+    let result = set_color_scheme(&mut window, PIN_DARK);
+    honor(&mut window, result);
+    let clear = paint_and_read_clear_color(&mut window);
+    assert!(is_dark_rgba(clear), "the dark pin clears dark, got {clear:?}");
+}
+
+/// A window opened while the app is pinned dark starts on a dark canvas: the
+/// creation-time background was chosen from the DESKTOP's theme.
+#[test]
+fn a_window_opened_under_a_dark_pin_starts_on_a_dark_canvas() {
+    let _app = fresh_app();
+    if env_pinned() {
+        return;
+    }
+    azul_layout::window::set_app_color_scheme(PIN_DARK);
+    let mut window = make_desktop_window(Model::new(), scheme_blind_layout);
+    window.regenerate_layout().expect("first layout");
+    let clear = paint_and_read_clear_color(&mut window);
+    assert!(is_dark_rgba(clear), "a dark-pinned window clears dark, got {clear:?}");
+}
+
+/// A canvas nobody seeded takes the system window background - of the mode
+/// the window SHOWS, not of the desktop's palette.
+#[test]
+fn an_unseeded_canvas_takes_the_system_background_of_the_mode_the_window_shows() {
+    let _app = fresh_app();
+    if env_pinned() {
+        return;
+    }
+    let mut window = make_window(Model::new(), scheme_blind_layout);
+    window.cpu_backend.follow_system_background = true;
+    window.regenerate_layout().expect("first layout");
+    assert!(
+        !is_dark_rgba(paint_and_read_clear_color(&mut window)),
+        "premise: a light desktop clears light"
+    );
+
+    let result = set_color_scheme(&mut window, PIN_DARK);
+    honor(&mut window, result);
+    let clear = paint_and_read_clear_color(&mut window);
+    assert!(is_dark_rgba(clear), "the dark pin clears dark, got {clear:?}");
+}
+
+/// The app's own per-mode background (`WindowCreateOptions::
+/// background_color_dark`) is the canvas of the dark mode, whoever switched
+/// to it.
+#[test]
+fn a_per_mode_background_follows_the_pin() {
+    let _app = fresh_app();
+    if env_pinned() {
+        return;
+    }
+    let navy = ColorU::new_rgb(0x10, 0x18, 0x40);
+    let mut options = window_options(scheme_blind_layout);
+    options.background_color_dark = azul_css::props::basic::color::OptionColorU::Some(navy);
+    let mut window = make_desktop_window_from(Model::new(), options);
+    window.regenerate_layout().expect("first layout");
+    assert!(
+        !is_dark_rgba(paint_and_read_clear_color(&mut window)),
+        "premise: the light mode has no background of the app's, the desktop's is light"
+    );
+
+    let result = set_color_scheme(&mut window, PIN_DARK);
+    honor(&mut window, result);
+    assert_eq!(
+        paint_and_read_clear_color(&mut window),
+        rgba(navy),
+        "the dark mode clears to the app's dark background"
+    );
+}
+
+/// A background the APP set is the app's decision: a mode change moves only
+/// a background the scheme derived.
+#[test]
+fn a_background_the_app_set_survives_a_mode_change() {
+    let _app = fresh_app();
+    if env_pinned() {
+        return;
+    }
+    let brand = ColorU::new_rgb(0xc0, 0x30, 0x20);
+    let mut options = window_options(scheme_blind_layout);
+    options.window_state.background_color =
+        azul_css::props::basic::color::OptionColorU::Some(brand);
+    let mut window = make_desktop_window_from(Model::new(), options);
+    window.regenerate_layout().expect("first layout");
+    assert_eq!(paint_and_read_clear_color(&mut window), rgba(brand), "premise");
+
+    let result = set_color_scheme(&mut window, PIN_DARK);
+    honor(&mut window, result);
+    assert_eq!(
+        paint_and_read_clear_color(&mut window),
+        rgba(brand),
+        "the dark pin keeps the app's own background"
+    );
+
+    let result = set_color_scheme(&mut window, FOLLOW);
+    honor(&mut window, result);
+    assert_eq!(
+        paint_and_read_clear_color(&mut window),
+        rgba(brand),
+        "and so does following the desktop again"
+    );
+}
+
+/// Pinning and un-pinning is a round trip: back on System the canvas is the
+/// desktop's own background again, exactly.
+#[test]
+fn switching_back_to_system_returns_the_desktop_background() {
+    let _app = fresh_app();
+    if env_pinned() {
+        return;
+    }
+    let mut window = make_desktop_window(Model::new(), scheme_blind_layout);
+    window.regenerate_layout().expect("first layout");
+    let desktop = paint_and_read_clear_color(&mut window);
+
+    let result = set_color_scheme(&mut window, PIN_DARK);
+    honor(&mut window, result);
+    let result = set_color_scheme(&mut window, FOLLOW);
+    honor(&mut window, result);
+    assert_eq!(paint_and_read_clear_color(&mut window), desktop);
+}
+
+/// A theme pushed through `modify_window_state` moves the scheme-derived
+/// canvas too - the app's state carries the background it read, which is the
+/// one the scheme seeded.
+#[test]
+fn modify_window_state_with_a_new_theme_moves_the_seeded_background() {
+    let _app = fresh_app();
+    if env_pinned() {
+        return;
+    }
+    let mut window = make_desktop_window(Model::new(), scheme_blind_layout);
+    window.regenerate_layout().expect("first layout");
+    assert!(!is_dark_rgba(paint_and_read_clear_color(&mut window)), "premise");
+
+    let mut state = window.get_current_window_state().clone();
+    state.theme = WindowTheme::DarkMode;
+    let result = window.apply_user_change(&CallbackChange::ModifyWindowState { state });
+    honor(&mut window, result);
+    let clear = paint_and_read_clear_color(&mut window);
+    assert!(is_dark_rgba(clear), "the pushed dark theme clears dark, got {clear:?}");
 }
