@@ -8,6 +8,16 @@
 //! `[Azul.AzLayoutWidthValue]@{ Exact = [Azul.AzLayoutWidthValueVariant_Exact]@{ tag = ..; payload = .. } }`).
 //! A Vec is marshalled by the `New-CssVec` helper (like `AzulCodegen.Vec` of
 //! the C# printer), a String by `New-CssString` (`AzString_fromUtf8`).
+//!
+//! DOM export: a builder method is the raw C function taking `self` first,
+//! nested (`[Azul.NativeMethods]::AzDom_withChild($dom, $child)`); a
+//! parameter is a `[string]` with the component's default, converted by
+//! `(New-CssString $Title)` where it is used; a joined string is
+//! `(New-CssString ('by ' + $Author))`. The app registers a
+//! `LayoutCallbackInvokerDelegate` script block with the C# layer's host
+//! invoker; the registration turns script blocks into the C function
+//! pointers a `ComponentDef` holds with the C# layer's delegate types
+//! (`[Azul.AzComponentRenderFn]`, `Marshal.GetFunctionPointerForDelegate`).
 
 use alloc::{
     format,
@@ -16,13 +26,27 @@ use alloc::{
     vec::Vec,
 };
 
+use core::fmt::Write;
+
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{snake_to_lower_camel, EnumShape, Expr, Item, Module, Prim},
-    lang::{item_comments, item_doc, module_any, variant_ctor_method, ExprSyntax},
+    ir::{
+        snake_to_lower_camel, ComponentSpec, EnumShape, Expr, Ident, Item, LibrarySpec, Module,
+        Prim,
+    },
+    lang::{
+        dom::{one_line, unused_params},
+        expr_doc, item_comments, item_doc, module_any, variant_ctor_method, ConcatPart,
+        ExprSyntax, MethodLayout,
+    },
     lower_types::is_c_like_enum,
     CodegenBackend, GeneratedFile,
 };
+
+/// A parameter's PowerShell variable (`$Title`).
+fn ps_param(name: &Ident) -> String {
+    format!("${}", name.upper_camel())
+}
 
 /// The PowerShell printer.
 #[derive(Debug, Copy, Clone, Default)]
@@ -168,6 +192,70 @@ impl ExprSyntax for PowerShell {
     fn unsupported(&self, what: &str) -> Doc {
         Doc::text(format!("$(throw {})", ps_string(&format!("not expressible: {what}"))))
     }
+
+    fn dom_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `[Azul.NativeMethods]::AzDom_withChild(recv, child)`: the C function
+    /// takes `self` first; a chain nests.
+    fn method(&self, recv: Doc, class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
+        let mut all = vec![recv];
+        all.extend(args);
+        Doc::call(
+            format!("[Azul.NativeMethods]::Az{class}_{}", snake_to_lower_camel(method)),
+            all,
+            layout.node_tall,
+        )
+    }
+
+    fn param(&self, name: &Ident) -> Doc {
+        Doc::text(format!("(New-CssString {})", ps_param(name)))
+    }
+
+    /// `(New-CssString ('by ' + $Author))`.
+    fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        let parts: Vec<String> = parts
+            .iter()
+            .map(|p| match p {
+                ConcatPart::Lit(s) => ps_string(s),
+                ConcatPart::Param(i) => ps_param(i),
+            })
+            .collect();
+        Doc::text(format!("(New-CssString ({}))", parts.join(" + ")))
+    }
+}
+
+/// `    param([string]$Title = 'Hello', ..)` plus the `$null = $X` lines of
+/// the parameters the body never reads; nothing without parameters.
+fn param_block(item: &Item) -> String {
+    if item.params.is_empty() {
+        return String::new();
+    }
+    let params: Vec<String> = item
+        .params
+        .iter()
+        .map(|p| {
+            let ty = if p.ty == "String" {
+                "string".to_string()
+            } else {
+                ty_name(&p.ty)
+            };
+            match &p.default {
+                Some(Expr::Str(d)) if p.ty == "String" => {
+                    format!("[{ty}]{} = {}", ps_param(&p.name), ps_string(d))
+                }
+                Some(d) => format!("[{ty}]{} = {}", ps_param(&p.name), expr_doc(&PowerShell, d).flat()),
+                None => format!("[{ty}]{}", ps_param(&p.name)),
+            }
+        })
+        .collect();
+    let mut out = format!("    param({})
+", params.join(", "));
+    for p in unused_params(item) {
+        let _ = writeln!(out, "    $null = {}", ps_param(&p.name));
+    }
+    out
 }
 
 const HELPERS: &str = r"# Copies the items into native memory and lets the C API build the Vec
@@ -208,6 +296,241 @@ fn fn_name(item: &Item) -> String {
     format!("Get-{}", item.name.upper_camel())
 }
 
+/// The app around a DOM module (`m.app`): a `LayoutCallbackInvokerDelegate`
+/// script block (registered with the C# layer's host invoker) writes the
+/// root item (inside a `body` unless it builds the body itself) into the
+/// engine's return slot; the app and the window go through the C API.
+fn ps_app_main(m: &Module) -> String {
+    let Some(app) = &m.app else {
+        return String::new();
+    };
+    let root = format!("({})", fn_name_of(&app.root));
+    let value = if app.is_body {
+        root
+    } else {
+        format!(
+            "[Azul.NativeMethods]::AzDom_withChild([Azul.NativeMethods]::AzDom_createBody(), {root})"
+        )
+    };
+    PS_APP_MAIN
+        .replace("{value}", &value)
+        .replace("{title_str}", &ps_string(&app.title))
+        .replace("{title}", &one_line(&app.title))
+}
+
+/// [`fn_name`] of the item named `name`.
+fn fn_name_of(name: &Ident) -> String {
+    format!("Get-{}", name.upper_camel())
+}
+
+/// [`ps_app_main`]'s text (`{title}`, `{value}`, `{title_str}` are replaced).
+const PS_APP_MAIN: &str = r"# {title} - generated by AzBuilder (azul-css codegen, PowerShell).
+# Copy target/codegen/Azul.psd1 + Azul.psm1 and libazul here, then: pwsh ./main.ps1
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'Azul.psd1') -Force
+Set-AzulLibraryPath -Path $PSScriptRoot
+. (Join-Path $PSScriptRoot 'ui.ps1')
+
+# The layout callback: writes the root item into the engine's return slot.
+$script:Layout = [Azul.HostInvoker+LayoutCallbackInvokerDelegate]{
+    param([uint64]$Id, [IntPtr]$DataPtr, [IntPtr]$InfoPtr, [IntPtr]$OutPtr)
+    [System.Runtime.InteropServices.Marshal]::StructureToPtr({value}, $OutPtr, $false)
+}
+
+$wco = [Azul.NativeMethods]::AzWindowCreateOptions_createDefault()
+$ws = $wco.window_state
+$ws.layout_callback = [Azul.HostInvoker]::RegisterLayoutCallback($script:Layout)
+$ws.title = (New-CssString {title_str})
+$wco.window_state = $ws
+
+$app = [Azul.NativeMethods]::AzApp_create([Azul.HostInvoker]::RefanyCreate([PSCustomObject]@{}), [Azul.NativeMethods]::AzAppConfig_create())
+$appPtr = [System.Runtime.InteropServices.Marshal]::AllocHGlobal([System.Runtime.InteropServices.Marshal]::SizeOf([type][Azul.AzApp]))
+[System.Runtime.InteropServices.Marshal]::StructureToPtr($app, $appPtr, $false)
+[Azul.NativeMethods]::AzApp_run($appPtr, $wco)
+";
+
+/// What the registration calls (only when a component takes parameters).
+const REGISTRATION_HELPERS: &str = r"# The .NET string of an AzString.
+function ConvertFrom-CssString([Azul.AzString]$S) {
+    $n = [int]$S.vec.len.ToUInt64()
+    if ($n -eq 0) { return '' }
+    $bytes = New-Object byte[] $n
+    [System.Runtime.InteropServices.Marshal]::Copy($S.vec.ptr, $bytes, 0, $n)
+    return [System.Text.Encoding]::UTF8.GetString($bytes)
+}
+
+# The String value of the data-model field $Name (the model at $Model), or $Fallback.
+function Get-ModelString([IntPtr]$Model, [string]$Name, [string]$Fallback) {
+    $m = [System.Runtime.InteropServices.Marshal]::PtrToStructure($Model, [type][Azul.AzComponentDataModel])
+    foreach ($f in $m.fields.ToArray()) {
+        if ((ConvertFrom-CssString $f.name) -ne $Name) { continue }
+        $some = $f.default_value.Some
+        if ($some.tag -eq [Azul.AzOptionComponentDefaultValue_Tag]::Some -and
+            $some.payload.String.tag -eq [Azul.AzComponentDefaultValue_Tag]::String) {
+            return (ConvertFrom-CssString $some.payload.String.payload)
+        }
+    }
+    return $Fallback
+}
+
+# A String field of a component's data model.
+function New-StringField([string]$Name, [string]$Value, [string]$Description) {
+    return [Azul.AzComponentDataField]@{
+        name = (New-CssString $Name)
+        field_type = [Azul.NativeMethods]::AzComponentFieldType_string()
+        default_value = [Azul.NativeMethods]::AzOptionComponentDefaultValue_some([Azul.NativeMethods]::AzComponentDefaultValue_string((New-CssString $Value)))
+        required = $false
+        description = (New-CssString $Description)
+    }
+}
+";
+
+/// The registration of a component library (`m.library`): per component a
+/// default-arguments wrapper, a render and a compile script block of the C#
+/// layer's delegate types (kept in script variables, so they stay alive
+/// while libazul holds their function pointers) and its `ComponentDef`;
+/// then the library function and `Add-<Library>Library`, which registers it
+/// on an app config through `AzAppConfig_addComponentLibraryStruct`. Items
+/// the module does not have are skipped.
+fn ps_registration(m: &Module, lib: &LibrarySpec) -> String {
+    let lu = Ident::from_text(&lib.name).upper_camel();
+    let az = |s: &str| format!("(New-CssString {})", ps_string(s));
+    let components: Vec<(&ComponentSpec, &Item)> = lib
+        .components
+        .iter()
+        .filter_map(|c| m.item(&c.item).map(|i| (c, i)))
+        .collect();
+    let mut s = String::from("\n# -- registration --\n");
+    if components.iter().any(|(_, i)| !i.params.is_empty()) {
+        s.push('\n');
+        s.push_str(REGISTRATION_HELPERS);
+    }
+    let mut defs: Vec<String> = Vec::new();
+    for (c, item) in &components {
+        let item_fn = fn_name(item);
+        let cu = Ident::from_text(&c.name).upper_camel();
+        let defaults: Vec<String> = item.params.iter().map(|p| ps_string(p.default_text())).collect();
+        let default_call = if defaults.is_empty() {
+            item_fn.clone()
+        } else {
+            format!("{item_fn} {}", defaults.join(" "))
+        };
+        let _ = write!(
+            s,
+            "\n# `{}:{}` with its default arguments.\nfunction {item_fn}Default {{\n    return \
+             ({default_call})\n}}\n",
+            one_line(&lib.name),
+            one_line(&c.name)
+        );
+        let args: Vec<String> = item
+            .params
+            .iter()
+            .map(|p| {
+                format!(
+                    "(Get-ModelString $Model {} {})",
+                    ps_string(&p.name.snake()),
+                    ps_string(p.default_text())
+                )
+            })
+            .collect();
+        let render_call = if args.is_empty() {
+            item_fn.clone()
+        } else {
+            format!("{item_fn} {}", args.join(" "))
+        };
+        let _ = write!(
+            s,
+            "\n$script:{cu}RenderFn = [Azul.AzComponentRenderFn]{{\n    param([IntPtr]$Def, \
+             [IntPtr]$Model, [IntPtr]$Map)\n    $dom = {render_call}\n    return \
+             [Azul.NativeMethods]::AzResultStyledDomRenderDomError_ok([Azul.NativeMethods]::\
+             AzStyledDom_createFromDom($dom))\n}}\n"
+        );
+        let _ = write!(
+            s,
+            "\n$script:{cu}CompileFn = [Azul.AzComponentCompileFn]{{\n    param([IntPtr]$Def, \
+             [IntPtr]$Target, [IntPtr]$Model, [UIntPtr]$Indent)\n    return \
+             [Azul.NativeMethods]::AzResultStringCompileError_ok({})\n}}\n",
+            az(&format!("{item_fn}Default"))
+        );
+        let fields = if item.params.is_empty() {
+            "[Azul.NativeMethods]::AzComponentDataFieldVec_create()".to_string()
+        } else {
+            let items: Vec<String> = item
+                .params
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    let desc = c.field_descriptions.get(i).map_or("", String::as_str);
+                    format!(
+                        "        (New-StringField {} {} {})",
+                        ps_string(&p.name.snake()),
+                        ps_string(p.default_text()),
+                        ps_string(desc)
+                    )
+                })
+                .collect();
+            format!(
+                "(New-CssVec 'AzComponentDataFieldVec_copyFromPtr' ([Azul.AzComponentDataField]) \
+                 @(\n{}\n    ))",
+                items.join(",\n")
+            )
+        };
+        let _ = write!(
+            s,
+            "\nfunction Get-{cu}Def {{\n    $fields = {fields}\n    return \
+             [Azul.AzComponentDef]@{{\n        id = [Azul.NativeMethods]::AzComponentId_create({}, \
+             {})\n        display_name = {}\n        description = {}\n        # The CSS is \
+             applied per node by {item_fn}.\n        css = {}\n        source = \
+             [Azul.ComponentSource]::UserDefined\n        data_model = [Azul.AzComponentDataModel]@{{ \
+             name = {}; description = {}; fields = $fields }}\n        render_fn = \
+             [System.Runtime.InteropServices.Marshal]::GetFunctionPointerForDelegate($script:\
+             {cu}RenderFn)\n        compile_fn = \
+             [System.Runtime.InteropServices.Marshal]::GetFunctionPointerForDelegate($script:\
+             {cu}CompileFn)\n        render_fn_source = \
+             [Azul.NativeMethods]::AzOptionString_none()\n        compile_fn_source = \
+             [Azul.NativeMethods]::AzOptionString_none()\n    }}\n}}\n",
+            az(&lib.name),
+            az(&c.name),
+            az(&c.display_name),
+            az(&c.description),
+            az(""),
+            az(&c.data_model),
+            az(&c.data_model_description),
+        );
+        defs.push(format!("(Get-{cu}Def)"));
+    }
+    let components = if defs.is_empty() {
+        "[Azul.NativeMethods]::AzComponentDefVec_create()".to_string()
+    } else {
+        format!(
+            "(New-CssVec 'AzComponentDefVec_copyFromPtr' ([Azul.AzComponentDef]) @({}))",
+            defs.join(", ")
+        )
+    };
+    let _ = write!(
+        s,
+        "\n# The component library `{}` (the function libazul calls once).\n\
+         $script:{lu}Library = [Azul.AzRegisterComponentLibraryFnType]{{\n    return \
+         [Azul.AzComponentLibrary]@{{\n        name = {}\n        version = {}\n        \
+         description = {}\n        components = {components}\n        exportable = $true\n        \
+         modifiable = $false\n        data_models = \
+         [Azul.NativeMethods]::AzComponentDataModelVec_create()\n        enum_models = \
+         [Azul.NativeMethods]::AzComponentEnumModelVec_create()\n    }}\n}}\n\n# Registers the \
+         library on the app config at $Config (an IntPtr to an AzAppConfig).\nfunction \
+         Add-{lu}Library([IntPtr]$Config) {{\n    $fn = [Azul.AzRegisterComponentLibraryFn]@{{\n        \
+         cb = [System.Runtime.InteropServices.Marshal]::GetFunctionPointerForDelegate($script:\
+         {lu}Library)\n        ctx = [Azul.NativeMethods]::AzOptionRefAny_none()\n    }}\n    \
+         [Azul.NativeMethods]::AzAppConfig_addComponentLibraryStruct($Config, {}, $fn)\n}}\n",
+        one_line(&lib.name),
+        az(&lib.name),
+        az(&lib.version),
+        az("Exported from AzBuilder"),
+        az(&lib.name),
+    );
+    s
+}
+
 fn item_fn(item: &Item) -> (bool, String) {
     let mut out = String::new();
     for line in &item_comments(&PowerShell, item) {
@@ -217,7 +540,8 @@ fn item_fn(item: &Item) -> (bool, String) {
     match item_doc(&PowerShell, item) {
         Ok(doc) => {
             out.push_str(&format!(
-                "function {name} {{\n    return {}\n}}\n",
+                "function {name} {{\n{}    return {}\n}}\n",
+                param_block(item),
                 render(&doc, "    ", 1)
             ));
             (true, out)
@@ -253,11 +577,15 @@ impl CodegenBackend for PowerShell {
             "# Generated by azul-css codegen (PowerShell). Do not edit by hand.\n# Dot-source \
              after Import-Module Azul.psd1: . ./styles.ps1\n",
         );
-        if module_any(m, &|e| matches!(e, Expr::Vec { .. })) {
+        let registration = m.library.is_some();
+        if registration || module_any(m, &|e| matches!(e, Expr::Vec { .. })) {
             out.push('\n');
             out.push_str(HELPERS);
         }
-        if module_any(m, &|e| matches!(e, Expr::Str(_))) {
+        if registration
+            || m.app.is_some()
+            || module_any(m, &|e| matches!(e, Expr::Str(_) | Expr::Param(_) | Expr::Concat(_)))
+        {
             out.push('\n');
             out.push_str(NEW_CSS_STRING);
         }
@@ -265,10 +593,29 @@ impl CodegenBackend for PowerShell {
             out.push('\n');
             out.push_str(&item_fn(item).1);
         }
+        if let Some(lib) = &m.library {
+            out.push_str(&ps_registration(m, lib));
+        }
         out
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn emit_project_files(&self, m: &Module) -> Vec<GeneratedFile> {
+        if m.app.is_some() {
+            return vec![
+                GeneratedFile {
+                    path: "ui.ps1".to_string(),
+                    contents: self.emit_module(m),
+                },
+                GeneratedFile {
+                    path: "main.ps1".to_string(),
+                    contents: ps_app_main(m),
+                },
+            ];
+        }
         let mut main = String::from(
             "# Copy target/codegen/Azul.psd1 + Azul.psm1 and libazul here, then: pwsh \
              ./main.ps1\nImport-Module ./Azul.psd1\n. ./styles.ps1\n\n",

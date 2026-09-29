@@ -12,6 +12,16 @@
 //! Limitation: CFFI builds a union only through its tagged helpers, not
 //! from Lisp data, so a `CssPropertyValue<T>` alias / a `CssProperty`
 //! without a constructor cannot be written by hand.
+//!
+//! DOM export (package `azul-ui`): a builder method is the raw C function
+//! taking `self` first, nested like C (`(azul-internal::%az-dom-with-child
+//! dom child)`); parameters are `&optional` with the component's defaults,
+//! Lisp strings converted by `css-str` where they are used; a joined string
+//! is `(css-str (concatenate 'string "by " author))`. The app follows
+//! `examples/lisp`: the layout callback goes through `azul:register-callback`
+//! and returns the root in a CLOS `azul::dom`; the window options and
+//! `AzApp_run` cross as raw words. No registration: see
+//! [`REGISTRATION_BLOCKER`].
 
 use alloc::{
     format,
@@ -22,14 +32,51 @@ use alloc::{
 
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{snake_to_lower_camel, EnumShape, Expr, Item, Module, Prim},
-    lang::{item_comments, item_doc, module_any, variant_ctor_method, ExprSyntax},
+    ir::{snake_to_lower_camel, EnumShape, Expr, Ident, Item, Module, Prim},
+    lang::{
+        dom::{one_line, registration_note, unused_params},
+        expr_doc, item_comments, item_doc, module_any, variant_ctor_method, ConcatPart,
+        ExprSyntax, MethodLayout,
+    },
     CodegenBackend, GeneratedFile,
 };
 
 /// The Common Lisp printer.
 #[derive(Debug, Copy, Clone, Default)]
 pub struct Lisp;
+
+/// Why the Common Lisp printer writes no component-library registration.
+const REGISTRATION_BLOCKER: &str = "the Lisp binding makes C callbacks only through libazul's \
+                                    host invoker, which has no kind for the bare ComponentRenderFn, \
+                                    and CFFI's defcallback cannot return the struct it returns by \
+                                    value";
+
+/// A Lisp string literal.
+fn lisp_lit(s: &str) -> String {
+    let mut lit = String::from("\"");
+    for c in s.chars() {
+        if c == '"' || c == '\\' {
+            lit.push('\\');
+        }
+        lit.push(c);
+    }
+    lit.push('"');
+    lit
+}
+
+/// A parameter's Lisp name (`text-2`; a reserved symbol gets `lisp-`).
+fn lisp_param(name: &Ident) -> String {
+    kebab(&name.snake())
+}
+
+/// The package of a DOM export (`azul-ui`) or of styles (`azul-styles`).
+fn package_name(m: &Module) -> &'static str {
+    if m.is_dom() {
+        "azul-ui"
+    } else {
+        "azul-styles"
+    }
+}
 
 /// `is_lisp_reserved` of `lang_lisp/mod.rs`.
 const RESERVED: &[&str] = &[
@@ -141,15 +188,7 @@ impl ExprSyntax for Lisp {
     }
 
     fn string(&self, s: &str) -> Doc {
-        let mut lit = String::from("\"");
-        for c in s.chars() {
-            if c == '"' || c == '\\' {
-                lit.push('\\');
-            }
-            lit.push(c);
-        }
-        lit.push('"');
-        form("css-str".to_string(), vec![Doc::text(lit)], false)
+        form("css-str".to_string(), vec![Doc::text(lisp_lit(s))], false)
     }
 
     fn call(&self, class: &str, method: &str, args: Vec<Doc>, broken: bool) -> Doc {
@@ -214,6 +253,65 @@ impl ExprSyntax for Lisp {
             _ => None,
         }
     }
+
+    fn dom_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `(azul-internal::%az-dom-with-child recv child)`: the raw C function
+    /// takes `self` first; a chain nests.
+    fn method(&self, recv: Doc, class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
+        let mut all = vec![recv];
+        all.extend(args);
+        form(
+            raw_fn(&format!("Az{class}_{}", snake_to_lower_camel(method))),
+            all,
+            layout.node_tall,
+        )
+    }
+
+    fn param(&self, name: &Ident) -> Doc {
+        form("css-str".to_string(), vec![Doc::text(lisp_param(name))], false)
+    }
+
+    /// `(css-str (concatenate 'string "by " author))`.
+    fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        let mut args = vec![Doc::text("'string")];
+        args.extend(parts.iter().map(|p| match p {
+            ConcatPart::Lit(s) => Doc::text(lisp_lit(s)),
+            ConcatPart::Param(i) => Doc::text(lisp_param(i)),
+        }));
+        form(
+            "css-str".to_string(),
+            vec![form("concatenate".to_string(), args, false)],
+            false,
+        )
+    }
+}
+
+/// ` (&optional (title "Hello") ..)`'s lambda list: `()` without parameters.
+fn lambda_list(item: &Item) -> String {
+    if item.params.is_empty() {
+        return "()".to_string();
+    }
+    let params: Vec<String> = item
+        .params
+        .iter()
+        .map(|p| match &p.default {
+            Some(d) => format!("({} {})", lisp_param(&p.name), lisp_default(d)),
+            None => lisp_param(&p.name),
+        })
+        .collect();
+    format!("(&optional {})", params.join(" "))
+}
+
+/// A parameter default: a String default is the Lisp string (converted
+/// where the parameter is used), anything else its expression.
+fn lisp_default(d: &Expr) -> String {
+    match d {
+        Expr::Str(s) => lisp_lit(s),
+        _ => expr_doc(&Lisp, d).flat(),
+    }
 }
 
 const HELPERS: &str = r#"(defun css-type (name)
@@ -251,7 +349,17 @@ fn item_fn(item: &Item) -> (bool, String) {
     let name = fn_name(item);
     match item_doc(&Lisp, item) {
         Ok(doc) => {
-            out.push_str(&format!("(defun {name} ()\n  {})\n", render(&doc, "  ", 1)));
+            let unused: Vec<String> = unused_params(item).iter().map(|p| lisp_param(&p.name)).collect();
+            let ignore = if unused.is_empty() {
+                String::new()
+            } else {
+                format!("  (declare (ignore {}))\n", unused.join(" "))
+            };
+            out.push_str(&format!(
+                "(defun {name} {}\n{ignore}  {})\n",
+                lambda_list(item),
+                render(&doc, "  ", 1)
+            ));
             (true, out)
         }
         Err(reason) => {
@@ -280,6 +388,10 @@ impl CodegenBackend for Lisp {
         "lisp"
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn emit_module(&self, m: &Module) -> String {
         let fns: Vec<(bool, String, String)> = m
             .items
@@ -289,21 +401,24 @@ impl CodegenBackend for Lisp {
                 (ok, fn_name(i), body)
             })
             .collect();
-        let mut out = String::from(
+        let package = package_name(m);
+        let mut out = format!(
             ";;;; Generated by azul-css codegen (Common Lisp). Do not edit by hand.\n(defpackage \
-             #:azul-styles\n  (:use #:cl)\n  (:export",
+             #:{package}\n  (:use #:cl)\n  (:export",
         );
         for (ok, name, _) in &fns {
             if *ok {
                 out.push_str(&format!(" #:{name}"));
             }
         }
-        out.push_str("))\n\n(in-package #:azul-styles)\n");
+        out.push_str(&format!("))\n\n(in-package #:{package})\n"));
         if module_any(m, &|e| matches!(e, Expr::Vec { .. })) {
             out.push('\n');
             out.push_str(HELPERS);
         }
-        if module_any(m, &|e| matches!(e, Expr::Str(_))) {
+        if m.app.is_some()
+            || module_any(m, &|e| matches!(e, Expr::Str(_) | Expr::Param(_) | Expr::Concat(_)))
+        {
             out.push('\n');
             out.push_str(CSS_STR);
         }
@@ -311,10 +426,32 @@ impl CodegenBackend for Lisp {
             out.push('\n');
             out.push_str(body);
         }
+        if let Some(lib) = &m.library {
+            out.push('\n');
+            for line in registration_note(lib, REGISTRATION_BLOCKER) {
+                out.push_str(&format!(";; {line}\n"));
+            }
+        }
         out
     }
 
     fn emit_project_files(&self, m: &Module) -> Vec<GeneratedFile> {
+        if m.app.is_some() {
+            return vec![
+                GeneratedFile {
+                    path: "azul-app.asd".to_string(),
+                    contents: asd("azul-app", "An app generated by AzBuilder", "ui"),
+                },
+                GeneratedFile {
+                    path: "ui.lisp".to_string(),
+                    contents: self.emit_module(m),
+                },
+                GeneratedFile {
+                    path: "main.lisp".to_string(),
+                    contents: lisp_app_main(m),
+                },
+            ];
+        }
         let mut main = String::from(
             ";;;; Put target/codegen/azul.asd + azul.lisp where ASDF finds them and libazul \
              on the\n;;;; loader path, then:\n;;;;   sbcl --eval '(asdf:load-system \
@@ -331,7 +468,7 @@ impl CodegenBackend for Lisp {
         vec![
             GeneratedFile {
                 path: "azul-styles.asd".to_string(),
-                contents: ASD.to_string(),
+                contents: asd("azul-styles", "Styles generated by azul-css codegen", "styles"),
             },
             GeneratedFile {
                 path: "styles.lisp".to_string(),
@@ -345,9 +482,88 @@ impl CodegenBackend for Lisp {
     }
 }
 
-const ASD: &str = r#"(asdf:defsystem #:azul-styles
-  :description "Styles generated by azul-css codegen"
-  :depends-on (#:azul #:cffi)
-  :serial t
-  :components ((:file "styles") (:file "main")))
+/// The ASDF system `name` of `module` + `main`.
+fn asd(name: &str, description: &str, module: &str) -> String {
+    format!(
+        "(asdf:defsystem #:{name}\n  :description \"{description}\"\n  :depends-on (#:azul \
+         #:cffi)\n  :serial t\n  :components ((:file \"{module}\") (:file \"main\")))\n"
+    )
+}
+
+/// The app around a DOM module (`m.app`), as in `examples/lisp`: the layout
+/// callback returns the root item in a CLOS `azul::dom` (what the host
+/// invoker writes back), and the window options and `AzApp_run` cross as
+/// raw 8-byte words (CFFI's struct translation cannot rebuild their
+/// unions).
+fn lisp_app_main(m: &Module) -> String {
+    let Some(app) = &m.app else {
+        return String::new();
+    };
+    let root = format!("({})", app.root.kebab());
+    let value = if app.is_body {
+        root
+    } else {
+        format!("(azul-internal::%az-dom-with-child (azul-internal::%az-dom-create-body) {root})")
+    };
+    LISP_APP_MAIN
+        .replace("{title}", &one_line(&app.title))
+        .replace("{value}", &value)
+        .replace("{title_lit}", &lisp_lit(&app.title))
+}
+
+/// [`lisp_app_main`]'s text (`{title}`, `{value}`, `{title_lit}` are
+/// replaced).
+const LISP_APP_MAIN: &str = r#";;;; {title} - generated by AzBuilder (azul-css codegen, Common Lisp).
+;;;; Put target/codegen/azul.asd + azul.lisp where ASDF finds them and libazul on the
+;;;; loader path, then:
+;;;;   sbcl --eval '(asdf:load-system :azul-app)' --eval '(azul-ui::main)' --quit
+(in-package #:azul-ui)
+
+(defun layout-cb (data-ptr info-ptr)
+  "The layout callback: the root item as the CLOS dom the host invoker takes."
+  (declare (ignore data-ptr info-ptr))
+  (make-instance 'azul::dom :ptr {value}))
+
+;; The window options and AzApp_run cross by value as raw words (as in
+;; examples/lisp): CFFI's struct translation cannot rebuild their unions.
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defmacro def-word-struct (name n)
+    `(cffi:defcstruct ,name
+       ,@(loop for i below n
+               collect (list (intern (format nil "W~D" i) :azul-ui) :uint64)))))
+
+(def-word-struct wco-words
+  #.(/ (cffi:foreign-type-size '(:struct azul-internal::az-window-create-options)) 8))
+
+(cffi:defcfun ("AzWindowCreateOptions_createDefault" %wco-default-words)
+    (:struct wco-words))
+
+(cffi:defcfun ("AzApp_run" %app-run-words) :void
+  (app  :pointer)
+  (root (:struct wco-words)))
+
+(defun window-state-slot (wco-ptr slot)
+  "The address of SLOT of the window state inside the window options at WCO-PTR."
+  (cffi:inc-pointer wco-ptr
+                    (+ (cffi:foreign-slot-offset '(:struct azul-internal::az-window-create-options)
+                                                 'azul-internal::window-state)
+                       (cffi:foreign-slot-offset '(:struct azul-internal::az-full-window-state)
+                                                 slot))))
+
+(defun main ()
+  (assert (zerop (mod (cffi:foreign-type-size '(:struct azul-internal::az-window-create-options)) 8)))
+  (let* ((data (azul:refany-create :app-data))
+         (cfg (azul:make-app-config-create))
+         (app (azul:make-app-create data (azul:app-config-ptr cfg)))
+         (wco-ptr (cffi:foreign-alloc '(:struct wco-words))))
+    (setf (cffi:mem-ref wco-ptr '(:struct wco-words)) (%wco-default-words))
+    (setf (cffi:mem-ref (window-state-slot wco-ptr 'azul-internal::layout-callback)
+                        '(:struct azul-internal::az-layout-callback))
+          (azul:register-callback "LayoutCallback" #'layout-cb))
+    (setf (cffi:mem-ref (window-state-slot wco-ptr 'azul-internal::title)
+                        '(:struct azul-internal::az-string))
+          (css-str {title_lit}))
+    (let ((app-buf (cffi:foreign-alloc '(:struct azul-internal::az-app))))
+      (setf (cffi:mem-ref app-buf '(:struct azul-internal::az-app)) (azul:app-ptr app))
+      (%app-run-words app-buf (cffi:mem-ref wco-ptr '(:struct wco-words))))))
 "#;

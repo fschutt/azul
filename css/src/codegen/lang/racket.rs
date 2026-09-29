@@ -12,6 +12,17 @@
 //! the padding the binding puts between tag and payload. A Vec is copied
 //! from a `malloc`ed array (`css-vec`), a string is
 //! `(string->azul-string "..")`.
+//!
+//! DOM export: a builder method is its kebab wrapper taking `self` first,
+//! nested (`(dom-with-child dom child)`); parameters are optional with the
+//! component's defaults, Racket strings converted by `string->azul-string`
+//! where they are used; a joined string is `(string->azul-string
+//! (string-append "by " author))`. The app follows `examples/racket`
+//! (`window-create-options-create` registers the layout callback). The
+//! registration's render / compile functions are real C function pointers
+//! (`function-ptr`: libffi callbacks, which return the result struct by
+//! value); the library function goes through the binding's host invoker
+//! (`app-config-add-component-library`).
 
 use alloc::{
     format,
@@ -20,12 +31,17 @@ use alloc::{
     vec::Vec,
 };
 
+use core::fmt::Write;
+
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{snake_to_lower_camel, EnumShape, Expr, Item, Module, Prim},
+    ir::{
+        snake_to_lower_camel, ComponentSpec, EnumShape, Expr, Ident, Item, LibrarySpec, Module,
+        Prim,
+    },
     lang::{
-        escape_quoted, item_comments, item_doc, module_any, unicode_u4, variant_ctor_method,
-        ExprSyntax,
+        dom::one_line, escape_quoted, expr_doc, item_comments, item_doc, module_any, unicode_u4,
+        variant_ctor_method, ConcatPart, ExprSyntax, MethodLayout,
     },
     CodegenBackend, GeneratedFile,
 };
@@ -97,6 +113,11 @@ fn form(f: String, args: Vec<Doc>, broken: bool) -> Doc {
 /// A Racket string literal (`\u` / `\U` escapes keep it ASCII).
 fn quoted(s: &str) -> String {
     format!("\"{}\"", escape_quoted(s, &[], &unicode_u4))
+}
+
+/// A parameter's Racket name (a reserved name gets a `_`).
+fn rkt_param(name: &Ident) -> String {
+    kebab(&name.snake())
 }
 
 impl ExprSyntax for Racket {
@@ -174,6 +195,59 @@ impl ExprSyntax for Racket {
             false,
         )
     }
+
+    fn dom_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `(dom-with-child recv child)`: the wrapper takes `self` first; a
+    /// chain nests.
+    fn method(&self, recv: Doc, class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
+        let mut all = vec![recv];
+        all.extend(args);
+        form(wrapper(class, &snake_to_lower_camel(method)), all, layout.node_tall)
+    }
+
+    fn param(&self, name: &Ident) -> Doc {
+        form("string->azul-string".to_string(), vec![Doc::text(rkt_param(name))], false)
+    }
+
+    /// `(string->azul-string (string-append "by " author))`.
+    fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        let args: Vec<Doc> = parts
+            .iter()
+            .map(|p| match p {
+                ConcatPart::Lit(s) => Doc::text(quoted(s)),
+                ConcatPart::Param(i) => Doc::text(rkt_param(i)),
+            })
+            .collect();
+        form(
+            "string->azul-string".to_string(),
+            vec![form("string-append".to_string(), args, false)],
+            false,
+        )
+    }
+}
+
+/// `(name [title "Hello"] ..)`: parameters are optional with their
+/// defaults (a String default is the Racket string).
+fn header(name: &str, item: &Item) -> String {
+    let mut out = format!("({name}");
+    for p in &item.params {
+        match &p.default {
+            Some(Expr::Str(d)) => {
+                let _ = write!(out, " [{} {}]", rkt_param(&p.name), quoted(d));
+            }
+            Some(d) => {
+                let _ = write!(out, " [{} {}]", rkt_param(&p.name), expr_doc(&Racket, d).flat());
+            }
+            None => {
+                let _ = write!(out, " {}", rkt_param(&p.name));
+            }
+        }
+    }
+    out.push(')');
+    out
 }
 
 const CSS_VEC: &str = r";; Copies ITEMS into a malloc'ed array of TYPE; COPY clones them into a Vec.
@@ -204,6 +278,160 @@ fn fn_name(item: &Item) -> String {
     item.name.kebab()
 }
 
+/// What the registration calls (only when a component takes parameters).
+const REGISTRATION_HELPERS: &str = r";; The String value of the data-model field NAME, or FALLBACK.
+(define (model-string model name fallback)
+  (define fields (AzComponentDataModel-fields model))
+  (let loop ([i 0])
+    (cond
+      [(>= i (AzComponentDataFieldVec-len fields)) fallback]
+      [else
+       (define f (ptr-ref (AzComponentDataFieldVec-ptr fields) _AzComponentDataField i))
+       (define some (union-ref (AzComponentDataField-default-value f) 1))
+       (define value (union-ref (AzOptionComponentDefaultValue_Variant_Some-payload some) 1))
+       (if (and (equal? (azul-string->string (AzComponentDataField-name f)) name)
+                (= (AzOptionComponentDefaultValue_Variant_Some-variant-tag some)
+                   AzOptionComponentDefaultValue_Tag_Some)
+                (= (AzComponentDefaultValue_Variant_String-variant-tag value)
+                   AzComponentDefaultValue_Tag_String))
+           (azul-string->string (AzComponentDefaultValue_Variant_String-payload value))
+           (loop (add1 i)))])))
+
+;; A String field of a component's data model.
+(define (string-field name value description)
+  (make-AzComponentDataField
+   (string->azul-string name)
+   (component-field-type-string)
+   (option-component-default-value-some (component-default-value-string (string->azul-string value)))
+   #f
+   (string->azul-string description)))
+";
+
+/// The registration of a component library (`m.library`): per component a
+/// default-arguments wrapper, a render and a compile function made C
+/// function pointers with `function-ptr` (kept alive by their module-level
+/// definitions), and its `ComponentDef`; then `register-<library>-library`,
+/// which `app-config-add-component-library` takes (through the binding's
+/// host invoker). Items the module does not have are skipped.
+fn racket_registration(m: &Module, lib: &LibrarySpec) -> String {
+    let lk = Ident::from_text(&lib.name).kebab();
+    let az = |s: &str| format!("(string->azul-string {})", quoted(s));
+    let components: Vec<(&ComponentSpec, &Item)> = lib
+        .components
+        .iter()
+        .filter_map(|c| m.item(&c.item).map(|i| (c, i)))
+        .collect();
+    let mut s = String::from("\n;; -- registration --\n");
+    if components.iter().any(|(_, i)| !i.params.is_empty()) {
+        s.push('\n');
+        s.push_str(REGISTRATION_HELPERS);
+    }
+    let mut defs: Vec<String> = Vec::new();
+    for (c, item) in &components {
+        let item_fn = fn_name(item);
+        let ck = Ident::from_text(&c.name).kebab();
+        let defaults: Vec<String> = item.params.iter().map(|p| quoted(p.default_text())).collect();
+        let call = if defaults.is_empty() {
+            format!("({item_fn})")
+        } else {
+            format!("({item_fn} {})", defaults.join(" "))
+        };
+        let _ = write!(
+            s,
+            "\n;; `{}:{}` with its default arguments.\n(define ({item_fn}-default)\n  {call})\n",
+            one_line(&lib.name),
+            one_line(&c.name)
+        );
+        let args: Vec<String> = item
+            .params
+            .iter()
+            .map(|p| {
+                format!(
+                    "(model-string m {} {})",
+                    quoted(&p.name.snake()),
+                    quoted(p.default_text())
+                )
+            })
+            .collect();
+        let render_call = if args.is_empty() {
+            format!("({item_fn})")
+        } else {
+            format!("({item_fn} {})", args.join(" "))
+        };
+        let _ = write!(
+            s,
+            "\n(define {ck}-render-fn\n  (function-ptr\n   (lambda (def model component-map)\n     \
+             (define m (ptr-ref model _AzComponentDataModel))\n     \
+             (result-styled-dom-render-dom-error-ok (styled-dom-create-from-dom {render_call})))\n   \
+             (_fun _pointer _pointer _pointer -> _AzResultStyledDomRenderDomError)))\n"
+        );
+        let _ = write!(
+            s,
+            "\n(define {ck}-compile-fn\n  (function-ptr\n   (lambda (def target model indent)\n     \
+             (result-string-compile-error-ok {}))\n   (_fun _pointer _pointer _pointer _size -> \
+             _AzResultStringCompileError)))\n",
+            az(&format!("({item_fn}-default)"))
+        );
+        let fields = if item.params.is_empty() {
+            "(component-data-field-vec-create)".to_string()
+        } else {
+            let mut f = String::from(
+                "(css-vec\n     component-data-field-vec-copy-from-ptr\n     \
+                 _AzComponentDataField\n     (list",
+            );
+            for (i, p) in item.params.iter().enumerate() {
+                let desc = c.field_descriptions.get(i).map_or("", String::as_str);
+                let _ = write!(
+                    f,
+                    "\n      (string-field {} {} {})",
+                    quoted(&p.name.snake()),
+                    quoted(p.default_text()),
+                    quoted(desc)
+                );
+            }
+            f.push_str("))");
+            f
+        };
+        let _ = write!(
+            s,
+            "\n(define ({ck}-def)\n  (make-AzComponentDef\n   (component-id-create {} {})\n   \
+             {}\n   {}\n   ;; The CSS is applied per node by {item_fn}.\n   {}\n   \
+             AzComponentSource_UserDefined\n   (make-AzComponentDataModel\n    {}\n    {}\n    \
+             {fields})\n   {ck}-render-fn\n   {ck}-compile-fn\n   (option-string-none)\n   \
+             (option-string-none)))\n",
+            az(&lib.name),
+            az(&c.name),
+            az(&c.display_name),
+            az(&c.description),
+            az(""),
+            az(&c.data_model),
+            az(&c.data_model_description),
+        );
+        defs.push(format!("({ck}-def)"));
+    }
+    let components = if defs.is_empty() {
+        "(component-def-vec-create)".to_string()
+    } else {
+        format!(
+            "(css-vec component-def-vec-copy-from-ptr _AzComponentDef (list {}))",
+            defs.join(" ")
+        )
+    };
+    let _ = write!(
+        s,
+        "\n;; The component library `{}`:\n;;   (app-config-add-component-library config {} \
+         register-{lk}-library)\n(define (register-{lk}-library)\n  (make-AzComponentLibrary\n   \
+         {}\n   {}\n   {}\n   {components}\n   #t\n   #f\n   (component-data-model-vec-create)\n   \
+         (component-enum-model-vec-create)))\n",
+        one_line(&lib.name),
+        az(&lib.name),
+        az(&lib.name),
+        az(&lib.version),
+        az("Exported from AzBuilder"),
+    );
+    s
+}
+
 fn is_union(e: &Expr) -> bool {
     matches!(
         e,
@@ -222,7 +450,11 @@ fn item_fn(item: &Item) -> (bool, String) {
     let name = fn_name(item);
     match item_doc(&Racket, item) {
         Ok(doc) => {
-            out.push_str(&format!("(define ({name})\n  {})\n", render(&doc, "  ", 1)));
+            out.push_str(&format!(
+                "(define {}\n  {})\n",
+                header(&name, item),
+                render(&doc, "  ", 1)
+            ));
             (true, out)
         }
         Err(reason) => {
@@ -269,8 +501,11 @@ impl CodegenBackend for Racket {
                 out.push_str(&format!(" {name}"));
             }
         }
+        if let Some(lib) = &m.library {
+            out.push_str(&format!(" register-{}-library", Ident::from_text(&lib.name).kebab()));
+        }
         out.push_str(")\n");
-        if module_any(m, &|e| matches!(e, Expr::Vec { .. })) {
+        if m.library.is_some() || module_any(m, &|e| matches!(e, Expr::Vec { .. })) {
             out.push('\n');
             out.push_str(CSS_VEC);
         }
@@ -282,10 +517,47 @@ impl CodegenBackend for Racket {
             out.push('\n');
             out.push_str(body);
         }
+        if let Some(lib) = &m.library {
+            out.push_str(&racket_registration(m, lib));
+        }
         out
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn emit_project_files(&self, m: &Module) -> Vec<GeneratedFile> {
+        if let Some(app) = &m.app {
+            let root = format!("({})", app.root.kebab());
+            let value = if app.is_body {
+                root
+            } else {
+                format!("(dom-with-child (dom-create-body) {root})")
+            };
+            let main = format!(
+                "#lang racket/base\n;; {} - generated by AzBuilder (azul-css codegen, Racket).\n;; \
+                 Copy target/codegen/azul.rkt and libazul here, then:\n;;   AZ_LIB_DIR=. racket \
+                 main.rkt\n(require \"azul.rkt\" \"ui.rkt\")\n\n;; The layout callback: the root \
+                 item.\n(define (layout data-ptr info-ptr)\n  {value})\n\n(define (run-app)\n  (define \
+                 app (app-create (refany-create (box 0)) (app-config-create)))\n  (define wco \
+                 (window-create-options-create layout))\n  (set-AzFullWindowState-title! \
+                 (AzWindowCreateOptions-window-state wco) (string->azul-string {}))\n  (app-run app \
+                 wco))\n\n(run-app)\n",
+                one_line(&app.title),
+                quoted(&app.title),
+            );
+            return vec![
+                GeneratedFile {
+                    path: "ui.rkt".to_string(),
+                    contents: self.emit_module(m),
+                },
+                GeneratedFile {
+                    path: "main.rkt".to_string(),
+                    contents: main,
+                },
+            ];
+        }
         let mut main = String::from(
             "#lang racket/base\n;; Copy target/codegen/azul.rkt and libazul here, then:\n;;   \
              AZ_LIB_DIR=. racket main.rkt\n(require \"azul.rkt\" \"styles.rkt\")\n",

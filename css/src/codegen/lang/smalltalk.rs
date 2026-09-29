@@ -15,6 +15,17 @@
 //! Limitation: the bindings define no class for the `CssPropertyValue<T>`
 //! aliases (`AzLayoutWidthValue`, ...), so neither they nor a hand-built
 //! `CssProperty` (whose variants carry them) can be written.
+//!
+//! DOM export (class `AzulUi`): a builder method is the `AzulNative` send
+//! with the receiver first (`AzulNative azDomWithChild: dom child: c`),
+//! one keyword per line when it nests; an item with parameters is a keyword
+//! method (`renderCardTitle: title text: text ..`) plus a unary one with the
+//! component's defaults (`renderCard`); a parameter is a Smalltalk string
+//! converted by `self str:` where it is used, a joined string `self str:
+//! 'by ' , author`. The binding makes no C callbacks at all (no
+//! `FFICallback` wrappers, no host invoker): an app builds its UI once
+//! instead of opening a window, and no library is registered
+//! ([`NO_CALLBACKS`]).
 
 use alloc::{
     format,
@@ -25,14 +36,56 @@ use alloc::{
 
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{lower_first, snake_to_lower_camel, EnumShape, Expr, Item, Module, Prim},
-    lang::{call_param_names, item_comments, item_doc, module_any, variant_ctor_method, ExprSyntax},
+    ir::{capitalize, lower_first, snake_to_lower_camel, EnumShape, Expr, Ident, Item, Module, Prim},
+    lang::{
+        call_param_names,
+        dom::{one_line, registration_note},
+        expr_doc, item_comments, item_doc, module_any, variant_ctor_method, ConcatPart,
+        ExprSyntax, MethodLayout,
+    },
     CodegenBackend, GeneratedFile,
 };
 
 /// The Smalltalk printer.
 #[derive(Debug, Copy, Clone, Default)]
 pub struct Smalltalk;
+
+/// Why a Smalltalk app cannot open its window and no library is registered.
+const NO_CALLBACKS: &str = "the Smalltalk binding makes no C callbacks (it generates no \
+                            FFICallback wrappers and has no host invoker), so no Smalltalk block \
+                            can be the layout callback or a component's render function";
+
+/// The C parameter name of a builder method's argument: its keyword after
+/// the receiver (`azDomWithChild: dom child: c`, as `lang_smalltalk` names
+/// the selector parts after the C parameters).
+fn method_param_name(method: &str) -> &'static str {
+    match method {
+        "with_child" => "child",
+        "with_css" => "style",
+        "with_class" => "class",
+        "with_id" => "id",
+        _ => "value",
+    }
+}
+
+/// A parameter's Smalltalk name (a pseudo-variable gets `Arg`).
+fn st_param(name: &Ident) -> String {
+    let s = name.lower_camel();
+    if ["self", "super", "true", "false", "nil", "thisContext"].contains(&s.as_str()) {
+        format!("{s}Arg")
+    } else {
+        s
+    }
+}
+
+/// The class of a DOM export (`AzulUi`) or of styles (`AzulStyles`).
+fn class_name(m: &Module) -> &'static str {
+    if m.is_dom() {
+        "AzulUi"
+    } else {
+        "AzulStyles"
+    }
+}
 
 /// The selector base of C symbol `c_name` (`snake_to_lower_camel` of
 /// `lang_smalltalk/mod.rs`): `AzCssProperty_textColor` -> `azCssPropertyTextColor`.
@@ -42,12 +95,16 @@ fn selector(c_name: &str) -> String {
 
 /// A message argument: parenthesized unless it is a literal or a name.
 fn arg(d: Doc) -> Doc {
-    if d.flat().contains(' ') {
+    if d.flat().contains(' ') && !d.flat().starts_with(SELF_PARENTHESIZED.trim_end()) {
         Doc::cat(vec![Doc::text("("), d, Doc::text(")")])
     } else {
         d
     }
 }
+
+/// How a builder-method send starts: it brings its own parentheses (see
+/// `method`), so [`arg`] does not add more.
+const SELF_PARENTHESIZED: &str = "(AzulNative ";
 
 /// `AzulNative sel: a key: b`.
 fn send(c_name: &str, keys: &[&str], args: Vec<Doc>) -> Doc {
@@ -160,6 +217,124 @@ impl ExprSyntax for Smalltalk {
             _ => None,
         }
     }
+
+    fn dom_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `AzulNative azDomWithChild: recv child: c`; a nested send puts each
+    /// keyword part on a line of its own.
+    fn method(&self, recv: Doc, class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
+        let keys = ["dom", method_param_name(method)];
+        let mut all = vec![recv];
+        all.extend(args);
+        let base = selector(&format!("Az{class}_{}", snake_to_lower_camel(method)));
+        let parts: Vec<Doc> = all
+            .into_iter()
+            .enumerate()
+            .map(|(i, a)| {
+                let key = if i == 0 {
+                    base.clone()
+                } else {
+                    keys.get(i).map_or_else(|| format!("arg{i}"), |k| (*k).to_string())
+                };
+                Doc::cat(vec![Doc::text(format!("{key}: ")), arg(a)])
+            })
+            .collect();
+        if layout.node_tall {
+            Doc::list("(AzulNative", parts, "", ")", false, true, false)
+        } else {
+            let flat: Vec<String> = parts.iter().map(Doc::flat).collect();
+            Doc::text(format!("{SELF_PARENTHESIZED}{})", flat.join(" ")))
+        }
+    }
+
+    fn param(&self, name: &Ident) -> Doc {
+        Doc::text(format!("self str: {}", st_param(name)))
+    }
+
+    /// `self str: 'by ' , author`.
+    fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        let parts: Vec<String> = parts
+            .iter()
+            .map(|p| match p {
+                ConcatPart::Lit(s) => st_string(s),
+                ConcatPart::Param(i) => st_param(i),
+            })
+            .collect();
+        Doc::text(format!("self str: {}", parts.join(" , ")))
+    }
+}
+
+/// The keyword selector of an item with parameters, with its parameters
+/// (`renderCardTitle: title text: text`).
+fn keyword_header(item: &Item) -> String {
+    let name = method_name(item);
+    item.params
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let key = if i == 0 {
+                format!("{name}{}", capitalize(&p.name.lower_camel()))
+            } else {
+                p.name.lower_camel()
+            };
+            format!("{key}: {}", st_param(&p.name))
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The unary method of an item with parameters: the keyword method with
+/// the component's defaults.
+fn defaults_method(item: &Item, class: &str) -> String {
+    let name = method_name(item);
+    let call = item
+        .params
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let key = if i == 0 {
+                format!("{name}{}", capitalize(&p.name.lower_camel()))
+            } else {
+                p.name.lower_camel()
+            };
+            let value = match &p.default {
+                Some(Expr::Str(s)) => st_string(s),
+                Some(d) => expr_doc(&Smalltalk, d).flat(),
+                None => "nil".to_string(),
+            };
+            format!("{key}: {value}")
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!(
+        "\n\"`{name}` with the component's defaults.\"\n{{ #category : 'ui' }}\n{class} class >> {name} \
+         [\n    ^ self {call}\n]\n"
+    )
+}
+
+/// The app around a DOM module (`m.app`): it builds the UI once (see
+/// [`NO_CALLBACKS`]).
+fn smalltalk_app_main(m: &Module) -> String {
+    let Some(app) = &m.app else {
+        return String::new();
+    };
+    let class = class_name(m);
+    let root = if app.is_body {
+        format!("{class} {}", app.root.lower_camel())
+    } else {
+        format!("AzulNative azDomWithChild: AzulNative azDomCreateBody child: ({class} {})", app.root.lower_camel())
+    };
+    format!(
+        "\"{} - generated by AzBuilder (azul-css codegen, Smalltalk).\"\n\"Load \
+         target/codegen/Azul.st (Tonel, see BaselineOfAzul.st) and {class}.st into a Pharo image \
+         with libazul on the library path, then evaluate this.\"\n\"No window opens: {}. This \
+         builds the UI once.\"\n| ui |\nui := {root}.\nTranscript show: {}; cr.\n",
+        one_line(&app.title).replace('"', "''"),
+        NO_CALLBACKS,
+        st_string(&format!("{}: built", one_line(&app.title))),
+    )
 }
 
 const VEC: &str = "{ #category : 'private' }
@@ -189,7 +364,7 @@ fn method_name(item: &Item) -> String {
     item.name.lower_camel()
 }
 
-fn item_method(item: &Item) -> (bool, String) {
+fn item_method(item: &Item, class: &str) -> (bool, String) {
     // one comment per method (Tonel reads a single comment before it)
     let comments = item_comments(&Smalltalk, item);
     let mut out = String::new();
@@ -198,9 +373,19 @@ fn item_method(item: &Item) -> (bool, String) {
     }
     let name = method_name(item);
     match item_doc(&Smalltalk, item) {
-        Ok(doc) => {
+        Ok(doc) if !item.params.is_empty() => {
             out.push_str(&format!(
-                "{{ #category : 'styles' }}\nAzulStyles class >> {name} [\n    ^ {}\n]\n",
+                "{{ #category : 'ui' }}\n{class} class >> {} [\n    ^ {}\n]\n",
+                keyword_header(item),
+                render(&doc, "    ", 1)
+            ));
+            out.push_str(&defaults_method(item, class));
+            (true, out)
+        }
+        Ok(doc) => {
+            let category = if item.ty == "Dom" { "ui" } else { "styles" };
+            out.push_str(&format!(
+                "{{ #category : '{category}' }}\n{class} class >> {name} [\n    ^ {}\n]\n",
                 render(&doc, "    ", 1)
             ));
             (true, out)
@@ -233,32 +418,56 @@ impl CodegenBackend for Smalltalk {
     }
 
     fn emit_module(&self, m: &Module) -> String {
-        let mut out = String::from(
-            "\"Generated by azul-css codegen (Smalltalk). Do not edit by hand.\"\nClass {\n    \
-             #name : 'AzulStyles',\n    #superclass : 'Object',\n    #category : \
-             'Azul-Styles'\n}\n",
+        let class = class_name(m);
+        let category = if m.is_dom() { "Azul-Ui" } else { "Azul-Styles" };
+        let mut out = format!(
+            "\"Generated by azul-css codegen (Smalltalk). Do not edit by hand.\"\nClass {{\n    \
+             #name : '{class}',\n    #superclass : 'Object',\n    #category : \
+             '{category}'\n}}\n",
         );
         if module_any(m, &|e| matches!(e, Expr::Vec { .. })) {
             out.push('\n');
-            out.push_str(VEC);
+            out.push_str(&VEC.replace("AzulStyles", class));
         }
-        if module_any(m, &|e| matches!(e, Expr::Str(_))) {
+        if module_any(m, &|e| matches!(e, Expr::Str(_) | Expr::Param(_) | Expr::Concat(_))) {
             out.push('\n');
-            out.push_str(STR);
+            out.push_str(&STR.replace("AzulStyles", class));
         }
         for item in &m.items {
             out.push('\n');
-            out.push_str(&item_method(item).1);
+            out.push_str(&item_method(item, class).1);
+        }
+        if let Some(lib) = &m.library {
+            out.push_str(&format!(
+                "\n\"{}\"\n",
+                registration_note(lib, NO_CALLBACKS).join("\n").replace('"', "''")
+            ));
         }
         out
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn emit_project_files(&self, m: &Module) -> Vec<GeneratedFile> {
+        if m.app.is_some() {
+            return vec![
+                GeneratedFile {
+                    path: "AzulUi.st".to_string(),
+                    contents: self.emit_module(m),
+                },
+                GeneratedFile {
+                    path: "main.st".to_string(),
+                    contents: smalltalk_app_main(m),
+                },
+            ];
+        }
         let mut main = String::from(
             "\"Load target/codegen/Azul.st (Tonel, see BaselineOfAzul.st) and AzulStyles.st into \
              a Pharo image with libazul on the library path, then evaluate:\"\n",
         );
-        for item in m.items.iter().filter(|i| item_method(i).0) {
+        for item in m.items.iter().filter(|i| item_method(i, class_name(m)).0) {
             let name = method_name(item);
             main.push_str(&format!(
                 "Transcript show: '{name}: ', AzulStyles {name} len printString, ' \
