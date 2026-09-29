@@ -1,5 +1,697 @@
 //! `<form>`: named controls, a submit that collects them, a reset that
 //! restores them.
+//!
+//! # Design (deliberately small)
+//!
+//! azul already had the ENGINE half of a form: `NodeType::Form`, the `Submit`
+//! / `Reset` / `Invalid` events, Enter-to-submit and reset-button default
+//! actions, and HTML constraint validation over DOM attributes
+//! (`crate::form`). What it lacked is the WIDGET half: the values live in the
+//! widgets' states, not in the DOM, and nothing collected them. This module is
+//! that half and nothing more:
+//!
+//! * A control PARTICIPATES by carrying a `name` attribute on the node that
+//!   holds its state as its dataset - `TextInput::with_name`,
+//!   `DatePicker::with_name`, `DateTimeLocalPicker::with_name`,
+//!   `HiddenInput`. Any other node with `name` and `value` attributes
+//!   contributes its `value`. Controls without a name are left out, as in HTML.
+//! * [`Form`] renders a `NodeType::Form` node (so the engine's defaults find
+//!   it) holding a [`FormStateWrapper`] as its dataset. At BUILD it records
+//!   each named control's value as the form's INITIAL [`FormData`] - HTML's
+//!   default values are the values the page was built with, and a widget is
+//!   built from the app's state.
+//! * SUBMIT (a submit/image button, Enter in a text field, or the engine's
+//!   `Submit` event) walks the form's subtree in document order and hands the
+//!   app's `on_submit` the CURRENT values, plus the names of the controls that
+//!   fail their constraints, whose fields it marks with the `:user-invalid`
+//!   look. HTML would refuse to submit an invalid form; azul has no browser
+//!   bubble to show instead, so the app decides (`FormData::is_valid`).
+//! * RESET (a reset button, or the engine's `Reset` event) puts every text
+//!   field back to its initial value itself and hands the app's `on_reset` the
+//!   initial `FormData`, from which it restores whatever else it built the
+//!   form from (pickers are rebuilt from the app's state).
+//!
+//! Key types: [`Form`], [`FormData`], [`FormEntry`], [`FormOnSubmit`],
+//! [`FormOnReset`]; free functions [`submit_form`], [`reset_form`].
+
+use alloc::vec::Vec;
+
+use azul_core::{
+    callbacks::{CoreCallback, Update},
+    dom::{AttributeType, Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter},
+    refany::{OptionRefAny, RefAny},
+};
+use azul_css::{
+    dynamic_selector::{CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec},
+    impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
+    impl_vec_partialeq, AzString, OptionString, StringVec,
+};
+
+use crate::{
+    callbacks::CallbackInfo,
+    widgets::{
+        button::ButtonFormAction,
+        date_picker::DatePickerData,
+        datetime_local::DateTimeLocalPickerStateWrapper,
+        text_input::TextInputStateWrapper,
+    },
+};
+
+/// The class of the form node.
+pub const FORM_CLASS: &str = "__azul-native-form";
+
+/// One named value of a [`FormData`].
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct FormEntry {
+    pub name: AzString,
+    pub value: AzString,
+}
+
+impl_option!(
+    FormEntry,
+    OptionFormEntry,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl_vec!(
+    FormEntry,
+    FormEntryVec,
+    FormEntryVecDestructor,
+    FormEntryVecDestructorType,
+    FormEntryVecSlice,
+    OptionFormEntry
+);
+impl_vec_clone!(FormEntry, FormEntryVec, FormEntryVecDestructor);
+impl_vec_debug!(FormEntry, FormEntryVec);
+impl_vec_mut!(FormEntry, FormEntryVec);
+impl_vec_partialeq!(FormEntry, FormEntryVec);
+
+/// A form's values: HTML's `FormData`, a MULTIMAP (one name may carry several
+/// values) in document order, plus the names of the controls whose values
+/// fail their constraints.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct FormData {
+    /// Every named control's value, in document order.
+    pub entries: FormEntryVec,
+    /// The names of the controls that fail their constraints (`pattern`,
+    /// e-mail / URL syntax), in document order. Empty for a valid form.
+    pub invalid: StringVec,
+}
+
+impl Default for FormData {
+    fn default() -> Self {
+        Self {
+            entries: FormEntryVec::from_const_slice(&[]),
+            invalid: StringVec::from_const_slice(&[]),
+        }
+    }
+}
+
+impl FormData {
+    /// The FIRST value submitted under `name` (HTML's `FormData.get`).
+    // owned AzString passed by value per the azul FFI / api.json convention.
+    #[allow(clippy::needless_pass_by_value)]
+    #[must_use]
+    pub fn get(&self, name: AzString) -> OptionString {
+        self.entries
+            .as_ref()
+            .iter()
+            .find(|e| e.name == name)
+            .map(|e| e.value.clone())
+            .into()
+    }
+
+    /// EVERY value submitted under `name`, in document order
+    /// (HTML's `FormData.getAll`).
+    #[allow(clippy::needless_pass_by_value)]
+    #[must_use]
+    pub fn get_all(&self, name: AzString) -> StringVec {
+        self.entries
+            .as_ref()
+            .iter()
+            .filter(|e| e.name == name)
+            .map(|e| e.value.clone())
+            .collect::<Vec<_>>()
+            .into()
+    }
+
+    /// Whether any value is submitted under `name`.
+    #[allow(clippy::needless_pass_by_value)]
+    #[must_use]
+    pub fn has(&self, name: AzString) -> bool {
+        self.entries.as_ref().iter().any(|e| e.name == name)
+    }
+
+    /// Whether every control passed its constraints.
+    #[must_use]
+    pub fn is_valid(&self) -> bool {
+        self.invalid.as_ref().is_empty()
+    }
+}
+
+/// Callback type invoked on submit, with the form's CURRENT values.
+pub type FormOnSubmitCallbackType = extern "C" fn(RefAny, CallbackInfo, FormData) -> Update;
+impl_widget_callback!(
+    FormOnSubmit,
+    OptionFormOnSubmit,
+    FormOnSubmitCallback,
+    FormOnSubmitCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        FormOnSubmitCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: FORM_ON_SUBMIT_INVOKER,
+    invoker_ty:     AzFormOnSubmitCallbackInvoker,
+    thunk_fn:       az_form_on_submit_callback_thunk,
+    setter_fn:      AzApp_setFormOnSubmitCallbackInvoker,
+    from_handle_fn: AzFormOnSubmitCallback_createFromHostHandle,
+    from_handle_byref_fn: AzFormOnSubmitCallback_createFromHostHandleByref,
+    extra_args:     [ form_data: FormData ],
+}
+
+/// Callback type invoked on reset, with the form's INITIAL values (what the
+/// text fields were just put back to).
+pub type FormOnResetCallbackType = extern "C" fn(RefAny, CallbackInfo, FormData) -> Update;
+impl_widget_callback!(
+    FormOnReset,
+    OptionFormOnReset,
+    FormOnResetCallback,
+    FormOnResetCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        FormOnResetCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: FORM_ON_RESET_INVOKER,
+    invoker_ty:     AzFormOnResetCallbackInvoker,
+    thunk_fn:       az_form_on_reset_callback_thunk,
+    setter_fn:      AzApp_setFormOnResetCallbackInvoker,
+    from_handle_fn: AzFormOnResetCallback_createFromHostHandle,
+    from_handle_byref_fn: AzFormOnResetCallback_createFromHostHandleByref,
+    extra_args:     [ form_data: FormData ],
+}
+
+/// The form node's dataset: the initial values recorded at build, and the
+/// app's callbacks.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct FormStateWrapper {
+    /// Each named control's value when the form was BUILT - what a reset
+    /// restores.
+    pub initial: FormData,
+    pub on_submit: OptionFormOnSubmit,
+    pub on_reset: OptionFormOnReset,
+}
+
+impl Default for FormStateWrapper {
+    fn default() -> Self {
+        Self {
+            initial: FormData::default(),
+            on_submit: None.into(),
+            on_reset: None.into(),
+        }
+    }
+}
+
+/// `<form>`: see the module docs.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct Form {
+    /// The form's content: the controls and whatever lays them out.
+    pub children: DomVec,
+    pub state: FormStateWrapper,
+    /// Style for the form node, or `None` for the theme's.
+    pub container_style: OptionCssPropertyWithConditionsVec,
+    /// What this form is CALLED, for assistive technology.
+    pub accessibility_name: OptionString,
+    pub theme: crate::widgets::themes::OptionUiTheme,
+}
+
+impl Default for Form {
+    fn default() -> Self {
+        Self::create(DomVec::from_const_slice(&[]))
+    }
+}
+
+impl Form {
+    /// A form around `children`.
+    #[must_use]
+    pub fn create(children: DomVec) -> Self {
+        Self {
+            children,
+            state: FormStateWrapper::default(),
+            container_style: OptionCssPropertyWithConditionsVec::None,
+            accessibility_name: OptionString::None,
+            theme: crate::widgets::themes::OptionUiTheme::None,
+        }
+    }
+
+    /// Replace the form's content.
+    pub fn set_children(&mut self, children: DomVec) {
+        self.children = children;
+    }
+
+    /// [`Self::set_children`] for the builder chain.
+    #[must_use]
+    pub fn with_children(mut self, children: DomVec) -> Self {
+        self.set_children(children);
+        self
+    }
+
+    /// Append one child to the form's content.
+    #[must_use]
+    pub fn with_child(mut self, child: Dom) -> Self {
+        let mut v = core::mem::replace(&mut self.children, DomVec::from_const_slice(&[]))
+            .into_library_owned_vec();
+        v.push(child);
+        self.children = v.into();
+        self
+    }
+
+    /// The callback a submit calls with the form's current values.
+    pub fn set_on_submit<C: Into<FormOnSubmitCallback>>(&mut self, data: RefAny, callback: C) {
+        self.state.on_submit = Some(FormOnSubmit {
+            callback: callback.into(),
+            refany: data,
+        })
+        .into();
+    }
+
+    /// [`Self::set_on_submit`] for the builder chain.
+    #[must_use]
+    pub fn with_on_submit<C: Into<FormOnSubmitCallback>>(
+        mut self,
+        data: RefAny,
+        callback: C,
+    ) -> Self {
+        self.set_on_submit(data, callback);
+        self
+    }
+
+    /// The callback a reset calls with the form's initial values.
+    pub fn set_on_reset<C: Into<FormOnResetCallback>>(&mut self, data: RefAny, callback: C) {
+        self.state.on_reset = Some(FormOnReset {
+            callback: callback.into(),
+            refany: data,
+        })
+        .into();
+    }
+
+    /// [`Self::set_on_reset`] for the builder chain.
+    #[must_use]
+    pub fn with_on_reset<C: Into<FormOnResetCallback>>(
+        mut self,
+        data: RefAny,
+        callback: C,
+    ) -> Self {
+        self.set_on_reset(data, callback);
+        self
+    }
+
+    /// Replace the form node's style (`None` = the theme's).
+    pub fn set_container_style(&mut self, style: CssPropertyWithConditionsVec) {
+        self.container_style = OptionCssPropertyWithConditionsVec::Some(style);
+    }
+
+    /// [`Self::set_container_style`] for the builder chain.
+    #[must_use]
+    pub fn with_container_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+        self.set_container_style(style);
+        self
+    }
+
+    /// Name this form for assistive technology.
+    #[must_use]
+    pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
+        self.accessibility_name = Some(name.into()).into();
+        self
+    }
+
+    /// Pick the widget theme; unset, the default theme renders it.
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// Replaces `self` with the default value and returns the original.
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
+        let mut s = Self::default();
+        core::mem::swap(&mut s, self);
+        s
+    }
+
+    /// Renders the form node, recording each named control's initial value.
+    #[must_use]
+    pub fn dom(self) -> Dom {
+        use crate::widgets::themes::{flat, flora, UiTheme};
+
+        let mut state = self.state;
+        state.initial = initial_form_data(self.children.as_ref());
+        let shared = RefAny::new(state);
+
+        let theme = self.theme.into_option().unwrap_or(UiTheme::Flat);
+        let mut form = match theme {
+            UiTheme::Flat => flat::form(self.children),
+            UiTheme::Flora => flora::form(self.children),
+        };
+        if let Some(style) = self.container_style.into_option() {
+            form = form.with_css_props(style);
+        }
+        let mut form = form
+            .with_dataset(Some(shared.clone()).into())
+            // The engine's own form events land on the form node: Enter in a
+            // control that does not edit text (`DefaultAction::SubmitForm`)
+            // and Enter on a reset button (`DefaultAction::ResetForm`).
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::Submit),
+                shared.clone(),
+                CoreCallback {
+                    cb: default_on_form_submit_event as usize,
+                    ctx: OptionRefAny::None,
+                },
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::Reset),
+                shared,
+                CoreCallback {
+                    cb: default_on_form_reset_event as usize,
+                    ctx: OptionRefAny::None,
+                },
+            );
+        if let Some(name) = self.accessibility_name.into_option() {
+            // Named, a form is a `form` landmark; the role itself comes from
+            // the node type.
+            form = form.with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                accessibility_name: Some(name).into(),
+                ..Default::default()
+            });
+        }
+        form
+    }
+}
+
+impl From<Form> for Dom {
+    fn from(f: Form) -> Self {
+        f.dom()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Reading a control's value
+// ---------------------------------------------------------------------------
+
+/// A participating control's value and whether it passes its constraints.
+struct ControlValue {
+    value: AzString,
+    valid: bool,
+}
+
+/// The value of the control whose state is `dataset` (if it is a widget this
+/// module knows) or, failing that, its `value` attribute.
+fn control_value(dataset: Option<RefAny>, value_attribute: Option<AzString>) -> Option<ControlValue> {
+    if let Some(mut dataset) = dataset {
+        if let Some(w) = dataset.downcast_ref::<TextInputStateWrapper>() {
+            return Some(ControlValue {
+                value: AzString::from(w.inner.get_text()),
+                valid: w.inner.compute_validity().is_valid(),
+            });
+        }
+        if let Some(d) = dataset.downcast_ref::<DatePickerData>() {
+            return Some(ControlValue {
+                value: AzString::from(d.form_value()),
+                valid: true,
+            });
+        }
+        if let Some(w) = dataset.downcast_ref::<DateTimeLocalPickerStateWrapper>() {
+            return Some(ControlValue {
+                value: AzString::from(w.inner.to_html_value()),
+                valid: true,
+            });
+        }
+    }
+    value_attribute.map(|value| ControlValue { value, valid: true })
+}
+
+/// The `name` attribute among `attributes`.
+fn name_of(attributes: &[AttributeType]) -> Option<AzString> {
+    attributes.iter().find_map(|a| match a {
+        AttributeType::Name(n) => Some(n.clone()),
+        _ => None,
+    })
+}
+
+/// The `value` attribute among `attributes`.
+fn value_attribute_of(attributes: &[AttributeType]) -> Option<AzString> {
+    attributes.iter().find_map(|a| match a {
+        AttributeType::Value(v) => Some(v.clone()),
+        _ => None,
+    })
+}
+
+/// Collects `name`/value pairs from the UNSTYLED children of a form being
+/// built. A named control's own subtree is its business and is not searched.
+fn collect_initial(children: &[Dom], entries: &mut Vec<FormEntry>, invalid: &mut Vec<AzString>) {
+    for child in children {
+        let attributes = child.root.attributes();
+        if let Some(name) = name_of(attributes.as_ref()) {
+            let value = control_value(
+                child.root.get_dataset().cloned(),
+                value_attribute_of(attributes.as_ref()),
+            );
+            if let Some(value) = value {
+                if !value.valid {
+                    invalid.push(name.clone());
+                }
+                entries.push(FormEntry {
+                    name,
+                    value: value.value,
+                });
+            }
+            continue;
+        }
+        collect_initial(child.children.as_ref(), entries, invalid);
+    }
+}
+
+/// The initial [`FormData`] of a form built around `children`.
+fn initial_form_data(children: &[Dom]) -> FormData {
+    let mut entries = Vec::new();
+    let mut invalid = Vec::new();
+    collect_initial(children, &mut entries, &mut invalid);
+    FormData {
+        entries: entries.into(),
+        invalid: invalid.into(),
+    }
+}
+
+/// Every NAMED control under the rendered `form` node, in document order, as
+/// `(node, name)`. A named control's own subtree is not searched.
+fn named_controls(info: &CallbackInfo, form: DomNodeId) -> Vec<(DomNodeId, AzString)> {
+    let mut out = Vec::new();
+    // Depth-first, document order: a node, then its children, then its
+    // following siblings.
+    let mut stack: Vec<DomNodeId> = info.get_first_child(form).into_iter().collect();
+    while let Some(node) = stack.pop() {
+        if let Some(next) = info.get_next_sibling(node) {
+            stack.push(next);
+        }
+        if let Some(name) = info.get_node_attribute(node, "name") {
+            out.push((node, name));
+            continue;
+        }
+        if let Some(first) = info.get_first_child(node) {
+            stack.push(first);
+        }
+    }
+    out
+}
+
+/// The current [`FormData`] of the rendered `form`, with the nodes of the
+/// controls that fail their constraints.
+fn current_form_data(info: &mut CallbackInfo, form: DomNodeId) -> (FormData, Vec<DomNodeId>) {
+    let mut entries = Vec::new();
+    let mut invalid = Vec::new();
+    let mut invalid_nodes = Vec::new();
+    for (node, name) in named_controls(info, form) {
+        let dataset = info.get_dataset(node);
+        let value_attribute = info.get_node_attribute(node, "value");
+        if let Some(value) = control_value(dataset, value_attribute) {
+            if !value.valid {
+                invalid.push(name.clone());
+                invalid_nodes.push(node);
+            }
+            entries.push(FormEntry {
+                name,
+                value: value.value,
+            });
+        }
+    }
+    (
+        FormData {
+            entries: entries.into(),
+            invalid: invalid.into(),
+        },
+        invalid_nodes,
+    )
+}
+
+/// The rendered form `node` belongs to: the nearest ancestor holding a
+/// [`FormStateWrapper`], `node` itself included.
+fn enclosing_form(info: &mut CallbackInfo, node: DomNodeId) -> Option<DomNodeId> {
+    let mut current = Some(node);
+    while let Some(n) = current {
+        if let Some(mut dataset) = info.get_dataset(n) {
+            if dataset.downcast_ref::<FormStateWrapper>().is_some() {
+                return Some(n);
+            }
+        }
+        current = info.get_parent(n);
+    }
+    None
+}
+
+// ---------------------------------------------------------------------------
+// Submit and reset
+// ---------------------------------------------------------------------------
+
+/// Submit the rendered form at `form`: collect the current values, mark the
+/// fields that fail their constraints with the `:user-invalid` look, and hand
+/// the values to the app's `on_submit`. Returns its `Update` (`DoNothing`
+/// without one, or when `form` is not a form).
+pub fn submit_form(info: &mut CallbackInfo, form: DomNodeId) -> Update {
+    let Some(mut dataset) = info.get_dataset(form) else {
+        return Update::DoNothing;
+    };
+    if dataset.downcast_ref::<FormStateWrapper>().is_none() {
+        return Update::DoNothing;
+    }
+    let (data, invalid_nodes) = current_form_data(info, form);
+
+    // A refused submit is the other moment `:user-invalid` starts to apply.
+    for node in invalid_nodes {
+        if let Some(mut field) = info.get_dataset(node) {
+            if let Some(w) = field.downcast_ref::<TextInputStateWrapper>() {
+                crate::widgets::text_input::mark_user_invalid(info, node, &w.inner);
+            }
+        }
+    }
+
+    let Some(mut wrapper) = dataset.downcast_mut::<FormStateWrapper>() else {
+        return Update::DoNothing;
+    };
+    match wrapper.on_submit.as_mut() {
+        Some(FormOnSubmit { callback, refany }) => callback.invoke(refany.clone(), *info, data),
+        None => Update::DoNothing,
+    }
+}
+
+/// Reset the rendered form at `form`: every text field goes back to its
+/// initial value (mirror and line), then the app's `on_reset` is handed the
+/// initial values to restore everything else from. Returns its `Update`.
+pub fn reset_form(info: &mut CallbackInfo, form: DomNodeId) -> Update {
+    let Some(mut dataset) = info.get_dataset(form) else {
+        return Update::DoNothing;
+    };
+    let initial = match dataset.downcast_ref::<FormStateWrapper>() {
+        Some(w) => w.initial.clone(),
+        None => return Update::DoNothing,
+    };
+
+    // The controls in document order are the ones `initial` was recorded
+    // from, in the same order: a name's n-th control takes that name's n-th
+    // initial value.
+    let mut seen: Vec<(AzString, usize)> = Vec::new();
+    for (node, name) in named_controls(info, form) {
+        let nth = match seen.iter_mut().find(|(n, _)| *n == name) {
+            Some((_, count)) => {
+                *count += 1;
+                *count - 1
+            }
+            None => {
+                seen.push((name.clone(), 1));
+                0
+            }
+        };
+        let Some(value) = initial
+            .entries
+            .as_ref()
+            .iter()
+            .filter(|e| e.name == name)
+            .nth(nth)
+            .map(|e| e.value.clone())
+        else {
+            continue;
+        };
+        if let Some(mut field) = info.get_dataset(node) {
+            if let Some(mut w) = field.downcast_mut::<TextInputStateWrapper>() {
+                crate::widgets::text_input::restore_text_input(info, node, &mut w, value.as_str());
+            }
+        }
+    }
+
+    let Some(mut wrapper) = dataset.downcast_mut::<FormStateWrapper>() else {
+        return Update::DoNothing;
+    };
+    match wrapper.on_reset.as_mut() {
+        Some(FormOnReset { callback, refany }) => callback.invoke(refany.clone(), *info, initial),
+        None => Update::DoNothing,
+    }
+}
+
+/// Submit the form `node` sits in, if any - HTML's implicit submission (Enter
+/// in a text field). `None` when `node` is in no form.
+pub(crate) fn submit_enclosing_form(info: &mut CallbackInfo, node: DomNodeId) -> Option<Update> {
+    let parent = info.get_parent(node)?;
+    let form = enclosing_form(info, parent)?;
+    Some(submit_form(info, form))
+}
+
+/// The engine dispatched `Submit` on the form node (Enter in a control that
+/// does not edit text).
+#[must_use]
+pub extern "C" fn default_on_form_submit_event(_data: RefAny, mut info: CallbackInfo) -> Update {
+    let form = info.get_hit_node();
+    submit_form(&mut info, form)
+}
+
+/// The engine dispatched `Reset` on the form node (Enter on a reset button).
+#[must_use]
+pub extern "C" fn default_on_form_reset_event(_data: RefAny, mut info: CallbackInfo) -> Update {
+    let form = info.get_hit_node();
+    reset_form(&mut info, form)
+}
+
+/// Click on a submit / reset / image button: act on the form it sits in.
+/// Outside a form it does nothing (the button's own `on_click` still runs).
+#[must_use]
+pub extern "C" fn default_on_form_button_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(action) = data.downcast_ref::<ButtonFormAction>().map(|a| *a) else {
+        return Update::DoNothing;
+    };
+    let button = info.get_hit_node();
+    let Some(form) = enclosing_form(&mut info, button) else {
+        return Update::DoNothing;
+    };
+    match action {
+        ButtonFormAction::Submit => submit_form(&mut info, form),
+        ButtonFormAction::Reset => reset_form(&mut info, form),
+        ButtonFormAction::None => Update::DoNothing,
+    }
+}
 
 #[cfg(test)]
 mod tests {

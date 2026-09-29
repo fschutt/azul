@@ -1665,6 +1665,29 @@ fn paint_invalid_ring(info: &mut CallbackInfo, container: DomNodeId, invalid: bo
     info.override_node_css_properties(container.dom, node_id, props.into());
 }
 
+/// Put the field hosted at `container` back to `value` - what a form reset
+/// does. The mirror, the engine's line (see [`replace_engine_line`] for its
+/// limit) and the live looks all follow; no hook is asked, because a reset is
+/// the app's own action, reported to it through the form's `on_reset`.
+pub(crate) fn restore_text_input(
+    info: &mut CallbackInfo,
+    container: DomNodeId,
+    wrapper: &mut TextInputStateWrapper,
+    value: &str,
+) {
+    if wrapper.inner.get_text() == value {
+        return;
+    }
+    let looks_before = looks_of(&wrapper.inner);
+    wrapper.inner.text = to_units(value);
+    wrapper.inner.cursor_pos = value.len();
+    wrapper.inner.selection = None.into();
+    wrapper.inner.validity = validity_of(&wrapper.inner);
+    let shown = display_text(&wrapper.inner);
+    replace_engine_line(info, container, &shown);
+    sync_live_looks(info, container, looks_before, &wrapper.inner);
+}
+
 /// Paint the invalid look on the field hosted at `container` if its current
 /// value is invalid - what a failed form submit does for every field it
 /// refused (see `crate::widgets::form`), the other moment `:user-invalid`
@@ -2073,6 +2096,21 @@ fn default_on_virtual_key_down_inner(
         azul_core::window::VirtualKeyCode::Return | azul_core::window::VirtualKeyCode::NumpadEnter
     ) {
         info.prevent_default();
+        // HTML's implicit submission: Enter in a text field submits the form
+        // it sits in - unless the hook rejected the key. (The engine's own
+        // Enter-to-submit never sees a text field: Enter in an editable host
+        // is a line break, which the veto above just took away.)
+        if result.valid == TextInputValid::Yes {
+            // Release this field's state first: the submit READS every field
+            // of the form through its dataset, this one included, and a
+            // shared read fails while the mutable borrow is live.
+            drop(text_input);
+            if let Some(submitted) =
+                crate::widgets::form::submit_enclosing_form(&mut info, container)
+            {
+                return Some(core::cmp::max(result.update, submitted));
+            }
+        }
     }
 
     Some(result.update)

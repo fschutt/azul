@@ -130,6 +130,10 @@ pub struct Button {
     /// Optional trailing icon name (e.g. "`arrow_drop_down`" for menu/split
     /// buttons). An empty string means "no trailing icon".
     pub trailing_icon: AzString,
+    /// HTML `alt`: the name of a button that shows only an image
+    /// (`<input type=image>`, see [`Button::create_image`]). Announced as the
+    /// button's accessible name; empty for every other button.
+    pub alt: AzString,
     /// The semantic type of this button (Primary, Success, Danger, etc.)
     pub button_type: ButtonType,
     /// Style for this button container, or `None` for "no opinion" — in which
@@ -150,6 +154,24 @@ pub struct Button {
     /// Optional: Function to call when the button is clicked
     pub on_click: OptionButtonOnClick,
     pub theme: crate::widgets::themes::OptionUiTheme,
+    /// What the button does to the [`crate::widgets::form::Form`] it sits in:
+    /// nothing, submit it or reset it (HTML `type=button|submit|reset`). It
+    /// runs in addition to [`Self::on_click`].
+    pub form_action: ButtonFormAction,
+}
+
+/// What a button does to the form it sits in - HTML's `<button type>`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum ButtonFormAction {
+    /// `type=button`: nothing; only `on_click` runs.
+    #[default]
+    None,
+    /// `type=submit` (`type=image` when the button shows an image): hand the
+    /// form's values to its `on_submit`.
+    Submit,
+    /// `type=reset`: put the form's fields back to their initial values.
+    Reset,
 }
 
 pub type ButtonOnClickCallbackType = extern "C" fn(RefAny, CallbackInfo) -> Update;
@@ -446,6 +468,43 @@ impl Button {
     }
 
     /// Create a button with a specific type (Primary, Success, Danger, etc.)
+    /// `<input type=submit>` / `<button type=submit>`: a primary button that
+    /// submits the [`crate::widgets::form::Form`] it sits in.
+    #[must_use]
+    pub fn create_submit(label: AzString) -> Self {
+        Self::with_type(label, ButtonType::Primary).with_form_action(ButtonFormAction::Submit)
+    }
+
+    /// `<input type=reset>` / `<button type=reset>`: puts the fields of the
+    /// form it sits in back to their initial values.
+    #[must_use]
+    pub fn create_reset(label: AzString) -> Self {
+        Self::with_type(label, ButtonType::Default).with_form_action(ButtonFormAction::Reset)
+    }
+
+    /// `<input type=image>`: a submit button that shows only `image`, named
+    /// `alt` for assistive technology.
+    #[must_use]
+    pub fn create_image(image: ImageRef, alt: AzString) -> Self {
+        let mut button = Self::with_type(AzString::from_const_str(""), ButtonType::Default)
+            .with_form_action(ButtonFormAction::Submit);
+        button.set_image(image);
+        button.alt = alt;
+        button
+    }
+
+    /// What the button does to its form (see [`ButtonFormAction`]).
+    pub const fn set_form_action(&mut self, action: ButtonFormAction) {
+        self.form_action = action;
+    }
+
+    /// [`Self::set_form_action`] for the builder chain.
+    #[must_use]
+    pub const fn with_form_action(mut self, action: ButtonFormAction) -> Self {
+        self.set_form_action(action);
+        self
+    }
+
     #[inline]
     #[must_use]
     pub fn with_type(label: AzString, button_type: ButtonType) -> Self {
@@ -455,7 +514,9 @@ impl Button {
             icon: AzString::from_const_str(""),
             icon_dom: None.into(),
             trailing_icon: AzString::from_const_str(""),
+            alt: AzString::from_const_str(""),
             button_type,
+            form_action: ButtonFormAction::None,
             on_click: None.into(),
             container_style: OptionCssPropertyWithConditionsVec::None,
             label_style: OptionCssPropertyWithConditionsVec::None,
@@ -628,15 +689,60 @@ impl Button {
         // both functions dead and the product's buttons without any of that.
         //
         // `UiTheme::default()` is Flat, and so is every other widget's fallback.
-        match self.theme.into_option() {
+        let form_action = self.form_action;
+        let has_image = self.image.is_some();
+        let alt = self.alt.clone();
+        let dom = match self.theme.into_option() {
             Some(crate::widgets::themes::UiTheme::Flora) => {
                 crate::widgets::themes::flora::button(self)
             }
             Some(crate::widgets::themes::UiTheme::Flat) | None => {
                 crate::widgets::themes::flat::button(self)
             }
-        }
+        };
+        with_form_semantics(dom, form_action, has_image, alt)
     }
+}
+
+/// What a submit / reset / image button adds on top of the themed button, in
+/// one place for both themes: the HTML `type` (which the engine reads - Enter
+/// on a `type=reset` control resets its form), the `alt` name, and the click
+/// handler that acts on the enclosing form. A plain button is left untouched.
+fn with_form_semantics(
+    mut dom: Dom,
+    action: ButtonFormAction,
+    has_image: bool,
+    alt: AzString,
+) -> Dom {
+    use azul_core::{
+        callbacks::CoreCallback,
+        dom::{AttributeType, EventFilter, HoverEventFilter},
+        refany::OptionRefAny,
+    };
+
+    if !alt.as_str().is_empty() {
+        if let Some(mut a11y) = dom.root.get_accessibility_info().cloned() {
+            a11y.accessibility_name = Some(alt.clone()).into();
+            dom.root.set_accessibility_info(a11y);
+        }
+        dom = dom.with_attribute(AttributeType::Alt(alt));
+    }
+
+    let html_type = match action {
+        ButtonFormAction::None => return dom,
+        ButtonFormAction::Submit if has_image => "image",
+        ButtonFormAction::Submit => "submit",
+        ButtonFormAction::Reset => "reset",
+    };
+    dom.with_attribute(AttributeType::InputType(AzString::from_const_str(html_type)))
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::Click),
+            RefAny::new(action),
+            CoreCallback {
+                cb: crate::widgets::form::default_on_form_button_click as usize,
+                ctx: OptionRefAny::None,
+            },
+        )
 }
 
 #[cfg(test)]

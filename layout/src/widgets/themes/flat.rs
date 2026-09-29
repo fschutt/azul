@@ -4043,3 +4043,28 @@ pub fn datetime_local(date: Dom, time: Dom) -> Dom {
         .with_css_props(CssPropertyWithConditionsVec::from_vec(style))
         .with_children(vec![date, time].into())
 }
+
+// ==== form ====
+
+/// `<form>`: a `NodeType::Form` node stacking its content in a column. The
+/// form paints nothing of its own in either mode - it is structure, and its
+/// controls carry their own light and dark faces.
+#[must_use]
+pub fn form(children: azul_core::dom::DomVec) -> Dom {
+    Dom::create_node(NodeType::Form)
+        .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(AzString::from_const_str(
+            crate::widgets::form::FORM_CLASS,
+        ))]))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+            CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+            CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+                LayoutFlexDirection::Column,
+            )),
+            CssPropertyWithConditions::simple(CssProperty::RowGap(LayoutRowGapValue::Exact(
+                LayoutRowGap {
+                    inner: PixelValue::const_px(8),
+                },
+            ))),
+        ]))
+        .with_children(children)
+}
