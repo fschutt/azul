@@ -3511,4 +3511,241 @@ mod autotest_generated {
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty());
     }
+
+    // ==================================================================
+    // <input type=password>: a masking mode of the same widget
+    // ==================================================================
+
+    mod password {
+        use azul_core::a11y::{AccessibilityRole, AccessibilityState};
+
+        use super::*;
+
+        const BULLET: &str = "\u{2022}";
+
+        fn bullets(n: usize) -> String {
+            BULLET.repeat(n)
+        }
+
+        fn rewritten_insertions(changes: &[CallbackChange]) -> Vec<String> {
+            changes
+                .iter()
+                .filter_map(|c| match c {
+                    CallbackChange::SetTextChangeset { changeset } => {
+                        Some(changeset.inserted_text.as_str().to_string())
+                    }
+                    _ => None,
+                })
+                .collect()
+        }
+
+        #[test]
+        fn a_password_input_shows_one_bullet_per_grapheme() {
+            // `e` + COMBINING ACUTE is ONE grapheme, and so is the ZWJ family:
+            // a user who typed three things sees three bullets, however many
+            // scalars or bytes they are.
+            let dom = TextInput::create_password()
+                .with_text("ae\u{301}\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}".into())
+                .dom();
+            assert_eq!(text_of(&dom.children.as_ref()[LABEL_CHILD]), bullets(3));
+        }
+
+        #[test]
+        fn a_password_input_keeps_the_real_text_in_its_state() {
+            let dom = TextInput::create_password()
+                .with_text("hunter2".into())
+                .dom();
+            let state = dataset_state(&dom);
+            assert_eq!(state.get_text(), "hunter2");
+            assert_eq!(state.kind, TextInputKind::Password);
+        }
+
+        #[test]
+        fn a_password_input_is_announced_as_protected_text_without_its_value() {
+            let dom = TextInput::create_password()
+                .with_text("hunter2".into())
+                .dom();
+            let a11y = dom
+                .root
+                .get_accessibility_info()
+                .expect("a password field must declare its accessibility info");
+            assert_eq!(a11y.role, AccessibilityRole::Text);
+            assert!(
+                a11y.states
+                    .as_ref()
+                    .contains(&AccessibilityState::Protected),
+                "a password field must carry the Protected state"
+            );
+            assert!(
+                a11y.accessibility_value.is_none(),
+                "the password leaked into the accessibility value"
+            );
+        }
+
+        #[test]
+        fn a_password_input_declares_its_html_type_for_the_soft_keyboard() {
+            let dom = TextInput::create_password().dom();
+            assert!(dom.root.attributes().as_ref().iter().any(
+                |a| matches!(a, AttributeType::InputType(t) if t.as_str() == "password")
+            ));
+        }
+
+        #[test]
+        fn a_plain_text_input_carries_no_type_attribute() {
+            let dom = TextInput::create().dom();
+            assert!(!dom
+                .root
+                .attributes()
+                .as_ref()
+                .iter()
+                .any(|a| matches!(a, AttributeType::InputType(_))));
+        }
+
+        #[test]
+        fn a_password_input_vetoes_copy_and_cut() {
+            let dom = TextInput::create_password().dom();
+            let callbacks = dom.root.callbacks.as_ref();
+            for filter in [FocusEventFilter::Copy, FocusEventFilter::Cut] {
+                let cb = callbacks
+                    .iter()
+                    .find(|c| c.event == EventFilter::Focus(filter))
+                    .unwrap_or_else(|| panic!("no {filter:?} handler on a password field"));
+                assert_eq!(cb.callback.cb, default_on_clipboard_veto as usize);
+            }
+
+            let (styled_dom, state) = rendered(TextInput::create_password());
+            let (update, changes, _) = run(Env::new(styled_dom), |info| {
+                default_on_clipboard_veto(state.clone(), info)
+            });
+            assert_eq!(update, Update::DoNothing);
+            assert!(
+                changes
+                    .iter()
+                    .any(|c| matches!(c, CallbackChange::PreventDefault)),
+                "the clipboard handler did not veto the copy"
+            );
+        }
+
+        #[test]
+        fn a_plain_text_input_leaves_copy_and_cut_alone() {
+            let dom = TextInput::create().dom();
+            assert!(!dom.root.callbacks.as_ref().iter().any(|c| matches!(
+                c.event,
+                EventFilter::Focus(FocusEventFilter::Copy | FocusEventFilter::Cut)
+            )));
+        }
+
+        #[test]
+        fn typing_into_a_password_input_stores_the_character_and_shows_a_bullet() {
+            let (styled_dom, state) =
+                rendered(TextInput::create_password().with_text("ab".into()));
+            let (_, changes, _) = run(Env::new(styled_dom).insert("c"), |info| {
+                default_on_text_input(state.clone(), info)
+            });
+            assert_eq!(state_of(&state).get_text(), "abc");
+            assert_eq!(
+                rewritten_insertions(&changes),
+                vec![bullets(1)],
+                "the engine must insert a bullet, never the typed character"
+            );
+            assert!(!changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::PreventDefault)));
+        }
+
+        #[test]
+        fn a_multi_grapheme_paste_into_a_password_input_shows_one_bullet_each() {
+            let (styled_dom, state) = rendered(TextInput::create_password());
+            let (_, changes, _) = run(Env::new(styled_dom).insert("x\u{e9}e\u{301}"), |info| {
+                default_on_text_input(state.clone(), info)
+            });
+            assert_eq!(state_of(&state).get_text(), "x\u{e9}e\u{301}");
+            assert_eq!(rewritten_insertions(&changes), vec![bullets(3)]);
+        }
+
+        #[test]
+        fn a_password_input_hands_its_hook_the_real_text() {
+            let probe = recorder(Update::RefreshDom, TextInputValid::Yes);
+            let (styled_dom, state) = rendered(
+                TextInput::create_password()
+                    .with_text("ab".into())
+                    .with_on_text_input(
+                        probe.clone(),
+                        record_text_input as TextInputOnTextInputCallbackType,
+                    ),
+            );
+            let (update, _, _) = run(Env::new(styled_dom).insert("c"), |info| {
+                default_on_text_input(state.clone(), info)
+            });
+            assert_eq!(update, Update::RefreshDom);
+            let seen = recorded(&probe);
+            assert_eq!(seen.len(), 1);
+            assert_eq!(seen[0].get_text(), "abc");
+        }
+
+        #[test]
+        fn a_rejected_keystroke_in_a_password_input_is_vetoed_and_not_stored() {
+            let probe = recorder(Update::DoNothing, TextInputValid::No);
+            let (styled_dom, state) = rendered(
+                TextInput::create_password()
+                    .with_text("ab".into())
+                    .with_on_text_input(
+                        probe.clone(),
+                        record_text_input as TextInputOnTextInputCallbackType,
+                    ),
+            );
+            let (_, changes, _) = run(Env::new(styled_dom).insert("c"), |info| {
+                default_on_text_input(state.clone(), info)
+            });
+            assert_eq!(state_of(&state).get_text(), "ab");
+            assert!(changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::PreventDefault)));
+            assert!(rewritten_insertions(&changes).is_empty());
+        }
+
+        #[test]
+        fn a_password_input_still_honours_max_len() {
+            let mut input = TextInput::create_password().with_text("abc".into());
+            input.text_input_state.inner.max_len = 3;
+            let (styled_dom, state) = rendered(input);
+            let (_, changes, _) = run(Env::new(styled_dom).insert("d"), |info| {
+                default_on_text_input(state.clone(), info)
+            });
+            assert_eq!(state_of(&state).get_text(), "abc");
+            assert!(changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::PreventDefault)));
+        }
+
+        #[test]
+        fn deleting_bullets_removes_the_same_graphemes_from_the_real_text() {
+            // [a, e+acute, b]: the caret sits after bullet 1 once bullet 2 is
+            // gone, so the real grapheme at index 1 is the one removed.
+            assert_eq!(
+                masked_deletion("ae\u{301}b", 2, 1),
+                Some("ab".to_string())
+            );
+            // Select-all + Backspace.
+            assert_eq!(masked_deletion("abc", 0, 0), Some(String::new()));
+            // A Backspace at the very end.
+            assert_eq!(masked_deletion("abc", 2, 2), Some("ab".to_string()));
+            // Nothing removed: nothing to mirror.
+            assert_eq!(masked_deletion("abc", 3, 1), None);
+            // The line GREW without characters (an undo): the real text cannot
+            // be reconstructed from bullets, so the mirror is left alone.
+            assert_eq!(masked_deletion("abc", 4, 1), None);
+        }
+
+        #[test]
+        fn the_masked_caret_maps_onto_grapheme_boundaries_of_the_real_text() {
+            let real = "ae\u{301}b";
+            assert_eq!(masked_to_real_offset(real, 0), 0);
+            assert_eq!(masked_to_real_offset(real, BULLET.len()), 1);
+            assert_eq!(masked_to_real_offset(real, 2 * BULLET.len()), 4);
+            assert_eq!(masked_to_real_offset(real, 3 * BULLET.len()), real.len());
+            // Past the end clamps to the end.
+            assert_eq!(masked_to_real_offset(real, 99 * BULLET.len()), real.len());
+        }
+    }
 }

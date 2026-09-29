@@ -3193,4 +3193,51 @@ mod autotest_generated {
             2 * boxes
         );
     }
+
+    // ---------------------------------------------------------------------
+    // typed text inputs: a contenteditable host that says WHAT it edits
+    // ---------------------------------------------------------------------
+
+    fn typed_host(input_type: Option<&str>, states: Vec<AccessibilityState>) -> Role {
+        let mut node_data = NodeData::create_node(NodeType::Div);
+        node_data.set_contenteditable(true);
+        if let Some(t) = input_type {
+            node_data.set_attributes(vec![AttributeType::InputType(t.into())].into());
+        }
+        let mut a11y = info(AccessibilityRole::Text);
+        a11y.states = states.into();
+        node_data.set_accessibility_info(a11y);
+        A11yManager::build_node(
+            &node_data,
+            &plain_hot(),
+            None,
+            node_data.get_accessibility_info(),
+            1.0,
+            LogicalSize::new(800.0, 600.0),
+        )
+        .role()
+    }
+
+    #[test]
+    fn a_contenteditable_host_marked_protected_is_announced_as_a_password_input() {
+        assert_eq!(
+            typed_host(None, vec![AccessibilityState::Protected]),
+            Role::PasswordInput
+        );
+        assert_eq!(typed_host(Some("password"), Vec::new()), Role::PasswordInput);
+    }
+
+    #[test]
+    fn a_contenteditable_host_with_an_input_type_is_announced_as_that_input() {
+        assert_eq!(typed_host(Some("search"), Vec::new()), Role::SearchInput);
+        assert_eq!(typed_host(Some("email"), Vec::new()), Role::EmailInput);
+        assert_eq!(typed_host(Some("tel"), Vec::new()), Role::PhoneNumberInput);
+        assert_eq!(typed_host(Some("URL"), Vec::new()), Role::UrlInput);
+    }
+
+    #[test]
+    fn a_contenteditable_host_without_a_type_stays_a_multiline_editor() {
+        assert_eq!(typed_host(None, Vec::new()), Role::MultilineTextInput);
+        assert_eq!(typed_host(Some("no-such-type"), Vec::new()), Role::MultilineTextInput);
+    }
 }
