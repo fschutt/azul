@@ -11,8 +11,11 @@ badge, breadcrumb, button, card, check_box, chip, color_input.
 - `692fff6ac` GREEN breadcrumb: `BREADCRUMB_ITEM_BASE`, `BREADCRUMB_LABEL_BASE`; two static-reading
   tests now read base + flat skin.
 
+- `501adb32b` GREEN color_input: `PICKER_{PANEL,PREVIEW,EYEDROPPER}_BASE_CSS` sheets before the
+  skin sheets.
+
 ## IN PROGRESS
-- GREEN color_input.
+- Refactor the guards (alert, badge, card, chip; avatar twin builders).
 
 ## NEXT
 1. GREEN accordion (container + header base), breadcrumb (crumb + label base), color_input (panel /
