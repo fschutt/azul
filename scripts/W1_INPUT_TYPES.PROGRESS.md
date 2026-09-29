@@ -4,8 +4,11 @@
 - 1 password: RED 29a66b586, impl ad87f6c10 (TextInputKind on TextInputState, masking,
   clipboard veto, a11y Protected -> accesskit PasswordInput, with_kind_semantics in text_input.rs)
 
+- 2 search: RED db3a54852, impl e7ca659e1 (wrapper row [field, clear x]; flat/flora search_clear_button +
+  search_field appended; clear_field / replace_engine_line / sync_live_looks in text_input.rs)
+
 ## IN PROGRESS
-- 2 search
+- 3 email/tel/url + pattern
 
 ## NEXT (in order)
 2. search (wrapper div [container, clear x]; x hidden when empty; Escape + x clear)
