@@ -4,16 +4,18 @@
 - 407c371d6 RED tests: layout/tests/app_color_scheme_override.rs (+ all.rs append),
   layout/src/callbacks.rs unit test, dll/tests/color_scheme_headless.rs
 
+- 89e89374c engine impl (core AppConfig field, layout global + resolver + LayoutWindow.color_scheme,
+  dynamic_selector_context, CallbackChange::SetColorScheme + CallbackInfo API, e2e runner arm)
+- cbe937c0c shell impl (dll: initial_window_theme(_for), CommonWindowState.desktop_theme +
+  adopt_desktop_theme, SetColorScheme handler, adopt_system_style decision, fan-out overrides
+  incl. Wayland deferred, OS probes on all 6 shells, App::create publish)
+
 ## IN PROGRESS
-- engine impl
+- demo toolbar (examples/azul-widgets/src/lib.rs)
 
 ## NEXT
-1. engine impl (core AppConfig field, layout global + resolver + LayoutWindow.color_scheme,
-   dynamic_selector_context, CallbackChange::SetColorScheme + CallbackInfo API, e2e runner arm)
-2. shell impl (dll: initial_window_theme, CommonWindowState.desktop_theme + adopt_desktop_theme,
-   SetColorScheme handler, adopt_system_style decision, fan-out overrides, OS probes, App::create)
-3. demo toolbar (examples/azul-widgets/src/lib.rs)
-4. report scripts/W4_SCHEME_OVERRIDE_DEMO_2026_09_29.md
+1. demo toolbar
+2. report scripts/W4_SCHEME_OVERRIDE_DEMO_2026_09_29.md
 
 ## Design decisions (so a resumed session does not re-derive them)
 - TYPE: reuse `OptionWindowTheme` (None = follow the desktop, Some = pin). A new 4-byte repr(C)
