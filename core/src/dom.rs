@@ -3920,7 +3920,9 @@ impl NodeData {
     pub fn set_css(&mut self, style: &str) {
         // Parse via Css::parse_inline so the inline path goes through the same
         // selector + nesting machinery as author CSS. Rules are tagged
-        // `rule_priority::INLINE` and appended to whatever this node already has.
+        // `rule_priority::INLINE` and appended to whatever this node already has;
+        // a `:hover { .. }` block becomes a rule under a `:hover` condition (the
+        // cascade reads a node's own style by its conditions).
         let parsed = azul_css::css::Css::parse_inline(style);
         let mut current: azul_css::css::CssRuleBlockVec = Vec::new().into();
         mem::swap(&mut current, &mut self.style.rules);
@@ -7452,7 +7454,10 @@ impl Dom {
         // path, and the old `with_component_css` is folded into this. A bare-declaration
         // string (`color: red`) parses to `* { color: red }` and so applies to the whole
         // subtree, exactly like attaching a `@scope { :scope { ... } }` block.
-        self.add_component_css(azul_css::css::Css::parse_inline(style));
+        // `parse_scoped`, not `parse_inline`: this sheet is selector-matched, so a
+        // `:hover { .. }` block stays the selector `*:hover` (a node's OWN style
+        // turns it into a condition instead).
+        self.add_component_css(azul_css::css::Css::parse_scoped(style));
     }
 
     /// Builder method for `set_css`

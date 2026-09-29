@@ -188,9 +188,31 @@ impl Css {
     /// properties at the top level. Pseudo and at-rule blocks like
     /// `:hover { color: red; }` or `@os(linux) { font-size: 14px; }` work
     /// directly via CSS nesting.
+    ///
+    /// The result is a node's OWN style (`NodeData::set_css`, `with_style`,
+    /// `CallbackInfo::set_node_style`), which the cascade reads by its
+    /// conditions and never selector-matches: a `:hover { .. }` block
+    /// becomes a rule under a `:hover` CONDITION
+    /// ([`CssRuleBlock::lower_node_pseudo_states`]). For a stylesheet the
+    /// cascade selector-matches, see [`Self::parse_scoped`].
     #[cfg(feature = "parser")]
     #[must_use]
     pub fn parse_inline(style: &str) -> Self {
+        let mut css = Self::parse_scoped(style);
+        for rule in css.rules.as_mut() {
+            rule.lower_node_pseudo_states();
+        }
+        css
+    }
+
+    /// Parse the same text as [`Self::parse_inline`] into a SCOPED
+    /// stylesheet (`Dom::set_css`): wrapped in `* { ... }`, every rule at
+    /// `rule_priority::INLINE`, and every rule kept in selector form - a
+    /// `:hover { .. }` block stays `*:hover` - for the cascade to
+    /// selector-match against the owner's subtree.
+    #[cfg(feature = "parser")]
+    #[must_use]
+    pub fn parse_scoped(style: &str) -> Self {
         use alloc::string::ToString;
         let mut wrapped = String::with_capacity(style.len() + 6);
         wrapped.push_str("* {\n");
@@ -1057,6 +1079,29 @@ impl CssRuleBlock {
                 .as_ref()
                 .iter()
                 .any(CssDeclaration::depends_on_dynamic_context)
+    }
+
+    /// This rule in the form a node's OWN style reads: the trailing dynamic
+    /// pseudo-states of a path that targets the node itself (`*:hover`,
+    /// `*:focus:hover`) move into the conditions (`*` +
+    /// `PseudoState(Hover)`), the form a widget's `on_hover(..)` declaration
+    /// has. The cascade reads a node's own style by its conditions alone and
+    /// matches no selector there, so a `:hover` left in the path applied in
+    /// every state.
+    ///
+    /// A path that reaches past the node (`* .x:hover`) or keeps a
+    /// structural pseudo-class (`*:first:hover`) is left as it is.
+    pub fn lower_node_pseudo_states(&mut self) {
+        let (base, states) = self.path.split_trailing_states();
+        if states.is_empty() || !base.iter().all(|s| matches!(s, CssPathSelector::Global)) {
+            return;
+        }
+        let base = base.to_vec();
+        let mut conditions: Vec<DynamicSelector> =
+            states.into_iter().map(DynamicSelector::PseudoState).collect();
+        conditions.extend(self.conditions.as_slice().iter().cloned());
+        self.path = CssPath::new(base);
+        self.conditions = conditions.into();
     }
 }
 
@@ -2009,6 +2054,33 @@ impl CssPath {
         }
     }
 
+    /// This path split into its base and its trailing DYNAMIC pseudo-states,
+    /// in source order: `.btn:focus:hover` -> (`.btn`, `[Focus, Hover]`).
+    /// Structural pseudo-classes (`:first`, `:nth-child`, ..) stay in the
+    /// base (see [`CssPathPseudoSelector::dynamic_state`]).
+    #[must_use]
+    pub fn split_trailing_states(
+        &self,
+    ) -> (
+        &[CssPathSelector],
+        Vec<crate::dynamic_selector::PseudoStateType>,
+    ) {
+        let selectors = self.selectors.as_slice();
+        let mut end = selectors.len();
+        let mut states = Vec::new();
+        while let Some(CssPathSelector::PseudoSelector(p)) =
+            end.checked_sub(1).map(|last| &selectors[last])
+        {
+            let Some(state) = p.dynamic_state() else {
+                break;
+            };
+            states.push(state);
+            end -= 1;
+        }
+        states.reverse();
+        (&selectors[..end], states)
+    }
+
     /// Prepend a `Root` scope selector (`push_front`) confining this rule to the owner
     /// node `start` (whose subtree spans the inclusive flat ids `[start, end]`).
     /// Two cases (#47 leak fix + descendant-selector support):
@@ -2319,6 +2391,28 @@ impl fmt::Display for CssPathPseudoSelector {
             // The extra colon is part of the NAME: `:{p}` at the call site
             // plus this leading one spells the pseudo-ELEMENT `::placeholder`.
             Placeholder => write!(f, ":placeholder"),
+        }
+    }
+}
+
+impl CssPathPseudoSelector {
+    /// The dynamic pseudo-STATE this pseudo-class names (`:hover` ->
+    /// `PseudoStateType::Hover`); `None` for the structural ones (`:first`,
+    /// `:last`, `:nth-child`, `:lang`, `:root`), which select an element by
+    /// its place in the document, not by a state it enters and leaves.
+    #[must_use]
+    pub const fn dynamic_state(&self) -> Option<crate::dynamic_selector::PseudoStateType> {
+        use crate::dynamic_selector::PseudoStateType;
+        match self {
+            Self::Hover => Some(PseudoStateType::Hover),
+            Self::Active => Some(PseudoStateType::Active),
+            Self::Focus => Some(PseudoStateType::Focus),
+            Self::SeatFocus => Some(PseudoStateType::SeatFocus),
+            Self::Backdrop => Some(PseudoStateType::Backdrop),
+            Self::Dragging => Some(PseudoStateType::Dragging),
+            Self::DragOver => Some(PseudoStateType::DragOver),
+            Self::Placeholder => Some(PseudoStateType::Placeholder),
+            Self::First | Self::Last | Self::NthChild(_) | Self::Lang(_) | Self::Root => None,
         }
     }
 }

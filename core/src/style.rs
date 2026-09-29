@@ -437,19 +437,10 @@ pub fn construct_html_cascade_tree(
 #[must_use]
 pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> bool {
     // Helper to check if a pseudo-selector is "interactive" (requires user interaction state)
-    // vs "structural" (based on DOM structure only)
+    // vs "structural" (based on DOM structure only): the one mapping of the
+    // crate, `CssPathPseudoSelector::dynamic_state`.
     const fn is_interactive_pseudo(p: &CssPathPseudoSelector) -> bool {
-        matches!(
-            p,
-            CssPathPseudoSelector::Hover
-                | CssPathPseudoSelector::Active
-                | CssPathPseudoSelector::Focus
-                | CssPathPseudoSelector::SeatFocus
-                | CssPathPseudoSelector::Backdrop
-                | CssPathPseudoSelector::Dragging
-                | CssPathPseudoSelector::DragOver
-                | CssPathPseudoSelector::Placeholder
-        )
+        p.dynamic_state().is_some()
     }
 
     let Some(last) = path.selectors.as_ref().last() else {

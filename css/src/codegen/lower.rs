@@ -28,7 +28,7 @@ use super::{
 };
 use crate::{
     corety::AzString,
-    css::{BoxOrStatic, Css, CssDeclaration, CssPathPseudoSelector, CssPathSelector, CssPropertyValue},
+    css::{BoxOrStatic, Css, CssDeclaration, CssPropertyValue},
     dynamic_selector::{
         CssPropertyWithConditions, DynamicSelector, OsCondition, PseudoStateType, ThemeCondition,
     },
@@ -515,28 +515,6 @@ pub fn lower_with_conditions(property: Expr, conditions: &[DynamicSelector]) -> 
     }
 }
 
-/// The dynamic pseudo-state a trailing `:hover` / `:active` / ... selector
-/// maps to; `None` for structural pseudo-classes (`:first`, `:nth-child`, ..)
-/// that stay part of the base selector.
-#[must_use]
-pub const fn pseudo_state(p: &CssPathPseudoSelector) -> Option<PseudoStateType> {
-    match p {
-        CssPathPseudoSelector::Hover => Some(PseudoStateType::Hover),
-        CssPathPseudoSelector::Active => Some(PseudoStateType::Active),
-        CssPathPseudoSelector::Focus => Some(PseudoStateType::Focus),
-        CssPathPseudoSelector::SeatFocus => Some(PseudoStateType::SeatFocus),
-        CssPathPseudoSelector::Backdrop => Some(PseudoStateType::Backdrop),
-        CssPathPseudoSelector::Dragging => Some(PseudoStateType::Dragging),
-        CssPathPseudoSelector::DragOver => Some(PseudoStateType::DragOver),
-        CssPathPseudoSelector::Placeholder => Some(PseudoStateType::Placeholder),
-        CssPathPseudoSelector::First
-        | CssPathPseudoSelector::Last
-        | CssPathPseudoSelector::NthChild(_)
-        | CssPathPseudoSelector::Lang(_)
-        | CssPathPseudoSelector::Root => None,
-    }
-}
-
 // ------------------------------------------------------------ module builders
 
 /// One property of a flat style, lowered, plus the notes a reader needs.
@@ -608,22 +586,8 @@ pub fn lower_styles(css: &Css) -> Module {
 
     for rule in css.rules.as_slice() {
         let sels = rule.path.selectors.as_slice();
-        let mut end = sels.len();
-        let mut states: Vec<PseudoStateType> = Vec::new();
-        while end > 0 {
-            match &sels[end - 1] {
-                CssPathSelector::PseudoSelector(p) => match pseudo_state(p) {
-                    Some(s) => {
-                        states.push(s);
-                        end -= 1;
-                    }
-                    None => break,
-                },
-                _ => break,
-            }
-        }
-        states.reverse();
-        let mut base: String = sels[..end].iter().map(ToString::to_string).collect();
+        let (base_sels, states) = rule.path.split_trailing_states();
+        let mut base: String = base_sels.iter().map(ToString::to_string).collect();
         if base.is_empty() {
             base.push('*');
         }

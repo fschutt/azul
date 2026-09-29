@@ -1544,7 +1544,7 @@ struct CssBlock {
 }
 
 /// Serialize the CSS blocks matched for a node into one inline CSS string for
-/// `Dom::with_css(...)`. `with_css` parses via `Css::parse_inline`, which runs
+/// `Dom::with_css(...)`. `with_css` parses via `Css::parse_scoped`, which runs
 /// the full selector+nesting machinery, so `:hover`/`:active`/`:focus` are
 /// emitted as nested pseudo blocks and round-trip faithfully; plain rules are
 /// emitted flat as `key: value;` (via `CssProperty::key()` / `value()`).
