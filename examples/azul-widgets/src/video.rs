@@ -19,6 +19,7 @@ use azul::{
     url::Url,
     video::{VideoConfig, VideoPhase, VideoSource, VideoStatus},
     widgets::VideoWidget,
+    window::UiTheme,
 };
 
 /// Big Buck Bunny: 10 s of 640 x 360 H.264 in an MP4, the clip
@@ -105,8 +106,9 @@ pub fn new_state() -> RefAny {
     })
 }
 
-/// The Video card, drawn from the state [`new_state`] made.
-pub fn card(state: &RefAny) -> Dom {
+/// The Video card, drawn from the state [`new_state`] made. `theme` is the
+/// page's widget theme: the widget's "no signal" poster is drawn in it.
+pub fn card(state: &RefAny, theme: UiTheme) -> Dom {
     let mut state_ref = state.clone();
     let (paused, seek_s, status) = match state_ref.downcast_ref::<VideoCard>() {
         Some(c) => (c.paused, c.seek_s, c.status.clone()),
@@ -126,6 +128,7 @@ pub fn card(state: &RefAny) -> Dom {
             state.clone(),
             on_video_status,
         )
+        .with_theme(theme)
         .dom()
         .with_css("width: 100%; height: 100%;");
 

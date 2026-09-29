@@ -1,4 +1,4 @@
-use azul::css::WindowDecorations;
+use azul::css::{SpinnerStyle, WindowDecorations};
 use azul::dom::{
     AccordionOnToggleCallback, AlertOnDismissCallback, AttributeNameValue, AttributeType,
     BreadcrumbOnNavigateCallback, ChipOnRemoveCallback, ComboBoxOnSelectCallback,
@@ -27,6 +27,10 @@ struct Showcase {
     slider_value: f32,
     number: f32,
     text: azul::str::String,
+    /// The TextArea's text, handed back on every rebuild like the
+    /// TextInput's, so a rebuild never depends on the engine still holding
+    /// what was typed.
+    textarea_text: azul::str::String,
     checkbox_checked: bool,
     selected_radio: usize,
     selected_segment: usize,
@@ -103,6 +107,17 @@ fn captioned(label: &str, content: Dom) -> Dom {
              margin-bottom: 6px;",
         ))
         .with_child(content)
+}
+
+/// One spinner of the Spinner row, its indicator named under it.
+fn spinner_sample(name: &str, spinner: Dom) -> Dom {
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column; align-items: center; gap: 6px;")
+        .with_child(spinner)
+        .with_child(
+            Dom::create_span_with_text(name)
+                .with_css("font-size: 11px; color: system:tertiary-text;"),
+        )
 }
 
 fn section(title: &str, items: Vec<Dom>) -> Dom {
@@ -536,6 +551,7 @@ fn toolbar(data: &RefAny, color_scheme_index: usize, widget_theme: UiTheme, show
                     Segmented::create(strs(&["System", "Light", "Dark"]))
                         .with_selected_index(color_scheme_index)
                         .with_on_change(data.clone(), on_color_scheme)
+                        .with_theme(widget_theme)
                         .dom()
                         .with_accessibility_name("Colour scheme"),
                 )
@@ -549,6 +565,7 @@ fn toolbar(data: &RefAny, color_scheme_index: usize, widget_theme: UiTheme, show
             Segmented::create(strs(&["Flat", "Flora"]))
                 .with_selected_index(theme_index)
                 .with_on_change(data.clone(), on_widget_theme)
+                .with_theme(widget_theme)
                 .dom()
                 .with_accessibility_name("Widget theme"),
         ))
@@ -621,12 +638,15 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 "NumberInput",
                 NumberInput::create(s.number)
                     .with_on_value_change(data.clone(), on_number)
+                    .with_theme(theme)
                     .dom(),
             ),
             labelled(
                 "TextArea",
                 TextArea::create()
+                    .with_text(s.textarea_text.clone())
                     .with_placeholder("Multi-line text area...")
+                    .with_on_text_input(data.clone(), on_textarea_input)
                     .with_on_focus_lost(
                         data.clone(),
                         on_textarea_focus_lost,
@@ -639,6 +659,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 ColorInput::create(s.color)
                     .with_accessibility_name("Accent colour")
                     .with_on_value_change(data.clone(), on_color)
+                    .with_theme(theme)
                     .dom(),
             ),
             captioned(
@@ -686,6 +707,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                         data.clone(),
                         on_radio,
                     )
+                    .with_theme(theme)
                     .dom(),
             ),
             labelled(
@@ -696,6 +718,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                         data.clone(),
                         on_segmented,
                     )
+                    .with_theme(theme)
                     .dom(),
             ),
             labelled(
@@ -706,6 +729,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                     .with_theme(theme)
                     .dom(),
             ),
+            // ComboBox has no widget theme (yet): the same look in both.
             labelled(
                 "ComboBox",
                 ComboBox::create_with_items(strs(&["Apple", "Banana", "Cherry", "Date"]))
@@ -752,15 +776,21 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                     .with_css("display: flex; flex-direction: row;")
                     .with_child(
                         Badge::with_kind("New", BadgeKind::Primary)
+                            .with_theme(theme)
                             .dom()
                             .with_css("margin-right: 8px;"),
                     )
                     .with_child(
                         Badge::with_kind("OK", BadgeKind::Success)
+                            .with_theme(theme)
                             .dom()
                             .with_css("margin-right: 8px;"),
                     )
-                    .with_child(Badge::with_kind("!", BadgeKind::Danger).dom()),
+                    .with_child(
+                        Badge::with_kind("!", BadgeKind::Danger)
+                            .with_theme(theme)
+                            .dom(),
+                    ),
             ),
             labelled(
                 "Chip (removable)",
@@ -770,6 +800,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                         data.clone(),
                         on_chip_remove,
                     )
+                    .with_theme(theme)
                     .dom(),
             ),
             labelled(
@@ -783,9 +814,22 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 "Card",
                 Card::create(Dom::create_p_with_text("Card body content").with_css("margin: 0px;"))
                     .with_flex_grow(0.0)
+                    .with_theme(theme)
                     .dom(),
             ),
-            labelled("Divider", Divider::create().dom()),
+            // A group box: the title names the group, the content is its own.
+            captioned(
+                "Frame",
+                Frame::create(
+                    "Shipping",
+                    Dom::create_p_with_text("A titled group of related controls.")
+                        .with_css("margin: 0px;"),
+                )
+                .with_flex_grow(0.0)
+                .with_theme(theme)
+                .dom(),
+            ),
+            labelled("Divider", Divider::create().with_theme(theme).dom()),
             captioned(
                 "ProgressBar",
                 ProgressBar::create(s.progress)
@@ -794,17 +838,30 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                     .dom()
                     .with_css("width: 240px;"),
             ),
-            labelled(
-                "Spinner",
-                Spinner::create()
-                    .with_spinner_size(32)
-                    .with_color(ColorU {
-                        r: 33,
-                        g: 150,
-                        b: 243,
-                        a: 255,
-                    })
-                    .dom(),
+            // No colour of its own: each theme paints its native ink (flat's
+            // ring in the desktop accent, flora's spokes in its ink).
+            captioned(
+                "Spinner (the theme's own / spokes / ring)",
+                Dom::create_div()
+                    .with_css("display: flex; flex-direction: row; align-items: center; gap: 24px;")
+                    .with_child(spinner_sample(
+                        "Theme default",
+                        Spinner::create().with_theme(theme).dom(),
+                    ))
+                    .with_child(spinner_sample(
+                        "Spokes",
+                        Spinner::create()
+                            .with_indicator(SpinnerStyle::Spokes)
+                            .with_theme(theme)
+                            .dom(),
+                    ))
+                    .with_child(spinner_sample(
+                        "Ring",
+                        Spinner::create()
+                            .with_indicator(SpinnerStyle::Ring)
+                            .with_theme(theme)
+                            .dom(),
+                    )),
             ),
         ],
     );
@@ -820,6 +877,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                         data.clone(),
                         on_alert_dismiss,
                     )
+                    .with_theme(theme)
                     .dom(),
             ),
             // The wrapper only listens for the hover that shows the tip; the
@@ -830,6 +888,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                     Button::create("Hover me").with_theme(theme).dom(),
                     "I am a tooltip!",
                 )
+                .with_theme(theme)
                 .dom(),
             ),
             labelled(
@@ -847,6 +906,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                             .with_modal(true)
                             .with_close_button(true)
                             .with_on_close(data.clone(), on_dialog_close)
+                            .with_theme(theme)
                             .dom(),
                     )
                     .with_child(Dom::create_p_with_text(s.dialog_result.as_str()).with_css(
@@ -865,7 +925,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     );
 
     let notifications = notifications::notifications_section(&data, &s.notifications, theme);
-    let video_card = video::card(&s.video);
+    let video_card = video::card(&s.video, theme);
     let menus = menus_section(&data, s.menu_status.as_str());
     let hotkey = hotkeys::hotkey_section(&data, &s.hotkey, &info, theme);
     let files = files_section(&data, &s.dropped, s.file_hovering);
@@ -885,6 +945,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                         data.clone(),
                         on_breadcrumb,
                     )
+                    .with_theme(theme)
                     .dom(),
             ),
             labelled(
@@ -894,6 +955,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                         data.clone(),
                         on_pagination,
                     )
+                    .with_theme(theme)
                     .dom(),
             ),
             labelled(
@@ -904,6 +966,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                         data.clone(),
                         on_stepper,
                     )
+                    .with_theme(theme)
                     .dom(),
             ),
             labelled(
@@ -926,6 +989,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                     data.clone(),
                     on_accordion,
                 )
+                .with_theme(theme)
                 .dom(),
             ),
         ],
@@ -947,6 +1011,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                         .with_closed_by(DialogClosedBy::Any)
                         .with_close_button(true)
                         .with_on_close(data.clone(), on_popover_close)
+                        .with_theme(theme)
                         .dom(),
                     ),
             ),
@@ -962,6 +1027,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                     data.clone(),
                     on_splitpane,
                 )
+                .with_theme(theme)
                 .dom()
                 .with_css("height: 120px;"),
             ),
@@ -978,6 +1044,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                         data.clone(),
                         on_datepicker,
                     )
+                    .with_theme(theme)
                     .dom(),
             ),
             labelled(
@@ -989,6 +1056,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                         data.clone(),
                         on_timepicker,
                     )
+                    .with_theme(theme)
                     .dom(),
             ),
         ],
@@ -1161,6 +1229,29 @@ extern "C" fn on_radio(mut data: RefAny, _: CallbackInfo, state: RadioGroupState
     }
     bump(&mut data)
 }
+/// The text of a `TextAreaState` (its buffer is one `u32` per char).
+pub(crate) fn text_area_text(state: &TextAreaState) -> String {
+    state
+        .text
+        .as_slice()
+        .iter()
+        .filter_map(|c| char::from_u32(*c))
+        .collect()
+}
+extern "C" fn on_textarea_input(
+    mut data: RefAny,
+    _: CallbackInfo,
+    state: TextAreaState,
+) -> OnTextInputReturn {
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        s.textarea_text = text_area_text(&state).into();
+        s.interactions += 1;
+    }
+    OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: TextInputValid::Yes,
+    }
+}
 extern "C" fn on_textarea_focus_lost(
     mut data: RefAny,
     _: CallbackInfo,
@@ -1280,6 +1371,7 @@ pub fn start() {
         slider_value: 40.0,
         number: 42.0,
         text: "".into(),
+        textarea_text: "".into(),
         checkbox_checked: true,
         selected_radio: 0,
         selected_segment: 1,
