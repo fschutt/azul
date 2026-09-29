@@ -364,8 +364,30 @@ def gen_api_modules(cl):
         'pub(crate) static C_LIKE_ENUMS: &[&str] = &[',
     ]
     out += [f'    "{t}",' for t in c_like]
+    css_prop_variants = [k for k, _ in enum_variants(ALLC['CssProperty'][1])]
     out += [
         '];',
+        '',
+        '/// `CssProperty` variants in declaration order: the index is the C tag',
+        '/// (bindings that build a `CssProperty` union by hand need it).',
+        'pub(crate) static CSS_PROPERTY_VARIANTS: &[&str] = &[',
+    ]
+    out += [f'    "{v}",' for v in css_prop_variants]
+    out += [
+        '];',
+        '',
+        '/// The C tag of a variant of a tagged union the printers build by hand:',
+        '/// `CssProperty` variants by declaration order, `CssPropertyValue<T>`',
+        '/// aliases Auto=0 None=1 Initial=2 Inherit=3 Revert=4 Unset=5 Exact=6.',
+        '#[must_use]',
+        'pub fn union_tag(ty: &str, variant: &str) -> Option<usize> {',
+        '    if ty == "CssProperty" {',
+        '        return CSS_PROPERTY_VARIANTS.iter().position(|v| *v == variant);',
+        '    }',
+        '    ["Auto", "None", "Initial", "Inherit", "Revert", "Unset", "Exact"]',
+        '        .iter()',
+        '        .position(|v| *v == variant)',
+        '}',
         '',
         '/// `true` if `ty` is a C-like enum (a plain C enum; some bindings spell',
         '/// those without the `Az` prefix or pass them as integers).',

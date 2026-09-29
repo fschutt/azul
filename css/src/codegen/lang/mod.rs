@@ -23,10 +23,16 @@ use super::{
 pub mod c;
 pub mod cpp;
 pub mod csharp;
+pub mod go;
 pub mod java;
 pub mod kotlin;
+pub mod lua;
+pub mod node;
+pub mod php;
 pub mod python;
+pub mod ruby;
 pub mod rust;
+pub mod swift;
 
 /// How one language spells the IR node kinds.
 pub trait ExprSyntax {
@@ -368,6 +374,43 @@ pub fn doubled_quote(s: &str, quote: char) -> String {
     out
 }
 
+/// `AzCssProperty_textColor` -> `az_css_property_text_color`,
+/// `AzStyleTransform_matrix3D` -> `az_style_transform_matrix3_d`: an `_`
+/// before every capital that follows a lowercase letter or a digit (the
+/// rule of the Ruby / Lisp-style generators; `asCSlice` -> `as_cslice`).
+#[must_use]
+pub fn simple_snake(s: &str) -> String {
+    let mut out = String::new();
+    let mut prev_lower_or_digit = false;
+    for c in s.chars() {
+        if c.is_ascii_uppercase() {
+            if prev_lower_or_digit {
+                out.push('_');
+            }
+            out.push(c.to_ascii_lowercase());
+            prev_lower_or_digit = false;
+        } else {
+            out.push(c);
+            prev_lower_or_digit = c.is_ascii_lowercase() || c.is_ascii_digit();
+        }
+    }
+    out
+}
+
+/// The api.json parameter names of the multi-argument constructors the
+/// lowering emits (for languages with argument labels / keywords). Every
+/// other constructor it emits takes exactly one argument.
+#[must_use]
+pub fn call_param_names(class: &str, method: &str) -> &'static [&'static str] {
+    match (class, method) {
+        ("PixelValue", "from_metric") => &["metric", "value"],
+        ("CssPropertyWithConditions", "with_condition") => &["property", "condition"],
+        ("CssPropertyWithConditions", "with_conditions") => &["property", "conditions"],
+        ("CssPropertyWithConditions", "on_os") => &["property", "os"],
+        _ => &[],
+    }
+}
+
 /// Make `text` safe inside a `/* .. */` block comment.
 #[must_use]
 pub fn block_comment_safe(text: &str) -> String {
@@ -417,6 +460,12 @@ pub fn all() -> Vec<Box<dyn CodegenBackend>> {
         Box::new(csharp::CSharp),
         Box::new(java::Java),
         Box::new(kotlin::Kotlin),
+        Box::new(go::Go),
+        Box::new(swift::Swift),
+        Box::new(node::Node),
+        Box::new(ruby::Ruby),
+        Box::new(php::Php),
+        Box::new(lua::Lua),
     ]
 }
 
