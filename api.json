@@ -20058,20 +20058,17 @@
                                 },
                                 "fn_body": "object.get_form_data(node)"
                             },
-                            "set_node_inline_style": {
+                            "set_node_style": {
                                 "doc": [
-                                    "Replace `node_id`'s whole inline style - every declaration and its",
-                                    "conditions - with `style` (applied after the callback returns).",
+                                    "Replace `node_id`'s inline style - the stylesheet the node stores, as",
+                                    "`NodeData::set_style` sets it at build time - with `style` (applied after the",
+                                    "callback returns). A `node_id` without a node is ignored.",
                                     "",
-                                    "The live restyle for a state a widget owns (the selected segment, the",
-                                    "current page, a picked day): write the node's style for the new state",
-                                    "exactly as a rebuild would build it, dark twins and `:hover` / `:focus`",
-                                    "rules included. [`Self::set_css_property`] pins one VALUE - a user",
-                                    "override outranks every declaration, so a colour baked for light mode",
-                                    "stays light after a switch to dark, and outranks the node's hover and",
-                                    "focus rules. This pins nothing: the cascade re-resolves the new",
-                                    "declarations on every mode switch and state change, like any built",
-                                    "style. A `node_id` without a node is ignored."
+                                    "The live restyle for a state a widget owns (the selected segment, the current",
+                                    "page, a picked day): the node resolves like a node BUILT with `style`, dark",
+                                    "twins and `:hover` / `:focus` rules included. Unlike `set_css_property` it pins",
+                                    "nothing, so the cascade re-resolves it on every mode switch and state change;",
+                                    "unlike a DOM refresh it keeps the widget's own state."
                                 ],
                                 "fn_args": [
                                     {
@@ -20081,10 +20078,10 @@
                                         "node_id": "DomNodeId"
                                     },
                                     {
-                                        "style": "CssPropertyWithConditionsVec"
+                                        "style": "Css"
                                     }
                                 ],
-                                "fn_body": "object.set_node_inline_style(node_id, style)"
+                                "fn_body": "object.set_node_style(node_id, style)"
                             }
                         },
                         "repr": "C"
@@ -135788,6 +135785,9 @@
                                 "theme": {
                                     "type": "String"
                                 },
+                                "app_id": {
+                                    "type": "String"
+                                },
                                 "mode": {
                                     "type": "OptionWindowTheme"
                                 },
@@ -136011,6 +136011,40 @@
                                     }
                                 ],
                                 "fn_body": "object.set_mode(mode)"
+                            },
+                            "with_app_id": {
+                                "doc": [
+                                    "Name the app: `app_id` is its reverse-DNS id (`org.example.Editor`): the",
+                                    "Windows toast AUMID, the freedesktop `desktop-entry` and the default Wayland",
+                                    "`app_id` / X11 `WM_CLASS`. macOS, iOS and Android keep the id their bundle /",
+                                    "package declares (a differing `app_id` is logged). Empty: not declared."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "app_id": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AppConfig"
+                                },
+                                "fn_body": "object.with_app_id(app_id)"
+                            },
+                            "set_app_id": {
+                                "doc": [
+                                    "In-place `with_app_id`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "app_id": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_app_id(app_id)"
                             }
                         },
                         "repr": "C"
