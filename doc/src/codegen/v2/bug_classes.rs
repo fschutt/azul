@@ -1250,6 +1250,67 @@ fn freebasic_declares_every_type_before_use_with_c_sized_fields() {
     );
 }
 
+/// Red/System (B2: "every tagged union is an 8-byte opaque placeholder, so
+/// no CSS property can cross the FFI"): every tagged union alias - regular
+/// or monomorphized - is a blob of exactly its C size (`c_layout`), and every
+/// `AzX! value` field names an alias declared before it (the monomorphized
+/// aliases were never declared, and all unions followed all structs).
+#[test]
+fn red_declares_every_alias_before_use_and_sizes_unions_like_c() {
+    let reds = super::lang_red::generate(ir(), &super::CodegenConfig::c_header())
+        .expect("the Red/System binding generates");
+    let mut offenders = Vec::new();
+    let mut declared: BTreeSet<String> = BTreeSet::new();
+    let mut current: Option<(String, usize)> = None; // (alias, blob bytes so far)
+    let mut blob_bytes: BTreeMap<String, usize> = BTreeMap::new();
+    for (i, line) in reds.lines().enumerate() {
+        let t = line.trim();
+        if let Some((name, _)) = t.split_once("!: alias struct! [") {
+            current = Some((name.to_string(), 0));
+            continue;
+        }
+        let Some((alias, bytes)) = current.as_mut() else { continue };
+        if t == "]" {
+            blob_bytes.insert(alias.clone(), *bytes);
+            declared.insert(alias.clone());
+            current = None;
+            continue;
+        }
+        // `name [type]` - a blob cell or a field.
+        let Some(ty) = t.split_once('[').map(|(_, r)| r.trim_end_matches(']').trim()) else {
+            continue;
+        };
+        *bytes += match ty {
+            "byte-ptr!" => 8,
+            "integer!" | "float32!" => 4,
+            "byte!" | "logic!" => 1,
+            "float!" => 8,
+            _ => 0,
+        };
+        if let Some(by_value) = ty.strip_suffix("! value") {
+            if !declared.contains(by_value) {
+                offenders.push(format!("line {}: {alias} holds {by_value}! before it is declared", i + 1));
+            }
+        }
+    }
+    for u in every_tagged_union() {
+        let alias = format!("Az{}", u.name);
+        let Some(bytes) = blob_bytes.get(&alias) else { continue };
+        let want = super::c_layout::type_layout(&u.name, ir()).map(|l| l.size);
+        if want != Some(*bytes) {
+            offenders.push(format!("{alias}!: {bytes} bytes, C has {want:?}"));
+        }
+    }
+    let shown: Vec<String> = offenders.iter().take(40).cloned().collect();
+    assert!(
+        offenders.is_empty(),
+        "{} Red/System alias problem(s) (first {}):\n  {}",
+        offenders.len(),
+        shown.len(),
+        shown.join("\n  ")
+    );
+}
+
 /// c_layout (the Fortran union blobs, `return_c_size`) sizes and aligns
 /// every tagged union exactly as Rust does.
 #[test]
