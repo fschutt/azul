@@ -184,9 +184,16 @@ pub(crate) const NO_SHRINK: CssPropertyWithConditions =
         inner: FloatValue::const_new(0),
     }));
 
-/// Outer ring of one option's indicator (parameter-independent → const slice).
-/// A flex box that centres its inner dot.
-pub(crate) static RADIO_GROUP_CIRCLE_STYLE: &[CssPropertyWithConditions] = &[
+/// The indicator ring's BASE: how it lays out, the same in every theme (R5) -
+/// a flex box that centres its inner dot, never grown and never shrunk
+/// ([`NO_SHRINK`]). Every theme's ring starts with it - flat's
+/// [`RADIO_GROUP_CIRCLE_STYLE`] (`themes::flat::radio_group_skin`),
+/// `themes::flora::radio_group_skin` - and adds its skin after it.
+///
+/// Declared once here, it is declared once in a group that follows the app
+/// theme too (`themes::theme_blocks`): outside every `@theme` block, so it
+/// holds under an app theme no widget knows.
+pub(crate) static RADIO_GROUP_CIRCLE_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
     CssPropertyWithConditions::simple(CssProperty::const_justify_content(
@@ -195,6 +202,18 @@ pub(crate) static RADIO_GROUP_CIRCLE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     NO_SHRINK,
+];
+
+/// The dot's BASE: never grown and never shrunk, the same in every theme
+/// (see [`RADIO_GROUP_CIRCLE_BASE`]). Every theme's dot starts with it.
+pub(crate) static RADIO_GROUP_DOT_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    NO_SHRINK,
+];
+
+/// Flat's skin for the outer ring of one option's indicator
+/// (parameter-independent → const slice), laid on [`RADIO_GROUP_CIRCLE_BASE`].
+pub(crate) static RADIO_GROUP_CIRCLE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(CIRCLE_SIZE))),
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(
         CIRCLE_SIZE,
@@ -257,12 +276,11 @@ pub(crate) static RADIO_GROUP_CIRCLE_STYLE: &[CssPropertyWithConditions] = &[
     )),
 ];
 
-/// Inner filled dot when the option is SELECTED (opacity 100).
+/// Flat's skin for the inner filled dot when the option is SELECTED (opacity
+/// 100), laid on [`RADIO_GROUP_DOT_BASE`].
 pub(crate) static RADIO_GROUP_DOT_STYLE_SELECTED: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(DOT_SIZE))),
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(DOT_SIZE))),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    NO_SHRINK,
     CssPropertyWithConditions::simple(CssProperty::const_background_content(DOT_BG)),
     // The checked dot is the desktop's accent in the dark theme.
     crate::widgets::themes::system_palette::DARK_ACCENT_BACKGROUND,
@@ -281,12 +299,11 @@ pub(crate) static RADIO_GROUP_DOT_STYLE_SELECTED: &[CssPropertyWithConditions] =
     CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(100))),
 ];
 
-/// Inner filled dot when the option is UNSELECTED (opacity 0 — hidden but laid out).
+/// Flat's skin for the inner filled dot when the option is UNSELECTED
+/// (opacity 0 — hidden but laid out), laid on [`RADIO_GROUP_DOT_BASE`].
 pub(crate) static RADIO_GROUP_DOT_STYLE_UNSELECTED: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(DOT_SIZE))),
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(DOT_SIZE))),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    NO_SHRINK,
     CssPropertyWithConditions::simple(CssProperty::const_background_content(DOT_BG)),
     // The checked dot is the desktop's accent in the dark theme.
     crate::widgets::themes::system_palette::DARK_ACCENT_BACKGROUND,

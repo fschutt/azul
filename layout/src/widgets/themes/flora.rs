@@ -3226,17 +3226,13 @@ pub(crate) fn radio_group_skin(horizontal: bool) -> crate::widgets::radio_group:
     row.extend(kit::hover_bg(RADIO_GROUP_HOVER_LIGHT, RADIO_GROUP_HOVER_DARK));
     row.extend(kit::focus_ring(LIGHT_ACC, DARK_GLOW));
 
-    // The well: the widget's geometry, flora's paper.
-    let mut circle = vec![
-        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        P::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
-        P::simple(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
-        P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        r::NO_SHRINK,
+    // The well: the widget's base (its structure, the same in every theme),
+    // the widget's geometry, flora's paper.
+    let mut circle = r::RADIO_GROUP_CIRCLE_BASE.to_vec();
+    circle.extend([
         P::simple(CssProperty::const_width(LayoutWidth::const_px(r::CIRCLE_SIZE))),
         P::simple(CssProperty::const_height(LayoutHeight::const_px(r::CIRCLE_SIZE))),
-    ];
+    ]);
     circle.extend(kit::border(kit::Edges::ALL, r::CIRCLE_BORDER, LIGHT_BD3, DARK_BD3));
     circle.extend(kit::radius(r::CIRCLE_RADIUS));
     circle.extend(kit::themed_bg(LIGHT_FLD, DARK_FLD));
@@ -3248,18 +3244,18 @@ pub(crate) fn radio_group_skin(horizontal: bool) -> crate::widgets::radio_group:
         NUMBER_INPUT_WELL_DARK,
     ));
 
-    // The stone, shown (100) or laid out and invisible (0).
+    // The stone, shown (100) or laid out and invisible (0), on the widget's
+    // base.
     let dot = |opacity: isize| {
-        let mut v = vec![
+        let mut v = r::RADIO_GROUP_DOT_BASE.to_vec();
+        v.extend([
             P::simple(CssProperty::const_width(LayoutWidth::const_px(r::DOT_SIZE))),
             P::simple(CssProperty::const_height(LayoutHeight::const_px(r::DOT_SIZE))),
-            P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-            r::NO_SHRINK,
             P::simple(kit::layers(vec![
                 StyleBackgroundContent::Color(LIGHT_ACC),
                 ORB_GLOSS,
             ])),
-        ];
+        ]);
         v.extend(kit::radius(r::DOT_RADIUS));
         v.push(P::simple(CssProperty::const_opacity(StyleOpacity::const_new(
             opacity,

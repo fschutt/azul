@@ -3586,16 +3586,18 @@ pub(crate) fn radio_group_skin(horizontal: bool) -> crate::widgets::radio_group:
     row.extend(kit::ring_slot());
     row.extend(kit::focus_ring(FIELD_RING, DARK_ACC));
 
+    // The indicator: the widget's base (its structure, the same in every
+    // theme), then flat's established skin.
+    let on_base = |base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
+        CssPropertyWithConditionsVec::from_vec([base, skin].concat())
+    };
+
     r::RadioGroupSkin {
         theme: super::UiTheme::Flat,
         row: CssPropertyWithConditionsVec::from_vec(row),
-        circle: CssPropertyWithConditionsVec::from_const_slice(r::RADIO_GROUP_CIRCLE_STYLE),
-        dot_selected: CssPropertyWithConditionsVec::from_const_slice(
-            r::RADIO_GROUP_DOT_STYLE_SELECTED,
-        ),
-        dot_unselected: CssPropertyWithConditionsVec::from_const_slice(
-            r::RADIO_GROUP_DOT_STYLE_UNSELECTED,
-        ),
+        circle: on_base(r::RADIO_GROUP_CIRCLE_BASE, r::RADIO_GROUP_CIRCLE_STYLE),
+        dot_selected: on_base(r::RADIO_GROUP_DOT_BASE, r::RADIO_GROUP_DOT_STYLE_SELECTED),
+        dot_unselected: on_base(r::RADIO_GROUP_DOT_BASE, r::RADIO_GROUP_DOT_STYLE_UNSELECTED),
         label: CssPropertyWithConditionsVec::from_const_slice(r::RADIO_GROUP_LABEL_STYLE),
     }
 }
