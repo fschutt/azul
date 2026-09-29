@@ -152,7 +152,7 @@ pub enum HitChainLink {
 /// Local copy because `agg-rust` is optional (svg/cpurender features) and
 /// hit-testing must exist in every configuration. The multiply/invert bodies
 /// are transcribed from agg so composition matches the raster EXACTLY.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ScreenMapAffine {
     pub sx: f32,
     pub shy: f32,
@@ -229,6 +229,28 @@ impl ScreenMapAffine {
             x: p.x.mul_add(self.sx, p.y * self.shx) + self.tx,
             y: p.x.mul_add(self.shy, p.y * self.sy) + self.ty,
         }
+    }
+
+    /// The axis-aligned bounds of `r` mapped by this transform (its four
+    /// corners' AABB): exact for a translation and a scale, the enclosing
+    /// box for a rotation or a skew.
+    #[must_use]
+    pub fn map_rect(&self, r: LogicalRect) -> LogicalRect {
+        let corners = [
+            r.origin,
+            LogicalPosition::new(r.origin.x + r.size.width, r.origin.y),
+            LogicalPosition::new(r.origin.x, r.origin.y + r.size.height),
+            LogicalPosition::new(r.origin.x + r.size.width, r.origin.y + r.size.height),
+        ]
+        .map(|c| self.apply(c));
+        let min_x = corners.iter().map(|c| c.x).fold(f32::INFINITY, f32::min);
+        let min_y = corners.iter().map(|c| c.y).fold(f32::INFINITY, f32::min);
+        let max_x = corners.iter().map(|c| c.x).fold(f32::NEG_INFINITY, f32::max);
+        let max_y = corners.iter().map(|c| c.y).fold(f32::NEG_INFINITY, f32::max);
+        LogicalRect::new(
+            LogicalPosition::new(min_x, min_y),
+            LogicalSize::new((max_x - min_x).max(0.0), (max_y - min_y).max(0.0)),
+        )
     }
 
     #[allow(clippy::float_cmp)]
@@ -661,19 +683,35 @@ pub fn nested_dom_window_origin(
     })
 }
 
-/// Every nested dom's viewports - each enclosing `VirtualView`'s box, with
-/// the host SCROLL frames that move it, innermost last - from the same
-/// records [`nested_dom_window_origin`] resolves, kept symbolic for a
-/// consumer that resolves the frames against LIVE offsets
+/// One viewport a nested dom shows through ([`nested_dom_viewports`]): an
+/// enclosing `VirtualView`'s box with its frames at rest, the host SCROLL
+/// frames that move it (kept symbolic, for live offsets), and the forward
+/// transform of the host REFERENCE frames around it, resolved now (`None`:
+/// untransformed). On screen it is `transform(rect - scroll(frames))`, the
+/// raster's `T_total(pos - scroll_total)`.
+pub type NestedDomViewport = (
+    LogicalRect,
+    Vec<(DomId, NodeId)>,
+    Option<ScreenMapAffine>,
+);
+
+/// Every nested dom's viewports ([`NestedDomViewport`]), innermost last -
+/// the last one is the dom's own `VirtualView`, and its frames and transform
+/// are the ones the dom's content is composited under - from the same
+/// records [`nested_dom_window_origin`] resolves. The scroll frames stay
+/// symbolic for a consumer that resolves them against LIVE offsets
 /// (`ScrollManager::set_nested_dom_placements`, via
-/// `register_scroll_nodes`). Transforms in the host are not carried.
+/// `register_scroll_nodes`); the transforms are resolved with
+/// `resolve_transform` when this is called, so a transform animating
+/// between two registrations is followed at the next one.
 ///
 /// Empty when no display list mounts a nested dom (the common window: one
 /// dom, and no walk over its list at all).
 #[must_use]
 pub fn nested_dom_viewports(
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
-) -> BTreeMap<DomId, Vec<(LogicalRect, Vec<(DomId, NodeId)>)>> {
+    resolve_transform: &dyn Fn(DomId, NodeId) -> Option<azul_core::transform::ComputedTransform3D>,
+) -> BTreeMap<DomId, Vec<NestedDomViewport>> {
     if layout_results.len() < 2 {
         return BTreeMap::new();
     }
@@ -686,13 +724,24 @@ pub fn nested_dom_viewports(
             })
             .collect()
     };
+    let no_scroll = |_: DomId, _: NodeId| -> Option<LogicalPosition> { None };
+    let transform_of = |chain: &[HitChainLink]| -> Option<ScreenMapAffine> {
+        let resolved = resolve_chain(chain, &no_scroll, resolve_transform);
+        resolved.has_transform.then_some(resolved.forward)
+    };
     resolve_virtual_view_placements(layout_results)
         .into_iter()
         .map(|(dom_id, placement)| {
-            let viewports: Vec<(LogicalRect, Vec<(DomId, NodeId)>)> = placement
+            let viewports: Vec<NestedDomViewport> = placement
                 .clips
                 .iter()
-                .map(|(viewport, chain)| (*viewport, scroll_frames(chain.as_slice())))
+                .map(|(viewport, chain)| {
+                    (
+                        *viewport,
+                        scroll_frames(chain.as_slice()),
+                        transform_of(chain.as_slice()),
+                    )
+                })
                 .collect();
             (dom_id, viewports)
         })

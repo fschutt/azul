@@ -449,13 +449,14 @@ pub enum RevealRequest {
 /// placement `headless::nested_dom_window_origin` resolves for the raster
 /// and the hit tester), so [`ScrollManager::calculate_scrollbar_states`]
 /// can keep every bar's track in WINDOW space - on every scroll, not only
-/// after a layout. The host's transforms are not carried: a bar inside a
-/// transformed host is placed as if untransformed, like a bar inside a
-/// transformed box of its own dom.
+/// after a layout. The host's transforms are carried as resolved at
+/// publication (a transform animating between two layouts is followed at
+/// the next one); a bar inside a transformed box of its OWN dom is still
+/// placed as if untransformed.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct NestedDomPlacement {
-    /// The window position of the dom's 0-relative origin with every frame
-    /// in [`Self::host_frames`] at rest.
+    /// The position, before [`Self::host_transform`], of the dom's
+    /// 0-relative origin with every frame in [`Self::host_frames`] at rest.
     pub origin: LogicalPosition,
     /// The scroll containers whose CURRENT offsets move the dom up and left
     /// of [`Self::origin`]: the host scroll frames its `VirtualView` item
@@ -464,8 +465,14 @@ pub struct NestedDomPlacement {
     pub host_frames: Vec<(DomId, NodeId)>,
     /// The viewports the dom shows through - each enclosing `VirtualView`'s
     /// box, with its frames at rest - each with the scroll frames that move
-    /// it. Nothing of the dom is visible, or pressable, outside them.
-    pub viewports: Vec<(LogicalRect, Vec<(DomId, NodeId)>)>,
+    /// it and the host transform around it
+    /// (`headless::NestedDomViewport`). Nothing of the dom is visible, or
+    /// pressable, outside them.
+    pub viewports: Vec<crate::headless::NestedDomViewport>,
+    /// The FORWARD transform of the host reference frames the dom's content
+    /// is composited under (`None`: untransformed), applied after the
+    /// scroll: the raster's `T_total(pos - scroll_total)`.
+    pub host_transform: Option<crate::headless::ScreenMapAffine>,
 }
 
 // Core Scroll Manager
@@ -1734,33 +1741,65 @@ impl ScrollManager {
     }
 
     /// Where `dom_id`'s 0-relative coordinates start in the window NOW: its
-    /// [`NestedDomPlacement`] resolved against the current offsets. Zero for
-    /// the window's own dom and for a dom no host mounts.
+    /// [`NestedDomPlacement`] resolved against the current offsets, the host
+    /// transform applied. Zero for the window's own dom and for a dom no
+    /// host mounts.
     #[must_use]
     pub fn dom_window_origin(&self, dom_id: DomId) -> LogicalPosition {
-        self.nested_doms
-            .get(&dom_id)
-            .map_or_else(LogicalPosition::zero, |placement| {
-                let scroll = self.offset_of_frames(&placement.host_frames);
+        self.dom_rect_to_window(dom_id, LogicalRect::zero()).origin
+    }
+
+    /// `rect`, in `dom_id`'s 0-relative space, where the window shows it
+    /// NOW: moved to the dom's placement, up and left by its host frames'
+    /// current offsets, then through the host transform (the bounds of the
+    /// mapped rect). Unchanged for the window's own dom and for a dom no host
+    /// mounts.
+    fn dom_rect_to_window(&self, dom_id: DomId, rect: LogicalRect) -> LogicalRect {
+        let Some(placement) = self.nested_doms.get(&dom_id) else {
+            return rect;
+        };
+        let scroll = self.offset_of_frames(&placement.host_frames);
+        Self::placed(
+            LogicalRect::new(
                 LogicalPosition::new(
-                    placement.origin.x - scroll.x,
-                    placement.origin.y - scroll.y,
-                )
-            })
+                    rect.origin.x + placement.origin.x - scroll.x,
+                    rect.origin.y + placement.origin.y - scroll.y,
+                ),
+                rect.size,
+            ),
+            placement.host_transform.as_ref(),
+        )
+    }
+
+    /// `rect` through a host transform, if there is one.
+    fn placed(
+        rect: LogicalRect,
+        transform: Option<&crate::headless::ScreenMapAffine>,
+    ) -> LogicalRect {
+        transform.map_or(rect, |t| t.map_rect(rect))
     }
 
     /// Does `dom_id` show at window point `point` - inside every viewport
     /// it is composited through? The window's own dom shows everywhere.
     fn dom_shows_at(&self, dom_id: DomId, point: LogicalPosition) -> bool {
         self.nested_doms.get(&dom_id).is_none_or(|placement| {
-            placement.viewports.iter().all(|(viewport, frames)| {
-                let scroll = self.offset_of_frames(frames);
-                LogicalRect::new(
-                    LogicalPosition::new(viewport.origin.x - scroll.x, viewport.origin.y - scroll.y),
-                    viewport.size,
-                )
-                .contains(point)
-            })
+            placement
+                .viewports
+                .iter()
+                .all(|(viewport, frames, transform)| {
+                    let scroll = self.offset_of_frames(frames);
+                    Self::placed(
+                        LogicalRect::new(
+                            LogicalPosition::new(
+                                viewport.origin.x - scroll.x,
+                                viewport.origin.y - scroll.y,
+                            ),
+                            viewport.size,
+                        ),
+                        transform.as_ref(),
+                    )
+                    .contains(point)
+                })
         })
     }
 
@@ -1806,11 +1845,16 @@ impl ScrollManager {
                         Self::calculate_scrollbar_state_from_geometry(scroll_state, orientation)?;
                     // Moved by the frames above the box in its own dom, and
                     // lifted out of a nested dom's 0-relative space to where
-                    // its host composites it.
+                    // its host composites it (host frames and transform).
                     let shift = self.ancestor_scroll_offset(*dom_id, *node_id);
-                    let dom_origin = self.dom_window_origin(*dom_id);
-                    state.track_rect.origin.x += dom_origin.x - shift.x;
-                    state.track_rect.origin.y += dom_origin.y - shift.y;
+                    let in_dom = LogicalRect::new(
+                        LogicalPosition::new(
+                            state.track_rect.origin.x - shift.x,
+                            state.track_rect.origin.y - shift.y,
+                        ),
+                        state.track_rect.size,
+                    );
+                    state.track_rect = self.dom_rect_to_window(*dom_id, in_dom);
                     Some(((*dom_id, *node_id, orientation), state))
                 })
                 .collect();
@@ -2318,7 +2362,7 @@ impl crate::managers::NodeIdRemap for ScrollManager {
                 && placement
                     .host_frames
                     .iter()
-                    .chain(placement.viewports.iter().flat_map(|(_, frames)| frames.iter()))
+                    .chain(placement.viewports.iter().flat_map(|(_, frames, _)| frames.iter()))
                     .all(|(d, _)| *d != dom)
         });
 

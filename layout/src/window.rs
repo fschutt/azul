@@ -14979,7 +14979,7 @@ impl LayoutWindow {
     /// the value the display list's reference frame for it is bound to
     /// (`GpuValueCache::css_current_transform_values`). THE lookup every
     /// "where is it on screen" question passes as its `resolve_transform`.
-    fn css_transform_of(
+    pub(crate) fn css_transform_of(
         &self,
         dom: DomId,
         node: NodeId,

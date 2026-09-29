@@ -390,12 +390,18 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
 fn publish_nested_dom_placements(layout_window: &mut LayoutWindow) {
     use crate::managers::scroll_state::NestedDomPlacement;
 
-    let viewports = crate::headless::nested_dom_viewports(&layout_window.layout_results);
+    // The host transforms resolved from the values the raster paints with
+    // now; the frames stay symbolic, for the live offsets.
+    let viewports = crate::headless::nested_dom_viewports(
+        &layout_window.layout_results,
+        &|dom, node| layout_window.css_transform_of(dom, node),
+    );
     let placements: alloc::collections::BTreeMap<DomId, NestedDomPlacement> = viewports
         .into_iter()
         .filter_map(|(nested, viewports)| {
-            // The innermost viewport is this dom's own `VirtualView` box.
-            let (view_box, view_frames) = viewports.last()?.clone();
+            // The innermost viewport is this dom's own `VirtualView` box, and
+            // its transform the one the dom's content is composited under.
+            let (view_box, view_frames, host_transform) = viewports.last()?.clone();
             let host = layout_window.virtual_view_manager.host_of_nested_dom(nested)?;
             let materialized = layout_window
                 .virtual_view_manager
@@ -412,6 +418,7 @@ fn publish_nested_dom_placements(layout_window: &mut LayoutWindow) {
                     ),
                     host_frames,
                     viewports,
+                    host_transform,
                 },
             ))
         })
