@@ -5609,15 +5609,14 @@ pub(crate) fn tree_view_look() -> crate::widgets::tree_view::TreeViewLook {
     type P = CssPropertyWithConditions;
     let part = CssPropertyWithConditionsVec::from_vec;
 
-    let mut container = vec![
-        P::simple(CssProperty::const_overflow_y(LayoutOverflow::Auto)),
-        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        P::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Column,
-        )),
+    // Every part is the widget's base (`tree_view::TREE_CONTAINER_BASE`,
+    // `ROW_BASE`, `CHILDREN_BASE`, `ICON_BASE`, `LABEL_BASE`: its
+    // structure), then flora's skin.
+    let mut container = t::TREE_CONTAINER_BASE.to_vec();
+    container.extend([
         kit::font_size(13),
         P::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
-    ];
+    ]);
     container.extend(kit::padding(3, 3, 3, 3));
     container.extend(kit::border(kit::Edges::ALL, 1, LIGHT_BD2, DARK_BD2));
     container.extend(kit::radius(3));
@@ -5626,12 +5625,7 @@ pub(crate) fn tree_view_look() -> crate::widgets::tree_view::TreeViewLook {
 
     // A row's box, selected or not.
     let row_box = || {
-        let mut v = vec![
-            P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-            P::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
-            P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-            P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-        ];
+        let mut v = t::ROW_BASE.to_vec();
         v.extend(kit::padding(3, 6, 3, 6));
         v.extend(kit::radius(3));
         v
@@ -5652,14 +5646,11 @@ pub(crate) fn tree_view_look() -> crate::widgets::tree_view::TreeViewLook {
 
     // The guide rule sits under the parent's chevron (6px row padding + half
     // the 16px icon column); margin + rule + padding keep the 16px indent.
-    let mut children = vec![
-        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        P::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Column,
-        )),
+    let mut children = t::CHILDREN_BASE.to_vec();
+    children.extend([
         P::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(13))),
         P::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(2))),
-    ];
+    ]);
     let guide = kit::Edges {
         top: false,
         right: false,
@@ -5671,19 +5662,15 @@ pub(crate) fn tree_view_look() -> crate::widgets::tree_view::TreeViewLook {
     // The chevron: the flat tree's 16px column, flora's icon ink - or, on the
     // stone, the stone's ink.
     let icon = |ink: Vec<P>| {
-        let mut v = vec![
-            kit::font_size(16),
-            P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        ];
+        let mut v = t::ICON_BASE.to_vec();
+        v.push(kit::font_size(16));
         v.extend(ink);
         v
     };
 
     let label = |ink: Vec<P>| {
-        let mut v = vec![
-            P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-            P::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(4))),
-        ];
+        let mut v = t::LABEL_BASE.to_vec();
+        v.push(P::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(4))));
         v.extend(ink);
         v
     };

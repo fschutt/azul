@@ -172,16 +172,56 @@ const ICON_COLOR: ColorU = ColorU {
     a: 255,
 };
 
-// -- Tree container style --
+// ---- R5: the parts' BASE - the structure every theme's tree shares ----
+//
+// A theme's part is its base below, THEN its skin (paint and metrics): the
+// `*_STYLE` statics for flat (`themes::flat::tree_view_look`), and
+// `themes::flora::tree_view_look` for flora. The base comes first in every
+// theme, so an unpinned tree (`TreeViewLook::of`) declares it once, outside
+// every `@theme` block. The leaf spacer has no skin: `LEAF_SPACER_STYLE` is
+// its whole style in every theme.
 
-pub(crate) static TREE_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_background_content(
-        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(FIELD_BG)]),
-    )),
+/// The tree's structure: a column of rows that scrolls when it overflows.
+pub(crate) static TREE_CONTAINER_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Auto)),
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,
+    )),
+];
+
+/// A row's structure, selected or not: icon and label side by side on one
+/// midline, under the pointer.
+pub(crate) static ROW_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+];
+
+/// An open parent's children container: a column of rows.
+pub(crate) static CHILDREN_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
+];
+
+/// The disclosure icon keeps its column's width.
+pub(crate) static ICON_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+];
+
+/// The label takes the rest of the row.
+pub(crate) static LABEL_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+];
+
+// -- Tree container style: flat's, on `TREE_CONTAINER_BASE` --
+
+pub(crate) static TREE_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(FIELD_BG)]),
     )),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
@@ -198,12 +238,9 @@ pub(crate) static TREE_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     })),
 ];
 
-// -- Row style (each tree node row) --
+// -- Row style (each tree node row): flat's, on `ROW_BASE` --
 
 pub(crate) static ROW_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
-    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
     CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         2,
     ))),
@@ -216,7 +253,6 @@ pub(crate) static ROW_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(4),
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     // Hover, light and dark. Declared in the theme module — see
     // `themes::flat::ROW_HOVER` — because the dark half needs a palette this
     // file cannot see. The pair used to live here, with the dark twin spelled
@@ -225,15 +261,13 @@ pub(crate) static ROW_STYLE: &[CssPropertyWithConditions] = &[
     crate::widgets::themes::flat::ROW_HOVER_DARK,
 ];
 
-// -- Selected row style --
-// NOTE: Intentionally duplicates base properties from ROW_STYLE because
-// const-slice styling does not support runtime composition. If you change
-// padding/layout in ROW_STYLE, update ROW_SELECTED_STYLE to match.
+// -- Selected row style: flat's, on `ROW_BASE` --
+// NOTE: Intentionally repeats the padding of ROW_STYLE because const-slice
+// styling does not support runtime composition. If you change the padding in
+// ROW_STYLE, update ROW_SELECTED_STYLE to match (the layout is `ROW_BASE`,
+// shared by both).
 
 pub(crate) static ROW_SELECTED_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
-    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
     CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         2,
     ))),
@@ -246,7 +280,6 @@ pub(crate) static ROW_SELECTED_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(4),
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
         StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(SELECTED_BG)]),
     )),
@@ -260,25 +293,20 @@ pub(crate) static ROW_SELECTED_STYLE: &[CssPropertyWithConditions] = &[
     )),
 ];
 
-// -- Children container style --
+// -- Children container style: flat's, on `CHILDREN_BASE` --
 
 pub(crate) static CHILDREN_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-        LayoutFlexDirection::Column,
-    )),
     CssPropertyWithConditions::simple(CssProperty::const_padding_left(
         LayoutPaddingLeft::const_px(16),
     )),
 ];
 
-// -- Disclosure icon style --
+// -- Disclosure icon style: flat's, on `ICON_BASE` --
 // NOTE: Icon font-size (16px) must match LEAF_SPACER_STYLE width so that
 // leaf nodes align with parent nodes that have a disclosure icon.
 
 pub(crate) static ICON_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(16))),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: ICON_COLOR,
     })),
@@ -294,10 +322,9 @@ pub(crate) static LEAF_SPACER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
 ];
 
-// -- Label style --
+// -- Label style: flat's, on `LABEL_BASE` --
 
 pub(crate) static LABEL_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_padding_left(
         LayoutPaddingLeft::const_px(4),
     )),
@@ -1149,9 +1176,18 @@ mod autotest_generated {
     }
 
     /// True when a node's inline style is exactly the given const style slice.
-    fn style_is(dom: &Dom, expected: &'static [CssPropertyWithConditions]) -> bool {
+    fn style_is(dom: &Dom, expected: &[CssPropertyWithConditions]) -> bool {
         *dom.root.get_style()
-            == css::Css::from(CssPropertyWithConditionsVec::from_const_slice(expected))
+            == css::Css::from(CssPropertyWithConditionsVec::from_vec(expected.to_vec()))
+    }
+
+    /// Flat's part as the tree renders it (R5): the widget's `base`, then
+    /// flat's const `skin`.
+    fn flat_part(
+        base: &[CssPropertyWithConditions],
+        skin: &[CssPropertyWithConditions],
+    ) -> Vec<CssPropertyWithConditions> {
+        base.iter().chain(skin.iter()).cloned().collect()
     }
 
     /// The `(icon-or-spacer, label)` pair of a rendered row.
@@ -1910,7 +1946,7 @@ mod autotest_generated {
             "the container must be findable by its widget class"
         );
         assert!(
-            style_is(&dom, TREE_CONTAINER_STYLE),
+            style_is(&dom, &flat_part(TREE_CONTAINER_BASE, TREE_CONTAINER_STYLE)),
             "the container must use the shared const style"
         );
     }
@@ -1932,7 +1968,7 @@ mod autotest_generated {
             "the placeholder must use the leaf-spacer style so labels stay aligned"
         );
         assert_eq!(text_of(label), Some("only"));
-        assert!(style_is(label, LABEL_STYLE));
+        assert!(style_is(label, &flat_part(LABEL_BASE, LABEL_STYLE)));
     }
 
     #[test]
@@ -1950,10 +1986,10 @@ mod autotest_generated {
         );
         let (icon, _) = row_parts(&dom.children.as_ref()[0]);
         assert_eq!(icon_of(icon), Some("expand_more"));
-        assert!(style_is(icon, ICON_STYLE));
+        assert!(style_is(icon, &flat_part(ICON_BASE, ICON_STYLE)));
 
         let container = &dom.children.as_ref()[1];
-        assert!(style_is(container, CHILDREN_STYLE));
+        assert!(style_is(container, &flat_part(CHILDREN_BASE, CHILDREN_STYLE)));
         assert_eq!(container.children.as_ref().len(), 2, "both children drawn");
     }
 
@@ -1997,16 +2033,16 @@ mod autotest_generated {
         assert_eq!(rows.len(), 3);
 
         assert!(
-            style_is(rows[0], ROW_STYLE),
+            style_is(rows[0], &flat_part(ROW_BASE, ROW_STYLE)),
             "unselected root uses ROW_STYLE"
         );
         assert!(
-            style_is(rows[1], ROW_SELECTED_STYLE),
+            style_is(rows[1], &flat_part(ROW_BASE, ROW_SELECTED_STYLE)),
             "the selected node must switch to the selected style"
         );
-        assert!(style_is(rows[2], ROW_STYLE));
+        assert!(style_is(rows[2], &flat_part(ROW_BASE, ROW_STYLE)));
         assert!(
-            !style_is(rows[1], ROW_STYLE),
+            !style_is(rows[1], &flat_part(ROW_BASE, ROW_STYLE)),
             "the two row styles must be distinguishable"
         );
     }

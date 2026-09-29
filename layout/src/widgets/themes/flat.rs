@@ -4461,21 +4461,22 @@ pub fn combobox(c: crate::widgets::combobox::ComboBox) -> Dom {
 // with white ink, a 16px indent per level. Its selected row's icon and label
 // keep the resting styles, as they always had.
 
-/// Flat's tree-view look: the tree's established const styles.
+/// Flat's tree-view look: the widget's base under each part ([`on_base`]),
+/// then the tree's established const styles.
 #[must_use]
 pub(crate) fn tree_view_look() -> crate::widgets::tree_view::TreeViewLook {
     use crate::widgets::tree_view as t;
-    let part = CssPropertyWithConditionsVec::from_const_slice;
     t::TreeViewLook {
-        container: part(t::TREE_CONTAINER_STYLE),
-        row: part(t::ROW_STYLE),
-        row_selected: part(t::ROW_SELECTED_STYLE),
-        children: part(t::CHILDREN_STYLE),
-        icon: part(t::ICON_STYLE),
-        icon_selected: part(t::ICON_STYLE),
-        leaf_spacer: part(t::LEAF_SPACER_STYLE),
-        label: part(t::LABEL_STYLE),
-        label_selected: part(t::LABEL_STYLE),
+        container: on_base(t::TREE_CONTAINER_BASE, t::TREE_CONTAINER_STYLE),
+        row: on_base(t::ROW_BASE, t::ROW_STYLE),
+        row_selected: on_base(t::ROW_BASE, t::ROW_SELECTED_STYLE),
+        children: on_base(t::CHILDREN_BASE, t::CHILDREN_STYLE),
+        icon: on_base(t::ICON_BASE, t::ICON_STYLE),
+        icon_selected: on_base(t::ICON_BASE, t::ICON_STYLE),
+        // No skin: the spacer's style is the same in every theme.
+        leaf_spacer: CssPropertyWithConditionsVec::from_const_slice(t::LEAF_SPACER_STYLE),
+        label: on_base(t::LABEL_BASE, t::LABEL_STYLE),
+        label_selected: on_base(t::LABEL_BASE, t::LABEL_STYLE),
         marker: None,
     }
 }
