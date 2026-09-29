@@ -4498,29 +4498,45 @@ pub(crate) fn tree_view_look() -> crate::widgets::tree_view::TreeViewLook {
 // at night. The panel is white in the same rule, open at the top, the
 // desktop's window surface at night.
 
-/// Flat's tab-bar look: the tab bar's established const styles.
+/// A flat tab part: the widget's `base` (its structure, R5), then flat's
+/// established const `skin`. Both are plain declarations - the `@theme`
+/// blocks of an unpinned bar are made from the whole part afterwards
+/// (`TabHeaderLook::of`) - so the part is the two lists one after the other.
+fn tab_part(
+    base: &[CssPropertyWithConditions],
+    skin: CssPropertyWithConditionsVec,
+) -> CssPropertyWithConditionsVec {
+    let mut v = base.to_vec();
+    v.extend_from_slice(skin.as_slice());
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// Flat's tab-bar look: the widget's base under each part, then the tab
+/// bar's established const styles.
 #[must_use]
 pub(crate) fn tab_header_look() -> crate::widgets::tabs::TabHeaderLook {
     use crate::widgets::tabs as t;
     t::TabHeaderLook {
-        header: t::CSS_MATCH_9988039989460234263,
+        header: tab_part(t::HEADER_BASE, t::CSS_MATCH_9988039989460234263),
+        // No base: flat's spacer grows (`flex-grow: 1`), flora's does not.
         before: t::CSS_MATCH_17290739305197504468,
-        after: t::CSS_MATCH_3088386549906605418,
-        active: t::CSS_MATCH_14575853790110873394,
-        before_active: t::CSS_MATCH_4415083954137121609,
-        after_active: t::CSS_MATCH_13824480602841492081,
-        inactive: t::CSS_MATCH_11510695043643111367,
+        after: tab_part(t::AFTER_BASE, t::CSS_MATCH_3088386549906605418),
+        active: tab_part(t::TAB_BASE, t::CSS_MATCH_14575853790110873394),
+        before_active: tab_part(t::TAB_BASE, t::CSS_MATCH_4415083954137121609),
+        after_active: tab_part(t::TAB_BASE, t::CSS_MATCH_13824480602841492081),
+        inactive: tab_part(t::TAB_BASE, t::CSS_MATCH_11510695043643111367),
         marker: None,
     }
 }
 
-/// Flat's tab-panel look: the panel's established const styles.
+/// Flat's tab-panel look: the widget's base, then the panel's established
+/// const styles.
 #[must_use]
 pub(crate) fn tab_content_look() -> crate::widgets::tabs::TabContentLook {
     use crate::widgets::tabs as t;
     t::TabContentLook {
-        padded: t::CSS_MATCH_18014909903571752977,
-        unpadded: t::CSS_MATCH_18014909903571752977_NO_PADDING,
+        padded: tab_part(t::PANEL_BASE, t::CSS_MATCH_18014909903571752977),
+        unpadded: tab_part(t::PANEL_BASE, t::CSS_MATCH_18014909903571752977_NO_PADDING),
         marker: None,
     }
 }

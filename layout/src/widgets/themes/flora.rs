@@ -5789,36 +5789,39 @@ pub(crate) fn tab_header_look() -> crate::widgets::tabs::TabHeaderLook {
         left: true,
     };
 
-    let mut header = vec![
-        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        P::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    // Every part is the widget's base (`tabs::HEADER_BASE`, `AFTER_BASE`,
+    // `TAB_BASE`: its structure), then flora's skin.
+    let mut header = crate::widgets::tabs::HEADER_BASE.to_vec();
+    header.extend([
+        // Flora's own layout: the tabs stand ON the strip's rule. Flat's
+        // native tabs hang from the top of the bar (its default).
         P::simple(CssProperty::const_align_items(LayoutAlignItems::End)),
         P::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
         kit::font_size(13),
         P::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(6))),
-    ];
+    ]);
     header.extend(kit::themed_layers(
         vec![RAISED_FACE_LIGHT],
         vec![RAISED_FACE_DARK],
     ));
 
+    // The tabs start 8px in: a fixed spacer (flat's grows).
     let mut before = vec![
         P::simple(CssProperty::const_width(LayoutWidth::const_px(8))),
         P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     ];
     before.extend(rule());
-    let mut after = vec![P::simple(CssProperty::const_flex_grow(
-        LayoutFlexGrow::const_new(1),
-    ))];
+    let mut after = crate::widgets::tabs::AFTER_BASE.to_vec();
     after.extend(rule());
 
-    // A tab's box: the centred label, the pointer, the gap to the next tab.
+    // A tab's box: the widget's tab base (the pointer among it), then the
+    // centred label and the gap to the next tab.
     let tab_box = |top: isize, bottom: isize| {
-        let mut v = vec![
+        let mut v = crate::widgets::tabs::TAB_BASE.to_vec();
+        v.extend([
             P::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-            P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
             P::simple(CssProperty::const_margin_right(LayoutMarginRight::const_px(2))),
-        ];
+        ]);
         v.extend(kit::padding(top, 12, bottom, 12));
         v
     };
@@ -5896,11 +5899,9 @@ pub(crate) fn tab_header_look() -> crate::widgets::tabs::TabHeaderLook {
 #[must_use]
 pub(crate) fn tab_content_look() -> crate::widgets::tabs::TabContentLook {
     use super::style_kit as kit;
-    type P = CssPropertyWithConditions;
+    // The widget's panel base (`tabs::PANEL_BASE`), then the leaf.
     let leaf = || {
-        let mut v = vec![P::simple(CssProperty::const_flex_grow(
-            LayoutFlexGrow::const_new(1),
-        ))];
+        let mut v = crate::widgets::tabs::PANEL_BASE.to_vec();
         v.extend(kit::themed_bg(LIGHT_SUR, DARK_SUR));
         v
     };

@@ -36,6 +36,43 @@ const TAB_FACE_DARK: CssPropertyWithConditions = CssPropertyWithConditions::dark
     CssProperty::const_background_content(system_palette::UNDER_PAGE_BACKGROUND),
 );
 
+// ---- R5: the BASE - the structure every theme's tab bar and panel share ----
+//
+// A theme's part is its base below, THEN its skin (paint and metrics): the
+// `CSS_MATCH_*` constants for flat (`themes::flat::tab_header_look`), and
+// `themes::flora::tab_header_look` for flora. The base comes first in every
+// theme, so an unpinned bar declares it once, outside every `@theme` block.
+// What the themes lay out differently by design stays in their skins: the
+// header's `align-items` (flora sets its tabs ON the strip's rule, `end`;
+// flat's native tabs hang from the top of the bar) and the spacer before the
+// first tab (flat's grows, `flex-grow: 1`; flora's is a fixed 8px, `0`).
+
+/// The bar: a flex row of spacer, tabs, spacer. Without `display: flex` the
+/// row's `flex-direction` does nothing and the tabs stack vertically.
+pub(crate) static HEADER_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+];
+
+/// The spacer after the last tab: it takes the rest of the bar.
+pub(crate) static AFTER_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+];
+
+/// Every tab, active or not: its border outside its content box (a tab's
+/// padding and height are its content's, in every theme), its content
+/// centred, and the pointer - a tab is clicked.
+pub(crate) static TAB_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::ContentBox)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+];
+
+/// The panel, padded or not: it takes the height the tab widget leaves.
+pub(crate) static PANEL_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+];
+
 const STRING_16146701490593874959: AzString = AzString::from_const_str("system:ui");
 const STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
@@ -208,9 +245,6 @@ const CSS_MATCH_13824480602841492081_PROPERTIES: &[CssPropertyWithConditions] = 
             STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS,
         )),
     )),
-    CssPropertyWithConditions::simple(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
-        LayoutAlignItems::Center,
-    ))),
     // Dark theme, at rest: the tab's face and outline follow the desktop.
     // Declared AFTER the light values they twin (a twin before its light
     // value is dead) and BEFORE the hover rules below: a `dark_theme`
@@ -284,9 +318,6 @@ const CSS_MATCH_14575853790110873394_PROPERTIES: &[CssPropertyWithConditions] = 
     ))),
     CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
         LayoutHeight::Px(PixelValue::const_px(23)),
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::BoxSizing(LayoutBoxSizingValue::Exact(
-        LayoutBoxSizing::ContentBox,
     ))),
     CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
@@ -405,9 +436,6 @@ const CSS_MATCH_14575853790110873394_PROPERTIES: &[CssPropertyWithConditions] = 
             STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS,
         )),
     )),
-    CssPropertyWithConditions::simple(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
-        LayoutAlignItems::Center,
-    ))),
     // Dark theme: the active tab's face and outline follow the desktop. Last,
     // after both of the light backgrounds this style (re)declares.
     system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
@@ -474,11 +502,6 @@ const CSS_MATCH_18014909903571752977_PROPERTIES: &[CssPropertyWithConditions] = 
     CssPropertyWithConditions::simple(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
         LayoutPaddingTop {
             inner: PixelValue::const_px(5),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
-        LayoutFlexGrow {
-            inner: FloatValue::const_new(1),
         },
     ))),
     CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(LayoutBorderTopWidthValue::None)),
@@ -561,11 +584,6 @@ pub(crate) const CSS_MATCH_18014909903571752977: CssPropertyWithConditionsVec =
 
 const CSS_MATCH_3088386549906605418_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-header .__azul-native-tabs-after-tabs
-    CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
-        LayoutFlexGrow {
-            inner: FloatValue::const_new(1),
-        },
-    ))),
     CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
             inner: PixelValue::const_px(1),
@@ -720,9 +738,6 @@ const CSS_MATCH_4415083954137121609_PROPERTIES: &[CssPropertyWithConditions] = &
             STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS,
         )),
     )),
-    CssPropertyWithConditions::simple(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
-        LayoutAlignItems::Center,
-    ))),
     // Dark theme, at rest: the tab's face and outline follow the desktop.
     // Declared AFTER the light values they twin (a twin before its light
     // value is dead) and BEFORE the hover rules below: a `dark_theme`
@@ -804,13 +819,8 @@ const CSS_MATCH_4738503469417034630: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_4738503469417034630_PROPERTIES);
 
 const CSS_MATCH_9988039989460234263_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // A flex container: `flex-direction` / `justify-content` / `align-items`
-    // below do nothing without it (this rule had none, so the box laid out as
-    // a block and its children stacked vertically).
-    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
-        LayoutDisplay::Flex,
-    ))),
-    // .__azul-native-tabs-header
+    // .__azul-native-tabs-header - flat's skin; the flex row (`display`,
+    // `flex-direction`) is `HEADER_BASE`.
     CssPropertyWithConditions::simple(CssProperty::FontSize(StyleFontSizeValue::Exact(
         StyleFontSize {
             inner: PixelValue::const_px(11),
@@ -819,9 +829,6 @@ const CSS_MATCH_9988039989460234263_PROPERTIES: &[CssPropertyWithConditions] = &
     CssPropertyWithConditions::simple(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(
         StyleFontFamilyVec::from_const_slice(STYLE_FONT_FAMILY_8122988506401935406_ITEMS),
     ))),
-    CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
-        LayoutFlexDirection::Row,
-    ))),
 ];
 pub(crate) const CSS_MATCH_9988039989460234263: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_9988039989460234263_PROPERTIES);
@@ -829,11 +836,6 @@ pub(crate) const CSS_MATCH_9988039989460234263: CssPropertyWithConditionsVec =
 // -- NO PADDING
 const CSS_MATCH_18014909903571752977_PROPERTIES_NO_PADDING: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-content
-    CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
-        LayoutFlexGrow {
-            inner: FloatValue::const_new(1),
-        },
-    ))),
     CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
         StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
             STYLE_BACKGROUND_CONTENT_16746671892555275291_ITEMS,
@@ -980,9 +982,6 @@ const CSS_MATCH_11510695043643111367_PROPERTIES: &[CssPropertyWithConditions] = 
             STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS,
         )),
     )),
-    CssPropertyWithConditions::simple(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
-        LayoutAlignItems::Center,
-    ))),
     // Dark theme, at rest: the tab's face and outline follow the desktop.
     // Declared AFTER the light values they twin (a twin before its light
     // value is dead) and BEFORE the hover rules below: a `dark_theme`
@@ -1791,17 +1790,19 @@ mod autotest_generated {
         matches!(conds, [DynamicSelector::Theme(ThemeCondition::Dark)])
     }
 
-    /// The style vec the widget must pair with a given class combination.
+    /// The style vec the widget must pair with a given class combination: the
+    /// flat look's part (R5: the widget's `TAB_BASE`, then the const skin).
     fn style_for_classes(cls: &[&str]) -> CssPropertyWithConditionsVec {
         let cls = cls.to_vec();
+        let look = flat::tab_header_look();
         if cls == [CLASS_ACTIVE] {
-            CSS_MATCH_14575853790110873394
+            look.active
         } else if cls == [CLASS_NO_RIGHT, CLASS_NOT_ACTIVE] {
-            CSS_MATCH_4415083954137121609
+            look.before_active
         } else if cls == [CLASS_NO_LEFT, CLASS_NOT_ACTIVE] {
-            CSS_MATCH_13824480602841492081
+            look.after_active
         } else if cls == [CLASS_NOT_ACTIVE] {
-            CSS_MATCH_11510695043643111367
+            look.inactive
         } else {
             panic!("unexpected class combination on a tab node: {cls:?}");
         }
@@ -2124,7 +2125,7 @@ mod autotest_generated {
             );
             assert_eq!(
                 inline_declared(node),
-                declared(&CSS_MATCH_11510695043643111367),
+                declared(&flat::tab_header_look().inactive),
                 "tab {i} must carry the plain inactive style"
             );
         }
@@ -2297,16 +2298,15 @@ mod autotest_generated {
     #[test]
     fn dom_is_a_header_div_wrapping_spacer_tabs_spacer() {
         for n in [0usize, 1, 2, 3, 17] {
-            // Pinned to flat: the styles compared are flat's const vecs.
+            // Pinned to flat: the styles compared are flat's parts (the
+            // widget's base, then flat's const vecs).
             let dom = TabHeader::create(numbered_labels(n))
                 .with_theme(UiTheme::Flat)
                 .dom();
+            let look = flat::tab_header_look();
 
             assert_eq!(class_strs(&dom), vec![CLASS_HEADER]);
-            assert_eq!(
-                inline_declared(&dom),
-                declared(&CSS_MATCH_9988039989460234263)
-            );
+            assert_eq!(inline_declared(&dom), declared(&look.header));
             assert!(
                 matches!(dom.root.get_node_type(), NodeType::Div),
                 "the header itself is a plain div"
@@ -2316,15 +2316,9 @@ mod autotest_generated {
             assert_eq!(children.len(), n + 2, "n={n}: spacer + {n} tabs + spacer");
 
             assert_eq!(class_strs(&children[0]), vec![CLASS_BEFORE]);
-            assert_eq!(
-                inline_declared(&children[0]),
-                declared(&CSS_MATCH_17290739305197504468)
-            );
+            assert_eq!(inline_declared(&children[0]), declared(&look.before));
             assert_eq!(class_strs(&children[n + 1]), vec![CLASS_AFTER]);
-            assert_eq!(
-                inline_declared(&children[n + 1]),
-                declared(&CSS_MATCH_3088386549906605418)
-            );
+            assert_eq!(inline_declared(&children[n + 1]), declared(&look.after));
 
             for (i, node) in children[1..=n].iter().enumerate() {
                 assert_eq!(
@@ -3003,24 +2997,20 @@ mod autotest_generated {
 
     #[test]
     fn content_dom_picks_the_style_vec_the_padding_flag_asks_for() {
-        // Pinned to flat: the styles compared are flat's const vecs.
+        // Pinned to flat: the styles compared are flat's parts (the widget's
+        // `PANEL_BASE`, then flat's const vecs).
+        let look = flat::tab_content_look();
         let padded = TabContent::new(Dom::create_div())
             .with_padding(true)
             .with_theme(UiTheme::Flat)
             .dom();
-        assert_eq!(
-            inline_declared(&padded),
-            declared(&CSS_MATCH_18014909903571752977)
-        );
+        assert_eq!(inline_declared(&padded), declared(&look.padded));
 
         let bare = TabContent::new(Dom::create_div())
             .with_padding(false)
             .with_theme(UiTheme::Flat)
             .dom();
-        assert_eq!(
-            inline_declared(&bare),
-            declared(&CSS_MATCH_18014909903571752977_NO_PADDING)
-        );
+        assert_eq!(inline_declared(&bare), declared(&look.unpadded));
 
         assert_ne!(
             inline_declared(&padded),
@@ -3801,6 +3791,21 @@ mod structure_tests {
 
     #[test]
     fn a_tab_bar_declares_its_structure_once_for_every_theme() {
+        use azul_css::props::property::CssPropertyType;
+        // What the two looks lay out differently by design (`tabs::HEADER_BASE`).
+        let allowed = [
+            (
+                "__azul-native-tabs-header",
+                CssPropertyType::AlignItems,
+                "flora stands its tabs on the strip's rule (end); flat's native tabs hang from \
+                 the top of the bar",
+            ),
+            (
+                "__azul-native-tabs-before-tabs",
+                CssPropertyType::FlexGrow,
+                "flat's leading spacer grows (1); flora's tabs start a fixed 8px in (0)",
+            ),
+        ];
         for t in BOTH {
             // Each tab active in turn: the active tab, the two seam tabs
             // beside it and the other inactive tabs.
@@ -3809,7 +3814,7 @@ mod structure_tests {
                 assert_structure_is_shared(
                     &format!("tab bar (tab {active} active), built for {}", t.name()),
                     &dom,
-                    &[],
+                    &allowed,
                 );
             }
         }
