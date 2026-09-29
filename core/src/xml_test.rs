@@ -379,9 +379,8 @@ mod autotest_generated {
             source: ComponentSource::UserDefined,
             data_model: dm("WidgetData", fields),
             render_fn: user_defined_render_fn,
-            compile_fn: user_defined_compile_fn,
+            codegen: ComponentCodegen::RenderFunction,
             render_fn_source: None.into(),
-            compile_fn_source: None.into(),
         }
     }
 
@@ -2817,8 +2816,25 @@ mod autotest_generated {
     }
 
     // ================================================================
-    // builtin_render_fn / builtin_compile_fn  (numeric: indent)
+    // builtin_render_fn / how code builds a builtin (ComponentCodegen)
     // ================================================================
+
+    #[test]
+    fn builtin_elements_are_elements_and_the_structural_builtins_render_functions() {
+        let map = ComponentMap::with_builtin();
+        for def in map.all_components() {
+            let want = match def.id.name.as_str() {
+                "if" | "for" | "map" => ComponentCodegen::RenderFunction,
+                _ => ComponentCodegen::Element,
+            };
+            assert_eq!(def.codegen, want, "{}", def.id.qualified_name());
+        }
+        // A zero-initialised C struct is a render-function component.
+        assert_eq!(
+            ComponentCodegen::render_function(),
+            ComponentCodegen::RenderFunction
+        );
+    }
 
     #[test]
     fn builtin_render_fn_for_a_text_and_a_textless_element() {
@@ -2836,60 +2852,8 @@ mod autotest_generated {
         ));
     }
 
-    #[test]
-    fn builtin_compile_fn_ignores_indent_so_usize_max_is_safe() {
-        let map = ComponentMap::with_builtin();
-        let div = map.get_unqualified("div").expect("builtin div");
-        for indent in [0usize, 1, 1024, usize::MAX] {
-            match builtin_compile_fn(div, &CompileTarget::Rust, &div.data_model, indent) {
-                ResultStringCompileError::Ok(s) => assert_eq!(
-                    s.as_str(),
-                    "Dom::create_node(NodeType::Div)",
-                    "indent is unused by builtin_compile_fn (indent={indent})"
-                ),
-                ResultStringCompileError::Err(e) => panic!("unexpected error: {e:?}"),
-            }
-        }
-    }
-
-    #[test]
-    fn builtin_compile_fn_emits_text_and_escapes_it() {
-        let map = ComponentMap::with_builtin();
-        let p = map.get_unqualified("p").expect("builtin p");
-        let data = p.data_model.clone().with_default(
-            "text",
-            ComponentDefaultValue::String(AzString::from("a\"b\\c")),
-        );
-
-        match builtin_compile_fn(p, &CompileTarget::Rust, &data, 0) {
-            ResultStringCompileError::Ok(s) => {
-                assert!(s.as_str().contains("a\\\"b\\\\c"), "got {}", s.as_str());
-            }
-            ResultStringCompileError::Err(e) => panic!("unexpected error: {e:?}"),
-        }
-    }
-
-    #[test]
-    fn builtin_compile_fn_covers_every_target() {
-        let map = ComponentMap::with_builtin();
-        let div = map.get_unqualified("div").expect("builtin div");
-        for target in [
-            CompileTarget::Rust,
-            CompileTarget::C,
-            CompileTarget::Cpp,
-            CompileTarget::Python,
-        ] {
-            match builtin_compile_fn(div, &target, &div.data_model, 0) {
-                ResultStringCompileError::Ok(s) => {
-                    assert!(!s.as_str().is_empty(), "{target:?} emitted nothing");
-                }
-                ResultStringCompileError::Err(e) => panic!("{target:?}: {e:?}"),
-            }
-        }
-    }
-
     // ================================================================
-    // user_defined_render_fn / user_defined_compile_fn
+    // user_defined_render_fn
     // ================================================================
 
     fn every_default_kind() -> Vec<ComponentDataField> {
@@ -3001,61 +2965,6 @@ mod autotest_generated {
     }
 
     #[test]
-    fn user_defined_compile_fn_indent_zero_and_every_target() {
-        let def = user_def("", every_default_kind());
-        for target in [
-            CompileTarget::Rust,
-            CompileTarget::C,
-            CompileTarget::Cpp,
-            CompileTarget::Python,
-        ] {
-            match user_defined_compile_fn(&def, &target, &def.data_model, 0) {
-                ResultStringCompileError::Ok(s) => {
-                    assert!(!s.as_str().is_empty(), "{target:?} emitted nothing");
-                }
-                ResultStringCompileError::Err(e) => panic!("{target:?}: {e:?}"),
-            }
-        }
-    }
-
-    #[test]
-    fn user_defined_compile_fn_indent_scales_the_leading_whitespace() {
-        // NOTE: `indent` is used as `" ".repeat(indent * 4)`, so it is NOT safe at
-        // usize::MAX (the multiply overflows). Exercise the realistic range.
-        let def = user_def("", Vec::new());
-        let mut prev = 0usize;
-        for indent in [0usize, 1, 2, 8] {
-            match user_defined_compile_fn(&def, &CompileTarget::Rust, &def.data_model, indent) {
-                ResultStringCompileError::Ok(s) => {
-                    let len = s.as_str().len();
-                    assert!(len > prev, "indent={indent} must widen the output");
-                    prev = len;
-                }
-                ResultStringCompileError::Err(e) => panic!("indent={indent}: {e:?}"),
-            }
-        }
-    }
-
-    #[test]
-    fn user_defined_compile_fn_escapes_string_defaults() {
-        let def = user_def(
-            "",
-            vec![data_field(
-                "s",
-                ComponentFieldType::String,
-                Some(ComponentDefaultValue::String(AzString::from("a\"b\\c"))),
-                "",
-            )],
-        );
-        match user_defined_compile_fn(&def, &CompileTarget::Rust, &def.data_model, 0) {
-            ResultStringCompileError::Ok(s) => {
-                assert!(s.as_str().contains("a\\\"b\\\\c"), "got:\n{}", s.as_str());
-            }
-            ResultStringCompileError::Err(e) => panic!("{e:?}"),
-        }
-    }
-
-    #[test]
     fn push_scalar_field_appends_one_div_per_call() {
         let mut children: Vec<Dom> = Vec::new();
         push_scalar_field(&mut children, "n", &i64::MIN);
@@ -3149,35 +3058,6 @@ mod autotest_generated {
             ),
             "malformed JSON must not panic — it is only echoed into a label"
         );
-    }
-
-    #[test]
-    fn structural_builtin_compile_fns_ignore_indent_entirely() {
-        let cases: [(ComponentDef, ComponentCompileFn); 3] = [
-            (builtin_if_component(), builtin_if_compile_fn),
-            (builtin_for_component(), builtin_for_compile_fn),
-            (builtin_map_component(), builtin_map_compile_fn),
-        ];
-        for (def, f) in cases {
-            for target in [
-                CompileTarget::Rust,
-                CompileTarget::C,
-                CompileTarget::Cpp,
-                CompileTarget::Python,
-            ] {
-                for indent in [0usize, usize::MAX] {
-                    match f(&def, &target, &def.data_model, indent) {
-                        ResultStringCompileError::Ok(s) => {
-                            assert!(
-                                !s.as_str().is_empty(),
-                                "{target:?}/{indent} emitted nothing"
-                            );
-                        }
-                        ResultStringCompileError::Err(e) => panic!("{target:?}: {e:?}"),
-                    }
-                }
-            }
-        }
     }
 
     // ================================================================

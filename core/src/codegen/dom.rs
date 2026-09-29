@@ -30,28 +30,50 @@
 //! last text child loses its leading / trailing space — `<p>Hello <b>you</b></p>`
 //! keeps the space before `you`.
 //!
+//! **Component boundaries.** With [`Components`], a component instance
+//! (`<library:name ..>`) is a CALL of that component's own function, never
+//! its tree inlined; every component used is lowered once into its own item
+//! ([`lower_components_fragment`], [`lower_components_app`],
+//! [`lower_component_library`]). How code builds a component is its
+//! `ComponentDef::codegen` (`ComponentCodegen`).
+//!
 //! Not lowered yet: `tabindex`, `contenteditable`, `data-l10n`, images
 //! (`<img>` becomes a `div`) and event handlers.
 
 use alloc::{
+    collections::BTreeMap,
     format,
     string::{String, ToString},
     vec,
     vec::Vec,
 };
+use core::cell::RefCell;
 
 use azul_css::{
-    codegen::ir::{AppSpec, Expr, Ident, Item, ItemParam, Module},
+    codegen::ir::{
+        AppSpec, ComponentSpec, Expr, Ident, Item, ItemParam, LibrarySpec, Module, Prim,
+    },
     css::{
         Css, CssDeclaration, CssPath, CssPathPseudoSelector, CssPathSelector, CssRuleBlock,
         NodeTypeTag,
     },
+    AzString,
 };
 
-use crate::xml::{
-    element_draws_nothing, get_body_node, get_html_node, head_style_text, normalize_casing,
-    tag_to_node_type, tag_to_node_type_tag, CompileError, XmlNode, XmlNodeChild,
-    MAX_XML_NESTING_DEPTH,
+use super::render_fn_name;
+use crate::{
+    dom::NodeType,
+    id::NodeId,
+    styled_dom::StyledDom,
+    window::{AzStringPair, StringPairVec},
+    xml::{
+        element_draws_nothing, get_body_node, get_html_node, head_style_text, normalize_casing,
+        tag_to_node_type, tag_to_node_type_tag, CompileError, ComponentCallCodegen,
+        ComponentCodegen, ComponentDataField, ComponentDataModel, ComponentDef,
+        ComponentDefaultValue, ComponentFieldType, ComponentMap, OptionComponentDefaultValue,
+        ResultStyledDomRenderDomError, XmlAttributeMap, XmlNode, XmlNodeChild,
+        MAX_XML_NESTING_DEPTH,
+    },
 };
 
 // ===========================================================================
@@ -81,7 +103,9 @@ impl FragmentParam {
 }
 
 /// Lower `root_nodes` — a subtree or a component template, NOT a whole page
-/// — to one IR item `fn_name` that builds it as a `Dom`.
+/// — to one IR item `fn_name` that builds it as a `Dom`, every tag an
+/// element (see [`lower_components_fragment`] for markup with component
+/// instances).
 ///
 /// `stylesheet` is CSS source whose matching rules become each node's
 /// `with_css`. `params`: `Some` lowers a TEMPLATE (`{name}` placeholders
@@ -96,20 +120,15 @@ pub fn lower_xml_fragment(
     params: Option<&[FragmentParam]>,
     doc: Vec<String>,
 ) -> Module {
-    let css = parse_stylesheet(stylesheet);
-    let value = lower_roots(root_nodes, &css, params);
     Module {
-        items: vec![Item {
-            name: Ident::from_text(fn_name),
+        items: vec![lower_item(
+            root_nodes,
+            stylesheet,
+            Ident::from_text(fn_name),
+            params,
             doc,
-            ty: "Dom".to_string(),
-            params: params
-                .unwrap_or(&[])
-                .iter()
-                .map(|p| ItemParam::string(&p.name, &p.default))
-                .collect(),
-            value,
-        }],
+            None,
+        )],
         ..Module::default()
     }
 }
@@ -120,14 +139,8 @@ pub fn lower_xml_fragment(
 /// one.
 #[must_use]
 pub fn lower_xml_fragment_app(root_nodes: &[XmlNodeChild], stylesheet: &str, title: &str) -> Module {
-    let is_body = single_element_root(root_nodes)
-        .is_some_and(|n| normalize_casing(n.node_type.as_str()) == "body");
-    let mut m = lower_xml_fragment(root_nodes, stylesheet, "render_ui", None, Vec::new());
-    m.app = Some(AppSpec {
-        title: title.to_string(),
-        root: Ident::from_text("render_ui"),
-        is_body,
-    });
+    let mut m = lower_xml_fragment(root_nodes, stylesheet, APP_ROOT, None, Vec::new());
+    m.app = Some(app_spec(root_nodes, title, false));
     m
 }
 
@@ -150,6 +163,303 @@ pub fn lower_xml_page_app(root_nodes: &[XmlNodeChild], title: &str) -> Result<Mo
     ))
 }
 
+// ===========================================================================
+// Component boundaries
+// ===========================================================================
+//
+// With a [`Components`], a tag `<library:name ..>` is an INSTANCE of the
+// component `map.get(library, name)`, lowered the way the component's
+// `ComponentDef::codegen` says:
+//
+// - `RenderFunction`: a CALL (`Expr::ItemCall`) of the component's own
+//   render function `render_<name>(<fields>)`, which the module defines ONCE
+//   from the component's template (placeholders = parameters, nested
+//   instances = calls inside it) or, without one, from what it renders. The
+//   arguments are the instance's attributes (the builder stores the field
+//   values there), a `text` field takes the instance's text, a missing
+//   field its default. `class` / `id` / `style` attributes that are not
+//   fields style the returned `Dom`; the instance's children are appended.
+// - `Element`: the HTML element of that name.
+// - `Call`: the widget's constructor in api.json vocabulary
+//   (`Button::create(label).dom()`), arguments typed by the data model.
+//
+// Items come callees first (C and C++ need a function defined before its
+// use), the root last. A component that uses itself is cut (an empty div
+// with a note), a missing component is an empty div with a note.
+
+/// A component's markup, as the code export reads it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComponentMarkup {
+    /// The template WITH its `{placeholders}` and nested instances as tags
+    /// (`is_template`), or what the component renders with its default data.
+    pub nodes: Vec<XmlNodeChild>,
+    /// The CSS its elements take (the component's own stylesheet).
+    pub css: String,
+    pub is_template: bool,
+}
+
+impl ComponentMarkup {
+    /// What `def` renders with its default data (its `render_fn`), as
+    /// markup ([`styled_dom_markup`]).
+    ///
+    /// # Errors
+    /// A failing `render_fn`.
+    pub fn rendered(def: &ComponentDef, map: &ComponentMap) -> Result<Self, String> {
+        match (def.render_fn)(def, &def.data_model, map) {
+            ResultStyledDomRenderDomError::Ok(sd) => Ok(Self {
+                nodes: styled_dom_markup(&sd),
+                css: def.css.as_str().to_string(),
+                is_template: false,
+            }),
+            ResultStyledDomRenderDomError::Err(e) => Err(format!(
+                "render_fn failed for `{}`: {e:?}",
+                def.id.qualified_name()
+            )),
+        }
+    }
+}
+
+/// What the lowering knows about components: the component map (a tag
+/// `<library:name>` is an instance of `map.get(library, name)`) and where a
+/// component's TEMPLATE comes from. Core has no XML parser: a caller that
+/// has templates (AzBuilder's) parses them; `template` answers `None` for a
+/// component without one, which is then exported as what it renders.
+pub struct Components<'a> {
+    pub map: &'a ComponentMap,
+    pub template: &'a dyn Fn(&ComponentDef) -> Option<Result<ComponentMarkup, String>>,
+}
+
+impl<'a> Components<'a> {
+    /// No templates: every component is exported as what it renders.
+    #[must_use]
+    pub fn rendered_only(map: &'a ComponentMap) -> Self {
+        Self {
+            map,
+            template: &no_template,
+        }
+    }
+}
+
+fn no_template(_: &ComponentDef) -> Option<Result<ComponentMarkup, String>> {
+    None
+}
+
+/// Lower `root_nodes` (plain markup that may hold component instances) to a
+/// module: one item per component it uses (each lowered once, callees
+/// first), then item `fn_name` that builds the markup and calls them.
+#[must_use]
+pub fn lower_components_fragment(
+    root_nodes: &[XmlNodeChild],
+    stylesheet: &str,
+    fn_name: &str,
+    doc: Vec<String>,
+    components: &Components<'_>,
+) -> Module {
+    let reg = Registry::new(components, fn_name);
+    let root = lower_item(
+        root_nodes,
+        stylesheet,
+        Ident::from_text(fn_name),
+        None,
+        doc,
+        Some(&reg),
+    );
+    Module {
+        items: reg.finish(root),
+        ..Module::default()
+    }
+}
+
+/// [`lower_components_fragment`] as an app ([`Module::app`], root
+/// `render_ui`, see [`lower_xml_fragment_app`]).
+#[must_use]
+pub fn lower_components_app(
+    root_nodes: &[XmlNodeChild],
+    stylesheet: &str,
+    title: &str,
+    components: &Components<'_>,
+) -> Module {
+    let mut m = lower_components_fragment(root_nodes, stylesheet, APP_ROOT, Vec::new(), components);
+    m.app = Some(app_spec(root_nodes, title, true));
+    m
+}
+
+/// The component library `library`: one item per component of `defs` (its
+/// render function) plus the components they use, and the
+/// [`LibrarySpec`] the printers register `defs` from. `warnings`: a
+/// component without a template, one that fails to render.
+#[must_use]
+pub fn lower_component_library(
+    library: &str,
+    version: &str,
+    defs: &[&ComponentDef],
+    components: &Components<'_>,
+    warnings: &mut Vec<String>,
+) -> Module {
+    let reg = Registry::new(components, "");
+    let mut specs = Vec::new();
+    for def in defs {
+        let Some(d) = reg.define(def) else {
+            continue;
+        };
+        let (_, descriptions) = component_params(&def.data_model);
+        specs.push(ComponentSpec {
+            item: d.item,
+            name: def.id.name.as_str().to_string(),
+            display_name: def.display_name.as_str().to_string(),
+            description: def.description.as_str().to_string(),
+            data_model: def.data_model.name.as_str().to_string(),
+            data_model_description: def.data_model.description.as_str().to_string(),
+            field_descriptions: if d.params.is_empty() {
+                Vec::new()
+            } else {
+                descriptions
+            },
+        });
+    }
+    warnings.extend(reg.warnings.take());
+    Module {
+        items: reg.items.into_inner(),
+        app: None,
+        library: Some(LibrarySpec {
+            name: library.to_string(),
+            version: version.to_string(),
+            components: specs,
+        }),
+    }
+}
+
+/// A component's parameters: every data-model field that is a value (not a
+/// callback, not a child slot), with its default as text, and each field's
+/// description. A render function takes them as strings, in this order (the
+/// builder's templates substitute text).
+#[must_use]
+pub fn component_params(dm: &ComponentDataModel) -> (Vec<FragmentParam>, Vec<String>) {
+    dm.fields
+        .as_ref()
+        .iter()
+        .filter(|f| {
+            !matches!(
+                f.field_type,
+                ComponentFieldType::Callback(_) | ComponentFieldType::StyledDom
+            )
+        })
+        .map(|f| {
+            (
+                FragmentParam::new(f.name.as_str(), &default_text(&f.default_value)),
+                f.description.as_str().to_string(),
+            )
+        })
+        .unzip()
+}
+
+/// A field's default value as text (the way a template substitutes it).
+#[must_use]
+pub fn default_text(v: &OptionComponentDefaultValue) -> String {
+    match v {
+        OptionComponentDefaultValue::Some(d) => match d {
+            ComponentDefaultValue::String(s)
+            | ComponentDefaultValue::CallbackFnPointer(s)
+            | ComponentDefaultValue::Json(s) => s.as_str().to_string(),
+            ComponentDefaultValue::Bool(b) => b.to_string(),
+            ComponentDefaultValue::I32(n) => n.to_string(),
+            ComponentDefaultValue::I64(n) => n.to_string(),
+            ComponentDefaultValue::U32(n) => n.to_string(),
+            ComponentDefaultValue::U64(n) => n.to_string(),
+            ComponentDefaultValue::Usize(n) => n.to_string(),
+            ComponentDefaultValue::F32(n) => n.to_string(),
+            ComponentDefaultValue::F64(n) => n.to_string(),
+            ComponentDefaultValue::ColorU(c) => {
+                format!("#{:02x}{:02x}{:02x}{:02x}", c.r, c.g, c.b, c.a)
+            }
+            ComponentDefaultValue::None | ComponentDefaultValue::ComponentInstance(_) => {
+                String::new()
+            }
+        },
+        OptionComponentDefaultValue::None => String::new(),
+    }
+}
+
+/// A rendered `StyledDom` as markup, the code export's view of a DOM: every
+/// element with its tag, classes and ids, and its text (whitespace-only text
+/// is left out). What [`ComponentMarkup::rendered`] lowers; a caller with a
+/// DOM instead of markup lowers this.
+#[must_use]
+pub fn styled_dom_markup(sd: &StyledDom) -> Vec<XmlNodeChild> {
+    let mut budget = sd.node_data.as_ref().len();
+    if budget == 0 {
+        return Vec::new();
+    }
+    markup_node(sd, NodeId::new(0), 0, &mut budget)
+        .into_iter()
+        .collect()
+}
+
+fn markup_node(sd: &StyledDom, id: NodeId, depth: usize, budget: &mut usize) -> Option<XmlNodeChild> {
+    let nd = sd.node_data.as_ref().get(id.index())?;
+    if let NodeType::Text(t) = nd.get_node_type() {
+        let s = t.as_str();
+        return (!s.trim().is_empty()).then(|| XmlNodeChild::Text(AzString::from(s)));
+    }
+    let mut classes: Vec<&str> = Vec::new();
+    let mut ids: Vec<&str> = Vec::new();
+    for attr in nd.attributes().as_ref() {
+        if let Some(c) = attr.as_class() {
+            classes.push(c);
+        } else if let Some(i) = attr.as_id() {
+            ids.push(i);
+        }
+    }
+    let mut attrs: Vec<AzStringPair> = Vec::new();
+    if !ids.is_empty() {
+        attrs.push(AzStringPair::create(
+            AzString::from("id"),
+            AzString::from(ids.join(" ").as_str()),
+        ));
+    }
+    if !classes.is_empty() {
+        attrs.push(AzStringPair::create(
+            AzString::from("class"),
+            AzString::from(classes.join(" ").as_str()),
+        ));
+    }
+    let mut children: Vec<XmlNodeChild> = Vec::new();
+    if depth < MAX_XML_NESTING_DEPTH {
+        let hierarchy = sd.node_hierarchy.as_ref();
+        let mut next = hierarchy.get(id.index()).and_then(|h| h.first_child_id(id));
+        while let Some(c) = next {
+            // Bounded by the node count: a corrupted sibling chain must not
+            // loop forever.
+            if *budget == 0 {
+                break;
+            }
+            *budget -= 1;
+            if let Some(x) = markup_node(sd, c, depth + 1, budget) {
+                children.push(x);
+            }
+            next = hierarchy.get(c.index()).and_then(|h| h.next_sibling_id());
+        }
+    }
+    Some(XmlNodeChild::Element(XmlNode {
+        node_type: nd.get_node_type().get_path().to_string().into(),
+        attributes: XmlAttributeMap::from(StringPairVec::from_vec(attrs)),
+        children: children.into(),
+    }))
+}
+
+/// The root item of an app.
+const APP_ROOT: &str = "render_ui";
+
+fn app_spec(root_nodes: &[XmlNodeChild], title: &str, instances: bool) -> AppSpec {
+    let is_body = single_element_root(root_nodes, instances)
+        .is_some_and(|n| normalize_casing(n.node_type.as_str()) == "body");
+    AppSpec {
+        title: title.to_string(),
+        root: Ident::from_text(APP_ROOT),
+        is_body,
+    }
+}
+
 fn parse_stylesheet(stylesheet: &str) -> Css {
     let mut css = if stylesheet.trim().is_empty() {
         Css::empty()
@@ -158,6 +468,232 @@ fn parse_stylesheet(stylesheet: &str) -> Css {
     };
     css.sort_by_specificity();
     css
+}
+
+/// One item: `nodes` lowered with `stylesheet` (and `params` for a
+/// template); the notes of the lowering (a missing component, a cut
+/// recursion) join its doc.
+fn lower_item(
+    nodes: &[XmlNodeChild],
+    stylesheet: &str,
+    name: Ident,
+    params: Option<&[FragmentParam]>,
+    mut doc: Vec<String>,
+    reg: Option<&Registry<'_>>,
+) -> Item {
+    let css = parse_stylesheet(stylesheet);
+    let notes = RefCell::new(Vec::new());
+    let value = lower_roots(nodes, &css, params, reg, &notes);
+    for n in notes.into_inner() {
+        if !doc.contains(&n) {
+            doc.push(n);
+        }
+    }
+    Item {
+        name,
+        doc,
+        ty: "Dom".to_string(),
+        params: params
+            .unwrap_or(&[])
+            .iter()
+            .map(|p| ItemParam::string(&p.name, &p.default))
+            .collect(),
+        value,
+    }
+}
+
+/// A component's item, once lowered: its name and its parameters (what a
+/// call passes, in order).
+#[derive(Debug, Clone)]
+struct Def {
+    item: Ident,
+    params: Vec<FragmentParam>,
+}
+
+/// Every component a module calls, lowered once each into its own item.
+struct Registry<'a> {
+    components: &'a Components<'a>,
+    /// qualified name → its item; `None` while it is being lowered (a use
+    /// inside it is a recursion).
+    defined: RefCell<BTreeMap<String, Option<Def>>>,
+    /// Item names taken → the component that has it (`""`: the root).
+    names: RefCell<BTreeMap<String, String>>,
+    /// Finished items, callees first.
+    items: RefCell<Vec<Item>>,
+    warnings: RefCell<Vec<String>>,
+}
+
+impl<'a> Registry<'a> {
+    fn new(components: &'a Components<'a>, root: &str) -> Self {
+        let mut names = BTreeMap::new();
+        if !root.is_empty() {
+            names.insert(Ident::from_text(root).snake(), String::new());
+        }
+        Self {
+            components,
+            defined: RefCell::new(BTreeMap::new()),
+            names: RefCell::new(names),
+            items: RefCell::new(Vec::new()),
+            warnings: RefCell::new(Vec::new()),
+        }
+    }
+
+    /// The item of `def`, lowered first if needed. `None` while `def` is
+    /// being lowered: a component that uses itself.
+    fn define(&self, def: &ComponentDef) -> Option<Def> {
+        let key = def.id.qualified_name();
+        if let Some(state) = self.defined.borrow().get(&key) {
+            return state.clone();
+        }
+        self.defined.borrow_mut().insert(key.clone(), None);
+        let item_name = self.item_name(def, &key);
+        let title = format!("`{key}` ({})", def.display_name.as_str());
+        let markup = (self.components.template)(def)
+            .unwrap_or_else(|| ComponentMarkup::rendered(def, self.components.map));
+        let (params, item) = match markup {
+            Ok(m) => {
+                let mut doc = vec![title];
+                let params = if m.is_template {
+                    component_params(&def.data_model).0
+                } else {
+                    doc.push("what it renders with its default data (it has no template)".to_string());
+                    self.warnings.borrow_mut().push(format!(
+                        "{key} has no template (it was not made in AzBuilder): exported what it \
+                         renders with its default data"
+                    ));
+                    Vec::new()
+                };
+                let item = lower_item(
+                    &m.nodes,
+                    &m.css,
+                    item_name.clone(),
+                    m.is_template.then_some(params.as_slice()),
+                    doc,
+                    Some(self),
+                );
+                (params, item)
+            }
+            Err(e) => {
+                self.warnings.borrow_mut().push(format!("{key}: {e}"));
+                (
+                    Vec::new(),
+                    Item {
+                        name: item_name.clone(),
+                        doc: vec![title, format!("could not be exported: {e}")],
+                        ty: "Dom".to_string(),
+                        params: Vec::new(),
+                        value: dom_call("create_div", Vec::new()),
+                    },
+                )
+            }
+        };
+        self.items.borrow_mut().push(item);
+        let d = Def {
+            item: item_name,
+            params,
+        };
+        self.defined.borrow_mut().insert(key, Some(d.clone()));
+        Some(d)
+    }
+
+    /// `render_<name>`, or `render_<library>_<name>` when another component
+    /// (or the root) already has that name.
+    fn item_name(&self, def: &ComponentDef, key: &str) -> Ident {
+        let short = render_fn_name(def.id.name.as_str());
+        let mut names = self.names.borrow_mut();
+        let name = match names.get(&short) {
+            Some(owner) if owner != key => render_fn_name(&format!(
+                "{}_{}",
+                def.id.collection.as_str(),
+                def.id.name.as_str()
+            )),
+            _ => short,
+        };
+        names.insert(name.clone(), key.to_string());
+        Ident::from_text(&name)
+    }
+
+    /// The module's items: every component's, then `root`.
+    fn finish(self, root: Item) -> Vec<Item> {
+        let mut items = self.items.into_inner();
+        items.push(root);
+        items
+    }
+}
+
+/// `(library, name)` of an instance tag `<library:name>` (`svg:` / `html:`
+/// / `xhtml:` are namespaces of elements, not libraries).
+fn component_tag(raw: &str) -> Option<(&str, &str)> {
+    let (library, name) = raw.split_once(':')?;
+    if library.is_empty()
+        || name.is_empty()
+        || matches!(library.to_ascii_lowercase().as_str(), "svg" | "html" | "xhtml")
+    {
+        return None;
+    }
+    Some((library, name))
+}
+
+/// The value of a data-model field `f` as the instance's text `raw` says,
+/// typed by the field (a `Call` codegen passes typed arguments).
+fn typed_value(lower: &Lower<'_, '_>, f: &ComponentDataField, raw: &str) -> Expr {
+    let r = raw.trim();
+    match &f.field_type {
+        ComponentFieldType::String => lower.text(raw),
+        ComponentFieldType::Bool => r.parse::<bool>().map_or_else(|_| default_value(f), Expr::Bool),
+        ComponentFieldType::I32 => r
+            .parse::<i32>()
+            .map_or_else(|_| default_value(f), |n| Expr::int(i128::from(n), Prim::I32)),
+        ComponentFieldType::I64 => r
+            .parse::<i64>()
+            .map_or_else(|_| default_value(f), |n| Expr::int(i128::from(n), Prim::I64)),
+        ComponentFieldType::U32 => r
+            .parse::<u32>()
+            .map_or_else(|_| default_value(f), |n| Expr::int(i128::from(n), Prim::U32)),
+        ComponentFieldType::U64 => r
+            .parse::<u64>()
+            .map_or_else(|_| default_value(f), |n| Expr::int(i128::from(n), Prim::U64)),
+        ComponentFieldType::Usize => r.parse::<u64>().map_or_else(
+            |_| default_value(f),
+            |n| Expr::int(i128::from(n), Prim::Usize),
+        ),
+        ComponentFieldType::F32 => r.parse::<f32>().map_or_else(|_| default_value(f), Expr::f32),
+        ComponentFieldType::F64 => r.parse::<f64>().map_or_else(|_| default_value(f), Expr::f64),
+        other => Expr::unsupported(&format!(
+            "a {other} value for `{}` (only text, bool and number fields are passed)",
+            f.name.as_str()
+        )),
+    }
+}
+
+/// A field's default as a typed value.
+fn default_value(f: &ComponentDataField) -> Expr {
+    match &f.default_value {
+        OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => Expr::str(s.as_str()),
+        OptionComponentDefaultValue::Some(ComponentDefaultValue::Bool(b)) => Expr::Bool(*b),
+        OptionComponentDefaultValue::Some(ComponentDefaultValue::I32(n)) => {
+            Expr::int(i128::from(*n), Prim::I32)
+        }
+        OptionComponentDefaultValue::Some(ComponentDefaultValue::I64(n)) => {
+            Expr::int(i128::from(*n), Prim::I64)
+        }
+        OptionComponentDefaultValue::Some(ComponentDefaultValue::U32(n)) => {
+            Expr::int(i128::from(*n), Prim::U32)
+        }
+        OptionComponentDefaultValue::Some(ComponentDefaultValue::U64(n)) => {
+            Expr::int(i128::from(*n), Prim::U64)
+        }
+        OptionComponentDefaultValue::Some(ComponentDefaultValue::Usize(n)) => {
+            Expr::int(i128::try_from(*n).unwrap_or_default(), Prim::Usize)
+        }
+        OptionComponentDefaultValue::Some(ComponentDefaultValue::F32(n)) => Expr::f32(*n),
+        OptionComponentDefaultValue::Some(ComponentDefaultValue::F64(n)) => Expr::f64(*n),
+        _ => match f.field_type {
+            ComponentFieldType::String => Expr::str(""),
+            ComponentFieldType::Bool => Expr::Bool(false),
+            _ => Expr::unsupported(&format!("`{}` has no default value", f.name.as_str())),
+        },
+    }
 }
 
 // ===========================================================================
@@ -245,13 +781,28 @@ fn text_node(text: Expr) -> Expr {
     dom_call("create_text_do_not_use_without_block_level_wrapper", vec![text])
 }
 
-struct Lower<'a> {
+struct Lower<'a, 'r> {
     css: &'a Css,
     params: Option<&'a [FragmentParam]>,
+    /// `Some`: tags `<library:name>` are component instances.
+    reg: Option<&'a Registry<'r>>,
+    /// Notes for the item's doc (a missing component, a cut recursion).
+    notes: &'a RefCell<Vec<String>>,
 }
 
-fn lower_roots(root_nodes: &[XmlNodeChild], css: &Css, params: Option<&[FragmentParam]>) -> Expr {
-    let lower = Lower { css, params };
+fn lower_roots(
+    root_nodes: &[XmlNodeChild],
+    css: &Css,
+    params: Option<&[FragmentParam]>,
+    reg: Option<&Registry<'_>>,
+    notes: &RefCell<Vec<String>>,
+) -> Expr {
+    let lower = Lower {
+        css,
+        params,
+        reg,
+        notes,
+    };
     // The fragment sits where it would in a page: inside `<body>`, so a rule
     // like `body .card` or `.card > p` matches the way it does when mounted.
     let base = CssMatcher {
@@ -259,7 +810,7 @@ fn lower_roots(root_nodes: &[XmlNodeChild], css: &Css, params: Option<&[Fragment
         indices_in_parent: vec![0],
         children_length: vec![1],
     };
-    if let Some(root) = single_element_root(root_nodes) {
+    if let Some(root) = single_element_root(root_nodes, reg.is_some()) {
         if let Some(e) = lower.element(root, child_matcher(&base, 0, 1), 0, false) {
             return e;
         }
@@ -275,15 +826,18 @@ fn lower_roots(root_nodes: &[XmlNodeChild], css: &Css, params: Option<&[Fragment
 }
 
 /// The only element among `roots` when there is exactly one and no
-/// non-blank text beside it.
-fn single_element_root(roots: &[XmlNodeChild]) -> Option<&XmlNode> {
+/// non-blank text beside it. `instances`: a component instance
+/// (`<library:name>`) counts as an element.
+fn single_element_root(roots: &[XmlNodeChild], instances: bool) -> Option<&XmlNode> {
     let mut found = None;
     for c in roots {
         match c {
             XmlNodeChild::Element(n) => {
-                let tag = normalize_casing(n.node_type.as_str());
-                if SKIPPED_TAGS.contains(&tag.as_str())
-                    || element_draws_nothing(n.node_type.as_str(), &tag)
+                let raw = n.node_type.as_str();
+                let tag = normalize_casing(raw);
+                let is_instance = instances && component_tag(raw).is_some();
+                if !is_instance
+                    && (SKIPPED_TAGS.contains(&tag.as_str()) || element_draws_nothing(raw, &tag))
                 {
                     continue;
                 }
@@ -315,9 +869,16 @@ fn split_words(v: Option<&azul_css::AzString>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-impl Lower<'_> {
+impl Lower<'_, '_> {
     fn text(&self, raw: &str) -> Expr {
         text_expr(raw, self.params)
+    }
+
+    fn note(&self, note: String) {
+        let mut notes = self.notes.borrow_mut();
+        if !notes.contains(&note) {
+            notes.push(note);
+        }
     }
 
     /// The constructor call of an element.
@@ -360,20 +921,39 @@ impl Lower<'_> {
         }
     }
 
+    /// An element, or a component instance (with components).
     fn element(
         &self,
         node: &XmlNode,
-        mut matcher: CssMatcher,
+        matcher: CssMatcher,
         depth: usize,
         in_pre: bool,
     ) -> Option<Expr> {
         let raw_tag = node.node_type.as_str();
-        let tag = normalize_casing(raw_tag);
-        if SKIPPED_TAGS.contains(&tag.as_str()) || element_draws_nothing(raw_tag, &tag) {
+        if let Some(reg) = self.reg {
+            if let Some((library, name)) = component_tag(raw_tag) {
+                return Some(self.instance(reg, library, name, node, matcher, depth, in_pre));
+            }
+        }
+        self.html_element(node, raw_tag, &normalize_casing(raw_tag), matcher, depth, in_pre)
+    }
+
+    /// An HTML element `tag` (`raw_tag` as written: it decides whether the
+    /// element draws at all).
+    fn html_element(
+        &self,
+        node: &XmlNode,
+        raw_tag: &str,
+        tag: &str,
+        mut matcher: CssMatcher,
+        depth: usize,
+        in_pre: bool,
+    ) -> Option<Expr> {
+        if SKIPPED_TAGS.contains(&tag) || element_draws_nothing(raw_tag, tag) {
             return None;
         }
 
-        let analysed = analyze_node_ctor(&tag, node);
+        let analysed = analyze_node_ctor(tag, node);
         let (consumes_text, skip_caption) = match &analysed {
             NodeCtor::Plain => (false, false),
             NodeCtor::Semantic {
@@ -382,13 +962,13 @@ impl Lower<'_> {
                 ..
             } => (*consumes_text, *skip_caption),
         };
-        let mut e = self.ctor(&tag, &analysed);
+        let mut e = self.ctor(tag, &analysed);
 
         let ids = split_words(node.attributes.get_key("id"));
         let classes = split_words(node.attributes.get_key("class"));
         matcher
             .path
-            .push(CssPathSelector::Type(tag_to_node_type_tag(&tag)));
+            .push(CssPathSelector::Type(tag_to_node_type_tag(tag)));
         matcher
             .path
             .extend(ids.iter().map(|i| CssPathSelector::Id(i.clone().into())));
@@ -433,6 +1013,159 @@ impl Lower<'_> {
             }
         }
         Some(e)
+    }
+
+    /// A component instance `<library:name ..>`: see "Component boundaries".
+    #[allow(clippy::too_many_arguments)]
+    fn instance(
+        &self,
+        reg: &Registry<'_>,
+        library: &str,
+        name: &str,
+        node: &XmlNode,
+        mut matcher: CssMatcher,
+        depth: usize,
+        in_pre: bool,
+    ) -> Expr {
+        let key = format!("{library}:{name}");
+        let Some(def) = reg.components.map.get(library, name) else {
+            self.note(format!("missing component `{key}`: an empty div stands for it"));
+            return dom_call("create_div", Vec::new());
+        };
+        let text = node_direct_text(node);
+        let (mut e, text_used) = match &def.codegen {
+            ComponentCodegen::Element => {
+                return self
+                    .html_element(node, name, &normalize_casing(name), matcher, depth, in_pre)
+                    .unwrap_or_else(|| dom_call("create_div", Vec::new()));
+            }
+            ComponentCodegen::Call(call) => self.widget(call, def, node, &text),
+            ComponentCodegen::RenderFunction => {
+                let Some(d) = reg.define(def) else {
+                    self.note(format!(
+                        "cut a recursive use of `{key}`: an empty div stands for it"
+                    ));
+                    return dom_call("create_div", Vec::new());
+                };
+                let mut text_used = false;
+                let args = d
+                    .params
+                    .iter()
+                    .map(|p| {
+                        if let Some(v) = node.attributes.get_key(&p.name) {
+                            self.text(v.as_str())
+                        } else if p.name == "text" && !text.is_empty() {
+                            text_used = true;
+                            self.text(&text)
+                        } else {
+                            Expr::str(&p.default)
+                        }
+                    })
+                    .collect();
+                (
+                    Expr::ItemCall {
+                        item: d.item,
+                        args,
+                    },
+                    text_used,
+                )
+            }
+        };
+
+        // `class` / `id` / `style` that are not fields style the returned
+        // Dom (the builder passes them through to the component's root).
+        let is_field = |k: &str| def.data_model.get_field(k).is_some();
+        let ids = if is_field("id") {
+            Vec::new()
+        } else {
+            split_words(node.attributes.get_key("id"))
+        };
+        let classes = if is_field("class") {
+            Vec::new()
+        } else {
+            split_words(node.attributes.get_key("class"))
+        };
+        matcher
+            .path
+            .push(CssPathSelector::Type(tag_to_node_type_tag(&normalize_casing(name))));
+        matcher
+            .path
+            .extend(ids.iter().map(|i| CssPathSelector::Id(i.clone().into())));
+        matcher
+            .path
+            .extend(classes.iter().map(|c| CssPathSelector::Class(c.clone().into())));
+        let blocks = get_css_blocks(self.css, &matcher);
+        let css = if is_field("style") {
+            css_blocks_to_inline_string(&blocks)
+        } else {
+            node_inline_css(&blocks, node)
+        };
+        if !css.is_empty() {
+            e = with(e, "with_css", vec![Expr::str(&css)]);
+        }
+        for id in &ids {
+            e = with(e, "with_id", vec![Expr::str(id)]);
+        }
+        for class in &classes {
+            e = with(e, "with_class", vec![Expr::str(class)]);
+        }
+
+        // The instance's children are appended to what the component builds.
+        if depth < MAX_XML_NESTING_DEPTH {
+            let kids: Vec<&XmlNodeChild> = node
+                .children
+                .as_ref()
+                .iter()
+                .filter(|c| !(text_used && matches!(c, XmlNodeChild::Text(_))))
+                .collect();
+            for c in self.children(&kids, &matcher, depth + 1, in_pre) {
+                e = with(e, "with_child", vec![c]);
+            }
+        }
+        e
+    }
+
+    /// A widget's constructor in api.json vocabulary (`ComponentCodegen::Call`):
+    /// its arguments typed by the data model, a setter per field the instance
+    /// sets, then the finishing method. Also whether it took the instance's
+    /// text (a `text` argument).
+    fn widget(
+        &self,
+        call: &ComponentCallCodegen,
+        def: &ComponentDef,
+        node: &XmlNode,
+        text: &str,
+    ) -> (Expr, bool) {
+        let class = call.class.as_str();
+        let mut text_used = false;
+        let mut value = |field: &str| -> Expr {
+            let raw = match node.attributes.get_key(field) {
+                Some(v) => Some(v.as_str().to_string()),
+                None if field == "text" && !text.is_empty() => {
+                    text_used = true;
+                    Some(text.to_string())
+                }
+                None => None,
+            };
+            match (def.data_model.get_field(field), raw) {
+                (Some(f), Some(r)) => typed_value(self, f, &r),
+                (Some(f), None) => default_value(f),
+                (None, Some(r)) => self.text(&r),
+                (None, None) => Expr::str(""),
+            }
+        };
+        let args: Vec<Expr> = call.args.as_ref().iter().map(|a| value(a.as_str())).collect();
+        let mut e = Expr::call(class, call.constructor.as_str(), args);
+        for setter in call.setters.as_ref() {
+            let field = setter.key.as_str();
+            if node.attributes.get_key(field).is_some() {
+                e = Expr::method(e, class, setter.value.as_str(), vec![value(field)]);
+            }
+        }
+        if !call.finish.as_str().is_empty() {
+            e = Expr::method(e, class, call.finish.as_str(), Vec::new());
+        }
+        (e, text_used)
     }
 
     /// `kids`: the children to emit. Structural selectors (`:first-child`,

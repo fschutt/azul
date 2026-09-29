@@ -2359,32 +2359,89 @@ impl ComponentSource {
     }
 }
 
-/// The target language for code compilation
-// Threaded by reference through the codegen call graph; kept non-Copy so
-// deriving Copy doesn't force trivially_copy_pass_by_ref churn across the many
-// &CompileTarget codegen callers for a perf-neutral change.
-#[allow(missing_copy_implementations)]
+/// How generated code builds an instance of a component: the language-NEUTRAL
+/// half of a [`ComponentDef`] that the code generator (`azul_core::codegen`,
+/// the `codegen` feature) turns into the IR every binding language's printer
+/// prints. It replaced the per-language string hook `compile_fn`.
+///
+/// Variant 0 is [`ComponentCodegen::RenderFunction`], so a zero-initialised C
+/// struct is a component that code calls through its render function.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
+pub enum ComponentCodegen {
+    /// A call of the component's own render function,
+    /// `render_<name>(<value fields>)`: the code export defines it once,
+    /// from the component's template (a component made in AzBuilder) or
+    /// else from what it renders. User-defined and registered components.
+    RenderFunction,
+    /// An HTML element of the builtin library: the most specific
+    /// `Dom::create_<tag>(..)` its attributes and text pick.
+    Element,
+    /// A constructor in api.json vocabulary (a widget):
+    /// `<class>::<constructor>(<args>)`, then `.<setter>(<field>)` for each
+    /// field the instance sets, then `.<finish>()`.
+    Call(ComponentCallCodegen),
+}
+
+impl ComponentCodegen {
+    /// [`ComponentCodegen::RenderFunction`].
+    #[must_use]
+    pub const fn render_function() -> Self {
+        Self::RenderFunction
+    }
+
+    /// [`ComponentCodegen::Element`].
+    #[must_use]
+    pub const fn element() -> Self {
+        Self::Element
+    }
+
+    /// [`ComponentCodegen::Call`].
+    #[must_use]
+    pub fn call(call: ComponentCallCodegen) -> Self {
+        Self::Call(call)
+    }
+}
+
+/// A widget's constructor in api.json vocabulary, for
+/// [`ComponentCodegen::Call`]: `Button::create(label).dom()` is
+/// `{ class: "Button", constructor: "create", args: ["label"], setters: [],
+/// finish: "dom" }`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub enum CompileTarget {
-    Rust,
-    C,
-    Cpp,
-    Python,
+pub struct ComponentCallCodegen {
+    /// The api.json class (`Button`).
+    pub class: AzString,
+    /// Its constructor (`create`).
+    pub constructor: AzString,
+    /// The data-model fields passed to the constructor, in order.
+    pub args: StringVec,
+    /// `key` = a data-model field, `value` = the builder method that sets it
+    /// (`with_button_type`), applied when the instance sets that field.
+    pub setters: StringPairVec,
+    /// The method that turns the widget into a `Dom` (`dom`), or empty when
+    /// the constructor returns one.
+    pub finish: AzString,
+}
+
+impl ComponentCallCodegen {
+    /// A constructor call with no setters.
+    #[must_use]
+    pub fn create(class: AzString, constructor: AzString, args: StringVec, finish: AzString) -> Self {
+        Self {
+            class,
+            constructor,
+            args,
+            setters: StringPairVec::from_const_slice(&[]),
+            finish,
+        }
+    }
 }
 
 impl_result!(
     StyledDom,
     RenderDomError,
     ResultStyledDomRenderDomError,
-    copy = false,
-    [Debug, Clone, PartialEq]
-);
-
-impl_result!(
-    AzString,
-    CompileError,
-    ResultStringCompileError,
     copy = false,
     [Debug, Clone, PartialEq]
 );
@@ -2397,15 +2454,6 @@ impl_result!(
 /// values substituted into the `default_value` fields.
 pub type ComponentRenderFn =
     fn(&ComponentDef, &ComponentDataModel, &ComponentMap) -> ResultStyledDomRenderDomError;
-
-/// Compile function type: takes component definition + target language + data model, returns source
-/// code.
-pub type ComponentCompileFn = fn(
-    &ComponentDef,
-    &CompileTarget,
-    &ComponentDataModel,
-    indent: usize,
-) -> ResultStringCompileError;
 
 /// Raw function pointer type that returns a single `ComponentDef` when called.
 /// Used as the `cb` field in `RegisterComponentFn`.
@@ -2505,12 +2553,11 @@ pub struct ComponentDef {
     pub data_model: ComponentDataModel,
     /// Render to live DOM
     pub render_fn: ComponentRenderFn,
-    /// Compile to source code in target language
-    pub compile_fn: ComponentCompileFn,
+    /// How generated code builds an instance (language-neutral: every code
+    /// generator prints it).
+    pub codegen: ComponentCodegen,
     /// Source code for `render_fn` (user-defined components only)
     pub render_fn_source: OptionString,
-    /// Source code for `compile_fn` (user-defined components only)
-    pub compile_fn_source: OptionString,
 }
 
 impl fmt::Debug for ComponentDef {
@@ -2904,47 +2951,6 @@ fn builtin_render_fn(
     r.into()
 }
 
-/// Default compile function for builtin HTML elements.
-/// Generates `Dom::create_node(NodeType::Div)` style code for the target language.
-fn builtin_compile_fn(
-    def: &ComponentDef,
-    target: &CompileTarget,
-    data: &ComponentDataModel,
-    indent: usize,
-) -> ResultStringCompileError {
-    let node_type = tag_to_node_type(def.id.name.as_str());
-    let type_name = format!("{node_type:?}"); // "Div", "Body", "P", etc.
-    let text = data.get_default_string("text");
-
-    let r: Result<AzString, CompileError> = match target {
-        CompileTarget::Rust => text.map_or_else(
-            || Ok(format!("Dom::create_node(NodeType::{type_name})").into()),
-            |text_str| {
-                Ok(format!(
-                    "Dom::create_node(NodeType::{}).with_children(vec!\
-                     [Dom::create_text_do_not_use_without_block_level_wrapper(\"{}\")])",
-                    type_name,
-                    text_str.as_str().replace('\\', "\\\\").replace('"', "\\\"")
-                )
-                .into())
-            },
-        ),
-        CompileTarget::C => text.map_or_else(
-            || Ok(format!("AzDom_create{type_name}()").into()),
-            |text_str| {
-                Ok(format!(
-                    "AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"{}\"))",
-                    text_str.as_str().replace('\\', "\\\\").replace('"', "\\\"")
-                )
-                .into())
-            },
-        ),
-        CompileTarget::Cpp => Ok(format!("Dom::create_{}()", type_name.to_lowercase()).into()),
-        CompileTarget::Python => Ok(format!("Dom.create_{}()", type_name.to_lowercase()).into()),
-    };
-    r.into()
-}
-
 /// Pushes a `<div>` containing `"field_name: value"` text into the children list.
 fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt::Display) {
     use crate::dom::{Dom, NodeType};
@@ -3149,190 +3155,6 @@ pub fn user_defined_render_fn(
     r.into()
 }
 
-/// Default compile function for user-defined (JSON-imported) components.
-///
-/// Generates source code that creates the component's DOM structure for the
-/// target language. For each data field, emits the appropriate code:
-/// - String fields → text node creation
-/// - Scalar fields → formatted display
-/// - `ComponentInstance` → function call to sub-component's render function
-/// - `StyledDom` slots → child parameter pass-through
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
-#[must_use]
-pub fn user_defined_compile_fn(
-    def: &ComponentDef,
-    target: &CompileTarget,
-    data: &ComponentDataModel,
-    indent: usize,
-) -> ResultStringCompileError {
-    let tag = def.id.name.as_str();
-    let indent_str = " ".repeat(indent * 4);
-    let inner_indent = " ".repeat((indent + 1) * 4);
-
-    let r: Result<AzString, CompileError> = match target {
-        CompileTarget::Rust => {
-            let mut lines = Vec::new();
-            lines.push(alloc::format!("{indent_str}// Component: {tag}"));
-            lines.push(alloc::format!(
-                "{indent_str}let mut children: Vec<Dom> = Vec::new();"
-            ));
-
-            for field in data.fields.as_ref() {
-                let fname = field.name.as_str();
-                match &field.default_value {
-                    OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => {
-                        let escaped = s.as_str().replace('\\', "\\\\").replace('"', "\\\"");
-                        lines.push(alloc::format!(
-                            "{inner_indent}children.\
-                             push(Dom::create_text_do_not_use_without_block_level_wrapper(\"\
-                             {escaped}\"));"
-                        ));
-                    }
-                    OptionComponentDefaultValue::Some(ComponentDefaultValue::Bool(b)) => {
-                        lines.push(alloc::format!(
-                            "{inner_indent}children.\
-                             push(Dom::create_text_do_not_use_without_block_level_wrapper(format!\
-                             (\"{{}}: {{}}\", \"{fname}\", {b}).as_str()));"
-                        ));
-                    }
-                    OptionComponentDefaultValue::Some(
-                        ComponentDefaultValue::ComponentInstance(ci),
-                    ) => {
-                        let fn_name =
-                            alloc::format!("render_{}", ci.component.as_str().replace('-', "_"));
-                        lines.push(alloc::format!(
-                            "{}children.push({}()); // sub-component {}:{}",
-                            inner_indent,
-                            fn_name,
-                            ci.library.as_str(),
-                            ci.component.as_str()
-                        ));
-                    }
-                    _ => {
-                        // For other types, generate a placeholder comment
-                        lines.push(alloc::format!(
-                            "{}// field '{}': {:?}",
-                            inner_indent,
-                            fname,
-                            field.field_type
-                        ));
-                    }
-                }
-            }
-
-            lines.push(alloc::format!(
-                "{indent_str}Dom::create_node(NodeType::Div).with_children(children.into())"
-            ));
-            Ok(lines.join("\n").into())
-        }
-        CompileTarget::C => {
-            let mut lines = Vec::new();
-            lines.push(alloc::format!("{indent_str}/* Component: {tag} */"));
-            lines.push(alloc::format!(
-                "{indent_str}AzDom root = AzDom_createDiv();"
-            ));
-
-            for field in data.fields.as_ref() {
-                let fname = field.name.as_str();
-                match &field.default_value {
-                    OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => {
-                        let escaped = s.as_str().replace('\\', "\\\\").replace('"', "\\\"");
-                        lines.push(alloc::format!(
-                            "{inner_indent}AzDom_addChild(&root, \
-                             AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"{escaped}\"\
-                             )));"
-                        ));
-                    }
-                    OptionComponentDefaultValue::Some(
-                        ComponentDefaultValue::ComponentInstance(ci),
-                    ) => {
-                        let fn_name =
-                            alloc::format!("render_{}", ci.component.as_str().replace('-', "_"));
-                        lines.push(alloc::format!(
-                            "{inner_indent}AzDom_addChild(&root, {fn_name}());"
-                        ));
-                    }
-                    _ => {
-                        lines.push(alloc::format!("{inner_indent}/* field '{fname}' */"));
-                    }
-                }
-            }
-
-            lines.push(alloc::format!("{indent_str}return root;"));
-            Ok(lines.join("\n").into())
-        }
-        CompileTarget::Cpp => {
-            let mut lines = Vec::new();
-            lines.push(alloc::format!("{indent_str}// Component: {tag}"));
-            lines.push(alloc::format!("{indent_str}auto root = Dom::create_div();"));
-
-            for field in data.fields.as_ref() {
-                let fname = field.name.as_str();
-                match &field.default_value {
-                    OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => {
-                        let escaped = s.as_str().replace('\\', "\\\\").replace('"', "\\\"");
-                        lines.push(alloc::format!(
-                            "{inner_indent}root.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(String(\"{escaped}\")));"
-                        ));
-                    }
-                    OptionComponentDefaultValue::Some(
-                        ComponentDefaultValue::ComponentInstance(ci),
-                    ) => {
-                        let fn_name =
-                            alloc::format!("render_{}", ci.component.as_str().replace('-', "_"));
-                        lines.push(alloc::format!("{inner_indent}root.add_child({fn_name}());"));
-                    }
-                    _ => {
-                        lines.push(alloc::format!("{inner_indent}// field '{fname}'"));
-                    }
-                }
-            }
-
-            lines.push(alloc::format!("{indent_str}return root;"));
-            Ok(lines.join("\n").into())
-        }
-        CompileTarget::Python => {
-            let mut lines = Vec::new();
-            lines.push(alloc::format!("{indent_str}# Component: {tag}"));
-            lines.push(alloc::format!("{indent_str}root = Dom.create_div()"));
-
-            for field in data.fields.as_ref() {
-                let fname = field.name.as_str();
-                match &field.default_value {
-                    OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => {
-                        let escaped = s
-                            .as_str()
-                            .replace('\\', "\\\\")
-                            .replace('"', "\\\"")
-                            .replace('\'', "\\'");
-                        lines.push(alloc::format!(
-                            "{inner_indent}root = \
-                             root.with_child(Dom.\
-                             create_text_do_not_use_without_block_level_wrapper(\"{escaped}\"))"
-                        ));
-                    }
-                    OptionComponentDefaultValue::Some(
-                        ComponentDefaultValue::ComponentInstance(ci),
-                    ) => {
-                        let fn_name =
-                            alloc::format!("render_{}", ci.component.as_str().replace('-', "_"));
-                        lines.push(alloc::format!(
-                            "{inner_indent}root = root.with_child({fn_name}())"
-                        ));
-                    }
-                    _ => {
-                        lines.push(alloc::format!("{inner_indent}# field '{fname}'"));
-                    }
-                }
-            }
-
-            lines.push(alloc::format!("{indent_str}return root"));
-            Ok(lines.join("\n").into())
-        }
-    };
-    r.into()
-}
-
 /// Create a `ComponentDef` for a builtin HTML element.
 ///
 /// # Arguments
@@ -3373,9 +3195,8 @@ fn builtin_component_def(
             fields: fields.into(),
         },
         render_fn: builtin_render_fn,
-        compile_fn: builtin_compile_fn,
+        codegen: ComponentCodegen::Element,
         render_fn_source: None.into(),
-        compile_fn_source: None.into(),
     }
 }
 
@@ -4243,9 +4064,8 @@ fn builtin_if_component() -> ComponentDef {
             .into(),
         },
         render_fn: builtin_if_render_fn,
-        compile_fn: builtin_if_compile_fn,
+        codegen: ComponentCodegen::RenderFunction,
         render_fn_source: None.into(),
-        compile_fn_source: None.into(),
     }
 }
 
@@ -4280,32 +4100,6 @@ fn builtin_if_render_fn(
     ResultStyledDomRenderDomError::Ok(StyledDom::create(&mut dom, css))
 }
 
-fn builtin_if_compile_fn(
-    _comp: &ComponentDef,
-    target: &CompileTarget,
-    _data: &ComponentDataModel,
-    _indent: usize,
-) -> ResultStringCompileError {
-    match target {
-        CompileTarget::Rust => ResultStringCompileError::Ok(AzString::from(
-            "if data.condition {\n    // then branch\n    Dom::create_div()\n} else {\n    // \
-             else branch\n    Dom::create_div()\n}",
-        )),
-        CompileTarget::C => ResultStringCompileError::Ok(AzString::from(
-            "if (data.condition) {\n    // then branch\n    AzDom_createDiv();\n} else {\n    // \
-             else branch\n    AzDom_createDiv();\n}",
-        )),
-        CompileTarget::Cpp => ResultStringCompileError::Ok(AzString::from(
-            "if (data.condition) {\n    // then branch\n    Dom::create_div();\n} else {\n    // \
-             else branch\n    Dom::create_div();\n}",
-        )),
-        CompileTarget::Python => ResultStringCompileError::Ok(AzString::from(
-            "if data.condition:\n    # then branch\n    Dom.create_div()\nelse:\n    # else \
-             branch\n    Dom.create_div()",
-        )),
-    }
-}
-
 /// `builtin:for` — iterative rendering.
 /// Takes `count: U32` (number of iterations), renders children N times.
 fn builtin_for_component() -> ComponentDef {
@@ -4329,9 +4123,8 @@ fn builtin_for_component() -> ComponentDef {
             .into(),
         },
         render_fn: builtin_for_render_fn,
-        compile_fn: builtin_for_compile_fn,
+        codegen: ComponentCodegen::RenderFunction,
         render_fn_source: None.into(),
-        compile_fn_source: None.into(),
     }
 }
 
@@ -4366,36 +4159,6 @@ fn builtin_for_render_fn(
     ResultStyledDomRenderDomError::Ok(StyledDom::create(&mut dom, css))
 }
 
-fn builtin_for_compile_fn(
-    _comp: &ComponentDef,
-    target: &CompileTarget,
-    _data: &ComponentDataModel,
-    _indent: usize,
-) -> ResultStringCompileError {
-    match target {
-        CompileTarget::Rust => ResultStringCompileError::Ok(AzString::from(
-            "let mut children = Vec::new();\nfor i in 0..data.count {\n    \
-             children.push(Dom::create_div());\n}\nDom::create_div().with_children(children)",
-        )),
-        CompileTarget::C => {
-            ResultStringCompileError::Ok(AzString::from(
-                "AzDom container = AzDom_createDiv();\nfor (uint32_t i = 0; i < data.count; i++) \
-                 {\n    AzDom_addChild(&container, AzDom_createDiv());\n}",
-            ))
-        }
-        CompileTarget::Cpp => {
-            ResultStringCompileError::Ok(AzString::from(
-                "auto container = Dom::create_div();\nfor (uint32_t i = 0; i < data.count; i++) \
-                 {\n    container.add_child(Dom::create_div());\n}",
-            ))
-        }
-        CompileTarget::Python => ResultStringCompileError::Ok(AzString::from(
-            "container = Dom.create_div()\nfor i in range(data.count):\n    container = \
-             container.with_child(Dom.create_div())",
-        )),
-    }
-}
-
 /// `builtin:map` — map data to DOM.
 /// Takes `data_json: String` (JSON array) + maps each element.
 fn builtin_map_component() -> ComponentDef {
@@ -4421,9 +4184,8 @@ fn builtin_map_component() -> ComponentDef {
             .into(),
         },
         render_fn: builtin_map_render_fn,
-        compile_fn: builtin_map_compile_fn,
+        codegen: ComponentCodegen::RenderFunction,
         render_fn_source: None.into(),
-        compile_fn_source: None.into(),
     }
 }
 
@@ -4454,34 +4216,6 @@ fn builtin_map_render_fn(
     );
     let css = Css::empty();
     ResultStyledDomRenderDomError::Ok(StyledDom::create(&mut dom, css))
-}
-
-fn builtin_map_compile_fn(
-    _comp: &ComponentDef,
-    target: &CompileTarget,
-    _data: &ComponentDataModel,
-    _indent: usize,
-) -> ResultStringCompileError {
-    match target {
-        CompileTarget::Rust => ResultStringCompileError::Ok(AzString::from(
-            "let items: Vec<serde_json::Value> = \
-             serde_json::from_str(&data.data_json).unwrap_or_default();\nlet children: Vec<Dom> = \
-             items.iter().map(|item| {\n    Dom::create_div() // map \
-             template\n}).collect();\nDom::create_div().with_children(children)",
-        )),
-        CompileTarget::C => ResultStringCompileError::Ok(AzString::from(
-            "// Parse data.data_json and map each item\nAzDom container = AzDom_createDiv();\n// \
-             TODO: iterate parsed JSON array",
-        )),
-        CompileTarget::Cpp => ResultStringCompileError::Ok(AzString::from(
-            "// Parse data.data_json and map each item\nauto container = Dom::create_div();\n// \
-             TODO: iterate parsed JSON array",
-        )),
-        CompileTarget::Python => ResultStringCompileError::Ok(AzString::from(
-            "import json\nitems = json.loads(data.data_json)\ncontainer = Dom.create_div()\nfor \
-             item in items:\n    container = container.with_child(Dom.create_div())",
-        )),
-    }
 }
 
 /// Register the 52 built-in HTML element components.
