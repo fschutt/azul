@@ -1281,3 +1281,228 @@ mod autotest_generated {
         }
     }
 }
+
+/// The theme option: which look a badge renders in, and what each look is.
+#[cfg(test)]
+mod theme_tests {
+    use azul_css::props::basic::pixel::PixelValue;
+
+    use super::*;
+    use crate::widgets::{theme_probe, themes::flora};
+
+    const COLOURED: [BadgeKind; 5] = [
+        BadgeKind::Primary,
+        BadgeKind::Success,
+        BadgeKind::Danger,
+        BadgeKind::Warning,
+        BadgeKind::Info,
+    ];
+
+    fn badge(kind: BadgeKind, theme: UiTheme) -> Dom {
+        Badge::with_kind(AzString::from_const_str("New"), kind)
+            .with_theme(theme)
+            .dom()
+    }
+
+    /// The declaration that wins: the LAST one `f` picks out (inline
+    /// declarations resolve last-match-wins).
+    fn last<T>(props: &[CssProperty], f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
+        props.iter().rev().find_map(f)
+    }
+
+    fn bg(p: &CssProperty) -> Option<Vec<StyleBackgroundContent>> {
+        match p {
+            CssProperty::BackgroundContent(v) => v.get_property().map(|v| v.as_ref().to_vec()),
+            _ => None,
+        }
+    }
+
+    fn ink(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn top_edge(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn inline(dom: &Dom) -> Vec<CssProperty> {
+        dom.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, _)| p.clone())
+            .collect()
+    }
+
+    fn has_class(dom: &Dom, name: &str) -> bool {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
+    }
+
+    #[test]
+    fn a_badge_without_a_theme_renders_flat() {
+        let plain = Badge::create(AzString::from_const_str("9"));
+        assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+        assert_eq!(
+            inline(&plain.clone().dom()),
+            inline(&plain.with_theme(UiTheme::Flat).dom()),
+            "an unset theme is the flat look"
+        );
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let mut set = Badge::create(AzString::from_const_str("9"));
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(
+            Badge::create(AzString::from_const_str("9")).with_theme(UiTheme::Flora),
+            set
+        );
+    }
+
+    #[test]
+    fn a_flat_badge_is_the_established_pill_in_both_modes() {
+        for kind in [BadgeKind::Default, BadgeKind::Primary, BadgeKind::Warning] {
+            let b = Badge::with_kind(AzString::from_const_str("New"), kind);
+            let expected: Vec<CssProperty> = b
+                .resolved_badge_style()
+                .as_ref()
+                .iter()
+                .map(|p| p.property.clone())
+                .collect();
+            let dom = b.with_theme(UiTheme::Flat).dom();
+            assert_eq!(inline(&dom), expected, "{kind:?}: the flat pill moved");
+            assert!(
+                theme_probe::dark(&dom).is_empty(),
+                "{kind:?}: a badge's colour is its meaning - the same pill at night"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_badge_is_a_raised_paper_pill_with_a_hairline_border() {
+        let dom = badge(BadgeKind::Default, UiTheme::Flora);
+        let rest = theme_probe::unconditional(&dom);
+        assert_eq!(
+            last(&rest, bg),
+            Some(vec![flora::RAISED_FACE_LIGHT]),
+            "flora.css `.pill`: linear-gradient(--fl-rT, --fl-rB)"
+        );
+        assert_eq!(
+            last(&rest, top_edge),
+            Some(flora::LIGHT_BD2),
+            "`.pill`: 1px solid --fl-bd2"
+        );
+        assert_eq!(last(&rest, ink), Some(flora::LIGHT_SOFT1), "`.pill`: --fl-soft1");
+        assert!(
+            rest.iter().any(|p| matches!(
+                p,
+                CssProperty::BorderTopLeftRadius(r)
+                    if r.get_property().map(|r| r.inner) == Some(PixelValue::const_px(3))
+            )),
+            "the house radius, --fl-r: 3px"
+        );
+    }
+
+    #[test]
+    fn a_flora_badge_in_dark_mode_uses_the_dark_surface() {
+        let dark = theme_probe::dark(&badge(BadgeKind::Default, UiTheme::Flora));
+        assert_eq!(last(&dark, bg), Some(vec![flora::RAISED_FACE_DARK]));
+        assert_eq!(last(&dark, top_edge), Some(flora::DARK_BD2));
+        assert_eq!(last(&dark, ink), Some(flora::DARK_SOFT1));
+    }
+
+    #[test]
+    fn a_flora_coloured_badge_is_a_stone_that_keeps_its_colour_at_night() {
+        // `.pill-live`: the accent stone for Primary; the other kinds are cut
+        // from the alternates flora.css lists as holding up against the ground
+        // (leaf, clay, slate) and an amber for warnings.
+        let stones = [
+            (BadgeKind::Primary, flora::LIGHT_ACC, flora::LIGHT_DEEP),
+            (
+                BadgeKind::Success,
+                ColorU::rgb(0x44, 0x68, 0x4F),
+                ColorU::rgb(0x2F, 0x4C, 0x39),
+            ),
+            (
+                BadgeKind::Danger,
+                ColorU::rgb(0x7E, 0x4A, 0x42),
+                ColorU::rgb(0x5E, 0x33, 0x2D),
+            ),
+            (
+                BadgeKind::Warning,
+                ColorU::rgb(0x8A, 0x5A, 0x1E),
+                ColorU::rgb(0x6B, 0x44, 0x15),
+            ),
+            (
+                BadgeKind::Info,
+                ColorU::rgb(0x4A, 0x5C, 0x6B),
+                ColorU::rgb(0x35, 0x45, 0x51),
+            ),
+        ];
+        for (kind, stone, deep) in stones {
+            let dom = badge(kind, UiTheme::Flora);
+            let rest = theme_probe::unconditional(&dom);
+            let face = last(&rest, bg).expect("a stone has a face");
+            assert_eq!(
+                face.first(),
+                Some(&StyleBackgroundContent::Color(stone)),
+                "{kind:?}: the stone's own colour is the base layer"
+            );
+            assert!(face.len() > 1, "{kind:?}: the depth rig lies over it");
+            assert_eq!(last(&rest, top_edge), Some(deep), "{kind:?}: a deep edge");
+            assert_eq!(last(&rest, ink), Some(flora::LIGHT_ON_ACC), "{kind:?}");
+            let dark = theme_probe::dark(&dom);
+            assert!(
+                last(&dark, bg).is_none() && last(&dark, ink).is_none(),
+                "{kind:?}: a stone is its own colour in both modes"
+            );
+        }
+    }
+
+    #[test]
+    fn every_coloured_flora_badge_is_a_different_stone() {
+        let faces: Vec<_> = COLOURED
+            .iter()
+            .map(|k| last(&theme_probe::unconditional(&badge(*k, UiTheme::Flora)), bg))
+            .collect();
+        for (i, a) in faces.iter().enumerate() {
+            for b in &faces[i + 1..] {
+                assert_ne!(a, b, "two badge kinds share a stone");
+            }
+        }
+    }
+
+    #[test]
+    fn a_flora_badge_carries_the_flora_theme_marker() {
+        let dom = badge(BadgeKind::Default, UiTheme::Flora);
+        assert!(has_class(&dom, "__azul-native-badge"));
+        assert!(has_class(&dom, "__azul-theme-flora"));
+    }
+
+    #[test]
+    fn a_callers_badge_style_wins_over_the_flora_look() {
+        let custom = CssPropertyWithConditionsVec::from_vec(alloc::vec![
+            CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+                inner: ColorU::rgb(1, 2, 3),
+            }))
+        ]);
+        let mut b = Badge::create(AzString::from_const_str("9")).with_theme(UiTheme::Flora);
+        b.badge_style = OptionCssPropertyWithConditionsVec::Some(custom.clone());
+        let expected: Vec<CssProperty> = custom
+            .as_ref()
+            .iter()
+            .map(|p| p.property.clone())
+            .collect();
+        assert_eq!(inline(&b.dom()), expected, "the caller chose every property");
+    }
+}

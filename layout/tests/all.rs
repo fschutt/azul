@@ -548,3 +548,5 @@ mod xml_self_closing;
 mod zero_width_selection;
 #[path = "form_controls_become_widgets.rs"]
 mod form_controls_become_widgets;
+#[path = "flat_and_flora_widgets_follow_the_light_and_dark_theme.rs"]
+mod flat_and_flora_widgets_follow_the_light_and_dark_theme;
