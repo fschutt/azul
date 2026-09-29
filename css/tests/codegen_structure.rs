@@ -39,7 +39,16 @@ fn property_types(css: &Css) -> BTreeSet<CssPropertyType> {
 
 #[test]
 fn every_css_property_is_in_the_families_case() {
-    let all: BTreeSet<CssPropertyType> = get_css_key_map().non_shorthands.values().copied().collect();
+    // A longhand spelled like a shorthand (`gap`, `grid-gap`) cannot come
+    // from CSS text - the shorthand parse wins and expands into its
+    // longhands. The lowering still covers it (its match is exhaustive).
+    let key_map = get_css_key_map();
+    let all: BTreeSet<CssPropertyType> = key_map
+        .non_shorthands
+        .iter()
+        .filter(|(name, _)| !key_map.shorthands.contains_key(*name))
+        .map(|(_, ty)| *ty)
+        .collect();
     let mut seen = BTreeSet::new();
     for (_, css) in CASES {
         seen.extend(property_types(&parse(css)));

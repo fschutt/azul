@@ -5,12 +5,12 @@
 static AzCssPropertyWithConditionsVec style_btn(void) {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         (AzCssPropertyWithConditions[]){
-            AzCssPropertyWithConditions_simple(AzCssProperty_width(AzLayoutWidth_px(AzPixelValue_px(100.0f)))),
             AzCssPropertyWithConditions_simple(AzCssProperty_textColor((AzStyleTextColor){ .inner = (AzColorU){ .r = 255, .g = 0, .b = 0, .a = 255 } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_display(AzLayoutDisplay_Flex)),
             AzCssPropertyWithConditions_simple(AzCssProperty_flexGrow((AzLayoutFlexGrow){ .inner = AzFloatValue_create(1.0f) })),
             AzCssPropertyWithConditions_simple(AzCssProperty_inherit(AzCssPropertyType_MinWidth)),
             AzCssPropertyWithConditions_simple(AzCssProperty_whiteSpace((AzStyleWhiteSpaceValue){ .Exact = { .tag = AzStyleWhiteSpaceValue_Tag_Exact, .payload = AzStyleWhiteSpace_Nowrap } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_width(AzLayoutWidth_px(AzPixelValue_px(100.0f)))),
             AzCssPropertyWithConditions_onHover(AzCssProperty_fontWeight(AzStyleFontWeight_Bold)),
         },
         7

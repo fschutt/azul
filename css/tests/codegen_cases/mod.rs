@@ -189,7 +189,7 @@ pub const FAMILIES: &str = r#"
     background-repeat: no-repeat;
     transform: rotate(45deg);
     transform-origin: 50% 50%;
-    perspective-origin: left top;
+    perspective-origin: 10px 20px;
     backface-visibility: hidden;
     filter: blur(2px);
     backdrop-filter: grayscale(50%);

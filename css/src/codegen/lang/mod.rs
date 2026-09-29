@@ -125,6 +125,8 @@ pub fn blocker_with(limitation: &dyn Fn(&Expr) -> Option<String>, e: &Expr) -> O
         }
         Expr::Struct { fields, .. } => fields.iter().find_map(|(_, v)| blocker_with(limitation, v)),
         Expr::Int { .. } | Expr::Float { .. } | Expr::Bool(_) | Expr::Str(_) => None,
+        // Answered by the early return above.
+        Expr::Unsupported { .. } => None,
     }
 }
 

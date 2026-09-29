@@ -15,12 +15,12 @@ package body Styles is
    function Style_Btn return Az_CssPropertyWithConditionsVec is
       t1 : aliased array (0 .. 6) of Az_CssPropertyWithConditions;
    begin
-      t1 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Width (Az_LayoutWidth_Px (Az_PixelValue_Px (100.0))));
-      t1 (1) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Text_Color (Az_StyleTextColor'(Inner => Az_ColorU'(R => 255, G => 0, B => 0, A => 255))));
-      t1 (2) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Display (Az_LayoutDisplay'(Flex)));
-      t1 (3) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Flex_Grow (Az_LayoutFlexGrow'(Inner => Az_FloatValue_Create (1.0))));
-      t1 (4) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Inherit (Az_CssPropertyType'(MinWidth)));
-      t1 (5) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_White_Space (Az_StyleWhiteSpaceValue'(Tag => Exact, Payload_Exact => Az_StyleWhiteSpace'(Nowrap))));
+      t1 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Text_Color (Az_StyleTextColor'(Inner => Az_ColorU'(R => 255, G => 0, B => 0, A => 255))));
+      t1 (1) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Display (Az_LayoutDisplay'(Flex)));
+      t1 (2) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Flex_Grow (Az_LayoutFlexGrow'(Inner => Az_FloatValue_Create (1.0))));
+      t1 (3) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Inherit (Az_CssPropertyType'(MinWidth)));
+      t1 (4) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_White_Space (Az_StyleWhiteSpaceValue'(Tag => Exact, Payload_Exact => Az_StyleWhiteSpace'(Nowrap))));
+      t1 (5) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Width (Az_LayoutWidth_Px (Az_PixelValue_Px (100.0))));
       t1 (6) := Az_CssPropertyWithConditions_On_Hover (Az_CssProperty_Font_Weight (Az_StyleFontWeight'(Bold)));
       return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t1 (0)'Address, 7);
    end Style_Btn;
