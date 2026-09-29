@@ -2903,6 +2903,101 @@ mod autotest_generated {
             assert_eq!(pos[1].y, 10.0, "unscrolled: only the inset applies");
         }
 
+        // The sticky box's scrollport is its nearest scroll container by
+        // CONTAINING BLOCK (the `ScrollChain` paint follows), and the offset
+        // it follows is that same box's. Two layout-parent walks with two
+        // rules answered it: `scroll | auto` for the scrollport, "any
+        // ancestor with an offset" for the offset.
+
+        /// `body.root(0) > div.scroller(1) > div.abs(2) > div.sticky(3)`, a
+        /// linear chain mirrored 1:1: a 200x100 scroller at the origin, a
+        /// 100x200 box at (0,150), the 50x20 sticky box at its top.
+        fn escaping_sticky_fixture(css: &str) -> (Env, LayoutTree, PositionVec) {
+            let sd = styled(
+                body_class("root").with_child(
+                    div_class("scroller")
+                        .with_child(div_class("abs").with_child(div_class("sticky"))),
+                ),
+                css,
+            );
+            let ids = ["root", "scroller", "abs", "sticky"].map(|c| node_by_class(&sd, c));
+            let mut tree = raw_tree(
+                vec![
+                    hot(None, Some(ids[0])),
+                    hot(Some(0), Some(ids[1])),
+                    hot(Some(1), Some(ids[2])),
+                    hot(Some(2), Some(ids[3])),
+                ],
+                &[vec![1], vec![2], vec![3], vec![]],
+            );
+            tree.nodes[0].used_size = Some(LogicalSize::new(800.0, 600.0));
+            tree.nodes[1].used_size = Some(LogicalSize::new(200.0, 100.0));
+            tree.nodes[2].used_size = Some(LogicalSize::new(100.0, 200.0));
+            tree.nodes[3].used_size = Some(LogicalSize::new(50.0, 20.0));
+            let pos = positions(&[(0.0, 0.0), (0.0, 0.0), (0.0, 150.0), (0.0, 150.0)]);
+            (Env::new(sd), tree, pos)
+        }
+
+        /// The absolute box's containing block is the initial one: it and the
+        /// sticky box in it are painted outside the (non-positioned)
+        /// scroller's frame, and the scroller's offset does not move them.
+        /// The page does not scroll, so nothing sticks.
+        #[test]
+        fn sticky_does_not_stick_to_a_scroll_box_its_containing_block_escapes() {
+            let (mut env, tree, mut pos) = escaping_sticky_fixture(
+                ".scroller { overflow-y: scroll; } .abs { position: absolute; } .sticky { \
+                 position: sticky; top: 0px; }",
+            );
+            let scroller = node_by_class(&env.styled_dom, "scroller");
+            let mut offsets = BTreeMap::new();
+            offsets.insert(scroller, scroll_at((0.0, 0.0), (0.0, 200.0)));
+            run_sticky(&mut env, &tree, &mut pos, &offsets);
+            assert_eq!(
+                pos[3].y, 150.0,
+                "the scroller scrolled by 200 does not move the box, so it must not pull it down"
+            );
+        }
+
+        /// `overflow: hidden` makes a scroll container (CSS Overflow 3 §3.1):
+        /// a program scrolls it, and a sticky box in it sticks to it.
+        /// `.mid` sits at y 100, scrolled by 30.
+        #[test]
+        fn sticky_sticks_to_an_overflow_hidden_scroll_box() {
+            let (sd, mut tree) =
+                three_level(".mid { overflow: hidden; } .child { position: sticky; top: 0px; }");
+            tree.nodes[0].used_size = Some(LogicalSize::new(800.0, 600.0));
+            tree.nodes[1].used_size = Some(LogicalSize::new(200.0, 100.0));
+            tree.nodes[2].used_size = Some(LogicalSize::new(50.0, 20.0));
+            let mut pos = positions(&[(0.0, 0.0), (0.0, 100.0), (0.0, 100.0)]);
+            let mid = node_by_class(&sd, "mid");
+            let mut env = Env::new(sd);
+            let mut offsets = BTreeMap::new();
+            offsets.insert(mid, scroll_at((0.0, 100.0), (0.0, 30.0)));
+            run_sticky(&mut env, &tree, &mut pos, &offsets);
+            assert_eq!(
+                pos[2].y, 130.0,
+                "sticky edge = the hidden box's content top (100) + its scroll (30)"
+            );
+        }
+
+        /// A `fixed` box is moved by no scroll frame, the page's included: a
+        /// sticky box in it does not follow the page's offset.
+        #[test]
+        fn sticky_in_a_fixed_box_does_not_follow_the_page() {
+            let (sd, mut tree) =
+                three_level(".mid { position: fixed; } .child { position: sticky; top: 0px; }");
+            tree.nodes[0].used_size = Some(LogicalSize::new(800.0, 2000.0));
+            tree.nodes[1].used_size = Some(LogicalSize::new(200.0, 100.0));
+            tree.nodes[2].used_size = Some(LogicalSize::new(50.0, 20.0));
+            let mut pos = positions(&[(0.0, 0.0), (0.0, 0.0), (0.0, 10.0)]);
+            let root = node_by_class(&sd, "root");
+            let mut env = Env::new(sd);
+            let mut offsets = BTreeMap::new();
+            offsets.insert(root, scroll_at((0.0, 0.0), (0.0, 500.0)));
+            run_sticky(&mut env, &tree, &mut pos, &offsets);
+            assert_eq!(pos[2].y, 10.0, "the page's 500px scroll does not move the fixed box");
+        }
+
         #[test]
         fn sticky_percentage_inset_resolves_against_the_scrollport() {
             let (mut env, tree, mut pos) = sticky_fixture(
