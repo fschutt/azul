@@ -4,10 +4,14 @@ Branch `wt/t1-app-theme`, cut from `fix/input-bugs-2026-09-19` @ `2892031b7`.
 Final report: `scripts/T1_APP_THEME_2026_09_29.md`. Nothing compiled (house rule).
 
 ## DONE
-- (none yet)
+- `a20f4f912` plan checkpoint
+- `56ea1eea3` RED css: `css/tests/app_theme_selects_theme_blocks.rs` + unit tests in `css/src/dynamic_selector.rs`
+- `e1610b42c` RED core: `AppConfig.theme` (padding test + default), `app_theme_tests` in `core/src/callbacks_test.rs`
+- `ff811a074` RED layout: `layout/tests/app_theme_override.rs` (+ all.rs), `set_theme` unit test in `layout/src/callbacks.rs`
+- `a8850021c` RED dll: `dll/tests/app_theme_headless.rs` (new test target)
 
 ## IN PROGRESS
-- RED tests (css parser/matcher, core AppConfig + scope, layout window context + CallbackInfo, dll headless switch)
+- implementation, css first
 
 ## NEXT
 1. css: `@theme(name)` -> `ThemeCondition::Custom(name)` (both parsers); `DynamicSelectorContext.theme_chain`
