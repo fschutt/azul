@@ -2135,3 +2135,163 @@ mod xml_mount {
         assert_eq!(a11y_states(&again, root), vec![AccessibilityState::CheckedTrue]);
     }
 }
+
+// ── <button> ────────────────────────────────────────────────────────────────
+
+/// A raw `<button>` (`Dom::create_button*`, XML) becomes the Button widget,
+/// as `<input type=submit|reset|button>` does: its `type` decides what it
+/// does to its form - SUBMIT when it has none (HTML's default for a
+/// `<button>`) - and its content is its label. A Button widget's own root is
+/// a `<button>` node too, and is never replaced.
+mod raw_buttons {
+    use azul_layout::widgets::{button::ButtonFormAction, form::default_on_form_button_click};
+
+    use super::{
+        forms::{mount, named, owned, raw_form, submits, Calls},
+        *,
+    };
+
+    /// The nodes the replacement turned into a Button widget.
+    fn replaced_buttons(styled: &StyledDom) -> Vec<NodeId> {
+        all_nodes(styled)
+            .into_iter()
+            .filter(|id| {
+                node(styled, *id).attributes().as_slice().iter().any(|a| {
+                    a.name() == "data-azul-form-control" && a.value().as_str() == "button"
+                })
+            })
+            .collect()
+    }
+
+    /// Every node carrying the form-button click handler, with its action
+    /// and the handler's payload.
+    fn form_buttons(styled: &StyledDom) -> Vec<(NodeId, ButtonFormAction, RefAny)> {
+        all_nodes(styled)
+            .into_iter()
+            .filter_map(|id| {
+                let handler = node(styled, id)
+                    .get_callbacks()
+                    .as_slice()
+                    .iter()
+                    .find(|c| c.callback.cb == default_on_form_button_click as usize)?
+                    .refany
+                    .clone();
+                let mut payload = handler.clone();
+                let action = payload.downcast_ref::<ButtonFormAction>().map(|a| *a)?;
+                Some((id, action, handler))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_raw_button_becomes_a_button_widget_that_submits_its_form() {
+        let calls = RefAny::new(Calls::default());
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(page(raw_form(
+            &calls,
+            vec![
+                named("text", "user").with_attribute(AttributeType::Value("ann".into())),
+                Dom::create_button_no_a11y("Send".into()),
+            ],
+        )));
+        let buttons = replaced_buttons(&styled);
+        assert_eq!(buttons.len(), 1, "{:?}", node_types(&styled));
+        assert!(node(&styled, buttons[0]).has_class(BUTTON_CLASS), "the Button widget's root");
+        assert_eq!(text_under(&styled, buttons[0]), "Send", "its content is its label");
+
+        let actions = form_buttons(&styled);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(
+            (actions[0].0, actions[0].1),
+            (buttons[0], ButtonFormAction::Submit),
+            "a <button> without a type submits its form (HTML's default)"
+        );
+
+        let payload = actions[0].2.clone();
+        mount(&mut lw, styled);
+        let _ = with_info(&lw, dom_node(buttons[0]), |info| {
+            default_on_form_button_click(payload, info)
+        });
+        assert_eq!(submits(&calls), vec![owned(&[("user", "ann")])]);
+    }
+
+    #[test]
+    fn a_buttons_type_decides_what_it_does_to_its_form() {
+        let calls = RefAny::new(Calls::default());
+        let lw = styling_window();
+        let typed = |ty: &str, label: &str| {
+            Dom::create_button_no_a11y(label.into())
+                .with_attribute(AttributeType::InputType(ty.into()))
+        };
+        let styled = lw.style_user_dom(page(raw_form(
+            &calls,
+            vec![
+                typed("reset", "Clear"),
+                typed("button", "Help"),
+                typed("submit", "Go"),
+            ],
+        )));
+        let buttons = replaced_buttons(&styled);
+        assert_eq!(buttons.len(), 3, "{:?}", node_types(&styled));
+        let actions: Vec<(NodeId, ButtonFormAction)> = form_buttons(&styled)
+            .into_iter()
+            .map(|(id, action, _)| (id, action))
+            .collect();
+        assert_eq!(
+            actions,
+            vec![
+                (buttons[0], ButtonFormAction::Reset),
+                (buttons[2], ButtonFormAction::Submit),
+            ],
+            "type=button acts on no form"
+        );
+    }
+
+    #[test]
+    fn a_buttons_rich_content_stays_its_content() {
+        let lw = styling_window();
+        let rich = Dom::create_from_data(NodeData::create_node(NodeType::Button))
+            .with_child(Dom::create_icon("send"))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Send"));
+        let styled = lw.style_user_dom(page(rich));
+        let buttons = replaced_buttons(&styled);
+        assert_eq!(buttons.len(), 1, "{:?}", node_types(&styled));
+        assert!(
+            subtree(&styled, buttons[0])
+                .into_iter()
+                .any(|id| matches!(node(&styled, id).get_node_type(), NodeType::Icon(_))),
+            "the icon the app put in its button is still in it: {:?}",
+            node_types(&styled)
+        );
+        assert!(text_under(&styled, buttons[0]).contains("Send"));
+    }
+
+    #[test]
+    fn a_button_widget_is_not_replaced() {
+        let lw = styling_window();
+        let styled = lw.style_user_dom(page(
+            azul_layout::widgets::button::Button::create("Built".into()).dom(),
+        ));
+        assert!(replaced_buttons(&styled).is_empty(), "{:?}", node_types(&styled));
+    }
+
+    #[test]
+    fn an_xml_button_in_an_xml_form_submits_it() {
+        let xml = r#"<html><body>
+            <form id="search">
+                <input name="q" value="rust" />
+                <button>Go</button>
+            </form>
+        </body></html>"#;
+        let parsed = azul_layout::xml::parse_xml(xml).expect("parses");
+        let dom = azul_layout::xml::dom_from_parsed_xml(parsed);
+        let lw = styling_window();
+        let styled = lw.style_user_dom(dom);
+        let buttons = replaced_buttons(&styled);
+        assert_eq!(buttons.len(), 1, "{:?}", node_types(&styled));
+        assert_eq!(text_under(&styled, buttons[0]), "Go");
+        let actions = form_buttons(&styled);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].1, ButtonFormAction::Submit);
+    }
+}
