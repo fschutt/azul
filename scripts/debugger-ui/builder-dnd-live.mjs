@@ -79,6 +79,19 @@ window.__t = {
     src.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer: dt }));
     return { indicator, accepted };
   },
+  /** Held over \`dst\`, then cancelled (dragend, no drop). */
+  hoverOnly(src, dst, rel) {
+    const dt = new DataTransfer();
+    const r = dst.getBoundingClientRect();
+    const o = { bubbles: true, cancelable: true, dataTransfer: dt, clientX: r.left + 12, clientY: r.top + r.height * rel };
+    src.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    dst.dispatchEvent(new DragEvent('dragenter', o));
+    const over = new DragEvent('dragover', o);
+    dst.dispatchEvent(over);
+    const indicator = ['before', 'after', 'into'].find(z => dst.classList.contains('azb-drop-' + z)) || null;
+    src.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    return { indicator, accepted: over.defaultPrevented };
+  },
   key(key, mods) {
     document.body.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key, bubbles: true, cancelable: true }, mods || {})));
   },
@@ -139,11 +152,12 @@ async function main() {
         await waitFor(cdp, `__t.rows().length === 3`, 5000);
         check('...the server document has <div> before <p>', (await serverShape()) === 'body(div,p)', await serverShape());
 
-        // 3. <div> INTO <p> is refused client-side.
+        // 3. A <div> never goes INTO a <p>: the middle of the row is its
+        //    halves (B7); the drag is cancelled, nothing reaches the server.
         const before = await serverShape();
-        r = await cdp.eval(`__t.drag(__t.card('builtin:div'), __t.row(${pUid}), 0.5)`);
-        check('a <div> INTO a <p> is refused', !r.accepted && r.indicator === null, r);
-        check('...and the server document is unchanged', (await serverShape()) === before, await serverShape());
+        r = await cdp.eval(`__t.hoverOnly(__t.card('builtin:div'), __t.row(${pUid}), 0.5)`);
+        check('a <div> over the middle of a <p> is never INTO it (AFTER instead)', r.accepted && r.indicator === 'after', r);
+        check('...and a cancelled drag leaves the server document unchanged', (await serverShape()) === before, await serverShape());
 
         // 4. Move the <p> row into the <div>.
         const divUid = await cdp.eval(`__t.rows()[1]`);
