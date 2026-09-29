@@ -1634,8 +1634,8 @@ impl LayoutCallbackInfo {
     /// [`SystemStyleDependency::Theme`].
     ///
     /// The tracked way to read what the `theme` field also holds. Use this
-    /// and a change that leaves the mode alone — a new accent colour, a
-    /// different light palette — will not rebuild the DOM.
+    /// and a change that leaves the mode alone - a new accent colour, a
+    /// different light palette - will not rebuild the DOM.
     ///
     /// It is what the window SHOWS: the desktop's mode, or the app's mode
     /// pin (`AppConfig::mode`, `CallbackInfo::set_mode`). Reading it is also
