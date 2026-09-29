@@ -43,13 +43,18 @@ Restarted after a power loss (2026-09-29): the first run left no commits.
 - 3: RED 9a723541e (`layout/tests/a_layout_blit_repaints_what_is_painted_over_its_mover.rs`),
   FIX b3bce7e64 (`painted_over_mover` in compositor.rs, generalising S1's scrollbar rule)
 
+- 4: REFACTOR f4e9ea3b8 (`gpu_value_damage` reads `ScrollStack`; its `on_screen` twin of `moved_by` gone)
+- 5: RED 8b36d5ee9 (`layout/tests/a_scrollbar_in_a_transformed_virtual_view_is_pressed_where_it_is_painted.rs`),
+  FIX a21d17411 (`NestedDomPlacement.host_transform` + per-viewport transforms; `ScrollManager::dom_rect_to_window`;
+  `ScreenMapAffine::map_rect`; `nested_dom_viewports(.., resolve_transform)`)
+
 ## IN PROGRESS
 
-- 4 (gpu_value_damage onto ScrollStack, behaviour-preserving refactor)
+- self-review, report
 
 ## NEXT
 
-- (5), report
+- report `scripts/SCR2_SCROLL_LEFTOVERS_2026_09_29.md`
 
 ## Open questions
 
