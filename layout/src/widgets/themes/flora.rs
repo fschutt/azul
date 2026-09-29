@@ -3842,3 +3842,64 @@ fn toast_container(kind: crate::widgets::toast::ToastKind) -> CssPropertyWithCon
 pub fn toast(t: crate::widgets::toast::Toast) -> Dom {
     t.build(toast_skin())
 }
+
+// ==== tooltip ====
+//
+// A flora tip is marginalia set as flora sets code: an INK PANEL on the page
+// (`--fl-code-bg` under `--fl-code-fg`, a `--fl-code-bd` hairline), the house
+// radius and the nearest shadow (`--fl-shadow-1`) - an ink panel in both modes,
+// each with its night value. It keeps the widget's placement and starts hidden,
+// so the enter / leave handlers work unchanged.
+
+/// `--fl-code-bg` by day / by night.
+const TOOLTIP_INK_BG: (ColorU, ColorU) = (ColorU::new(33, 31, 27, 255), ColorU::new(20, 20, 20, 255));
+/// `--fl-code-fg` by day / by night.
+const TOOLTIP_INK_FG: (ColorU, ColorU) =
+    (ColorU::new(228, 225, 214, 255), ColorU::new(226, 226, 226, 255));
+/// `--fl-code-bd` by day / by night.
+const TOOLTIP_INK_BD: (ColorU, ColorU) = (ColorU::new(68, 63, 53, 255), ColorU::new(54, 54, 54, 255));
+/// `--fl-shadow-1` by day (rgba(48, 45, 38, 0.14)) / by night (rgba(0, 0, 0, 0.55)).
+const TOOLTIP_SHADOW: (ColorU, ColorU) = (ColorU::new(48, 45, 38, 36), ColorU::new(0, 0, 0, 140));
+
+/// Flora's tooltip skin.
+#[must_use]
+pub(crate) fn tooltip_skin() -> crate::widgets::tooltip::TooltipSkin {
+    use super::style_kit as kit;
+    use crate::widgets::tooltip as t;
+    type P = CssPropertyWithConditions;
+
+    let mut tip = vec![
+        P::simple(CssProperty::const_position(LayoutPosition::Absolute)),
+        P::simple(CssProperty::const_top(LayoutTop::const_px(t::TIP_OFFSET_Y))),
+        P::simple(CssProperty::const_left(LayoutLeft::const_px(0))),
+        kit::font_size(12),
+        P::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
+            StyleWhiteSpace::Nowrap,
+        ))),
+    ];
+    tip.extend(kit::padding(4, 8, 4, 8));
+    tip.extend(kit::radius(3));
+    tip.extend(kit::border(
+        kit::Edges::ALL,
+        1,
+        TOOLTIP_INK_BD.0,
+        TOOLTIP_INK_BD.1,
+    ));
+    tip.extend(kit::themed_bg(TOOLTIP_INK_BG.0, TOOLTIP_INK_BG.1));
+    tip.extend(kit::themed_ink(TOOLTIP_INK_FG.0, TOOLTIP_INK_FG.1));
+    tip.extend(kit::drop_shadow(1, 2, TOOLTIP_SHADOW.0, TOOLTIP_SHADOW.1));
+    // Hidden until hovered - the value the leave handler writes back.
+    tip.push(P::simple(CssProperty::const_opacity(StyleOpacity::const_new(0))));
+
+    t::TooltipSkin {
+        theme: super::UiTheme::Flora,
+        wrapper: CssPropertyWithConditionsVec::from_const_slice(t::TOOLTIP_WRAPPER_STYLE),
+        tip: CssPropertyWithConditionsVec::from_vec(tip),
+    }
+}
+
+/// Renders a [`crate::widgets::tooltip::Tooltip`] in the flora theme.
+#[must_use]
+pub fn tooltip(t: crate::widgets::tooltip::Tooltip) -> Dom {
+    t.build(tooltip_skin())
+}

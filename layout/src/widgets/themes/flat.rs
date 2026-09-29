@@ -3787,3 +3787,26 @@ fn toast_container(kind: crate::widgets::toast::ToastKind) -> CssPropertyWithCon
 pub fn toast(t: crate::widgets::toast::Toast) -> Dom {
     t.build(toast_skin())
 }
+
+// ==== tooltip ====
+//
+// Flat is the established tip: a translucent #333 chip under white text - its
+// own colour, so the same chip by day and by night (a dark tip reads over
+// either). Nothing in a tooltip takes focus, so it owes no ring.
+
+/// Flat's tooltip skin.
+#[must_use]
+pub(crate) fn tooltip_skin() -> crate::widgets::tooltip::TooltipSkin {
+    use crate::widgets::tooltip as t;
+    t::TooltipSkin {
+        theme: super::UiTheme::Flat,
+        wrapper: CssPropertyWithConditionsVec::from_const_slice(t::TOOLTIP_WRAPPER_STYLE),
+        tip: CssPropertyWithConditionsVec::from_const_slice(t::TOOLTIP_TIP_STYLE),
+    }
+}
+
+/// Renders a [`crate::widgets::tooltip::Tooltip`] in the flat theme.
+#[must_use]
+pub fn tooltip(t: crate::widgets::tooltip::Tooltip) -> Dom {
+    t.build(tooltip_skin())
+}

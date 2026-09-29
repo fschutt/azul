@@ -47,7 +47,10 @@ use azul_css::{
     AzString,
 };
 
-use crate::callbacks::CallbackInfo;
+use crate::{
+    callbacks::CallbackInfo,
+    widgets::themes::{style_kit, OptionUiTheme, UiTheme},
+};
 
 static TOOLTIP_WRAPPER_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-tooltip"))];
@@ -57,7 +60,7 @@ static TOOLTIP_TIP_CLASS: &[IdOrClass] =
 // ---- layout (logical px) ----
 /// Fixed vertical offset of the tip below the wrapper's top edge. A
 /// simplification — see the module-level `TODO2`.
-const TIP_OFFSET_Y: isize = 22;
+pub(crate) const TIP_OFFSET_Y: isize = 22;
 const TIP_RADIUS: isize = 4;
 
 // ---- colours ----
@@ -81,14 +84,14 @@ const TIP_BG: StyleBackgroundContentVec = StyleBackgroundContentVec::from_const_
 
 /// Wrapper around the anchor: an inline-block positioning context so the
 /// absolutely-positioned tip is placed relative to it.
-static TOOLTIP_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static TOOLTIP_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)),
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
 ];
 
 /// The tip itself: absolutely positioned, hidden by default (`opacity: 0`).
-static TOOLTIP_TIP_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static TOOLTIP_TIP_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
     CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop::const_px(TIP_OFFSET_Y))),
     CssPropertyWithConditions::simple(CssProperty::const_left(LayoutLeft::const_px(0))),
@@ -146,6 +149,30 @@ pub struct Tooltip {
     pub wrapper_style: OptionCssPropertyWithConditionsVec,
     /// Style of the tip popup.
     pub tip_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme, or `None` for the default (`UiTheme::Flat`). A
+    /// theme is a DOM-level choice: it picks the skin the tip is built from,
+    /// so switching it rebuilds the tooltip.
+    pub theme: OptionUiTheme,
+}
+
+/// What a theme supplies for a tooltip: the wrapper and the tip. Every
+/// theme's tip is absolutely placed [`TIP_OFFSET_Y`] below the wrapper and
+/// starts hidden (`opacity: 0`) - the enter / leave handlers write its
+/// opacity and nothing else. Built by `themes::flat::tooltip_skin` /
+/// `themes::flora::tooltip_skin`.
+pub(crate) struct TooltipSkin {
+    pub theme: UiTheme,
+    pub wrapper: CssPropertyWithConditionsVec,
+    pub tip: CssPropertyWithConditionsVec,
+}
+
+/// The skin `theme` draws tooltips with.
+#[must_use]
+pub(crate) fn skin_for(theme: UiTheme) -> TooltipSkin {
+    match theme {
+        UiTheme::Flat => crate::widgets::themes::flat::tooltip_skin(),
+        UiTheme::Flora => crate::widgets::themes::flora::tooltip_skin(),
+    }
 }
 
 impl Default for Tooltip {
@@ -169,14 +196,14 @@ impl Tooltip {
 
     /// The tip CSS this tooltip renders with.
     ///
-    /// `None` means no opinion, so the widget's default applies — the same
-    /// answer both themes give, asked in one place so they cannot drift.
+    /// `None` means no opinion, so the theme's tip applies - asked of the same
+    /// skin the render uses, so the two cannot drift.
     #[must_use]
     pub fn resolved_tip_style(&self) -> CssPropertyWithConditionsVec {
         self.tip_style
             .clone()
             .into_option()
-            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(TOOLTIP_TIP_STYLE))
+            .unwrap_or_else(|| skin_for(self.theme.into_option().unwrap_or_default()).tip)
     }
 
     /// Creates a tooltip wrapping `anchor` that shows `text` on hover.
@@ -187,7 +214,23 @@ impl Tooltip {
             text,
             wrapper_style: OptionCssPropertyWithConditionsVec::None,
             tip_style: OptionCssPropertyWithConditionsVec::None,
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the tooltip renders in the
+    /// default theme (`UiTheme::default()`, flat).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// Sets the tip text.
@@ -226,21 +269,40 @@ impl Tooltip {
         s
     }
 
+    /// Renders the tooltip. Rendering goes through the theme modules (as
+    /// `Button::dom` does): each hands [`Self::build`] its skin.
+    /// `UiTheme::default()` is flat.
     #[must_use]
     pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::tooltip(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::tooltip(self),
+        }
+    }
+
+    /// Renders the tooltip with `skin` styling the wrapper and the tip - what
+    /// `themes::flat::tooltip` / `themes::flora::tooltip` call.
+    #[must_use]
+    pub(crate) fn build(self, skin: TooltipSkin) -> Dom {
         // The hover handlers only navigate the DOM (the tip is found relative to
         // the hovered wrapper), so no per-tooltip state is needed.
         let marker = RefAny::new(());
 
         // Resolved before `self.text` is moved out below.
-        let tip_css = self.resolved_tip_style();
-        let wrapper_css = self.resolved_wrapper_style();
+        let tip_css = self.tip_style.clone().into_option().unwrap_or(skin.tip);
+        let wrapper_css = self
+            .wrapper_style
+            .clone()
+            .into_option()
+            .unwrap_or(skin.wrapper);
         let tip = crate::widgets::widget_p_with_text(self.text)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(TOOLTIP_TIP_CLASS))
             .with_css_props(tip_css);
 
+        let mut classes: Vec<IdOrClass> = TOOLTIP_WRAPPER_CLASS.to_vec();
+        classes.push(style_kit::marker(skin.theme));
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(TOOLTIP_WRAPPER_CLASS))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(wrapper_css)
             .with_callbacks(
                 vec![
