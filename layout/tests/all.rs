@@ -606,3 +606,5 @@ mod a_list_item_caret_moves_with_the_apps_text;
 mod a_screen_reader_reads_inline_text_where_it_stands;
 #[path = "a_reveal_scrolls_only_the_boxes_that_move_its_target.rs"]
 mod a_reveal_scrolls_only_the_boxes_that_move_its_target;
+#[path = "an_arrow_reads_the_action_of_the_scroll_box_it_is_painted_in.rs"]
+mod an_arrow_reads_the_action_of_the_scroll_box_it_is_painted_in;
