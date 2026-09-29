@@ -4446,6 +4446,37 @@ mod autotest_generated {
         ));
     }
 
+    /// A theme NAME (`@theme(flora)`) is matched against the app theme
+    /// chain, never against the colour-scheme slot: `ctx.theme` holds light
+    /// or dark, and keeps answering `@theme(light)` / `@theme(dark)` under
+    /// any app theme.
+    #[test]
+    fn a_theme_name_matches_the_app_theme_chain_not_the_colour_scheme_slot() {
+        let flora =
+            DynamicSelector::Theme(ThemeCondition::Custom(AzString::from_const_str("flora")));
+        let under_flora = DynamicSelectorContext::default().with_app_theme("flora");
+        assert!(flora.matches(&under_flora));
+        assert!(
+            !flora.matches(&DynamicSelectorContext::default()),
+            "the default app theme is flat"
+        );
+        let name_in_the_scheme_slot = DynamicSelectorContext {
+            theme: ThemeCondition::Custom(AzString::from_const_str("flora")),
+            ..Default::default()
+        };
+        assert!(!flora.matches(&name_in_the_scheme_slot));
+
+        let dark = DynamicSelector::Theme(ThemeCondition::Dark);
+        let dark_flora = DynamicSelectorContext {
+            theme: ThemeCondition::Dark,
+            ..Default::default()
+        }
+        .with_app_theme("flora");
+        assert!(dark.matches(&dark_flora));
+        assert!(!dark.matches(&under_flora), "flora is not dark");
+        assert!(DynamicSelector::Theme(ThemeCondition::SystemPreferred).matches(&under_flora));
+    }
+
     #[test]
     fn match_pseudo_state_reads_through_to_the_context_flags() {
         let ctx = DynamicSelectorContext::default().with_pseudo_state(PseudoStateFlags {
@@ -5329,10 +5360,26 @@ mod autotest_generated {
             CssPropertyWithConditionsVec::parse_at_rule("theme light"),
             Some(vec![DynamicSelector::Theme(ThemeCondition::Light)])
         );
+        // Any other name is an APP theme (`AppConfig::with_theme`), not an
+        // unparseable rule - the block is live while the app theme is `neon`.
         assert_eq!(
             CssPropertyWithConditionsVec::parse_at_rule("theme neon"),
-            None
+            Some(vec![DynamicSelector::Theme(ThemeCondition::Custom(
+                AzString::from_const_str("neon")
+            ))])
         );
+        assert_eq!(
+            CssPropertyWithConditionsVec::parse_at_rule("theme(flora)"),
+            Some(vec![DynamicSelector::Theme(ThemeCondition::Custom(
+                AzString::from_const_str("flora")
+            ))])
+        );
+        assert_eq!(
+            CssPropertyWithConditionsVec::parse_at_rule("theme(dark)"),
+            Some(vec![DynamicSelector::Theme(ThemeCondition::Dark)])
+        );
+        // No name, no condition: an empty block name is not a theme.
+        assert_eq!(CssPropertyWithConditionsVec::parse_at_rule("theme()"), None);
 
         assert_eq!(
             CssPropertyWithConditionsVec::parse_at_rule("lang(\"de-DE\")"),
