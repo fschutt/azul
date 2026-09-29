@@ -560,3 +560,5 @@ mod widgets_follow_the_app_theme;
 mod a_widget_without_a_theme_option_pins_what_it_embeds;
 #[path = "a_theme_chain_ranks_its_blocks.rs"]
 mod a_theme_chain_ranks_its_blocks;
+#[path = "rice_styles_the_window.rs"]
+mod rice_styles_the_window;
