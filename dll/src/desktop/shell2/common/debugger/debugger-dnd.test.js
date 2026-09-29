@@ -237,5 +237,80 @@ test('every drop of a row lands where its indicator was drawn', () => {
     assert.deepStrictEqual(order(e, 0), [1, 3, 4, 2, 5, 6, 7]);
 });
 
+// ── B7: what a drag shows before the drop ──
+
+test('where INTO is refused (a <div> in a <p>) a row falls back to BEFORE / AFTER by halves', () => {
+    const d = doc();
+    const r = rowsOf(d);
+    const div = { type: 'component', library: 'builtin', component: 'div' };
+    // p(1) is a container, but not for a <div>: the middle of its row is its halves.
+    let at = L.rowDrop(div, r[1], 0.4, d);
+    assert.strictEqual(at.zone, 'before');
+    assert.deepStrictEqual(at.msg, { op: 'builder_insert', parent: 0, component: 'div', index: 0 });
+    at = L.rowDrop(div, r[1], 0.6, d);
+    assert.strictEqual(at.zone, 'after');
+    assert.deepStrictEqual(at.msg, { op: 'builder_insert', parent: 0, component: 'div', index: 1 });
+    // A <span> may go INTO the <p>: no fallback.
+    at = L.rowDrop({ type: 'component', component: 'span' }, r[1], 0.5, d);
+    assert.strictEqual(at.zone, 'into');
+    assert.deepStrictEqual(at.msg, { op: 'builder_insert', parent: 1, component: 'span' });
+    // A row into its own subtree stays refused (no fallback into the refusal).
+    at = L.rowDrop({ type: 'builder-node', uid: 3 }, r[4], 0.5, d);
+    assert.strictEqual(at.msg, null);
+});
+
+test('the drop line sits at the gap the node lands in, at the depth it lands at', () => {
+    const d = doc();
+    const rows = L.flatten(d, null);
+    // BEFORE: the row's top edge, at its own depth.
+    assert.deepStrictEqual(L.dropLine(rows, 2, 'before'), { anchor: 2, edge: 'top', depth: 1 });
+    // AFTER a leaf: its bottom edge.
+    assert.deepStrictEqual(L.dropLine(rows, 1, 'after'), { anchor: 1, edge: 'bottom', depth: 1 });
+    // AFTER an expanded container: below its WHOLE subtree, at the container's depth.
+    assert.deepStrictEqual(L.dropLine(rows, 3, 'after'), { anchor: 4, edge: 'bottom', depth: 1 });
+    // INTO: appended, so below the last descendant, one level deeper.
+    assert.deepStrictEqual(L.dropLine(rows, 3, 'into'), { anchor: 4, edge: 'bottom', depth: 2 });
+    // INTO a container without children: right under it, one level deeper.
+    assert.deepStrictEqual(L.dropLine(rows, 4, 'into'), { anchor: 4, edge: 'bottom', depth: 3 });
+    // INTO the root: after the last row, at depth 1.
+    assert.deepStrictEqual(L.dropLine(rows, 0, 'into'), { anchor: 7, edge: 'bottom', depth: 1 });
+    // A collapsed container: its children are not rows, the line is right under it.
+    const folded = L.flatten(d, new Set([3]));
+    assert.deepStrictEqual(L.dropLine(folded, 3, 'into'), { anchor: 3, edge: 'bottom', depth: 2 });
+    assert.deepStrictEqual(L.dropLine(folded, 3, 'after'), { anchor: 3, edge: 'bottom', depth: 1 });
+    assert.strictEqual(L.dropLine(rows, 99, 'into'), null);
+});
+
+test('a dropped component appears exactly at the drop line', () => {
+    // Replays builder_insert (splice at index / append) and looks the new row up.
+    const insert = (root, msg) => {
+        const parent = L.findNode(root, msg.parent);
+        const node = { uid: 100, kind: 'element', tag: msg.component, attrs: {}, children: [] };
+        parent.children.splice(msg.index == null ? parent.children.length : msg.index, 0, node);
+    };
+    const span = { type: 'component', component: 'span' };
+    for (const [onto, relY] of [[3, 0.1], [3, 0.5], [3, 0.9], [4, 0.5], [2, 0.9], [7, 0.2], [0, 0.5]]) {
+        const d = doc();
+        const before = L.flatten(d, null);
+        const row = before.find((r) => r.uid === onto);
+        const at = L.rowDrop(span, row, relY, d);
+        assert.ok(at.msg, `span onto ${onto} at ${relY} is allowed`);
+        const line = L.dropLine(before, onto, at.zone);
+        insert(d, at.msg);
+        const after = L.flatten(d, null);
+        const i = after.findIndex((r) => r.uid === 100);
+        const where = `span ${at.zone} ${onto}`;
+        assert.strictEqual(after[i].depth, line.depth, where + ': depth');
+        if (line.edge === 'bottom') assert.strictEqual(after[i - 1].uid, line.anchor, where + ': right below the line\'s row');
+        else assert.strictEqual(after[i + 1].uid, line.anchor, where + ': right above the line\'s row');
+    }
+});
+
+test('the indent of a depth is the one place rows and the line take it from', () => {
+    assert.strictEqual(L.indentPx(0), 4);
+    assert.strictEqual(L.indentPx(1), 20);
+    assert.strictEqual(L.indentPx(3), 52);
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);
