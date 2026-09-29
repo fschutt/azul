@@ -50,13 +50,18 @@ Branch `wt/s2-focus-leftovers`, based on `0a326afe5`. Nothing compiled (house ru
 
 - Item 5b: 05b4b0470 RED (2 date_picker tests + 1 dll end-to-end), a27e2b747 fix (`shifted_date` + `move_to_date` shared with `month_nav`; day cells keyed by date, Tab-stop day `autofocus`; common/layout.rs: a popup whose focused node a rebuild unmounted focuses its `autofocus` node).
 
+- Item 7: 715972c92 (activation round-trip guard), 8997527ac (app-rebuilds-on-colour guard).
+- 352f748e5 macOS narrowing (only a list popup skips key status / tracks app-wide), 102a08be8 win32 doc placement.
+- Report: scripts/S2_FOCUS_LEFTOVERS_2026_09_29.md.
+
 ## IN PROGRESS
 
-- Item 7.
+- none: ALL ITEMS DONE, report written. Waiting for the parent's compile + suites.
 
 ## NEXT
 
-8. Item 7: device-faithful variant with the parent's activation round trip.
+- (parent) compile, run the suites in the report's §6, then the combined RED pass.
+- Left for later (report §8): time-picker arrow tab stops; combobox typing/blur (G2's handlers).
 
 ## Open questions
 
