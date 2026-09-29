@@ -1,0 +1,6 @@
+; Copy target/codegen/ocaml/ (library `azul`) to ./azul and libazul here,
+; then: dune exec ./main.exe
+(executable
+ (name main)
+ (modules main styles)
+ (libraries ctypes ctypes-foreign azul))
