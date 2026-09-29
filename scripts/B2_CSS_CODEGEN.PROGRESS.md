@@ -58,13 +58,15 @@ i.e. a monomorphized `CssPropertyValue<T>` alias which has no C constructor func
   Rust + C printers, structural tests (tests/codegen_structure.rs)
 - 27532d02a C++, Python, C#, Java, Kotlin printers + basic goldens (one commit, not split)
 - 6884243a4 RED basic goldens Go/Swift/Node/Ruby/PHP/Lua; d4cf2f6c5 their printers
+- 5d28f453b RED basic goldens Zig/Nim/D/OCaml/Haskell/Julia/Pascal; e8e82a719 their printers
+  (Pascal = first user of `lang/linear.rs`, the statement-flattening framework)
 
 ## 3. IN PROGRESS
-- batch 3: Zig, Nim, D, OCaml, Haskell, Julia, Pascal (RED goldens, then printers)
+- batch 4: ada algol68 cobol crystal fortran freebasic lisp odin perl powershell racket red
+  smalltalk v vb6 (RED goldens, then printers)
 
 ## 4. NEXT
-1. batch 4: ada algol68 cobol crystal fortran freebasic lisp odin perl powershell racket red
-   smalltalk v vb6.
+1. finish batch 4 (see IN PROGRESS).
 2. debug server: unknown-lang message from `supported_languages()`.
 3. final report.
 
