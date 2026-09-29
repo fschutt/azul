@@ -2585,23 +2585,57 @@ mod autotest_generated {
         }
     }
 
-    #[test]
-    fn from_system_style_picks_the_theme_appropriate_fallback_colour() {
-        let mut light = blank_system_style();
-        light.theme = system::Theme::Light;
-        light.colors.text = OptionColorU::None;
-        assert_eq!(
-            Titlebar::from_system_style(AzString::from("x"), &light).title_color,
-            DEFAULT_TITLE_COLOR_LIGHT,
-        );
+    /// The title colour a window in `mode` paints: the last declaration of
+    /// the title style whose conditions hold there, as the cascade picks it.
+    fn title_colour_in(
+        t: &Titlebar,
+        mode: azul_css::dynamic_selector::ThemeCondition,
+    ) -> Option<ColorU> {
+        let ctx = azul_css::dynamic_selector::DynamicSelectorContext {
+            theme: mode,
+            ..azul_css::dynamic_selector::DynamicSelectorContext::default()
+        };
+        t.build_title_style(true)
+            .as_ref()
+            .iter()
+            .filter(|p| p.matches(&ctx))
+            .filter_map(|p| match &p.property {
+                CssProperty::TextColor(c) => c.get_property().map(|c| c.inner),
+                _ => None,
+            })
+            .last()
+    }
 
-        let mut dark = blank_system_style();
-        dark.theme = system::Theme::Dark;
-        dark.colors.text = OptionColorU::None;
-        assert_eq!(
-            Titlebar::from_system_style(AzString::from("x"), &dark).title_color,
-            DEFAULT_TITLE_COLOR_DARK,
-        );
+    /// With no text colour detected, the title falls back to the default of
+    /// the mode the WINDOW shows - the cascade's mode, after the app's /
+    /// `AZ_THEME` pin - not of the desktop's: the fallback was picked by the
+    /// desktop's theme and baked in, so a light-pinned window on a dark
+    /// desktop drew a near-white title on its light titlebar (and a dark pin
+    /// on a light desktop a dark grey one on its dark titlebar).
+    #[test]
+    fn the_fallback_title_colour_follows_the_windows_mode_not_the_desktops() {
+        use azul_css::dynamic_selector::ThemeCondition;
+
+        for desktop in [system::Theme::Light, system::Theme::Dark] {
+            let mut ss = blank_system_style();
+            ss.theme = desktop;
+            ss.colors.text = OptionColorU::None;
+            for bar in [
+                Titlebar::from_system_style(AzString::from("x"), &ss),
+                Titlebar::from_system_style_csd(AzString::from("x"), &ss),
+            ] {
+                assert_eq!(
+                    title_colour_in(&bar, ThemeCondition::Light),
+                    Some(DEFAULT_TITLE_COLOR_LIGHT),
+                    "{desktop:?} desktop, light window",
+                );
+                assert_eq!(
+                    title_colour_in(&bar, ThemeCondition::Dark),
+                    Some(DEFAULT_TITLE_COLOR_DARK),
+                    "{desktop:?} desktop, dark window",
+                );
+            }
+        }
 
         // The two fallbacks must actually differ, or dark mode renders unreadably.
         assert_ne!(DEFAULT_TITLE_COLOR_LIGHT, DEFAULT_TITLE_COLOR_DARK);
