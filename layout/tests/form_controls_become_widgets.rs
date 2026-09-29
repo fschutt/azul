@@ -1982,3 +1982,81 @@ mod form_data {
         assert_eq!(collect(&mut lw, &styled), owned(&[("on", "y")]));
     }
 }
+
+// ── <datalist> ──────────────────────────────────────────────────────────────
+
+/// A `<datalist>` is suggestions for an input, never content: HTML's
+/// user-agent sheet says `datalist { display: none }`. It stays in the tree
+/// (the combobox reads it; an app may too) but takes no space - unless the
+/// app's own style shows it.
+mod datalist {
+    use azul_css::props::layout::LayoutDisplay;
+
+    use super::*;
+
+    fn fruits() -> Dom {
+        Dom::create_datalist_no_a11y()
+            .with_id("fruits".into())
+            .with_child(Dom::create_option_no_a11y("Apple".into(), "Apple".into()))
+            .with_child(Dom::create_option_no_a11y("Pear".into(), "Pear".into()))
+    }
+
+    fn the_datalist(styled: &StyledDom) -> NodeId {
+        all_nodes(styled)
+            .into_iter()
+            .find(|id| matches!(node(styled, *id).get_node_type(), NodeType::DataList))
+            .expect("the datalist stays in the tree")
+    }
+
+    /// The display the node's inline style ends on (last match wins).
+    fn inline_display(styled: &StyledDom, id: NodeId) -> Option<LayoutDisplay> {
+        node(styled, id)
+            .get_style()
+            .rules
+            .as_slice()
+            .iter()
+            .flat_map(|rule| rule.declarations.as_slice().iter())
+            .filter_map(|decl| match decl {
+                CssDeclaration::Static(CssProperty::Display(value)) => {
+                    value.get_property().cloned()
+                }
+                _ => None,
+            })
+            .last()
+    }
+
+    #[test]
+    fn a_datalist_next_to_its_input_is_not_displayed() {
+        let lw = styling_window();
+        let styled = lw.style_user_dom(
+            Dom::create_body()
+                .with_child(input("text").with_attribute(attr("list", "fruits")))
+                .with_child(fruits()),
+        );
+        let list = the_datalist(&styled);
+        assert_eq!(inline_display(&styled, list), Some(LayoutDisplay::None));
+    }
+
+    #[test]
+    fn a_datalist_in_a_page_without_controls_is_not_displayed_either() {
+        let lw = styling_window();
+        let styled = lw.style_user_dom(Dom::create_body().with_child(fruits()));
+        let list = the_datalist(&styled);
+        assert_eq!(inline_display(&styled, list), Some(LayoutDisplay::None));
+    }
+
+    #[test]
+    fn an_app_that_shows_its_datalist_still_can() {
+        let lw = styling_window();
+        let shown = fruits().with_css_property(CssPropertyWithConditions::simple(
+            CssProperty::const_display(LayoutDisplay::Block),
+        ));
+        let styled = lw.style_user_dom(Dom::create_body().with_child(shown));
+        let list = the_datalist(&styled);
+        assert_eq!(
+            inline_display(&styled, list),
+            Some(LayoutDisplay::Block),
+            "the user-agent default comes BEFORE the app's own style"
+        );
+    }
+}
