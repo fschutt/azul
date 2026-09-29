@@ -244,7 +244,7 @@ fn the_recolor_forms_of_the_remap_format() {
     assert_eq!(current.designed_for, IconDesignedFor::Light);
 
     let palette = svg_for(&provider, "palette", &c).unwrap().meta;
-    let IconRecolor::Palette(map) = palette.recolor else {
+    let IconRecolor::Palette(map) = &palette.recolor else {
         panic!("a colour-keyed object is a palette, got {palette:?}");
     };
     assert_eq!(map.as_ref().len(), 1);
