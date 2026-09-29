@@ -127,13 +127,16 @@ DONE:
   LESSON for new tests: never `last(theme_probe::dark(..))` on a node with
   :hover/:focus twins - use an at-rest probe.
 
+- A2 0b39967be test(date_picker): RED - theme_tests (pair/at_rest/on_hover/
+  on_focus probes) for date, month and week in both looks + integration
+  test for all 3 modes.
+
 ## IN PROGRESS
-A2: date_picker RED tests.
+A3: date_picker feat.
 
 ## NEXT
-A2 RED (theme_tests adapted from 3f2ab820a, with at-rest probes, + month
-and week grids in both themes + integration test for all 3 modes); A3 feat
-(flat rings incl. month/week cells; flora paper calendar); report update.
+A3 feat (flat rings incl. month/week cells; flora paper calendar, the
+day faces shared by month + week cells); report update; final message.
 
 ## Open questions
 - ENGINE GAP (spinner): `-azul-animation-in` tracks are started only by
