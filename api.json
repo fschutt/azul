@@ -57835,6 +57835,9 @@
                                 },
                                 "accessibility_name": {
                                     "type": "OptionString"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -58068,6 +58071,38 @@
                                     "type": "NumberInput"
                                 },
                                 "fn_body": "object.with_accessibility_name(name)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the field renders in the",
+                                    "default theme (`UiTheme::default()`, flat)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NumberInput"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -60781,6 +60816,9 @@
                                 },
                                 "on_status": {
                                     "type": "OptionOnVideoStatus"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -60963,6 +61001,38 @@
                                     "type": "VideoWidget"
                                 },
                                 "fn_body": "object.with_on_status(data, callback)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the widget renders in the",
+                                    "default theme (`UiTheme::default()`, flat)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "VideoWidget"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -62224,6 +62294,9 @@
                                 },
                                 "container_style": {
                                     "type": "OptionCssPropertyWithConditionsVec"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -62324,6 +62397,38 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the control renders in the",
+                                    "default theme (`UiTheme::default()`, flat)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Segmented"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -62428,6 +62533,9 @@
                                 },
                                 "accessibility_name": {
                                     "type": "OptionString"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -62577,6 +62685,38 @@
                                     "type": "RadioGroup"
                                 },
                                 "fn_body": "object.with_accessibility_name(name)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the group renders in the",
+                                    "default theme (`UiTheme::default()`, flat)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RadioGroup"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -62606,6 +62746,9 @@
                                 },
                                 "tip_style": {
                                     "type": "OptionCssPropertyWithConditionsVec"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -62709,6 +62852,38 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the tooltip renders in the",
+                                    "default theme (`UiTheme::default()`, flat)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Tooltip"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -64334,6 +64509,9 @@
                                 },
                                 "content_style": {
                                     "type": "OptionCssPropertyWithConditionsVec"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -64451,6 +64629,38 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the popover renders in the",
+                                    "default theme (`UiTheme::default()`, flat)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Popover"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -64900,6 +65110,9 @@
                                 },
                                 "backdrop_style": {
                                     "type": "OptionCssPropertyWithConditionsVec"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -65112,6 +65325,38 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the modal renders in the",
+                                    "default theme (`UiTheme::default()`, flat)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Modal"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -65267,6 +65512,9 @@
                                 },
                                 "container_style": {
                                     "type": "OptionCssPropertyWithConditionsVec"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -65430,6 +65678,38 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the toast renders in the",
+                                    "default theme (`UiTheme::default()`, flat)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Toast"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -65660,6 +65940,9 @@
                                 },
                                 "container_style": {
                                     "type": "OptionCssPropertyWithConditionsVec"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -65764,6 +66047,38 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the bar renders in the default",
+                                    "theme (`UiTheme::default()`, flat)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Pagination"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -65939,6 +66254,9 @@
                                 },
                                 "container_style": {
                                     "type": "OptionCssPropertyWithConditionsVec"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -66039,6 +66357,38 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the stepper renders in the",
+                                    "default theme (`UiTheme::default()`, flat)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Stepper"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -66065,6 +66415,9 @@
                                 },
                                 "container_style": {
                                     "type": "OptionCssPropertyWithConditionsVec"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -66219,6 +66572,38 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the pane renders in the default",
+                                    "theme (`UiTheme::default()`, flat)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SplitPane"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -66555,6 +66940,9 @@
                                 },
                                 "accessibility_name": {
                                     "type": "OptionString"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -66719,6 +67107,38 @@
                                     "type": "TimePicker"
                                 },
                                 "fn_body": "object.with_accessibility_name(name)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the picker renders in the",
+                                    "default theme (`UiTheme::default()`, flat)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TimePicker"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -71136,6 +71556,9 @@
                                 },
                                 "backdrop_style": {
                                     "type": "OptionCssPropertyWithConditionsVec"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -71678,6 +72101,38 @@
                                     "type": "Dialog"
                                 },
                                 "fn_body": "object.with_title(title)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme. Unset (`None`), the dialog renders in the",
+                                    "default theme (`UiTheme::default()`, flat)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dialog"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
