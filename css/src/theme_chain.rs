@@ -25,11 +25,11 @@
 //! ([`theme_env`]):
 //!
 //! - `AZ_THEME=<theme>` names the chain's HEAD, and outranks the app's own
-//!   choice: `AZ_THEME` > `AppConfig::with_theme` / `CallbackInfo::set_theme`
-//!   > the default theme ([`resolve_theme_head`]).
-//! - `AZ_MODE=light|dark|system` pins the MODE (screenshots, reftests, CI):
-//!   `AZ_MODE` > the app's mode > the window's > the desktop's. `system`
-//!   pins nothing.
+//!   choice (`AppConfig::with_theme`, `CallbackInfo::set_theme`), which
+//!   outranks the default theme ([`resolve_theme_head`]).
+//! - `AZ_MODE=light|dark|system` pins the MODE (screenshots, reftests, CI),
+//!   over the app's mode, the window's and the desktop's. `system` pins
+//!   nothing.
 //!
 //! `AZ_THEME=light|dark` was the mode pin before `AZ_THEME` named the theme;
 //! for one release it still pins the mode, with a deprecation line pointing
@@ -372,7 +372,9 @@ mod tests {
     }
 
     /// `fallback_of` for a set of rice file headers: `(theme, its fallback: list)`.
-    fn headers(table: &'static [(&'static str, &'static [&'static str])]) -> impl Fn(&str) -> Vec<String> {
+    fn headers(
+        table: &'static [(&'static str, &'static [&'static str])],
+    ) -> impl Fn(&str) -> Vec<String> {
         move |name: &str| {
             table
                 .iter()
@@ -404,7 +406,11 @@ mod tests {
         for head in ["flat", "", "   "] {
             let chain = expand_chain(head, &no_headers, "flat");
             assert_eq!(names(&chain), ["flat"], "head {head:?}");
-            assert!(chain.warnings.is_empty(), "head {head:?}: {:?}", chain.warnings);
+            assert!(
+                chain.warnings.is_empty(),
+                "head {head:?}: {:?}",
+                chain.warnings
+            );
         }
     }
 
@@ -431,8 +437,15 @@ mod tests {
     fn the_heads_header_wins_where_the_chain_disagrees() {
         let fallback_of = headers(&[("xyz:pink", &["native"]), ("xyz", &["flora"])]);
         let chain = expand_chain("xyz:pink", &fallback_of, "flat");
-        assert_eq!(names(&chain), ["xyz:pink", "xyz", "native", "flora", "flat"]);
-        assert!(chain.warnings.is_empty(), "a disagreement is not an error: {:?}", chain.warnings);
+        assert_eq!(
+            names(&chain),
+            ["xyz:pink", "xyz", "native", "flora", "flat"]
+        );
+        assert!(
+            chain.warnings.is_empty(),
+            "a disagreement is not an error: {:?}",
+            chain.warnings
+        );
     }
 
     #[test]
@@ -455,7 +468,12 @@ mod tests {
         let fallback_of = headers(&[("a", &["a"])]);
         let chain = expand_chain("a", &fallback_of, "flat");
         assert_eq!(names(&chain), ["a", "flat"]);
-        assert_eq!(chain.warnings.len(), 1, "a theme falling back to itself: {:?}", chain.warnings);
+        assert_eq!(
+            chain.warnings.len(),
+            1,
+            "a theme falling back to itself: {:?}",
+            chain.warnings
+        );
 
         // Back up through the prefix rule: `xyz` builds on nothing `xyz:pink` does not.
         let fallback_of = headers(&[("xyz", &["xyz:pink"])]);
@@ -505,7 +523,12 @@ mod tests {
         for head in ["my theme", "xyz::pink", ":pink", "pink:"] {
             let chain = expand_chain(head, &no_headers, "flat");
             assert_eq!(names(&chain), ["flat"], "head {head:?}");
-            assert_eq!(chain.warnings.len(), 1, "head {head:?}: {:?}", chain.warnings);
+            assert_eq!(
+                chain.warnings.len(),
+                1,
+                "head {head:?}: {:?}",
+                chain.warnings
+            );
         }
 
         let fallback_of = headers(&[("abc", &["bad name!"])]);
@@ -532,7 +555,11 @@ mod tests {
             let env = ThemeEnv::from_values(None, Some(value));
             assert_eq!(env.mode, Some(mode), "AZ_MODE={value:?}");
             assert_eq!(env.theme, None, "AZ_MODE={value:?} names no theme");
-            assert!(env.warnings.is_empty(), "AZ_MODE={value:?}: {:?}", env.warnings);
+            assert!(
+                env.warnings.is_empty(),
+                "AZ_MODE={value:?}: {:?}",
+                env.warnings
+            );
         }
     }
 
@@ -541,7 +568,11 @@ mod tests {
         for value in ["system", "System", "auto"] {
             let env = ThemeEnv::from_values(None, Some(value));
             assert_eq!(env.mode, None, "AZ_MODE={value}");
-            assert!(env.warnings.is_empty(), "AZ_MODE={value}: {:?}", env.warnings);
+            assert!(
+                env.warnings.is_empty(),
+                "AZ_MODE={value}: {:?}",
+                env.warnings
+            );
         }
     }
 
@@ -550,7 +581,11 @@ mod tests {
         let env = ThemeEnv::from_values(None, Some("blue"));
         assert_eq!(env.mode, None);
         assert_eq!(env.warnings.len(), 1, "{:?}", env.warnings);
-        assert!(env.warnings[0].contains("AZ_MODE=blue"), "{:?}", env.warnings);
+        assert!(
+            env.warnings[0].contains("AZ_MODE=blue"),
+            "{:?}",
+            env.warnings
+        );
     }
 
     /// The one-release alias: `AZ_THEME=light|dark` was the mode pin.
@@ -563,7 +598,12 @@ mod tests {
             let env = ThemeEnv::from_values(Some(value), None);
             assert_eq!(env.mode, Some(mode), "AZ_THEME={value}");
             assert_eq!(env.theme, None, "AZ_THEME={value} is a mode, never a theme");
-            assert_eq!(env.warnings.len(), 1, "AZ_THEME={value}: {:?}", env.warnings);
+            assert_eq!(
+                env.warnings.len(),
+                1,
+                "AZ_THEME={value}: {:?}",
+                env.warnings
+            );
             assert!(
                 env.warnings[0].contains("deprecated") && env.warnings[0].contains(instead),
                 "AZ_THEME={value}: {:?}",
@@ -581,7 +621,12 @@ mod tests {
         let env = ThemeEnv::from_values(Some("dark"), Some("light"));
         assert_eq!(env.mode, Some(ThemeCondition::Light));
         assert_eq!(env.theme, None);
-        assert_eq!(env.warnings.len(), 1, "the alias is still reported: {:?}", env.warnings);
+        assert_eq!(
+            env.warnings.len(),
+            1,
+            "the alias is still reported: {:?}",
+            env.warnings
+        );
 
         let env = ThemeEnv::from_values(Some("dark"), Some("system"));
         assert_eq!(env.mode, None, "AZ_MODE=system is a decision too: no pin");
@@ -603,12 +648,18 @@ mod tests {
     #[test]
     fn unset_or_blank_variables_ask_for_nothing() {
         assert_eq!(ThemeEnv::from_values(None, None), ThemeEnv::default());
-        assert_eq!(ThemeEnv::from_values(Some(""), Some("  ")), ThemeEnv::default());
+        assert_eq!(
+            ThemeEnv::from_values(Some(""), Some("  ")),
+            ThemeEnv::default()
+        );
     }
 
     #[test]
     fn the_environment_outranks_the_app_which_outranks_the_default() {
-        assert_eq!(resolve_theme_head(Some("xyz:pink"), Some("flora")), "xyz:pink");
+        assert_eq!(
+            resolve_theme_head(Some("xyz:pink"), Some("flora")),
+            "xyz:pink"
+        );
         assert_eq!(resolve_theme_head(None, Some("flora")), "flora");
         assert_eq!(resolve_theme_head(None, None), DEFAULT_APP_THEME);
     }

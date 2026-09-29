@@ -952,10 +952,10 @@ pub fn cascade_rank<S: AsRef<str>>(chain: &[S], conditions: &[DynamicSelector]) 
 /// list `@theme(<name>)` blocks are matched against
 /// ([`DynamicSelectorContext::theme_chain`]).
 ///
-/// THE place a context's chain comes from - [`DynamicSelectorContext::with_app_theme`],
+/// THE place a context's chain comes from: [`DynamicSelectorContext::with_app_theme`],
 /// the default context and every window's (`LayoutWindow::dynamic_selector_context`)
-/// - built by the one chain builder ([`expand_app_theme_chain`], the §7.1
-/// design): `xyz:pink` -> `[xyz:pink, xyz, flat]`, `flora` -> `[flora, flat]`,
+/// all call this. It is built by the one chain builder ([`expand_app_theme_chain`],
+/// the §7.1 design): `xyz:pink` -> `[xyz:pink, xyz, flat]`, `flora` -> `[flora, flat]`,
 /// the default theme always last, a mode word or a malformed name dropped.
 /// Which blocks of two themes in one chain apply, and which wins, is the
 /// matcher's decision (the rank, a compiled-in theme below another being
