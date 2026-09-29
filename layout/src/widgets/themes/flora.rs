@@ -3835,26 +3835,15 @@ const SEARCH_CLEAR_DARK_HOVER: ColorU = ColorU {
 /// empty/non-empty transition; this is the state it is BUILT in.
 #[must_use]
 pub fn search_clear_button(visible: bool) -> Dom {
-    let mut style: Vec<CssPropertyWithConditions> = vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(if visible {
-            LayoutDisplay::Flex
-        } else {
-            LayoutDisplay::None
-        })),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
-        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    // The badge's structure is the widget's (`text_input::search_clear_base`:
+    // a flex box that centres the cross); flora's skin is the 14px disc.
+    let mut style: Vec<CssPropertyWithConditions> =
+        crate::widgets::text_input::search_clear_base(visible).to_vec();
+    style.extend([
         CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(14))),
         CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(14))),
         CssPropertyWithConditions::simple(CssProperty::const_margin_left(
             LayoutMarginLeft::const_px(4),
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_justify_content(
-            LayoutJustifyContent::Center,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_align_items(
-            LayoutAlignItems::Center,
         )),
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             11,
@@ -3871,7 +3860,7 @@ pub fn search_clear_button(visible: bool) -> Dom {
         CssPropertyWithConditions::simple(CssProperty::const_border_bottom_right_radius(
             StyleBorderBottomRightRadius::const_px(7),
         )),
-    ];
+    ]);
     // The disc: the icon grey in the light theme, the border grey in the dark
     // one (a light disc there would be a light island on the dark field), a
     // step towards the ink under the pointer; the cross is the page colour in
@@ -3905,25 +3894,17 @@ pub fn search_clear_button(visible: bool) -> Dom {
 }
 
 /// The row of a `type=search` field: the field (which grows) and its clear
-/// badge after it.
+/// badge after it - the widget's row (`text_input::SEARCH_FIELD_BASE`);
+/// flora paints nothing on it.
 #[must_use]
 pub fn search_field(field: Dom, clear: Dom) -> Dom {
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(AzString::from_const_str(
             crate::widgets::text_input::SEARCH_FIELD_CLASS,
         ))]))
-        .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
-            CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-            CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-                LayoutFlexDirection::Row,
-            )),
-            CssPropertyWithConditions::simple(CssProperty::const_align_items(
-                LayoutAlignItems::Center,
-            )),
-            CssPropertyWithConditions::simple(CssProperty::const_flex_grow(
-                LayoutFlexGrow::const_new(1),
-            )),
-        ]))
+        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+            crate::widgets::text_input::SEARCH_FIELD_BASE,
+        ))
         .with_children(vec![field, clear].into())
 }
 

@@ -3837,19 +3837,14 @@ pub fn video(w: crate::widgets::video::VideoWidget) -> Dom {
 
 /// The clear button (a cross) of a `type=search` field, shown only while the field
 /// holds text (`visible`). The widget flips `display` live on the
-/// empty/non-empty transition; this is the state it is BUILT in.
+/// empty/non-empty transition; this is the state it is BUILT in. Its
+/// structure is the widget's (`text_input::search_clear_base`); flat's skin
+/// is a bare glyph with a little air either side.
 #[must_use]
 pub fn search_clear_button(visible: bool) -> Dom {
-    let mut style: Vec<CssPropertyWithConditions> = vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(if visible {
-            LayoutDisplay::Block
-        } else {
-            LayoutDisplay::None
-        })),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
-        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    let mut style: Vec<CssPropertyWithConditions> =
+        crate::widgets::text_input::search_clear_base(visible).to_vec();
+    style.extend([
         CssPropertyWithConditions::simple(CssProperty::const_padding_left(
             LayoutPaddingLeft::const_px(6),
         )),
@@ -3859,7 +3854,7 @@ pub fn search_clear_button(visible: bool) -> Dom {
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             14,
         ))),
-    ];
+    ]);
     // A quiet glyph that darkens under the pointer, in both modes.
     style.extend(CssPropertyWithConditions::themed(
         CssProperty::const_text_color(StyleTextColor { inner: LIGHT_ICON }),
@@ -3882,25 +3877,17 @@ pub fn search_clear_button(visible: bool) -> Dom {
 }
 
 /// The row of a `type=search` field: the field (which grows) and its clear
-/// button after it.
+/// button after it - the widget's row (`text_input::SEARCH_FIELD_BASE`);
+/// flat paints nothing on it.
 #[must_use]
 pub fn search_field(field: Dom, clear: Dom) -> Dom {
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(AzString::from_const_str(
             crate::widgets::text_input::SEARCH_FIELD_CLASS,
         ))]))
-        .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
-            CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-            CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-                LayoutFlexDirection::Row,
-            )),
-            CssPropertyWithConditions::simple(CssProperty::const_align_items(
-                LayoutAlignItems::Center,
-            )),
-            CssPropertyWithConditions::simple(CssProperty::const_flex_grow(
-                LayoutFlexGrow::const_new(1),
-            )),
-        ]))
+        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+            crate::widgets::text_input::SEARCH_FIELD_BASE,
+        ))
         .with_children(vec![field, clear].into())
 }
 

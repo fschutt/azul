@@ -1241,6 +1241,46 @@ pub const SEARCH_FIELD_CLASS: &str = "__azul-native-search-field";
 /// The class of a `type=search` field's clear button.
 pub const SEARCH_CLEAR_CLASS: &str = "__azul-native-search-clear";
 
+// ---- R5: the search row's and the clear button's BASE ----
+//
+// The structure every theme's `type=search` field shares, declared once:
+// `themes::flat::search_field` / `search_clear_button` and their flora
+// twins lay only their skin (paint and metrics) after it.
+
+/// The `display` a clear button SHOWS with - in the build of a field that
+/// holds text and in the live show on its first character
+/// (`sync_live_looks`), in every theme: a flex box that centres its cross.
+pub(crate) const SEARCH_CLEAR_SHOWN: LayoutDisplay = LayoutDisplay::Flex;
+
+/// The row of a `type=search` field: the field (which grows) and its clear
+/// button after it, on one midline.
+pub(crate) static SEARCH_FIELD_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+];
+
+/// The clear button's structure, shown (`visible`: [`SEARCH_CLEAR_SHOWN`])
+/// or hidden (`display: none`): a box of its own size that centres its
+/// cross, under the pointer.
+#[must_use]
+pub(crate) fn search_clear_base(visible: bool) -> [CssPropertyWithConditions; 5] {
+    [
+        CssPropertyWithConditions::simple(CssProperty::const_display(if visible {
+            SEARCH_CLEAR_SHOWN
+        } else {
+            LayoutDisplay::None
+        })),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+        CssPropertyWithConditions::simple(CssProperty::const_justify_content(
+            LayoutJustifyContent::Center,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    ]
+}
+
 /// `type=search`: the field, then its clear button, in one row.
 ///
 /// The button is a SIBLING of the editable host, never a child: inside the host
@@ -1592,10 +1632,12 @@ fn sync_live_looks(
     let is_empty = state.text.is_empty();
     if state.kind == TextInputKind::Search && before.empty != is_empty {
         if let Some(clear) = info.get_next_sibling(container) {
+            // The display the button is BUILT with in every theme
+            // (`search_clear_base`), so the live show is a rebuild's box.
             let display = if is_empty {
                 LayoutDisplay::None
             } else {
-                LayoutDisplay::Block
+                SEARCH_CLEAR_SHOWN
             };
             info.set_css_property(clear, CssProperty::const_display(display));
         }
