@@ -124,10 +124,26 @@ imported zip, and a zip with one bad entry is refused as a whole.
 ## Export
 
 Once the layout is right you do not recreate it by hand. The **Export** menu turns what you built
-into code in your language (Rust, C, C++, Python): the whole window as a runnable app, or the
-document's components, together with the component CSS. It also exports and imports component
-libraries as JSON (to share them with other projects) and your E2E tests in the format
-`AZ_E2E` runs.
+into code in your language (Rust, C, C++, Python and every other language with DOM export): the
+whole window as a runnable app, or the document's components, together with the component CSS.
+It also exports and imports component libraries as JSON (to share them with other projects) and
+your E2E tests in the format `AZ_E2E` runs.
+
+The same menu has quick exports that answer in a dialog, with Copy and Download:
+
+- **Compile CSS to…** - the document's stylesheet, or the rules you tick, as named styles.
+- **HTML → DOM (code)…** - paste HTML or XHTML (a fragment or a whole document) and get it as a
+  render function or a runnable app. `<style>` blocks and `style` attributes become each node's
+  CSS; tick "With its CSS as named styles" to also get the stylesheet as a file of its own. A
+  `<library:name>` tag is a call of that component of your app. Markup that does not parse shows
+  its line and column instead of code.
+- **Subtree → code…** - the selected node and its children as a render function or an app (also
+  from the Document toolbar and a row's context menu).
+- **Component → code…** - one component as its function, plus its library's registration.
+
+Every dialog picks from the one list of the code generator's languages; in the three DOM dialogs
+the languages without DOM export stay in it, disabled, with their reason. An app answers a
+project: pick a file to see, copy or download it.
 
 This completes the workflow:
 
@@ -231,7 +247,9 @@ skeleton), `project_close`, `project_list`, `project_read_file`, `project_write_
 (`"applied": "stylesheet"`, `"component"` or `"document"`) or an `apply_error`.
 
 **Export** - `export_code`, `export_code_zip`, `export_component_library`,
-`import_component_library`.
+`import_component_library`, and for the dialogs `get_codegen_languages`, `get_css_rules`,
+`compile_css`, `html_to_code`, `export_subtree_code`, `export_component_code`. `html_to_code`
+answers a parse error as `errors: [{message, line, column}]` (1-based, in the text as pasted).
 
 ## Cross-references
 

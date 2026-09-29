@@ -72,6 +72,31 @@ The `Dom` node itself exposes various setters that allow you to customize the be
 - **`.with_dataset(data)`**: Attaches a `RefAny` data object that can even survive a `Dom` rebuild (if `.with_merge_callback(cb)` is also set).
 - **`.with_tab_index(index)`**: Configures this node for receiving focus events and sets up tab order withing the UI.
 
+### Node Attributes in XML
+
+In XML these settings are attributes, and ONE table says what each attribute sets on the node: `id` and `class`, `tabindex` and `focusable` (the tab index), `contenteditable`, `autofocus`, `placeholder`, the form controls' `type`, `value`, `name`, `min`, `checked` and the rest, `colspan` / `rowspan`, `dir`, and `style` (the node's own CSS). Every XML parser reads a node through that table, and the code export writes the node back through it (`tabindex="0"` becomes `.with_tab_index(..)`), so the parsed DOM and the generated code cannot disagree. Where generated code cannot say a setting yet (a `data-l10n-id`, an `onclick` naming a callback) the export notes why in the generated function's doc. An attribute no entry takes is ignored.
+
+The table is extensible: an app, a component library or a widget adds an entry with `register_xml_attribute`. It is looked up before the builtin ones, so it may also change what a builtin attribute sets:
+
+```rust,no_run
+use azul_core::dom::{AttributeNameValue, AttributeType};
+use azul_core::xml::attributes::{register_xml_attribute, AttributeScope, NodeSetting, XmlAttribute};
+
+fn hint(_name: &str, value: &str) -> Option<NodeSetting> {
+    Some(NodeSetting::Attribute(AttributeType::Custom(AttributeNameValue {
+        attr_name: "hint".into(),
+        value: value.into(),
+    })))
+}
+
+register_xml_attribute(XmlAttribute {
+    name: "x-hint",                    // or a prefix: "x-*"
+    scope: AttributeScope::AnyElement, // or FormControls
+    order: 50,                         // where it lands among the node's other settings
+    setting: hint,
+});
+```
+
 ## Text Editing
 
 Azul allows any text node to become a text input simply by adding the `contenteditable=true` attribute. In fact, this is how the `<input>` text input itself is constructed: Azul replaces the `<input>` node with a `<div class="__azul-text-input"></div>` internally. By setting a node as contenteditable, the framework automatically handles cursor rendering, text selection, backspace handling, IME and clipboard integration. However, please note: the raw `text` object is always inline, but normally browsers automatically wrap a raw `::text` node in a `<p>`, `<span>` or similar node, which then receives and cascades the styling. A raw `::text` node cannot itself receive any styling, which is why the API has the scary `createTextDoNotUseWithoutBlockLevelWrapper` and a `<p>Raw Text</p>` UI is created via `createPWithText` (i.e. a `<p>` block item with a `::text` node as a direct child containing the actual text).

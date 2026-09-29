@@ -81,10 +81,9 @@ ComponentDef {
     source: ComponentSource, // builtin, compiled, user-defined
     data_model: ComponentDataModel,
     render_fn: ComponentRenderFn, // f(Data) -> Dom
-    compile_fn: ComponentCompileFn, // f(Definition) -> SourceCode
+    codegen: ComponentCodegen, // how generated code builds an instance
     /// Source code for `render_fn` (user-defined components only)
     render_fn_source: Option<String>, // render_fn for runtime-defined components
-    compile_fn_source: Option<String>, // compile_fn for runtime-defined components
 }
 ```
 
@@ -101,13 +100,21 @@ fn(&ComponentDef, &ComponentDataModel, &ComponentMap) -> Result<Dom, RenderDomEr
 
 The `render_fn` can use the `ComponentMap` to recursively instantiate its sub-components.
 
-The `compile_fn` is the inverse of the render function: it takes a `ComponentDef` and a `CompileTarget` 
-and returns the raw source code string (in Rust, Go, C, etc.) that would natively construct this 
-component.
+The `codegen` field is the inverse of the render function: it says how generated code builds an
+instance of the component. It names no language - the code generator (`azul_core::codegen`, the
+`codegen` feature) turns it into the IR that every binding language's printer prints:
 
 ```rust
-// compile_fn
-fn(&ComponentDef, &ComponentDataModel, &CompileTarget) -> Result<String, CompileError>
+enum ComponentCodegen {
+    // a call of the component's own function, `render_<name>(<fields>)`,
+    // defined once in the generated code (user-defined components)
+    RenderFunction,
+    // an HTML element of the builtin library: `Dom::create_<tag>(..)`
+    Element,
+    // a widget's constructor in api.json vocabulary:
+    // `Button::create(label).dom()`
+    Call(ComponentCallCodegen),
+}
 ```
 
 Usually you create components visually with the drag-and-drop GUI builder, which at first 
@@ -136,52 +143,36 @@ struct GeneratedDataModel {
 The `f(RefAny) -> Dom` then only has to "wire up" the respective fields to its data 
 model, so that the internal UI structure of the components themselves is abstracted away.
 
-The code generator can then generate the parent components `render_fn` and `compile_fn` - so 
-that each `Component` only has to care about its direct children (fields) and recursion 
-handles the rest:
+The code generator knows where one component ends and the next begins. Each component becomes
+one function of its own, emitted once however often it is used, and every instance of it is a
+call of that function with the instance's field values - so each component only has to care
+about its direct children (fields), and recursion handles the rest. A screen with a `user:card`
+that uses a `user:badge`, next to a builtin `Button` widget, exports as (Rust shown):
 
 ```rust
-impl AvatarDataModel {
-    fn render(model: &Self) -> Dom {
-        Dom::create_image(model.picture)
-        .with_child(Dom::create_p_with_text(model.name))
-    }
-
-    fn generate_code() -> String {
-        format!("
-            fn render_avatar_data_model(model: AvatarDataModel) -> Dom {{
-                Dom::create_image(model.picture)
-                .with_child(Dom::create_p_with_text(model.name))
-            }}
-        ")
-    }
+/// `user:badge` (Badge)
+pub fn render_badge(text: &str) -> Dom {
+    Dom::create_span_with_text(azul::str::String::from(text)).with_class(azul::str::String::from("badge"))
 }
 
-impl GeneratedDataModel {
+/// `user:card` (Card)
+pub fn render_card(title: &str, tag: &str) -> Dom {
+    Dom::create_div()
+        .with_class(azul::str::String::from("card"))
+        .with_child(Dom::create_h2_with_text(azul::str::String::from(title)))
+        .with_child(render_badge(tag))
+}
 
-    fn render(model: &Self) -> Dom {
-        CardDataModel::render(&model.card_data)
-        .with_child(&AvatarModel::render(&model.avatar_data))
-    }
-
-    fn generate_code() -> String {
-        let code_to_render_card = CardDataModel::generate_code();
-        let code_to_render_avatar = AvatarModel::generate_code();
-
-        format!("
-            fn render_generated_data_model() -> Dom {{
-              {code_to_render_card}
-              .with_child({code_to_render_avatar})
-            }}
-        ")
-    }
+pub fn render_ui() -> Dom {
+    Dom::create_body()
+        .with_child(render_card("Hi", "Beta"))
+        .with_child(Button::create(azul::str::String::from("OK")).dom())
 }
 ```
 
-Note: These examples have been heavily simplified, the APIs are not exact, 
-but they demonstrate how the recursion is supposed to work, both in visual 
-preview rendering and in code generation. In reality these functions are a 
-bit more complex, since they need to pass down parameters.
+The same lowering prints C, C++, Python and every other language whose printer builds a DOM;
+a component library also gets its registration (`register_<library>_library`) where the
+language's printer spells it.
 
 After you've exported the code, you can then "refine" the components public 
 API and add callbacks (there is no on-the-fly recompilation yet, so `AzBuilder` 
@@ -359,7 +350,7 @@ When the framework parses this XML:
 2. It populates the `ComponentDataModel` using the XML attributes (`title` and `body`).
 3. It calls your `render_fn` to generate the final UI.
 
-Once you're happy with the visual layout in the editor, the `compile_fn` 
-(the inverse of `render_fn`) takes the customized data model and generates the raw source code 
-(e.g., `fn card(...)`) to paste back into your project across any supported language 
-(Rust, C, Go, etc.).
+Once you're happy with the visual layout in the editor, the code export (the inverse of
+`render_fn`) turns the customized data model into source code - `render_card(...)` calls and one
+`fn render_card(title, body)` - to paste back into your project, in any language with DOM
+export (Rust, C, C++, Python and the others).
