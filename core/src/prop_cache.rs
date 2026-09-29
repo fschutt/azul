@@ -3061,309 +3061,107 @@ impl CssPropertyCache {
             }
         }
 
-        // If that fails, see if there is an inline CSS property that matches
-        // ::placeholder FIRST. It is a pseudo-ELEMENT: the flag is only ever
-        // set for the ONE resolve the engine does to style the prompt it
-        // paints inside an empty editable, and for that resolve the
-        // pseudo-element's own declarations must outrank every state of the
-        // host. Anything `::placeholder` does not declare keeps falling
-        // through to the host's normal value below, which is what makes an
-        // unstyled prompt inherit the field's font.
-        if node_state.placeholder {
-            // PRIORITY 1: inline declarations (`on_placeholder(...)`)
-            if let Some(p) = azul_css::css::winning_inline_in(
-                self.inline_properties(node_data, node_id.index()),
-                *css_property_type,
-                |conds| matches_pseudo_state(conds, PseudoStateType::Placeholder),
-                &rank,
-            ) {
-                return Some(p);
+        // Then the pseudo-state tiers, strongest first, and the Normal base
+        // layer last. Every tier looks in the same three places and the first
+        // hit wins: PRIORITY 1 the node's inline declarations for the state
+        // (highest priority per CSS spec), PRIORITY 2 its stylesheet rules for
+        // it, PRIORITY 3 what it inherited (cascaded) for it.
+        //
+        // - `::placeholder` FIRST. It is a pseudo-ELEMENT: the flag is only
+        //   ever set for the ONE resolve the engine does to style the prompt
+        //   it paints inside an empty editable, and for that resolve the
+        //   pseudo-element's own declarations (`on_placeholder(..)`,
+        //   `.field::placeholder { .. }`) must outrank every state of the
+        //   host. Anything `::placeholder` does not declare keeps falling
+        //   through to the host's normal value, which is what makes an
+        //   unstyled prompt inherit the field's font.
+        // - `:focus` > `:seat-focus` (9b-ii-a-i-d-iii-a: a non-primary seat's
+        //   focus) > `:active` > `:dragging` > `:drag-over` (both above
+        //   `:hover`) > `:hover`.
+        // - `:backdrop` (GTK: the window is not the active one). A WINDOW
+        //   state: `StyledDom::sync_backdrop_state` raises the node flag,
+        //   while the window is inactive, on exactly the nodes that declare
+        //   or inherit a `:backdrop` value. Below every interaction state, so
+        //   a control of an inactive window still shows its hover.
+        // - Normal always applies, as the base layer. Between its stylesheet
+        //   rules and what it inherited sit the global `*` rules.
+        let index = node_id.index();
+        let tiers = [
+            (node_state.placeholder, PseudoStateType::Placeholder),
+            (node_state.focused, PseudoStateType::Focus),
+            (node_state.seat_focused, PseudoStateType::SeatFocus),
+            (node_state.active, PseudoStateType::Active),
+            (node_state.dragging, PseudoStateType::Dragging),
+            (node_state.drag_over, PseudoStateType::DragOver),
+            (node_state.hover, PseudoStateType::Hover),
+            (node_state.backdrop, PseudoStateType::Backdrop),
+            (true, PseudoStateType::Normal),
+        ];
+        for (raised, state) in tiers {
+            if !raised {
+                continue;
             }
 
-            // PRIORITY 2: stylesheet rules (`.field::placeholder { ... }`)
-            if let Some(p) = Self::find_in_stateful(
-                self.css_props.get_slice(node_id.index()),
-                PseudoStateType::Placeholder,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-
-            // PRIORITY 3: cascaded / inherited
-            if let Some(p) = Self::find_in_stateful(
-                self.cascaded_props.get_slice(node_id.index()),
-                PseudoStateType::Placeholder,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-        }
-
-        // :focus > :active > :hover > normal (fallback)
-        if node_state.focused {
-            // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) = azul_css::css::winning_inline_in(
-                self.inline_properties(node_data, node_id.index()),
-                *css_property_type,
-                |conds| matches_pseudo_state(conds, PseudoStateType::Focus),
-                &rank,
-            ) {
-                return Some(p);
-            }
-
-            // PRIORITY 2: CSS stylesheet properties
-            if let Some(p) = Self::find_in_stateful(
-                self.css_props.get_slice(node_id.index()),
-                PseudoStateType::Focus,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-
-            // PRIORITY 3: Cascaded/inherited properties
-            if let Some(p) = Self::find_in_stateful(
-                self.cascaded_props.get_slice(node_id.index()),
-                PseudoStateType::Focus,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-        }
-
-        // `:seat-focus` (9b-ii-a-i-d-iii-a): a non-primary seat's focus, the
-        // same three-tier lookup as `:focus`.
-        if node_state.seat_focused {
-            // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) = azul_css::css::winning_inline_in(
-                self.inline_properties(node_data, node_id.index()),
-                *css_property_type,
-                |conds| matches_pseudo_state(conds, PseudoStateType::SeatFocus),
-                &rank,
-            ) {
-                return Some(p);
-            }
-
-            // PRIORITY 2: CSS stylesheet properties
-            if let Some(p) = Self::find_in_stateful(
-                self.css_props.get_slice(node_id.index()),
-                PseudoStateType::SeatFocus,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-
-            // PRIORITY 3: Cascaded/inherited properties
-            if let Some(p) = Self::find_in_stateful(
-                self.cascaded_props.get_slice(node_id.index()),
-                PseudoStateType::SeatFocus,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-        }
-
-        if node_state.active {
-            // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) = azul_css::css::winning_inline_in(
-                self.inline_properties(node_data, node_id.index()),
-                *css_property_type,
-                |conds| matches_pseudo_state(conds, PseudoStateType::Active),
-                &rank,
-            ) {
-                return Some(p);
-            }
-
-            // PRIORITY 2: CSS stylesheet properties
-            if let Some(p) = Self::find_in_stateful(
-                self.css_props.get_slice(node_id.index()),
-                PseudoStateType::Active,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-
-            // PRIORITY 3: Cascaded/inherited properties
-            if let Some(p) = Self::find_in_stateful(
-                self.cascaded_props.get_slice(node_id.index()),
-                PseudoStateType::Active,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-        }
-
-        // :dragging pseudo-state (higher priority than :hover)
-        if node_state.dragging {
-            if let Some(p) = azul_css::css::winning_inline_in(
-                self.inline_properties(node_data, node_id.index()),
-                *css_property_type,
-                |conds| matches_pseudo_state(conds, PseudoStateType::Dragging),
-                &rank,
-            ) {
-                return Some(p);
-            }
-
-            if let Some(p) = Self::find_in_stateful(
-                self.css_props.get_slice(node_id.index()),
-                PseudoStateType::Dragging,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-
-            if let Some(p) = Self::find_in_stateful(
-                self.cascaded_props.get_slice(node_id.index()),
-                PseudoStateType::Dragging,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-        }
-
-        // :drag-over pseudo-state (higher priority than :hover)
-        if node_state.drag_over {
-            if let Some(p) = azul_css::css::winning_inline_in(
-                self.inline_properties(node_data, node_id.index()),
-                *css_property_type,
-                |conds| matches_pseudo_state(conds, PseudoStateType::DragOver),
-                &rank,
-            ) {
-                return Some(p);
-            }
-
-            if let Some(p) = Self::find_in_stateful(
-                self.css_props.get_slice(node_id.index()),
-                PseudoStateType::DragOver,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-
-            if let Some(p) = Self::find_in_stateful(
-                self.cascaded_props.get_slice(node_id.index()),
-                PseudoStateType::DragOver,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-        }
-
-        if node_state.hover {
-            // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) = azul_css::css::winning_inline_in(
-                self.inline_properties(node_data, node_id.index()),
-                *css_property_type,
-                |conds| matches_pseudo_state(conds, PseudoStateType::Hover),
-                &rank,
-            ) {
-                return Some(p);
-            }
-
-            // PRIORITY 2: CSS stylesheet properties
-            if let Some(p) = Self::find_in_stateful(
-                self.css_props.get_slice(node_id.index()),
-                PseudoStateType::Hover,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-
-            // PRIORITY 3: Cascaded/inherited properties
-            if let Some(p) = Self::find_in_stateful(
-                self.cascaded_props.get_slice(node_id.index()),
-                PseudoStateType::Hover,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-        }
-
-        // `:backdrop` (GTK: the window is not the active one). A WINDOW state:
-        // `StyledDom::sync_backdrop_state` raises the node flag, while the
-        // window is inactive, on exactly the nodes that declare or inherit a
-        // `:backdrop` value. Below every interaction state, so a control of
-        // an inactive window still shows its hover.
-        if node_state.backdrop {
-            // PRIORITY 1: Inline CSS properties (the titlebar's
-            // `background_inactive`), last match wins as above.
-            if let Some(p) =
+            // PRIORITY 1: inline declarations.
+            let inline = if state == PseudoStateType::Backdrop {
+                // `:backdrop` reads the DECLARED static view, the last match
+                // winning (the titlebar's `background_inactive`) - not the
+                // resolved (`var()`), theme-ranked view every other tier
+                // reads. Kept as the tier was written when the tiers were
+                // folded into this loop.
                 node_data
                     .style
                     .iter_inline_properties()
-                    .fold(None, |acc, (prop, conds)| {
-                        if matches_pseudo_state(conds, PseudoStateType::Backdrop)
-                            && prop.get_type() == *css_property_type
-                        {
-                            Some(prop)
-                        } else {
-                            acc
-                        }
+                    .filter(|&(prop, conds)| {
+                        prop.get_type() == *css_property_type && matches_pseudo_state(conds, state)
                     })
+                    .last()
+                    .map(|(prop, _)| prop)
+            } else {
+                azul_css::css::winning_inline_in(
+                    self.inline_properties(node_data, index),
+                    *css_property_type,
+                    |conds| matches_pseudo_state(conds, state),
+                    &rank,
+                )
+            };
+            if inline.is_some() {
+                return inline;
+            }
+
+            // PRIORITY 2: stylesheet rules (`.x:hover { .. }`).
+            if let Some(p) =
+                Self::find_in_stateful(self.css_props.get_slice(index), state, css_property_type)
             {
                 return Some(p);
             }
 
-            // PRIORITY 2: CSS stylesheet properties (`.x:backdrop { .. }`)
+            // PRIORITY 2b (Normal only): global `*` selector properties
+            // (specificity 0,0,0). These are collected once during restyle
+            // and apply to all nodes. Lower priority than per-node rules but
+            // higher than inheritance/UA. Collected in cascade order
+            // (priority, theme rank, source order), so the LAST of a property
+            // wins - as the compact builder, which applies them in turn, has
+            // it.
+            if state == PseudoStateType::Normal {
+                if let Some(p) = self
+                    .global_css_props
+                    .iter()
+                    .rev()
+                    .find(|p| p.get_type() == *css_property_type)
+                {
+                    return Some(p);
+                }
+            }
+
+            // PRIORITY 3: cascaded / inherited properties.
             if let Some(p) = Self::find_in_stateful(
-                self.css_props.get_slice(node_id.index()),
-                PseudoStateType::Backdrop,
+                self.cascaded_props.get_slice(index),
+                state,
                 css_property_type,
             ) {
                 return Some(p);
             }
-
-            // PRIORITY 3: Cascaded/inherited properties
-            if let Some(p) = Self::find_in_stateful(
-                self.cascaded_props.get_slice(node_id.index()),
-                PseudoStateType::Backdrop,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-        }
-
-        // Normal/fallback properties - always apply as base layer
-        // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-        if let Some(p) = azul_css::css::winning_inline_in(
-            self.inline_properties(node_data, node_id.index()),
-            *css_property_type,
-            |conds| matches_pseudo_state(conds, PseudoStateType::Normal),
-            &rank,
-        ) {
-            return Some(p);
-        }
-
-        // PRIORITY 2: CSS stylesheet properties
-        if let Some(p) = Self::find_in_stateful(
-            self.css_props.get_slice(node_id.index()),
-            PseudoStateType::Normal,
-            css_property_type,
-        ) {
-            return Some(p);
-        }
-
-        // PRIORITY 2b: Global `*` selector properties (specificity 0,0,0)
-        // These are collected once during restyle and apply to all nodes.
-        // Lower priority than per-node rules but higher than inheritance/UA.
-        // Collected in cascade order (priority, theme rank, source order), so
-        // the LAST of a property wins - as the compact builder, which applies
-        // them in turn, has it.
-        if let Some(p) = self
-            .global_css_props
-            .iter()
-            .rev()
-            .find(|p| p.get_type() == *css_property_type)
-        {
-            return Some(p);
-        }
-
-        // PRIORITY 3: Cascaded/inherited properties
-        if let Some(p) = Self::find_in_stateful(
-            self.cascaded_props.get_slice(node_id.index()),
-            PseudoStateType::Normal,
-            css_property_type,
-        ) {
-            return Some(p);
         }
 
         // Check computed values cache for inherited properties
