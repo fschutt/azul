@@ -9,8 +9,8 @@ use alloc::{format, string::String, vec::Vec};
 use azul_core::dom::{Dom, IdOrClass};
 use azul_css::{
     dynamic_selector::{
-        CssPropertyWithConditions, DynamicSelector, DynamicSelectorVec, PseudoStateType,
-        ThemeCondition,
+        CssPropertyWithConditions, DynamicSelector, DynamicSelectorContext, DynamicSelectorVec,
+        PseudoStateType, ThemeCondition,
     },
     props::{
         basic::color::ColorU,
@@ -18,6 +18,8 @@ use azul_css::{
         style::StyleBackgroundContent,
     },
 };
+
+use super::UiTheme;
 
 /// Every node of `dom`, depth first, with its path (`root/0/2`).
 pub(crate) fn nodes(dom: &Dom) -> Vec<(String, &Dom)> {
@@ -58,16 +60,55 @@ pub(crate) fn find_all<'a>(dom: &'a Dom, name: &str) -> Vec<&'a Dom> {
         .collect()
 }
 
-/// Whether a declaration's conditions all hold for a node in the `dark` (or
-/// light) theme and in `state` (or at rest), under the APP theme the test
-/// builds for (`azul_core::app_theme::current_theme`: flat, unless a
-/// `ThemeScope` says otherwise) - a widget that follows the app theme carries
-/// every theme's `@theme(<name>)` block, and only the live one applies.
-fn applies(conds: &DynamicSelectorVec, dark: bool, state: Option<PseudoStateType>) -> bool {
-    conds.as_ref().iter().all(|c| match c {
-        DynamicSelector::Theme(ThemeCondition::Custom(name)) => {
-            name.as_str() == azul_core::app_theme::current_theme().as_str()
+/// The app theme every probe evaluates under: the one the test builds for,
+/// entered explicitly (`theme_blocks::checks::under(theme, ..)`, a
+/// `ThemeScope` - what a window does around its DOM build), and the default
+/// app theme, flat, outside one. The widget built in the same scope is built
+/// for the same theme ([`UiTheme::current`]), so a probe reads the look the
+/// build shows.
+///
+/// ONE rule for every probe - [`resolve`] and everything on it, the
+/// `widgets::theme_probe` readers and `theme_blocks::checks` - so a probe on
+/// a widget that follows the app theme answers exactly what it answers on
+/// the widget pinned to that theme.
+#[must_use]
+pub(crate) fn probe_theme() -> UiTheme {
+    UiTheme::current()
+}
+
+/// `conditions` as the app theme `theme` sees them: `None` when they sit in
+/// another app theme's block (`@theme(<name>)`, decided by the cascade's own
+/// matcher), else the conditions left once the app-theme ones are dropped -
+/// what the same declaration carries on a widget pinned to `theme`.
+#[must_use]
+pub(crate) fn live_conditions(
+    conditions: &DynamicSelectorVec,
+    theme: UiTheme,
+) -> Option<DynamicSelectorVec> {
+    let ctx = DynamicSelectorContext::default().with_app_theme(theme.name());
+    let mut kept = Vec::new();
+    for c in conditions.as_ref() {
+        if matches!(c, DynamicSelector::Theme(ThemeCondition::Custom(_))) {
+            if !c.matches(&ctx) {
+                return None;
+            }
+        } else {
+            kept.push(c.clone());
         }
+    }
+    Some(DynamicSelectorVec::from_vec(kept))
+}
+
+/// Whether a declaration's conditions all hold for a node in the `dark` (or
+/// light) theme and in `state` (or at rest), under the app theme the probes
+/// evaluate under ([`probe_theme`]) - a widget that follows the app theme
+/// carries every theme's `@theme(<name>)` block, and only the live one
+/// applies.
+fn applies(conds: &DynamicSelectorVec, dark: bool, state: Option<PseudoStateType>) -> bool {
+    let Some(live) = live_conditions(conds, probe_theme()) else {
+        return false;
+    };
+    live.as_ref().iter().all(|c| match c {
         DynamicSelector::Theme(ThemeCondition::Dark) => dark,
         DynamicSelector::Theme(ThemeCondition::Light) => !dark,
         DynamicSelector::PseudoState(s) => Some(*s) == state,

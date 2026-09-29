@@ -460,9 +460,7 @@ pub(crate) mod checks {
     use azul_core::{app_theme::ThemeScope, dom::Dom};
     use azul_css::{
         css::{Css, CssDeclaration, CssRuleBlock},
-        dynamic_selector::{
-            DynamicSelector, DynamicSelectorContext, DynamicSelectorVec, ThemeCondition,
-        },
+        dynamic_selector::{DynamicSelector, DynamicSelectorVec, ThemeCondition},
         props::property::CssProperty,
         AzString,
     };
@@ -481,36 +479,25 @@ pub(crate) mod checks {
         f()
     }
 
-    /// `css`'s rules as the app theme `theme` sees them: a rule inside
-    /// another theme's block is dropped - the cascade's own matcher decides,
-    /// under a context whose app theme is `theme` - and the live theme's name
-    /// is stripped from the rest, so what remains compares equal to the rules
-    /// of a widget pinned to `theme`.
+    /// `css`'s rules as the app theme `theme` sees them
+    /// (`theme_checks::live_conditions`): a rule inside another theme's block
+    /// is dropped and the live theme's name is stripped from the rest, so what
+    /// remains compares equal to the rules of a widget pinned to `theme`.
     pub(crate) fn live_rules(css: &Css, theme: UiTheme) -> Vec<CssRuleBlock> {
-        let ctx = DynamicSelectorContext::default().with_app_theme(theme.name());
         css.rules
             .as_slice()
             .iter()
             .filter_map(|rule| {
-                let mut kept = Vec::new();
-                for c in rule.conditions.as_slice() {
-                    if matches!(c, DynamicSelector::Theme(ThemeCondition::Custom(_))) {
-                        if !c.matches(&ctx) {
-                            return None;
-                        }
-                    } else {
-                        kept.push(c.clone());
-                    }
-                }
+                let conditions = theme_checks::live_conditions(&rule.conditions, theme)?;
                 let mut live = rule.clone();
-                live.conditions = DynamicSelectorVec::from_vec(kept);
+                live.conditions = conditions;
                 Some(live)
             })
             .collect()
     }
 
     /// `node`'s inline declarations as the app theme the test builds for sees
-    /// them ([`UiTheme::current`]: flat, unless a `ThemeScope` is entered):
+    /// them (`theme_checks::probe_theme`: flat, unless [`under`] says otherwise):
     /// the other theme's block dropped, the live theme's name stripped. A
     /// widget's older tests read its nodes through this, so they ask a widget
     /// that follows the app theme exactly what they asked a pinned one.
@@ -521,7 +508,7 @@ pub(crate) mod checks {
     /// [`live_inline`] for a node's style on its own.
     pub(crate) fn live_style(style: &Css) -> Vec<(CssProperty, DynamicSelectorVec)> {
         let mut out = Vec::new();
-        for rule in live_rules(style, UiTheme::current()) {
+        for rule in live_rules(style, theme_checks::probe_theme()) {
             for d in rule.declarations.as_slice() {
                 if let CssDeclaration::Static(p) = d {
                     out.push((p.clone(), rule.conditions.clone()));

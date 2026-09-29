@@ -423,33 +423,15 @@ pub(crate) mod theme_probe {
             .collect()
     }
 
-    /// The node's inline declarations as the APP theme the test builds for
-    /// sees them (`azul_core::app_theme::current_theme`: flat, unless a
-    /// `ThemeScope` says otherwise): a declaration inside another app theme's
-    /// block (`@theme(<name>)`) is dropped and the live theme's name is
-    /// stripped from the rest. A widget that follows the app theme carries
-    /// every theme's block; read through here it is exactly the widget pinned
-    /// to the live theme, so the probes above answer the same for both.
+    /// The node's inline declarations as the app theme the probes evaluate
+    /// under sees them (`themes::theme_checks::probe_theme`, the one rule
+    /// every probe shares): a declaration inside another app theme's block
+    /// (`@theme(<name>)`) is dropped and the live theme's name is stripped
+    /// from the rest. A widget that follows the app theme carries every
+    /// theme's block; read through here it is exactly the widget pinned to the
+    /// live theme, so the probes above answer the same for both.
     fn live(dom: &Dom) -> Vec<(CssProperty, DynamicSelectorVec)> {
-        let theme = azul_core::app_theme::current_theme();
-        dom.root
-            .style
-            .iter_inline_properties()
-            .filter_map(|(p, c)| {
-                let mut kept = Vec::new();
-                for s in c.as_ref() {
-                    match s {
-                        DynamicSelector::Theme(ThemeCondition::Custom(name)) => {
-                            if name.as_str() != theme.as_str() {
-                                return None;
-                            }
-                        }
-                        other => kept.push(other.clone()),
-                    }
-                }
-                Some((p.clone(), DynamicSelectorVec::from_vec(kept)))
-            })
-            .collect()
+        crate::widgets::themes::theme_blocks::checks::live_inline(dom)
     }
 }
 
