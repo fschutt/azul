@@ -34,7 +34,7 @@
 use alloc::vec::Vec;
 
 use azul_core::{
-    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, SvgNodeData},
+    dom::{Dom, IdOrClass::Class, IdOrClassVec, SvgNodeData},
     svg::{SvgLine, SvgMultiPolygon, SvgPath, SvgPathElement, SvgPathElementVec, SvgPathVec},
 };
 use azul_css::{
@@ -66,10 +66,8 @@ use azul_css::{
     },
     AzString,
 };
-
-/// The class the spinner's root node carries, in every theme.
-pub(crate) static SPINNER_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-spinner"))];
+#[cfg(test)]
+use azul_core::dom::IdOrClass;
 
 /// Which native busy indicator a [`Spinner`] draws.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
