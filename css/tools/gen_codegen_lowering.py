@@ -364,9 +364,39 @@ def gen_api_modules(cl):
         'pub(crate) static C_LIKE_ENUMS: &[&str] = &[',
     ]
     out += [f'    "{t}",' for t in c_like]
-    css_prop_variants = [k for k, _ in enum_variants(ALLC['CssProperty'][1])]
+    cp = ALLC['CssProperty'][1]
+    css_prop_variants = [k for k, _ in enum_variants(cp)]
+    ctors = cp.get('constructors') or {}
     out += [
         '];',
+        '',
+        '/// `(CssProperty variant, its CssPropertyValue alias, the api.json constructor',
+        '/// taking the unwrapped value or "")` - for printers whose bindings build',
+        '/// the variant natively (`CssProperty_Width (LayoutWidthValue_Exact ..)`).',
+        'pub(crate) static CSS_PROPERTY_ALIASES: &[(&str, &str, &str)] = &[',
+    ]
+    for v, alias in enum_variants(cp):
+        c = snake(v) if snake(v) in ctors else ''
+        out.append(f'    ("{v}", "{alias}", "{c}"),')
+    out += [
+        '];',
+        '',
+        '/// The `CssPropertyValue` alias of a `CssProperty` variant (`Width` ->',
+        '/// `LayoutWidthValue`).',
+        '#[must_use]',
+        'pub fn css_property_alias(variant: &str) -> Option<&\'static str> {',
+        '    CSS_PROPERTY_ALIASES.iter().find(|(v, _, _)| *v == variant).map(|(_, a, _)| *a)',
+        '}',
+        '',
+        '/// The `CssProperty` variant an api.json constructor builds (`text_color`',
+        '/// -> `TextColor`).',
+        '#[must_use]',
+        'pub fn css_property_variant_of_ctor(ctor: &str) -> Option<&\'static str> {',
+        '    CSS_PROPERTY_ALIASES',
+        '        .iter()',
+        '        .find(|(_, _, c)| !c.is_empty() && *c == ctor)',
+        '        .map(|(v, _, _)| *v)',
+        '}',
         '',
         '/// `CssProperty` variants in declaration order: the index is the C tag',
         '/// (bindings that build a `CssProperty` union by hand need it).',

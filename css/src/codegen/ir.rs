@@ -386,7 +386,7 @@ pub fn float_text(v: f64) -> String {
         return "nan".to_string();
     }
     if v.is_infinite() {
-        return if v > 0.0 { "inf" } else { "-inf" }.to_string();
+        return String::from(if v > 0.0 { "inf" } else { "-inf" });
     }
     // `Display` on floats prints the shortest round-trip form and never an
     // exponent; make sure there is a decimal point.
@@ -401,7 +401,7 @@ pub fn float_text_f32(v: f32) -> String {
         return "nan".to_string();
     }
     if v.is_infinite() {
-        return if v > 0.0 { "inf" } else { "-inf" }.to_string();
+        return String::from(if v > 0.0 { "inf" } else { "-inf" });
     }
     normalize_float_text(format!("{v}"))
 }

@@ -23,16 +23,24 @@ use super::{
 pub mod c;
 pub mod cpp;
 pub mod csharp;
+pub mod d;
 pub mod go;
+pub mod haskell;
 pub mod java;
+pub mod julia;
 pub mod kotlin;
+pub mod linear;
 pub mod lua;
+pub mod nim;
 pub mod node;
+pub mod ocaml;
+pub mod pascal;
 pub mod php;
 pub mod python;
 pub mod ruby;
 pub mod rust;
 pub mod swift;
+pub mod zig;
 
 /// How one language spells the IR node kinds.
 pub trait ExprSyntax {
@@ -69,10 +77,17 @@ pub trait ExprSyntax {
 /// droppable list (that one drops its own bad items).
 #[must_use]
 pub fn blocker(s: &dyn ExprSyntax, e: &Expr) -> Option<String> {
+    blocker_with(&|n| s.limitation(n), e)
+}
+
+/// [`blocker`] for any limitation function (the statement-oriented printers
+/// of [`linear`] have no [`ExprSyntax`]).
+#[must_use]
+pub fn blocker_with(limitation: &dyn Fn(&Expr) -> Option<String>, e: &Expr) -> Option<String> {
     if let Expr::Unsupported { what } = e {
         return Some(what.clone());
     }
-    if let Some(r) = s.limitation(e) {
+    if let Some(r) = limitation(e) {
         return Some(r);
     }
     match e {
@@ -80,11 +95,13 @@ pub fn blocker(s: &dyn ExprSyntax, e: &Expr) -> Option<String> {
             if is_droppable_vec(ty) {
                 None
             } else {
-                items.iter().find_map(|i| blocker(s, i))
+                items.iter().find_map(|i| blocker_with(limitation, i))
             }
         }
-        Expr::Call { args, .. } | Expr::Variant { args, .. } => args.iter().find_map(|a| blocker(s, a)),
-        Expr::Struct { fields, .. } => fields.iter().find_map(|(_, v)| blocker(s, v)),
+        Expr::Call { args, .. } | Expr::Variant { args, .. } => {
+            args.iter().find_map(|a| blocker_with(limitation, a))
+        }
+        Expr::Struct { fields, .. } => fields.iter().find_map(|(_, v)| blocker_with(limitation, v)),
         Expr::Int { .. } | Expr::Float { .. } | Expr::Bool(_) | Expr::Str(_) => None,
     }
 }
@@ -466,6 +483,13 @@ pub fn all() -> Vec<Box<dyn CodegenBackend>> {
         Box::new(ruby::Ruby),
         Box::new(php::Php),
         Box::new(lua::Lua),
+        Box::new(zig::Zig),
+        Box::new(nim::Nim),
+        Box::new(d::D),
+        Box::new(ocaml::OCaml),
+        Box::new(haskell::Haskell),
+        Box::new(julia::Julia),
+        Box::new(pascal::Pascal),
     ]
 }
 
