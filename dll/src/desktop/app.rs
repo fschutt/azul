@@ -239,6 +239,24 @@ impl App {
             );
         }
 
+        // The user's icon rules (`~/.azul/icons/remap.json`, one table per
+        // theme directory): per-name remaps whose `apply-if` is evaluated at
+        // every lookup against the window's context. `AZ_RICING=off` skips
+        // them, like the user stylesheet. Nothing here can fail the app: what
+        // does not load is reported and skipped.
+        if azul_css::system::ricing_enabled() {
+            if let Some(root) = azul_layout::icon_remap::user_icons_root() {
+                let report = azul_layout::icon_remap::load_user_icon_rules(
+                    &mut app_config.icon_provider,
+                    &root,
+                    &azul_layout::icon_remap::current_app_name(),
+                );
+                for warning in &report.warnings {
+                    eprintln!("[azul][icons] {warning}");
+                }
+            }
+        }
+
         let app_internal = AppInternal::create(initial_data, app_config);
         let boxed = Box::new(app_internal);
 

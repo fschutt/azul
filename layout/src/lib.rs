@@ -410,6 +410,10 @@ pub use zip::{
 
 /// Icon provider: resolves icons from Material Icons font, images, or ZIP packs.
 pub mod icon;
+/// The user's icon rules on disk (`~/.azul/icons/remap.json`, one table per
+/// theme directory) and the walk of a `.azul` theme tree.
+#[cfg(feature = "std")]
+pub mod icon_remap;
 // Re-export core icon types
 pub use azul_core::icon::{
     parse_icon_apply_if, resolve_icons_in_dom, resolve_icons_in_dom_with_context,
