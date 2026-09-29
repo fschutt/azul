@@ -692,20 +692,22 @@ unsafe fn make_category(id: &str, actions: &[NotificationAction]) -> Option<Reta
 }
 
 /// The category for this button set, registered with the center if it is new.
-unsafe fn ensure_category(center: *mut AnyObject, actions: &[NotificationAction]) -> String {
+/// The flag is `true` when it was registered by THIS call - see
+/// [`add_request`] for why that matters.
+unsafe fn ensure_category(center: *mut AnyObject, actions: &[NotificationAction]) -> (String, bool) {
     let id = wire::apple_category_id(actions);
     let mut known = CATEGORIES.lock().unwrap_or_else(PoisonError::into_inner);
     if known.contains_key(&id) {
-        return id;
+        return (id, false);
     }
     known.insert(id.clone(), actions.to_vec());
     let Some(set_cls) = class("NSMutableSet") else {
-        return id;
+        return (id, false);
     };
     unsafe {
         let set: Option<Retained<AnyObject>> = msg_send![set_cls, set];
         let Some(set) = set else {
-            return id;
+            return (id, false);
         };
         for (category_id, category_actions) in known.iter() {
             if let Some(category) = make_category(category_id, category_actions) {
@@ -714,7 +716,7 @@ unsafe fn ensure_category(center: *mut AnyObject, actions: &[NotificationAction]
         }
         let _: () = msg_send![center, setNotificationCategories: &*set];
     }
-    id
+    (id, true)
 }
 
 /// An attachment showing `path`. UN MOVES an attachment's file into its own
@@ -792,7 +794,7 @@ unsafe fn add_request(center: *mut AnyObject, post: &PendingPost) {
 
         // Always a category, even with no buttons: the custom-dismiss option
         // lives on it, and without it no dismissal is ever reported.
-        let category = ensure_category(center, &post.actions);
+        let (category, registered_now) = ensure_category(center, &post.actions);
         let _: () = msg_send![&*content, setCategoryIdentifier: nsstring(&category)];
 
         // The payload travels WITH the notification, so a response delivered
@@ -831,19 +833,45 @@ unsafe fn add_request(center: *mut AnyObject, post: &PendingPost) {
             return post.fail("could not create the notification request".to_string());
         }
 
+        if !registered_now {
+            return add_now(center, &*request, &post.id, &post.payload);
+        }
+        // `setNotificationCategories:` applies asynchronously, so a request
+        // added right after registering a NEW button set can be shown
+        // without its buttons. Reading the categories back answers only
+        // once the registration has landed; the request is added from that
+        // answer. The request is autoreleased by the pool around this call,
+        // so the block keeps its own reference.
+        let Some(request) = Retained::retain(request) else {
+            return post.fail("could not keep the notification request".to_string());
+        };
+        let center_addr = center as usize;
         let id = post.id.clone();
         let payload = post.payload.clone();
-        let done = RcBlock::new(move |error: *mut AnyObject| {
-            if error.is_null() {
-                return;
-            }
-            let why = unsafe { error_description(error) }
-                .unwrap_or_else(|| "UNUserNotificationCenter refused the request".to_string());
-            let mut event =
-                NotificationEvent::failed(AzString::from(id.clone()), AzString::from(why));
-            event.payload = AzString::from(payload.clone());
-            queue_and_wake(event);
+        let then_add = RcBlock::new(move |_categories: *mut AnyObject| {
+            let center = center_addr as *mut AnyObject;
+            objc2::rc::autoreleasepool(|_| unsafe { add_now(center, &request, &id, &payload) });
         });
+        let _: () = msg_send![center, getNotificationCategoriesWithCompletionHandler: &*then_add];
+    }
+}
+
+/// `addNotificationRequest:withCompletionHandler:`; a refusal becomes a
+/// `Failed` event.
+unsafe fn add_now(center: *mut AnyObject, request: &AnyObject, id: &str, payload: &str) {
+    let id = id.to_string();
+    let payload = payload.to_string();
+    let done = RcBlock::new(move |error: *mut AnyObject| {
+        if error.is_null() {
+            return;
+        }
+        let why = unsafe { error_description(error) }
+            .unwrap_or_else(|| "UNUserNotificationCenter refused the request".to_string());
+        let mut event = NotificationEvent::failed(AzString::from(id.clone()), AzString::from(why));
+        event.payload = AzString::from(payload.clone());
+        queue_and_wake(event);
+    });
+    unsafe {
         let _: () = msg_send![center, addNotificationRequest: request, withCompletionHandler: &*done];
     }
 }
