@@ -1023,32 +1023,34 @@ pub struct AppConfig {
     /// `azul_css::dynamic_selector::DEFAULT_APP_THEME`), `"flora"`, later
     /// `"native"` and user themes. `@theme(<name>)` blocks - every widget
     /// carries one per theme it knows - apply only while their name is the
-    /// app's theme; `@theme(light)` / `@theme(dark)` stay the colour scheme
-    /// ([`Self::color_scheme`]), which this does not touch.
+    /// app's theme; `@theme(light)` / `@theme(dark)` stay the light / dark
+    /// mode ([`Self::mode`]), which this does not touch.
     ///
     /// Switch it at runtime with `CallbackInfo::set_theme`: every window's
-    /// DOM is RECREATED (`layout()` runs again, `RelayoutReason::AppThemeChange`),
-    /// because a theme may change a widget's structure - unlike the colour
-    /// scheme, which only repaints. `CallbackInfo::get_theme` and
-    /// `LayoutCallbackInfo::get_theme_name` read it back.
+    /// DOM is RECREATED (`layout()` runs again, `RelayoutReason::ThemeChange`),
+    /// because a theme may change a widget's structure - unlike the mode,
+    /// which only repaints. `CallbackInfo::get_theme` and
+    /// `LayoutCallbackInfo::get_theme` read it back.
     ///
     /// 8-aligned (a string), so it sits with the other 8-aligned fields.
     pub theme: AzString,
-    /// The app's colour scheme: `None` (the default) follows the desktop's
-    /// light / dark setting, and every change of it; `Some(theme)` pins every
-    /// window of the app to `theme`, whatever the desktop says.
+    /// The app's MODE: `None` (the default, "system") follows the desktop's
+    /// light / dark setting, and every change of it; `Some(mode)` pins every
+    /// window of the app to light or dark, whatever the desktop says. Not
+    /// the app theme ([`Self::theme`]).
     ///
-    /// Switch it at runtime with `CallbackInfo::set_color_scheme` (every
-    /// window, and every window opened later); `CallbackInfo::get_color_scheme`
-    /// reads the choice back, `get_resolved_color_scheme` the light / dark it
-    /// gives. A switch is a restyle - colours only, the DOM is kept - unless a
-    /// `layout()` read the scheme (`LayoutCallbackInfo::get_theme`), which then
-    /// runs again. The `AZ_THEME=light|dark` environment pin (screenshots, CI)
-    /// outranks this; this outranks a window's own `WindowCreateOptions::theme`.
+    /// Switch it at runtime with `CallbackInfo::set_mode` (every window, and
+    /// every window opened later); `CallbackInfo::get_mode` reads the choice
+    /// back, `get_resolved_mode` the light / dark it gives. A switch is a
+    /// restyle - colours only, the DOM is kept - unless a `layout()` read the
+    /// mode (`LayoutCallbackInfo::get_mode`), which then runs again
+    /// (`RelayoutReason::ModeChange`). The `AZ_THEME=light|dark` environment
+    /// pin (screenshots, CI) outranks this; this outranks a window's own
+    /// `WindowCreateOptions::theme`.
     ///
     /// 8 bytes, 4-aligned: it sits with the 4-byte enums below (a 4-byte
     /// `repr(C)` enum here would leave 4 bytes of tail padding).
-    pub color_scheme: crate::window::OptionWindowTheme,
+    pub mode: crate::window::OptionWindowTheme,
     /// If enabled, logs error and info messages.
     ///
     /// Default is `LevelFilter::Error` to log all errors by default
@@ -1166,19 +1168,18 @@ impl AppConfig {
             crate::global_hotkey::OptionGlobalHotkeysCallback::Some(cb.into());
     }
 
-    /// Start the app in a colour scheme: `Some(theme)` pins every window to
-    /// light or dark, `None` (the default) follows the desktop. See
-    /// [`Self::color_scheme`]; switch it later with
-    /// `CallbackInfo::set_color_scheme`.
+    /// Start the app in a mode: `Some(mode)` pins every window to light or
+    /// dark, `None` (the default, "system") follows the desktop. See
+    /// [`Self::mode`]; switch it later with `CallbackInfo::set_mode`.
     #[must_use]
-    pub fn with_color_scheme(mut self, scheme: crate::window::OptionWindowTheme) -> Self {
-        self.set_color_scheme(scheme);
+    pub fn with_mode(mut self, mode: crate::window::OptionWindowTheme) -> Self {
+        self.set_mode(mode);
         self
     }
 
-    /// In-place [`Self::with_color_scheme`].
-    pub fn set_color_scheme(&mut self, scheme: crate::window::OptionWindowTheme) {
-        self.color_scheme = scheme;
+    /// In-place [`Self::with_mode`].
+    pub fn set_mode(&mut self, mode: crate::window::OptionWindowTheme) {
+        self.mode = mode;
     }
 
     /// Start the app in the theme `name` (`"flat"`, `"flora"`, ...): every
@@ -1239,7 +1240,7 @@ impl AppConfig {
             // one constant.
             theme: AzString::from_const_str(azul_css::dynamic_selector::DEFAULT_APP_THEME),
             // Follow the desktop.
-            color_scheme: crate::window::OptionWindowTheme::None,
+            mode: crate::window::OptionWindowTheme::None,
         };
         // Dogfood: register the 52 built-in HTML elements via the
         // same `add_component_library` API that users call.

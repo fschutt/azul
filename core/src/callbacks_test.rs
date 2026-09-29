@@ -743,9 +743,10 @@ mod autotest_generated {
             RelayoutReason::Initial,
             RelayoutReason::RefreshDom,
             RelayoutReason::Resize,
-            RelayoutReason::ThemeChange,
+            RelayoutReason::ModeChange,
             RelayoutReason::RouteChange,
             RelayoutReason::Other,
+            RelayoutReason::ThemeChange,
         ] {
             let info = LayoutCallbackInfo::new_with_reason(
                 &rd,
@@ -1695,10 +1696,11 @@ mod system_style_dependency_tests {
         );
     }
 
-    /// `get_theme()` is the tracked way to read the polarity; the bare `theme`
-    /// FIELD declares nothing, exactly like reading `window_size` directly.
+    /// `get_mode()` is the tracked way to read the light / dark mode; the bare
+    /// `theme` FIELD declares nothing, exactly like reading `window_size`
+    /// directly.
     #[test]
-    fn get_theme_declares_the_polarity_and_the_bare_field_declares_nothing() {
+    fn get_mode_declares_the_mode_and_the_bare_field_declares_nothing() {
         let rd = Rd::new();
         let rd = rd.ref_data();
         let _ = take_recorded_style_dependencies();
@@ -1707,7 +1709,7 @@ mod system_style_dependency_tests {
         let _ = info.theme;
         assert!(take_recorded_style_dependencies().is_empty());
 
-        assert_eq!(info.get_theme(), WindowTheme::LightMode);
+        assert_eq!(info.get_mode(), WindowTheme::LightMode);
         let declared = take_recorded_style_dependencies();
         assert!(declared.contains(SystemStyleDependency::Theme));
         assert!(!declared.contains(SystemStyleDependency::Colors));
@@ -2131,29 +2133,29 @@ mod app_theme_tests {
         assert_eq!(current_theme().as_str(), "flora");
     }
 
-    /// `layout()` reads the theme it builds for through its info. The name
-    /// getter is `get_theme_name` because `get_theme` is the colour scheme
-    /// (and stays so until the AZ_THEME / colour-scheme migration).
+    /// `layout()` reads the app theme it builds for through its info
+    /// (`get_theme`, a name); the light / dark mode is the other getter
+    /// (`get_mode`).
     #[test]
-    fn get_theme_name_answers_the_scope_and_leaves_the_colour_scheme_getter_alone() {
+    fn get_theme_answers_the_scope_and_leaves_the_mode_getter_alone() {
         let rd = Rd::new();
         let rd = rd.ref_data();
         let info = info(&rd);
         let _ = take_recorded_style_dependencies();
 
-        assert_eq!(info.get_theme_name().as_str(), "flat");
+        assert_eq!(info.get_theme().as_str(), "flat");
         {
             let _flora = ThemeScope::enter(AzString::from("flora"));
-            assert_eq!(info.get_theme_name().as_str(), "flora");
+            assert_eq!(info.get_theme().as_str(), "flora");
         }
         assert!(
             take_recorded_style_dependencies().is_empty(),
             "a theme switch ALWAYS rebuilds the DOM, so reading the name declares nothing"
         );
         assert_eq!(
-            info.get_theme(),
+            info.get_mode(),
             WindowTheme::LightMode,
-            "the colour scheme, as before"
+            "the light / dark mode, as before"
         );
     }
 
@@ -2165,13 +2167,13 @@ mod app_theme_tests {
             &rd,
             WindowSize::default(),
             WindowTheme::LightMode,
-            RelayoutReason::AppThemeChange,
-        );
-        assert_eq!(info.relayout_reason(), RelayoutReason::AppThemeChange);
-        assert_ne!(
-            RelayoutReason::AppThemeChange,
             RelayoutReason::ThemeChange,
-            "ThemeChange is the colour scheme; the app theme is a DOM rebuild of its own"
+        );
+        assert_eq!(info.relayout_reason(), RelayoutReason::ThemeChange);
+        assert_ne!(
+            RelayoutReason::ThemeChange,
+            RelayoutReason::ModeChange,
+            "ModeChange is the light / dark mode; the app theme is a DOM rebuild of its own"
         );
     }
 }

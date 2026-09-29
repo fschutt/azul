@@ -688,7 +688,7 @@ mod autotest_generated {
             global_hotkeys,
             global_hotkeys_callback,
             theme,
-            color_scheme,
+            mode,
             log_level,
             natural_scroll,
             termination_behavior,
@@ -716,7 +716,7 @@ mod autotest_generated {
             + size_of_field(global_hotkeys)
             + size_of_field(global_hotkeys_callback)
             + size_of_field(theme)
-            + size_of_field(color_scheme)
+            + size_of_field(mode)
             + size_of_field(log_level)
             + size_of_field(natural_scroll)
             + size_of_field(termination_behavior)
@@ -734,8 +734,8 @@ mod autotest_generated {
     }
 
     /// The app theme (`@theme(<name>)` blocks, the widgets' flat / flora
-    /// looks) is a NAME, separate from the colour scheme: `flat` unless the
-    /// app chooses another, and choosing one leaves the colour scheme alone.
+    /// looks) is a NAME, separate from the light / dark mode: `flat` unless
+    /// the app chooses another, and choosing one leaves the mode alone.
     #[test]
     fn the_app_theme_defaults_to_flat_and_with_theme_chooses_another() {
         let config = AppConfig::create();
@@ -749,7 +749,7 @@ mod autotest_generated {
         let flora = AppConfig::create().with_theme(AzString::from_const_str("flora"));
         assert_eq!(flora.theme.as_str(), "flora");
         assert!(
-            matches!(flora.color_scheme, crate::window::OptionWindowTheme::None),
+            matches!(flora.mode, crate::window::OptionWindowTheme::None),
             "choosing a theme does not pin light / dark"
         );
 

@@ -1,11 +1,11 @@
 //! The APP THEME: the one name - `flat`, `flora`, later `native` and user
 //! themes - that `@theme(<name>)` blocks select by, separate from the light /
-//! dark colour scheme.
+//! dark MODE.
 //!
 //! Two pieces of state:
 //!
 //! - the app's CHOICE ([`set_app_theme`] / [`app_theme`]), process-global like
-//!   the colour scheme's (`azul_layout::window::set_app_color_scheme`):
+//!   the mode's (`azul_layout::window::set_app_mode`):
 //!   `App::create` publishes `AppConfig::theme`, `CallbackInfo::set_theme`
 //!   switches it. Global because a window opened after a switch has to start
 //!   in it, and window creation has no path back to the window whose callback
@@ -131,7 +131,7 @@ fn report_theme_choice(name: &str) {
 ///
 /// What a widget's `dom()` reads to choose its STRUCTURE (its CSS carries
 /// every theme's block and needs no answer); `layout()` reads the same value
-/// through `LayoutCallbackInfo::get_theme_name`.
+/// through `LayoutCallbackInfo::get_theme`.
 #[must_use]
 pub fn current_theme() -> AzString {
     #[cfg(feature = "std")]

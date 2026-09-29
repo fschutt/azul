@@ -919,7 +919,8 @@ pub struct LayoutCallbackInfoRefData<'a> {
 ///
 /// The framework re-invokes the layout callback for any change that may
 /// produce a structurally different DOM (resize across a CSS breakpoint,
-/// theme toggle, route switch, callback returning `Update::RefreshDom`).
+/// light / dark mode switch, app theme switch, route switch, callback
+/// returning `Update::RefreshDom`).
 /// `LayoutCallbackInfo::relayout_reason()` exposes which trigger this
 /// particular call corresponds to so the callback can branch - for
 /// example, skip expensive analytics on `Resize` calls.
@@ -929,34 +930,37 @@ pub struct LayoutCallbackInfoRefData<'a> {
 pub enum RelayoutReason {
     /// First layout call for this window.
     #[default]
-    Initial,
+    Initial = 0,
     /// A user callback returned `Update::RefreshDom`.
-    RefreshDom,
+    RefreshDom = 1,
     /// Window size changed across a CSS breakpoint or DPI scale change.
     /// The callback can branch on `info.window_width_*` to emit a
     /// different tree (e.g. hamburger menu vs sidebar).
-    Resize,
-    /// The COLOUR SCHEME changed (light/dark) and this `layout()` read it
-    /// (`get_theme`) - otherwise a colour-scheme change only restyles.
-    ThemeChange,
+    Resize = 2,
+    /// The MODE changed (light / dark) and this `layout()` read it
+    /// (`LayoutCallbackInfo::get_mode`) - otherwise a mode switch only
+    /// restyles. Value 3: the light / dark `ThemeChange` before the
+    /// theme / mode rename.
+    ModeChange = 3,
     /// `CallbackInfo::switch_route` or `set_route_param` produced a new
     /// route match. The callback should branch on
     /// `info.get_active_route()`.
-    RouteChange,
+    RouteChange = 4,
     /// Catch-all for relayouts that don't fit one of the above categories.
-    Other,
+    Other = 5,
     /// The APP THEME changed (`CallbackInfo::set_theme`): every window's DOM
     /// is recreated, because a theme may change a widget's structure. The
-    /// callback builds for `info.get_theme_name()`. Appended after `Other`
-    /// so the existing discriminants keep their values.
-    AppThemeChange,
+    /// callback builds for `info.get_theme()`. Appended after `Other` so the
+    /// existing discriminants keep their values (6: `AppThemeChange` before
+    /// the theme / mode rename; a binding's `ThemeChange` now means THIS).
+    ThemeChange = 6,
 }
 
 impl RelayoutReason {
     /// Whether the rebuild SLIDES the nodes it moved (FLIP) or reflows them
     /// in place. A change the user made inside the UI animates; a change of
     /// the ENVIRONMENT the whole window is rebuilt into - its size, its
-    /// colour scheme, the app theme - reflows in place: sliding every node
+    /// mode, the app theme - reflows in place: sliding every node
     /// from where the old environment put it would animate the whole window
     /// (a ribbon compressing at a breakpoint dragged behind the window edge;
     /// a theme switch slid every control between the two themes' metrics).
@@ -964,7 +968,7 @@ impl RelayoutReason {
     pub const fn animates_moves(self) -> bool {
         match self {
             Self::Initial | Self::RefreshDom | Self::RouteChange | Self::Other => true,
-            Self::Resize | Self::ThemeChange | Self::AppThemeChange => false,
+            Self::Resize | Self::ModeChange | Self::ThemeChange => false,
         }
     }
 }
@@ -1162,7 +1166,7 @@ pub fn take_recorded_size_queries() -> (alloc::vec::Vec<SizeQuery>, bool) {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SystemStyleDependency {
-    /// The light/dark polarity alone — [`LayoutCallbackInfo::get_theme`].
+    /// The light/dark mode alone — [`LayoutCallbackInfo::get_mode`].
     Theme,
     /// The colour palette: text, background, accent, button, selection.
     Colors,
@@ -1589,7 +1593,7 @@ impl LayoutCallbackInfo {
     /// Declare that the DOM this callback returns depends on `dep`.
     ///
     /// THE seam between "the OS appearance changed" and "this app's DOM is
-    /// now wrong". A theme switch, an accent-colour change, a UI-font resize
+    /// now wrong". A light / dark switch, an accent-colour change, a UI-font resize
     /// all arrive as the same kind of event, and the engine has no way to see
     /// which of them can change what `layout()` builds — only the callback
     /// knows.
@@ -1602,9 +1606,9 @@ impl LayoutCallbackInfo {
     ///
     /// ```ignore
     /// // "I mirror light/dark and nothing else": switching between two
-    /// // light colour schemes cannot change my DOM.
+    /// // light palettes cannot change my DOM.
     /// info.depends_on_system_style(SystemStyleDependency::Theme);
-    /// let dark = info.get_theme() == WindowTheme::DarkMode;
+    /// let dark = info.get_mode() == WindowTheme::DarkMode;
     ///
     /// // "I paint my own buttons from the OS palette": ANY palette move
     /// // invalidates my DOM, light-to-light included.
@@ -1626,39 +1630,36 @@ impl LayoutCallbackInfo {
         record_style_dependency(dep);
     }
 
-    /// The window's light/dark polarity, declaring
+    /// The window's light / dark MODE, declaring
     /// [`SystemStyleDependency::Theme`].
     ///
     /// The tracked way to read what the `theme` field also holds. Use this
-    /// and a change that leaves the polarity alone — a new accent colour, a
-    /// different light scheme — will not rebuild the DOM.
+    /// and a change that leaves the mode alone — a new accent colour, a
+    /// different light palette — will not rebuild the DOM.
     ///
-    /// It is what the window SHOWS: the desktop's polarity, or the app's
-    /// colour-scheme pin (`AppConfig::color_scheme`,
-    /// `CallbackInfo::set_color_scheme`). Reading it is also what makes a
-    /// colour-scheme switch re-run this callback; a callback that never reads
-    /// it is only re-styled.
+    /// It is what the window SHOWS: the desktop's mode, or the app's mode
+    /// pin (`AppConfig::mode`, `CallbackInfo::set_mode`). Reading it is also
+    /// what makes a mode switch re-run this callback
+    /// (`RelayoutReason::ModeChange`); a callback that never reads it is
+    /// only re-styled. Not the app theme ([`Self::get_theme`]).
     #[must_use]
-    pub fn get_theme(&self) -> WindowTheme {
+    pub fn get_mode(&self) -> WindowTheme {
         self.depends_on_system_style(SystemStyleDependency::Theme);
         self.theme
     }
 
     /// The APP THEME this `layout()` builds for (`"flat"`, `"flora"`, ...;
     /// `AppConfig::with_theme`, `CallbackInfo::set_theme`) - separate from
-    /// the colour scheme [`Self::get_theme`] returns.
+    /// the light / dark mode [`Self::get_mode`] returns.
     ///
     /// Branch the DOM's STRUCTURE on it; its CSS needs no branch, because
     /// `@theme(<name>)` blocks select themselves. Declares nothing: a theme
-    /// switch always re-runs `layout()` (`RelayoutReason::AppThemeChange`).
+    /// switch always re-runs `layout()` (`RelayoutReason::ThemeChange`).
     /// A widget's `dom()`, which has no info, reads the same value through
     /// `azul_core::app_theme::current_theme`.
-    ///
-    /// `get_theme_name` rather than `get_theme` because `get_theme` is the
-    /// colour scheme until the colour-scheme API migration renames it.
     #[allow(clippy::unused_self)] // C-ABI-shaped method: receiver kept for API symmetry
     #[must_use]
-    pub fn get_theme_name(&self) -> AzString {
+    pub fn get_theme(&self) -> AzString {
         crate::app_theme::current_theme()
     }
 
