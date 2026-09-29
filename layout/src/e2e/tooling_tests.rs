@@ -503,3 +503,72 @@ fn page_down_scrolls_the_box_under_the_pointer_when_nothing_is_focused() {
 
     assert!(paged > 50.0, "PageDown scrolled the hovered box, got {paged:.1}");
 }
+
+// ==== the transient `Dismissed` event in the headless runner ====
+
+/// The runner closed a widget's popup on Escape but never told the widget:
+/// no `ComponentEventFilter::Dismissed`. The colour input keeps its own
+/// `open` flag, which its `Dismissed` handler clears; without the event the
+/// flag stayed `true`, so the next Space on the swatch TOGGLED it to false
+/// and the picker would not open again.
+#[test]
+fn escape_tells_the_widget_its_popup_was_dismissed_so_space_opens_it_again() {
+    use azul_core::{
+        dom::{Dom, IdOrClass, TabIndex},
+        window::VirtualKeyCode,
+    };
+    use azul_layout::widgets::color_input::{color_from_hex, ColorInput};
+
+    let stop = |class: &str| {
+        let mut d = Dom::create_div()
+            .with_ids_and_classes(vec![IdOrClass::Class(class.into())].into())
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(class));
+        d.set_tab_index(TabIndex::Auto);
+        d
+    };
+    let mut dom = Dom::create_body()
+        .with_child(stop("stop-before"))
+        .with_child(ColorInput::create(color_from_hex("#ff5733").expect("a colour")).dom())
+        .with_child(stop("stop-after"));
+    let (css, _) = azul_css::parser2::new_from_str(
+        "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: 200px; }",
+    );
+    let styled_dom = azul_core::styled_dom::StyledDom::create(&mut dom, css);
+
+    let mut steps = vec![serde_json::json!({ "op": "wait_frame" })];
+    for k in ["Tab", "Tab", "Space"] {
+        steps.extend(key(k));
+    }
+    let test: E2eTest = serde_json::from_value(serde_json::json!({
+        "name": "space_opens_the_picker",
+        "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+        "steps": steps,
+    }))
+    .expect("scenario json");
+    let (result, mut runner) = super::run_e2e_test_keeping_runner(&test, Some(styled_dom));
+    assert_eq!(result.status, "pass", "{:#?}", result.steps);
+    let open = |runner: &super::Runner| {
+        runner
+            .layout_window
+            .transient_windows
+            .forced_open_nodes()
+            .len()
+    };
+    assert_eq!(open(&runner), 1, "premise: Space opened the picker");
+    let swatch = super::tests::node_with_class(&runner, "native_color_input");
+
+    super::tests::tap_key(&mut runner, VirtualKeyCode::Escape, &[]);
+    assert_eq!(open(&runner), 0, "premise: Escape closed it");
+    assert_eq!(
+        runner.layout_window.focus_manager.get_focused_node().copied(),
+        Some(swatch),
+        "premise: focus went back to the swatch"
+    );
+
+    super::tests::tap_key(&mut runner, VirtualKeyCode::Space, &[]);
+    assert_eq!(
+        open(&runner),
+        1,
+        "the Dismissed handler cleared the widget's open flag, so Space opens the picker again"
+    );
+}

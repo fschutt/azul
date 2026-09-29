@@ -6319,7 +6319,7 @@ mod tests {
     }
 
     /// The first node whose classes contain `needle`, in the root dom.
-    fn node_with_class(runner: &Runner, needle: &str) -> DomNodeId {
+    pub(super) fn node_with_class(runner: &Runner, needle: &str) -> DomNodeId {
         let lr = runner
             .layout_window
             .layout_results
@@ -6340,7 +6340,7 @@ mod tests {
 
     /// One key down and up through `ModifyWindowState`, as the `key_down` /
     /// `key_up` ops drive it.
-    fn tap_key(runner: &mut Runner, key: VirtualKeyCode, held: &[VirtualKeyCode]) {
+    pub(super) fn tap_key(runner: &mut Runner, key: VirtualKeyCode, held: &[VirtualKeyCode]) {
         let mut pressed: Vec<VirtualKeyCode> = held.to_vec();
         pressed.push(key);
         let mut state = runner.window_state.clone();
