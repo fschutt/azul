@@ -1025,33 +1025,68 @@ pub fn parse_style_transform(
 pub fn parse_style_transform_origin(
     input: &str,
 ) -> Result<StyleTransformOrigin, CssStyleTransformOriginParseError<'_>> {
-    // Helper to parse position keywords or pixel values
-    fn parse_position_component(
-        s: &str,
-        is_horizontal: bool,
-    ) -> Result<PixelValue, CssPixelValueParseError<'_>> {
-        match s.trim() {
-            "left" if is_horizontal => Ok(PixelValue::percent(0.0)),
-            "center" => Ok(PixelValue::percent(50.0)),
-            "right" if is_horizontal => Ok(PixelValue::percent(100.0)),
-            "top" if !is_horizontal => Ok(PixelValue::percent(0.0)),
-            "bottom" if !is_horizontal => Ok(PixelValue::percent(100.0)),
-            _ => parse_pixel_value(s),
+    let (x, y) = parse_origin_position(input).map_err(|e| match origin_error(e) {
+        OriginError::Components { got, input } => {
+            CssStyleTransformOriginParseError::WrongNumberOfComponents {
+                expected: 2,
+                got,
+                input,
+            }
         }
-    }
-
-    let components: Vec<_> = input.split_whitespace().collect();
-    if components.len() != 2 {
-        return Err(CssStyleTransformOriginParseError::WrongNumberOfComponents {
-            expected: 2,
-            got: components.len(),
-            input,
-        });
-    }
-
-    let x = parse_position_component(components[0], true)?;
-    let y = parse_position_component(components[1], false)?;
+        OriginError::Value(e) => CssStyleTransformOriginParseError::PixelValueParseError(e),
+    })?;
     Ok(StyleTransformOrigin { x, y })
+}
+
+#[cfg(feature = "parser")]
+/// The `<position>` of `transform-origin` / `perspective-origin` as an (x, y)
+/// pair. It is the grammar `background-position` parses - one or two values,
+/// keywords in either order, a missing value is `center` - so both origins
+/// use that parser; the keywords become percentages of the box.
+fn parse_origin_position(
+    input: &str,
+) -> Result<(PixelValue, PixelValue), crate::props::style::background::CssBackgroundPositionParseError<'_>>
+{
+    use crate::props::style::background::{
+        parser::parse_style_background_position, BackgroundPositionHorizontal as H,
+        BackgroundPositionVertical as V,
+    };
+    let position = parse_style_background_position(input)?;
+    let x = match position.horizontal {
+        H::Left => PixelValue::percent(0.0),
+        H::Center => PixelValue::percent(50.0),
+        H::Right => PixelValue::percent(100.0),
+        H::Exact(v) => v,
+    };
+    let y = match position.vertical {
+        V::Top => PixelValue::percent(0.0),
+        V::Center => PixelValue::percent(50.0),
+        V::Bottom => PixelValue::percent(100.0),
+        V::Exact(v) => v,
+    };
+    Ok((x, y))
+}
+
+#[cfg(feature = "parser")]
+/// What went wrong in an origin, for both origins' error types.
+enum OriginError<'a> {
+    Components { got: usize, input: &'a str },
+    Value(CssPixelValueParseError<'a>),
+}
+
+#[cfg(feature = "parser")]
+fn origin_error(
+    e: crate::props::style::background::CssBackgroundPositionParseError<'_>,
+) -> OriginError<'_> {
+    use crate::props::style::background::CssBackgroundPositionParseError as E;
+    match e {
+        E::NoPosition(input) => OriginError::Components { got: 0, input },
+        E::TooManyComponents(input) => OriginError::Components {
+            got: input.split_whitespace().count(),
+            input,
+        },
+        E::FirstComponentWrong(e) | E::SecondComponentWrong(e) => OriginError::Value(e),
+    }
 }
 
 #[cfg(feature = "parser")]
@@ -1061,18 +1096,16 @@ pub fn parse_style_transform_origin(
 pub fn parse_style_perspective_origin(
     input: &str,
 ) -> Result<StylePerspectiveOrigin, CssStylePerspectiveOriginParseError<'_>> {
-    let components: Vec<_> = input.split_whitespace().collect();
-    if components.len() != 2 {
-        return Err(
+    let (x, y) = parse_origin_position(input).map_err(|e| match origin_error(e) {
+        OriginError::Components { got, input } => {
             CssStylePerspectiveOriginParseError::WrongNumberOfComponents {
                 expected: 2,
-                got: components.len(),
+                got,
                 input,
-            },
-        );
-    }
-    let x = parse_pixel_value(components[0])?;
-    let y = parse_pixel_value(components[1])?;
+            }
+        }
+        OriginError::Value(e) => CssStylePerspectiveOriginParseError::PixelValueParseError(e),
+    })?;
     Ok(StylePerspectiveOrigin { x, y })
 }
 
