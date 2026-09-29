@@ -12,11 +12,16 @@
 
 - 159ba19d3 demo toolbar (examples/azul-widgets: lib.rs, notifications.rs, hotkeys.rs)
 
+- final report scripts/W4_SCHEME_OVERRIDE_DEMO_2026_09_29.md (committed with this checkpoint)
+
 ## IN PROGRESS
-- final review + report
+- nothing: task complete, waiting for the parent's autofix + compile + RED pass
 
 ## NEXT
-1. report scripts/W4_SCHEME_OVERRIDE_DEMO_2026_09_29.md
+- (parent) azul-doc autofix for the 6 API items in the report (AppConfig grows 8 B), codegen,
+  compile, run the suites listed in the report (incl. the NEW `-p azul-dll --test
+  color_scheme_headless`), RED pass by reverting 89e89374c + cbe937c0c
+- (parent) after merging the base's themed widgets: wire the demo list in report section 5
 
 ## Design decisions (so a resumed session does not re-derive them)
 - TYPE: reuse `OptionWindowTheme` (None = follow the desktop, Some = pin). A new 4-byte repr(C)
