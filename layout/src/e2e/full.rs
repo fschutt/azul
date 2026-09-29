@@ -20859,7 +20859,7 @@ mod selection_state_tests {
     };
     use rust_fontconfig::FcFontCache;
 
-    use super::selection_range_info;
+    use super::{selection_range_info, selection_state};
 
     fn at(byte: u32, affinity: CursorAffinity) -> TextCursor {
         TextCursor {
@@ -20924,5 +20924,83 @@ mod selection_state_tests {
             &Selection::Cursor(at(10, CursorAffinity::Trailing)),
         );
         assert_eq!(caret.cursor_position, Some(11));
+    }
+
+    /// A document selection - a drag or Ctrl+A across paragraphs - is what
+    /// the user sees selected, so it is what `get_selection_state` reports:
+    /// one entry per block it spans, each with the block's part of it
+    /// ("block"). It reported only the editing session - the caret the drag
+    /// left at the anchor - or nothing at all.
+    #[test]
+    fn a_document_selection_is_reported_block_by_block() {
+        // body(0) > div[contenteditable](1) > [div.p(2) > "one"(3),
+        // div.p(4) > "two"(5)]
+        let p = |s: &str| {
+            Dom::create_div()
+                .with_ids_and_classes(
+                    vec![azul_core::dom::IdOrClass::Class("p".into())].into(),
+                )
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(s))
+        };
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_contenteditable(true)
+                .with_child(p("one"))
+                .with_child(p("two")),
+        );
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 14px; } .p { display: block; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("LayoutWindow::new");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        lw.current_window_state = ws.clone();
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = None;
+        lw.layout_and_generate_display_list(styled_dom, &ws, &rr, &sc, &mut dbg)
+            .expect("layout");
+        let block = |n: usize| {
+            lw.text_block_of(DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(n))),
+            })
+            .expect("the paragraph is a text block")
+        };
+        let (one, two) = (block(2), block(4));
+        // "o|ne" to "tw|o", the session at the anchor - what a drag leaves.
+        let anchor = at(1, CursorAffinity::Leading);
+        assert!(lw.start_editing_at(anchor, DomId::ROOT_ID, NodeId::new(2), 0));
+        assert!(
+            lw.set_cross_block_selection(one, anchor, two, at(2, CursorAffinity::Leading)),
+            "premise: the selection spans the two paragraphs"
+        );
+
+        let state = selection_state(&lw, |_, _| None);
+
+        let reported: Vec<(Option<u64>, Vec<(String, Option<usize>, Option<usize>)>)> = state
+            .selections
+            .iter()
+            .map(|s| {
+                (
+                    s.node_id,
+                    s.ranges
+                        .iter()
+                        .map(|r| (r.selection_type.clone(), r.start, r.end))
+                        .collect(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            reported,
+            vec![
+                (Some(2), vec![("block".to_string(), Some(1), Some(3))]),
+                (Some(4), vec![("block".to_string(), Some(0), Some(2))]),
+            ],
+            "\"ne\" of the first paragraph, \"tw\" of the second"
+        );
+        assert!(state.has_selection);
+        assert_eq!(state.selection_count, 2);
     }
 }
