@@ -17,11 +17,12 @@ Branch `wt/v1-visual-followups`, cut from `0a326afe5`. Nothing compiled (house r
 
 - item 4: 7f001d54a RED (`flora.rs` `night_focus_ring_tests`, appended), 4f299a1e8 fix (`FOCUS_BORDER_*_DARK` = `DARK_GLOW`)
 
+- item 3: f84365212 RED / dfb18ac7b feat (css: `transform::interpolate_transform_lists`, a transform tweens per function); 686adb878 RED / 8efedd119 feat (accordion: disclosure indicator box + icon, turned by the click, tweened on the body's beat)
+
 ## IN PROGRESS
-- item 3
+- item 2
 
 ## NEXT
-3. item 3 (transform tween + chevron)
 4. item 2 (arc sweep)
 5. item 5 (engine: `CallbackInfo::set_node_inline_style`; widgets)
 
