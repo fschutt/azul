@@ -4369,6 +4369,10 @@ pub fn accordion(a: crate::widgets::accordion::Accordion) -> Dom {
             section: ACCORDION_SECTION_STYLE.to_vec(),
             header,
             title: ACCORDION_TITLE_STYLE.to_vec(),
+            // The Windows 11 expander's chevron: down, up when open.
+            chevron: crate::widgets::accordion::chevron_box(16),
+            chevron_icon: "expand_more",
+            chevron_turn_deg: 180,
             marker: None,
         },
     )

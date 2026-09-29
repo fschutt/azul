@@ -4974,6 +4974,11 @@ pub fn accordion(a: crate::widgets::accordion::Accordion) -> Dom {
             section,
             header,
             title,
+            // flora.css's FAQ `+`, a cross when open (rotate 45deg); it takes
+            // the header's ink, so it turns brass under the pointer too.
+            chevron: crate::widgets::accordion::chevron_box(18),
+            chevron_icon: "add",
+            chevron_turn_deg: 45,
             marker: Some("__azul-theme-flora"),
         },
     )

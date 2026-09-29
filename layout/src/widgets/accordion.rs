@@ -13,9 +13,12 @@
 //! mechanism that slides the switch's knob. With reduced motion the body
 //! declares no animation and snaps.
 //!
-//! TODO2: the header is a plain styled clickable bar with no animated disclosure
-//! chevron — a glyph cannot be re-textured via `set_css_property` without a
-//! relayout, so an indicator that flips on toggle is deferred.
+//! Every header ends in the theme's disclosure indicator: flat's chevron
+//! (pointing down, up when open - the Windows 11 expander, the Bootstrap
+//! accordion), flora's `+` (a cross when open - flora.css's FAQ). The glyph
+//! never changes; the click TURNS it (`transform: rotate(..)`, written like
+//! the body's height, so the same declared tween walks it), which needs no
+//! relayout and follows the header's ink in every mode.
 //!
 //! Key types: [`Accordion`], [`AccordionSection`], [`AccordionOnToggle`].
 
@@ -35,6 +38,7 @@ use azul_css::{
     impl_vec_partialeq,
     props::{
         basic::{
+            angle::AngleValue,
             color::ColorU,
             font::{StyleFontFamily, StyleFontFamilyVec},
             StyleFontSize,
@@ -52,7 +56,7 @@ use azul_css::{
             StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
             StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
             StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderTopStyle, StyleCursor,
-            StyleTextAlign, StyleTextColor, StyleUserSelect,
+            StyleTextAlign, StyleTextColor, StyleTransform, StyleTransformVec, StyleUserSelect,
         },
     },
     AzString,
@@ -77,6 +81,10 @@ static ACCORDION_TITLE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
 static ACCORDION_BODY_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-accordion-body",
 ))];
+/// The disclosure indicator's class: the click handler finds it by it.
+const ACCORDION_CHEVRON_CLASS_NAME: &str = "__azul-native-accordion-chevron";
+static ACCORDION_CHEVRON_CLASS: &[IdOrClass] =
+    &[Class(AzString::from_const_str(ACCORDION_CHEVRON_CLASS_NAME))];
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
 const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
@@ -210,6 +218,14 @@ pub(crate) struct AccordionLook {
     pub header: Vec<CssPropertyWithConditions>,
     /// The title inside a header.
     pub title: Vec<CssPropertyWithConditions>,
+    /// The disclosure indicator at the end of a header (its size and
+    /// spacing; its ink is the header's): [`chevron_style`] adds the turn
+    /// and the tween.
+    pub chevron: Vec<CssPropertyWithConditions>,
+    /// The icon the indicator shows (a `Dom::create_icon` name).
+    pub chevron_icon: &'static str,
+    /// How far the indicator turns, clockwise, when its section is open.
+    pub chevron_turn_deg: isize,
     /// The theme's marker class on the panel, if it has one.
     pub marker: Option<&'static str>,
 }
@@ -365,6 +381,71 @@ const BODY_TWEEN_MS: u32 = 220;
 /// and closes at once (the handler asks the same question,
 /// `body_animates`).
 fn body_animation() -> CssPropertyWithConditions {
+    tween(&["height", "padding-top", "padding-bottom"])
+}
+
+/// What the disclosure indicator declares so it TURNS on the body's beat:
+/// `transform`, the property the click handler writes. Gated like
+/// [`body_animation`].
+fn chevron_animation() -> CssPropertyWithConditions {
+    tween(&["transform"])
+}
+
+/// The indicator's turn: `rotate(turn_deg)` open, `rotate(0)` closed. Both
+/// states declare a rotation, so the seeded tween has two angles to walk
+/// between.
+fn chevron_turn(open: bool, turn_deg: isize) -> CssProperty {
+    CssProperty::const_transform(StyleTransformVec::from_vec(alloc::vec![
+        StyleTransform::Rotate(AngleValue::const_deg(if open { turn_deg } else { 0 }))
+    ]))
+}
+
+/// The indicator's box, `size` px square, at the end of a header: it keeps
+/// its size (never grows or shrinks against the title), sits `8px` off the
+/// title and centres its icon, so it turns about the icon's centre. The icon
+/// inside takes the box's font size and the header's ink.
+pub(crate) fn chevron_box(size: isize) -> Vec<CssPropertyWithConditions> {
+    use azul_css::props::{
+        basic::length::FloatValue,
+        layout::{LayoutFlexShrink, LayoutJustifyContent, LayoutMarginLeft, LayoutWidth},
+    };
+    alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        CssPropertyWithConditions::simple(CssProperty::const_justify_content(
+            LayoutJustifyContent::Center,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        })),
+        CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(size))),
+        CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(size))),
+        CssPropertyWithConditions::simple(CssProperty::const_margin_left(
+            LayoutMarginLeft::const_px(8),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            size,
+        ))),
+    ]
+}
+
+/// The indicator of an open or closed section in `look`: the theme's size
+/// and spacing, the turn, the tween.
+fn chevron_style(look: &AccordionLook, open: bool) -> CssPropertyWithConditionsVec {
+    let mut style = look.chevron.clone();
+    style.push(CssPropertyWithConditions::simple(chevron_turn(
+        open,
+        look.chevron_turn_deg,
+    )));
+    style.push(chevron_animation());
+    CssPropertyWithConditionsVec::from_vec(style)
+}
+
+/// `properties` tweened over [`BODY_TWEEN_MS`], ease-in-out - one
+/// `animation` declaration, only under
+/// `prefers-reduced-motion: no-preference`.
+fn tween(properties: &[&'static str]) -> CssPropertyWithConditions {
     use azul_css::{
         dynamic_selector::{BoolCondition, DynamicSelector},
         props::basic::{
@@ -372,7 +453,7 @@ fn body_animation() -> CssPropertyWithConditions {
             time::CssDuration,
         },
     };
-    let tween = |property: &'static str| StyleAnimation {
+    let one = |property: &'static str| StyleAnimation {
         name: AzString::from_const_str(property),
         duration: CssDuration::from_millis(BODY_TWEEN_MS),
         delay: CssDuration::from_millis(0),
@@ -382,11 +463,9 @@ fn body_animation() -> CssPropertyWithConditions {
     };
     CssPropertyWithConditions::with_condition(
         CssProperty::Animation(azul_css::props::property::StyleAnimationVecValue::Exact(
-            StyleAnimationVec::from_vec(alloc::vec![
-                tween("height"),
-                tween("padding-top"),
-                tween("padding-bottom"),
-            ]),
+            StyleAnimationVec::from_vec(
+                properties.iter().map(|p| one(*p)).collect::<Vec<StyleAnimation>>(),
+            ),
         )),
         DynamicSelector::PrefersReducedMotion(BoolCondition::False),
     )
@@ -543,7 +622,18 @@ pub(crate) fn build(accordion: Accordion, look: &AccordionLook) -> Dom {
                 index,
                 is_open: section.is_open,
                 on_toggle: clone_option_on_toggle(&on_toggle),
+                chevron_turn_deg: look.chevron_turn_deg,
             };
+
+            // The disclosure indicator: decoration (no Tab stop, no
+            // callback) at the end of the header, in the header's ink. The
+            // box TURNS, the icon inside it only draws: icon resolution
+            // replaces the icon node (keeping its style, not its classes), and
+            // the click handler finds the indicator by its class.
+            let chevron = Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(ACCORDION_CHEVRON_CLASS))
+                .with_css_props(chevron_style(look, section_is_open))
+                .with_child(Dom::create_icon(AzString::from_const_str(look.chevron_icon)));
 
             let header = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(ACCORDION_HEADER_CLASS))
@@ -575,7 +665,7 @@ pub(crate) fn build(accordion: Accordion, look: &AccordionLook) -> Dom {
                     }]
                     .into(),
                 )
-                .with_children(DomVec::from_vec(alloc::vec![title]));
+                .with_children(DomVec::from_vec(alloc::vec![title, chevron]));
 
             let body = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(ACCORDION_BODY_CLASS))
@@ -625,6 +715,10 @@ struct HeaderClickData {
     index: usize,
     is_open: bool,
     on_toggle: OptionAccordionOnToggle,
+    /// The look's open turn of the disclosure indicator
+    /// ([`AccordionLook::chevron_turn_deg`]): what a click that opens the
+    /// section turns it to.
+    chevron_turn_deg: isize,
 }
 
 /// Header click handler. The hit node is the header (the callback-bearing node,
@@ -642,20 +736,21 @@ extern "C" fn on_accordion_header_click(mut data: RefAny, mut info: CallbackInfo
     let content_height = body_content_height(&info, body);
     let animated = body_animates(&info, body);
 
-    let (now_open, result) = {
+    let (now_open, result, chevron_turn_deg) = {
         let Some(mut hd) = data.downcast_mut::<HeaderClickData>() else {
             return Update::DoNothing;
         };
         hd.is_open = !hd.is_open;
         let now_open = hd.is_open;
         let index = hd.index;
+        let chevron_turn_deg = hd.chevron_turn_deg;
         let result = match hd.on_toggle.as_mut() {
             Some(AccordionOnToggle { callback, refany }) => {
                 callback.invoke(refany.clone(), info, index)
             }
             None => Update::DoNothing,
         };
-        (now_open, result)
+        (now_open, result, chevron_turn_deg)
     };
 
     // WHO OWNS THE VISUAL STATE decides what we write here.
@@ -731,6 +826,22 @@ extern "C" fn on_accordion_header_click(mut data: RefAny, mut info: CallbackInfo
         }
     }
 
+    // The disclosure indicator turns with its section, on the same terms as
+    // the body: its new turn through the full channel (the indicator declares
+    // a `transform` tween, so the write turns it instead of flipping it), or
+    // - no tween and a host that rebuilds - its override cleared so the
+    // rebuilt DOM's own turn shows.
+    if let Some(chevron) = chevron_of(&info, header) {
+        if let Some(chevron_node) = chevron.node.into_crate_internal() {
+            let turn = if !animated && host_rebuilds {
+                CssProperty::initial(CssPropertyType::Transform)
+            } else {
+                chevron_turn(now_open, chevron_turn_deg)
+            };
+            info.change_node_css_properties(chevron.dom, chevron_node, vec![turn].into());
+        }
+    }
+
     // The header's ANNOUNCED state must follow the rendered one. This toggle
     // changes a css property and returns Update::DoNothing — no rebuild — so
     // the Expanded/Collapsed published when the DOM was built would be frozen
@@ -747,6 +858,17 @@ extern "C" fn on_accordion_header_click(mut data: RefAny, mut info: CallbackInfo
     );
 
     result
+}
+
+/// The disclosure indicator of `header`: its last child, when that carries
+/// the indicator's class (a header built without one has none to turn).
+fn chevron_of(info: &CallbackInfo, header: DomNodeId) -> Option<DomNodeId> {
+    let last = info.get_last_child(header)?;
+    info.get_node_classes(last)
+        .as_ref()
+        .iter()
+        .any(|c| c.as_str() == ACCORDION_CHEVRON_CLASS_NAME)
+        .then_some(last)
 }
 
 /// The height `body`'s content needs - what the body grows to when it opens -
@@ -1420,6 +1542,7 @@ mod autotest_generated {
             index: 0,
             is_open: false,
             on_toggle: None.into(),
+            chevron_turn_deg: 180,
         });
 
         let (update, changes) = run_click(None, 0, data.clone());
@@ -1437,6 +1560,7 @@ mod autotest_generated {
             index: 3,
             is_open: true,
             on_toggle: None.into(),
+            chevron_turn_deg: 180,
         });
 
         let (update, changes) = run_click(Some(header_body_dom()), 2, data.clone());
@@ -1452,6 +1576,7 @@ mod autotest_generated {
             index: 0,
             is_open: false,
             on_toggle: None.into(),
+            chevron_turn_deg: 180,
         });
 
         // node 999 does not exist in the 3-node fixture
@@ -1486,6 +1611,7 @@ mod autotest_generated {
             index: 0,
             is_open: false,
             on_toggle: None.into(),
+            chevron_turn_deg: 180,
         });
 
         // closed -> open: as tall as the content
@@ -1522,6 +1648,7 @@ mod autotest_generated {
                 refany: log.clone(),
             })
             .into(),
+            chevron_turn_deg: 180,
         });
 
         let (update, changes) = run_click(Some(header_body_dom()), 1, data.clone());
@@ -2005,9 +2132,16 @@ mod chevron_tests {
             .any(|c| matches!(c, Class(s) if s.as_str() == name))
     }
 
+    /// The icon the indicator shows: its only child. The indicator is a box
+    /// around the icon because icon resolution replaces the icon node - its
+    /// style survives, its classes do not - and the click handler finds the
+    /// indicator by its class.
     fn icon_name(node: &Dom) -> Option<&str> {
-        match node.root.get_node_type() {
-            NodeType::Icon(name) => Some(name.as_ref().as_str()),
+        match node.children.as_ref() {
+            [icon] => match icon.root.get_node_type() {
+                NodeType::Icon(name) => Some(name.as_ref().as_str()),
+                _ => None,
+            },
             _ => None,
         }
     }
