@@ -1019,6 +1019,21 @@ pub struct AppConfig {
     /// no window. Declared on top of [`Self::global_hotkeys`]; see
     /// [`crate::global_hotkey::GlobalHotkeysCallbackType`] for when it runs.
     pub global_hotkeys_callback: crate::global_hotkey::OptionGlobalHotkeysCallback,
+    /// The app THEME the app starts in: `"flat"` (the default,
+    /// `azul_css::dynamic_selector::DEFAULT_APP_THEME`), `"flora"`, later
+    /// `"native"` and user themes. `@theme(<name>)` blocks - every widget
+    /// carries one per theme it knows - apply only while their name is the
+    /// app's theme; `@theme(light)` / `@theme(dark)` stay the colour scheme
+    /// ([`Self::color_scheme`]), which this does not touch.
+    ///
+    /// Switch it at runtime with `CallbackInfo::set_theme`: every window's
+    /// DOM is RECREATED (`layout()` runs again, `RelayoutReason::AppThemeChange`),
+    /// because a theme may change a widget's structure - unlike the colour
+    /// scheme, which only repaints. `CallbackInfo::get_theme` and
+    /// `LayoutCallbackInfo::get_theme_name` read it back.
+    ///
+    /// 8-aligned (a string), so it sits with the other 8-aligned fields.
+    pub theme: AzString,
     /// The app's colour scheme: `None` (the default) follows the desktop's
     /// light / dark setting, and every change of it; `Some(theme)` pins every
     /// window of the app to `theme`, whatever the desktop says.
@@ -1166,6 +1181,20 @@ impl AppConfig {
         self.color_scheme = scheme;
     }
 
+    /// Start the app in the theme `name` (`"flat"`, `"flora"`, ...): every
+    /// window's `@theme(<name>)` blocks apply, the other themes' are inert.
+    /// See [`Self::theme`]; switch it later with `CallbackInfo::set_theme`.
+    #[must_use]
+    pub fn with_theme(mut self, name: AzString) -> Self {
+        self.set_theme(name);
+        self
+    }
+
+    /// In-place [`Self::with_theme`].
+    pub fn set_theme(&mut self, name: AzString) {
+        self.theme = name;
+    }
+
     #[must_use]
     pub fn create() -> Self {
         let log_level = AppLogLevel::Error;
@@ -1206,6 +1235,9 @@ impl AppConfig {
                 &[],
             ),
             global_hotkeys_callback: crate::global_hotkey::OptionGlobalHotkeysCallback::None,
+            // Today's look; `native` becomes the default by changing the
+            // one constant.
+            theme: AzString::from_const_str(azul_css::dynamic_selector::DEFAULT_APP_THEME),
             // Follow the desktop.
             color_scheme: crate::window::OptionWindowTheme::None,
         };

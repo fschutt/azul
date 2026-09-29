@@ -272,6 +272,9 @@ pub mod hash {
 /// Callback types: layout, event, timer, thread, and focus handling.
 #[macro_use]
 pub mod callbacks;
+/// The app theme (`@theme(<name>)`): the app's choice, and the theme a DOM
+/// is being built for.
+pub mod app_theme;
 /// Host-language callback invoker registry.
 ///
 /// The C-ABI surface managed-FFI bindings (Lua, Ruby, …) use to register one

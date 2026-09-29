@@ -936,7 +936,8 @@ pub enum RelayoutReason {
     /// The callback can branch on `info.window_width_*` to emit a
     /// different tree (e.g. hamburger menu vs sidebar).
     Resize,
-    /// System theme changed (light/dark).
+    /// The COLOUR SCHEME changed (light/dark) and this `layout()` read it
+    /// (`get_theme`) - otherwise a colour-scheme change only restyles.
     ThemeChange,
     /// `CallbackInfo::switch_route` or `set_route_param` produced a new
     /// route match. The callback should branch on
@@ -944,6 +945,11 @@ pub enum RelayoutReason {
     RouteChange,
     /// Catch-all for relayouts that don't fit one of the above categories.
     Other,
+    /// The APP THEME changed (`CallbackInfo::set_theme`): every window's DOM
+    /// is recreated, because a theme may change a widget's structure. The
+    /// callback builds for `info.get_theme_name()`. Appended after `Other`
+    /// so the existing discriminants keep their values.
+    AppThemeChange,
 }
 
 #[derive(Clone, Copy)]
@@ -1619,6 +1625,24 @@ impl LayoutCallbackInfo {
     pub fn get_theme(&self) -> WindowTheme {
         self.depends_on_system_style(SystemStyleDependency::Theme);
         self.theme
+    }
+
+    /// The APP THEME this `layout()` builds for (`"flat"`, `"flora"`, ...;
+    /// `AppConfig::with_theme`, `CallbackInfo::set_theme`) - separate from
+    /// the colour scheme [`Self::get_theme`] returns.
+    ///
+    /// Branch the DOM's STRUCTURE on it; its CSS needs no branch, because
+    /// `@theme(<name>)` blocks select themselves. Declares nothing: a theme
+    /// switch always re-runs `layout()` (`RelayoutReason::AppThemeChange`).
+    /// A widget's `dom()`, which has no info, reads the same value through
+    /// `azul_core::app_theme::current_theme`.
+    ///
+    /// `get_theme_name` rather than `get_theme` because `get_theme` is the
+    /// colour scheme until the colour-scheme API migration renames it.
+    #[allow(clippy::unused_self)] // C-ABI-shaped method: receiver kept for API symmetry
+    #[must_use]
+    pub fn get_theme_name(&self) -> AzString {
+        crate::app_theme::current_theme()
     }
 
     /// Get a clone of the system style Arc.
