@@ -9,9 +9,10 @@ Final report: `scripts/T1_APP_THEME_2026_09_29.md`. Nothing compiled (house rule
 - `e1610b42c` RED core: `AppConfig.theme` (padding test + default), `app_theme_tests` in `core/src/callbacks_test.rs`
 - `ff811a074` RED layout: `layout/tests/app_theme_override.rs` (+ all.rs), `set_theme` unit test in `layout/src/callbacks.rs`
 - `a8850021c` RED dll: `dll/tests/app_theme_headless.rs` (new test target)
+- `fe6356f51` css impl: from_block_name, theme_chain + matcher, DEFAULT_APP_THEME, app_theme_chain, theme_conditions!, helpers
 
 ## IN PROGRESS
-- implementation, css first
+- implementation: core next (AppConfig.theme, azul_core::app_theme, get_theme_name, AppThemeChange)
 
 ## NEXT
 1. css: `@theme(name)` -> `ThemeCondition::Custom(name)` (both parsers); `DynamicSelectorContext.theme_chain`
