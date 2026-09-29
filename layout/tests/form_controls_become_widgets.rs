@@ -1730,3 +1730,255 @@ mod form_reset {
         assert_eq!(reset(&mut lw, styled, form), Update::DoNothing);
     }
 }
+
+// ── FormData of replaced controls ───────────────────────────────────────────
+
+/// A replaced checkbox, radio, slider, colour, file, time or drop-down keeps
+/// no state a form can read on its root - but the replacement knows each
+/// one's name and value, so a form's `FormData` holds them the way HTML's
+/// does: a checkbox's `value` ("on" by default) only while checked, a radio
+/// group's checked value once, a select's chosen OPTION VALUE, the others'
+/// value strings. The form's initial values follow the same rules.
+mod form_data {
+    use azul_layout::widgets::{
+        check_box::{CheckBoxState, CheckBoxStateWrapper},
+        form::{collect_form_data, reset_form},
+        slider::{SliderState, SliderStateWrapper},
+    };
+
+    use super::{
+        forms::{initial_values, mount, named, owned, pairs, the_form},
+        *,
+    };
+
+    fn form_page(children: Vec<Dom>) -> Dom {
+        let mut form = Dom::create_form_no_a11y();
+        for child in children {
+            form = form.with_child(child);
+        }
+        page(form)
+    }
+
+    /// What the form of `styled` would submit now.
+    fn collect(lw: &mut LayoutWindow, styled: &StyledDom) -> Vec<(String, String)> {
+        let form = the_form(styled);
+        mount(lw, styled.clone());
+        let data = with_info(lw, dom_node(form), |mut info| {
+            collect_form_data(&mut info, dom_node(form))
+        })
+        .0
+        .expect("the form node is in a form");
+        pairs(&data)
+    }
+
+    /// The user checks the `nth` replaced checkbox (its toggle hook fires,
+    /// as its click handler does).
+    fn check_nth(lw: &LayoutWindow, styled: &StyledDom, nth: usize) {
+        let root = with_class(styled, checkbox_container())[nth];
+        let mut data = node(styled, root).get_callbacks().as_slice()[0].refany.clone();
+        let hook = {
+            let cb = data
+                .downcast_ref::<CheckBoxStateWrapper>()
+                .expect("the check box's state");
+            cb.on_toggle.as_ref().cloned().expect("the replacement listens")
+        };
+        let _ = with_info(lw, dom_node(root), |info| {
+            hook.callback
+                .invoke(hook.refany.clone(), info, CheckBoxState { checked: true })
+        });
+    }
+
+    fn checkboxes() -> Dom {
+        form_page(vec![
+            named("checkbox", "terms").with_attribute(AttributeType::Value("yes".into())),
+            named("checkbox", "news").with_attribute(AttributeType::CheckedTrue),
+            named("checkbox", "spam"),
+        ])
+    }
+
+    #[test]
+    fn a_checkbox_submits_its_value_only_while_checked() {
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(checkboxes());
+        let expected = owned(&[("news", "on")]);
+        assert_eq!(
+            initial_values(&styled, the_form(&styled)),
+            Some(expected.clone()),
+            "unchecked boxes are no part of the form; a checked one without a value says \"on\""
+        );
+        assert_eq!(collect(&mut lw, &styled), expected);
+
+        check_nth(&lw, &styled, 0);
+        assert_eq!(
+            collect(&mut lw, &styled),
+            owned(&[("terms", "yes"), ("news", "on")]),
+            "the user's check counts at once, before any rebuild"
+        );
+    }
+
+    #[test]
+    fn right_after_a_reset_the_form_reads_the_defaults() {
+        // A carried reset handler reads the form before the rebuild the
+        // reset asks for.
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(checkboxes());
+        check_nth(&lw, &styled, 0);
+        let form = the_form(&styled);
+        mount(&mut lw, styled.clone());
+        let _ = with_info(&lw, dom_node(form), |mut info| {
+            reset_form(&mut info, dom_node(form))
+        });
+        assert_eq!(collect(&mut lw, &styled), owned(&[("news", "on")]));
+    }
+
+    fn colours() -> Dom {
+        let radio = |value: &str| {
+            named("radio", "colour").with_attribute(AttributeType::Value(value.into()))
+        };
+        form_page(vec![
+            radio("red").with_attribute(AttributeType::CheckedTrue),
+            radio("green"),
+        ])
+    }
+
+    #[test]
+    fn a_radio_group_submits_its_checked_radios_value_once() {
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(colours());
+        assert_eq!(
+            initial_values(&styled, the_form(&styled)),
+            Some(owned(&[("colour", "red")]))
+        );
+        assert_eq!(collect(&mut lw, &styled), owned(&[("colour", "red")]));
+
+        // The GREEN radio's change hook, as its row's click handler fires it.
+        let green = with_class(&styled, RADIO_GROUP_CLASS)[1];
+        let row = subtree(&styled, green)
+            .into_iter()
+            .find(|id| !node(&styled, *id).get_callbacks().as_slice().is_empty())
+            .expect("the radio row listens");
+        let mut data = node(&styled, row).get_callbacks().as_slice()[0].refany.clone();
+        let hook = {
+            let rg = data
+                .downcast_ref::<RadioGroupStateWrapper>()
+                .expect("the radio's state");
+            rg.on_change.as_ref().cloned().expect("the replacement listens")
+        };
+        let _ = with_info(&lw, dom_node(row), |info| {
+            hook.callback
+                .invoke(hook.refany.clone(), info, RadioGroupState { selected_index: 0 })
+        });
+        assert_eq!(collect(&mut lw, &styled), owned(&[("colour", "green")]));
+    }
+
+    fn valued(ty: &str, name: &str, value: &str) -> Dom {
+        named(ty, name).with_attribute(AttributeType::Value(value.into()))
+    }
+
+    fn value_strings() -> Dom {
+        form_page(vec![
+            valued("range", "vol", "5")
+                .with_attribute(AttributeType::Min("0".into()))
+                .with_attribute(AttributeType::Max("10".into())),
+            valued("color", "tint", "#ff0000"),
+            valued("number", "qty", "42"),
+            valued("date", "day", "2024-03-15"),
+            valued("time", "at", "09:05"),
+            valued("month", "mo", "2024-03"),
+            valued("week", "wk", "2021-W01"),
+            valued("datetime-local", "when", "2024-03-15T10:30"),
+            named("file", "doc"),
+        ])
+    }
+
+    #[test]
+    fn range_colour_number_date_time_and_file_inputs_submit_their_value_strings() {
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(value_strings());
+        let expected = owned(&[
+            ("vol", "5"),
+            ("tint", "#ff0000"),
+            ("qty", "42"),
+            ("day", "2024-03-15"),
+            ("at", "09:05"),
+            ("mo", "2024-03"),
+            ("wk", "2021-W01"),
+            ("when", "2024-03-15T10:30"),
+            // HTML: a file input with nothing picked is an empty file.
+            ("doc", ""),
+        ]);
+        assert_eq!(initial_values(&styled, the_form(&styled)), Some(expected.clone()));
+        assert_eq!(collect(&mut lw, &styled), expected);
+    }
+
+    #[test]
+    fn a_moved_slider_submits_its_new_value() {
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(value_strings());
+        let slider = one_with_class(&styled, SLIDER_CLASS);
+        let mut data = node(&styled, slider)
+            .get_dataset()
+            .cloned()
+            .expect("the slider's state");
+        let hook = {
+            let s = data
+                .downcast_ref::<SliderStateWrapper>()
+                .expect("the slider's state");
+            s.on_value_change.as_ref().cloned().expect("the replacement listens")
+        };
+        let moved = SliderState {
+            value: 7.0,
+            min: 0.0,
+            max: 10.0,
+        };
+        let _ = with_info(&lw, dom_node(slider), |info| {
+            hook.callback.invoke(hook.refany.clone(), info, moved)
+        });
+        let got = collect(&mut lw, &styled);
+        assert_eq!(got[0], ("vol".to_string(), "7".to_string()), "{got:?}");
+    }
+
+    #[test]
+    fn a_select_submits_the_chosen_options_value_not_its_label() {
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(form_page(vec![fruit_select(1)]));
+        assert_eq!(
+            initial_values(&styled, the_form(&styled)),
+            Some(owned(&[("fruit", "b")]))
+        );
+        assert_eq!(collect(&mut lw, &styled), owned(&[("fruit", "b")]));
+        let _ = pick(&lw, &styled, 2);
+        assert_eq!(collect(&mut lw, &styled), owned(&[("fruit", "c")]));
+    }
+
+    #[test]
+    fn a_textarea_submits_its_text() {
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(form_page(vec![Dom::create_textarea_no_a11y(
+            "notes".into(),
+            "Notes".into(),
+        )
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello"))]));
+        assert_eq!(
+            initial_values(&styled, the_form(&styled)),
+            Some(owned(&[("notes", "hello")]))
+        );
+        assert_eq!(collect(&mut lw, &styled), owned(&[("notes", "hello")]));
+    }
+
+    #[test]
+    fn disabled_and_unnamed_controls_are_not_submitted() {
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(form_page(vec![
+            valued("text", "off", "x").with_attribute(AttributeType::Disabled),
+            Dom::create_from_data(NodeData::create_node(NodeType::Input))
+                .with_attribute(AttributeType::Value("anonymous".into())),
+            valued("text", "on", "y"),
+        ]));
+        assert_eq!(
+            initial_values(&styled, the_form(&styled)),
+            Some(owned(&[("on", "y")]))
+        );
+        assert_eq!(collect(&mut lw, &styled), owned(&[("on", "y")]));
+    }
+}
