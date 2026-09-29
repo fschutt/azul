@@ -471,6 +471,9 @@ windows = { version = "0.62", optional = true, features = [
     # through a dlopen'd advapi32, so no registry feature is needed.
     "UI_Notifications",
     "Data_Xml_Dom",
+    # The toast activator (INotificationActivationCallback): a click on an
+    # Action Center entry after the app exited reaches it through COM.
+    "Win32_UI_Notifications",
     "Win32_System_SystemServices",
     "Win32_System_Com_StructuredStorage",
     "Win32_Graphics_Gdi",

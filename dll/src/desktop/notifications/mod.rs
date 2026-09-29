@@ -93,18 +93,25 @@ pub fn set_app_handler(handler: OptionNotificationCallback) {
 }
 
 /// What must happen before the app finishes launching, so a notification
-/// click that LAUNCHED the app is not lost: on macOS and iOS the
-/// `UNUserNotificationCenter` delegate (the response is only delivered to a
-/// delegate set before launch completes) and a first read of the stored
-/// authorization. Called between the app delegate and `finishLaunching` on
-/// macOS and from `application:didFinishLaunchingWithOptions:` on iOS. Android
-/// needs nothing here: its launch intent is forwarded by `AzulActivity`.
+/// click that LAUNCHED the app is not lost:
+///
+/// * macOS and iOS: the `UNUserNotificationCenter` delegate (the response is only delivered to a
+///   delegate set before launch completes) and a first read of the stored authorization. Called
+///   between the app delegate and `finishLaunching` on macOS and from
+///   `application:didFinishLaunchingWithOptions:` on iOS.
+/// * Windows: the toast activator's COM class object, when COM started the process for a toast
+///   click (`-ToastActivated`) or an earlier run registered it. Called by the Windows `run()`
+///   before its first window.
+///
+/// Android needs nothing here: its launch intent is forwarded by `AzulActivity`.
 pub fn install_launch_hooks() {
     if HEADLESS.load(Ordering::Relaxed) {
         return;
     }
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     apple::install_launch_hooks();
+    #[cfg(target_os = "windows")]
+    windows::install_launch_hooks();
 }
 
 /// `applicationDidFinishLaunching:` (macOS): remember which notification, if

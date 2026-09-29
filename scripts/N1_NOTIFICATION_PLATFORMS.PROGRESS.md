@@ -16,12 +16,16 @@ Branch `wt/n1-notification-platforms`, based on `0a326afe5`. House rules:
   `azul.AzWidgets` -> `com.azul.azwidgets` (report it). Twin left alone: mobile
   `Target::resolve` bundle id (`com.azul.<crate _>`), report it.
 
+- C. Windows COM activator (item 3): RED `ffb2ff0e4`, fix = the commit after it.
+  `wire::{TOAST_ACTIVATED_SWITCH, launched_by_toast_activation, toast_activator_clsid,
+  guid_string, RegistryValue, toast_registry_values, toast_activator_event}`; windows.rs
+  `activator` module (`#[implement]` activator + class factory, `CoRegisterClassObject`),
+  `install_launch_hooks` (run.rs Windows `run()` calls it before the first window), registry
+  via one cached advapi32 (`write_registry_value`, `read_registry_string`); dnd.rs
+  `ensure_ole_initialized` made `pub(crate)`; Cargo feature `Win32_UI_Notifications`.
+
 ## IN PROGRESS
 
-- C. Windows COM activator (item 3): `wire::toast_activator_clsid`, `wire::guid_string`,
-  `wire::toast_activator_registry`, `wire::launched_by_toast_activation`; windows.rs
-  `#[implement(INotificationActivationCallback)]` + `IClassFactory`, `CoRegisterClassObject`
-  at startup (run.rs Windows `run()` -> `notifications::install_launch_hooks()`).
 - D. Android permission request on the UI thread (item 2): `AzulPermissions.request` (Java,
   `runOnUiThread`), `permission/android.rs::request_permission` calls it through the activity's
   class loader. RED = a source-invariant test (no headless observer exists).

@@ -1619,6 +1619,10 @@ pub fn run(
          AZ_LOG=trace for everything)",
         std::env::var("AZ_BACKEND").ok()
     );
+    // Before the first window: when COM started this process for a click on
+    // one of its toasts (`-ToastActivated`), the toast activator must be
+    // registered at once to receive that click (notifications/windows.rs).
+    crate::desktop::notifications::install_launch_hooks();
     use std::cell::RefCell;
 
     use azul_core::resources::AppTerminationBehavior;

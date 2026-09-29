@@ -802,7 +802,7 @@ pub mod wire {
     ///   ([`LaunchResponseMarker::expect_first`], from `didFinishLaunching`) and the first
     ///   activation ([`LaunchResponseMarker::launch_finished`]) is the launch response.
     /// * **Windows** starts the process with `-ToastActivated` when a click on a toast of an app
-    ///   that is not running reaches its COM activator (`launched_by_toast_activation`); the
+    ///   that is not running reaches its COM activator ([`launched_by_toast_activation`]); the
     ///   first activation that process receives is that click ([`LaunchResponseMarker::expect_first`]).
     ///
     /// A launch marks at most one response.
@@ -1096,24 +1096,43 @@ pub mod wire {
     pub const TOAST_ACTIVATED_SWITCH: &str = "-ToastActivated";
 
     /// Was this process started by COM for a click on one of its toasts?
+    /// (The command line `LocalServer32` names, see [`toast_registry_values`].)
     #[must_use]
     pub fn launched_by_toast_activation<S: AsRef<str>>(args: &[S]) -> bool {
-        let _ = args;
-        false
+        args.iter()
+            .any(|a| a.as_ref().eq_ignore_ascii_case(TOAST_ACTIVATED_SWITCH))
     }
 
-    /// The CLSID of the app's toast activator, as a `u128` (`GUID::from_u128`).
+    /// The CLSID of the app's toast activator, as a `u128`
+    /// (`GUID::from_u128`): derived from the AUMID, so every launch of the
+    /// same app registers - and COM relaunches it for - the same class. A
+    /// name-based UUID of version 8 ("custom", RFC 9562) over two FNV-1a
+    /// hashes of the AUMID.
     #[must_use]
     pub fn toast_activator_clsid(aumid: &str) -> u128 {
-        let _ = aumid;
-        0
+        let high = fnv1a64(&[b"azul.toast-activator.".as_slice(), aumid.as_bytes()]);
+        let low = fnv1a64(&[b"azul.toast-activator.low.".as_slice(), aumid.as_bytes()]);
+        let mut clsid = (u128::from(high) << 64) | u128::from(low);
+        // The version: the high nibble of the third group.
+        clsid = (clsid & !(0xF_u128 << 76)) | (0x8_u128 << 76);
+        // The variant: the two top bits of the fourth group are `10`.
+        clsid = (clsid & !(0x3_u128 << 62)) | (0x2_u128 << 62);
+        clsid
     }
 
-    /// A GUID the way the registry writes one.
+    /// A GUID the way the registry writes one:
+    /// `{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}`, upper case.
     #[must_use]
     pub fn guid_string(guid: u128) -> String {
-        let _ = guid;
-        String::new()
+        let hex = format!("{guid:032X}");
+        format!(
+            "{{{}-{}-{}-{}-{}}}",
+            &hex[0..8],
+            &hex[8..12],
+            &hex[12..16],
+            &hex[16..20],
+            &hex[20..32]
+        )
     }
 
     /// One `REG_SZ` value an unpackaged app writes under `HKEY_CURRENT_USER`.
@@ -1126,26 +1145,58 @@ pub mod wire {
         pub data: String,
     }
 
-    /// Everything an unpackaged app registers for its toasts.
+    /// Everything an unpackaged app registers for its toasts, in the order it
+    /// is written:
+    ///
+    /// * the AUMID's `DisplayName` - the toast is attributed to it, and no toast shows without
+    ///   the key (first: the one value that is not optional);
+    /// * the AUMID's `CustomActivator` - the CLSID of its toast activator
+    ///   ([`toast_activator_clsid`]), which the shell asks for a click the app's own process can
+    ///   no longer receive;
+    /// * that CLSID's `LocalServer32` - the command COM runs when the app is not running: the
+    ///   quoted executable and [`TOAST_ACTIVATED_SWITCH`].
     #[must_use]
     pub fn toast_registry_values(
         aumid: &str,
         display_name: &str,
         exe_path: &str,
     ) -> Vec<RegistryValue> {
-        let _ = (aumid, display_name, exe_path);
-        Vec::new()
+        let clsid = guid_string(toast_activator_clsid(aumid));
+        let aumid_key = aumid_registry_key(aumid);
+        alloc::vec![
+            RegistryValue {
+                key: aumid_key.clone(),
+                name: String::from("DisplayName"),
+                data: display_name.to_string(),
+            },
+            RegistryValue {
+                key: aumid_key,
+                name: String::from("CustomActivator"),
+                data: clsid.clone(),
+            },
+            RegistryValue {
+                key: format!("Software\\Classes\\CLSID\\{clsid}\\LocalServer32"),
+                name: String::new(),
+                data: format!("\"{exe_path}\" {TOAST_ACTIVATED_SWITCH}"),
+            },
+        ]
     }
 
-    /// `INotificationActivationCallback::Activate(aumid, invokedArgs, ..)`.
+    /// `INotificationActivationCallback::Activate(aumid, invokedArgs, ..)`:
+    /// the click, translated as the in-process `Activated` event is
+    /// ([`toast_activated_event`]) - if it is on one of THIS app's toasts
+    /// (AUMIDs compare without case). `launched_app` is left to the caller's
+    /// [`LaunchResponseMarker`].
     #[must_use]
     pub fn toast_activator_event(
         our_aumid: &str,
         aumid: &str,
         invoked_args: &str,
     ) -> Option<NotificationEvent> {
-        let _ = (our_aumid, aumid, invoked_args);
-        None
+        if !aumid.eq_ignore_ascii_case(our_aumid) {
+            return None;
+        }
+        toast_activated_event(invoked_args)
     }
 
     // ---- freedesktop: the app's identity ----

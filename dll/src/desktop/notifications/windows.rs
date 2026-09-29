@@ -19,8 +19,13 @@
 //! `Failed` event. Clicks are reported while the process runs
 //! (`ToastNotification.Activated`, on a thread-pool thread, which queues the
 //! event and posts a wake-up to the hidden window). A click on an Action
-//! Center entry AFTER the app exited needs a COM activator
-//! (`INotificationActivationCallback`) - not implemented; see the report.
+//! Center entry AFTER the app exited reaches the [`activator`]: the first
+//! post also registers a COM class (`CustomActivator` + `LocalServer32` under
+//! HKCU, `wire::toast_registry_values`), COM starts the app with
+//! `-ToastActivated`, [`install_launch_hooks`] registers the class object
+//! before the first window, and `Activate` queues the click with
+//! `launched_app` set - for the app-level handler, since the notification's
+//! callback died with the process that posted it.
 //!
 //! # The balloon (the fallback)
 //!
@@ -162,6 +167,35 @@ static SHOWING: Mutex<Option<String>> = Mutex::new(None);
 /// Set by the window procedure when the balloon ended; the next pump then
 /// removes the notify icon (not from inside the procedure).
 static ENDED: AtomicBool = AtomicBool::new(false);
+
+/// Which activation LAUNCHED the app: COM starts it with `-ToastActivated`
+/// for a click on one of its toasts, and the first activation it then
+/// receives is that click (`wire::LaunchResponseMarker`).
+static LAUNCH: Mutex<wire::LaunchResponseMarker> = Mutex::new(wire::LaunchResponseMarker::new());
+
+/// Before the first window: if COM started this process for a toast click,
+/// say so and register the toast activator AT ONCE (COM waits for the class
+/// object to hand over the click). An app that posted toasts in an earlier
+/// run registers it too - an Action Center entry of that run may be clicked
+/// while this one runs, and COM must find the running process instead of
+/// starting a second one. An app that never posted pays nothing.
+pub(super) fn install_launch_hooks() {
+    let args: Vec<String> = std::env::args_os()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    let launched = wire::launched_by_toast_activation(&args);
+    if launched {
+        LAUNCH
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .expect_first();
+        crate::plog_info!("[notifications] started by COM for a click on a toast");
+    }
+    let (aumid, _) = toast::app_identity();
+    if launched || toast::activator_registered(&aumid) {
+        activator::register_class_object(&aumid);
+    }
+}
 
 /// The hidden window's procedure. Never panics - it runs under
 /// `DispatchMessageW`, where an unwind would abort the process.
@@ -537,7 +571,7 @@ impl PlatformNotifier {
 /// The WinRT toast backend: an AUMID registered under HKCU, a
 /// `ToastNotifier` created for it, and the toast's own events.
 pub(super) mod toast {
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, sync::OnceLock};
 
     use azul_core::notification::{Notification, NotificationEvent};
     use azul_css::AzString;
@@ -586,16 +620,32 @@ pub(super) mod toast {
     type RegSetValueExW =
         unsafe extern "system" fn(isize, *const u16, u32, u32, *const u8, u32) -> i32;
     type RegCloseKey = unsafe extern "system" fn(isize) -> i32;
+    /// `RegGetValueW` (Vista+): key, subkey, value name, flags, type out,
+    /// data out, size in/out.
+    type RegGetValueW = unsafe extern "system" fn(
+        isize,
+        *const u16,
+        *const u16,
+        u32,
+        *mut u32,
+        *mut core::ffi::c_void,
+        *mut u32,
+    ) -> i32;
 
-    /// Write `HKCU\Software\Classes\AppUserModelId\<aumid>` with its
-    /// `DisplayName`: the registration an unpackaged app needs before its
-    /// toasts are shown. Idempotent; no admin rights (HKCU).
-    fn register_aumid(aumid: &str, display_name: &str) -> Result<(), String> {
-        const HKEY_CURRENT_USER: isize = 0x8000_0001_u32 as i32 as isize;
-        const KEY_WRITE: u32 = 0x0002_0006;
-        const REG_SZ: u32 = 1;
-        let key_path = wire::aumid_registry_key(aumid);
-        unsafe {
+    const HKEY_CURRENT_USER: isize = 0x8000_0001_u32 as i32 as isize;
+
+    /// advapi32's registry entry points, loaded once.
+    struct Advapi32 {
+        _lib: libloading::Library,
+        create: RegCreateKeyExW,
+        set: RegSetValueExW,
+        close: RegCloseKey,
+        get: RegGetValueW,
+    }
+
+    fn advapi32() -> Result<&'static Advapi32, String> {
+        static LIB: OnceLock<Result<Advapi32, String>> = OnceLock::new();
+        LIB.get_or_init(|| unsafe {
             let lib = libloading::Library::new("advapi32.dll")
                 .map_err(|e| format!("advapi32.dll could not be loaded: {e}"))?;
             let create: RegCreateKeyExW = *lib
@@ -607,10 +657,31 @@ pub(super) mod toast {
             let close: RegCloseKey = *lib
                 .get::<RegCloseKey>(b"RegCloseKey\0")
                 .map_err(|e| format!("RegCloseKey: {e}"))?;
+            let get: RegGetValueW = *lib
+                .get::<RegGetValueW>(b"RegGetValueW\0")
+                .map_err(|e| format!("RegGetValueW: {e}"))?;
+            Ok(Advapi32 {
+                _lib: lib,
+                create,
+                set,
+                close,
+                get,
+            })
+        })
+        .as_ref()
+        .map_err(Clone::clone)
+    }
 
-            let path = encode_wide(&key_path);
+    /// Write one `REG_SZ` under HKCU, creating its key as needed. Idempotent;
+    /// no admin rights.
+    fn write_registry_value(value: &wire::RegistryValue) -> Result<(), String> {
+        const KEY_WRITE: u32 = 0x0002_0006;
+        const REG_SZ: u32 = 1;
+        let reg = advapi32()?;
+        unsafe {
+            let path = encode_wide(&value.key);
             let mut key: isize = 0;
-            let status = create(
+            let status = (reg.create)(
                 HKEY_CURRENT_USER,
                 path.as_ptr(),
                 0,
@@ -623,28 +694,103 @@ pub(super) mod toast {
             );
             if status != 0 {
                 return Err(format!(
-                    "RegCreateKeyExW(HKCU\\{key_path}) failed with error {status}"
+                    "RegCreateKeyExW(HKCU\\{}) failed with error {status}",
+                    value.key
                 ));
             }
-            let name = encode_wide("DisplayName");
-            let value = encode_wide(display_name);
-            let bytes = u32::try_from(value.len() * 2).unwrap_or(u32::MAX);
-            let status = set(
+            let name = encode_wide(&value.name);
+            // An empty name is the key's default value.
+            let name_ptr = if value.name.is_empty() {
+                core::ptr::null()
+            } else {
+                name.as_ptr()
+            };
+            let data = encode_wide(&value.data);
+            let bytes = u32::try_from(data.len() * 2).unwrap_or(u32::MAX);
+            let status = (reg.set)(
                 key,
-                name.as_ptr(),
+                name_ptr,
                 0,
                 REG_SZ,
-                value.as_ptr().cast::<u8>(),
+                data.as_ptr().cast::<u8>(),
                 bytes,
             );
-            close(key);
+            (reg.close)(key);
             if status != 0 {
                 return Err(format!(
-                    "RegSetValueExW(HKCU\\{key_path}\\DisplayName) failed with error {status}"
+                    "RegSetValueExW(HKCU\\{}\\{}) failed with error {status}",
+                    value.key, value.name
                 ));
             }
         }
         Ok(())
+    }
+
+    /// A `REG_SZ` under HKCU, or `None`.
+    fn read_registry_string(key: &str, name: &str) -> Option<String> {
+        const RRF_RT_REG_SZ: u32 = 0x0000_0002;
+        let reg = advapi32().ok()?;
+        let key_w = encode_wide(key);
+        let name_w = encode_wide(name);
+        let mut buf = [0u16; 512];
+        let mut bytes = u32::try_from(buf.len() * 2).unwrap_or(0);
+        let status = unsafe {
+            (reg.get)(
+                HKEY_CURRENT_USER,
+                key_w.as_ptr(),
+                name_w.as_ptr(),
+                RRF_RT_REG_SZ,
+                core::ptr::null_mut(),
+                buf.as_mut_ptr().cast::<core::ffi::c_void>(),
+                &mut bytes,
+            )
+        };
+        if status != 0 {
+            return None;
+        }
+        let units = (bytes as usize / 2).min(buf.len());
+        Some(
+            String::from_utf16_lossy(&buf[..units])
+                .trim_end_matches('\0')
+                .to_string(),
+        )
+    }
+
+    /// Write the app's toast registration (`wire::toast_registry_values`).
+    /// The `DisplayName` is required - no toast shows without its key. The
+    /// activator's values are best effort: without them toasts still show,
+    /// only a click after the app exited reaches nothing.
+    fn register_app(aumid: &str, display_name: &str) -> Result<(), String> {
+        let exe = std::env::current_exe()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        for value in wire::toast_registry_values(aumid, display_name, &exe) {
+            let required = value.name == "DisplayName";
+            if !required && exe.is_empty() {
+                // `LocalServer32` would name no executable.
+                continue;
+            }
+            match write_registry_value(&value) {
+                Ok(()) => {}
+                Err(e) if required => return Err(e),
+                Err(e) => {
+                    crate::plog_warn!(
+                        "[notifications] the toast activator is not registered ({e}): a click \
+                         on a toast after the app exited will not reach it"
+                    );
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Did a run of this app register its toast activator - may toasts of an
+    /// earlier run still sit in the Action Center?
+    pub(super) fn activator_registered(aumid: &str) -> bool {
+        let expected = wire::guid_string(wire::toast_activator_clsid(aumid));
+        read_registry_string(&wire::aumid_registry_key(aumid), "CustomActivator")
+            .is_some_and(|clsid| clsid.eq_ignore_ascii_case(&expected))
     }
 
     /// Wake the run loop from a toast event handler (a thread-pool thread).
@@ -729,10 +875,14 @@ pub(super) mod toast {
     impl Toaster {
         pub(super) fn new(wake_hwnd: isize) -> Result<Self, String> {
             let (aumid, display_name) = app_identity();
-            register_aumid(&aumid, &display_name)?;
+            register_app(&aumid, &display_name)?;
             let notifier =
                 ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(aumid.as_str()))
                     .map_err(|e| format!("CreateToastNotifierWithId({aumid}): {e}"))?;
+            // From the first post on, a click the toast's own object cannot
+            // take - the Action Center entry clicked after it was dropped,
+            // or after the app exited - reaches the activator.
+            super::activator::register_class_object(&aumid);
             Ok(Self {
                 notifier,
                 aumid,
@@ -845,5 +995,152 @@ pub(super) mod toast {
                 }
             }
         }
+    }
+}
+
+/// The toast activator: the COM class the shell asks for a click on one of
+/// this app's toasts that its process cannot take in-process - above all a
+/// click on an Action Center entry after the app exited, for which COM starts
+/// the app with `-ToastActivated` (`wire::toast_registry_values` names the
+/// class under the AUMID's `CustomActivator` and the command under its
+/// `LocalServer32`).
+///
+/// While the process runs, a click may reach both the toast's own
+/// `Activated` handler and this class; the registry's routing delivers the
+/// first and swallows the second (the id has ENDED).
+pub(super) mod activator {
+    use std::sync::{OnceLock, PoisonError};
+
+    use azul_layout::managers::notification::{queue_notification_event, wire};
+    use windows::{
+        core::{implement, IUnknown, Interface, Ref, BOOL, GUID, PCWSTR},
+        Win32::{
+            Foundation::{CLASS_E_NOAGGREGATION, E_POINTER},
+            System::Com::{
+                CoRegisterClassObject, IClassFactory, IClassFactory_Impl, CLSCTX_LOCAL_SERVER,
+                REGCLS_MULTIPLEUSE,
+            },
+            UI::Notifications::{
+                INotificationActivationCallback, INotificationActivationCallback_Impl,
+                NOTIFICATION_USER_INPUT_DATA,
+            },
+        },
+    };
+
+    use super::LAUNCH;
+
+    /// A wide C string as a `String`; empty for null.
+    fn wide(s: &PCWSTR) -> String {
+        if s.is_null() {
+            return String::new();
+        }
+        unsafe { s.to_string() }.unwrap_or_default()
+    }
+
+    /// The activator object: one per activation COM asks the factory for.
+    #[implement(INotificationActivationCallback)]
+    struct ToastActivator {
+        /// This app's AUMID; an activation for another one is not ours.
+        aumid: String,
+    }
+
+    #[allow(non_snake_case)]
+    impl INotificationActivationCallback_Impl for ToastActivator_Impl {
+        /// `invokedargs` is the toast's `launch` or the button's `arguments`
+        /// string (`wire::toast_arguments`). Text-box input (`data`) is not
+        /// used: azul's toasts have none.
+        fn Activate(
+            &self,
+            appusermodelid: &PCWSTR,
+            invokedargs: &PCWSTR,
+            _data: *const NOTIFICATION_USER_INPUT_DATA,
+            _count: u32,
+        ) -> windows::core::Result<()> {
+            let aumid = wide(appusermodelid);
+            let args = wide(invokedargs);
+            if let Some(mut event) = wire::toast_activator_event(&self.aumid, &aumid, &args) {
+                event.launched_app = LAUNCH
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .launched_app(event.notification_id.as_str());
+                queue_notification_event(event);
+                // In the STA this runs inside the loop's own message drain,
+                // and the notification pump after it delivers; the wake is
+                // for a process whose COM apartment is multithreaded.
+                crate::desktop::loop_waker::wake();
+            }
+            Ok(())
+        }
+    }
+
+    /// The class object `CoRegisterClassObject` hands COM.
+    #[implement(IClassFactory)]
+    struct ToastActivatorFactory {
+        aumid: String,
+    }
+
+    #[allow(non_snake_case)]
+    impl IClassFactory_Impl for ToastActivatorFactory_Impl {
+        fn CreateInstance(
+            &self,
+            punkouter: Ref<IUnknown>,
+            riid: *const GUID,
+            ppvobject: *mut *mut core::ffi::c_void,
+        ) -> windows::core::Result<()> {
+            if ppvobject.is_null() {
+                return Err(E_POINTER.into());
+            }
+            unsafe { *ppvobject = core::ptr::null_mut() };
+            if punkouter.is_some() {
+                return Err(CLASS_E_NOAGGREGATION.into());
+            }
+            let activator: INotificationActivationCallback = ToastActivator {
+                aumid: self.aumid.clone(),
+            }
+            .into();
+            unsafe { activator.query(riid, ppvobject) }.ok()
+        }
+
+        fn LockServer(&self, _flock: BOOL) -> windows::core::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Register the activator's class object with COM, once per process:
+    /// at launch when COM started the app for a click (or an earlier run
+    /// registered the activator), else at the first post. The process's
+    /// main thread is made an STA first, so COM hands `Activate` to this
+    /// thread through its message loop. The registration lives until the
+    /// process exits.
+    pub(super) fn register_class_object(aumid: &str) {
+        static COOKIE: OnceLock<Option<u32>> = OnceLock::new();
+        COOKIE.get_or_init(|| {
+            crate::desktop::shell2::windows::dnd::ensure_ole_initialized();
+            let clsid_value = wire::toast_activator_clsid(aumid);
+            let clsid = GUID::from_u128(clsid_value);
+            let factory: IClassFactory = ToastActivatorFactory {
+                aumid: aumid.to_string(),
+            }
+            .into();
+            match unsafe {
+                CoRegisterClassObject(&clsid, &factory, CLSCTX_LOCAL_SERVER, REGCLS_MULTIPLEUSE)
+            } {
+                Ok(cookie) => {
+                    crate::plog_info!(
+                        "[notifications] toast activator {} registered for {aumid}",
+                        wire::guid_string(clsid_value)
+                    );
+                    Some(cookie)
+                }
+                Err(e) => {
+                    crate::plog_warn!(
+                        "[notifications] the toast activator could not be registered with COM \
+                         ({e}): a click on an Action Center entry that the toast's own handler \
+                         misses does not reach the app"
+                    );
+                    None
+                }
+            }
+        });
     }
 }
