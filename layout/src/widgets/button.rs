@@ -522,9 +522,8 @@ impl Button {
             container_style: OptionCssPropertyWithConditionsVec::None,
             label_style: OptionCssPropertyWithConditionsVec::None,
             image_style: OptionCssPropertyWithConditionsVec::None,
-            theme: crate::widgets::themes::OptionUiTheme::Some(
-                crate::widgets::themes::UiTheme::Flat,
-            ),
+            // No pin: the button follows the app theme, like every widget.
+            theme: crate::widgets::themes::OptionUiTheme::None,
             icon_style: OptionCssPropertyWithConditionsVec::None,
             trailing_icon_style: OptionCssPropertyWithConditionsVec::None,
         }
