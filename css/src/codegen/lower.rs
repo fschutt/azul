@@ -471,7 +471,7 @@ impl Lower for CssPropertyWithConditions {
 /// Wrap a lowered `CssProperty` in the most idiomatic
 /// `CssPropertyWithConditions` constructor api.json has for `conditions`
 /// (`simple`, `on_hover`, `on_active`, `on_focus`, `when_disabled`,
-/// `dark_theme`, `light_theme`, `on_windows` / `on_macos` / `on_linux`,
+/// `dark_mode`, `light_mode`, `on_windows` / `on_macos` / `on_linux`,
 /// `on_os`, `with_condition`, `with_conditions`).
 #[must_use]
 pub fn lower_with_conditions(property: Expr, conditions: &[DynamicSelector]) -> Expr {
@@ -485,8 +485,8 @@ pub fn lower_with_conditions(property: Expr, conditions: &[DynamicSelector]) -> 
         [DynamicSelector::PseudoState(PseudoStateType::Active)] => one("on_active", property),
         [DynamicSelector::PseudoState(PseudoStateType::Focus)] => one("on_focus", property),
         [DynamicSelector::PseudoState(PseudoStateType::Disabled)] => one("when_disabled", property),
-        [DynamicSelector::Mode(crate::dynamic_selector::ModeCondition::Dark)] => one("dark_theme", property),
-        [DynamicSelector::Mode(crate::dynamic_selector::ModeCondition::Light)] => one("light_theme", property),
+        [DynamicSelector::Mode(crate::dynamic_selector::ModeCondition::Dark)] => one("dark_mode", property),
+        [DynamicSelector::Mode(crate::dynamic_selector::ModeCondition::Light)] => one("light_mode", property),
         [DynamicSelector::Os(OsCondition::Windows)] => one("on_windows", property),
         [DynamicSelector::Os(OsCondition::MacOS)] => one("on_macos", property),
         [DynamicSelector::Os(OsCondition::Linux)] => one("on_linux", property),

@@ -26,7 +26,7 @@ style_card :: proc() -> azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_onWindows(azul.AzCssProperty_fontSize(azul.AzStyleFontSize{inner = azul.AzPixelValue_px(12.0)})),
 		azul.AzCssPropertyWithConditions_onLinux(azul.AzCssProperty_fontSize(azul.AzStyleFontSize{inner = azul.AzPixelValue_px(11.0)})),
 		azul.AzCssPropertyWithConditions_onOs(azul.AzCssProperty_fontSize(azul.AzStyleFontSize{inner = azul.AzPixelValue_px(15.0)}), azul.AzOsCondition.Android),
-		azul.AzCssPropertyWithConditions_darkTheme(azul.AzCssProperty_textColor(azul.AzStyleTextColor{inner = azul.AzColorU{r = 255, g = 255, b = 255, a = 255}})),
+		azul.AzCssPropertyWithConditions_darkMode(azul.AzCssProperty_textColor(azul.AzStyleTextColor{inner = azul.AzColorU{r = 255, g = 255, b = 255, a = 255}})),
 		azul.AzCssPropertyWithConditions_withConditions(
 			azul.AzCssProperty_textColor(azul.AzStyleTextColor{inner = azul.AzColorU{r = 204, g = 204, b = 204, a = 255}}),
 			azul.AzDynamicSelectorVec_copyFromPtr(&[]azul.AzDynamicSelector{

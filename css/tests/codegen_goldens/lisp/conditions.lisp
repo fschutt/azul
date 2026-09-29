@@ -42,7 +42,7 @@
       (azul-internal::%az-css-property-with-conditions-on-windows (azul-internal::%az-css-property-font-size (list 'azul-internal::inner (azul-internal::%az-pixel-value-px 12.0))))
       (azul-internal::%az-css-property-with-conditions-on-linux (azul-internal::%az-css-property-font-size (list 'azul-internal::inner (azul-internal::%az-pixel-value-px 11.0))))
       (azul-internal::%az-css-property-with-conditions-on-os (azul-internal::%az-css-property-font-size (list 'azul-internal::inner (azul-internal::%az-pixel-value-px 15.0))) :android)
-      (azul-internal::%az-css-property-with-conditions-dark-theme (azul-internal::%az-css-property-text-color (list 'azul-internal::inner (list 'azul-internal::r 255 'azul-internal::g 255 'azul-internal::b 255 'azul-internal::a 255))))
+      (azul-internal::%az-css-property-with-conditions-dark-mode (azul-internal::%az-css-property-text-color (list 'azul-internal::inner (list 'azul-internal::r 255 'azul-internal::g 255 'azul-internal::b 255 'azul-internal::a 255))))
       (azul-internal::%az-css-property-with-conditions-with-conditions
         (azul-internal::%az-css-property-text-color (list 'azul-internal::inner (list 'azul-internal::r 204 'azul-internal::g 204 'azul-internal::b 204 'azul-internal::a 255)))
         (css-vec

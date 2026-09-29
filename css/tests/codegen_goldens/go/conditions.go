@@ -26,7 +26,7 @@ func StyleCard() azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_onWindows(azul.AzCssProperty_fontSize(azul.AzStyleFontSize{Inner: azul.AzPixelValue_px(12.0)})),
 		azul.AzCssPropertyWithConditions_onLinux(azul.AzCssProperty_fontSize(azul.AzStyleFontSize{Inner: azul.AzPixelValue_px(11.0)})),
 		azul.AzCssPropertyWithConditions_onOs(azul.AzCssProperty_fontSize(azul.AzStyleFontSize{Inner: azul.AzPixelValue_px(15.0)}), azul.OsCondition_Android),
-		azul.AzCssPropertyWithConditions_darkTheme(azul.AzCssProperty_textColor(azul.AzStyleTextColor{Inner: azul.AzColorU{R: 255, G: 255, B: 255, A: 255}})),
+		azul.AzCssPropertyWithConditions_darkMode(azul.AzCssProperty_textColor(azul.AzStyleTextColor{Inner: azul.AzColorU{R: 255, G: 255, B: 255, A: 255}})),
 		azul.AzCssPropertyWithConditions_withConditions(
 			azul.AzCssProperty_textColor(azul.AzStyleTextColor{Inner: azul.AzColorU{R: 204, G: 204, B: 204, A: 255}}),
 			azul.AzDynamicSelectorVec_copyFromPtr(&[]azul.AzDynamicSelector{

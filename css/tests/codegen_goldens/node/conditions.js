@@ -22,7 +22,7 @@ function styleCard() {
         lib.AzCssPropertyWithConditions_onWindows(lib.AzCssProperty_fontSize({ inner: lib.AzPixelValue_px(12.0) })),
         lib.AzCssPropertyWithConditions_onLinux(lib.AzCssProperty_fontSize({ inner: lib.AzPixelValue_px(11.0) })),
         lib.AzCssPropertyWithConditions_onOs(lib.AzCssProperty_fontSize({ inner: lib.AzPixelValue_px(15.0) }), azul.OsCondition.Android),
-        lib.AzCssPropertyWithConditions_darkTheme(lib.AzCssProperty_textColor({ inner: { r: 255, g: 255, b: 255, a: 255 } })),
+        lib.AzCssPropertyWithConditions_darkMode(lib.AzCssProperty_textColor({ inner: { r: 255, g: 255, b: 255, a: 255 } })),
         lib.AzCssPropertyWithConditions_withConditions(
             lib.AzCssProperty_textColor({ inner: { r: 204, g: 204, b: 204, a: 255 } }),
             lib.AzDynamicSelectorVec_copyFromPtr([

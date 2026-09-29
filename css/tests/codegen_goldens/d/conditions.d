@@ -23,7 +23,7 @@ CssPropertyWithConditions[] styleCard()
         CssPropertyWithConditions.onWindows(CssProperty.fontSize(StyleFontSize(PixelValue.px(12.0f)))),
         CssPropertyWithConditions.onLinux(CssProperty.fontSize(StyleFontSize(PixelValue.px(11.0f)))),
         CssPropertyWithConditions.onOs(CssProperty.fontSize(StyleFontSize(PixelValue.px(15.0f))), OsCondition.android),
-        CssPropertyWithConditions.darkTheme(CssProperty.textColor(StyleTextColor(ColorU(255, 255, 255, 255)))),
+        CssPropertyWithConditions.darkMode(CssProperty.textColor(StyleTextColor(ColorU(255, 255, 255, 255)))),
         CssPropertyWithConditions.withConditions(
             CssProperty.textColor(StyleTextColor(ColorU(204, 204, 204, 255))),
             [

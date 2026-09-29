@@ -27,7 +27,7 @@ contains
     t2(6) = az_css_property_with_conditions_on_windows(az_css_property_font_size(AzStyleFontSize(inner=az_pixel_value_px(12.0_c_float))))
     t2(7) = az_css_property_with_conditions_on_linux(az_css_property_font_size(AzStyleFontSize(inner=az_pixel_value_px(11.0_c_float))))
     t2(8) = az_css_property_with_conditions_on_os(az_css_property_font_size(AzStyleFontSize(inner=az_pixel_value_px(15.0_c_float))), OsCondition_Android)
-    t2(9) = az_css_property_with_conditions_dark_theme(az_css_property_text_color(AzStyleTextColor(inner=AzColorU(r_=-1_c_int8_t, g=-1_c_int8_t, b=-1_c_int8_t, a=-1_c_int8_t))))
+    t2(9) = az_css_property_with_conditions_dark_mode(az_css_property_text_color(AzStyleTextColor(inner=AzColorU(r_=-1_c_int8_t, g=-1_c_int8_t, b=-1_c_int8_t, a=-1_c_int8_t))))
     t2(10) = az_css_property_with_conditions_with_conditions(az_css_property_text_color(AzStyleTextColor(inner=AzColorU(r_=-52_c_int8_t, g=-52_c_int8_t, b=-52_c_int8_t, a=-1_c_int8_t))), az_dynamic_selector_vec_copy_from_ptr(c_loc(t1(1)), 2_c_size_t))
     t2(11) = az_css_property_with_conditions_with_condition(az_css_property_letter_spacing(AzStyleLetterSpacing(inner=az_pixel_value_px(1.0_c_float))), az_dynamic_selector_language(az_language_condition_prefix(azul_string('de-DE'))))
     r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t2(1)), 11_c_size_t)

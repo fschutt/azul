@@ -21,7 +21,7 @@ module AzulStyles
       Azul::CssPropertyWithConditions.on_windows(Azul::CssProperty.font_size(Azul::StyleFontSize.__own(LibAzul::AzStyleFontSize.new(inner: Azul::PixelValue.px(12.0_f32).__take)))),
       Azul::CssPropertyWithConditions.on_linux(Azul::CssProperty.font_size(Azul::StyleFontSize.__own(LibAzul::AzStyleFontSize.new(inner: Azul::PixelValue.px(11.0_f32).__take)))),
       Azul::CssPropertyWithConditions.on_os(Azul::CssProperty.font_size(Azul::StyleFontSize.__own(LibAzul::AzStyleFontSize.new(inner: Azul::PixelValue.px(15.0_f32).__take))), Azul::OsCondition::Android),
-      Azul::CssPropertyWithConditions.dark_theme(Azul::CssProperty.text_color(Azul::StyleTextColor.__own(LibAzul::AzStyleTextColor.new(inner: LibAzul::AzColorU.new(r: 255_u8, g: 255_u8, b: 255_u8, a: 255_u8))))),
+      Azul::CssPropertyWithConditions.dark_mode(Azul::CssProperty.text_color(Azul::StyleTextColor.__own(LibAzul::AzStyleTextColor.new(inner: LibAzul::AzColorU.new(r: 255_u8, g: 255_u8, b: 255_u8, a: 255_u8))))),
       Azul::CssPropertyWithConditions.with_conditions(
         Azul::CssProperty.text_color(Azul::StyleTextColor.__own(LibAzul::AzStyleTextColor.new(inner: LibAzul::AzColorU.new(r: 204_u8, g: 204_u8, b: 204_u8, a: 255_u8)))),
         [

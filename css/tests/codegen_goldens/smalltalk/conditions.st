@@ -43,7 +43,7 @@ AzulStyles class >> styleCard [
         (AzulNative azCssPropertyWithConditionsOnWindows: (AzulNative azCssPropertyFontSize: (AzStyleFontSize new inner: (AzulNative azPixelValuePx: 12.0); yourself))).
         (AzulNative azCssPropertyWithConditionsOnLinux: (AzulNative azCssPropertyFontSize: (AzStyleFontSize new inner: (AzulNative azPixelValuePx: 11.0); yourself))).
         (AzulNative azCssPropertyWithConditionsOnOs: (AzulNative azCssPropertyFontSize: (AzStyleFontSize new inner: (AzulNative azPixelValuePx: 15.0); yourself)) os: (AzOsCondition Android)).
-        (AzulNative azCssPropertyWithConditionsDarkTheme: (AzulNative azCssPropertyTextColor: (AzStyleTextColor new inner: (AzColorU new r: 255; g: 255; b: 255; a: 255; yourself); yourself))).
+        (AzulNative azCssPropertyWithConditionsDarkMode: (AzulNative azCssPropertyTextColor: (AzStyleTextColor new inner: (AzColorU new r: 255; g: 255; b: 255; a: 255; yourself); yourself))).
         (AzulNative azCssPropertyWithConditionsWithConditions: (AzulNative azCssPropertyTextColor: (AzStyleTextColor new inner: (AzColorU new r: 204; g: 204; b: 204; a: 255; yourself); yourself)) conditions: (self vec: [ :p :n | AzulNative azDynamicSelectorVecCopyFromPtr: p len: n ] of: AzDynamicSelector items: {
             (AzulNative azDynamicSelectorPseudoState: (AzPseudoStateType Hover)).
             (AzulNative azDynamicSelectorMode: (AzModeCondition Dark))

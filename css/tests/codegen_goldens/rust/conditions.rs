@@ -24,7 +24,7 @@ pub fn style_card() -> CssPropertyWithConditionsVec {
         CssPropertyWithConditions::on_windows(CssProperty::font_size(StyleFontSize { inner: PixelValue::px(12.0) })),
         CssPropertyWithConditions::on_linux(CssProperty::font_size(StyleFontSize { inner: PixelValue::px(11.0) })),
         CssPropertyWithConditions::on_os(CssProperty::font_size(StyleFontSize { inner: PixelValue::px(15.0) }), OsCondition::Android),
-        CssPropertyWithConditions::dark_theme(CssProperty::text_color(StyleTextColor { inner: ColorU { r: 255, g: 255, b: 255, a: 255 } })),
+        CssPropertyWithConditions::dark_mode(CssProperty::text_color(StyleTextColor { inner: ColorU { r: 255, g: 255, b: 255, a: 255 } })),
         CssPropertyWithConditions::with_conditions(
             CssProperty::text_color(StyleTextColor { inner: ColorU { r: 204, g: 204, b: 204, a: 255 } }),
             DynamicSelectorVec::from(vec![

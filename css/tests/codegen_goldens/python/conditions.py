@@ -21,7 +21,7 @@ def style_card():
         CssPropertyWithConditions.on_windows(CssProperty.font_size(_with(StyleFontSize.default(), inner=PixelValue.px(12.0)))),
         CssPropertyWithConditions.on_linux(CssProperty.font_size(_with(StyleFontSize.default(), inner=PixelValue.px(11.0)))),
         CssPropertyWithConditions.on_os(CssProperty.font_size(_with(StyleFontSize.default(), inner=PixelValue.px(15.0))), OsCondition.Android),
-        CssPropertyWithConditions.dark_theme(CssProperty.text_color(_with(StyleTextColor.default(), inner=_with(ColorU.default(), r=255, g=255, b=255, a=255)))),
+        CssPropertyWithConditions.dark_mode(CssProperty.text_color(_with(StyleTextColor.default(), inner=_with(ColorU.default(), r=255, g=255, b=255, a=255)))),
     ]
 
 # CSS: .list li:nth-child(2)

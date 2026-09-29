@@ -20,7 +20,7 @@ Function StyleCard() As AzCssPropertyWithConditionsVec
     t2(5) = AzCssPropertyWithConditions_onWindows(AzCssProperty_fontSize(Type<AzStyleFontSize>(AzPixelValue_px(12.0))))
     t2(6) = AzCssPropertyWithConditions_onLinux(AzCssProperty_fontSize(Type<AzStyleFontSize>(AzPixelValue_px(11.0))))
     t2(7) = AzCssPropertyWithConditions_onOs(AzCssProperty_fontSize(Type<AzStyleFontSize>(AzPixelValue_px(15.0))), AzOsCondition_Android)
-    t2(8) = AzCssPropertyWithConditions_darkTheme(AzCssProperty_textColor(Type<AzStyleTextColor>(Type<AzColorU>(255, 255, 255, 255))))
+    t2(8) = AzCssPropertyWithConditions_darkMode(AzCssProperty_textColor(Type<AzStyleTextColor>(Type<AzColorU>(255, 255, 255, 255))))
     t2(9) = AzCssPropertyWithConditions_withConditions(AzCssProperty_textColor(Type<AzStyleTextColor>(Type<AzColorU>(204, 204, 204, 255))), AzDynamicSelectorVec_copyFromPtr(@t1(0), 2))
     t2(10) = AzCssPropertyWithConditions_withCondition(AzCssProperty_letterSpacing(Type<AzStyleLetterSpacing>(AzPixelValue_px(1.0))), AzDynamicSelector_language(AzLanguageCondition_prefix(CssStr("de-DE"))))
     Return AzCssPropertyWithConditionsVec_copyFromPtr(@t2(0), 11)

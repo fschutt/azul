@@ -20,7 +20,7 @@ public func styleCard() -> [CssPropertyWithConditions] {
         CssPropertyWithConditions.onWindows(CssProperty.fontSize(StyleFontSize(inner: PixelValue.px(12.0)))),
         CssPropertyWithConditions.onLinux(CssProperty.fontSize(StyleFontSize(inner: PixelValue.px(11.0)))),
         CssPropertyWithConditions.onOs(CssProperty.fontSize(StyleFontSize(inner: PixelValue.px(15.0))), os: OsCondition.android),
-        CssPropertyWithConditions.darkTheme(CssProperty.textColor(StyleTextColor(inner: ColorU(r: 255, g: 255, b: 255, a: 255)))),
+        CssPropertyWithConditions.darkMode(CssProperty.textColor(StyleTextColor(inner: ColorU(r: 255, g: 255, b: 255, a: 255)))),
         CssPropertyWithConditions.withConditions(
             CssProperty.textColor(StyleTextColor(inner: ColorU(r: 204, g: 204, b: 204, a: 255))),
             conditions: [

@@ -30,7 +30,7 @@ namespace AzulStyles
                 NativeMethods.AzCssPropertyWithConditions_onWindows(NativeMethods.AzCssProperty_fontSize(new AzStyleFontSize { inner = NativeMethods.AzPixelValue_px(12.0f) })),
                 NativeMethods.AzCssPropertyWithConditions_onLinux(NativeMethods.AzCssProperty_fontSize(new AzStyleFontSize { inner = NativeMethods.AzPixelValue_px(11.0f) })),
                 NativeMethods.AzCssPropertyWithConditions_onOs(NativeMethods.AzCssProperty_fontSize(new AzStyleFontSize { inner = NativeMethods.AzPixelValue_px(15.0f) }), OsCondition.Android),
-                NativeMethods.AzCssPropertyWithConditions_darkTheme(NativeMethods.AzCssProperty_textColor(new AzStyleTextColor { inner = new AzColorU { r = 255, g = 255, b = 255, a = 255 } })),
+                NativeMethods.AzCssPropertyWithConditions_darkMode(NativeMethods.AzCssProperty_textColor(new AzStyleTextColor { inner = new AzColorU { r = 255, g = 255, b = 255, a = 255 } })),
                 NativeMethods.AzCssPropertyWithConditions_withConditions(
                     NativeMethods.AzCssProperty_textColor(new AzStyleTextColor { inner = new AzColorU { r = 204, g = 204, b = 204, a = 255 } }),
                     AzulCodegen.Vec<AzDynamicSelector, AzDynamicSelectorVec>(

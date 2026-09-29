@@ -24,7 +24,7 @@ function M.style_card()
         C.AzCssPropertyWithConditions_onWindows(C.AzCssProperty_fontSize(ffi.new('AzStyleFontSize', { inner = C.AzPixelValue_px(12.0) }))),
         C.AzCssPropertyWithConditions_onLinux(C.AzCssProperty_fontSize(ffi.new('AzStyleFontSize', { inner = C.AzPixelValue_px(11.0) }))),
         C.AzCssPropertyWithConditions_onOs(C.AzCssProperty_fontSize(ffi.new('AzStyleFontSize', { inner = C.AzPixelValue_px(15.0) })), C.AzOsCondition_Android),
-        C.AzCssPropertyWithConditions_darkTheme(C.AzCssProperty_textColor(ffi.new('AzStyleTextColor', { inner = ffi.new('AzColorU', { r = 255, g = 255, b = 255, a = 255 }) }))),
+        C.AzCssPropertyWithConditions_darkMode(C.AzCssProperty_textColor(ffi.new('AzStyleTextColor', { inner = ffi.new('AzColorU', { r = 255, g = 255, b = 255, a = 255 }) }))),
         C.AzCssPropertyWithConditions_withConditions(
             C.AzCssProperty_textColor(ffi.new('AzStyleTextColor', { inner = ffi.new('AzColorU', { r = 204, g = 204, b = 204, a = 255 }) })),
             C.AzDynamicSelectorVec_copyFromPtr(ffi.new('AzDynamicSelector[2]', {

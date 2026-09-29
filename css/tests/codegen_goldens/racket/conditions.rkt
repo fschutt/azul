@@ -37,7 +37,7 @@
       (css-property-with-conditions-on-windows (css-property-font-size (make-AzStyleFontSize (pixel-value-px 12.0))))
       (css-property-with-conditions-on-linux (css-property-font-size (make-AzStyleFontSize (pixel-value-px 11.0))))
       (css-property-with-conditions-on-os (css-property-font-size (make-AzStyleFontSize (pixel-value-px 15.0))) AzOsCondition_Android)
-      (css-property-with-conditions-dark-theme (css-property-text-color (make-AzStyleTextColor (make-AzColorU 255 255 255 255))))
+      (css-property-with-conditions-dark-mode (css-property-text-color (make-AzStyleTextColor (make-AzColorU 255 255 255 255))))
       (css-property-with-conditions-with-conditions
         (css-property-text-color (make-AzStyleTextColor (make-AzColorU 204 204 204 255)))
         (css-vec

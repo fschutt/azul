@@ -38,7 +38,7 @@ package body Styles is
       t2 (5) := Az_CssPropertyWithConditions_On_Windows (Az_CssProperty_Font_Size (Az_StyleFontSize'(Inner => Az_PixelValue_Px (12.0))));
       t2 (6) := Az_CssPropertyWithConditions_On_Linux (Az_CssProperty_Font_Size (Az_StyleFontSize'(Inner => Az_PixelValue_Px (11.0))));
       t2 (7) := Az_CssPropertyWithConditions_On_Os (Az_CssProperty_Font_Size (Az_StyleFontSize'(Inner => Az_PixelValue_Px (15.0))), Az_OsCondition'(Android));
-      t2 (8) := Az_CssPropertyWithConditions_Dark_Theme (Az_CssProperty_Text_Color (Az_StyleTextColor'(Inner => Az_ColorU'(R => 255, G => 255, B => 255, A => 255))));
+      t2 (8) := Az_CssPropertyWithConditions_Dark_Mode (Az_CssProperty_Text_Color (Az_StyleTextColor'(Inner => Az_ColorU'(R => 255, G => 255, B => 255, A => 255))));
       t2 (9) := Az_CssPropertyWithConditions_With_Conditions (Az_CssProperty_Text_Color (Az_StyleTextColor'(Inner => Az_ColorU'(R => 204, G => 204, B => 204, A => 255))), Az_DynamicSelectorVec_Copy_From_Ptr (t1 (0)'Address, 2));
       t2 (10) := Az_CssPropertyWithConditions_With_Condition (Az_CssProperty_Letter_Spacing (Az_StyleLetterSpacing'(Inner => Az_PixelValue_Px (1.0))), Az_DynamicSelector_Language (Az_LanguageCondition_Prefix (To_Az_String ("de-DE"))));
       return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t2 (0)'Address, 11);

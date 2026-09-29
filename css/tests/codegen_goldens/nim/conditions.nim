@@ -28,7 +28,7 @@ proc styleCard*(): AzCssPropertyWithConditionsVec =
     AzCssPropertyWithConditions_onWindows(AzCssProperty_fontSize(AzStyleFontSize(inner: AzPixelValue_px(12.0)))),
     AzCssPropertyWithConditions_onLinux(AzCssProperty_fontSize(AzStyleFontSize(inner: AzPixelValue_px(11.0)))),
     AzCssPropertyWithConditions_onOs(AzCssProperty_fontSize(AzStyleFontSize(inner: AzPixelValue_px(15.0))), AzOsCondition.Android),
-    AzCssPropertyWithConditions_darkTheme(AzCssProperty_textColor(AzStyleTextColor(inner: AzColorU(r: 255'u8, g: 255'u8, b: 255'u8, a: 255'u8)))),
+    AzCssPropertyWithConditions_darkMode(AzCssProperty_textColor(AzStyleTextColor(inner: AzColorU(r: 255'u8, g: 255'u8, b: 255'u8, a: 255'u8)))),
     AzCssPropertyWithConditions_withConditions(
       AzCssProperty_textColor(AzStyleTextColor(inner: AzColorU(r: 204'u8, g: 204'u8, b: 204'u8, a: 255'u8))),
       azVec(AzDynamicSelectorVec_copyFromPtr, [

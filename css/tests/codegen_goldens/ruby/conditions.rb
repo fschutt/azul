@@ -73,7 +73,7 @@ module AzulStyles
       N.az_css_property_with_conditions_on_windows(N.az_css_property_font_size(AzulCodegen.struct(N::AzStyleFontSize, inner: N.az_pixel_value_px(12.0)))),
       N.az_css_property_with_conditions_on_linux(N.az_css_property_font_size(AzulCodegen.struct(N::AzStyleFontSize, inner: N.az_pixel_value_px(11.0)))),
       N.az_css_property_with_conditions_on_os(N.az_css_property_font_size(AzulCodegen.struct(N::AzStyleFontSize, inner: N.az_pixel_value_px(15.0))), N::AzOsCondition::Android),
-      N.az_css_property_with_conditions_dark_theme(N.az_css_property_text_color(AzulCodegen.struct(N::AzStyleTextColor, inner: AzulCodegen.struct(N::AzColorU, r: 255, g: 255, b: 255, a: 255)))),
+      N.az_css_property_with_conditions_dark_mode(N.az_css_property_text_color(AzulCodegen.struct(N::AzStyleTextColor, inner: AzulCodegen.struct(N::AzColorU, r: 255, g: 255, b: 255, a: 255)))),
       N.az_css_property_with_conditions_with_conditions(
         N.az_css_property_text_color(AzulCodegen.struct(N::AzStyleTextColor, inner: AzulCodegen.struct(N::AzColorU, r: 204, g: 204, b: 204, a: 255))),
         AzulCodegen.vec(

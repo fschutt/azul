@@ -26,7 +26,7 @@ fun styleCard(): AzCssPropertyWithConditionsVec.ByValue {
         AzulNativeCss.AzCssPropertyWithConditions_onWindows(AzulNativeCss.AzCssProperty_fontSize(AzStyleFontSize.ByValue().apply { inner = AzulNativeCss.AzPixelValue_px(12.0f) })),
         AzulNativeCss.AzCssPropertyWithConditions_onLinux(AzulNativeCss.AzCssProperty_fontSize(AzStyleFontSize.ByValue().apply { inner = AzulNativeCss.AzPixelValue_px(11.0f) })),
         AzulNativeCss.AzCssPropertyWithConditions_onOs(AzulNativeCss.AzCssProperty_fontSize(AzStyleFontSize.ByValue().apply { inner = AzulNativeCss.AzPixelValue_px(15.0f) }), OsCondition.Android.value),
-        AzulNativeCss.AzCssPropertyWithConditions_darkTheme(AzulNativeCss.AzCssProperty_textColor(AzStyleTextColor.ByValue().apply { inner = AzColorU.ByValue().apply { r = 255.toByte(); g = 255.toByte(); b = 255.toByte(); a = 255.toByte() } })),
+        AzulNativeCss.AzCssPropertyWithConditions_darkMode(AzulNativeCss.AzCssProperty_textColor(AzStyleTextColor.ByValue().apply { inner = AzColorU.ByValue().apply { r = 255.toByte(); g = 255.toByte(); b = 255.toByte(); a = 255.toByte() } })),
         AzulNativeCss.AzCssPropertyWithConditions_withConditions(
             AzulNativeCss.AzCssProperty_textColor(AzStyleTextColor.ByValue().apply { inner = AzColorU.ByValue().apply { r = 204.toByte(); g = 204.toByte(); b = 204.toByte(); a = 255.toByte() } }),
             azVec(

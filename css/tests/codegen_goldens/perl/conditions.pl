@@ -26,7 +26,7 @@ sub style_card {
         Azul::FFI::AzCssPropertyWithConditions_onWindows(Azul::FFI::AzCssProperty_fontSize(Azul::AzStyleFontSize->new(inner => ${ Azul::FFI::AzPixelValue_px(12.0) }))),
         Azul::FFI::AzCssPropertyWithConditions_onLinux(Azul::FFI::AzCssProperty_fontSize(Azul::AzStyleFontSize->new(inner => ${ Azul::FFI::AzPixelValue_px(11.0) }))),
         Azul::FFI::AzCssPropertyWithConditions_onOs(Azul::FFI::AzCssProperty_fontSize(Azul::AzStyleFontSize->new(inner => ${ Azul::FFI::AzPixelValue_px(15.0) })), Azul::AzOsCondition::Android()),
-        Azul::FFI::AzCssPropertyWithConditions_darkTheme(Azul::FFI::AzCssProperty_textColor(Azul::AzStyleTextColor->new(inner => ${ Azul::AzColorU->new(r => 255, g => 255, b => 255, a => 255) }))),
+        Azul::FFI::AzCssPropertyWithConditions_darkMode(Azul::FFI::AzCssProperty_textColor(Azul::AzStyleTextColor->new(inner => ${ Azul::AzColorU->new(r => 255, g => 255, b => 255, a => 255) }))),
         Azul::FFI::AzCssPropertyWithConditions_withCondition(Azul::FFI::AzCssProperty_letterSpacing(Azul::AzStyleLetterSpacing->new(inner => ${ Azul::FFI::AzPixelValue_px(1.0) })), Azul::FFI::AzDynamicSelector_language(Azul::FFI::AzLanguageCondition_prefix(css_str("de-DE")))),
     ];
 }

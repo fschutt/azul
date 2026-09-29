@@ -145,7 +145,7 @@ begin
   t48.a := 255;
   t49.inner := t48;
   t50 := AzCssPropertyTextColor(t49);
-  t51 := AzCssPropertyWithConditionsDarkTheme(t50);
+  t51 := AzCssPropertyWithConditionsDarkMode(t50);
   t52.r := 204;
   t52.g := 204;
   t52.b := 204;

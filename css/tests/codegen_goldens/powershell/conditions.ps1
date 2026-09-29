@@ -52,7 +52,7 @@ function Get-StyleCard {
         [Azul.NativeMethods]::AzCssPropertyWithConditions_onWindows([Azul.NativeMethods]::AzCssProperty_fontSize([Azul.AzStyleFontSize]@{ inner = [Azul.NativeMethods]::AzPixelValue_px([float]12.0) })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_onLinux([Azul.NativeMethods]::AzCssProperty_fontSize([Azul.AzStyleFontSize]@{ inner = [Azul.NativeMethods]::AzPixelValue_px([float]11.0) })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_onOs([Azul.NativeMethods]::AzCssProperty_fontSize([Azul.AzStyleFontSize]@{ inner = [Azul.NativeMethods]::AzPixelValue_px([float]15.0) }), [Azul.OsCondition]::Android),
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_darkTheme([Azul.NativeMethods]::AzCssProperty_textColor([Azul.AzStyleTextColor]@{ inner = [Azul.AzColorU]@{ r = [byte]255; g = [byte]255; b = [byte]255; a = [byte]255 } })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_darkMode([Azul.NativeMethods]::AzCssProperty_textColor([Azul.AzStyleTextColor]@{ inner = [Azul.AzColorU]@{ r = [byte]255; g = [byte]255; b = [byte]255; a = [byte]255 } })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_withConditions(
             [Azul.NativeMethods]::AzCssProperty_textColor([Azul.AzStyleTextColor]@{ inner = [Azul.AzColorU]@{ r = [byte]204; g = [byte]204; b = [byte]204; a = [byte]255 } }),
             (New-CssVec 'AzDynamicSelectorVec_copyFromPtr' ([Azul.AzDynamicSelector]) @(

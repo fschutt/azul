@@ -50,7 +50,7 @@ function style_card()
         Azul.AzCssPropertyWithConditions_onWindows(Azul.AzCssProperty_fontSize(Azul.AzStyleFontSize(Azul.AzPixelValue_px(12.0f0)))),
         Azul.AzCssPropertyWithConditions_onLinux(Azul.AzCssProperty_fontSize(Azul.AzStyleFontSize(Azul.AzPixelValue_px(11.0f0)))),
         Azul.AzCssPropertyWithConditions_onOs(Azul.AzCssProperty_fontSize(Azul.AzStyleFontSize(Azul.AzPixelValue_px(15.0f0))), Azul.AzOsCondition_Android),
-        Azul.AzCssPropertyWithConditions_darkTheme(Azul.AzCssProperty_textColor(Azul.AzStyleTextColor(Azul.AzColorU(255, 255, 255, 255)))),
+        Azul.AzCssPropertyWithConditions_darkMode(Azul.AzCssProperty_textColor(Azul.AzStyleTextColor(Azul.AzColorU(255, 255, 255, 255)))),
         Azul.AzCssPropertyWithConditions_withConditions(
             Azul.AzCssProperty_textColor(Azul.AzStyleTextColor(Azul.AzColorU(204, 204, 204, 255))),
             az_vec(

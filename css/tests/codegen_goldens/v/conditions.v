@@ -23,7 +23,7 @@ fn style_card() azul.AzCssPropertyWithConditionsVec {
 	t3[7] = C.AzCssPropertyWithConditions_onWindows(C.AzCssProperty_fontSize(azul.AzStyleFontSize{ inner: C.AzPixelValue_px(12.0) }))
 	t3[8] = C.AzCssPropertyWithConditions_onLinux(C.AzCssProperty_fontSize(azul.AzStyleFontSize{ inner: C.AzPixelValue_px(11.0) }))
 	t3[9] = C.AzCssPropertyWithConditions_onOs(C.AzCssProperty_fontSize(azul.AzStyleFontSize{ inner: C.AzPixelValue_px(15.0) }), azul.AzOsCondition.Android)
-	t3[10] = C.AzCssPropertyWithConditions_darkTheme(C.AzCssProperty_textColor(azul.AzStyleTextColor{ inner: azul.AzColorU{ r: 255, g: 255, b: 255, a: 255 } }))
+	t3[10] = C.AzCssPropertyWithConditions_darkMode(C.AzCssProperty_textColor(azul.AzStyleTextColor{ inner: azul.AzColorU{ r: 255, g: 255, b: 255, a: 255 } }))
 	t3[11] = C.AzCssPropertyWithConditions_withConditions(C.AzCssProperty_textColor(azul.AzStyleTextColor{ inner: azul.AzColorU{ r: 204, g: 204, b: 204, a: 255 } }), C.AzDynamicSelectorVec_copyFromPtr(unsafe { &t2[0] }, 2))
 	t3[12] = C.AzCssPropertyWithConditions_withCondition(C.AzCssProperty_letterSpacing(azul.AzStyleLetterSpacing{ inner: C.AzPixelValue_px(1.0) }), C.AzDynamicSelector_language(C.AzLanguageCondition_prefix(azul.az_str('de-DE'))))
 	return C.AzCssPropertyWithConditionsVec_copyFromPtr(unsafe { &t3[0] }, 13)

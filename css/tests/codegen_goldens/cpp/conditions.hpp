@@ -27,7 +27,7 @@ inline AzCssPropertyWithConditionsVec style_card() {
             AzCssPropertyWithConditions_onWindows(AzCssProperty_fontSize(AzStyleFontSize{ AzPixelValue_px(12.0f) })),
             AzCssPropertyWithConditions_onLinux(AzCssProperty_fontSize(AzStyleFontSize{ AzPixelValue_px(11.0f) })),
             AzCssPropertyWithConditions_onOs(AzCssProperty_fontSize(AzStyleFontSize{ AzPixelValue_px(15.0f) }), AzOsCondition_Android),
-            AzCssPropertyWithConditions_darkTheme(AzCssProperty_textColor(AzStyleTextColor{ AzColorU{ 255, 255, 255, 255 } })),
+            AzCssPropertyWithConditions_darkMode(AzCssProperty_textColor(AzStyleTextColor{ AzColorU{ 255, 255, 255, 255 } })),
             AzCssPropertyWithConditions_withConditions(
                 AzCssProperty_textColor(AzStyleTextColor{ AzColorU{ 204, 204, 204, 255 } }),
                 AzDynamicSelectorVec_copyFromPtr(

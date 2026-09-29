@@ -71,7 +71,7 @@ function style_card()
             $L->AzCssPropertyWithConditions_onWindows($L->AzCssProperty_fontSize(azul_struct('AzStyleFontSize', ['inner' => $L->AzPixelValue_px(12.0)]))),
             $L->AzCssPropertyWithConditions_onLinux($L->AzCssProperty_fontSize(azul_struct('AzStyleFontSize', ['inner' => $L->AzPixelValue_px(11.0)]))),
             $L->AzCssPropertyWithConditions_onOs($L->AzCssProperty_fontSize(azul_struct('AzStyleFontSize', ['inner' => $L->AzPixelValue_px(15.0)])), $L->AzOsCondition_Android),
-            $L->AzCssPropertyWithConditions_darkTheme($L->AzCssProperty_textColor(azul_struct('AzStyleTextColor', ['inner' => azul_struct('AzColorU', ['r' => 255, 'g' => 255, 'b' => 255, 'a' => 255])]))),
+            $L->AzCssPropertyWithConditions_darkMode($L->AzCssProperty_textColor(azul_struct('AzStyleTextColor', ['inner' => azul_struct('AzColorU', ['r' => 255, 'g' => 255, 'b' => 255, 'a' => 255])]))),
             $L->AzCssPropertyWithConditions_withConditions(
                 $L->AzCssProperty_textColor(azul_struct('AzStyleTextColor', ['inner' => azul_struct('AzColorU', ['r' => 204, 'g' => 204, 'b' => 204, 'a' => 255])])),
                 azul_vec(

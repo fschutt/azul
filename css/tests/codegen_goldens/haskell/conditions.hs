@@ -21,7 +21,7 @@ styleCard = sequence
     (CssPropertyWithConditions.onWindows (T.CssProperty_FontSize (T.StyleFontSizeValue_Exact (T.StyleFontSize (T.PixelValue T.SizeMetric_Px (T.FloatValue 12000)))))),
     (CssPropertyWithConditions.onLinux (T.CssProperty_FontSize (T.StyleFontSizeValue_Exact (T.StyleFontSize (T.PixelValue T.SizeMetric_Px (T.FloatValue 11000)))))),
     (CssPropertyWithConditions.onOs (T.CssProperty_FontSize (T.StyleFontSizeValue_Exact (T.StyleFontSize (T.PixelValue T.SizeMetric_Px (T.FloatValue 15000))))) T.OsCondition_Android),
-    (CssPropertyWithConditions.darkTheme (T.CssProperty_TextColor (T.StyleTextColorValue_Exact (T.StyleTextColor (T.ColorU 255 255 255 255)))))
+    (CssPropertyWithConditions.darkMode (T.CssProperty_TextColor (T.StyleTextColorValue_Exact (T.StyleTextColor (T.ColorU 255 255 255 255)))))
   ]
 
 -- CSS: .list li:nth-child(2)
