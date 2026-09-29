@@ -55,9 +55,8 @@ autoexamples = true
 autotests = false
 
 [dependencies]
-# `codegen`: solver3/layout_tree.rs + display_list.rs import `GetHash` via the
-# old `azul_css::codegen::format` path (the trait now lives in `azul_css::hash`).
-azul-css                = { version = "0.0.16", path = "../css", default-features = false, features = ["parser", "codegen"] }
+# No `codegen`: layout's `GetHash` imports use the ungated `azul_css::hash`.
+azul-css                = { version = "0.0.16", path = "../css", default-features = false, features = ["parser"] }
 azul-core              = { version = "0.0.16", path = "../core", default-features = false }
 # `pattern` form validation (11b-i-b). MINIMAL on purpose: only the string API,
 # no dependencies of its own. NOT optional-on-std, though -- regex-lite's own

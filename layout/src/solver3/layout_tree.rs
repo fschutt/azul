@@ -103,9 +103,9 @@ use azul_core::{
     styled_dom::StyledDom,
 };
 use azul_css::{
-    codegen::format::GetHash,
     corety::LayoutDebugMessage,
     css::CssPropertyValue,
+    hash::GetHash,
     props::{
         basic::{
             pixel::DEFAULT_FONT_SIZE, PhysicalSize, PixelValue, PropertyContext, ResolutionContext,

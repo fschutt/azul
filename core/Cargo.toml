@@ -19,8 +19,8 @@ autoexamples = false
 
 [dependencies]
 # `codegen`: xml.rs still imports `azul_css::codegen::format::VecContents` (dead
-# since styles are inlined as `.with_css(..)`) and dom.rs / resources.rs import
-# `GetHash` via the old `codegen::format` path (now `azul_css::hash::GetHash`).
+# since styles are inlined as `.with_css(..)`); `GetHash` comes from the ungated
+# `azul_css::hash` everywhere.
 azul-css                = { version = "0.0.16", path = "../css", default-features = false, features = ["parser", "codegen"] }
 libm                   = { version = "0.2.2",   default-features = false                   }
 gl-context-loader       = { version = "0.1.9", default-features = false }

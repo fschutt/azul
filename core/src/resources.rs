@@ -19,7 +19,7 @@ use core::{
 };
 
 use azul_css::{
-    codegen::format::GetHash,
+    hash::GetHash,
     props::{
         basic::{
             pixel::DEFAULT_FONT_SIZE, ColorU, FloatValue, FontRef, LayoutRect, LayoutSize,

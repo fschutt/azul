@@ -30,8 +30,8 @@ use azul_core::{
     ui_solver::GlyphInstance,
 };
 use azul_css::{
-    codegen::format::GetHash,
     css::CssPropertyValue,
+    hash::GetHash,
     props::{
         basic::{ColorU, FontRef, PixelValue},
         layout::{LayoutDisplay, LayoutOverflow, LayoutPosition},

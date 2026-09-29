@@ -17,8 +17,8 @@ use core::{
 
 pub use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
-    codegen::format::GetHash,
     css::{BoxOrStatic, Css, NodeTypeTag},
+    hash::GetHash,
     props::{
         basic::{FloatValue, FontRef},
         layout::{LayoutDisplay, LayoutFloat, LayoutPosition},

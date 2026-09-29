@@ -7531,7 +7531,7 @@ pub fn compile_body_node_to_rust_code<'a>(
     let _ = (&mut *css_blocks, matcher_hash); // retained for signature compat
 
     if !body_node.children.as_ref().is_empty() {
-        use azul_css::codegen::format::GetHash;
+        use azul_css::hash::GetHash;
         let children_hash = body_node.children.as_ref().get_hash();
         dom_string.push_str("\r\n.with_children(vec![\r\n");
 
