@@ -1169,6 +1169,87 @@ fn ada_records_cross_by_copy_and_u8_union_tags_are_one_byte() {
     assert_none("Ada records and union tags unlike the C ABI", offenders);
 }
 
+/// FreeBASIC (B2: "azul.bi likely does not compile"). Its declarations must
+/// be ones fbc accepts and lays out like C:
+///
+/// * only FreeBASIC integer types: `Long`/`ULong` are 32-bit and
+///   `LongInt`/`ULongInt` 64-bit - the binding said `LongInt` for `i32`
+///   (twice the C size) and `LongLong`/`ULongLong` (no such type) for 64-bit;
+/// * a `Type` holds another `Az*` type by value only once that type is
+///   declared - the binding emitted every union before every struct and the
+///   monomorphized aliases (`LayoutWidthValue`, ...) and plain aliases never;
+/// * a `repr(C, u8)` union's `tag` is one byte (`UByte`), not an `Enum`.
+#[test]
+fn freebasic_declares_every_type_before_use_with_c_sized_fields() {
+    let bi = super::lang_freebasic::generate(ir(), &super::CodegenConfig::c_header())
+        .expect("the FreeBASIC binding generates");
+    let mut offenders = Vec::new();
+    let mut declared: BTreeSet<String> = BTreeSet::new();
+    let mut in_type: Option<String> = None;
+    for (i, line) in bi.lines().enumerate() {
+        let t = line.trim();
+        if t.starts_with('\'') {
+            continue;
+        }
+        for bad in ["LongLong", "ULongLong"] {
+            if t.split(|c: char| !c.is_ascii_alphanumeric()).any(|w| w == bad) {
+                offenders.push(format!("line {}: `{bad}` is not a FreeBASIC type: {t}", i + 1));
+            }
+        }
+        if t.starts_with("Declare ") {
+            continue; // a method or an import, not a field
+        }
+        if let Some(name) = t.strip_prefix("Enum ") {
+            declared.insert(leading_ident(name).to_string());
+            continue;
+        }
+        if let Some(rest) = t.strip_prefix("Type ") {
+            let name = leading_ident(rest).to_string();
+            if rest[name.len()..].trim_start().starts_with("As ") {
+                declared.insert(name); // an alias or a procedure pointer type
+            } else {
+                in_type = Some(name);
+            }
+            continue;
+        }
+        if t == "End Type" {
+            if let Some(name) = in_type.take() {
+                declared.insert(name);
+            }
+            continue;
+        }
+        let Some(owner) = &in_type else { continue };
+        // A field: `name As T` or `name(0 To N) As T`; a pointer may name a
+        // type declared later.
+        let Some((_, ty)) = t.split_once(" As ") else { continue };
+        let ty = ty.trim();
+        if ty.ends_with(" Ptr") || !ty.starts_with("Az") {
+            continue;
+        }
+        if !declared.contains(ty) {
+            offenders.push(format!("line {}: {owner} holds {ty} by value before it is declared", i + 1));
+        }
+    }
+    for u in every_tagged_union().iter().filter(|u| u.u8_tag) {
+        let head = format!("Type Az{}\n", u.name);
+        if let Some(start) = bi.find(&head) {
+            let body = &bi[start + head.len()..];
+            let first = body.lines().next().unwrap_or("").trim();
+            if first != "tag As UByte" {
+                offenders.push(format!("Az{}: a u8 union's tag is `{first}`, not `tag As UByte`", u.name));
+            }
+        }
+    }
+    let shown: Vec<String> = offenders.iter().take(40).cloned().collect();
+    assert!(
+        offenders.is_empty(),
+        "{} FreeBASIC declaration(s) fbc rejects or lays out unlike C (first {}):\n  {}",
+        offenders.len(),
+        shown.len(),
+        shown.join("\n  ")
+    );
+}
+
 /// c_layout (the Fortran union blobs, `return_c_size`) sizes and aligns
 /// every tagged union exactly as Rust does.
 #[test]
