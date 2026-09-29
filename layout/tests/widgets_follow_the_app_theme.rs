@@ -703,52 +703,6 @@ fn file_inputs_follow_the_app_theme() {
     }
 }
 
-/// The widgets that still have ONE look - no `UiTheme` option, no flora look:
-/// nothing to condition, so they render the same under every app theme and
-/// carry no theme blocks. A guard, not the goal: under a flora app theme they
-/// still look flat. Giving each a flora look (and a theme option) moves it
-/// into the `assert_follows_the_app_theme` checks above (the ribbon, the
-/// quick-access bar and the status bar moved: W5a).
-#[test]
-fn single_look_widgets_render_the_same_under_every_app_theme() {
-    use azul_css::StringVec;
-    use azul_layout::widgets::{
-        tabs::{TabContent, TabHeader},
-        titlebar::Titlebar,
-    };
-    fn boxed(make: impl Fn() -> Dom + 'static) -> Box<dyn Fn() -> Dom> {
-        Box::new(make)
-    }
-    let widgets: Vec<(&str, Box<dyn Fn() -> Dom>)> = vec![
-        (
-            "tabs (header)",
-            boxed(|| {
-                TabHeader::create(StringVec::from_vec(vec![
-                    AzString::from("One"),
-                    AzString::from("Two"),
-                ]))
-                .dom()
-            }),
-        ),
-        (
-            "tabs (content)",
-            boxed(|| TabContent::new(Dom::create_p_with_text("Body")).dom()),
-        ),
-        (
-            "titlebar",
-            boxed(|| Titlebar::create(AzString::from("Window")).dom()),
-        ),
-    ];
-    for (name, make) in &widgets {
-        let flat = built_for(UiTheme::Flat, &**make);
-        let flora = built_for(UiTheme::Flora, &**make);
-        assert!(theme_names(&flat).is_empty(), "{name} grew theme blocks");
-        assert!(
-            styles(&flat) == styles(&flora),
-            "{name} changes with the app theme"
-        );
-    }
-}
 
 // ---------------------------------------------------------------------------
 // The Office chrome (W5a): ribbon, quick-access title band, status bar
@@ -931,6 +885,58 @@ fn tree_views_follow_the_app_theme() {
                 tv
             };
             pinned(tv, t, TreeView::with_theme).dom()
+        });
+    }
+}
+
+/// A tab bar and its panel follow the app theme (W5b): every spacer and tab
+/// of an unpinned bar - the active one, its two neighbours, the rest, an
+/// out-of-range index, with and without a click handler (which is what makes
+/// the tabs Tab stops) - and the panel with and without padding resolve like
+/// the widget pinned to the app theme.
+#[test]
+fn tab_bars_and_their_panels_follow_the_app_theme() {
+    use azul_core::{callbacks::Update, refany::RefAny};
+    use azul_css::StringVec;
+    use azul_layout::{
+        callbacks::CallbackInfo,
+        widgets::tabs::{TabContent, TabHeader, TabHeaderState, TabOnClickCallbackType},
+    };
+    extern "C" fn pick(_: RefAny, _: CallbackInfo, _: TabHeaderState) -> Update {
+        Update::DoNothing
+    }
+    let labels = || {
+        StringVec::from_vec(vec![
+            AzString::from("One"),
+            AzString::from("Two"),
+            AzString::from("Three"),
+            AzString::from("Four"),
+        ])
+    };
+    for active in [0usize, 1, 3, 4] {
+        for clickable in [false, true] {
+            assert_follows_the_app_theme(
+                &format!("tab bar, tab {active} active, clickable={clickable}"),
+                |t| {
+                    let bar = TabHeader::create(labels()).with_active_tab(active);
+                    let bar = if clickable {
+                        bar.with_on_click(RefAny::new(()), pick as TabOnClickCallbackType)
+                    } else {
+                        bar
+                    };
+                    pinned(bar, t, TabHeader::with_theme).dom()
+                },
+            );
+        }
+    }
+    for padding in [true, false] {
+        assert_follows_the_app_theme(&format!("tab panel padding={padding}"), |t| {
+            pinned(
+                TabContent::new(Dom::create_p_with_text("Body")).with_padding(padding),
+                t,
+                TabContent::with_theme,
+            )
+            .dom()
         });
     }
 }

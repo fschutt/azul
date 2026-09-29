@@ -6012,6 +6012,12 @@ pub(crate) fn tree_view_look() -> crate::widgets::tree_view::TreeViewLook {
 //
 // PLACEHOLDER until the flora tab bar lands: the flat look.
 
+/// `--fl-metal-turn` (#C6B279): the value flora's ribbon has where the rule
+/// that closes a tab strip turns and climbs the selected tab - the one metal
+/// the rule and the tab's surround are cut from. Metal is its own colour by
+/// day and by night (flora.css does not redefine it for the dark theme).
+pub const TAB_METAL: ColorU = ColorU::rgb(0xC6, 0xB2, 0x79);
+
 /// Flora's tab-bar look.
 #[must_use]
 pub(crate) fn tab_header_look() -> crate::widgets::tabs::TabHeaderLook {

@@ -676,3 +676,40 @@ fn flora_tree_views_read_in_both_themes() {
         TreeView::new(tree).with_theme(UiTheme::Flora).dom(),
     )]);
 }
+
+/// Tab bars and their panels in both looks and both modes (W5b): the strip,
+/// every tab kind (active, its neighbours, the rest) and a panel holding
+/// text, with and without padding.
+#[test]
+fn tab_bars_and_their_panels_read_in_both_themes_in_both_looks() {
+    use azul_css::StringVec;
+    use azul_layout::widgets::tabs::{TabContent, TabHeader};
+    let labels = || {
+        StringVec::from_vec(vec![
+            AzString::from("One"),
+            AzString::from("Two"),
+            AzString::from("Three"),
+            AzString::from("Four"),
+        ])
+    };
+    let mut widgets = Vec::new();
+    for (look, theme) in LOOKS {
+        widgets.push((
+            format!("{look} tab bar"),
+            TabHeader::create(labels())
+                .with_active_tab(1)
+                .with_theme(theme)
+                .dom(),
+        ));
+        for padding in [true, false] {
+            widgets.push((
+                format!("{look} tab panel padding={padding}"),
+                TabContent::new(Dom::create_p_with_text("Body"))
+                    .with_padding(padding)
+                    .with_theme(theme)
+                    .dom(),
+            ));
+        }
+    }
+    assert_follow_the_theme(widgets);
+}

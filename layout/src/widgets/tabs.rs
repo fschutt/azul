@@ -3414,3 +3414,281 @@ mod autotest_generated {
         }
     }
 }
+
+/// The tab bar's two looks (W5b). Flat is the Windows-native control. Flora
+/// is flora's navigation strip: raised chrome closed along its foot by a 2px
+/// metal rule; the unselected tabs sit behind the rule in soft ink, lift to
+/// the hover face under the pointer and sink when pressed; the selected tab
+/// is the sunken accent stone in a metal surround that breaks the rule and
+/// opens onto its panel - a leaf in a hairline, open at the top. The tabs,
+/// their classes, datasets, click and arrow keys are the widget's in both.
+#[cfg(test)]
+mod theme_tests {
+    use azul_core::dom::Dom;
+    use azul_css::{
+        dynamic_selector::PseudoStateType,
+        props::{basic::color::ColorU, property::CssPropertyType, style::StyleBackgroundContent},
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLORA: &str = "__azul-theme-flora";
+
+    extern "C" fn pick(_: RefAny, _: CallbackInfo, _: TabHeaderState) -> Update {
+        Update::DoNothing
+    }
+
+    /// `One | Two | Three | Four` with `Two` active, clickable: the header's
+    /// children are the spacer before (0), `One` (1, before the active tab),
+    /// `Two` (2, active), `Three` (3, after it), `Four` (4) and the spacer
+    /// after (5).
+    fn bar(theme: UiTheme) -> Dom {
+        TabHeader::create(StringVec::from_vec(
+            ["One", "Two", "Three", "Four"]
+                .iter()
+                .map(|s| AzString::from(*s))
+                .collect(),
+        ))
+        .with_active_tab(1)
+        .with_on_click(RefAny::new(()), pick as TabOnClickCallbackType)
+        .with_theme(theme)
+        .dom()
+    }
+
+    fn panel(theme: UiTheme, padding: bool) -> Dom {
+        TabContent::new(Dom::create_p_with_text("Body"))
+            .with_padding(padding)
+            .with_theme(theme)
+            .dom()
+    }
+
+    fn child(dom: &Dom, i: usize) -> &Dom {
+        &dom.children.as_ref()[i]
+    }
+
+    /// The resolved width of a border edge, in px (`None`: not declared).
+    fn width(node: &Dom, ty: CssPropertyType, dark: bool) -> Option<f32> {
+        use azul_css::props::property::CssProperty as C;
+        match tc::resolve(node, ty, dark, None)? {
+            C::BorderTopWidth(v) => v.get_property().map(|w| w.inner.number.get()),
+            C::BorderRightWidth(v) => v.get_property().map(|w| w.inner.number.get()),
+            C::BorderBottomWidth(v) => v.get_property().map(|w| w.inner.number.get()),
+            C::BorderLeftWidth(v) => v.get_property().map(|w| w.inner.number.get()),
+            _ => None,
+        }
+    }
+
+    fn colour(
+        node: &Dom,
+        ty: CssPropertyType,
+        dark: bool,
+        state: Option<PseudoStateType>,
+    ) -> Option<ColorU> {
+        tc::resolve(node, ty, dark, state)
+            .as_ref()
+            .and_then(tc::border_color)
+    }
+
+    fn layers(
+        node: &Dom,
+        dark: bool,
+        state: Option<PseudoStateType>,
+    ) -> Vec<StyleBackgroundContent> {
+        tc::resolve(node, CssPropertyType::BackgroundContent, dark, state)
+            .map(|p| tc::bg_layers(&p))
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_tab_bar_without_a_theme_follows_the_app_theme_and_set_theme_pins_it() {
+        let header = TabHeader::create(StringVec::from_const_slice(&[]));
+        assert_eq!(header.theme, OptionUiTheme::None, "a fresh bar follows the app");
+        assert_eq!(TabHeader::default().theme, OptionUiTheme::None);
+        let mut set = header.clone();
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, header.with_theme(UiTheme::Flora).theme);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+
+        let content = TabContent::new(Dom::create_div());
+        assert_eq!(content.theme, OptionUiTheme::None, "a fresh panel follows the app");
+        assert_eq!(TabContent::default().theme, OptionUiTheme::None);
+        let mut set = content.clone();
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, content.with_theme(UiTheme::Flora).theme);
+    }
+
+    #[test]
+    fn a_flora_tab_strip_is_raised_chrome_closed_by_the_metal_rule() {
+        let dom = bar(UiTheme::Flora);
+        assert!(tc::has_class(&dom, FLORA), "the header carries flora's marker");
+        assert!(tc::has_class(&dom, "__azul-native-tabs-header"));
+        assert!(!tc::has_class(&bar(UiTheme::Flat), FLORA));
+        for dark in [false, true] {
+            let chrome = if dark {
+                flora::RAISED_FACE_DARK
+            } else {
+                flora::RAISED_FACE_LIGHT
+            };
+            assert_eq!(layers(&dom, dark, None), vec![chrome], "dark={dark}: the strip");
+            // The rule runs under both spacers and every unselected tab.
+            for i in [0usize, 1, 3, 4, 5] {
+                let node = child(&dom, i);
+                assert_eq!(
+                    width(node, CssPropertyType::BorderBottomWidth, dark),
+                    Some(2.0),
+                    "dark={dark}: child {i} carries the rule's gauge"
+                );
+                assert_eq!(
+                    colour(node, CssPropertyType::BorderBottomColor, dark, None),
+                    Some(flora::TAB_METAL),
+                    "dark={dark}: child {i} carries the metal"
+                );
+            }
+            for i in [1usize, 3, 4] {
+                assert_eq!(
+                    tc::text_color(child(&dom, i), dark),
+                    Some(if dark { flora::DARK_SOFT1 } else { flora::LIGHT_SOFT1 }),
+                    "dark={dark}: unselected tab {i} is written in soft ink"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_flora_selected_tab_is_the_stone_in_a_metal_surround_open_at_its_foot() {
+        let dom = bar(UiTheme::Flora);
+        let active = child(&dom, 2);
+        for dark in [false, true] {
+            assert_eq!(
+                layers(active, dark, None),
+                flora::selected_stone(),
+                "dark={dark}: the sunken stone, its own colour in both modes"
+            );
+            assert_eq!(tc::text_color(active, dark), Some(flora::LIGHT_ON_ACC));
+            for (w, c) in [
+                (CssPropertyType::BorderTopWidth, CssPropertyType::BorderTopColor),
+                (CssPropertyType::BorderLeftWidth, CssPropertyType::BorderLeftColor),
+                (CssPropertyType::BorderRightWidth, CssPropertyType::BorderRightColor),
+            ] {
+                assert_eq!(width(active, w, dark), Some(2.0), "dark={dark}: {w:?}");
+                assert_eq!(colour(active, c, dark, None), Some(flora::TAB_METAL), "{c:?}");
+            }
+            assert_eq!(
+                width(active, CssPropertyType::BorderBottomWidth, dark),
+                None,
+                "dark={dark}: the selected tab breaks the rule - no foot of its own"
+            );
+        }
+    }
+
+    #[test]
+    fn flora_tabs_answer_the_pointer_and_ring_on_focus_in_both_modes() {
+        let dom = bar(UiTheme::Flora);
+        let hover = Some(PseudoStateType::Hover);
+        for dark in [false, true] {
+            for i in [1usize, 3, 4] {
+                let tab = child(&dom, i);
+                assert_ne!(
+                    layers(tab, dark, hover),
+                    layers(tab, dark, None),
+                    "dark={dark}: tab {i} lifts under the pointer"
+                );
+                assert_eq!(
+                    tc::resolve(tab, CssPropertyType::TextColor, dark, hover),
+                    Some(azul_css::props::property::CssProperty::const_text_color(
+                        azul_css::props::style::StyleTextColor {
+                            inner: if dark { flora::DARK_INK } else { flora::LIGHT_INK },
+                        }
+                    )),
+                    "dark={dark}: tab {i}'s label darkens to the ink under the pointer"
+                );
+                assert_eq!(
+                    colour(tab, CssPropertyType::BorderBottomColor, dark, hover),
+                    Some(flora::TAB_METAL),
+                    "dark={dark}: a hovered tab keeps the rule at its foot"
+                );
+            }
+            // The arrow keys move focus to ANY tab, so every tab rings.
+            for i in 1usize..=4 {
+                assert!(
+                    tc::has_focus_ring(child(&dom, i), dark),
+                    "dark={dark}: tab {i} shows no focus ring"
+                );
+            }
+        }
+        tc::assert_theme_invariants("flora tab bar", &dom);
+    }
+
+    #[test]
+    fn a_flora_tab_panel_is_a_leaf_open_at_the_top() {
+        let padded = panel(UiTheme::Flora, true);
+        let bare = panel(UiTheme::Flora, false);
+        assert!(tc::has_class(&padded, FLORA), "the panel carries flora's marker");
+        assert!(!tc::has_class(&panel(UiTheme::Flat, true), FLORA));
+        for dark in [false, true] {
+            let (leaf, rule) = if dark {
+                (flora::DARK_SUR, flora::DARK_BD)
+            } else {
+                (flora::LIGHT_SUR, flora::LIGHT_BD)
+            };
+            for node in [&padded, &bare] {
+                assert_eq!(
+                    tc::background(node, dark).as_ref().and_then(tc::bg_color),
+                    Some(leaf),
+                    "dark={dark}: the leaf"
+                );
+            }
+            for c in [
+                CssPropertyType::BorderLeftColor,
+                CssPropertyType::BorderRightColor,
+                CssPropertyType::BorderBottomColor,
+            ] {
+                assert_eq!(colour(&padded, c, dark, None), Some(rule), "dark={dark}: {c:?}");
+            }
+            assert_eq!(
+                width(&padded, CssPropertyType::BorderTopWidth, dark),
+                None,
+                "dark={dark}: open at the top, where the tab's rule closes it"
+            );
+        }
+        assert!(
+            tc::resolve(&bare, CssPropertyType::PaddingTop, false, None).is_none(),
+            "an unpadded panel declares no padding"
+        );
+        assert!(tc::resolve(&padded, CssPropertyType::PaddingTop, false, None).is_some());
+        tc::assert_theme_invariants("flora tab panel", &padded);
+    }
+
+    #[test]
+    fn both_looks_build_the_same_tabs_datasets_and_accessibility_tree() {
+        let (flat, flora) = (bar(UiTheme::Flat), bar(UiTheme::Flora));
+        let (a, b) = (tc::nodes(&flat), tc::nodes(&flora));
+        assert_eq!(a.len(), b.len(), "the same tree of nodes");
+        assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora));
+        for ((path, x), (_, y)) in a.iter().zip(b.iter()).skip(1) {
+            assert_eq!(
+                x.root.get_ids_and_classes(),
+                y.root.get_ids_and_classes(),
+                "{path}: the same classes (the arrow keys find the tabs by them)"
+            );
+            assert_eq!(
+                x.root.get_callbacks().as_ref().len(),
+                y.root.get_callbacks().as_ref().len(),
+                "{path}: the same click and arrow-key handlers"
+            );
+            assert_eq!(
+                x.root.get_dataset().is_some(),
+                y.root.get_dataset().is_some(),
+                "{path}: the same datasets"
+            );
+        }
+        let (fp, flp) = (panel(UiTheme::Flat, true), panel(UiTheme::Flora, true));
+        assert_eq!(tc::nodes(&fp).len(), tc::nodes(&flp).len());
+        assert_eq!(
+            child(&fp, 0).root.get_ids_and_classes(),
+            child(&flp, 0).root.get_ids_and_classes(),
+            "the panel's classed wrapper is the same in both looks"
+        );
+    }
+}
