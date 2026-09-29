@@ -9,17 +9,19 @@ section 3 (`AppConfig::app_id`). Nothing compiled (house rule).
   ResolvedAppIdentity, AppIdentity::resolve}` stub; `layout/tests/an_app_names_itself_with_app_id.rs`;
   bundle.rs `configured_identifier` / `default_bundle_id` stubs + tests; dll invariant
   `the_app_declares_its_app_id_when_it_is_created`.
-- fix commit (this one): `set_app_id`, `AppIdentity::resolve`, `desktop::app_identity::{declare,
+- `524c59de1` fix: `set_app_id`, `AppIdentity::resolve`, `desktop::app_identity::{declare,
   current}`, `App::create` declares; build tools (`bundle_metadata`, `configured_identifier`,
   `default_bundle_id`, mobile `--package` default); guide sections.
+- report `scripts/N2_APP_ID_2026_09_29.md` (committed with this file).
 
 ## IN PROGRESS
 
-- report
+- none
 
 ## NEXT
 
-1. Report `scripts/N2_APP_ID_2026_09_29.md`.
+- none: the parent compiles, runs the tests (report section 5) and the api.json autofix
+  (report section 3).
 
 ## Open questions
 
