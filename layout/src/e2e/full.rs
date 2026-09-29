@@ -3226,6 +3226,7 @@ pub enum DebugEvent {
     ProjectImportZip {
         /// The archive, base64 or a `data:` URI.
         data: String,
+    },
 
     // ── AzBuilder quick exports (layout/src/e2e/export.rs) ──
     //
@@ -3983,6 +3984,7 @@ fn run_project_op(
         super::project::handle(op, &mut s.project, &mut s.builder, &mut map_guard, live)
     };
     finish_builder_op(request, callback_info, result)
+}
 
 /// Run `f` on the document the code export reads — the builder's, or (before
 /// the builder took the window over) what the window shows — and the
@@ -19660,6 +19662,7 @@ pub fn process_debug_event(
                 component_map,
                 super::project::ProjectOp::ImportZip { data },
             );
+        }
 
         // === AzBuilder quick exports (layout/src/e2e/export.rs) ===
         //
