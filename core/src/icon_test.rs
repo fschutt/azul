@@ -461,27 +461,115 @@ mod autotest_generated {
         assert!(data.downcast_ref::<u64>().is_none());
     }
 
+    /// The id of the icon a spec resolves to.
+    fn resolved_id(h: &IconProviderHandle, spec: &str) -> Option<u32> {
+        let mut data = h.lookup(spec)?;
+        let id = data.downcast_ref::<TestIconData>().map(|d| d.id);
+        id
+    }
+
     #[test]
-    fn lookup_with_pack_first_match_is_the_lexicographically_first_pack() {
+    fn lookup_with_pack_first_match_is_the_first_registered_pack() {
         let mut h = IconProviderHandle::new();
-        // Register in reverse-alphabetical order: insertion order must NOT decide.
+        // Registered in reverse-alphabetical order: the pack NAME must not decide.
         h.register_icon("zzz", "home", RefAny::new(TestIconData { id: 26 }));
         h.register_icon("mmm", "home", RefAny::new(TestIconData { id: 13 }));
         h.register_icon("aaa", "home", RefAny::new(TestIconData { id: 1 }));
 
         let (pack, _) = h.lookup_with_pack("HOME").expect("must be found");
-        assert_eq!(
-            pack, "aaa",
-            "BTreeMap order => first match is the first pack by name"
-        );
-
-        let mut data = h.lookup("home").unwrap();
-        assert_eq!(data.downcast_ref::<TestIconData>().unwrap().id, 1);
+        assert_eq!(pack, "zzz", "first registered, first searched");
+        assert_eq!(resolved_id(&h, "home"), Some(26));
 
         // Removing the winner promotes the next pack in order.
-        h.unregister_pack("aaa");
+        h.unregister_pack("zzz");
         let (pack, _) = h.lookup_with_pack("home").unwrap();
         assert_eq!(pack, "mmm");
+    }
+
+    // pack rank (design 8: chain rank first, then registration order)
+
+    #[test]
+    fn a_lower_rank_is_searched_before_an_earlier_registration() {
+        let mut h = IconProviderHandle::new();
+        h.register_icon("app", "home", RefAny::new(TestIconData { id: 1 }));
+        h.register_icon("user", "home", RefAny::new(TestIconData { id: 2 }));
+        assert_eq!(resolved_id(&h, "home"), Some(1), "unranked: registration order");
+
+        // The user's pack is registered AFTER the app's (the app registers at
+        // startup) and must still win: that is what a rank is for.
+        h.set_pack_rank("user", 0);
+        assert_eq!(resolved_id(&h, "home"), Some(2));
+        let (pack, _) = h.lookup_with_pack("home").unwrap();
+        assert_eq!(pack, "user", "debug_lookup reports the pack that won");
+    }
+
+    #[test]
+    fn packs_without_a_rank_are_searched_after_every_ranked_pack() {
+        let mut h = IconProviderHandle::new();
+        h.register_icon("app", "home", RefAny::new(TestIconData { id: 1 }));
+        h.register_icon("theme", "home", RefAny::new(TestIconData { id: 2 }));
+        h.register_icon("global", "home", RefAny::new(TestIconData { id: 3 }));
+        h.set_pack_rank("global", 7);
+        assert_eq!(
+            resolved_id(&h, "home"),
+            Some(3),
+            "any rank beats no rank, however late it was registered"
+        );
+        h.set_pack_rank("theme", 2);
+        assert_eq!(resolved_id(&h, "home"), Some(2), "the lower rank wins");
+    }
+
+    #[test]
+    fn packs_of_equal_rank_keep_registration_order() {
+        let mut h = IconProviderHandle::new();
+        h.register_icon("b", "home", RefAny::new(TestIconData { id: 1 }));
+        h.register_icon("a", "home", RefAny::new(TestIconData { id: 2 }));
+        h.set_pack_rank("a", 3);
+        h.set_pack_rank("b", 3);
+        assert_eq!(resolved_id(&h, "home"), Some(1));
+    }
+
+    #[test]
+    fn a_rank_orders_every_bare_entry_of_a_spec_but_not_a_pack_qualified_one() {
+        let mut h = IconProviderHandle::new();
+        h.register_icon("app", "menu", RefAny::new(TestIconData { id: 1 }));
+        h.register_icon("user", "menu", RefAny::new(TestIconData { id: 2 }));
+        h.set_pack_rank("user", 0);
+        assert_eq!(resolved_id(&h, "missing,menu"), Some(2));
+        assert_eq!(
+            resolved_id(&h, "app:menu"),
+            Some(1),
+            "a pack-qualified entry names its pack"
+        );
+    }
+
+    #[test]
+    fn re_registering_an_icon_does_not_move_its_pack() {
+        let mut h = IconProviderHandle::new();
+        h.register_icon("first", "home", RefAny::new(TestIconData { id: 1 }));
+        h.register_icon("second", "home", RefAny::new(TestIconData { id: 2 }));
+        h.register_icon("first", "other", RefAny::new(TestIconData { id: 3 }));
+        assert_eq!(resolved_id(&h, "home"), Some(1));
+    }
+
+    #[test]
+    fn a_pack_registered_again_after_removal_goes_to_the_back() {
+        let mut h = IconProviderHandle::new();
+        h.register_icon("first", "home", RefAny::new(TestIconData { id: 1 }));
+        h.register_icon("second", "home", RefAny::new(TestIconData { id: 2 }));
+        h.unregister_pack("first");
+        h.register_icon("first", "home", RefAny::new(TestIconData { id: 3 }));
+        assert_eq!(resolved_id(&h, "home"), Some(2));
+    }
+
+    #[test]
+    fn a_pack_registered_on_the_shared_provider_joins_the_order_at_the_back() {
+        let mut h = IconProviderHandle::new();
+        h.register_icon("first", "home", RefAny::new(TestIconData { id: 1 }));
+        let shared = SharedIconProvider::from_handle(h);
+        shared.register_icon("late", "home", RefAny::new(TestIconData { id: 2 }));
+        let mut data = shared.lookup("home").unwrap();
+        assert_eq!(data.downcast_ref::<TestIconData>().unwrap().id, 1);
     }
 
     // has_icon

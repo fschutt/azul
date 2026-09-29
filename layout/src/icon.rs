@@ -1909,9 +1909,9 @@ mod autotest_generated {
     }
 
     #[test]
-    fn duplicate_icon_across_packs_resolves_to_the_alphabetically_first_pack() {
-        // "First match wins" iterates a BTreeMap => pack *name* order, NOT the
-        // registration order. Registering into "zzz" first must not shadow "aaa".
+    fn duplicate_icon_across_packs_resolves_to_the_first_registered_pack() {
+        // "First match wins" in pack RANK order, then REGISTRATION order - not
+        // by pack name: "zzz", registered first, shadows "aaa".
         let mut provider = create_default_icon_provider();
         register_image_icon(&mut provider, "zzz", "dup", null_img(1, 1));
         register_image_icon(&mut provider, "aaa", "dup", null_img(2, 2));
@@ -1920,9 +1920,15 @@ mod autotest_generated {
         let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
         assert_eq!(
             width_px(&out),
-            Some(2.0),
-            "lookup must return the alphabetically-first pack's icon"
+            Some(1.0),
+            "lookup must return the first registered pack's icon"
         );
+
+        // ...unless the later pack is ranked.
+        provider.set_pack_rank("aaa", 0);
+        let data = provider.lookup("dup").expect("icon registered");
+        let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
+        assert_eq!(width_px(&out), Some(2.0));
     }
 
     #[test]
