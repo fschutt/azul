@@ -17,97 +17,173 @@ default-search-keys:
 
 # GUI Builder
 
-`AzBuilder` is a visual drag-and-drop GUI builder tool, similar to GTK's Glade or Qt Creator. 
-It mainly runs in a browser tab and renders a native "preview" window, which then reacts to the 
-changes you make in the browser and communicates with the native window over HTTP (via JSON).
-It allows you to export the GUI that you built to code, as well as design end-to-end tests for
-your application and inspect your application state.
+`AzBuilder` is a visual drag-and-drop GUI builder, in the spirit of Qt Creator or GTK's Glade.
+The editor runs in a browser tab; the thing you edit is a real native window next to it, which
+re-renders after every change. You drag components from a palette into a document, move and
+undo, turn a finished piece into a reusable component, keep the whole thing as a project folder
+on disk, and export it as code. The same browser tab is also the inspector and E2E test designer
+for any Azul app.
 
-![AzBuilder GUI Builder Interface](../../images/debugger-initial.png)
+![AzBuilder GUI Builder Interface](../images/debugger-initial.png)
 
 ## Starting the Builder
 
-To launch the builder, you simply need to run the `AzBuilder` demo from the releases page.
-Internally, this simply opens up an empty application with a debug server listening on 
-`http://localhost:8080` - since the HTTP server (on a background thread) and the windows 
-of the application (on the main thread) share the same process, they can internally pass
-events around via a message queue.
+Download `AzBuilder` for your OS from the Demos section of the [releases page](https://azul.rs/ui/releases)
+and run it. It opens an empty native window and a debug server on `http://localhost:8080`, and
+opens that address in your default browser. The HTTP server runs on a background thread of the
+same process and hands every request to the window's thread through a message queue, so the
+browser can change the window while it is running.
 
-When the native application starts, it will render a blank native window and automatically 
-open `http://localhost:8080` in your default browser.
+The browser's DOM Explorer opens in **Document** mode for AzBuilder: you edit the builder's
+document, not the raw DOM of the window. Switch to **Live DOM** to inspect whatever the window
+shows (that is the default for any other app you run with the debug server).
 
-## Browser Interface
+## Drag and drop
 
-The browser interface acts as a "remote control" for your native application window. If 
-you click on any node (such as "body"), this then activates the node in the debugger and
-shows the properties. If there is a text field, then you can edit the property.
+The **Components** palette below the document tree shows every registered component as a card
+with a thumbnail. The thumbnails are rendered by Azul's own CPU renderer, so a Button card shows
+exactly the button the window will draw; the picture is also the drag image.
 
-If your applications `RefAny` has the JSON serialization and deserialization set up 
-(e.g. in C via the `AZ_REFLECT_JSON` macro), then the top-left panel will also show you
-the current state of the application data. With the click on the camera symbol you can create
-a "named snapshot" of the application state, which you can then use in the E2E tests - so that
-you can quickly set and restore a certain application state (remember that your UI is an 
-`f(State) -> UI` function).
+Drag a card onto a row of the document tree. The row tells you where the drop lands: a line
+above it (before), a highlighted row (into), a line below it (after). Drops the HTML parser would
+undo are refused before anything is sent - a `<div>` never goes into a `<p>`, and a text node or
+a component instance takes no children. Double-clicking a card inserts it at the selection.
 
-The "Components" panel allows you to drag and drop components into the DOM tree above it,
-while you can edit the attributes of the selected component. Note that as you edit, the native
-window will update itself, to show you the native preview of your UI. It is recommended to use
-a second monitor here so you can put the browser tab with the debugger UI and the actual preview
-side-to-side.
+Rows move the same way: drag a row onto another one. Select a row and press **Delete** to remove
+it, **F2** or **Enter** (or double-click) to edit its text, and use the context menu for classes,
+ids, move up / down and delete. Every edit goes to the native window at once, and clicking a row
+shows its live node - CSS, layout, box model - in the inspector.
 
-At the top, you have the menu bar with "Import" and "Export" - to save your current project, 
-use "Export > Project" (same with "Import > Project" to load one).
+## Undo and redo
+
+Every edit of the document is one undo step: **Ctrl/Cmd+Z** undoes, **Shift+Ctrl/Cmd+Z** or
+**Ctrl+Y** redoes, and the toolbar above the tree has both buttons. Undo covers the document
+(inserts, moves, deletes, text and attribute edits, conversions); it does not reach into files you
+saved in the project. The reset button gives the window back to the app and discards the
+document.
+
+## Convert to component
+
+Right-click an element and choose **Convert to component…**: the subtree becomes a template
+component in a library of your choice (`user` by default) and is replaced by an instance of it,
+which looks exactly the same. Its texts and attributes become the component's parameters -
+`text`, `text_2`, …, `href` - with the values they had as defaults. The component shows up in
+the palette at once and drops again like any other; select an instance and press F2 to give it
+its own text.
+
+The Components view (the widgets icon in the activity bar) shows the component's template,
+placeholders and all, with a live preview. Edit the template or its CSS there and every instance
+in the window updates.
+
+## Projects: the file viewer
+
+A project is a folder on the machine AzBuilder runs on. Open the **Project** view (the folder
+icon in the activity bar), type a path and click **Create** (or **Open** for an existing folder).
+The folder gets this layout:
+
+- `azul-project.json` - the manifest (the project's name).
+- `document.json` - the builder document.
+- `components/<library>/<name>.json` - one file per component you made: its parameters, its CSS
+  and its template.
+- `styles/` - stylesheets. Every `.css` file here applies to the document, in path order, after
+  the components' own CSS.
+- `tests/` and `snapshots/` - your E2E tests (one per file) and app-state snapshots.
+- `export/` - a place for exported code.
+
+![The Project view: the tree, a stylesheet open in the editor](../images/builder-project.png)
+
+The tree works like Qt Creator's: folders first, an icon per kind of file, a context menu with
+**New file**, **New folder**, **Rename** (also F2) and **Delete**, and drag a file onto a folder
+to move it. A new file starts from a template that fits its folder - a component file under
+`components/` is a working component. Clicking a file opens it in an editor tab with syntax
+highlighting for CSS, JSON, XML / HTML, Rust, C / C++, JavaScript, Python and Markdown;
+**Ctrl/Cmd+S** saves it.
+
+Saving a file the builder uses also applies it, and the status bar says what happened: a
+stylesheet under `styles/` re-styles the native window, a component file re-registers the
+component (every instance updates, the palette card too), and `document.json` loads the document.
+A file with a mistake in it is still saved - it is your text - and the status bar says why it
+was not applied.
+
+The tree and the builder follow each other. The Inspector has a compact Project section under the
+palette: select `components/user/card.json` and its palette card lights up and its first instance
+is selected in the document; select an instance, or click a palette card, and its file is
+selected in the tree. A component file also drags from the tree into the document, like a card.
+
+**Project > Save Project** writes the document, every component you made, your E2E tests and your
+snapshots into the folder; **Load Project** brings them all back - into a fresh AzBuilder, or over
+the document you are editing after a confirmation. AzBuilder re-opens the last project when you
+reload the page, and loads it into the window when the window is still empty, so restarting
+AzBuilder picks up where you left off. **Export Project as ZIP** downloads the whole folder, and
+**Import ZIP into Project** unpacks one into it.
+
+Every path is relative to the project folder, and the server refuses anything that would leave
+it: `..`, absolute paths, and symlinks that lead outside. The same goes for every entry of an
+imported zip, and a zip with one bad entry is refused as a whole.
+
+## Export
+
+Once the layout is right you do not recreate it by hand. The **Export** menu turns what you built
+into code in your language (Rust, C, C++, Python): the whole window as a runnable app, or the
+document's components, together with the component CSS. It also exports and imports component
+libraries as JSON (to share them with other projects) and your E2E tests in the format
+`AZ_E2E` runs.
+
+This completes the workflow:
+
+1. Define your components, or convert them out of a layout you dragged together.
+2. Assemble and style the UI visually, and keep it as a project.
+3. Export the finished code back into your application.
 
 ## Slash Commands
 
-Since the `AzBuilder` is merely an empty window listening on an HTTP port, 
-you can control the window remotely via `curl`. The "browser UI" is merely 
-a visual interface for firing `curl` commands:
+Since `AzBuilder` is merely a window listening on an HTTP port, you can control it remotely with
+`curl`. The browser UI is a visual interface for sending the same JSON:
 
 ```sh
 # resize the AzBuilder window
 curl -s -X POST http://localhost:8080/ -d '{"op": "resize", "width": 100, "height": 200}'
+
+# insert a paragraph into the builder document (uid 0 is the <body>)
+curl -s -X POST http://localhost:8080/ -d '{"op": "builder_insert", "parent": 0, "component": "p", "attrs": {"text": "Hello"}}'
 ```
 
-The various "op" operations are documented in the [Debugging Guide](../debugging.md), but
-in the Browser UI you can fire off the commands from your browser by pressing "/" in the 
-"Terminal" command line - which also shows you examples and arguments:
+The ops are documented in the [Debugging Guide](../debugging.md). In the browser, press "/" in
+the Terminal's command line: it shows every command with examples and arguments:
 
-![CURL commands in the browser](../../images/slash-commands.png)
+![CURL commands in the browser](../images/slash-commands.png)
 
-Important are the `"op": "take_screenshot"` and `"op": "take_native_screenshot"`, which return
-Base64 PNG data - the browser UI can natively show this. The difference is that the `take_screenshot`
-op only renders the content of the UI, without the system window chrome - so that you can save 
-the image and use it in reference tests against regressions. The other op is meant more for taking 
-"nice" screenshots for showcases or documentation.
+Important are `"op": "take_screenshot"` and `"op": "take_native_screenshot"`, which return
+Base64 PNG data that the browser UI shows. `take_screenshot` renders only the content of the
+window, without the system chrome, so you can keep the image for reference tests against
+regressions; the native one is meant for showcases and documentation.
 
-The API is also extremely useful for AI agents (Claude / Codex / whatever), since agents can both 
-run curl commands and visually inspect images.
+The API is also useful for AI agents, which can both send the commands and look at the images.
 
 ## Designing E2E Tests
 
-While his is better documented in the [E2E Testing](../debugging/e2e-testing.md) guide, 
-the step from firing off single slash-commands to writing full end-to-end tests is so trivial, 
-that the HTML UI comes with an entire UI to design your tests. End to end tests are nothing but
-a series of `op` steps with an `op: assert_eq` or similar built in the middle. 
+This is documented in depth in the [E2E Testing](../debugging/e2e-testing.md) guide. An end to
+end test is a series of `op` steps with assertions (`assert_text`, `assert_layout`, …) in
+between, and the E2E Testing view of the browser UI (the bug icon) is an editor for them that
+guides you through the arguments of each op:
 
-Since the `cpurender` backend can run headlessly, this enables us to run many end-to-end tests
-in parallel and headlessly and, using the screenshot API mentioned above, create regression tests.
-The HTML UI in the second panel allows you to simply add your steps together and run them in 
-succession, while "guiding" you through the arguments of each "op" call:
+![End to End Test Builder](../images/debugger-e2e.png)
 
-![End to End Test Builder](../../images/debugger-e2e.png)
+The green triangle runs the test against the window step by step; the cloud button runs all tests
+headlessly (the `cpurender` backend runs many of them in parallel) and marks each one passed or
+failed. The camera icon of the App State panel saves a named snapshot of your app state, which a
+test restores with `restore_snapshot` - your UI is an `f(State) -> UI` function, so a snapshot is
+a quick way into any screen.
 
-You can click the green triangle button to run your test, which merely runs the various `op` 
-commands against the window in succession. If you click the "cloud" button, this runs all 
-end-to-end tests headlessly and shows a checkmark / error for all failed tests.
+Save the project and the tests land in its `tests/` folder, one JSON file per test, which is
+exactly what the headless runner takes:
 
-You can also import the JSON definitions of E2E tests over "Import" - which appends the new E2E tests to
-your current ones. Once you're done designing your end-to-end tests, you can export them into a
-JSON file (Export > E2E Tests) and run them on your application with `AZ_BACKEND=headless AZ_E2E=my-tests.json`. This environment variable also works on an entire directory. 
+```sh
+AZ_BACKEND=headless AZ_E2E=path/to/my-project/tests ./my-app
+```
 
-As a result, you'll then get then a "cargo-like" output of the test results and the app will quit 
-after the tests have been run:
+You get a "cargo-like" report, and the app quits when the tests are done. To try it on the
+builder's own self-tests:
 
 ```sh
 git clone https://github.com/fschutt/azul
@@ -127,38 +203,38 @@ test bug-caret-off-after-focus ... ok
 test bug-font-never-removed ... ok
 test anim-slow-move-frames ... ok
 ...
-
 ```
 
-So, instead of running end-to-end tests against `AzBuilder` (here we are running the "self-tests",
-which assert various layout behaviours and APIs against regressions), you can obviously run this
-on your own GUI application instead. 
+Run your own app the same way instead of `AzBuilder` to test your GUI.
 
-### 1. Component Library (Left Sidebar)
+![The Components view with a component's preview](../images/component-library.png)
 
-The left sidebar lists all the components currently registered in your `AppConfig`'s component libraries (including the `builtin` HTML elements and any custom components you have registered). You can drag and drop these components directly into the center canvas structure.
+## More methods
 
-### 2. Live Native Preview 
+Everything the browser does is one of these server messages (send them with `curl` or as slash
+commands).
 
-As you construct your component tree in the browser, the native window instantly updates to reflect the changes. Because the browser communicates with the native app via WebSockets, the native app handles all the actual rendering, layout, and styling. The browser simply manages the logical XML tree and data models.
+**Document** - `builder_get_document`, `builder_insert`, `builder_move`, `builder_delete`,
+`builder_set_attribute`, `builder_undo`, `builder_redo`, `builder_reset`. Every edit answers
+with the whole document (a tree of nodes with stable `uid`s, `<body>` is uid 0) and re-mounts it
+over the window; `builder_move` takes the slot as the drop indicator shows it, before the move.
 
-### 3. Properties Panel (Right Sidebar)
+**Components** - `builder_convert_to_component`, `get_component_thumbnail` (a PNG from the CPU
+renderer, cached until the component changes), `get_component_registry`, `create_component`
+(with a `render_tree` it stores a template), `update_component`, `get_component_render_tree`,
+`get_component_preview`.
 
-![GUI Builder Properties](../../images/component-library.png)
+**Project** - `project_info`, `project_open` (with `"create": true` it makes the folder and the
+skeleton), `project_close`, `project_list`, `project_read_file`, `project_write_file`,
+`project_create`, `project_rename`, `project_delete`, `project_save`, `project_load`,
+`project_export_zip`, `project_import_zip`. `project_write_file` answers what it applied
+(`"applied": "stylesheet"`, `"component"` or `"document"`) or an `apply_error`.
 
-When you select a component, the right sidebar populates with all the fields defined in its `ComponentDataModel`. For example, if your custom component has a `ComponentFieldType::String` called "title", you will see a text input here. When you change the value, the new data model is pushed to the native app, which re-runs your `render_fn` and instantly updates the native window.
+**Export** - `export_code`, `export_code_zip`, `export_component_library`,
+`import_component_library`.
 
-## Code Generation (Export)
+## Cross-references
 
-Once you are satisfied with the visual layout of your UI, you do not need to manually 
-write the code to recreate it. 
-
-By clicking **Export** (or using the `compile_fn` pipeline), the builder takes the customized 
-data models and generates the raw source code in your target language (Rust, Go, C, etc.). 
-You can paste this code directly back into your project.
-
-This completes the workflow: 
-
-1. Define your component model.
-2. Visually assemble your layout using the browser interface.
-3. Export the finished code back into your application.
+- [Components](components.md) - what a component is, and how to register your own libraries.
+- [Debugging](../debugging.md) - the debug server and every op it takes.
+- [E2E Testing](../debugging/e2e-testing.md) - the test format and the headless runner.
