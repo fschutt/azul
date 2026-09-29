@@ -37,6 +37,7 @@ use azul_css::{
             StyleBorderLeftStyle, StyleBorderRightColor, StyleBorderRightStyle,
             StyleBorderTopColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius,
             StyleBorderTopStyle, StyleBoxShadow, StyleLetterSpacing, StyleTextColor,
+            StyleTextDecoration,
         },
     },
 };
@@ -281,6 +282,17 @@ pub(crate) fn active_layers(
 #[must_use]
 pub(crate) fn hover_ink(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 2] {
     CssPropertyWithConditions::themed_on_hover(ink(light), ink(dark))
+}
+
+/// A link's underline under the pointer. An underline has no colour of its
+/// own, so the dark twin repeats it - emitted anyway so every state rule has
+/// its twin (the rule `widgets::theme_pairs` checks).
+#[must_use]
+pub(crate) fn hover_underline() -> [CssPropertyWithConditions; 2] {
+    CssPropertyWithConditions::themed_on_hover(
+        CssProperty::text_decoration(StyleTextDecoration::Underline),
+        CssProperty::text_decoration(StyleTextDecoration::Underline),
+    )
 }
 
 /// `border-radius: <px>` on all four corners.

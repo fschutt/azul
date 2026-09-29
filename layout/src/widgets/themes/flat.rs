@@ -4273,18 +4273,33 @@ pub fn frame(f: crate::widgets::frame::Frame) -> Dom {
 }
 
 // ==== breadcrumb ====
+//
+// The flat breadcrumb is the widget's established trail: Bootstrap-blue
+// links (the desktop's link colour at night), a grey "/" between them, the
+// current page bold. Each crumb is a keyboard stop with nothing to show
+// focus, and a link that never underlined because the widget's style had to
+// stay a const slice; the theme can say both, so a crumb underlines under the
+// pointer and shows flat's focus halo.
 
-/// The flat breadcrumb.
+/// The flat breadcrumb: the established trail, with a hover underline and a
+/// focus halo on every crumb.
 #[must_use]
 pub fn breadcrumb(b: crate::widgets::breadcrumb::Breadcrumb) -> Dom {
+    use super::decl;
     use crate::widgets::breadcrumb::{
         BreadcrumbLook, BREADCRUMB_CURRENT_STYLE, BREADCRUMB_ITEM_STYLE,
         BREADCRUMB_SEPARATOR_STYLE, SEPARATOR_GLYPH,
     };
+
+    let mut item = BREADCRUMB_ITEM_STYLE.to_vec();
+    item.extend(decl::radius(3));
+    item.extend(decl::hover_underline());
+    item.extend(decl::focus_halo(FIELD_RING, DARK_ACC));
+
     crate::widgets::breadcrumb::build(
         b,
         &BreadcrumbLook {
-            item: BREADCRUMB_ITEM_STYLE.to_vec(),
+            item,
             current: BREADCRUMB_CURRENT_STYLE.to_vec(),
             separator: BREADCRUMB_SEPARATOR_STYLE.to_vec(),
             separator_glyph: SEPARATOR_GLYPH,

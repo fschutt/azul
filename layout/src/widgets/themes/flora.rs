@@ -4809,9 +4809,55 @@ pub fn frame(f: crate::widgets::frame::Frame) -> Dom {
 }
 
 // ==== breadcrumb ====
+//
+// flora.css writes links "in brass ink": --fl-qt, "muted almost to gray - it
+// should read as a different ink, not as a highlight", deepening to --fl-qt2
+// under the pointer and underlined. A flora trail is those links, ending on
+// the current page in the house ink, divided by a quiet chevron in --fl-soft2
+// rather than a slash - a trail, not a path. Focus is flora's accent halo.
+// Every ink has its night value (at night the brass warms up: "it is the only
+// thing in the room still catching a light").
 
-/// The flora breadcrumb.
+/// The flora breadcrumb: brass-ink links and a quiet chevron.
 #[must_use]
 pub fn breadcrumb(b: crate::widgets::breadcrumb::Breadcrumb) -> Dom {
-    super::flat::breadcrumb(b)
+    use super::decl;
+    use crate::widgets::breadcrumb::BreadcrumbLook;
+
+    let quiet = |ink_light: ColorU, ink_dark: ColorU| {
+        let mut s = vec![
+            CssPropertyWithConditions::simple(CssProperty::const_flex_grow(
+                LayoutFlexGrow::const_new(0),
+            )),
+            CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+        ];
+        s.extend(decl::themed_ink(ink_light, ink_dark));
+        s
+    };
+
+    let mut item = quiet(LIGHT_QT, DARK_QT);
+    item.push(CssPropertyWithConditions::simple(CssProperty::const_cursor(
+        StyleCursor::Pointer,
+    )));
+    item.extend(decl::radius(3));
+    item.extend(decl::hover_ink(LIGHT_QT2, DARK_QT2));
+    item.extend(decl::hover_underline());
+    item.extend(decl::focus_halo(LIGHT_ACC, DARK_GLOW));
+
+    let mut current = quiet(LIGHT_INK, DARK_INK);
+    current.push(decl::semibold());
+
+    let mut separator = quiet(LIGHT_SOFT2, DARK_SOFT2);
+    separator.extend(decl::margin(0, 7, 0, 7));
+
+    crate::widgets::breadcrumb::build(
+        b,
+        &BreadcrumbLook {
+            item,
+            current,
+            separator,
+            separator_glyph: AzString::from_const_str("\u{203A}"),
+            marker: Some("__azul-theme-flora"),
+        },
+    )
 }
