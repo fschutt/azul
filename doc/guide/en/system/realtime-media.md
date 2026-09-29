@@ -7,7 +7,7 @@ audience: external
 maturity: beta
 guide_order: 124
 topic_only: false
-short_desc: Camera/mic capture, audio playback, and streaming A/V frames to a peer (the azul-meet pattern)
+short_desc: Camera/mic capture, audio playback, and media between apps over iroh (AzMeet - rooms, audio, leave)
 prerequisites: [events/callbacks, data/background-tasks]
 tracked_files:
   - layout/src/widgets/capture_common.rs
@@ -15,7 +15,11 @@ tracked_files:
   - core/src/audio.rs
   - core/src/video.rs
   - dll/src/desktop/extra/audio/mod.rs
-  - examples/azul-meet/src/main.rs
+  - dll/src/desktop/extra/iroh/engine.rs
+  - examples/azul-meet/src/lib.rs
+  - examples/azul-meet/src/audio.rs
+  - examples/azul-meet/src/rooms.rs
+  - examples/azul-meet/scripts/two-clients.mjs
 last_generated_rev: 754b7f00e088960c14db598f64fa200dacc28bf1
 generated_at: 2026-05-21T00:00:00Z
 default-search-keys:
@@ -28,6 +32,11 @@ default-search-keys:
   - VideoEncoder
   - VideoDecoder
   - backend_name
+  - IrohEndpoint
+  - broadcast_frame
+  - send_message
+  - AzMeet
+  - jitter buffer
 ---
 
 # Realtime Media
@@ -38,15 +47,23 @@ Azul exposes camera / screen / microphone **capture** and audio **playback** as
 ordinary widgets and handles - no globals, no manager singletons. Each capture
 source is a "dumb widget" that owns a background worker and hands you each frame
 through a callback hook; playback is a handle you keep in your own application
-`State`. Tying them together is the `azul-meet` example (a loopback audio call):
-capture -> hook -> serialize -> [transport] -> deserialize -> playback.
+`State`. Between two apps the bytes travel over `IrohEndpoint` (see
+[networking](../data/networking.md#peer-to-peer-connections)): media frames on
+numbered tracks, control data as messages.
 
-> **Transport is your choice.** Capture and playback are transport-agnostic: a
-> hook hands you decoded frames and `AudioSink` plays frames you hand it, so what
-> carries the bytes between peers is entirely up to you. A first-class,
-> browser-and-native peer-to-peer transport (the **AzMeet** conferencing layer)
-> is being designed separately; until it lands, serialize frames yourself and
-> send them over whatever transport your app already uses.
+```text
+capture -> hook -> encode -> IrohEndpoint -> decode -> jitter buffer -> playback
+```
+
+The `examples/azul-meet` app (AzMeet) puts it all together: meetings joined by a
+link, video and audio between every participant, mute state, and leaving. See
+[AzMeet](#azmeet-meetings-audio-leaving) below.
+
+> **Capture and playback do not know about the network.** A hook hands you
+> frames and `AudioSink` plays frames you hand it, so any transport works.
+> `IrohEndpoint` is the one azul ships: direct QUIC between native apps, relayed
+> when no direct path exists. A browser participant needs a relay bridge or
+> WebRTC, which AzMeet does not have yet.
 
 The architecture follows the framework's backreference dependency-injection
 pattern (see [architecture](../architecture.md)): a widget takes a `RefAny` (a
@@ -137,11 +154,16 @@ extern "C" fn on_audio_frame(mut data: RefAny, _info: CallbackInfo, frame: Audio
 }
 ```
 
+Do not assume a chunk length: the test tone delivers about 20 ms, a platform
+backend whatever its device hands it. If your wire format wants fixed packets,
+re-cut the chunks (AzMeet's `Packetizer` does, see below). Capture stops when the
+node unmounts, so muting is simply not rendering the widget.
+
 ## Playing audio (`AudioSink`)
 
 Playback is a handle, not a widget - you usually play audio you *received*, not
 audio bound to a node. `AudioSink` follows the same C-ABI handle convention as
-`Db` / `Pdf`: open it, keep it in your `State`, feed it frames, drop it to stop.
+`Db` / `Pdf`: open it, keep it, feed it frames, drop it to stop.
 
 ```rust
 let sink = AudioSink::open(AudioConfig { sample_rate: 48_000, channels: 1 });
@@ -150,64 +172,189 @@ sink.play(frame);            // queues the samples to the output
 // sink.is_open(), sink.frames_played(), sink.close()
 ```
 
-## Streaming frames to a peer
+`play` queues the samples, and how it waits depends on the backend: an ALSA write
+blocks while the device buffer is full, AVAudioEngine keeps at most 8 buffers in
+flight (about 160 ms of 20 ms frames) and drops beyond that, cpal holds up to 4
+seconds. So feed a stream from a thread of its own, one packet per packet length,
+not from a UI callback; and open one sink per stream at that stream's rate - the
+system mixes several open sinks.
 
-Capture hands you a decoded frame; playback takes a frame. The only thing between
-two peers is **your serialization + a transport of your choice**. A frame becomes
-bytes, the bytes travel, and the far side turns them back into a frame:
+## Sending media between apps
 
-```rust
-// on_frame: capture -> serialize -> send over your transport
-let bytes = frame_to_bytes(&frame);
-s.transport.send(s.peer.clone(), bytes);
+`IrohEndpoint` has two ways to send bytes to a connected peer, and media needs
+both:
 
-// recv (Timer tick or worker): receive -> deserialize -> play
-while let Some(bytes) = s.transport.poll_recv() {
-    if let Some(frame) = bytes_to_frame(bytes.as_ref()) {
-        s.sink.play(frame);
+- **Frames** (`send_frame`, `broadcast_frame`) travel on numbered tracks, each
+  frame on its own QUIC stream. They are *latest-wins* at both ends: a frame that
+  has not left yet is replaced by the next frame of its track, and the receiver
+  keeps only the newest frame of each track until `recv` takes it. For video that
+  is right (a late frame is worthless). For audio, where every packet counts,
+  repeat the last few packets in every frame, so a replaced frame loses nothing.
+- **Messages** (`send_message`) are reliable and ordered: control data such as
+  "my microphone is off".
+
+```rust,ignore
+// A capture hook: encode the frame and send it to everyone on its track.
+extern "C" fn on_consumer_frame(mut data: RefAny, _info: CallbackInfo, cut: ConsumerFrame) -> Update {
+    if let ResultU8VecEncodeImageError::Ok(jpeg) = rgba_image(&cut.frame).encode_jpeg(75) {
+        endpoint_of(&mut data).broadcast_frame(cut.consumer.id, jpeg);
+    }
+    Update::DoNothing
+}
+
+// A timer: everything that arrived since the last tick.
+while let Some(event) = endpoint.recv().into_option() {
+    match event.kind {
+        IrohEventKind::Frame if event.track == AUDIO_TRACK => buffer_audio(event.peer, event.data),
+        IrohEventKind::Frame => show_tile(event.peer, event.track, event.data),
+        IrohEventKind::Message => apply_control(event.peer, event.data),
+        _ => {}
     }
 }
 ```
 
-`frame_to_bytes` / `bytes_to_frame` are yours (a length-prefixed struct, or the
-encoded codec bytes from `VideoEncoder` below). For a full keyframe that exceeds
-the network MTU you chunk it into sequenced messages and reassemble on the far
-side; a few-KB audio frame fits in a single message.
+Nothing arrives unless you poll `recv`; AzMeet does it every 15 ms.
 
-### The transport seam
+## AzMeet: meetings, audio, leaving
 
-`s.transport` above is deliberately abstract. The realtime-media APIs stop at the
-**serialize/deserialize seam** so you can drop in whatever moves bytes between
-peers — and the trade-offs there (raw datagrams vs. congestion-controlled QUIC,
-direct peer-to-peer vs. relayed, native-only vs. also-in-the-browser) are exactly
-what the **AzMeet** conferencing transport is being designed to standardize.
-Until that ships as a first-class API, wire the seam to your own transport.
+`examples/azul-meet` is a meeting app on the public API. Started with a meeting
+server it shows **New meeting** and **Join with a link**; in a meeting it shows the
+invite link, the people, a tile per camera or screen, and the buttons **Mute**,
+**Deafen**, **Start video**, **Share screen** and **Leave**.
 
-## Putting it together: the azul-meet pattern
+### Rooms
 
-`examples/azul-meet` wires the full loop as a **loopback** call (it sends to
-itself, so the whole round-trip runs on one machine, no network required):
+The meeting server is the `meet` Cloudflare Worker (azul-apps `cf-workers/meet`,
+with a local mock, `dev-server.mjs`). It never sees any media; it only lets the
+apps find each other:
 
-1. A `MicrophoneWidget` captures audio; its `on_frame` serializes the
-   `AudioFrame` and sends it to the peer.
-2. A recv `Timer` drains the transport, deserializes each message back into an
-   `AudioFrame`, and `AudioSink::play`s it.
+| Request | What AzMeet uses it for |
+|---|---|
+| `POST /rooms` | New meeting: a room id (the credential), a short code, the link `azlin://meet/<room>` |
+| `GET /rooms/<id or code>?format=json` | Joining: resolves a pasted link or code |
+| `POST /rooms/<id>/peers` with `{node_id, ticket, name}` | Announces this app's iroh ticket, every 20 s |
+| `GET /rooms/<id>/peers?except=<node_id>` | Reads everyone else's ticket, every 2 s |
+| `DELETE /rooms/<id>/peers/<node_id>` | Leaving: off the list at once |
 
-A real two-party call is the same code with `peer` set to the remote endpoint.
-See `examples/azul-meet/src/main.rs` for the complete app (serialization +
-Timer + State).
+Of each pair of participants the one with the lower endpoint id dials, so two
+peers that find each other in the same poll open one connection. Every request
+runs on an azul `Thread` and resumes on the UI thread, so no callback waits on the
+network. A participant that stops announcing drops off after 120 s, a room after
+a day without announcements.
+
+### Video
+
+Each camera or screen frame is cut to 320x180, JPEG-encoded and broadcast on
+track 1 (camera) or 2 (screen). Each peer's frames land in that peer's own tiles.
+
+### Audio
+
+The audio path lives in `examples/azul-meet/src/audio.rs` (plain Rust with unit
+tests) and `lib.rs`:
+
+1. **Packets.** The microphone's chunks are mixed down to mono, converted to
+   16-bit PCM and cut into 20 ms packets at the microphone's rate (960 samples at
+   48 kHz), each with the next sequence number.
+2. **Frames.** Every new packet is sent in a frame together with the two before
+   it, on track 3, so a replaced or overwritten frame loses nothing while the next
+   one arrives:
+
+   ```text
+   [version 1][codec 1 = PCM s16][count][0][sample rate u32]
+   count x ([sequence u32][length u16][length x i16])     little endian, oldest first
+   ```
+
+   Raw PCM at 48 kHz is 768 kbit/s, about 2.3 Mbit/s with the repeats: fine on a
+   local network, heavy on a phone. Opus (codec 2) is the next step.
+3. **A jitter buffer per peer.** It keeps packets in sequence order, drops copies
+   and packets whose turn has passed, and starts to play once it holds three
+   (60 ms). A missing packet plays as silence: when later packets are already
+   there the gap is skipped, otherwise its turn waits. After 200 ms without
+   packets (the peer muted) it fills up again before playing; past 200 ms of
+   backlog it drops the oldest.
+4. **A playout thread.** Every 20 ms a thread of its own takes one turn from every
+   peer's buffer and plays it through that peer's `AudioSink`, opened at that
+   peer's rate. The UI thread only pushes packets into the buffers, under a lock
+   it holds for microseconds, and never waits on a device.
+
+The devices panel shows what is sent and what arrived, per peer:
+`Audio from Ben: 250 packets, 247 played, 3 silent, 0 late, 3 buffered`.
+
+### Mute, deafen, leave
+
+- **Mute** stops the microphone; **Deafen** stops playing the others and drops
+  what is buffered. Each change, and every new connection, sends a two-byte
+  message (`[1][flags]`: bit 0 muted, bit 1 deafened), and the people list shows
+  it: `Ben · connected · muted`, `Ada (you) · deafened`.
+- **Leave** disconnects from every peer, stops announcing and polling, takes this
+  participant off the room with `DELETE`, and returns to the start screen. A peer
+  that still dials afterwards is refused, and the answer to a request sent before
+  leaving is ignored.
+
+### Run it
+
+```sh
+# the meeting server (azul-apps)
+node cf-workers/meet/dev-server.mjs
+
+# two participants (azul)
+AZMEET_WORKER=http://127.0.0.1:8787 AZMEET_NAME=Ada cargo run --release -p AzMeet
+AZMEET_WORKER=http://127.0.0.1:8787 AZMEET_NAME=Ben cargo run --release -p AzMeet
+```
+
+Ada clicks **New meeting** and **Copy link**; Ben pastes the link and clicks
+**Join**. Without a reachable meeting server AzMeet opens its in-process demo
+instead: two windows, one per participant, linked by two endpoints.
+
+| Variable | Meaning |
+|---|---|
+| `AZMEET_WORKER` | The meeting server, e.g. `http://127.0.0.1:8787` |
+| `AZMEET_NAME` | The name the others see |
+| `AZMEET_AUTOCREATE=1`, `AZMEET_JOIN=<link>` | Start in a meeting without a click; the link is printed as `AZMEET_LINK <link>` |
+| `AZMEET_RELAY` | `off`, `default` or a relay URL (off for a meeting server on this machine) |
+| `AZMEET_TEST_TONE=1` | A 440 Hz tone replaces the microphone, unmuted from the start |
+
+### Test it
+
+`examples/azul-meet/scripts/two-clients.mjs` starts the mock meeting server and
+two headless AzMeet processes, then checks through each app's debug server
+(`AZ_DEBUG`) that they connect, that each counts at least a second of the other's
+audio, that a mute shows on the other side, and that **Leave** takes a participant
+off the room at once.
+
+A headless test must never open a real device. Under `AZ_BACKEND=headless` only
+`AudioDeviceList::enumerate` is answered by the mock store (see
+[e2e-testing](../debugging/e2e-testing.md)); `MicrophoneWidget` and
+`AudioSink::open` would still reach the hardware. So AzMeet checks for itself: in
+a headless run its microphone is the test tone (no `MicrophoneWidget` is mounted)
+and received audio is drained and counted, never played. Do the same in your own
+app.
+
+### Not yet
+
+- Opus and its loss concealment; echo cancellation and noise suppression.
+- `IrohLoadBalancer`: today every participant sends to every other one (a full
+  mesh), which does not scale past a handful of people.
+- Video codecs: frames are JPEG. H.264 / AV1 need keyframe requests on loss and
+  renditions per tile size.
+- Signed announcements on the meeting server; browser participants.
 
 ## What is on-device
 
-The widget/handle surfaces above are cross-platform and always present. The
-actual hardware backends are platform-specific and only run on a real device:
+The widget and handle surfaces above are cross-platform and always present. The
+hardware backends are platform-specific:
 
-- **Capture** (camera, screen, microphone): AVFoundation / ScreenCaptureKit /
-  AVAudioEngine on Apple, Camera2 / MediaProjection / AAudio on Android. The
-  current desktop builds use stand-in workers (a test pattern / test tone) so
-  the API + plumbing are exercisable without hardware.
-- **Audio output** (`AudioSink`): rodio/cpal on desktop, AVAudioEngine / AAudio
-  on mobile.
+- **Microphone**: ALSA on Linux, cpal (WASAPI) on Windows, AVAudioEngine on macOS
+  and iOS, AAudio on Android.
+- **Audio output** (`AudioSink`): ALSA on Linux, cpal on Windows, AVAudioEngine on
+  macOS and iOS, AAudio on Android. A sink whose device does not open still counts
+  frames, and says so once.
+- **Camera**: V4L2 on Linux, Media Foundation on Windows, AVFoundation on macOS
+  and iOS, Camera2 on Android. **Screen**: the ScreenCast portal and PipeWire on
+  Linux, DXGI desktop duplication on Windows, ScreenCaptureKit on macOS.
+- Where no capture backend opens, the widgets fall back to a test pattern (video)
+  or a 440 Hz test tone (audio) and say so once, so the plumbing runs without
+  hardware.
 - **Video encode/decode** (`VideoEncoder` / `VideoDecoder`), submit + poll:
   `VideoEncoder::open(w, h, h265, bitrate_kbps)` -> `encode(VideoFrame, force_keyframe)
   -> bool` (accepted) then drain `recv_packet() -> Option<U8Vec>`;
@@ -219,18 +366,22 @@ actual hardware backends are platform-specific and only run on a real device:
   selects: **gpu-video** (Vulkan Video) on Linux/Windows desktop, **VideoToolbox**
   on Apple (Vulkan Video can't build there - no MoltenVK video), **MediaCodec**
   on Android. The handles + the selection are exposed cross-platform; the codec
-  FFI itself is the on-device part. Use these at the `azul-meet`
-  serialize/deserialize seam (your transport carries the encoded bytes).
+  FFI itself is the on-device part. The encoded packets are what you would send
+  as frames instead of JPEG.
 
 ## Testing without hardware
 
 The synthetic-event harness (`layout/tests/synthetic_events.rs`) injects
 sensor / gamepad / geolocation / audio / video events through the same channels
 a real device uses, so you can exercise the capture + event paths in CI. See
-[e2e-testing](../debugging/e2e-testing.md).
+[e2e-testing](../debugging/e2e-testing.md). For two apps talking to each other,
+`examples/azul-meet/scripts/two-clients.mjs` (above) is the pattern: two
+headless processes, a test tone instead of a microphone, and assertions on what
+each window shows.
 
 ## See also
 
+- [networking](../data/networking.md#peer-to-peer-connections) - `IrohEndpoint`: tickets, frames, messages.
 - [callbacks](../events/callbacks.md) - the hook + `RefAny` mechanism.
 - [background-tasks](../data/background-tasks.md) - the `Thread` that drives capture.
 - [timers](../animations/timers.md) - polling your transport for received frames each frame.
