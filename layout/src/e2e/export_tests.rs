@@ -347,11 +347,11 @@ fn a_converted_component_exports_to_code_that_recreates_its_subtree() {
         /* 9: the subtree export of the document CALLS the card's function
          * (component boundaries stay calls) and defines it once */
         serde_json::json!({ "op": "export_subtree_code", "node": 0, "language": "rust" }),
-        /* 11: the same in C: the card's function comes before its caller */
-        serde_json::json!({ "op": "export_subtree_code", "node": 0, "language": "c" }),
         /* 10 */
         serde_json::json!({ "op": "export_component_code", "library": "user",
                             "name": "nope", "language": "rust" }),
+        /* 11: the same in C: the card's function comes before its caller */
+        serde_json::json!({ "op": "export_subtree_code", "node": 0, "language": "c" }),
     ]);
     let result = run("export_converted_component", steps);
 

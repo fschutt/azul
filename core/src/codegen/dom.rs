@@ -219,16 +219,19 @@ pub fn markup_parts(
 }
 
 /// The name a render function of `root_nodes` gets:
-/// `render_<first id | first class | tag>` of the only element root (a
-/// component instance: `render_<name>`), else `render_ui`.
+/// `render_<first id | first class | tag>` of the only element root, else
+/// `render_ui` (also for a lone component instance, whose own function is
+/// `render_<name>`).
 #[must_use]
 pub fn default_fn_name(root_nodes: &[XmlNodeChild]) -> String {
     let Some(n) = single_element_root(root_nodes, true) else {
         return render_fn_name(APP_ROOT_BASE);
     };
     let raw = n.node_type.as_str();
-    if let Some((_, name)) = component_tag(raw) {
-        return render_fn_name(name);
+    // A lone component instance is a CALL of the component's own function
+    // (`render_<name>`); the fragment around it must not take that name.
+    if component_tag(raw).is_some() {
+        return render_fn_name(APP_ROOT_BASE);
     }
     let first = |k: &str| {
         n.attributes
