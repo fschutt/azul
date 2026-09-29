@@ -10,6 +10,14 @@
 //! A Vec is copied from a slice literal (`&[]azul.AzX{..}[0]`), a string
 //! goes through the `css_str` helper (`AzString_fromUtf8`, as in
 //! `examples/odin`). Indentation is tabs (`odin fmt`).
+//!
+//! DOM export: a builder method is the C function taking `self` first,
+//! nested (`azul.AzDom_withChild(dom, child)`), with trailing commas when a
+//! call breaks (so `-strict-style` accepts it); a parameter is an Odin
+//! `string` with the component's default as its default value, converted
+//! by `css_str` where it is used; a joined string is `css_concat("by ",
+//! author)`. The app's layout callback is a `proc "c"` that sets up the
+//! Odin context before it calls the (Odin-convention) render function.
 
 use alloc::{
     format,
@@ -17,13 +25,18 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{snake_to_lower_camel, EnumShape, Expr, Item, Module, Prim},
+    ir::{
+        snake_to_lower_camel, ComponentSpec, EnumShape, Expr, Ident, Item, LibrarySpec, Module,
+        Prim,
+    },
     lang::{
-        escape_quoted, item_comments, item_doc, module_any, unicode_u4, variant_ctor_method,
-        ExprSyntax,
+        dom::{one_line, unused_params, uses_concat},
+        escape_quoted, expr_doc, item_comments, item_doc, module_any, unicode_u4,
+        variant_ctor_method, ConcatPart, ExprSyntax, MethodLayout,
     },
     lower_types::union_tag,
     CodegenBackend, GeneratedFile,
@@ -47,6 +60,21 @@ fn ident(name: &str) -> String {
     } else {
         name.to_string()
     }
+}
+
+/// `f(a, b)`; broken: one argument per line, each followed by a comma.
+fn odin_call(f: String, args: Vec<Doc>, broken: bool) -> Doc {
+    Doc::cat(vec![Doc::text(f), Doc::list("(", args, ", ", ")", false, broken, true)])
+}
+
+/// An Odin string literal.
+fn odin_lit(s: &str) -> String {
+    format!("\"{}\"", escape_quoted(s, &[], &unicode_u4))
+}
+
+/// A parameter's Odin name (a keyword gets a `_`).
+fn odin_param(name: &Ident) -> String {
+    ident(&name.snake())
 }
 
 /// `T{a = 1, b = 2}`, one field per line when `broken`.
@@ -82,7 +110,7 @@ impl ExprSyntax for Odin {
     }
 
     fn string(&self, s: &str) -> Doc {
-        Doc::text(format!("css_str(\"{}\")", escape_quoted(s, &[], &unicode_u4)))
+        Doc::text(format!("css_str({})", odin_lit(s)))
     }
 
     fn call(&self, class: &str, method: &str, args: Vec<Doc>, broken: bool) -> Doc {
@@ -141,6 +169,68 @@ impl ExprSyntax for Odin {
             escape_quoted(what, &[], &unicode_u4)
         ))
     }
+
+    fn dom_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `azul.AzDom_withChild(recv, child)`: the C function takes `self`
+    /// first; a chain nests.
+    fn method(&self, recv: Doc, class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
+        let mut all = vec![recv];
+        all.extend(args);
+        odin_call(
+            format!("azul.Az{class}_{}", snake_to_lower_camel(method)),
+            all,
+            layout.node_tall,
+        )
+    }
+
+    /// An Odin `string` parameter, converted at every use (a call takes
+    /// its `AzString` by value).
+    fn param(&self, name: &Ident) -> Doc {
+        Doc::text(format!("css_str({})", odin_param(name)))
+    }
+
+    fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        let args: Vec<String> = parts
+            .iter()
+            .map(|p| match p {
+                ConcatPart::Lit(s) => odin_lit(s),
+                ConcatPart::Param(i) => odin_param(i),
+            })
+            .collect();
+        Doc::text(format!("css_concat({})", args.join(", ")))
+    }
+}
+
+/// `title: string = "Hello", ..` and the `_ = x` lines of the parameters
+/// the body never reads (`-vet` rejects unused ones).
+fn odin_params(item: &Item) -> (String, String) {
+    let sig = item
+        .params
+        .iter()
+        .map(|p| {
+            let ty = if p.ty == "String" {
+                "string".to_string()
+            } else {
+                format!("azul.Az{}", p.ty)
+            };
+            match &p.default {
+                Some(Expr::Str(d)) if p.ty == "String" => {
+                    format!("{}: {ty} = {}", odin_param(&p.name), odin_lit(d))
+                }
+                Some(d) => format!("{}: {ty} = {}", odin_param(&p.name), expr_doc(&Odin, d).flat()),
+                None => format!("{}: {ty}", odin_param(&p.name)),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let unused = unused_params(item)
+        .iter()
+        .map(|p| format!("\t_ = {}\n", odin_param(&p.name)))
+        .collect();
+    (sig, unused)
 }
 
 fn item_fn(item: &Item) -> (bool, String) {
@@ -151,8 +241,9 @@ fn item_fn(item: &Item) -> (bool, String) {
     let name = item.name.snake();
     match item_doc(&Odin, item) {
         Ok(doc) => {
+            let (sig, unused) = odin_params(item);
             out.push_str(&format!(
-                "{name} :: proc() -> azul.Az{} {{\n\treturn {}\n}}\n",
+                "{name} :: proc({sig}) -> azul.Az{} {{\n{unused}\treturn {}\n}}\n",
                 item.ty,
                 render(&doc, "\t", 1)
             ));
@@ -167,8 +258,223 @@ fn item_fn(item: &Item) -> (bool, String) {
     }
 }
 
+/// What the registration calls (only when a component takes parameters).
+/// The union tags are api.json's variant indices (`Option`: None = 0,
+/// Some = 1; `ComponentDefaultValue`: None = 0, String = 1): the Odin
+/// binding keeps a tag as a plain `u8`.
+const REGISTRATION_HELPERS: &str = "
+// The String value of the data-model field `name` (borrowing the model's
+// bytes), or `fallback`.
+model_string :: proc(model: ^azul.AzComponentDataModel, name: string, fallback: string) -> string {
+\tfields := ([^]azul.AzComponentDataField)(model.fields.ptr)
+\tfor i in 0 ..< int(model.fields.len) {
+\t\tf := &fields[i]
+\t\tif string(f.name.vec.ptr[:f.name.vec.len]) != name {
+\t\t\tcontinue
+\t\t}
+\t\tif f.default_value.Some.tag == 1 && f.default_value.Some.payload.String.tag == 1 {
+\t\t\tvalue := &f.default_value.Some.payload.String.payload
+\t\t\treturn string(value.vec.ptr[:value.vec.len])
+\t\t}
+\t}
+\treturn fallback
+}
+
+// A String field of a component's data model.
+string_field :: proc(name: string, value: string, description: string) -> azul.AzComponentDataField {
+\treturn azul.AzComponentDataField{
+\t\tname = css_str(name),
+\t\tfield_type = azul.AzComponentFieldType_string(),
+\t\tdefault_value = azul.AzOptionComponentDefaultValue_some(azul.AzComponentDefaultValue_string(css_str(value))),
+\t\trequired = false,
+\t\tdescription = css_str(description),
+\t}
+}
+";
+
+/// The registration of a component library (`m.library`), mirroring the C
+/// one: per component a default-arguments wrapper, a `proc "c"` render and
+/// compile function (they set up the Odin context first) and its
+/// `ComponentDef`; then `register_<library>_library`, the
+/// `AzRegisterComponentLibraryFnType` that
+/// `azul.AzAppConfig_addComponentLibrary` takes. Items the module does not
+/// have are skipped.
+fn odin_registration(m: &Module, lib: &LibrarySpec) -> String {
+    let lsn = Ident::from_text(&lib.name).snake();
+    let az = |s: &str| format!("css_str({})", odin_lit(s));
+    let components: Vec<(&ComponentSpec, &Item)> = lib
+        .components
+        .iter()
+        .filter_map(|c| m.item(&c.item).map(|i| (c, i)))
+        .collect();
+    let mut s = String::from("\n// -- registration --\n");
+    if components.iter().any(|(_, i)| !i.params.is_empty()) {
+        s.push_str(REGISTRATION_HELPERS);
+    }
+    let mut defs: Vec<String> = Vec::new();
+    for (c, item) in &components {
+        let item_fn = item.name.snake();
+        let sn = Ident::from_text(&c.name).snake();
+        let defaults: Vec<String> = item.params.iter().map(|p| odin_lit(p.default_text())).collect();
+        let _ = write!(
+            s,
+            "\n// `{}:{}` with its default arguments.\n{item_fn}_default :: proc() -> azul.AzDom \
+             {{\n\treturn {item_fn}({})\n}}\n",
+            one_line(&lib.name),
+            one_line(&c.name),
+            defaults.join(", ")
+        );
+        let args: Vec<String> = item
+            .params
+            .iter()
+            .map(|p| {
+                format!(
+                    "model_string(model, {}, {})",
+                    odin_lit(&p.name.snake()),
+                    odin_lit(p.default_text())
+                )
+            })
+            .collect();
+        let _ = write!(
+            s,
+            "\n{sn}_render_fn :: proc \"c\" (def: ^azul.AzComponentDef, model: \
+             ^azul.AzComponentDataModel, component_map: ^azul.AzComponentMap) -> \
+             azul.AzResultStyledDomRenderDomError {{\n\tcontext = runtime.default_context()\n\tdom \
+             := {item_fn}({})\n\treturn \
+             azul.AzResultStyledDomRenderDomError_ok(azul.AzStyledDom_createFromDom(dom))\n}}\n",
+            args.join(", ")
+        );
+        let _ = write!(
+            s,
+            "\n{sn}_compile_fn :: proc \"c\" (def: ^azul.AzComponentDef, target: \
+             ^azul.AzCompileTarget, model: ^azul.AzComponentDataModel, indent: uint) -> \
+             azul.AzResultStringCompileError {{\n\tcontext = runtime.default_context()\n\treturn \
+             azul.AzResultStringCompileError_ok({})\n}}\n",
+            az(&format!("{item_fn}_default()"))
+        );
+        let _ = write!(s, "\n{sn}_def :: proc() -> azul.AzComponentDef {{\n");
+        let fields = if item.params.is_empty() {
+            "azul.AzComponentDataFieldVec_create()".to_string()
+        } else {
+            s.push_str("\tfields := [?]azul.AzComponentDataField{\n");
+            for (i, p) in item.params.iter().enumerate() {
+                let desc = c.field_descriptions.get(i).map_or("", String::as_str);
+                let _ = writeln!(
+                    s,
+                    "\t\tstring_field({}, {}, {}),",
+                    odin_lit(&p.name.snake()),
+                    odin_lit(p.default_text()),
+                    odin_lit(desc)
+                );
+            }
+            s.push_str(
+                "\t}\n\tfield_vec := azul.AzComponentDataFieldVec_copyFromPtr(&fields[0], \
+                 uint(len(fields)))\n\t// copyFromPtr cloned them.\n\tfor i in 0 ..< len(fields) \
+                 {\n\t\tazul.AzComponentDataField_delete(&fields[i])\n\t}\n",
+            );
+            "field_vec".to_string()
+        };
+        let _ = write!(
+            s,
+            "\treturn azul.AzComponentDef{{\n\t\tid = azul.AzComponentId_create({}, {}),\n\t\t\
+             display_name = {},\n\t\tdescription = {},\n\t\t// The CSS is applied per node by \
+             {item_fn}.\n\t\tcss = {},\n\t\tsource = azul.AzComponentSource.UserDefined,\n\t\t\
+             data_model = azul.AzComponentDataModel{{\n\t\t\tname = {},\n\t\t\tdescription = \
+             {},\n\t\t\tfields = {fields},\n\t\t}},\n\t\trender_fn = {sn}_render_fn,\n\t\t\
+             compile_fn = {sn}_compile_fn,\n\t\trender_fn_source = azul.AzOptionString_none(),\n\t\t\
+             compile_fn_source = azul.AzOptionString_none(),\n\t}}\n}}\n",
+            az(&lib.name),
+            az(&c.name),
+            az(&c.display_name),
+            az(&c.description),
+            az(""),
+            az(&c.data_model),
+            az(&c.data_model_description),
+        );
+        defs.push(format!("{sn}_def()"));
+    }
+    let _ = write!(
+        s,
+        "\n// The component library `{}`:\n//     azul.AzAppConfig_addComponentLibrary(&config, \
+         {}, register_{lsn}_library)\nregister_{lsn}_library :: proc \"c\" () -> \
+         azul.AzComponentLibrary {{\n\tcontext = runtime.default_context()\n",
+        one_line(&lib.name),
+        az(&lib.name)
+    );
+    let components = if defs.is_empty() {
+        "azul.AzComponentDefVec_create()".to_string()
+    } else {
+        s.push_str("\tdefs := [?]azul.AzComponentDef{\n");
+        for d in &defs {
+            let _ = writeln!(s, "\t\t{d},");
+        }
+        s.push_str(
+            "\t}\n\tcomponents := azul.AzComponentDefVec_copyFromPtr(&defs[0], \
+             uint(len(defs)))\n\t// copyFromPtr cloned them.\n\tfor i in 0 ..< len(defs) \
+             {\n\t\tazul.AzComponentDef_delete(&defs[i])\n\t}\n",
+        );
+        "components".to_string()
+    };
+    let _ = write!(
+        s,
+        "\treturn azul.AzComponentLibrary{{\n\t\tname = {},\n\t\tversion = {},\n\t\tdescription \
+         = {},\n\t\tcomponents = {components},\n\t\texportable = true,\n\t\tmodifiable = \
+         false,\n\t\tdata_models = azul.AzComponentDataModelVec_create(),\n\t\tenum_models = \
+         azul.AzComponentEnumModelVec_create(),\n\t}}\n}}\n",
+        az(&lib.name),
+        az(&lib.version),
+        az("Exported from AzBuilder"),
+    );
+    s
+}
+
+/// The app around a DOM module (`m.app`), as in `examples/odin`: an empty
+/// app data type upcast to a `RefAny`, a `proc "c"` layout callback that
+/// sets up the Odin context and returns the root item (inside a `body`
+/// unless it builds the body itself), and `main`.
+fn odin_app_main(m: &Module) -> String {
+    let Some(app) = &m.app else {
+        return String::new();
+    };
+    let root = format!("{}()", app.root.snake());
+    let body = if app.is_body {
+        root
+    } else {
+        format!("azul.AzDom_withChild(azul.AzDom_createBody(), {root})")
+    };
+    format!(
+        "// {title} - generated by AzBuilder (azul-css codegen, Odin).\n// Copy \
+         target/codegen/azul.odin to ./azul/ and libazul here, then:\n//   odin run . \
+         -extra-linker-flags:\"-L.\"\npackage main\n\nimport azul \"azul\"\nimport \
+         \"base:runtime\"\n\nAppData :: struct {{\n\tunused: u8,\n}}\n\nAPP_DATA_TYPE_TOKEN: u8 = \
+         0\n\napp_data_destructor :: proc \"c\" (_: rawptr) {{\n}}\n\napp_data_upcast :: proc(model: \
+         AppData) -> azul.AzRefAny {{\n\tlocal := model\n\ttype_name := \"AppData\"\n\tptr := \
+         azul.AzGlVoidPtrConst{{ptr = &local, run_destructor = false}}\n\treturn \
+         azul.AzRefAny_newC(\n\t\tptr,\n\t\tuint(size_of(AppData)),\n\t\tuint(align_of(AppData)),\
+         \n\t\tu64(uintptr(&APP_DATA_TYPE_TOKEN)),\n\t\tazul.AzString_fromUtf8(raw_data(type_name), \
+         uint(len(type_name))),\n\t\tapp_data_destructor,\n\t\t0,\n\t\t0,\n\t)\n}}\n\nlayout :: \
+         proc \"c\" (data: azul.AzRefAny, info: azul.AzLayoutCallbackInfo) -> azul.AzDom \
+         {{\n\tcontext = runtime.default_context()\n\treturn {body}\n}}\n\nmain :: proc() \
+         {{\n\twindow := azul.AzWindowCreateOptions_create(layout)\n\ttitle := \
+         {title_lit}\n\twindow.window_state.title = azul.AzString_fromUtf8(raw_data(title), \
+         uint(len(title)))\n\tapp := azul.AzApp_create(app_data_upcast(AppData{{}}), \
+         azul.AzAppConfig_create())\n\tazul.AzApp_run(&app, window)\n}}\n",
+        title = one_line(&app.title),
+        title_lit = odin_lit(&app.title),
+    )
+}
+
 const CSS_STR: &str = "css_str :: proc(s: string) -> azul.AzString {
 \treturn azul.AzString_fromUtf8(raw_data(s), uint(len(s)))
+}
+";
+
+/// What an [`Expr::Concat`] calls (the module imports `core:strings`).
+const CSS_CONCAT: &str = "// Joins PARTS into one AzString (the Odin string is freed again).
+css_concat :: proc(parts: ..string) -> azul.AzString {
+\tjoined := strings.concatenate(parts)
+\tdefer delete(joined)
+\treturn css_str(joined)
 }
 ";
 
@@ -185,23 +491,55 @@ impl CodegenBackend for Odin {
         "odin"
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn emit_module(&self, m: &Module) -> String {
         let mut out = String::from(
             "// Generated by azul-css codegen (Odin). Do not edit by hand.\npackage main\n\nimport \
              azul \"azul\"\n",
         );
-        if module_any(m, &|e| matches!(e, Expr::Str(_))) {
+        let concat = uses_concat(m);
+        if m.library.is_some() {
+            out.push_str("import \"base:runtime\"\n");
+        }
+        if concat {
+            out.push_str("import \"core:strings\"\n");
+        }
+        if m.library.is_some()
+            || module_any(m, &|e| matches!(e, Expr::Str(_) | Expr::Param(_) | Expr::Concat(_)))
+        {
             out.push('\n');
             out.push_str(CSS_STR);
+        }
+        if concat {
+            out.push('\n');
+            out.push_str(CSS_CONCAT);
         }
         for item in &m.items {
             out.push('\n');
             out.push_str(&item_fn(item).1);
         }
+        if let Some(lib) = &m.library {
+            out.push_str(&odin_registration(m, lib));
+        }
         out
     }
 
     fn emit_project_files(&self, m: &Module) -> Vec<GeneratedFile> {
+        if m.app.is_some() {
+            return vec![
+                GeneratedFile {
+                    path: "ui.odin".to_string(),
+                    contents: self.emit_module(m),
+                },
+                GeneratedFile {
+                    path: "main.odin".to_string(),
+                    contents: odin_app_main(m),
+                },
+            ];
+        }
         let mut main = String::from(
             "// Copy target/codegen/azul.odin to ./azul/ and libazul here, then:\n//   odin run . \
              -extra-linker-flags:\"-L.\"\npackage main\n\nimport \"core:fmt\"\n\nmain :: proc() \
@@ -209,6 +547,10 @@ impl CodegenBackend for Odin {
         );
         for item in m.items.iter().filter(|i| item_fn(i).0) {
             let name = item.name.snake();
+            if item.ty == "Dom" {
+                main.push_str(&format!("\t_ = {name}()\n\tfmt.println(\"{name}: built\")\n"));
+                continue;
+            }
             main.push_str(&format!(
                 "\t{name}_value := {name}()\n\tfmt.println(\"{name}:\", {name}_value.len, \
                  \"properties\")\n"

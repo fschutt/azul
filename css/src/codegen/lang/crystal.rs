@@ -17,6 +17,12 @@
 //! the fields as raw C values (a wrapper's `.__take`, a nested struct's lib
 //! struct, `Azul::Conv.in_<Vec>([..])`, `Azul::Native.az_string("..")`).
 //! A style returns its properties as an `Array(Azul::CssPropertyWithConditions)`.
+//!
+//! DOM export: a builder method is the idiomatic instance method, chained
+//! one link per line (`Azul::Dom.div.with_css("..").with_child(..)`; it
+//! moves its receiver, as in Rust); a parameter is a Crystal `String` with
+//! the component's default as its default argument, a joined string an
+//! interpolation (`"by #{author}"`). The UI module is `AzulUi`.
 
 use alloc::{
     format,
@@ -24,13 +30,17 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{snake_to_lower_camel, EnumShape, Expr, Item, Module, Prim},
+    ir::{
+        snake_to_lower_camel, ComponentSpec, EnumShape, Expr, Ident, Item, LibrarySpec, Module,
+        Prim,
+    },
     lang::{
-        escape_quoted, expr_doc, is_tall, item_comments, item_doc, native_list, unicode_braced,
-        variant_ctor_method, ExprSyntax,
+        dom::one_line, escape_quoted, expr_doc, is_tall, item_comments, item_doc, native_list,
+        unicode_braced, variant_ctor_method, ConcatPart, ExprSyntax, MethodLayout,
     },
     CodegenBackend, GeneratedFile,
 };
@@ -88,6 +98,33 @@ fn class_method(c_method: &str) -> String {
         format!("{raw}_")
     } else {
         name
+    }
+}
+
+/// The instance-method name of the C method `c_method` (`method_name` of
+/// `lang_crystal/wrappers.rs`, instance case). The lowering only emits the
+/// `with_*` builder methods, which keep their snake_case name; the
+/// `get_` / `is_` / `set_` renames need the return type and never apply.
+fn instance_method(c_method: &str) -> String {
+    let raw = snake(c_method);
+    if RESERVED_METHODS.contains(&raw.as_str()) {
+        format!("{raw}_")
+    } else {
+        raw
+    }
+}
+
+/// A parameter's Crystal name (a keyword gets a `_`).
+fn cr_param(name: &Ident) -> String {
+    field_name(&name.snake())
+}
+
+/// The module of a DOM export (`AzulUi`) or of styles (`AzulStyles`).
+fn module_name(m: &Module) -> &'static str {
+    if m.is_dom() {
+        "AzulUi"
+    } else {
+        "AzulStyles"
     }
 }
 
@@ -240,6 +277,67 @@ impl ExprSyntax for Crystal {
             _ => value,
         }
     }
+
+    fn dom_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `recv.with_child(..)`: one link per line from the second link on.
+    fn method(&self, recv: Doc, _class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
+        let link = apply(
+            format!(".{}", instance_method(&snake_to_lower_camel(method))),
+            args,
+            layout.args_tall,
+        );
+        Doc::chained(recv, link)
+    }
+
+    /// A String parameter is a Crystal `String`, which every String
+    /// argument of the bindings takes.
+    fn param(&self, name: &Ident) -> Doc {
+        Doc::text(cr_param(name))
+    }
+
+    /// An interpolated string.
+    fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        let mut out = String::from("\"");
+        for p in parts {
+            match p {
+                ConcatPart::Lit(t) => out.push_str(&escape_quoted(t, &['#'], &unicode_braced)),
+                ConcatPart::Param(i) => {
+                    out.push_str("#{");
+                    out.push_str(&cr_param(i));
+                    out.push('}');
+                }
+            }
+        }
+        out.push('"');
+        Doc::text(out)
+    }
+}
+
+/// `(title : String = "Hello", ..)`, or nothing for an item without
+/// parameters.
+fn params_sig(item: &Item) -> String {
+    if item.params.is_empty() {
+        return String::new();
+    }
+    let params: Vec<String> = item
+        .params
+        .iter()
+        .map(|p| {
+            let ty = if p.ty == "String" {
+                "String".to_string()
+            } else {
+                format!("Azul::{}", p.ty)
+            };
+            match &p.default {
+                Some(d) => format!("{} : {ty} = {}", cr_param(&p.name), expr_doc(&Crystal, d).flat()),
+                None => format!("{} : {ty}", cr_param(&p.name)),
+            }
+        })
+        .collect();
+    format!("({})", params.join(", "))
 }
 
 fn item_fn(item: &Item) -> String {
@@ -259,7 +357,8 @@ fn item_fn(item: &Item) -> String {
     }
     match item_doc(&Crystal, item) {
         Ok(doc) => out.push_str(&format!(
-            "  def self.{name} : Azul::{}\n    {}\n  end\n",
+            "  def self.{name}{} : Azul::{}\n    {}\n  end\n",
+            params_sig(item),
             item.ty,
             render(&doc, "  ", 2)
         )),
@@ -287,10 +386,15 @@ impl CodegenBackend for Crystal {
         "cr"
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn emit_module(&self, m: &Module) -> String {
-        let mut out = String::from(
+        let mut out = format!(
             "# Generated by azul-css codegen (Crystal). Do not edit by hand.\nrequire \
-             \"azul\"\n\nmodule AzulStyles\n",
+             \"azul\"\n\nmodule {}\n",
+            module_name(m)
         );
         for (i, item) in m.items.iter().enumerate() {
             if i > 0 {
@@ -298,11 +402,30 @@ impl CodegenBackend for Crystal {
             }
             out.push_str(&item_fn(item));
         }
+        if let Some(lib) = &m.library {
+            out.push_str(&crystal_registration(m, lib));
+        }
         out.push_str("end\n");
         out
     }
 
     fn emit_project_files(&self, m: &Module) -> Vec<GeneratedFile> {
+        if m.app.is_some() {
+            return vec![
+                GeneratedFile {
+                    path: "shard.yml".to_string(),
+                    contents: shard_yml("azul_app"),
+                },
+                GeneratedFile {
+                    path: "ui.cr".to_string(),
+                    contents: self.emit_module(m),
+                },
+                GeneratedFile {
+                    path: "main.cr".to_string(),
+                    contents: crystal_app_main(m),
+                },
+            ];
+        }
         let mut main = String::from(
             "# Copy target/codegen/crystal to ./azul and libazul here, then:\n#   shards install \
              && crystal run main.cr --link-flags=-L.\nrequire \"./styles\"\n\n",
@@ -312,14 +435,19 @@ impl CodegenBackend for Crystal {
                 continue;
             }
             let name = item.name.snake();
-            main.push_str(&format!(
-                "{name} = AzulStyles.{name}\nputs \"{name}: #{{{name}.size}} properties\"\n"
-            ));
+            let module = module_name(m);
+            if item.ty == "Dom" {
+                main.push_str(&format!("{name} = {module}.{name}\nputs \"{name}: built\"\n"));
+            } else {
+                main.push_str(&format!(
+                    "{name} = {module}.{name}\nputs \"{name}: #{{{name}.size}} properties\"\n"
+                ));
+            }
         }
         vec![
             GeneratedFile {
                 path: "shard.yml".to_string(),
-                contents: SHARD_YML.to_string(),
+                contents: shard_yml("azul_styles"),
             },
             GeneratedFile {
                 path: "styles.cr".to_string(),
@@ -333,14 +461,185 @@ impl CodegenBackend for Crystal {
     }
 }
 
-const SHARD_YML: &str = "name: azul_styles
-version: 0.1.0
+/// What the registration calls (only when a component takes parameters).
+const REGISTRATION_HELPERS: &str = "
+  # The String value of the data-model field `name`, or `fallback`.
+  def self.model_string(model : Void*, name : String, fallback : String) : String
+    Azul::ComponentDataModel.__copy_from(model.as(LibAzul::AzComponentDataModel*)).fields.each do |field|
+      value = field.default_value
+      return value.payload if field.name == name && value.is_a?(Azul::ComponentDefaultValue::String)
+    end
+    fallback
+  end
 
-dependencies:
-  azul:
-    path: ./azul
-
-targets:
-  azul_styles:
-    main: main.cr
+  # A String field of a component's data model.
+  def self.string_field(name : String, value : String, description : String) : Azul::ComponentDataField
+    Azul::ComponentDataField.__own(LibAzul::AzComponentDataField.new(
+      name: Azul::Native.az_string(name),
+      field_type: Azul::ComponentFieldType.string.__take,
+      default_value: Azul::Conv.in_OptionComponentDefaultValue(Azul::ComponentDefaultValue::String.new(value)),
+      required: false,
+      description: Azul::Native.az_string(description)
+    ))
+  end
 ";
+
+/// The registration of a component library (`m.library`), inside the
+/// module: per component a default-arguments wrapper, a render and a
+/// compile function (class methods; the C function pointers are proc
+/// literals that only call them, so they capture nothing, which C function
+/// pointers require) and its `ComponentDef`; then `register_<library>_library`,
+/// which `Azul::AppConfig#add_component_library` takes as
+/// `->{ AzulUi.register_<library>_library }`. Items the module does not have
+/// are skipped.
+fn crystal_registration(m: &Module, lib: &LibrarySpec) -> String {
+    let module = module_name(m);
+    let lsn = Ident::from_text(&lib.name).snake();
+    let lit = |s: &str| Crystal.string(s).flat();
+    let az = |s: &str| format!("Azul::Native.az_string({})", lit(s));
+    let components: Vec<(&ComponentSpec, &Item)> = lib
+        .components
+        .iter()
+        .filter_map(|c| m.item(&c.item).map(|i| (c, i)))
+        .collect();
+    let mut s = String::from("\n  # -- registration --\n");
+    if components.iter().any(|(_, i)| !i.params.is_empty()) {
+        s.push_str(REGISTRATION_HELPERS);
+    }
+    let mut defs: Vec<String> = Vec::new();
+    for (c, item) in &components {
+        let item_fn = item.name.snake();
+        let sn = Ident::from_text(&c.name).snake();
+        let defaults: Vec<String> = item.params.iter().map(|p| lit(p.default_text())).collect();
+        let _ = write!(
+            s,
+            "\n  # `{}:{}` with its default arguments.\n  def self.{item_fn}_default : \
+             Azul::Dom\n    {item_fn}({})\n  end\n",
+            one_line(&lib.name),
+            one_line(&c.name),
+            defaults.join(", ")
+        );
+        let args: Vec<String> = item
+            .params
+            .iter()
+            .map(|p| {
+                format!(
+                    "model_string(model, {}, {})",
+                    lit(&p.name.snake()),
+                    lit(p.default_text())
+                )
+            })
+            .collect();
+        let _ = write!(
+            s,
+            "\n  def self.{sn}_render_fn(def_ : Void*, model : Void*, map : Void*) : \
+             LibAzul::AzResultStyledDomRenderDomError\n    dom = {item_fn}({})\n    \
+             LibAzul.azResultStyledDomRenderDomError_ok(LibAzul.azStyledDom_createFromDom(dom.\
+             __take))\n  end\n",
+            args.join(", ")
+        );
+        let _ = write!(
+            s,
+            "\n  def self.{sn}_compile_fn(def_ : Void*, target : Void*, model : Void*, indent : \
+             LibC::SizeT) : LibAzul::AzResultStringCompileError\n    \
+             LibAzul.azResultStringCompileError_ok({})\n  end\n",
+            az(&format!("{module}.{item_fn}_default"))
+        );
+        let fields = if item.params.is_empty() {
+            "LibAzul.azComponentDataFieldVec_create".to_string()
+        } else {
+            let mut f = String::from("Azul::Conv.in_ComponentDataFieldVec([\n");
+            for (i, p) in item.params.iter().enumerate() {
+                let desc = c.field_descriptions.get(i).map_or("", String::as_str);
+                let _ = writeln!(
+                    f,
+                    "          string_field({}, {}, {}),",
+                    lit(&p.name.snake()),
+                    lit(p.default_text()),
+                    lit(desc)
+                );
+            }
+            f.push_str("        ])");
+            f
+        };
+        let _ = write!(
+            s,
+            "\n  def self.{sn}_def : Azul::ComponentDef\n    \
+             Azul::ComponentDef.__own(LibAzul::AzComponentDef.new(\n      id: \
+             LibAzul.azComponentId_create({}, {}),\n      display_name: {},\n      description: \
+             {},\n      # The CSS is applied per node by {item_fn}.\n      css: {},\n      source: \
+             LibAzul::AzComponentSource::UserDefined,\n      data_model: \
+             LibAzul::AzComponentDataModel.new(\n        name: {},\n        description: {},\n        \
+             fields: {fields}\n      ),\n      render_fn: ->(def_ : Void*, model : Void*, map : \
+             Void*) {{ {module}.{sn}_render_fn(def_, model, map) }},\n      compile_fn: ->(def_ : \
+             Void*, target : Void*, model : Void*, indent : LibC::SizeT) {{ \
+             {module}.{sn}_compile_fn(def_, target, model, indent) }},\n      render_fn_source: \
+             Azul::Conv.in_OptionString(nil),\n      compile_fn_source: \
+             Azul::Conv.in_OptionString(nil)\n    ))\n  end\n",
+            az(&lib.name),
+            az(&c.name),
+            az(&c.display_name),
+            az(&c.description),
+            az(""),
+            az(&c.data_model),
+            az(&c.data_model_description),
+        );
+        defs.push(format!("{sn}_def"));
+    }
+    let components = if defs.is_empty() {
+        "LibAzul.azComponentDefVec_create".to_string()
+    } else {
+        format!("Azul::Conv.in_ComponentDefVec([{}])", defs.join(", "))
+    };
+    let _ = write!(
+        s,
+        "\n  # The component library `{name}`:\n  #   \
+         config.add_component_library({name_lit}, ->{{ {module}.register_{lsn}_library }})\n  def \
+         self.register_{lsn}_library : LibAzul::AzComponentLibrary\n    \
+         LibAzul::AzComponentLibrary.new(\n      name: {},\n      version: {},\n      \
+         description: {},\n      components: {components},\n      exportable: true,\n      \
+         modifiable: false,\n      data_models: LibAzul.azComponentDataModelVec_create,\n      \
+         enum_models: LibAzul.azComponentEnumModelVec_create\n    )\n  end\n",
+        az(&lib.name),
+        az(&lib.version),
+        az("Exported from AzBuilder"),
+        name = one_line(&lib.name),
+        name_lit = lit(&lib.name),
+    );
+    s
+}
+
+/// The shard manifest of a project whose target `name` is `main.cr`.
+fn shard_yml(name: &str) -> String {
+    format!(
+        "name: {name}\nversion: 0.1.0\n\ndependencies:\n  azul:\n    path: ./azul\n\ntargets:\n  \
+         {name}:\n    main: main.cr\n"
+    )
+}
+
+/// The app around a DOM module (`m.app`): the layout callback returns the
+/// root item (inside a `body` unless it builds the body itself), as in
+/// `examples/crystal/hello-world.cr`.
+fn crystal_app_main(m: &Module) -> String {
+    let Some(app) = &m.app else {
+        return String::new();
+    };
+    let root = format!("{}.{}", module_name(m), app.root.snake());
+    let body = if app.is_body {
+        root
+    } else {
+        format!("Azul::Dom.body.with_child({root})")
+    };
+    format!(
+        "# {title} - generated by AzBuilder (azul-css codegen, Crystal).\n# Copy \
+         target/codegen/crystal to ./azul and libazul here, then:\n#   shards install && crystal \
+         run main.cr --link-flags=-L.\nrequire \"azul\"\nrequire \"./ui\"\n\nclass \
+         AppData\nend\n\ndef layout(data : AppData, info : Azul::LayoutCallbackInfo) : \
+         Azul::Dom\n  {body}\nend\n\nwindow = \
+         Azul::WindowCreateOptions.new(->layout(AppData, Azul::LayoutCallbackInfo))\n\
+         window.window_state.title = {title_str}\n\nAzul::App.new(AppData.new, \
+         Azul::AppConfig.new).run(window)\n",
+        title = one_line(&app.title),
+        title_str = Crystal.string(&app.title).flat(),
+    )
+}
