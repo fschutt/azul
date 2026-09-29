@@ -2722,6 +2722,7 @@ fn render_node(
                                        NodeTypeFieldValue::TextInput(initial_text) => {
                                            let cb: TextInputOnFocusLostCallbackType = nodegraph_on_textinput_focus_lost;
                                            TextInput::create()
+                                           .with_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK)
                                            .with_text(initial_text.clone())
                                            .with_on_focus_lost(field_local_dataset, cb)
                                            .dom()
@@ -2729,24 +2730,28 @@ fn render_node(
                                        NodeTypeFieldValue::NumberInput(initial_value) => {
                                            let cb: NumberInputOnFocusLostCallbackType = nodegraph_on_numberinput_focus_lost;
                                            NumberInput::create(*initial_value)
+                                           .with_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK)
                                            .with_on_focus_lost(field_local_dataset, cb)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::CheckBox(initial_checked) => {
                                            let cb: CheckBoxOnToggleCallbackType = nodegraph_on_checkbox_value_changed;
                                            CheckBox::create(*initial_checked)
+                                           .with_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK)
                                            .with_on_toggle(field_local_dataset, cb)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::ColorInput(initial_color) => {
                                            let cb: ColorInputOnValueChangeCallbackType = nodegraph_on_colorinput_value_changed;
                                            ColorInput::create(*initial_color)
+                                           .with_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK)
                                            .with_on_value_change(field_local_dataset, cb)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::FileInput(file_path) => {
                                            let cb: FileInputOnPathChangeCallbackType = nodegraph_on_fileinput_button_clicked;
                                            FileInput::create(file_path.clone())
+                                           .with_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK)
                                            .with_on_path_change(field_local_dataset, cb)
                                            .dom()
                                        },

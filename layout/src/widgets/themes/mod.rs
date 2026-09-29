@@ -28,6 +28,15 @@ pub enum UiTheme {
 }
 
 impl UiTheme {
+    /// The look of a widget that has no theme option yet - the ribbon, the
+    /// status bar, the quick-access bar, the backstage, the node graph: one
+    /// look, the flat one. The widgets such a widget builds for itself (its
+    /// Buttons, the status bar's zoom Slider, a node's fields) are pinned to
+    /// it, so the whole widget renders the same under every app theme. A
+    /// widget that gains a theme option passes its own pin down in these
+    /// places instead (`None`: they follow the app theme with it).
+    pub(crate) const SINGLE_LOOK: Self = Self::Flat;
+
     /// The app-theme name this widget theme answers to (`@theme(<name>)`).
     #[must_use]
     pub const fn name(self) -> &'static str {

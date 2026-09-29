@@ -1073,6 +1073,7 @@ fn action_button(
     style: &QuickAccessStyle,
 ) -> Dom {
     let mut b = Button::create(AzString::from_const_str(""));
+    b.set_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK);
     b.icon = action.icon;
     b.container_style = OptionCssPropertyWithConditionsVec::Some(container.clone());
     b.icon_style = OptionCssPropertyWithConditionsVec::Some(style.resolved_action_icon_style());
@@ -1088,6 +1089,7 @@ fn window_button(
     on_click: OptionButtonOnClick,
 ) -> Dom {
     let mut b = Button::create(AzString::from_const_str(""));
+    b.set_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK);
     b.icon = icon;
     b.icon_dom = icon_dom;
     b.container_style = OptionCssPropertyWithConditionsVec::Some(container);

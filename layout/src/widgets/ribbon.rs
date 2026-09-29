@@ -3620,6 +3620,7 @@ fn styled_button(
     on_click: OptionButtonOnClick,
 ) -> Dom {
     let mut b = Button::create(label);
+    b.set_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK);
     b.icon = icon;
     b.trailing_icon = trailing_icon;
     b.container_style = OptionCssPropertyWithConditionsVec::Some(container_style);

@@ -941,6 +941,7 @@ impl Backstage {
 
         {
             let mut b = Button::create(AzString::from_const_str(""));
+            b.set_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK);
             b.icon = AzString::from_const_str("arrow_back");
             b.container_style = OptionCssPropertyWithConditionsVec::Some(part_back_button);
             b.icon_style = OptionCssPropertyWithConditionsVec::Some(part_back_icon);
