@@ -2131,23 +2131,38 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 Recv::Native => {
                     // The receiver is an ordinary parameter of the native
                     // type, and the C value built from it belongs to this
-                    // call. A `&mut self` would have to write the result back
-                    // into that parameter, which a native value cannot carry,
-                    // so there is no member for one.
-                    if is_mut {
-                        return None;
-                    }
+                    // call.
                     let nat = m.owned(class);
-                    self_param = Some(format!("{} self", restriction(&nat)?));
-                    let built = m.in_expr(&nat, "self")?;
-                    if own {
-                        built
-                    } else {
-                        body.push(format!("{} __self = {};", raw, built));
-                        if let Some(free) = m.cleanup(&nat, "&__self") {
-                            body.push(format!("scope (exit) {}", free));
+                    if is_mut {
+                        // A `&mut self` works like a `&mut` argument of a
+                        // native type (above): a `ref` parameter, the C
+                        // value built from it, and the value the call left
+                        // behind written back (`String::set_localizable` ->
+                        // `stringLocalizable(ref string self, bool)`). What
+                        // the native type cannot carry (the localizable
+                        // flag) is lost on the way back, as for any argument.
+                        let ex = exact(&nat)?;
+                        if restriction(&nat)? != ex && !matches!(nat, Ty::Vec { .. }) {
+                            return None;
                         }
+                        let built = m.in_expr(&nat, "self")?;
+                        let back = m.take_expr(&nat, "__self")?;
+                        self_param = Some(format!("ref {} self", ex));
+                        body.push(format!("{} __self = {};", raw, built));
+                        post.push(format!("self = {};", back));
                         "&__self".to_string()
+                    } else {
+                        self_param = Some(format!("{} self", restriction(&nat)?));
+                        let built = m.in_expr(&nat, "self")?;
+                        if own {
+                            built
+                        } else {
+                            body.push(format!("{} __self = {};", raw, built));
+                            if let Some(free) = m.cleanup(&nat, "&__self") {
+                                body.push(format!("scope (exit) {}", free));
+                            }
+                            "&__self".to_string()
+                        }
                     }
                 }
             };
