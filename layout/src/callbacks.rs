@@ -6825,50 +6825,22 @@ impl CallbackInfo {
 
     /// Inspect what text would be selected by Select All operation
     ///
-    /// Returns the full text content and the range that would be selected.
+    /// Returns the text Ctrl+A on `target` selects (its blocks' texts, one
+    /// line between two) and the range from its first caret to its last -
+    /// what `LayoutWindow::select_all_text` selects, read without selecting
+    /// (`LayoutWindow::select_all_preview`).
     #[must_use]
     pub fn inspect_select_all_changeset(&self, target: DomNodeId) -> Option<SelectAllResult> {
-        use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
-
-        let layout_window = self.get_layout_window();
-        let node_id = target.node.into_crate_internal()?;
-
-        // Get text content
-        let content = layout_window.get_text_before_textinput(target.dom, node_id);
-        let text = layout_window.extract_text_from_inline_content(&content);
-
-        // Create selection range from start to end
-        let start_cursor = TextCursor {
-            cluster_id: GraphemeClusterId {
-                source_run: 0,
-                start_byte_in_run: 0,
-            },
-            affinity: CursorAffinity::Leading,
-        };
-
-        let end_cursor = TextCursor {
-            cluster_id: GraphemeClusterId {
-                source_run: 0,
-                start_byte_in_run: u32::try_from(text.len()).unwrap_or(u32::MAX),
-            },
-            affinity: CursorAffinity::Leading,
-        };
-
-        let range = SelectionRange {
-            start: start_cursor,
-            end: end_cursor,
-        };
-
-        Some(SelectAllResult {
-            full_text: text.into(),
-            selection_range: range,
-        })
+        self.get_layout_window()
+            .select_all_preview(target)
+            .map(SelectAllResult::from)
     }
 
     /// Inspect what would be deleted by a backspace/delete operation
     ///
     /// Uses the pure functions from `text3::edit::inspect_delete()` to determine
-    /// what would be deleted without actually performing the deletion.
+    /// what would be deleted without actually performing the deletion, in the
+    /// session's text block inside `target`.
     ///
     /// Returns (`range_to_delete`, `deleted_text`).
     /// - forward=true: Delete key (delete character after cursor)
@@ -6879,36 +6851,12 @@ impl CallbackInfo {
         target: DomNodeId,
         forward: bool,
     ) -> Option<DeleteResult> {
-        let layout_window = self.get_layout_window();
-        let dom_id = &target.dom;
-        let node_id = target.node.into_crate_internal()?;
-
-        // Get the inline content for this node
-        let content = layout_window.get_text_before_textinput(target.dom, node_id);
-
-        // Get current selection state from multi_cursor
-        let selection = if let Some(mc) = layout_window.text_edit_manager.multi_cursor.as_ref() {
-            if let Some(range) = mc.local_selections().find_map(|s| match &s.selection {
-                Selection::Range(r) => Some(*r),
-                Selection::Cursor(_) => None,
-            }) {
-                Selection::Range(range)
-            } else if let Some(cursor) = mc.get_primary_cursor() {
-                Selection::Cursor(cursor)
-            } else {
-                return None;
-            }
-        } else {
-            return None; // No multi_cursor active
-        };
-
-        // Use text3::edit::inspect_delete to determine what would be deleted
-        crate::text3::edit::inspect_delete(&content, &selection, forward).map(|(range, text)| {
-            DeleteResult {
-                range_to_delete: range,
-                deleted_text: text.into(),
-            }
-        })
+        // The delete the key makes, previewed where it makes it: the
+        // session's block inside `target`, in the carets' own numbering
+        // (`LayoutWindow::delete_preview`).
+        self.get_layout_window()
+            .delete_preview(target, forward)
+            .map(DeleteResult::from)
     }
 
     /// Inspect a pending undo operation

@@ -11809,6 +11809,44 @@ impl LayoutWindow {
         true
     }
 
+    /// What [`Self::select_all_text`] would select for a focus on `focused`,
+    /// without selecting it: the text it covers - its blocks' texts in
+    /// document order, one '\n' between two - and its first block's first
+    /// caret to its last block's last. What
+    /// `CallbackInfo::inspect_select_all_changeset` answers; it read the
+    /// named node's flattened text (no line between paragraphs) and made a
+    /// range of run 0 from byte 0 to that text's length, which no caret of
+    /// a host with paragraphs or a list item ever names.
+    #[must_use]
+    pub fn select_all_preview(&self, focused: DomNodeId) -> Option<(String, SelectionRange)> {
+        let (first, last) = self.select_all_extent(focused)?;
+        let start = self.block_edge_caret(first, false)?;
+        let end = self.block_edge_caret(last, true)?;
+        let text = if first == last {
+            self.block_content(first).flat_text()
+        } else {
+            let root = self
+                .find_contenteditable_host(focused)
+                .map_or(focused, crate::text_block::EditHost::dom_node);
+            let blocks = self.text_blocks(
+                first.dom(),
+                crate::text_block::BlockFilter {
+                    within: Some(root),
+                    ..crate::text_block::BlockFilter::SELECTABLE
+                },
+            );
+            let from = blocks.iter().position(|b| *b == first)?;
+            let to = blocks.iter().position(|b| *b == last)?;
+            blocks
+                .get(from..=to)?
+                .iter()
+                .map(|block| self.block_content(*block).flat_text())
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        Some((text, SelectionRange { start, end }))
+    }
+
     /// The first caret of text block `block`, or with `end` its last - on a
     /// blank editable line the one position it owns ([`TextTarget`]).
     ///
@@ -22288,6 +22326,58 @@ impl LayoutWindow {
             // The smart paste is the primary's (9b-ii-a-i-d-ii-d).
             azul_core::window::PRIMARY_POINTER_SEAT,
         );
+    }
+
+    /// What [`Self::delete_selection`] would delete for the key that went to
+    /// `target` - the range and its text - without deleting it: in the same
+    /// element (the session's block inside `target`), in the same content
+    /// (the carets' numbering, a list item's marker in front), from the local
+    /// range or else the primary caret. `None` where the key deletes nothing
+    /// here: no session in `target`, a caret in an anonymous block, the edge
+    /// of the text, a list item's marker. A document selection spans blocks;
+    /// its delete is not previewed.
+    ///
+    /// What `CallbackInfo::inspect_delete_changeset` answers - reading the
+    /// NAMED node's flattened text instead (a host's: every paragraph one run
+    /// after the other, no marker) it previewed another character than the
+    /// key deletes.
+    #[must_use]
+    pub fn delete_preview(
+        &self,
+        target: DomNodeId,
+        forward: bool,
+    ) -> Option<(SelectionRange, String)> {
+        let scope = target.node.into_crate_internal()?;
+        let mc = self.text_edit_manager.multi_cursor.as_ref()?;
+        let block = mc.block;
+        if block.dom() != target.dom
+            || !self.node_is_self_or_descendant(target.dom, block.first_node(), scope)
+        {
+            return None;
+        }
+        let element = block.element()?;
+        let selection = mc
+            .local_selections()
+            .find_map(|s| match s.selection {
+                Selection::Range(r) => Some(Selection::Range(r)),
+                Selection::Cursor(_) => None,
+            })
+            .or_else(|| mc.get_primary_cursor().map(Selection::Cursor))?;
+        let (content, generated) = self.element_content(block.dom(), element).into_parts();
+        let selection = crate::block_content::BlockContent::selections_past_generated(
+            vec![selection],
+            generated,
+        )
+        .pop()?;
+        let (range, text) = crate::text3::edit::inspect_delete(&content, &selection, forward)?;
+        // The marker is not text: a delete that would reach into it is none.
+        let first_text = u32::try_from(generated).unwrap_or(u32::MAX);
+        if range.start.cluster_id.source_run < first_text
+            || range.end.cluster_id.source_run < first_text
+        {
+            return None;
+        }
+        Some((range, text))
     }
 
     pub fn delete_selection(&mut self, target: DomNodeId, forward: bool) -> Option<Vec<DomNodeId>> {
