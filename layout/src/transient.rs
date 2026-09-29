@@ -1294,7 +1294,7 @@ mod manager_tests {
             dock: TransientDock::Popup,
         }
     }
-    fn sized(_: DomId, _: &TransientPlacement) -> Option<LogicalSize> {
+    pub(super) fn sized(_: DomId, _: &TransientPlacement) -> Option<LogicalSize> {
         Some(LogicalSize::new(100.0, 50.0))
     }
 
@@ -1348,7 +1348,7 @@ mod manager_tests {
         assert!(m.open_windows().is_empty());
     }
 
-    fn tearable(node: usize) -> TransientPlacement {
+    pub(super) fn tearable(node: usize) -> TransientPlacement {
         TransientPlacement {
             tearoff: TransientTearoff::Free,
             ..placement(node, 0.0)
@@ -1542,10 +1542,14 @@ mod manager_tests {
 mod focus_return_tests {
     use azul_core::{
         dom::{DomId, DomNodeId, NodeId},
+        geom::LogicalPosition,
         styled_dom::NodeHierarchyItemId,
     };
 
-    use super::TransientWindowManager;
+    use super::{
+        manager_tests::{sized, tearable},
+        TearDrop, TransientPlacement, TransientWindowManager,
+    };
 
     fn dnid(n: usize) -> DomNodeId {
         DomNodeId {
@@ -1582,6 +1586,82 @@ mod focus_return_tests {
         m.remember_focus_before_open(popup, dnid(3), false);
         m.remember_focus_before_open(popup, dnid(9), true);
         assert_eq!(m.take_focus_before_open(popup), Some((dnid(9), true)));
+    }
+
+    /// OPEN QUESTION 4 of the focus report, decided by its own reasoning: a
+    /// torn-off palette is "a window of its own that the user clicks into"
+    /// (`LayoutWindow::transient_keyboard_owner` already leaves it out), not
+    /// a popup holding its swatch's keyboard. So it owes the swatch nothing:
+    /// closing it must not pull focus back there from wherever the user has
+    /// worked since. A drag tears it off here.
+    #[test]
+    fn a_torn_off_palette_owes_no_focus_back_to_its_swatch() {
+        let mut m = TransientWindowManager::new();
+        let opened = m.reconcile(&[tearable(4)], sized);
+        m.remember_focus_for_opened(&opened, Some((dnid(3), true)));
+        m.apply_drop(
+            NodeId::new(4),
+            TearDrop::TearOff(LogicalPosition::new(300.0, 40.0)),
+        )
+        .expect("premise: the palette tears off");
+        assert!(
+            m.dismiss(NodeId::new(4)).is_some(),
+            "premise: the user closes the torn palette"
+        );
+        assert_eq!(
+            m.take_pending_focus_restore(),
+            None,
+            "closing a torn-off palette leaves focus where the user last was"
+        );
+    }
+
+    /// The same when the APP tears the palette off (its `torn` attribute
+    /// flips), with the shell's usual "remember focus for what just opened"
+    /// after the reconcile that re-creates the window as a toplevel.
+    #[test]
+    fn a_palette_the_app_tears_off_owes_no_focus_back_either() {
+        let mut m = TransientWindowManager::new();
+        let attr = |torn: bool| TransientPlacement {
+            torn,
+            ..tearable(4)
+        };
+        let opened = m.reconcile(&[attr(false)], sized);
+        m.remember_focus_for_opened(&opened, Some((dnid(3), true)));
+        let torn = m.reconcile(&[attr(true)], sized);
+        assert_eq!(torn.opened.len(), 1, "premise: re-created as a toplevel");
+        m.remember_focus_for_opened(&torn, Some((dnid(8), false)));
+        m.dismiss(NodeId::new(4)).expect("premise: it is open");
+        assert_eq!(m.take_pending_focus_restore(), None);
+    }
+
+    /// A palette that opens ALREADY torn off never was its swatch's popup:
+    /// neither the callback seam nor the attribute seam records a focus to
+    /// hand back.
+    #[test]
+    fn a_palette_opened_torn_off_owes_no_focus_back() {
+        let mut m = TransientWindowManager::new();
+        m.remember_focus_before_open(NodeId::new(4), dnid(3), true);
+        let opened = m.reconcile(
+            &[TransientPlacement {
+                torn: true,
+                ..tearable(4)
+            }],
+            sized,
+        );
+        m.remember_focus_for_opened(&opened, Some((dnid(3), true)));
+        m.dismiss(NodeId::new(4)).expect("premise: it is open");
+        assert_eq!(m.take_pending_focus_restore(), None);
+    }
+
+    /// GUARD for the three above: a palette that stays DOCKED on its swatch
+    /// is a popup, and closing it still hands focus and ring back.
+    #[test]
+    fn a_docked_palette_still_owes_focus_back_to_its_swatch() {
+        let mut m = TransientWindowManager::new();
+        let opened = m.reconcile(&[tearable(4)], sized);
+        m.remember_focus_for_opened(&opened, Some((dnid(3), true)));
+        m.dismiss(NodeId::new(4)).expect("premise: it is open");
+        assert_eq!(m.take_pending_focus_restore(), Some((dnid(3), true)));
     }
 
     /// Two popups do not cross their records.
