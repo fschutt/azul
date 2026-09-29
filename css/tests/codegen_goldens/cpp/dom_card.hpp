@@ -4,11 +4,14 @@
 #include "azul17.hpp"
 #include <string>
 
+#ifndef AZ_CODEGEN_STRING
+#define AZ_CODEGEN_STRING
 // A std::string as an AzString (a fresh copy at every use: calls take their
 // AzString by value).
 inline AzString az_string(const std::string& s) {
     return AzString_copyFromBytes(reinterpret_cast<const uint8_t*>(s.data()), 0, s.size());
 }
+#endif
 
 // `user:card`: its texts and its link are parameters
 inline AzDom render_card(const std::string& title, const std::string& text, const std::string& href, const std::string& author) {

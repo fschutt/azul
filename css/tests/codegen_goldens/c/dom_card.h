@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef AZ_CODEGEN_CONCAT
+#define AZ_CODEGEN_CONCAT
 /* Joins NUL-terminated strings (the last argument is NULL) into an AzString. */
 static AzString az_concat(const char* first, ...) {
     size_t len = 0;
@@ -24,6 +26,7 @@ static AzString az_concat(const char* first, ...) {
     free(buf);
     return out;
 }
+#endif
 
 /* `user:card`: its texts and its link are parameters */
 static AzDom render_card(const char* title, const char* text, const char* href, const char* author) {
