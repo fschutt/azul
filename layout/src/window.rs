@@ -13711,14 +13711,18 @@ impl LayoutWindow {
     /// rather than on the right character, and a loupe pointed at the middle
     /// of the field.
     ///
-    /// Nothing new had to be computed for it: the offset becomes a caret by
-    /// the one converter every byte-offset protocol uses
-    /// ([`TextTarget::caret_at_byte`](crate::text_block::TextTarget::caret_at_byte)),
-    /// and the caret a rect by [`Self::cursor_rect_for`].
+    /// The offset becomes a caret by the block content's converter - the
+    /// inverse of [`Self::byte_offset_of_cursor`], so the byte means what it
+    /// means in the document the IME holds ([`Self::ime_document`]): behind a
+    /// list item's `::marker`, a preserved newline as `'\n'`. (Resolved
+    /// against the shaped clusters instead, a list item's byte 2 landed on
+    /// its marker.) The caret becomes a rect by [`Self::cursor_rect_for`].
     #[must_use]
     pub fn focused_rect_for_byte_offset(&self, byte_offset: usize) -> Option<LogicalRect> {
         let target = self.session_text_target()?;
-        let cursor = target.caret_at_byte(byte_offset)?;
+        let cursor = self
+            .block_content(target.block)
+            .caret_at(crate::block_content::FlatByte(byte_offset))?;
         let rect = self.cursor_rect_for(target.block, &cursor)?;
         // WHERE IT IS ON SCREEN. `cursor_rect_for` is STATIC layout space -
         // the space the caret reveal works in - and the IME places its
