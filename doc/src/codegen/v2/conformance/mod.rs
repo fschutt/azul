@@ -436,4 +436,60 @@ mod tests {
         assert!(!plan.variants.is_empty());
         assert!(!plan.callbacks.is_empty());
     }
+
+    /// X3: the C program reads every constructible variant with one
+    /// by-value payload back through azul.h's union (`v.<Variant>.payload`)
+    /// and compares it with what it passed in, so the payload offset the
+    /// header declares is checked against the one libazul wrote - for every
+    /// such variant whose payload can be compared (a primitive, or a type
+    /// with `PartialEq`).
+    #[test]
+    fn the_c_program_reads_every_variant_payload_back_through_the_union() {
+        let api = crate::api::ApiData::from_str(
+            &std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../api.json")).unwrap(),
+        )
+        .unwrap();
+        let ir = super::super::build_ir_from_api(&api).unwrap();
+        let plan = ConformancePlan::build(&ir);
+        let program = c::render(&plan);
+        let mut checked = 0usize;
+        let mut missing = Vec::new();
+        for (n, v) in plan.variants.iter().enumerate() {
+            let Some(e) = ir.find_enum(&v.ty) else { continue };
+            let one_by_value_payload = e.variants.iter().find(|ev| ev.name == v.variant).is_some_and(
+                |ev| {
+                    matches!(&ev.kind, EnumVariantKind::Tuple(ts)
+                        if ts.len() == 1
+                            && ts[0].1 == crate::codegen::v2::ir::FieldRefKind::Owned)
+                },
+            );
+            let comparable = match v.args.as_slice() {
+                [Recipe::Primitive { .. }] => true,
+                [r] => ir
+                    .functions
+                    .iter()
+                    .any(|f| f.class_name == r.ty() && f.kind == FunctionKind::PartialEq),
+                _ => false,
+            };
+            if !(one_by_value_payload && comparable) {
+                continue;
+            }
+            checked += 1;
+            let start = program
+                .find(&format!("static void check_variant_{n}(void)"))
+                .expect("every variant case is rendered");
+            let body = &program[start..];
+            let body = &body[..body.find("\n}\n").unwrap_or(body.len())];
+            if !body.contains(&format!("v.{}.payload", v.variant)) {
+                missing.push(format!("{}::{}", v.ty, v.variant));
+            }
+        }
+        assert!(checked > 0, "no variant has a comparable by-value payload");
+        assert!(
+            missing.is_empty(),
+            "{} of {checked} variant cases never read their payload back through the union:\n  {}",
+            missing.len(),
+            missing.join("\n  ")
+        );
+    }
 }
