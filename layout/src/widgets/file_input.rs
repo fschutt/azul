@@ -187,7 +187,7 @@ impl Default for FileInputState {
 impl FileInputState {
     /// The state holding `paths`: `path` is the first.
     #[must_use]
-    pub fn with_paths(paths: StringVec) -> Self {
+    pub fn create_with_paths(paths: StringVec) -> Self {
         Self {
             path: paths.as_ref().first().cloned().into(),
             paths,
@@ -236,7 +236,7 @@ impl FileInput {
     /// The selected files (the first is `path`) - what a `multiple` input
     /// shows after a pick of several.
     pub fn set_paths(&mut self, paths: StringVec) {
-        self.file_input_state.inner = FileInputState::with_paths(paths);
+        self.file_input_state.inner = FileInputState::create_with_paths(paths);
     }
 
     /// [`Self::set_paths`] for the builder chain.
@@ -508,7 +508,7 @@ fn set_picked_files(refany: &mut RefAny, info: CallbackInfo, paths: StringVec) -
         return Update::DoNothing;
     };
     let fileinputstatewrapper = &mut *fileinputstatewrapper;
-    fileinputstatewrapper.inner = FileInputState::with_paths(paths);
+    fileinputstatewrapper.inner = FileInputState::create_with_paths(paths);
 
     let inner = fileinputstatewrapper.inner.clone();
     let mut result = match fileinputstatewrapper.on_path_change.as_mut() {

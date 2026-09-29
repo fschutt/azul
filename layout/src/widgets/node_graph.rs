@@ -6463,7 +6463,7 @@ mod autotest_generated {
             nodegraph_on_fileinput_button_clicked(
                 fd.clone(),
                 info,
-                FileInputState::with_paths(azul_css::StringVec::from_vec(vec![
+                FileInputState::create_with_paths(azul_css::StringVec::from_vec(vec![
                     AzString::from_const_str("/tmp/日本語/🎉.txt"),
                 ])),
             )
