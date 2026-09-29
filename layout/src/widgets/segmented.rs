@@ -2918,6 +2918,33 @@ mod autotest_generated {
         assert_eq!(third, flora::selected_stone(), "the selected segment is the stone");
         assert_eq!(ink_of(seg_node(2)), Some(flora::LIGHT_ON_ACC));
     }
+
+    /// An UNPINNED control follows the app theme, and so does its selection
+    /// restyle: built for flora, it repaints in flora's colours.
+    #[test]
+    fn a_click_on_an_unpinned_segmented_built_for_flora_restyles_in_flora_s_colours() {
+        use crate::widgets::themes::flora;
+
+        let (styled, state) = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            flatten(Segmented::create(labels(&["Day", "Week", "Month"])))
+        };
+        let (_, changes) = run_click(Some(styled), seg_node(2), state);
+        let ink = changes.iter().find_map(|c| match c {
+            CallbackChange::ChangeNodeCssProperties {
+                node_id,
+                properties,
+                ..
+            } if node_id.index() == seg_node(2) => {
+                properties.as_ref().iter().find_map(|p| match p {
+                    CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+                    _ => None,
+                })
+            }
+            _ => None,
+        });
+        assert_eq!(ink, Some(flora::LIGHT_ON_ACC), "the selected segment wears flora's stone ink");
+    }
 }
 
 #[cfg(test)]
@@ -2963,10 +2990,16 @@ mod theme_tests {
     }
 
     #[test]
-    fn a_segmented_without_a_theme_renders_flat() {
+    fn a_segmented_without_a_theme_follows_the_app_theme_flat_by_default() {
         let s = Segmented::create(StringVec::from_const_slice(&[]));
         assert_eq!(s.theme, OptionUiTheme::None);
         assert!(tc::has_class(&control(None), FLAT));
+        let dom = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            control(None)
+        };
+        assert!(tc::has_class(&dom, FLORA), "built for flora, it is flora's");
+        assert!(!tc::has_class(&dom, FLAT));
     }
 
     #[test]

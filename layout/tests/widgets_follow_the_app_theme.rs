@@ -407,3 +407,29 @@ fn paginations_follow_the_app_theme() {
         });
     }
 }
+
+#[test]
+fn segmented_controls_follow_the_app_theme() {
+    use azul_css::StringVec;
+    use azul_layout::widgets::segmented::Segmented;
+    let labels = |n: usize| {
+        StringVec::from_vec(
+            ["Day", "Week", "Month", "Year"][..n]
+                .iter()
+                .map(|s| AzString::from(*s))
+                .collect(),
+        )
+    };
+    for n in [1usize, 2, 4] {
+        for selected in [0usize, n - 1] {
+            assert_follows_the_app_theme(&format!("segmented {selected} of {n}"), |t| {
+                pinned(
+                    Segmented::create(labels(n)).with_selected_index(selected),
+                    t,
+                    Segmented::with_theme,
+                )
+                .dom()
+            });
+        }
+    }
+}
