@@ -354,3 +354,20 @@ fn radio_groups_follow_the_app_theme() {
         });
     }
 }
+
+#[test]
+fn time_pickers_follow_the_app_theme() {
+    use azul_layout::widgets::time_picker::TimePicker;
+    for is_24h in [true, false] {
+        assert_follows_the_app_theme(&format!("time picker 24h={is_24h}"), |t| {
+            pinned(
+                TimePicker::create(9, 30)
+                    .with_24h(is_24h)
+                    .with_accessibility_name("Alarm"),
+                t,
+                TimePicker::with_theme,
+            )
+            .dom()
+        });
+    }
+}

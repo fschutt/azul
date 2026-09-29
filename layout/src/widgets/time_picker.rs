@@ -3851,10 +3851,16 @@ mod theme_tests {
     }
 
     #[test]
-    fn a_time_picker_without_a_theme_renders_flat() {
+    fn a_time_picker_without_a_theme_follows_the_app_theme_flat_by_default() {
         let p = TimePicker::create(0, 0);
         assert_eq!(p.theme, OptionUiTheme::None);
         assert!(tc::has_class(&picker(None), FLAT));
+        let dom = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            picker(None)
+        };
+        assert!(tc::has_class(&dom, FLORA), "built for flora, it is flora's");
+        assert!(!tc::has_class(&dom, FLAT));
     }
 
     #[test]
