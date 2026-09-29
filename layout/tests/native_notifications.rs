@@ -1516,4 +1516,112 @@ mod platforms {
         );
         assert_eq!(blank.source, wire::AppIdSource::Executable);
     }
+
+    // ---- Windows: the toast activator ----
+
+    #[test]
+    fn a_toast_activator_is_one_com_class_per_app_the_same_on_every_launch() {
+        let widgets = wire::toast_activator_clsid("com.azul.azwidgets");
+        assert_eq!(
+            widgets,
+            wire::toast_activator_clsid("com.azul.azwidgets"),
+            "the CLSID COM relaunches the app for must be the one the next launch registers"
+        );
+        assert_ne!(widgets, wire::toast_activator_clsid("com.azul.azpaint"));
+        assert_eq!((widgets >> 76) & 0xF, 0x8, "an RFC 9562 version-8 (custom) UUID");
+        assert_eq!((widgets >> 62) & 0x3, 0x2, "the RFC 4122 variant");
+    }
+
+    #[test]
+    fn a_guid_is_written_the_way_the_registry_writes_it() {
+        // INotificationActivationCallback's own IID.
+        assert_eq!(
+            wire::guid_string(0x53e3_1837_6600_4a81_9395_75cf_fe74_6f94),
+            "{53E31837-6600-4A81-9395-75CFFE746F94}"
+        );
+        assert_eq!(
+            wire::guid_string(1),
+            "{00000000-0000-0000-0000-000000000001}"
+        );
+    }
+
+    #[test]
+    fn an_unpackaged_app_registers_its_name_its_activator_and_the_command_that_relaunches_it() {
+        let clsid = wire::guid_string(wire::toast_activator_clsid("com.azul.azwidgets"));
+        let values = wire::toast_registry_values(
+            "com.azul.azwidgets",
+            "AzWidgets",
+            "C:\\Program Files\\Az\\AzWidgets.exe",
+        );
+        let value = |key: &str, name: &str| -> Option<String> {
+            values
+                .iter()
+                .find(|v| v.key == key && v.name == name)
+                .map(|v| v.data.clone())
+        };
+        let aumid_key = "Software\\Classes\\AppUserModelId\\com.azul.azwidgets";
+        assert_eq!(value(aumid_key, "DisplayName").as_deref(), Some("AzWidgets"));
+        assert_eq!(
+            value(aumid_key, "CustomActivator").as_deref(),
+            Some(clsid.as_str()),
+            "the shell finds the activator of an AUMID through this value"
+        );
+        assert_eq!(
+            value(
+                &format!("Software\\Classes\\CLSID\\{clsid}\\LocalServer32"),
+                ""
+            )
+            .as_deref(),
+            Some("\"C:\\Program Files\\Az\\AzWidgets.exe\" -ToastActivated"),
+            "the default value: the quoted executable (a path with a space) and the switch"
+        );
+        assert_eq!(values.len(), 3, "{values:?}");
+        assert_eq!(
+            values[0].name, "DisplayName",
+            "the one value toasts cannot show without comes first"
+        );
+    }
+
+    #[test]
+    fn a_process_com_started_for_a_toast_click_knows_it() {
+        assert!(wire::launched_by_toast_activation(&[
+            "C:\\Az\\AzWidgets.exe",
+            "-ToastActivated",
+            "-Embedding",
+        ]));
+        assert!(wire::launched_by_toast_activation(&["app.exe", "-toastactivated"]));
+        assert!(!wire::launched_by_toast_activation(&["app.exe"]));
+        assert!(!wire::launched_by_toast_activation(&["app.exe", "-ToastActivatedX"]));
+        assert!(!wire::launched_by_toast_activation::<&str>(&[]));
+    }
+
+    #[test]
+    fn a_click_the_activator_receives_is_reported_like_an_in_process_one() {
+        let args = wire::toast_arguments("mail-7", "reply", "thread=42");
+        let event = wire::toast_activator_event("com.azul.azwidgets", "com.azul.azwidgets", &args)
+            .expect("a click on one of this app's toasts");
+        assert_eq!(
+            event,
+            wire::toast_activated_event(&args).expect("the in-process translation")
+        );
+        assert_eq!(event.payload.as_str(), "thread=42");
+        assert!(
+            !event.launched_app,
+            "only the caller's LaunchResponseMarker knows whether it launched the app"
+        );
+        assert!(
+            wire::toast_activator_event("com.azul.azwidgets", "COM.AZUL.AZWIDGETS", &args)
+                .is_some(),
+            "AUMIDs compare without case"
+        );
+        assert_eq!(
+            wire::toast_activator_event("com.azul.azwidgets", "com.azul.other", &args),
+            None,
+            "another app's activation is not ours to report"
+        );
+        assert_eq!(
+            wire::toast_activator_event("com.azul.azwidgets", "com.azul.azwidgets", "not-ours"),
+            None
+        );
+    }
 }

@@ -1088,6 +1088,66 @@ pub mod wire {
         format!("Software\\Classes\\AppUserModelId\\{aumid}")
     }
 
+    // ---- Windows: the toast activator (a click after the app exited) ----
+
+    /// The switch `LocalServer32` starts the app with when a click on one of
+    /// its toasts reaches its COM activator while it is not running. (COM
+    /// appends `-Embedding` after it.)
+    pub const TOAST_ACTIVATED_SWITCH: &str = "-ToastActivated";
+
+    /// Was this process started by COM for a click on one of its toasts?
+    #[must_use]
+    pub fn launched_by_toast_activation<S: AsRef<str>>(args: &[S]) -> bool {
+        let _ = args;
+        false
+    }
+
+    /// The CLSID of the app's toast activator, as a `u128` (`GUID::from_u128`).
+    #[must_use]
+    pub fn toast_activator_clsid(aumid: &str) -> u128 {
+        let _ = aumid;
+        0
+    }
+
+    /// A GUID the way the registry writes one.
+    #[must_use]
+    pub fn guid_string(guid: u128) -> String {
+        let _ = guid;
+        String::new()
+    }
+
+    /// One `REG_SZ` value an unpackaged app writes under `HKEY_CURRENT_USER`.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct RegistryValue {
+        /// The key, relative to `HKEY_CURRENT_USER`.
+        pub key: String,
+        /// The value's name; empty = the key's default value.
+        pub name: String,
+        pub data: String,
+    }
+
+    /// Everything an unpackaged app registers for its toasts.
+    #[must_use]
+    pub fn toast_registry_values(
+        aumid: &str,
+        display_name: &str,
+        exe_path: &str,
+    ) -> Vec<RegistryValue> {
+        let _ = (aumid, display_name, exe_path);
+        Vec::new()
+    }
+
+    /// `INotificationActivationCallback::Activate(aumid, invokedArgs, ..)`.
+    #[must_use]
+    pub fn toast_activator_event(
+        our_aumid: &str,
+        aumid: &str,
+        invoked_args: &str,
+    ) -> Option<NotificationEvent> {
+        let _ = (our_aumid, aumid, invoked_args);
+        None
+    }
+
     // ---- freedesktop: the app's identity ----
 
     /// The `desktop-entry` hint: the `.desktop` file's name without the
