@@ -113,12 +113,25 @@ DONE:
   every mode (header / year header, weekday row, day grid, week grid, month
   grid; DayPalette in DayCellData + MonthCellData; restyle_* take it);
   flat/flora date_picker appended (flora = flat stub).
+- B1 de82e9746 accordion: TEST wrong (theme_probe::dark + last = the
+  :active night twin, --fl-pT/--fl-pB); impl = --fl-rT/--fl-rB per
+  flora.css. New `at_rest` probe.
+- B2 87ec428d6 breadcrumb: TEST wrong (last dark ink = :hover --fl-qt2
+  #DED3B4); impl rest night ink = --fl-qt #C4B58E per flora.css.
+- B3 49811cb9c color_input: TEST wrong (last dark edge = :focus --fl-glow
+  #7A93C6); impl rest night rule = --fl-bd2 #4A4A4A per flora.css.
+- B4 7aaab07ec spinner: ENGINE wrong - compile_keyframes_track read
+  rotate with to_degrees() (folds 360 -> 0), so 0->360deg compiled to a
+  still track; now to_degrees_raw(). Test now samples the engine's
+  compiled rotate_deg channel.
+  LESSON for new tests: never `last(theme_probe::dark(..))` on a node with
+  :hover/:focus twins - use an at-rest probe.
 
 ## IN PROGRESS
-B: the 4 failing tests (decide test vs impl against doc/templates/flora.css).
+A2: date_picker RED tests.
 
 ## NEXT
-B1..B4 fix commits; then A2 RED (theme_tests adapted from 3f2ab820a + month
+A2 RED (theme_tests adapted from 3f2ab820a, with at-rest probes, + month
 and week grids in both themes + integration test for all 3 modes); A3 feat
 (flat rings incl. month/week cells; flora paper calendar); report update.
 
