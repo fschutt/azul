@@ -11,6 +11,7 @@ pub mod api;
 pub mod assemble_context;
 pub mod autofix;
 pub mod autotest;
+pub mod bundle;
 pub mod codegen;
 pub mod dllgen;
 pub mod doc_coverage;
