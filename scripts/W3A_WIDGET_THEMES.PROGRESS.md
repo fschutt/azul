@@ -21,13 +21,32 @@ Final report goes to `scripts/W3A_WIDGET_THEMES_2026_09_29.md`.
   `@keyframes` per spoke; SVG clip paths need an ancestor `SvgNodeData::ViewBox`
   (else the path is window-absolute) and the `cpurender` feature.
 
+## Workflow per widget (3 commits + checkpoint)
+1. `refactor(<w>)`: theme field + set/with_theme + dispatch; flat = old look
+   byte for byte, flora = flat stub (no visual change, compiles).
+2. `test(<w>): RED` - tests in the widget's `mod theme_tests` + one test in
+   `layout/tests/flat_and_flora_widgets_follow_the_light_and_dark_theme.rs`
+   (contrast + dark-twin order in BOTH looks). Compiles against commit 1.
+3. `feat(<w>)`: the flora (and any flat dark/focus) implementation.
+Commit messages: write to scratchpad/w3a/msg.txt (the scratchpad root msg.txt
+is shared with other agents!). Append to files via Write-to-scratch + `cat >>`.
+
 ## DONE
-(none yet)
+- themes/decl.rs (shared builders) + integration test file: 255d57be2, f68a68f3f
+- badge: 255d57be2 (plumbing), f68a68f3f (RED), 4aadcfec4 (flora).
+  API: `Badge.theme: OptionUiTheme` appended after `badge_style`;
+  `set_theme(&mut self, UiTheme)`, `with_theme(self, UiTheme) -> Badge`.
+  Flora stones palette `FloraStone` + STONE_ACCENT/LEAF/CLAY/SLATE/AMBER in flora.rs.
 
 ## IN PROGRESS
 
 ## NEXT
-badge, label, divider, spinner, chip, alert, card, frame, breadcrumb,
+label, divider, spinner, chip, alert, card, frame, breadcrumb,
 accordion, menubar, color_input, date_picker
 
 ## Open questions
+- ENGINE GAP (spinner): `-azul-animation-in` tracks are started only by
+  `LayoutWindow::finish_reconciliation`, which only the E2E runner calls
+  (dll desktop shell has its own reconcile, never starts in-tracks); and
+  only for mount ROOTS, never on the initial mount (window.rs ~11914).
+  So a declared looping spinner does not spin on desktop. Report it.
