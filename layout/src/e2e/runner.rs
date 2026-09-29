@@ -6022,6 +6022,169 @@ mod tests {
         );
     }
 
+    // ── 5. The app's text beats the user's typing when the app sets it ───────
+
+    /// The text leaf of the value line of the text field hosted at `host`
+    /// (`container > p > text`).
+    fn value_leaf(runner: &Runner, dom: DomId, host: NodeId) -> DomNodeId {
+        let lr = runner
+            .layout_window
+            .get_layout_result(&dom)
+            .expect("laid out");
+        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+        let line = hierarchy[host]
+            .first_child_id(host)
+            .expect("the field has its value line");
+        let leaf = hierarchy[line]
+            .first_child_id(line)
+            .expect("the value line has its text leaf");
+        DomNodeId {
+            dom,
+            node: NodeHierarchyItemId::from_crate_internal(Some(leaf)),
+        }
+    }
+
+    /// `change`, queued the way a callback queues it, and the pass that
+    /// applies it (relayout included).
+    fn apply_as_callback(runner: &mut Runner, change: CallbackChange) {
+        let changes = Arc::new(Mutex::new(vec![change]));
+        runner.service(&changes, false);
+    }
+
+    /// HTML's `input.value = ..` after the user typed: the app's text is what
+    /// the field shows. `ChangeNodeText` used to write only the DOM's text
+    /// node, which the engine's overlay of the user's uncommitted typing
+    /// outranks - so a widget could set its field's text from a callback only
+    /// while nobody had typed into it.
+    #[test]
+    fn change_node_text_replaces_the_text_the_user_typed() {
+        let (mut runner, focused, node_id) = text_input_runner_typed_abc();
+        assert_eq!(
+            text_input_value(&runner, focused.dom, node_id),
+            "abc",
+            "premise: the user typed into the field"
+        );
+        let leaf = value_leaf(&runner, focused.dom, node_id);
+
+        apply_as_callback(
+            &mut runner,
+            CallbackChange::ChangeNodeText {
+                node_id: leaf,
+                text: "xyz".into(),
+            },
+        );
+
+        assert_eq!(
+            text_input_value(&runner, focused.dom, node_id),
+            "xyz",
+            "the text the app set must replace what the user typed"
+        );
+    }
+
+    /// The form-reset shape: the field was BUILT empty, so its DOM text node
+    /// already holds the value the app sets. A write the DOM already agrees
+    /// with was skipped as a no-op, and the typed text stayed on screen.
+    #[test]
+    fn change_node_text_to_the_text_the_dom_already_holds_still_replaces_the_typing() {
+        let (mut runner, focused, node_id) = text_input_runner_typed_abc();
+        let leaf = value_leaf(&runner, focused.dom, node_id);
+
+        apply_as_callback(
+            &mut runner,
+            CallbackChange::ChangeNodeText {
+                node_id: leaf,
+                text: "".into(),
+            },
+        );
+
+        assert_eq!(
+            text_input_value(&runner, focused.dom, node_id),
+            "",
+            "the field must show the app's (empty) text, not the typing"
+        );
+        let caret = runner
+            .layout_window
+            .text_edit_manager
+            .get_primary_cursor()
+            .expect("setting the text does not end the editing session");
+        assert_eq!(
+            caret.cluster_id.start_byte_in_run, 0,
+            "the caret sat at the end of the typed text; it must land inside the new one"
+        );
+    }
+
+    /// A form reset, end to end through the ops: every text field of the form
+    /// - named or not, a text area too - goes back to the value it was built
+    /// with, although the user typed into each of them.
+    #[test]
+    fn a_form_reset_puts_every_typed_field_back_named_or_not() {
+        use azul_layout::widgets::{
+            button::Button, form::Form, text_area::TextArea, text_input::TextInput,
+        };
+
+        let form = Form::create(azul_core::dom::DomVec::from_vec(vec![
+            TextInput::create()
+                .with_name("user".into())
+                .with_text("ann".into())
+                .dom()
+                .with_id("user".into()),
+            TextInput::create()
+                .with_text("free".into())
+                .dom()
+                .with_id("free".into()),
+            TextArea::create()
+                .with_text("hi".into())
+                .dom()
+                .with_id("notes".into()),
+            Button::create_reset("Clear".into()).dom(),
+        ]))
+        .dom();
+        let mut dom = Dom::create_body().with_child(form);
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: 400px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        // Tab seats the caret at the END of a filled field, so each typed
+        // letter is appended.
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "form_reset_puts_typed_fields_back",
+            "setup": { "window_width": 400, "window_height": 400, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "Tab" }, { "op": "key_up", "key": "Tab" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "a", "text": "a" }, { "op": "key_up", "key": "a" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "Tab" }, { "op": "key_up", "key": "Tab" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "b", "text": "b" }, { "op": "key_up", "key": "b" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "Tab" }, { "op": "key_up", "key": "Tab" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "c", "text": "c" }, { "op": "key_up", "key": "c" },
+                { "op": "wait_frame" },
+                { "op": "assert_text", "selector": "#user", "expected": "anna" },
+                { "op": "assert_text", "selector": "#free", "expected": "freeb" },
+                { "op": "assert_text", "selector": "#notes", "expected": "hic" },
+                { "op": "click", "selector": ".__azul-native-button" },
+                { "op": "wait_frame" },
+                { "op": "wait_frame" },
+                { "op": "assert_text", "selector": "#user", "expected": "ann" },
+                { "op": "assert_text", "selector": "#free", "expected": "free" },
+                { "op": "assert_text", "selector": "#notes", "expected": "hi" }
+            ]
+        }))
+        .expect("scenario json");
+
+        let (result, _runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(
+            result.status, "pass",
+            "a reset must put every field of its form back, typed into or not: {:#?}",
+            result.steps
+        );
+    }
+
     /// The placeholder must not FLICKER while the window is slowly resized.
     ///
     /// User report: "Type something..." blinks during a slow drag-resize. The

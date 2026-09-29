@@ -588,3 +588,5 @@ mod a_box_shadow_paints_once;
 mod a_replaced_inline_style_follows_the_mode;
 #[path = "a_clicked_control_takes_the_new_mode_after_a_scheme_switch.rs"]
 mod a_clicked_control_takes_the_new_mode_after_a_scheme_switch;
+#[path = "app_set_text_beats_typing.rs"]
+mod app_set_text_beats_typing;
