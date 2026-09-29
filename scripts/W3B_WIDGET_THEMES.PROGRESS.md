@@ -35,12 +35,14 @@ microphone, screencap, map, node_graph.
 - radio_group class pin fix: 0e8f49695 (root classes now include the marker).
 - split_pane: RED ae8c11e8a, impl 7a1b01231. API: SplitPane.theme (last),
   set_theme / with_theme.
+- stepper: RED 65b9dd8da, impl d345a46c9. API: Stepper.theme (last),
+  set_theme / with_theme. Click restyle reads the marker.
 
 ## IN PROGRESS
-- stepper
+- time_picker
 
 ## NEXT
-stepper -> time_picker ->
+time_picker ->
 toast -> tooltip -> video -> decisions (camera/mic/screencap/map/node_graph) -> report
 
 ## Open questions
