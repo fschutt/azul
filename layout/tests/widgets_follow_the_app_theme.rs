@@ -331,3 +331,26 @@ fn split_panes_follow_the_app_theme() {
         });
     }
 }
+
+#[test]
+fn radio_groups_follow_the_app_theme() {
+    use azul_css::StringVec;
+    use azul_layout::widgets::radio_group::RadioGroup;
+    for horizontal in [false, true] {
+        assert_follows_the_app_theme(&format!("radio group horizontal={horizontal}"), |t| {
+            pinned(
+                RadioGroup::create(StringVec::from_vec(vec![
+                    AzString::from("First"),
+                    AzString::from("Second"),
+                    AzString::from("Third"),
+                ]))
+                .with_selected_index(1)
+                .with_horizontal(horizontal)
+                .with_accessibility_name("Choice"),
+                t,
+                RadioGroup::with_theme,
+            )
+            .dom()
+        });
+    }
+}

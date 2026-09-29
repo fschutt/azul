@@ -2639,10 +2639,16 @@ mod theme_tests {
     }
 
     #[test]
-    fn a_radio_group_without_a_theme_renders_flat() {
+    fn a_radio_group_without_a_theme_follows_the_app_theme_flat_by_default() {
         let rg = RadioGroup::create(StringVec::from_const_slice(&[]));
         assert_eq!(rg.theme, OptionUiTheme::None);
         assert!(tc::has_class(&group(None), FLAT));
+        let dom = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            group(None)
+        };
+        assert!(tc::has_class(&dom, FLORA), "built for flora, it is flora's");
+        assert!(!tc::has_class(&dom, FLAT));
     }
 
     #[test]
