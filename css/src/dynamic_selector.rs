@@ -1365,11 +1365,8 @@ impl ThemeCondition {
         if name.eq_ignore_ascii_case("light") {
             return Some(Self::Light);
         }
-        let valid = !name.is_empty()
-            && name
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':'));
-        valid.then(|| Self::Custom(AzString::from(name.to_string())))
+        crate::theme_chain::is_theme_name(name)
+            .then(|| Self::Custom(AzString::from(name.to_string())))
     }
 }
 
