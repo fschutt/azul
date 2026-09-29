@@ -596,3 +596,5 @@ mod a_node_restyled_by_a_callback_resolves_its_hover_and_dark_rules;
 mod ctrl_d_searches_for_the_whole_word;
 #[path = "shift_down_off_a_paragraph_keeps_the_column.rs"]
 mod shift_down_off_a_paragraph_keeps_the_column;
+#[path = "text_after_a_line_break_is_edited_at_its_caret.rs"]
+mod text_after_a_line_break_is_edited_at_its_caret;
