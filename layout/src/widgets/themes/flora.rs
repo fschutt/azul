@@ -4388,3 +4388,11 @@ pub fn badge(b: crate::widgets::badge::Badge) -> Dom {
         .with_ids_and_classes(IdOrClassVec::from_const_slice(FLORA_BADGE_CLASSES))
         .with_css_props(style)
 }
+
+// ==== divider ====
+
+/// The flora divider.
+#[must_use]
+pub fn divider(d: crate::widgets::divider::Divider) -> Dom {
+    super::flat::divider(d)
+}

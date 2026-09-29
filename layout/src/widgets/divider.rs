@@ -4,7 +4,7 @@
 //!
 //! Key types: [`Divider`], [`DividerOrientation`].
 
-use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
+use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class};
 use azul_css::{
     dynamic_selector::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
@@ -44,7 +44,14 @@ pub struct Divider {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub divider_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme, or `None` for the default
+    /// (`crate::widgets::themes::UiTheme::default()`, Flat).
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
+
+/// The class every divider carries, in every theme.
+pub(crate) static DIVIDER_CLASS: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-divider"))];
 
 /// Default rule colour (#dddddd), matching the frame widget's border colour.
 const DIVIDER_COLOR: ColorU = ColorU {
@@ -109,6 +116,7 @@ impl Divider {
         Self {
             orientation,
             divider_style: OptionCssPropertyWithConditionsVec::None,
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
 
@@ -160,16 +168,32 @@ impl Divider {
         s
     }
 
-    /// Converts this divider into a DOM node with the `__azul-native-divider` class.
+    /// Pick the widget theme. Unset (`None`), the divider renders in the
+    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// Converts this divider into a DOM node with the `__azul-native-divider`
+    /// class. The look comes from the theme module (`themes::flat::divider` /
+    /// `themes::flora::divider`); `None` renders flat.
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        static DIVIDER_CLASS: &[IdOrClass] =
-            &[Class(AzString::from_const_str("__azul-native-divider"))];
-
-        Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(DIVIDER_CLASS))
-            .with_css_props(self.resolved_divider_style())
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::divider(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::divider(self),
+        }
     }
 }
 
@@ -827,7 +851,7 @@ mod autotest_generated {
                 CssProperty::const_height(LayoutHeight::const_px(42)),
             )]);
         let mut d = Divider {
-            orientation: DividerOrientation::Horizontal,
+            orientation: DividerOrientation::Horizontal, theme: crate::widgets::themes::OptionUiTheme::None,
             divider_style: OptionCssPropertyWithConditionsVec::Some(custom),
         };
         d.set_orientation(DividerOrientation::Horizontal);
@@ -851,7 +875,7 @@ mod autotest_generated {
         // rebuild the vec to heal it. With no opinion stored there is nothing to
         // contradict: the resolver reads the orientation every time.
         let mut d = Divider {
-            orientation: DividerOrientation::Vertical,
+            orientation: DividerOrientation::Vertical, theme: crate::widgets::themes::OptionUiTheme::None,
             divider_style: OptionCssPropertyWithConditionsVec::None,
         };
         assert_eq!(
@@ -1022,7 +1046,7 @@ mod autotest_generated {
                 CssProperty::const_width(LayoutWidth::const_px(9)),
             )]);
         let mut d = Divider {
-            orientation: DividerOrientation::Vertical,
+            orientation: DividerOrientation::Vertical, theme: crate::widgets::themes::OptionUiTheme::None,
             divider_style: OptionCssPropertyWithConditionsVec::Some(custom),
         };
         let taken = d.swap_with_default();
@@ -1174,7 +1198,7 @@ mod autotest_generated {
         // `orientation` contradicts its style therefore renders the *style* —
         // pinned so the divergence is documented rather than surprising.
         let desynced = Divider {
-            orientation: DividerOrientation::Vertical,
+            orientation: DividerOrientation::Vertical, theme: crate::widgets::themes::OptionUiTheme::None,
             divider_style: OptionCssPropertyWithConditionsVec::Some(
                 CssPropertyWithConditionsVec::from_const_slice(DIVIDER_STYLE_HORIZONTAL),
             ),
@@ -1192,7 +1216,7 @@ mod autotest_generated {
         // Boundary case: zero declarations. Must not panic and must keep the
         // class, otherwise the node becomes untargetable *and* invisible.
         let d = Divider {
-            orientation: DividerOrientation::Horizontal,
+            orientation: DividerOrientation::Horizontal, theme: crate::widgets::themes::OptionUiTheme::None,
             divider_style: OptionCssPropertyWithConditionsVec::Some(
                 CssPropertyWithConditionsVec::new(),
             ),
@@ -1222,7 +1246,7 @@ mod autotest_generated {
         let expected: Vec<CssProperty> = big.iter().map(|p| p.property.clone()).collect();
 
         let d = Divider {
-            orientation: DividerOrientation::Horizontal,
+            orientation: DividerOrientation::Horizontal, theme: crate::widgets::themes::OptionUiTheme::None,
             divider_style: OptionCssPropertyWithConditionsVec::Some(
                 CssPropertyWithConditionsVec::from_vec(big),
             ),
@@ -1247,7 +1271,7 @@ mod autotest_generated {
             ))),
         ];
         let d = Divider {
-            orientation: DividerOrientation::Horizontal,
+            orientation: DividerOrientation::Horizontal, theme: crate::widgets::themes::OptionUiTheme::None,
             divider_style: OptionCssPropertyWithConditionsVec::Some(
                 CssPropertyWithConditionsVec::from_vec(props),
             ),
@@ -1299,7 +1323,7 @@ mod autotest_generated {
         );
         // Same orientation, different style => not equal.
         let styled = Divider {
-            orientation: DividerOrientation::Horizontal,
+            orientation: DividerOrientation::Horizontal, theme: crate::widgets::themes::OptionUiTheme::None,
             divider_style: OptionCssPropertyWithConditionsVec::Some(
                 CssPropertyWithConditionsVec::new(),
             ),
@@ -1311,7 +1335,7 @@ mod autotest_generated {
         );
         // Same style, different orientation => not equal.
         let rotated = Divider {
-            orientation: DividerOrientation::Vertical,
+            orientation: DividerOrientation::Vertical, theme: crate::widgets::themes::OptionUiTheme::None,
             divider_style: OptionCssPropertyWithConditionsVec::None,
         };
         assert_ne!(

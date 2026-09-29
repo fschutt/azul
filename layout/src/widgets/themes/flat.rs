@@ -4090,3 +4090,20 @@ pub fn badge(b: crate::widgets::badge::Badge) -> Dom {
         ))
         .with_css_props(style)
 }
+
+// ==== divider ====
+//
+// The flat divider is the widget's established rule: 1px of #DDDDDD with 4px
+// of breathing room, the desktop's `system:separator` as its dark twin - the
+// slot every other widget draws its rules with. Not focusable: no ring.
+
+/// The flat divider:
+/// [`crate::widgets::divider::Divider::resolved_divider_style`] on a `div`.
+#[must_use]
+pub fn divider(d: crate::widgets::divider::Divider) -> Dom {
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(
+            crate::widgets::divider::DIVIDER_CLASS,
+        ))
+        .with_css_props(d.resolved_divider_style())
+}
