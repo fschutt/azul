@@ -10,12 +10,13 @@
   adopt_desktop_theme, SetColorScheme handler, adopt_system_style decision, fan-out overrides
   incl. Wayland deferred, OS probes on all 6 shells, App::create publish)
 
+- 159ba19d3 demo toolbar (examples/azul-widgets: lib.rs, notifications.rs, hotkeys.rs)
+
 ## IN PROGRESS
-- demo toolbar (examples/azul-widgets/src/lib.rs)
+- final review + report
 
 ## NEXT
-1. demo toolbar
-2. report scripts/W4_SCHEME_OVERRIDE_DEMO_2026_09_29.md
+1. report scripts/W4_SCHEME_OVERRIDE_DEMO_2026_09_29.md
 
 ## Design decisions (so a resumed session does not re-derive them)
 - TYPE: reuse `OptionWindowTheme` (None = follow the desktop, Some = pin). A new 4-byte repr(C)
