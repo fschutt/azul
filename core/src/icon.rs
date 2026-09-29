@@ -151,7 +151,7 @@ mod nostd_lock {
     }
 }
 
-use azul_css::{system::SystemStyle, AzString};
+use azul_css::{props::basic::color::ColorU, system::SystemStyle, AzString, OptionString};
 
 use crate::{
     dom::{Dom, NodeData, NodeType},
@@ -193,6 +193,288 @@ pub extern "C" fn default_icon_resolver(
     _system_style: &SystemStyle,
 ) -> Dom {
     Dom::create_div()
+}
+
+// Icon metadata
+//
+// What the ARTWORK can honour, as opposed to what the system asks for
+// (`IconStyleOptions`: grayscale, tint, inherit the text colour). The default
+// resolver combines the two - request x capability - and never guesses from
+// the kind of icon: a tint on `Mask` artwork is `flood(tint) composite(in)`,
+// on `CurrentColor` it is the `color`, on `Palette` the palette is remapped,
+// on `None` only the variant for the mode is picked.
+// (scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md 8.1 / 8.2)
+
+/// The colour MODE (light or dark background) an icon's artwork was drawn
+/// for. A mode, not a theme: themes are `flat` / `flora` / user themes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum IconDesignedFor {
+    /// Reads on either background (the default).
+    #[default]
+    Any,
+    /// Drawn for a light background: dark ink.
+    Light,
+    /// Drawn for a dark background: light ink.
+    Dark,
+}
+
+impl IconDesignedFor {
+    /// Does artwork drawn for this mode read unchanged in the given mode?
+    #[must_use]
+    pub const fn suits(self, dark: bool) -> bool {
+        match self {
+            Self::Any => true,
+            Self::Light => !dark,
+            Self::Dark => dark,
+        }
+    }
+
+    /// `light` / `dark` / `any` (ASCII case-insensitive), as the remap
+    /// format spells it.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        let name = name.trim();
+        if name.eq_ignore_ascii_case("any") {
+            Some(Self::Any)
+        } else if name.eq_ignore_ascii_case("light") {
+            Some(Self::Light)
+        } else if name.eq_ignore_ascii_case("dark") {
+            Some(Self::Dark)
+        } else {
+            None
+        }
+    }
+}
+
+/// Alternative artwork for other modes, each an icon SPEC (the same
+/// comma-separated fallback chain `Dom::create_icon` takes). The default
+/// resolver redirects to the variant for the current mode by resolving the
+/// `<icon>` to that spec, so a variant is any registered icon: another
+/// image, a font glyph, an SVG, a DOM.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub struct IconVariants {
+    /// The artwork for the light mode.
+    pub light: OptionString,
+    /// The artwork for the dark mode.
+    pub dark: OptionString,
+    /// The artwork when the user asks for high contrast; beats the mode's.
+    pub high_contrast: OptionString,
+}
+
+impl IconVariants {
+    /// The variant spec for a mode: the high-contrast one first when high
+    /// contrast is asked for and one is given, then the mode's own. `None`
+    /// means "draw the icon itself". An empty or blank spec counts as absent.
+    #[must_use]
+    pub fn pick(&self, dark: bool, high_contrast: bool) -> Option<&AzString> {
+        fn given(spec: &OptionString) -> Option<&AzString> {
+            spec.as_ref().filter(|s| !s.as_str().trim().is_empty())
+        }
+        if high_contrast {
+            if let Some(spec) = given(&self.high_contrast) {
+                return Some(spec);
+            }
+        }
+        if dark {
+            given(&self.dark)
+        } else {
+            given(&self.light)
+        }
+    }
+}
+
+/// One entry of a palette remap: paint `from` is drawn as `to`. `to` may be
+/// a `system:` colour token (`SystemColorRef::to_color_token`), resolved
+/// against the mode the icon is drawn in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct IconColorMapping {
+    pub from: ColorU,
+    pub to: ColorU,
+}
+
+impl_option!(
+    IconColorMapping,
+    OptionIconColorMapping,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
+impl_vec!(
+    IconColorMapping,
+    IconColorMappingVec,
+    IconColorMappingVecDestructor,
+    IconColorMappingVecDestructorType,
+    IconColorMappingVecSlice,
+    OptionIconColorMapping
+);
+impl_vec_clone!(
+    IconColorMapping,
+    IconColorMappingVec,
+    IconColorMappingVecDestructor
+);
+impl_vec_debug!(IconColorMapping, IconColorMappingVec);
+impl_vec_partialeq!(IconColorMapping, IconColorMappingVec);
+
+/// One colour per mode. Either may be a `system:` colour token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct IconModeColors {
+    pub light: ColorU,
+    pub dark: ColorU,
+}
+
+impl IconModeColors {
+    /// The same colour in both modes.
+    #[must_use]
+    pub const fn same(color: ColorU) -> Self {
+        Self {
+            light: color,
+            dark: color,
+        }
+    }
+
+    /// The colour for the given mode.
+    #[must_use]
+    pub const fn for_mode(&self, dark: bool) -> ColorU {
+        if dark {
+            self.dark
+        } else {
+            self.light
+        }
+    }
+}
+
+/// HOW an icon's artwork may be recoloured - the capability half of
+/// "request x capability". The resolver never guesses it from the kind.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum IconRecolor {
+    /// The artwork follows the cascaded `color` of the `<icon>` node, like a
+    /// font glyph (the font default). A tint request becomes that colour.
+    CurrentColor,
+    /// Monochrome ink on alpha: a tint (or, drawn for the other mode, the
+    /// text colour) is flooded through the artwork's own alpha
+    /// (`flood(c) composite(in)`). Without a request it is drawn as it is.
+    Mask,
+    /// Multi-colour artwork whose listed paints are swapped when drawn
+    /// (SVG). Tints are ignored.
+    Palette(IconColorMappingVec),
+    /// An explicit colour per mode: beats both the CSS `color` and a tint
+    /// request (the remap file's `recolor: "#e6e6e6"`, design 9.1 pitfall 10).
+    Fixed(IconModeColors),
+    /// Never recoloured (the image default): full-colour artwork gets
+    /// `variants`, never a tint.
+    None,
+}
+
+/// Metadata of a registered icon: which mode its artwork was drawn for,
+/// its variants for other modes, and how it may be recoloured.
+///
+/// Carried by the registered data itself (`ImageIconData::meta`,
+/// `FontIconData::meta`, `SvgIconData::meta` in `azul_layout::icon`), so a
+/// custom resolver reads it where it reads the artwork.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct IconMeta {
+    pub variants: IconVariants,
+    pub recolor: IconRecolor,
+    pub designed_for: IconDesignedFor,
+    /// The artwork is one colour on alpha, so flooding it through its alpha
+    /// recolours it without losing detail. Required for `CurrentColor` and
+    /// `Fixed` on raster artwork; `Mask` implies it.
+    pub monochrome: bool,
+}
+
+impl Default for IconMeta {
+    /// The conservative default: [`Self::for_image`], never recoloured.
+    fn default() -> Self {
+        Self::for_image()
+    }
+}
+
+impl IconMeta {
+    /// The default for font icons: the glyph IS the text colour.
+    #[must_use]
+    pub fn for_font() -> Self {
+        Self {
+            variants: IconVariants::default(),
+            recolor: IconRecolor::CurrentColor,
+            designed_for: IconDesignedFor::Any,
+            monochrome: true,
+        }
+    }
+
+    /// The default for images: full-colour artwork, never recoloured.
+    #[must_use]
+    pub fn for_image() -> Self {
+        Self {
+            variants: IconVariants::default(),
+            recolor: IconRecolor::None,
+            designed_for: IconDesignedFor::Any,
+            monochrome: false,
+        }
+    }
+
+    /// Monochrome ink on alpha that a tint may flood (a symbolic PNG).
+    #[must_use]
+    pub fn for_mask() -> Self {
+        Self {
+            variants: IconVariants::default(),
+            recolor: IconRecolor::Mask,
+            designed_for: IconDesignedFor::Any,
+            monochrome: true,
+        }
+    }
+
+    /// Is the artwork an alpha mask a colour can be flooded through?
+    #[must_use]
+    pub const fn is_mask_artwork(&self) -> bool {
+        self.monochrome || matches!(self.recolor, IconRecolor::Mask)
+    }
+
+    #[must_use]
+    pub fn with_variants(mut self, variants: IconVariants) -> Self {
+        self.variants = variants;
+        self
+    }
+
+    #[must_use]
+    pub fn with_light_variant(mut self, spec: impl Into<AzString>) -> Self {
+        self.variants.light = OptionString::Some(spec.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_dark_variant(mut self, spec: impl Into<AzString>) -> Self {
+        self.variants.dark = OptionString::Some(spec.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_high_contrast_variant(mut self, spec: impl Into<AzString>) -> Self {
+        self.variants.high_contrast = OptionString::Some(spec.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_recolor(mut self, recolor: IconRecolor) -> Self {
+        self.recolor = recolor;
+        self
+    }
+
+    #[must_use]
+    pub fn with_designed_for(mut self, designed_for: IconDesignedFor) -> Self {
+        self.designed_for = designed_for;
+        self
+    }
+
+    #[must_use]
+    pub fn with_monochrome(mut self, monochrome: bool) -> Self {
+        self.monochrome = monochrome;
+        self
+    }
 }
 
 // Icon Provider Inner (single mutex)

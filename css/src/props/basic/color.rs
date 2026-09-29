@@ -1768,6 +1768,32 @@ impl SystemColorRef {
     }
 }
 
+/// `currentColor` packed into a [`ColorU`]: the element's own cascaded
+/// `color`, for a colour value the ENGINE writes that has to follow it (an
+/// icon's `flood()`, which paints monochrome artwork in the text colour).
+///
+/// Same reserved space as [`SystemColorRef::to_color_token`] (`'S' 'Y'`,
+/// alpha 0) with an index no `SystemColorRef` uses, so
+/// [`crate::dynamic_selector::resolve_system_color_token`] passes it through
+/// unchanged and a reader that never resolves it paints nothing (it is fully
+/// transparent). The display list resolves it per node, where the node's
+/// `color` is known.
+pub const CURRENT_COLOR_TOKEN: ColorU = ColorU {
+    r: SYSTEM_COLOR_TOKEN_R,
+    g: SYSTEM_COLOR_TOKEN_G,
+    b: 0xFF,
+    a: 0,
+};
+
+/// Is `color` the [`CURRENT_COLOR_TOKEN`]?
+#[must_use]
+pub const fn is_current_color_token(color: ColorU) -> bool {
+    color.r == CURRENT_COLOR_TOKEN.r
+        && color.g == CURRENT_COLOR_TOKEN.g
+        && color.b == CURRENT_COLOR_TOKEN.b
+        && color.a == CURRENT_COLOR_TOKEN.a
+}
+
 // --- PARSER ---
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

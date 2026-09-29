@@ -412,8 +412,9 @@ pub use zip::{
 pub mod icon;
 // Re-export core icon types
 pub use azul_core::icon::{
-    resolve_icons_in_dom, styled_dom_resolving_icons, IconProviderHandle, IconResolverCallbackType,
-    IconViewState, OptionIconProviderHandle,
+    resolve_icons_in_dom, styled_dom_resolving_icons, IconColorMapping, IconColorMappingVec,
+    IconDesignedFor, IconMeta, IconModeColors, IconProviderHandle, IconRecolor,
+    IconResolverCallbackType, IconVariants, IconViewState, OptionIconProviderHandle,
 };
 pub use icon::{
     create_default_icon_provider,
@@ -424,6 +425,7 @@ pub use icon::{
     register_icons_from_zip,
     // Helpers
     register_image_icon,
+    register_image_icon_with_meta,
     register_material_icons,
     FontIconData,
     // Data types for RefAny
