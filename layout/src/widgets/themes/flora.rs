@@ -4215,9 +4215,161 @@ pub fn form(children: azul_core::dom::DomVec) -> Dom {
         .with_children(children)
 
 // ==== badge ====
+//
+// flora.css `.pill`: "a small-caps label inside a hairline border. Outlined,
+// not filled" - raised paper (--fl-rT -> --fl-rB) behind a 1px --fl-bd2 edge,
+// --fl-soft1 ink, bold and tracked out, the 3px house radius. A coloured
+// badge is `.pill-live`, "a small stone": its own colour under the depth rig
+// the accent stone carries, a deep edge and --fl-on-acc ink. A stone is its
+// own colour in both modes ("the accent keeps its stone"); the paper pill
+// takes the night face, edge and ink.
+//
+// The semantic stones below are shared by every flora widget with a kind
+// (badge, chip, alert): the accent for Primary and the alternates flora.css
+// lists as holding up against its ground - leaf, clay, slate - plus an amber
+// cut for warnings, since a brass (metal) fill would break the house rule
+// "metal on borders, never a field".
 
-/// The flora badge.
+/// One of flora's semantic stones: the face, the deep edge it is set in, the
+/// soft tint it washes a panel with, and the glow that reads on a dark ground.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct FloraStone {
+    /// The stone's face.
+    pub stone: ColorU,
+    /// The edge it is set in (and its pressed face).
+    pub deep: ColorU,
+    /// The soft tint of the same colour, for a light panel.
+    pub soft: ColorU,
+    /// The stone's highlight: its colour where a dark ground needs it.
+    pub glow: ColorU,
+}
+
+/// The accent stone (`--fl-acc` / `--fl-deep` / `--fl-soft` / `--fl-glow`).
+pub const STONE_ACCENT: FloraStone = FloraStone {
+    stone: LIGHT_ACC,
+    deep: LIGHT_DEEP,
+    soft: LIGHT_SOFT,
+    glow: LIGHT_GLOW,
+};
+
+/// Leaf: flora.css's green alternate (#44684F / #2F4C39 / #E1E6E1 / #7FA98C).
+pub const STONE_LEAF: FloraStone = FloraStone {
+    stone: ColorU::rgb(0x44, 0x68, 0x4F),
+    deep: ColorU::rgb(0x2F, 0x4C, 0x39),
+    soft: ColorU::rgb(0xE1, 0xE6, 0xE1),
+    glow: ColorU::rgb(0x7F, 0xA9, 0x8C),
+};
+
+/// Clay: flora.css's red alternate (#7E4A42 / #5E332D / #EAE0DD / #B3837A).
+pub const STONE_CLAY: FloraStone = FloraStone {
+    stone: ColorU::rgb(0x7E, 0x4A, 0x42),
+    deep: ColorU::rgb(0x5E, 0x33, 0x2D),
+    soft: ColorU::rgb(0xEA, 0xE0, 0xDD),
+    glow: ColorU::rgb(0xB3, 0x83, 0x7A),
+};
+
+/// Slate: flora.css's blue-grey alternate (#4A5C6B / #354551 / #DEE3E7 /
+/// #8AA0B0).
+pub const STONE_SLATE: FloraStone = FloraStone {
+    stone: ColorU::rgb(0x4A, 0x5C, 0x6B),
+    deep: ColorU::rgb(0x35, 0x45, 0x51),
+    soft: ColorU::rgb(0xDE, 0xE3, 0xE7),
+    glow: ColorU::rgb(0x8A, 0xA0, 0xB0),
+};
+
+/// Amber: the warning stone, cut to the same depth as the others so
+/// --fl-on-acc reads on it at better than 5:1.
+pub const STONE_AMBER: FloraStone = FloraStone {
+    stone: ColorU::rgb(0x8A, 0x5A, 0x1E),
+    deep: ColorU::rgb(0x6B, 0x44, 0x15),
+    soft: ColorU::rgb(0xF1, 0xE6, 0xD6),
+    glow: ColorU::rgb(0xC4, 0x93, 0x5A),
+};
+
+/// The badge kind's stone, or `None` for the neutral paper pill.
+const fn badge_stone(kind: crate::widgets::badge::BadgeKind) -> Option<FloraStone> {
+    use crate::widgets::badge::BadgeKind;
+    match kind {
+        BadgeKind::Default => None,
+        BadgeKind::Primary => Some(STONE_ACCENT),
+        BadgeKind::Success => Some(STONE_LEAF),
+        BadgeKind::Danger => Some(STONE_CLAY),
+        BadgeKind::Warning => Some(STONE_AMBER),
+        BadgeKind::Info => Some(STONE_SLATE),
+    }
+}
+
+/// The flora pill for one badge kind.
+fn flora_badge_style(kind: crate::widgets::badge::BadgeKind) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+
+    let mut style = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+            LayoutFlexDirection::Row,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_justify_content(
+            LayoutJustifyContent::Center,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        // Hug the label inside a flex parent, as the flat pill does.
+        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
+            0,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            11,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
+        // `font-weight: 700; letter-spacing: 0.1em` - the small-caps label,
+        // tracked a little tighter because the face here is the UI sans.
+        decl::bold(),
+        decl::letter_spacing_em(0.08),
+    ];
+    style.extend(decl::padding(1, 8, 1, 8));
+    style.extend(decl::radius(3));
+    style.extend(decl::border(1));
+    match badge_stone(kind) {
+        None => {
+            style.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
+            style.extend(decl::themed_layers(
+                vec![RAISED_FACE_LIGHT],
+                vec![RAISED_FACE_DARK],
+            ));
+            style.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+        }
+        Some(stone) => {
+            style.extend(decl::border_colors(stone.deep).map(CssPropertyWithConditions::simple));
+            style.push(CssPropertyWithConditions::simple(decl::layers(stone_face(
+                stone.stone,
+                STONE_STREAK,
+            ))));
+            style.push(CssPropertyWithConditions::simple(decl::ink(LIGHT_ON_ACC)));
+        }
+    }
+    style
+}
+
+/// The flora badge: flora.css's `.pill` (neutral) or `.pill-live` (a stone,
+/// for every coloured kind). A caller's `badge_style` is taken as it is.
 #[must_use]
 pub fn badge(b: crate::widgets::badge::Badge) -> Dom {
-    super::flat::badge(b)
+    static FLORA_BADGE_CLASSES: &[IdOrClass] = &[
+        Class(AzString::from_const_str("__azul-native-badge")),
+        Class(AzString::from_const_str("__azul-theme-flora")),
+    ];
+
+    let crate::widgets::badge::Badge {
+        string,
+        kind,
+        badge_style,
+        ..
+    } = b;
+    let style = badge_style
+        .into_option()
+        .unwrap_or_else(|| CssPropertyWithConditionsVec::from_vec(flora_badge_style(kind)));
+
+    crate::widgets::widget_p_with_text(string)
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(FLORA_BADGE_CLASSES))
+        .with_css_props(style)
 }
