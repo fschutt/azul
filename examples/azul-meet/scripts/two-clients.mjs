@@ -1,11 +1,18 @@
 #!/usr/bin/env node
-// Two AzMeet processes meet through the local meet Worker mock.
+// Two AzMeet processes meet through the local meet Worker mock, hear each other, and one leaves.
 //
 //   1. starts the meet dev server (azul-apps cf-workers/meet/dev-server.mjs, in memory);
 //   2. starts AzMeet "Ada" headless with AZMEET_AUTOCREATE=1 and reads the link it prints;
 //   3. starts AzMeet "Ben" headless with AZMEET_JOIN=<link>;
-//   4. passes once the dev server lists both in the room, and each app's UI (read through its
-//      debug server, op get_node_hierarchy) shows the other one as connected.
+//   4. waits until the dev server lists both in the room, and each app's UI (read through its
+//      debug server, op get_node_hierarchy) shows the other one as connected;
+//   5. audio: both run with AZMEET_TEST_TONE=1, so a 440 Hz tone replaces the microphone (a
+//      headless run never opens an audio device: no capture, and received audio is counted, not
+//      played). Each window's "Audio from <other>: N packets, M played, ..." line must count at
+//      least a second of packets taken into its jitter buffer and half a second played;
+//   6. Ben clicks "Mute": Ada's window shows "Ben · connected · muted" (the control message);
+//   7. Ben clicks "Leave": his window returns to the start screen, the dev server stops listing
+//      him at once (DELETE, not the 120 s TTL), and Ada's window stops listing him.
 //
 // Usage (from the azul repository, after building AzMeet and libazul with the debug server):
 //   node examples/azul-meet/scripts/two-clients.mjs
@@ -139,7 +146,7 @@ async function getJson(url, init) {
 async function debugOp(debugPort, op) {
   const res = await fetch(`http://127.0.0.1:${debugPort}/`, {
     method: 'POST',
-    body: JSON.stringify({ op }),
+    body: JSON.stringify(typeof op === 'string' ? { op } : op),
     signal: AbortSignal.timeout(10000),
   });
   return res.json();
@@ -153,10 +160,36 @@ function strings(value, out = []) {
   return out;
 }
 
-/** Whether the app's window lists `peerName` as connected ("Ben · connected"). */
+/** Every text in the app's window. */
+async function texts(debugPort) {
+  return strings(await debugOp(debugPort, 'get_node_hierarchy'));
+}
+
+/** The people-list row of `peerName` ("Ben · connected", "Ben · connected · muted"), if listed
+ *  (not the "Ben · waiting for video" tile). */
+async function personRow(debugPort, peerName) {
+  return (await texts(debugPort)).find((t) => t.startsWith(`${peerName} · `) && !t.includes('waiting for video'));
+}
+
+/** Whether the app's window lists `peerName` as connected, whatever its audio state. */
 async function showsConnected(debugPort, peerName) {
-  const hierarchy = await debugOp(debugPort, 'get_node_hierarchy');
-  return strings(hierarchy).some((t) => t.startsWith(peerName) && t.trimEnd().endsWith('connected'));
+  const row = await personRow(debugPort, peerName);
+  return row !== undefined && /^[^·]+ · connected( · .*)?$/.test(row.trim());
+}
+
+/** The counts of the window's "Audio from <peer>: N packets, M played, ..." line, if shown. */
+async function audioFrom(debugPort, peerName) {
+  const line = (await texts(debugPort)).find((t) => t.startsWith(`Audio from ${peerName}: `));
+  const m = line?.match(/: (\d+) packets, (\d+) played, (\d+) silent, (\d+) late, (\d+) buffered/);
+  if (!m) return null;
+  const [packets, played, silent, late, buffered] = m.slice(1).map(Number);
+  return { line, packets, played, silent, late, buffered };
+}
+
+/** Clicks the first node whose text contains `text` (the debug server's click op). */
+async function click(debugPort, text) {
+  const answer = await debugOp(debugPort, { op: 'click', text });
+  log(`click "${text}" on :${debugPort}: ${JSON.stringify(answer).slice(0, 120)}`);
 }
 
 function appEnv(name, debugPort, extra) {
@@ -166,6 +199,7 @@ function appEnv(name, debugPort, extra) {
     AZMEET_WORKER: worker,
     AZMEET_NAME: name,
     AZMEET_RELAY: 'off',
+    AZMEET_TEST_TONE: '1',
     ...extra,
   };
 }
@@ -204,8 +238,51 @@ try {
 
   const state = await debugOp(debugA, 'get_state');
   log(`Ada's debug server answers get_state: ${state.status ?? JSON.stringify(state).slice(0, 80)}`);
+
+  // Audio: a second of packets in each jitter buffer, half a second played (to nothing: headless).
+  for (const [listener, port, speaker] of [['Ada', debugA, 'Ben'], ['Ben', debugB, 'Ada']]) {
+    const heard = await until(`${listener}'s window to count a second of audio from ${speaker}`, async () => {
+      const a = await audioFrom(port, speaker);
+      return a && a.packets >= 50 && a.played >= 25 ? a : null;
+    });
+    log(`${listener}: ${heard.line}`);
+  }
+  for (const [name, child] of [['ada', ada], ['ben', children.find((c) => c.name === 'ben')]]) {
+    const err = readFileSync(child.err, 'utf8');
+    if (!err.includes('no audio device is opened')) {
+      throw new Error(`${name} did not say it runs without audio devices (see its stderr)`);
+    }
+  }
+  log('both apps run without audio devices: the tone replaces the mic, playback is counted');
+
+  // Mute: Ben's state reaches Ada as a control message.
+  await click(debugB, 'Mute');
+  await until("Ada's window to show Ben as muted", async () => {
+    const row = await personRow(debugA, 'Ben');
+    return row?.trim() === 'Ben · connected · muted';
+  });
+  log("Ada's window shows Ben · connected · muted");
+
+  // Leave: Ben is back on the start screen and gone from the room at once.
+  await click(debugB, 'Leave');
+  await until("Ben's window to return to the start screen", async () => {
+    const shown = await texts(debugB);
+    return shown.some((t) => t.includes('New meeting')) && shown.some((t) => t.includes('You left the meeting'));
+  });
+  log("Ben's window is back on the start screen");
+  const leftAt = Date.now();
+  await until('the dev server to stop listing Ben', async () => {
+    const { json } = await getJson(`${worker}/rooms/${room}/peers`);
+    return json.peers.map((p) => p.name).join(',') === 'Ada';
+  });
+  const waited = (Date.now() - leftAt) / 1000;
+  if (waited > 30) throw new Error(`Ben left the list after ${waited} s: the TTL, not the leave request`);
+  log(`the dev server lists only Ada (${waited.toFixed(1)} s after the click)`);
+  await until("Ada's window to stop listing Ben", async () => (await personRow(debugA, 'Ben')) === undefined);
+  log("Ada's window no longer lists Ben");
+
   passed = true;
-  log('PASS: two AzMeet clients met through the meet Worker mock and connected over iroh');
+  log('PASS: two AzMeet clients met through the meet Worker mock, heard each other over iroh, and one left');
 } catch (e) {
   log(`FAIL: ${e.message}`);
   for (const { name, out, err } of children) {
