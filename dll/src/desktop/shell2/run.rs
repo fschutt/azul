@@ -199,94 +199,6 @@ pub(crate) fn warn_about_inert_env_knobs() {
     }
 }
 
-/// Set up E2E test runner: read the JSON file, push a `RunE2eTests`
-/// event onto the queue, and spawn a background thread that waits for
-/// results, prints cargo-test-style output, and calls `exit()`.
-///
-/// This does **not** replace the normal `run()` flow.  The app continues
-/// to start its window (real or headless) and the debug timer processes
-/// the queued event.  The three systems are independent:
-///
-/// - **Headless mode** (`AZ_BACKEND=headless`) → StubWindow instead of real window
-/// - **Debug server** (`AZ_DEBUG=<port>`) → HTTP API on that port
-/// - **E2E runner** (`AZ_E2E=<file>`) → one event on the queue
-/// Parse one E2E JSON file's contents — accept either a single test object
-/// or an array of them — appending into `out`. Exits the process on a parse
-/// error (a broken test file must be loud, never silently skipped).
-#[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
-fn load_e2e_json(path: &str, contents: &str, out: &mut Vec<debug_server::E2eTest>) {
-    match serde_json::from_str::<Vec<debug_server::E2eTest>>(contents) {
-        Ok(v) => out.extend(v),
-        Err(_) => match serde_json::from_str::<debug_server::E2eTest>(contents) {
-            Ok(t) => out.push(t),
-            Err(e) => {
-                eprintln!("error: invalid E2E JSON in '{}': {}", path, e);
-                std::process::exit(1);
-            }
-        },
-    }
-}
-
-/// Load all tests referenced by `AZ_E2E`. If it points at a DIRECTORY, every
-/// `*.json` inside it is loaded in sorted (deterministic) order and run as one
-/// batch in the single process/warmup; a single FILE keeps its old behavior.
-#[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
-fn load_e2e_tests(path: &str) -> Vec<debug_server::E2eTest> {
-    let meta = match std::fs::metadata(path) {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("error: cannot stat E2E path '{}': {}", path, e);
-            std::process::exit(1);
-        }
-    };
-
-    let mut tests = Vec::new();
-
-    if meta.is_dir() {
-        // Glob *.json, sorted by path for a deterministic run order.
-        let mut files: Vec<std::path::PathBuf> = match std::fs::read_dir(path) {
-            Ok(rd) => rd
-                .filter_map(|e| e.ok().map(|e| e.path()))
-                .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("json"))
-                .collect(),
-            Err(e) => {
-                eprintln!("error: cannot read E2E directory '{}': {}", path, e);
-                std::process::exit(1);
-            }
-        };
-        files.sort();
-        if files.is_empty() {
-            eprintln!("error: no *.json E2E files found in directory '{}'", path);
-            std::process::exit(1);
-        }
-        for file in &files {
-            let contents = match std::fs::read_to_string(file) {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!(
-                        "error: cannot read E2E test file '{}': {}",
-                        file.display(),
-                        e
-                    );
-                    std::process::exit(1);
-                }
-            };
-            load_e2e_json(&file.display().to_string(), &contents, &mut tests);
-        }
-    } else {
-        let contents = match std::fs::read_to_string(path) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("error: cannot read E2E test file '{}': {}", path, e);
-                std::process::exit(1);
-            }
-        };
-        load_e2e_json(path, &contents, &mut tests);
-    }
-
-    tests
-}
-
 #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
 fn run_e2e_dispatcher(dir: &str) {
     let mut files: Vec<std::path::PathBuf> = match std::fs::read_dir(dir) {
@@ -396,21 +308,37 @@ fn run_e2e_dispatcher(dir: &str) {
     }
     std::process::exit(0);
 }
+
+/// Set up E2E test runner: read the JSON file (one test or an array, through
+/// the shared `load_e2e_tests`), push a `RunE2eTests` event onto the queue,
+/// and spawn a background thread that waits for results, prints the shared
+/// cargo-test-style report (`render_report`), and calls `exit()`.
+///
+/// This does **not** replace the normal `run()` flow.  The app continues
+/// to start its window (real or headless) and the debug timer processes
+/// the queued event.  The three systems are independent:
+///
+/// - **Headless mode** (`AZ_BACKEND=headless`) → StubWindow instead of real window
+/// - **Debug server** (`AZ_DEBUG=<port>`) → HTTP API on that port
+/// - **E2E runner** (`AZ_E2E=<file>`) → one event on the queue
 #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
 fn setup_e2e_runner(test_file: &str) {
-    let tests = load_e2e_tests(test_file);
+    // A broken test file must be loud, never silently skipped.
+    let tests = match debug_server::load_e2e_tests(std::path::Path::new(test_file)) {
+        Ok(tests) => tests,
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(1);
+        }
+    };
     if tests.is_empty() {
         eprintln!("error: no E2E tests to run from '{}'", test_file);
         std::process::exit(1);
     }
 
-    // Capture (name → expect) BEFORE the tests are moved into the queue, so the
-    // result-printer thread can apply the XFAIL/XPASS verdict logic. Names are
-    // expected to be unique; a duplicate simply overwrites (last wins).
-    let expect_map: std::collections::HashMap<String, Option<String>> = tests
-        .iter()
-        .map(|t| (t.name.clone(), t.expect.clone()))
-        .collect();
+    // Kept BEFORE the tests are moved into the queue: the report pairs each
+    // result with its test (the `expect` marker) by name.
+    let report_tests = tests.clone();
 
     let total = tests.len();
     eprintln!(
@@ -467,103 +395,13 @@ fn setup_e2e_runner(test_file: &str) {
                 }
             };
 
-            // Per-test verdict tally with xfail support. A test marked
-            // `"expect": "fail"` inverts the meaning of its raw pass/fail:
-            //   raw FAIL + expect fail → XFAIL (expected; does NOT fail the gate)
-            //   raw PASS + expect fail → XPASS (bug fixed — remove the marker;
-            //                                   this DOES fail the gate)
-            // Only PASS and XFAIL are "green"; FAIL and XPASS are "red".
-            eprintln!();
-            let mut passed = 0usize; // clean PASS (expect None)
-            let mut failed = 0usize; // real FAIL (expect None)
-            let mut xfail = 0usize; // expected failure
-            let mut xpass = 0usize; // unexpected pass = a failure
-            let mut gate_failures = Vec::new(); // things that fail the gate (FAIL + XPASS)
-
-            for result in &results {
-                let expects_fail =
-                    expect_map.get(&result.name).and_then(|e| e.as_deref()) == Some("fail");
-                let raw_pass = result.status == "pass";
-
-                match (raw_pass, expects_fail) {
-                    (true, false) => {
-                        eprintln!(
-                            "test {} ... \x1b[32mPASS\x1b[0m ({} ms)",
-                            result.name, result.duration_ms
-                        );
-                        passed += 1;
-                    }
-                    (false, false) => {
-                        eprintln!(
-                            "test {} ... \x1b[31mFAIL\x1b[0m ({} ms)",
-                            result.name, result.duration_ms
-                        );
-                        failed += 1;
-                        gate_failures.push((result, "FAIL"));
-                    }
-                    (false, true) => {
-                        eprintln!(
-                            "test {} ... \x1b[33mXFAIL\x1b[0m ({} ms) (expected failure)",
-                            result.name, result.duration_ms
-                        );
-                        xfail += 1;
-                    }
-                    (true, true) => {
-                        eprintln!(
-                            "test {} ... \x1b[31mXPASS\x1b[0m ({} ms) (unexpectedly passed — \
-                             remove the \"expect\":\"fail\" marker)",
-                            result.name, result.duration_ms
-                        );
-                        xpass += 1;
-                        gate_failures.push((result, "XPASS"));
-                    }
-                }
-            }
-
-            eprintln!();
-
-            if !gate_failures.is_empty() {
-                eprintln!("failures:\n");
-                for (f, verdict) in &gate_failures {
-                    eprintln!("---- {} ({}) ----", f.name, verdict);
-                    if *verdict == "XPASS" {
-                        eprintln!(
-                            "  test passed but is marked \"expect\":\"fail\" — the bug it guards \
-                             is fixed; remove the marker"
-                        );
-                    }
-                    for step in &f.steps {
-                        if step.status == "fail" {
-                            eprintln!(
-                                "  step {}: {} → FAILED: {}",
-                                step.step_index,
-                                step.op,
-                                step.error.as_deref().unwrap_or("unknown error")
-                            );
-                        }
-                    }
-                    eprintln!();
-                }
-                eprintln!("failures:");
-                for (f, verdict) in &gate_failures {
-                    eprintln!("    {} ({})", f.name, verdict);
-                }
-                eprintln!();
-            }
-
-            let gate_failed = failed + xpass > 0;
-            let word = if gate_failed {
-                "\x1b[31mFAILED\x1b[0m"
-            } else {
-                "\x1b[32mok\x1b[0m"
-            };
-            eprintln!(
-                "test result: {}. {} passed; {} failed; {} xfailed; {} xpassed; 0 ignored; 0 \
-                 measured; 0 filtered out\n",
-                word, passed, failed, xfail, xpass
-            );
-
-            std::process::exit(if gate_failed { 1 } else { 0 });
+            // The verdict tally (PASS / FAIL / XFAIL / XPASS / SKIP) is the
+            // shared `render_report`, the one `azul-doc e2e` and the in-crate
+            // fixture test print: the gate's notion of "green" must not depend
+            // on which entry point ran it.
+            let (report, verdict) = debug_server::render_report(&report_tests, &results);
+            eprintln!("{report}");
+            std::process::exit(verdict.exit_code());
         })
         .expect("failed to spawn e2e-result-printer thread");
 }

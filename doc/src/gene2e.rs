@@ -4114,6 +4114,7 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
         E2eTestResult {
             name: name.to_string(),
             status: if failed == 0 { "pass" } else { "fail" }.to_string(),
+            skip_reason: None,
             duration_ms: 7,
             step_count: steps.len(),
             steps_passed: steps.len() - failed,

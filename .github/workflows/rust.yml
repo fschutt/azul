@@ -2878,13 +2878,14 @@ jobs:
             exit 1
           fi
           echo "expected $expected scenario(s); $summary"
-          counts=$(sed -n 's/.*[.] \([0-9]*\) passed; \([0-9]*\) failed; \([0-9]*\) xfailed; \([0-9]*\) xpassed.*/\1 \2 \3 \4/p' <<<"$summary")
+          # A scenario gated off this host (`only_on`) is SKIPPED: counted, never a gate failure.
+          counts=$(sed -n 's/.*[.] \([0-9]*\) passed; \([0-9]*\) failed; \([0-9]*\) xfailed; \([0-9]*\) xpassed; \([0-9]*\) skipped.*/\1 \2 \3 \4 \5/p' <<<"$summary")
           if [ -z "$counts" ]; then
             echo "::error::could not parse the e2e summary line: $summary" >&2
             exit 1
           fi
           set -- $counts
-          total=$(( $1 + $2 + $3 + $4 ))
+          total=$(( $1 + $2 + $3 + $4 + $5 ))
           if [ "$total" -ne "$expected" ]; then
             echo "::error::e2e accounted for $total scenario(s) but $expected were selected" >&2
             exit 1

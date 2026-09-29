@@ -17,6 +17,11 @@
 //! | pass   | `"fail"` | XPASS   | **yes**         |
 //!
 //! XPASS is red on purpose: the guarded bug is fixed, so the marker must go.
+//!
+//! A test whose `only_on` gate excludes this host reports the raw status
+//! `"skip"` (with its `skip_reason`) and ran no step. Its verdict is SKIP
+//! whatever its `expect` says - it neither failed nor passed - and a skip
+//! never fails the gate. The summary counts it as `skipped`.
 
 use alloc::{format, string::String, vec::Vec};
 
@@ -33,6 +38,8 @@ pub struct E2eVerdict {
     pub xfail: usize,
     /// Unexpected pass (`expect: fail` but it passed) — a gate failure.
     pub xpass: usize,
+    /// Not run on this host (its `only_on` gate) — never a gate failure.
+    pub skipped: usize,
 }
 
 impl E2eVerdict {
@@ -86,6 +93,21 @@ pub fn render_report(tests: &[E2eTest], results: &[E2eTestResult]) -> (String, E
             .find(|t| t.name == result.name)
             .is_some_and(expects_fail);
         let raw_pass = result.status == "pass";
+
+        // A skip ran nothing, so its `expect` marker has nothing to invert.
+        if result.status == "skip" {
+            v.skipped += 1;
+            let reason = result.skip_reason.as_deref().unwrap_or("not run on this host");
+            out.push_str(&verdict_line(
+                &result.name,
+                "SKIP",
+                "33",
+                result.duration_ms,
+                &format!(" ({reason})"),
+            ));
+            out.push('\n');
+            continue;
+        }
 
         let line = match (raw_pass, marked) {
             (true, false) => {
@@ -160,9 +182,9 @@ pub fn render_report(tests: &[E2eTest], results: &[E2eTestResult]) -> (String, E
         "\x1b[32mok\x1b[0m"
     };
     out.push_str(&format!(
-        "test result: {word}. {} passed; {} failed; {} xfailed; {} xpassed; 0 ignored; 0 \
+        "test result: {word}. {} passed; {} failed; {} xfailed; {} xpassed; {} skipped; 0 \
          measured; 0 filtered out\n",
-        v.passed, v.failed, v.xfail, v.xpass
+        v.passed, v.failed, v.xfail, v.xpass, v.skipped
     ));
 
     (out, v)
@@ -171,9 +193,11 @@ pub fn render_report(tests: &[E2eTest], results: &[E2eTestResult]) -> (String, E
 /// Load every e2e test referenced by `path`.
 ///
 /// A DIRECTORY loads each `*.json` inside it in sorted (deterministic) order; a
-/// FILE loads just that one. Mirrors `load_e2e_tests` in the DLL's `run.rs`, but
-/// returns a `Result` instead of calling `process::exit`, so it is usable from a
-/// library and from a CLI that wants to report the error itself.
+/// FILE loads just that one. A file holds one test object or an ARRAY of them
+/// (`examples/azul-widgets/e2e/` keeps a demo's scenarios together). Returns a
+/// `Result` instead of calling `process::exit`, so it is usable from a library
+/// and from a CLI that wants to report the error itself; the DLL's `AZ_E2E`
+/// runner (`run.rs`) loads through it too.
 ///
 /// # Errors
 ///
@@ -203,9 +227,16 @@ pub fn load_e2e_tests(path: &std::path::Path) -> Result<Vec<E2eTest>, String> {
     for file in files {
         let src = std::fs::read_to_string(&file)
             .map_err(|e| format!("cannot read '{}': {e}", file.display()))?;
-        let test: E2eTest = serde_json::from_str(&src)
-            .map_err(|e| format!("invalid E2E JSON in '{}': {e}", file.display()))?;
-        tests.push(test);
+        // Decided by the first character, so a broken test inside an array
+        // reports ITS error rather than "expected a struct".
+        let parsed = if src.trim_start().starts_with('[') {
+            serde_json::from_str::<Vec<E2eTest>>(&src)
+        } else {
+            serde_json::from_str::<E2eTest>(&src).map(|test| vec![test])
+        };
+        tests.extend(
+            parsed.map_err(|e| format!("invalid E2E JSON in '{}': {e}", file.display()))?,
+        );
     }
 
     Ok(tests)

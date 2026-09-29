@@ -911,8 +911,17 @@ const app = {
                 var div = document.createElement('div');
                 div.className = 'list-item' + (app.state.activeTestId === test.id ? ' selected' : '');
                 div.onclick = function() { app.handlers.selectTest(test.id); };
-                var icon = test._result ? (test._result.status === 'pass' ? 'check_circle' : 'cancel') : 'description';
-                var iconColor = test._result ? (test._result.status === 'pass' ? 'var(--success)' : 'var(--error)') : 'inherit';
+                // 'skip': the test's `only_on` gate excludes this host - it ran
+                // nothing, so it is neither a pass nor a failure.
+                var status = test._result ? test._result.status : null;
+                var icon = status === null ? 'description'
+                    : status === 'pass' ? 'check_circle'
+                    : status === 'skip' ? 'block'
+                    : 'cancel';
+                var iconColor = status === null ? 'inherit'
+                    : status === 'pass' ? 'var(--success)'
+                    : status === 'skip' ? 'var(--warning)'
+                    : 'var(--error)';
 
                 var iconSpan = document.createElement('span');
                 iconSpan.className = 'material-icons';

@@ -4360,6 +4360,7 @@ fn fail_result(test: &E2eTest, reason: &str) -> E2eTestResult {
     E2eTestResult {
         name: test.name.clone(),
         status: "fail".into(),
+        skip_reason: None,
         duration_ms: 0,
         step_count: test.steps.len(),
         steps_passed: 0,
