@@ -171,7 +171,7 @@ pub fn load_user_icon_rules(
             }
             continue;
         }
-        load_table(provider, &dir, Some(&theme), &mut next_name, &mut report);
+        load_table(provider, &dir, Some(theme.as_str()), &mut next_name, &mut report);
     }
     report
 }
