@@ -1433,6 +1433,28 @@ mod theme_tests {
         (light, dark)
     }
 
+    /// The `(light, dark)` value `pick` finds among the RESTING declarations
+    /// (no pseudo-state). `theme_probe::dark` would also return the
+    /// `:hover` / `:focus` dark twins, declared after the resting pair.
+    fn at_rest<T>(node: &Dom, pick: impl Fn(&CssProperty) -> Option<T>) -> (Option<T>, Option<T>) {
+        let mut light = None;
+        let mut dark = None;
+        for d in declarations(node) {
+            if !d.pseudo_state_conditions().is_empty() {
+                continue;
+            }
+            let Some(v) = pick(&d.property) else {
+                continue;
+            };
+            if d.is_dark_twin() {
+                dark = Some(v);
+            } else {
+                light = Some(v);
+            }
+        }
+        (light, dark)
+    }
+
     fn ink(p: &CssProperty) -> Option<ColorU> {
         match p {
             CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
@@ -1515,11 +1537,10 @@ mod theme_tests {
         assert_eq!(crumbs.len(), 2);
         for crumb in crumbs {
             assert_eq!(
-                last(&theme_probe::unconditional(crumb), ink),
-                Some(flora::LIGHT_QT),
-                "flora.css: links are written in brass ink (--fl-qt)"
+                at_rest(crumb, ink),
+                (Some(flora::LIGHT_QT), Some(flora::DARK_QT)),
+                "flora.css: links are written in brass ink (--fl-qt, #C4B58E at night)"
             );
-            assert_eq!(last(&theme_probe::dark(crumb), ink), Some(flora::DARK_QT));
             assert_eq!(
                 in_state(crumb, PseudoStateType::Hover, ink),
                 (Some(flora::LIGHT_QT2), Some(flora::DARK_QT2)),
