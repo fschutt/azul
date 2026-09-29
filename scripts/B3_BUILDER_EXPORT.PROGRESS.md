@@ -57,13 +57,35 @@ WARNINGS.txt    "No user-defined component libraries to export. Generated minima
 - `95afd6be5` fix(xml): `compile_xml_fragment(_app)` + page exporter fixes
 - `2086d25fa` test(builder): quick exports + Export > Code scenarios (RED, `export_tests`)
 - `b9dd44cff` fix(builder): export.rs + 5 ops + project zip + template compile_fn / JSON
+- `c7df70a1d` test(debugger-ui): export dialogs node test + headless smoke (RED)
+- `92c92aa6d` feat(debugger): debugger-export.js dialogs + Export > Code download
+  (node 10/10, smoke 29/29; B1's dnd 13/13 + 25/25 still green)
+
+## COURSE CHANGE (coordinator, 2026-09-29): no second code generator
+B2 is integrated on `fix/input-bugs-2026-09-19` @ 095df1ffb (one construction IR
+`css/src/codegen/ir.rs` + 35 printers `css/src/codegen/lang/*`, `ExprSyntax`, blockers /
+limitations, `all()` / `backend_for` / `supported_languages()`, goldens in
+`css/tests/codegen_goldens/<lang>/`, `AZ_BLESS=1`). My `core/src/xml_fragment_codegen.rs`
+(own IR + 4 printers) must go. Steps:
+1. merge `fix/input-bugs-2026-09-19` (merge, not rebase).
+2. extend B2's IR: `Expr::Method {recv, class, method, args}`, `Expr::Param(name)`,
+   `Expr::Concat(Vec<Expr>)`, typed `Item` params + a `Dom` return class; every printer spells
+   them per `doc/src/codegen/v2/lang_*` (or a `limitation`).
+3. `xml_fragment_codegen.rs` becomes a LOWERING (XmlNode / template → `ir::Module`), printed
+   by `azul_css::codegen::lang`; delete its printers.
+4. app / project scaffolding via B2's `emit_project_files`; page exporters + old walkers: move
+   or list with file:line what remains.
+5. export.rs: languages = `all_backends()` (ONE list), CSS via `backend_for`, platform.rs
+   "Supported: rust, cpp, python" → `supported_languages()`.
+6. DOM goldens through B2's harness pattern; hand-write 3-4 languages as RED anchor, rest "to
+   bless".
+UI (`debugger-export.js`) stays as is.
 
 ## IN PROGRESS
-- UI `debugger-export.js` (three dialogs, Export > Code download) + node test + headless smoke.
+- step 1 (merge).
 
 ## NEXT
-- symbol check of the generated Rust against dll_api_external.rs; compile script for goldens.
-- report.
+- steps 2-6, report.
 
 ## Open questions / notes for the parent
 - target/codegen/azul.h (06:00 today, main checkout) does not compile as C on its own:
