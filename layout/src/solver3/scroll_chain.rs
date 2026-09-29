@@ -129,6 +129,30 @@ impl ScrollChain {
     pub fn contains(&self, index: LayoutNodeId) -> bool {
         self.links.iter().any(|link| link.layout_index == index)
     }
+
+    /// The innermost link that is a CSS scroll container
+    /// ([`is_css_scroll_container`]): the "nearest scroll container
+    /// ancestor" of the specs (spatial navigation's action, sticky
+    /// positioning's scrollport), found by CONTAINING BLOCK. A box that only
+    /// clips (`overflow: clip`) is a link but no scroll container.
+    #[must_use]
+    pub fn innermost_scroll_container(&self, styled_dom: &StyledDom) -> Option<&ScrollChainLink> {
+        self.links
+            .iter()
+            .rev()
+            .find(|link| is_css_scroll_container(styled_dom, link.node))
+    }
+}
+
+/// Is DOM node `node` a SCROLL CONTAINER by its own style - `hidden`,
+/// `scroll` or `auto` on either axis (CSS Overflow 3 §3.1)? `hidden` is one:
+/// a program can scroll it. Neither the viewport rule for the root (§3.3)
+/// nor whether the content overflows is applied here.
+#[must_use]
+pub fn is_css_scroll_container(styled_dom: &StyledDom, node: NodeId) -> bool {
+    let state = styled_node_state(styled_dom, node);
+    get_overflow_x(styled_dom, node, &state).is_scroll_container()
+        || get_overflow_y(styled_dom, node, &state).is_scroll_container()
 }
 
 /// Every laid-out node's box chain (the [`Inclusivity::AncestorsOnly`]

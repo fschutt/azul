@@ -542,56 +542,59 @@ const fn resolve_arrow_action(
 /// if it isn't".
 ///
 /// "Scroll container" is the CSS answer - `overflow` other than
-/// `visible`/`clip` on either axis - the same test the container chain uses.
-/// It used to be "the layout node has `scrollbar_info`", but layout gives
-/// EVERY laid-out box a `scrollbar_info` (all-false for a box that does not
-/// scroll), so the walk always stopped at the focused node itself: a
-/// container's `focus` or `scroll` was never read unless the container was
-/// the focused node.
+/// `visible`/`clip` on either axis. It used to be "the layout node has
+/// `scrollbar_info`", but layout gives EVERY laid-out box a
+/// `scrollbar_info` (all-false for a box that does not scroll), so the walk
+/// always stopped at the focused node itself: a container's `focus` or
+/// `scroll` was never read unless the container was the focused node.
+///
+/// "Nearest ancestor" is by CONTAINING BLOCK: the innermost scroll container
+/// of the focus's `ScrollChain`, self-inclusive (a focusable list box is its
+/// own container). A DOM-parent walk let a scroll box the focus is not
+/// painted in - an `absolute` box escapes a non-positioned one, a `fixed`
+/// box every one - decide its arrows. A node without a box reads `auto`.
 fn spatial_navigation_action(
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
     focus: &DomNodeId,
 ) -> StyleSpatialNavigationAction {
-    use crate::solver3::getters::{
-        get_overflow_x, get_overflow_y, get_spatial_navigation_action, MultiValue,
+    use azul_core::spaces::Inclusivity;
+
+    use crate::solver3::{
+        getters::{get_spatial_navigation_action, MultiValue},
+        scroll_chain::ScrollChain,
     };
 
     let Some(lr) = layout_results.get(&focus.dom) else {
         return StyleSpatialNavigationAction::Auto;
     };
-    let Some(mut node) = focus.node.into_crate_internal() else {
+    let Some(node) = focus.node.into_crate_internal() else {
         return StyleSpatialNavigationAction::Auto;
     };
-    let hierarchy = lr.styled_dom.node_hierarchy.as_container();
-    let states = lr.styled_dom.styled_nodes.as_container();
-    // SELF-inclusive: a focused node can BE the scroll container - a
-    // focusable list box is the common case. Bounded by the node count so a
-    // corrupt parent chain cannot hang the event loop.
-    for _ in 0..hierarchy.internal.len().saturating_add(1) {
-        if let Some(sn) = states.get(node) {
-            let state = &sn.styled_node_state;
-            let is_scroll_container = get_overflow_x(&lr.styled_dom, node, state)
-                .is_scroll_container()
-                || get_overflow_y(&lr.styled_dom, node, state).is_scroll_container();
-            if is_scroll_container {
-                // The NEAREST scroll container decides, even when it says
-                // nothing: walking past it to an outer one would let a
-                // grandparent override a panel the author scoped deliberately.
-                return match get_spatial_navigation_action(&lr.styled_dom, node, state) {
-                    MultiValue::Exact(action) => action,
-                    _ => StyleSpatialNavigationAction::Auto,
-                };
-            }
-        }
-        match hierarchy
-            .get(node)
-            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
-        {
-            Some(parent) => node = parent,
-            None => break,
-        }
+    let Some(chain) = ScrollChain::of_node(
+        &lr.layout_tree,
+        &lr.styled_dom,
+        &lr.scroll_ids,
+        node,
+        Inclusivity::SelfAndAncestors,
+    ) else {
+        return StyleSpatialNavigationAction::Auto;
+    };
+    // The NEAREST scroll container decides, even when it says nothing:
+    // walking past it to an outer one would let a grandparent override a
+    // panel the author scoped deliberately.
+    let Some(container) = chain
+        .innermost_scroll_container(&lr.styled_dom)
+        .map(|link| link.node)
+    else {
+        return StyleSpatialNavigationAction::Auto;
+    };
+    let Some(sn) = lr.styled_dom.styled_nodes.as_container().get(container) else {
+        return StyleSpatialNavigationAction::Auto;
+    };
+    match get_spatial_navigation_action(&lr.styled_dom, container, &sn.styled_node_state) {
+        MultiValue::Exact(action) => action,
+        _ => StyleSpatialNavigationAction::Auto,
     }
-    StyleSpatialNavigationAction::Auto
 }
 
 /// The default action a gamepad button press asks for.

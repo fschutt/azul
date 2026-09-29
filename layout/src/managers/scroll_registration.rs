@@ -443,13 +443,5 @@ fn is_scroll_container(
     if node_data.is_virtual_view_node() {
         return true;
     }
-    let node_state = styled_dom
-        .styled_nodes
-        .as_container()
-        .get(node_id)
-        .map(|n| n.styled_node_state)
-        .unwrap_or_default();
-    let overflow_x = crate::solver3::getters::get_overflow_x(styled_dom, node_id, &node_state);
-    let overflow_y = crate::solver3::getters::get_overflow_y(styled_dom, node_id, &node_state);
-    overflow_x.is_scroll_container() || overflow_y.is_scroll_container()
+    crate::solver3::scroll_chain::is_css_scroll_container(styled_dom, node_id)
 }

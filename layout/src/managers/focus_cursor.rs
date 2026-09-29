@@ -2932,23 +2932,17 @@ fn function_of(env: &SpatialNavigationEnv<'_>, node: DomNodeId) -> StyleSpatialN
 }
 
 /// Is `node` a CSS scroll container (`overflow` other than `visible`/`clip`
-/// on either axis)? The same test `spatial_navigation_containers` uses.
+/// on either axis)? The same test `spatial_navigation_containers` uses
+/// (`scroll_chain::is_css_scroll_container`).
 fn is_css_scroll_container(env: &SpatialNavigationEnv<'_>, node: DomNodeId) -> bool {
-    use crate::solver3::getters::{get_overflow_x, get_overflow_y};
-
     let Some(lr) = env.layout_results.get(&node.dom) else {
         return false;
     };
     let Some(n) = node.node.into_crate_internal() else {
         return false;
     };
-    let states = lr.styled_dom.styled_nodes.as_container();
-    let Some(sn) = states.get(n) else {
-        return false;
-    };
-    let state = &sn.styled_node_state;
-    get_overflow_x(&lr.styled_dom, n, state).is_scroll_container()
-        || get_overflow_y(&lr.styled_dom, n, state).is_scroll_container()
+    lr.styled_dom.styled_nodes.as_container().get(n).is_some()
+        && crate::solver3::scroll_chain::is_css_scroll_container(&lr.styled_dom, n)
 }
 
 /// css-nav-1 Appendix A, "can be manually scrolled" in `dir`: a scroll
