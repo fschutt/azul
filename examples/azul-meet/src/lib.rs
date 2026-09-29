@@ -42,6 +42,7 @@ use azul::{
     str::String as AzString,
     task::{Thread, ThreadId, ThreadReceiver, ThreadSender, Timer, TimerId},
     time::{Duration, SystemTimeDiff},
+    url::Url,
     vec::{StyledTextRunVec, U8Vec, U8VecRef},
     widgets::{
         ButtonType, CameraWidget, ConsumerFrame, FrameConsumer, MicrophoneWidget,
@@ -1630,12 +1631,26 @@ fn display_name() -> String {
         .unwrap_or_else(|| String::from("Guest"))
 }
 
+/// Host (IPv6 without brackets) and port of an http(s) address.
+fn server_address(url: &str) -> Option<(String, u16)> {
+    let parsed = Url::parse(url).into_result().ok()?;
+    let host = parsed
+        .host
+        .as_str()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_string();
+    if !(parsed.is_http() || parsed.is_https()) || host.is_empty() {
+        return None;
+    }
+    Some((host, parsed.effective_port()))
+}
+
 /// Whether something accepts a TCP connection at the meeting server's address, within 2.5 s.
 /// Runs before any window opens, so it blocks no callback.
 fn probe(url: &str) -> Result<(), String> {
     use std::net::{TcpStream, ToSocketAddrs};
-    let (host, port) =
-        rooms::host_port(url).ok_or_else(|| String::from("not an http(s) address"))?;
+    let (host, port) = server_address(url).ok_or_else(|| String::from("not an http(s) address"))?;
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let outcome = (host.as_str(), port)
@@ -1683,7 +1698,7 @@ pub fn start() {
 
 /// One window with the start screen, talking to the meeting server at `worker`.
 fn start_rooms(worker: String) {
-    let host = rooms::host_port(&worker)
+    let host = server_address(&worker)
         .map(|(host, _)| host)
         .unwrap_or_default();
     let relay = rooms::relay_choice(std::env::var("AZMEET_RELAY").ok().as_deref(), &host);

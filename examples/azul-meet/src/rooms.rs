@@ -1,6 +1,6 @@
 //! The pure logic of AzMeet rooms, free of azul types so `cargo test -p AzMeet` checks it without
 //! a window: reading a meeting link, choosing which side of a pair dials, diffing the peers list
-//! between two polls, planning the dials, and reading the meeting server's address.
+//! between two polls, planning the dials, and choosing the iroh relays.
 //!
 //! The meeting server is the `meet` Worker (azul-apps `cf-workers/meet`). It mints a room id
 //! (the credential) and a short code, and holds each participant's iroh ticket.
@@ -190,42 +190,9 @@ pub fn plan_dials(
     plan
 }
 
-/// Host and port of an `http://` or `https://` address (80 and 443 by default).
-pub fn host_port(url: &str) -> Option<(String, u16)> {
-    let (scheme, rest) = url.trim().split_once("://")?;
-    let default_port: u16 = if scheme.eq_ignore_ascii_case("http") {
-        80
-    } else if scheme.eq_ignore_ascii_case("https") {
-        443
-    } else {
-        return None;
-    };
-    let authority = rest
-        .split(|c: char| c == '/' || c == '?' || c == '#')
-        .next()
-        .unwrap_or("");
-    let authority = authority.rsplit('@').next().unwrap_or("");
-    let (host, port) = if let Some(v6) = authority.strip_prefix('[') {
-        let (host, tail) = v6.split_once(']')?;
-        match tail.strip_prefix(':') {
-            Some(port) => (host, port.parse::<u16>().ok()?),
-            None if tail.is_empty() => (host, default_port),
-            None => return None,
-        }
-    } else {
-        match authority.rsplit_once(':') {
-            Some((host, port)) => (host, port.parse::<u16>().ok()?),
-            None => (authority, default_port),
-        }
-    };
-    if host.is_empty() {
-        return None;
-    }
-    Some((host.to_string(), port))
-}
-
-/// Whether `host` is this machine.
+/// Whether `host` (as a URL spells it, IPv6 in brackets or not) is this machine.
 pub fn is_loopback_host(host: &str) -> bool {
+    let host = host.trim_start_matches('[').trim_end_matches(']');
     host.eq_ignore_ascii_case("localhost") || host == "::1" || host.starts_with("127.")
 }
 
@@ -477,28 +444,11 @@ mod tests {
     }
 
     #[test]
-    fn a_meeting_server_address_gives_its_host_and_port() {
-        let hp = |h: &str, p: u16| Some((h.to_string(), p));
-        assert_eq!(host_port("http://127.0.0.1:8787"), hp("127.0.0.1", 8787));
-        assert_eq!(host_port("http://127.0.0.1:8787/"), hp("127.0.0.1", 8787));
-        assert_eq!(
-            host_port("https://meet.example.com"),
-            hp("meet.example.com", 443)
-        );
-        assert_eq!(host_port("HTTP://localhost/rooms"), hp("localhost", 80));
-        assert_eq!(host_port("https://[::1]:9000/x"), hp("::1", 9000));
-        assert_eq!(host_port("https://[::1]"), hp("::1", 443));
-        assert_eq!(host_port("meet.example.com"), None);
-        assert_eq!(host_port("ftp://meet.example.com"), None);
-        assert_eq!(host_port("http://:80"), None);
-        assert_eq!(host_port("http://host:notaport"), None);
-    }
-
-    #[test]
     fn a_local_meeting_server_means_no_relays_unless_asked() {
         assert_eq!(relay_choice(None, "127.0.0.1"), Relay::Off);
         assert_eq!(relay_choice(None, "localhost"), Relay::Off);
         assert_eq!(relay_choice(Some(" "), "::1"), Relay::Off);
+        assert_eq!(relay_choice(None, "[::1]"), Relay::Off);
         assert_eq!(relay_choice(None, "meet.example.com"), Relay::Default);
         assert_eq!(relay_choice(Some("off"), "meet.example.com"), Relay::Off);
         assert_eq!(relay_choice(Some("default"), "127.0.0.1"), Relay::Default);
