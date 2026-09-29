@@ -433,3 +433,29 @@ fn segmented_controls_follow_the_app_theme() {
         }
     }
 }
+
+#[test]
+fn steppers_follow_the_app_theme() {
+    use azul_css::StringVec;
+    use azul_layout::widgets::stepper::Stepper;
+    let labels = |n: usize| {
+        StringVec::from_vec(
+            ["Start", "Details", "Review", "Done"][..n]
+                .iter()
+                .map(|s| AzString::from(*s))
+                .collect(),
+        )
+    };
+    for n in [1usize, 2, 4] {
+        for current in [0usize, n - 1] {
+            assert_follows_the_app_theme(&format!("stepper {current} of {n}"), |t| {
+                pinned(
+                    Stepper::create(labels(n)).with_current_step(current),
+                    t,
+                    Stepper::with_theme,
+                )
+                .dom()
+            });
+        }
+    }
+}
