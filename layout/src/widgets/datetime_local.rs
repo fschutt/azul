@@ -20,7 +20,7 @@ use azul_core::{
     refany::RefAny,
 };
 use azul_css::{
-    dynamic_selector::OptionCssPropertyWithConditionsVec, AzString, OptionString,
+    dynamic_selector::OptionCssPropertyWithConditionsVec, impl_option_inner, AzString, OptionString,
 };
 
 use crate::{

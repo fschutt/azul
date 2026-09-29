@@ -3833,6 +3833,7 @@ pub(crate) fn video_poster_style() -> CssPropertyWithConditionsVec {
 #[must_use]
 pub fn video(w: crate::widgets::video::VideoWidget) -> Dom {
     w.build(super::UiTheme::Flat)
+}
 
 // ==== text input kinds (type=search) ====
 //

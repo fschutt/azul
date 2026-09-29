@@ -134,8 +134,6 @@ pub struct Button {
     /// (`<input type=image>`, see [`Button::create_image`]). Announced as the
     /// button's accessible name; empty for every other button.
     pub alt: AzString,
-    /// The semantic type of this button (Primary, Success, Danger, etc.)
-    pub button_type: ButtonType,
     /// Style for this button container, or `None` for "no opinion" — in which
     /// case the style is derived from `button_type` at render time.
     ///
@@ -153,6 +151,9 @@ pub struct Button {
     pub trailing_icon_style: OptionCssPropertyWithConditionsVec,
     /// Optional: Function to call when the button is clicked
     pub on_click: OptionButtonOnClick,
+    /// The semantic type of this button (Primary, Success, Danger, etc.)
+    /// With the other 4-byte fields at the end: no padding.
+    pub button_type: ButtonType,
     pub theme: crate::widgets::themes::OptionUiTheme,
     /// What the button does to the [`crate::widgets::form::Form`] it sits in:
     /// nothing, submit it or reset it (HTML `type=button|submit|reset`). It

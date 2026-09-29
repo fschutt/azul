@@ -22631,7 +22631,8 @@
                                 "TooLong": {},
                                 "RangeUnderflow": {},
                                 "RangeOverflow": {},
-                                "PatternMismatch": {}
+                                "PatternMismatch": {},
+                                "TypeMismatch": {}
                             }
                         ],
                         "repr": "C"
@@ -22999,6 +23000,63 @@
                                 },
                                 {
                                     "type": "DialogState"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
+                    },
+                    "DateTimeLocalPickerOnChangeCallbackType": {
+                        "external": "azul_layout::widgets::datetime_local::DateTimeLocalPickerOnChangeCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "DateTimeLocalPickerState"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
+                    },
+                    "FormOnResetCallbackType": {
+                        "external": "azul_layout::widgets::form::FormOnResetCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "FormData"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
+                    },
+                    "FormOnSubmitCallbackType": {
+                        "external": "azul_layout::widgets::form::FormOnSubmitCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "FormData"
                                 }
                             ],
                             "returns": {
@@ -34040,6 +34098,102 @@
                             {
                                 "cb": {
                                     "type": "DialogOnCloseCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DateTimeLocalPickerOnChangeCallback": {
+                        "external": "azul_layout::widgets::datetime_local::DateTimeLocalPickerOnChangeCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "DateTimeLocalPickerOnChangeCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FormOnSubmitCallback": {
+                        "external": "azul_layout::widgets::form::FormOnSubmitCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "FormOnSubmitCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FormOnResetCallback": {
+                        "external": "azul_layout::widgets::form::FormOnResetCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "FormOnResetCallbackType"
                                 },
                                 "callable": {
                                     "type": "OptionRefAny"
@@ -55518,8 +55672,8 @@
                                 "trailing_icon": {
                                     "type": "String"
                                 },
-                                "button_type": {
-                                    "type": "ButtonType"
+                                "alt": {
+                                    "type": "String"
                                 },
                                 "container_style": {
                                     "type": "OptionCssPropertyWithConditionsVec"
@@ -55539,8 +55693,14 @@
                                 "on_click": {
                                     "type": "OptionButtonOnClick"
                                 },
+                                "button_type": {
+                                    "type": "ButtonType"
+                                },
                                 "theme": {
                                     "type": "OptionUiTheme"
+                                },
+                                "form_action": {
+                                    "type": "ButtonFormAction"
                                 }
                             }
                         ],
@@ -55571,6 +55731,46 @@
                                     }
                                 ],
                                 "fn_body": "azul_layout::widgets::button::Button::with_type(label, button_type)"
+                            },
+                            "create_image": {
+                                "doc": [
+                                    "`<input type=image>`: a submit button that shows only `image`, named",
+                                    "`alt` for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "image": "ImageRef"
+                                    },
+                                    {
+                                        "alt": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::button::Button::create_image(image, alt)"
+                            },
+                            "create_reset": {
+                                "doc": [
+                                    "`<input type=reset>` / `<button type=reset>`: puts the fields of the",
+                                    "form it sits in back to their initial values."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::button::Button::create_reset(label)"
+                            },
+                            "create_submit": {
+                                "doc": [
+                                    "Create a button with a specific type (Primary, Success, Danger, etc.)",
+                                    "`<input type=submit>` / `<button type=submit>`: a primary button that",
+                                    "submits the [`crate::widgets::form::Form`] it sits in."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::button::Button::create_submit(label)"
                             }
                         },
                         "functions": {
@@ -55766,6 +55966,37 @@
                                     "type": "Button"
                                 },
                                 "fn_body": "object.with_theme(theme)"
+                            },
+                            "set_form_action": {
+                                "doc": [
+                                    "What the button does to its form (see [`ButtonFormAction`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "action": "ButtonFormAction"
+                                    }
+                                ],
+                                "fn_body": "object.set_form_action(action)"
+                            },
+                            "with_form_action": {
+                                "doc": [
+                                    "[`Self::set_form_action`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "action": "ButtonFormAction"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Button"
+                                },
+                                "fn_body": "object.with_form_action(action)"
                             }
                         },
                         "repr": "C"
@@ -56776,6 +57007,9 @@
                                 "choices": {
                                     "type": "StringVec"
                                 },
+                                "groups": {
+                                    "type": "DropDownOptGroupVec"
+                                },
                                 "selected": {
                                     "type": "usize"
                                 },
@@ -56968,6 +57202,46 @@
                                     "type": "DropDown"
                                 },
                                 "fn_body": "object.with_theme(theme)"
+                            },
+                            "add_optgroup": {
+                                "doc": [
+                                    "Appends an `<optgroup>`: the heading `label` over `options`, which are",
+                                    "appended to [`Self::choices`]. The heading is shown in the menu but is",
+                                    "never a choice - it cannot be picked, keyboard navigation passes over",
+                                    "it, and every index the widget reports keeps counting options only."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "label": "String"
+                                    },
+                                    {
+                                        "options": "StringVec"
+                                    }
+                                ],
+                                "fn_body": "object.add_optgroup(label, options)"
+                            },
+                            "with_optgroup": {
+                                "doc": [
+                                    "[`Self::add_optgroup`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "label": "String"
+                                    },
+                                    {
+                                        "options": "StringVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DropDown"
+                                },
+                                "fn_body": "object.with_optgroup(label, options)"
                             }
                         },
                         "repr": "C"
@@ -57274,6 +57548,9 @@
                                 "accessibility_name": {
                                     "type": "OptionString"
                                 },
+                                "name": {
+                                    "type": "OptionString"
+                                },
                                 "theme": {
                                     "type": "OptionUiTheme"
                                 }
@@ -57283,6 +57560,53 @@
                             "create": {
                                 "fn_args": [],
                                 "fn_body": "azul_layout::widgets::text_input::TextInput::create()"
+                            },
+                            "create_email": {
+                                "doc": [
+                                    "`<input type=email>`: validated as an e-mail address."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::text_input::TextInput::create_email()"
+                            },
+                            "create_password": {
+                                "doc": [
+                                    "`<input type=password>`: shows one bullet per grapheme, keeps the real",
+                                    "text in the state, refuses copy and cut."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::text_input::TextInput::create_password()"
+                            },
+                            "create_search": {
+                                "doc": [
+                                    "`<input type=search>`: a clear button while non-empty; Escape clears."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::text_input::TextInput::create_search()"
+                            },
+                            "create_tel": {
+                                "doc": [
+                                    "`<input type=tel>`: plain text with a phone-pad soft keyboard."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::text_input::TextInput::create_tel()"
+                            },
+                            "create_url": {
+                                "doc": [
+                                    "`<input type=url>`: validated as an absolute URL."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::text_input::TextInput::create_url()"
+                            },
+                            "create_with_kind": {
+                                "doc": [
+                                    "A field of the given `<input type>`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "kind": "TextInputKind"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::text_input::TextInput::create_with_kind(kind)"
                             }
                         },
                         "functions": {
@@ -57555,6 +57879,101 @@
                                     "type": "TextInput"
                                 },
                                 "fn_body": "object.with_theme(theme)"
+                            },
+                            "set_kind": {
+                                "doc": [
+                                    "Switch this field to another `<input type>`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "kind": "TextInputKind"
+                                    }
+                                ],
+                                "fn_body": "object.set_kind(kind)"
+                            },
+                            "set_name": {
+                                "doc": [
+                                    "The name this field's value is submitted under in a",
+                                    "[`crate::widgets::form::Form`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_name(name)"
+                            },
+                            "set_pattern": {
+                                "doc": [
+                                    "HTML `pattern`: the whole value must match `pattern` (see",
+                                    "[`TextInputState::pattern`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "pattern": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_pattern(pattern)"
+                            },
+                            "with_kind": {
+                                "doc": [
+                                    "[`Self::set_kind`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "kind": "TextInputKind"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextInput"
+                                },
+                                "fn_body": "object.with_kind(kind)"
+                            },
+                            "with_name": {
+                                "doc": [
+                                    "[`Self::set_name`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextInput"
+                                },
+                                "fn_body": "object.with_name(name)"
+                            },
+                            "with_pattern": {
+                                "doc": [
+                                    "[`Self::set_pattern`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "pattern": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextInput"
+                                },
+                                "fn_body": "object.with_pattern(pattern)"
                             }
                         },
                         "repr": "C"
@@ -57625,6 +58044,15 @@
                                 },
                                 "cursor_pos": {
                                     "type": "usize"
+                                },
+                                "pattern": {
+                                    "type": "OptionString"
+                                },
+                                "validity": {
+                                    "type": "ValidityState"
+                                },
+                                "kind": {
+                                    "type": "TextInputKind"
                                 }
                             }
                         ],
@@ -57639,6 +58067,40 @@
                                     "type": "String"
                                 },
                                 "fn_body": "textinputstate.get_text().into()"
+                            },
+                            "compute_validity": {
+                                "doc": [
+                                    "Which constraints the current value fails, HTML's rules: the syntax",
+                                    "its [`TextInputKind`] demands (`type=email`, `type=url`) and the",
+                                    "`pattern`, which must match the WHOLE value. An empty value is exempt",
+                                    "from both. A password is checked against its real text, never its",
+                                    "mask. The widget keeps [`Self::validity`] up to date with this; call it",
+                                    "directly on a state you built yourself."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ValidityState"
+                                },
+                                "fn_body": "object.compute_validity()"
+                            },
+                            "is_constrained": {
+                                "doc": [
+                                    "Can this field's value be invalid at all? Only a typed field",
+                                    "(`email`, `url`) or one with a `pattern` has a constraint to fail."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_constrained()"
                             }
                         },
                         "repr": "C"
@@ -66731,6 +67193,12 @@
                                 },
                                 "accessibility_name": {
                                     "type": "OptionString"
+                                },
+                                "name": {
+                                    "type": "OptionString"
+                                },
+                                "mode": {
+                                    "type": "DatePickerMode"
                                 }
                             }
                         ],
@@ -66752,6 +67220,38 @@
                                     }
                                 ],
                                 "fn_body": "azul_layout::widgets::date_picker::DatePicker::create(year, month, day)"
+                            },
+                            "create_month": {
+                                "doc": [
+                                    "`<input type=month>`: picks a year and a month (value `YYYY-MM`). The",
+                                    "calendar is the year over a grid of its twelve months."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "year": "u32"
+                                    },
+                                    {
+                                        "month": "u32"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::date_picker::DatePicker::create_month(year, month)"
+                            },
+                            "create_week": {
+                                "doc": [
+                                    "`<input type=week>`: picks an ISO 8601 week (value `YYYY-Www`) of the",
+                                    "week-numbering year `year`; `week` is clamped to the weeks that year",
+                                    "has. The state holds the week's Monday; the calendar is the day grid,",
+                                    "Monday-first, and a click anywhere in a week picks the whole week."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "year": "u32"
+                                    },
+                                    {
+                                        "week": "u32"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::date_picker::DatePicker::create_week(year, week)"
                             }
                         },
                         "functions": {
@@ -66835,6 +67335,69 @@
                                     "type": "DatePicker"
                                 },
                                 "fn_body": "object.with_accessibility_name(name)"
+                            },
+                            "set_mode": {
+                                "doc": [
+                                    "Switch what the picker picks (see [`DatePickerMode`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "mode": "DatePickerMode"
+                                    }
+                                ],
+                                "fn_body": "object.set_mode(mode)"
+                            },
+                            "set_name": {
+                                "doc": [
+                                    "The name the value is submitted under in a",
+                                    "[`crate::widgets::form::Form`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_name(name)"
+                            },
+                            "with_mode": {
+                                "doc": [
+                                    "[`Self::set_mode`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "mode": "DatePickerMode"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DatePicker"
+                                },
+                                "fn_body": "object.with_mode(mode)"
+                            },
+                            "with_name": {
+                                "doc": [
+                                    "[`Self::set_name`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DatePicker"
+                                },
+                                "fn_body": "object.with_name(name)"
                             }
                         },
                         "repr": "C"
@@ -72238,6 +72801,1045 @@
                                 },
                                 "on_close": {
                                     "type": "OptionDialogOnClose"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DropDownOptGroup": {
+                        "external": "azul_layout::widgets::drop_down::DropDownOptGroup",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "label": {
+                                    "type": "String"
+                                },
+                                "first_choice": {
+                                    "type": "usize"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TextInputKind": {
+                        "external": "azul_layout::widgets::text_input::TextInputKind",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Text": {},
+                                "Password": {},
+                                "Search": {},
+                                "Email": {},
+                                "Tel": {},
+                                "Url": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ButtonFormAction": {
+                        "external": "azul_layout::widgets::button::ButtonFormAction",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Submit": {},
+                                "Reset": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DatePickerMode": {
+                        "external": "azul_layout::widgets::date_picker::DatePickerMode",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Date": {},
+                                "Month": {},
+                                "Week": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DropDownOptGroupVecSlice": {
+                        "external": "azul_layout::widgets::drop_down::DropDownOptGroupVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "DropDownOptGroup",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DateTimeLocalPickerState": {
+                        "external": "azul_layout::widgets::datetime_local::DateTimeLocalPickerState",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "date": {
+                                    "type": "DatePickerState"
+                                },
+                                "time": {
+                                    "type": "TimePickerState"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DateTimeLocalPicker": {
+                        "external": "azul_layout::widgets::datetime_local::DateTimeLocalPicker",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "state": {
+                                    "type": "DateTimeLocalPickerStateWrapper"
+                                },
+                                "container_style": {
+                                    "type": "OptionCssPropertyWithConditionsVec"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
+                                },
+                                "name": {
+                                    "type": "OptionString"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A picker showing `year-month-day` at `hour:minute` (24-hour), each",
+                                    "clamped the way the date and time parts clamp them."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "year": "u32"
+                                    },
+                                    {
+                                        "month": "u32"
+                                    },
+                                    {
+                                        "day": "u32"
+                                    },
+                                    {
+                                        "hour": "u32"
+                                    },
+                                    {
+                                        "minute": "u32"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::datetime_local::DateTimeLocalPicker::create(year, month, day, hour, minute)"
+                            }
+                        },
+                        "functions": {
+                            "dom": {
+                                "doc": [
+                                    "Renders the row: the date part, then the time part, each the existing",
+                                    "widget, each reporting into the one shared state."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            },
+                            "set_name": {
+                                "doc": [
+                                    "The name the value is submitted under in a form."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_name(name)"
+                            },
+                            "set_on_change": {
+                                "doc": [
+                                    "Sets the callback invoked when either part changes."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "DateTimeLocalPickerOnChangeCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_change(data, callback)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme; unset, the default theme renders it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Replaces `self` with the default value and returns the original."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DateTimeLocalPicker"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "with_24h": {
+                                "doc": [
+                                    "Show the time part in 12-hour form (AM/PM); the value stays 24-hour."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "is_24h": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DateTimeLocalPicker"
+                                },
+                                "fn_body": "object.with_24h(is_24h)"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Name this control for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DateTimeLocalPicker"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
+                            },
+                            "with_name": {
+                                "doc": [
+                                    "[`Self::set_name`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DateTimeLocalPicker"
+                                },
+                                "fn_body": "object.with_name(name)"
+                            },
+                            "with_on_change": {
+                                "doc": [
+                                    "Builder variant of [`Self::set_on_change`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "DateTimeLocalPickerOnChangeCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DateTimeLocalPicker"
+                                },
+                                "fn_body": "object.with_on_change(data, callback)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DateTimeLocalPicker"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "DateTimeLocalPickerOnChange": {
+                        "external": "azul_layout::widgets::datetime_local::DateTimeLocalPickerOnChange",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "DateTimeLocalPickerOnChangeCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DateTimeLocalPickerStateWrapper": {
+                        "external": "azul_layout::widgets::datetime_local::DateTimeLocalPickerStateWrapper",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "inner": {
+                                    "type": "DateTimeLocalPickerState"
+                                },
+                                "on_change": {
+                                    "type": "OptionDateTimeLocalPickerOnChange"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "Form": {
+                        "external": "azul_layout::widgets::form::Form",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "children": {
+                                    "type": "DomVec"
+                                },
+                                "state": {
+                                    "type": "FormStateWrapper"
+                                },
+                                "container_style": {
+                                    "type": "OptionCssPropertyWithConditionsVec"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A form around `children`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "children": "DomVec"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::form::Form::create(children)"
+                            }
+                        },
+                        "functions": {
+                            "dom": {
+                                "doc": [
+                                    "Renders the form node, recording each named control's initial value."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            },
+                            "set_children": {
+                                "doc": [
+                                    "Replace the form's content."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "children": "DomVec"
+                                    }
+                                ],
+                                "fn_body": "object.set_children(children)"
+                            },
+                            "set_container_style": {
+                                "doc": [
+                                    "Replace the form node's style (`None` = the theme's)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "style": "CssPropertyWithConditionsVec"
+                                    }
+                                ],
+                                "fn_body": "object.set_container_style(style)"
+                            },
+                            "set_on_reset": {
+                                "doc": [
+                                    "The callback a reset calls with the form's initial values."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "FormOnResetCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_reset(data, callback)"
+                            },
+                            "set_on_submit": {
+                                "doc": [
+                                    "The callback a submit calls with the form's current values."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "FormOnSubmitCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_submit(data, callback)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme; unset, the default theme renders it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Replaces `self` with the default value and returns the original."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Form"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Name this form for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Form"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
+                            },
+                            "with_child": {
+                                "doc": [
+                                    "Append one child to the form's content."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "child": "Dom"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Form"
+                                },
+                                "fn_body": "object.with_child(child)"
+                            },
+                            "with_children": {
+                                "doc": [
+                                    "[`Self::set_children`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "children": "DomVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Form"
+                                },
+                                "fn_body": "object.with_children(children)"
+                            },
+                            "with_container_style": {
+                                "doc": [
+                                    "[`Self::set_container_style`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "style": "CssPropertyWithConditionsVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Form"
+                                },
+                                "fn_body": "object.with_container_style(style)"
+                            },
+                            "with_on_reset": {
+                                "doc": [
+                                    "[`Self::set_on_reset`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "FormOnResetCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Form"
+                                },
+                                "fn_body": "object.with_on_reset(data, callback)"
+                            },
+                            "with_on_submit": {
+                                "doc": [
+                                    "[`Self::set_on_submit`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "FormOnSubmitCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Form"
+                                },
+                                "fn_body": "object.with_on_submit(data, callback)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Form"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "FormData": {
+                        "external": "azul_layout::widgets::form::FormData",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "entries": {
+                                    "type": "FormEntryVec"
+                                },
+                                "invalid": {
+                                    "type": "StringVec"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "get": {
+                                "doc": [
+                                    "The FIRST value submitted under `name` (HTML's `FormData.get`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionString"
+                                },
+                                "fn_body": "object.get(name)"
+                            },
+                            "get_all": {
+                                "doc": [
+                                    "EVERY value submitted under `name`, in document order",
+                                    "(HTML's `FormData.getAll`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StringVec"
+                                },
+                                "fn_body": "object.get_all(name)"
+                            },
+                            "has": {
+                                "doc": [
+                                    "Whether any value is submitted under `name`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.has(name)"
+                            },
+                            "is_valid": {
+                                "doc": [
+                                    "Whether every control passed its constraints."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_valid()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "FormOnSubmit": {
+                        "external": "azul_layout::widgets::form::FormOnSubmit",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "FormOnSubmitCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FormEntry": {
+                        "external": "azul_layout::widgets::form::FormEntry",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "name": {
+                                    "type": "String"
+                                },
+                                "value": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FormStateWrapper": {
+                        "external": "azul_layout::widgets::form::FormStateWrapper",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "initial": {
+                                    "type": "FormData"
+                                },
+                                "on_submit": {
+                                    "type": "OptionFormOnSubmit"
+                                },
+                                "on_reset": {
+                                    "type": "OptionFormOnReset"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FormOnReset": {
+                        "external": "azul_layout::widgets::form::FormOnReset",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "FormOnResetCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "HiddenInput": {
+                        "external": "azul_layout::widgets::form::HiddenInput",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "name": {
+                                    "type": "String"
+                                },
+                                "value": {
+                                    "type": "String"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A hidden `name=value` pair."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "value": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::form::HiddenInput::create(name, value)"
+                            }
+                        },
+                        "functions": {
+                            "dom": {
+                                "doc": [
+                                    "The node: an empty, undisplayed `div` carrying `name`, `value`,",
+                                    "`type=hidden` and `hidden`, which is all a form needs to read it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pick the widget theme (see the type docs: both render the same)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "set_value": {
+                                "doc": [
+                                    "Replace the submitted value."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "value": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_value(value)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HiddenInput"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "with_value": {
+                                "doc": [
+                                    "[`Self::set_value`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "value": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HiddenInput"
+                                },
+                                "fn_body": "object.with_value(value)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "FormEntryVecSlice": {
+                        "external": "azul_layout::widgets::form::FormEntryVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "FormEntry",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
                                 }
                             }
                         ],
@@ -120771,6 +122373,432 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "DropDownOptGroupVec": {
+                        "external": "azul_layout::widgets::drop_down::DropDownOptGroupVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "DropDownOptGroup",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "DropDownOptGroupVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `DropDownOptGroupVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "DropDownOptGroupVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `DropDownOptGroupVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DropDownOptGroupVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "drop_down_opt_group_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "drop_down_opt_group_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "drop_down_opt_group_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `DropDownOptGroupVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "DropDownOptGroup"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DropDownOptGroupVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `DropDownOptGroupVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const DropDownOptGroup"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DropDownOptGroupVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionDropDownOptGroup"
+                                },
+                                "fn_body": "drop_down_opt_group_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `DropDownOptGroupVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DropDownOptGroupVecSlice"
+                                },
+                                "fn_body": "drop_down_opt_group_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DropDownOptGroupVecSlice"
+                                },
+                                "fn_body": "drop_down_opt_group_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "DropDownOptGroupVecDestructor": {
+                        "external": "azul_layout::widgets::drop_down::DropDownOptGroupVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "DropDownOptGroupVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "DropDownOptGroupVecDestructorType": {
+                        "external": "azul_layout::widgets::drop_down::DropDownOptGroupVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "DropDownOptGroupVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "FormEntryVecDestructorType": {
+                        "external": "azul_layout::widgets::form::FormEntryVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "FormEntryVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "FormEntryVecDestructor": {
+                        "external": "azul_layout::widgets::form::FormEntryVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "FormEntryVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "FormEntryVec": {
+                        "external": "azul_layout::widgets::form::FormEntryVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "FormEntry",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "FormEntryVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `FormEntryVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "FormEntryVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `FormEntryVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FormEntryVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "form_entry_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "form_entry_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "form_entry_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `FormEntryVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "FormEntry"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FormEntryVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `FormEntryVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const FormEntry"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FormEntryVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionFormEntry"
+                                },
+                                "fn_body": "form_entry_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `FormEntryVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FormEntryVecSlice"
+                                },
+                                "fn_body": "form_entry_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FormEntryVecSlice"
+                                },
+                                "fn_body": "form_entry_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -128466,6 +130494,152 @@
                                     "type": "GlobalHotkeyInfo",
                                     "doc": [
                                         "Some value of type GlobalHotkeyInfo"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionDropDownOptGroup": {
+                        "external": "azul_layout::widgets::drop_down::OptionDropDownOptGroup",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "DropDownOptGroup",
+                                    "doc": [
+                                        "Some value of type DropDownOptGroup"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionDateTimeLocalPickerOnChange": {
+                        "external": "azul_layout::widgets::datetime_local::OptionDateTimeLocalPickerOnChange",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "DateTimeLocalPickerOnChange"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionFormOnReset": {
+                        "external": "azul_layout::widgets::form::OptionFormOnReset",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "FormOnReset"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionFormOnSubmit": {
+                        "external": "azul_layout::widgets::form::OptionFormOnSubmit",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "FormOnSubmit"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionFormEntry": {
+                        "external": "azul_layout::widgets::form::OptionFormEntry",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "FormEntry",
+                                    "doc": [
+                                        "Some value of type FormEntry"
                                     ]
                                 }
                             }
