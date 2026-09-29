@@ -352,8 +352,27 @@ def gen_api_modules(cl):
     ]
     for t in names:
         out.append(f'    ("{t}", "{ALLC[t][0]}"),')
+    c_like = sorted(
+        t for t, v in cl.items()
+        if v is not None and v[1].get('enum_fields') is not None and not v[1].get('generic_params')
+        and all('type' not in vv for vm in v[1]['enum_fields'] for vv in vm.values())
+    )
     out += [
         '];',
+        '',
+        '/// Every C-like (unit-only) enum the lowering can produce, sorted.',
+        'pub(crate) static C_LIKE_ENUMS: &[&str] = &[',
+    ]
+    out += [f'    "{t}",' for t in c_like]
+    out += [
+        '];',
+        '',
+        '/// `true` if `ty` is a C-like enum (a plain C enum; some bindings spell',
+        '/// those without the `Az` prefix or pass them as integers).',
+        '#[must_use]',
+        'pub fn is_c_like_enum(ty: &str) -> bool {',
+        '    C_LIKE_ENUMS.binary_search(&ty).is_ok()',
+        '}',
         '',
         '/// The api.json module of `ty` (`"css"`, `"vec"`, `"option"`, `"str"`, ...).',
         '#[must_use]',

@@ -21,6 +21,11 @@ use super::{
 };
 
 pub mod c;
+pub mod cpp;
+pub mod csharp;
+pub mod java;
+pub mod kotlin;
+pub mod python;
 pub mod rust;
 
 /// How one language spells the IR node kinds.
@@ -139,6 +144,60 @@ pub fn is_tall(s: &dyn ExprSyntax, e: &Expr) -> bool {
     }
 }
 
+/// An item's value, or why this language cannot build it at all.
+pub fn item_doc(s: &dyn ExprSyntax, item: &super::ir::Item) -> Result<Doc, String> {
+    blocker(s, &item.value).map_or_else(|| Ok(expr_doc_top(s, &item.value)), Err)
+}
+
+/// For languages that return a style as a NATIVE list of
+/// `CssPropertyWithConditions` (their bindings cannot build the Vec type
+/// from many items, or take native lists anyway): the kept items of a
+/// top-level droppable `Vec`, one per line, in `open .. close`. `None` if
+/// the value is not such a Vec.
+#[must_use]
+pub fn native_list(s: &dyn ExprSyntax, e: &Expr, open: &str, close: &str) -> Option<Doc> {
+    match e {
+        Expr::Vec { ty, items, .. } if is_droppable_vec(ty) => {
+            let docs: Vec<Doc> = kept_items(s, ty, items)
+                .into_iter()
+                .map(|i| expr_doc(s, i))
+                .collect();
+            let broken = !docs.is_empty();
+            Some(Doc::list(open, docs, ", ", close, false, broken, true))
+        }
+        _ => None,
+    }
+}
+
+/// `true` if any node of the module is a struct literal (printers that
+/// need a helper for struct literals emit it only then).
+#[must_use]
+pub fn uses_struct(m: &Module) -> bool {
+    let mut found = false;
+    for item in &m.items {
+        item.value.walk(&mut |e| {
+            if matches!(e, Expr::Struct { .. }) {
+                found = true;
+            }
+        });
+    }
+    found
+}
+
+/// `true` if any node of the module matches `pred`.
+#[must_use]
+pub fn module_any(m: &Module, pred: &dyn Fn(&Expr) -> bool) -> bool {
+    let mut found = false;
+    for item in &m.items {
+        item.value.walk(&mut |e| {
+            if pred(e) {
+                found = true;
+            }
+        });
+    }
+    found
+}
+
 /// Lay out `e` in language `s`.
 #[must_use]
 pub fn expr_doc(s: &dyn ExprSyntax, e: &Expr) -> Doc {
@@ -251,6 +310,64 @@ pub fn c_escape(s: &str) -> String {
     out
 }
 
+/// Escape `s` for a double-quoted literal of a language with backslash
+/// escapes: `\\`, `\"`, `\n`, `\r`, `\t`, `extra` (e.g. `$` for Kotlin /
+/// Julia / V interpolation) backslashed, every other non-printable or
+/// non-ASCII char through `unicode(codepoint)` (e.g. `é`).
+#[must_use]
+pub fn escape_quoted(s: &str, extra: &[char], unicode: &dyn Fn(u32) -> String) -> String {
+    let mut out = String::new();
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if extra.contains(&c) => {
+                out.push('\\');
+                out.push(c);
+            }
+            ' '..='~' => out.push(c),
+            c => out.push_str(&unicode(u32::from(c))),
+        }
+    }
+    out
+}
+
+/// `é` / `\U0001f600` (Python, C#, Java, JS, Kotlin, D, Go ...).
+#[must_use]
+pub fn unicode_u4(cp: u32) -> String {
+    if cp < 0x1_0000 {
+        format!("\\u{cp:04x}")
+    } else {
+        format!("\\U{cp:08x}")
+    }
+}
+
+/// `\u{e9}` (Rust-, Swift-, Ruby-, Lua-style).
+#[must_use]
+pub fn unicode_braced(cp: u32) -> String {
+    format!("\\u{{{cp:x}}}")
+}
+
+/// A double-quoted literal whose only escape is doubling the quote
+/// (Pascal/Ada/VB/COBOL/Fortran/ALGOL style: `"say ""hi"""`). Non-ASCII
+/// is kept (these compilers take UTF-8 source).
+#[must_use]
+pub fn doubled_quote(s: &str, quote: char) -> String {
+    let mut out = String::new();
+    out.push(quote);
+    for c in s.chars() {
+        if c == quote {
+            out.push(quote);
+        }
+        out.push(c);
+    }
+    out.push(quote);
+    out
+}
+
 /// Make `text` safe inside a `/* .. */` block comment.
 #[must_use]
 pub fn block_comment_safe(text: &str) -> String {
@@ -292,7 +409,15 @@ pub fn uses_nonfinite_float(m: &Module) -> bool {
 /// Every language printer, in the order the docs list them.
 #[must_use]
 pub fn all() -> Vec<Box<dyn CodegenBackend>> {
-    alloc::vec![Box::new(rust::Rust), Box::new(c::C)]
+    alloc::vec![
+        Box::new(rust::Rust),
+        Box::new(c::C),
+        Box::new(cpp::Cpp),
+        Box::new(python::Python),
+        Box::new(csharp::CSharp),
+        Box::new(java::Java),
+        Box::new(kotlin::Kotlin),
+    ]
 }
 
 /// Look a printer up by its id or one of its aliases (`"c++"` -> `cpp`).
