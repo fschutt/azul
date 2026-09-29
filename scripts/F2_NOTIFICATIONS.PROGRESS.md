@@ -57,9 +57,11 @@ AzClock alarms / scheduled notifications: NOT IN SCOPE (separate feature).
 - `5ce7e18b6` fix (G4 residual): a new button set's first notification waits for its category
   (`getNotificationCategoriesWithCompletionHandler:` before the add)
 
+- `9c0fad302` report `scripts/F2_NOTIFICATIONS_2026_09_29.md`
+
 ## 4. IN PROGRESS
 
-- none: final report `scripts/F2_NOTIFICATIONS_2026_09_29.md`. iOS `launched_app`, the Android
+- none (DONE): final report `scripts/F2_NOTIFICATIONS_2026_09_29.md`. iOS `launched_app`, the Android
   `requestPermissions` thread, the Windows COM activator, `AppConfig::app_id` and the E2E
   notification op are PLANS in the report, not code.
 
