@@ -14,10 +14,12 @@ here (house rule).
   `wrapper_dom_limitation`, `registration_note`, `one_line`), `mod.rs` (`call_param_names`
   for the multi-arg Dom ctors; `item_dom_blocker` uses `is_dom_item`); Java
 - 240e0ebc8 feat: Go (wrapper layer, dot-at-line-end chains), Swift (native API)
+- 2a7c082f2 test(builder): export tests follow exports_dom() (they assumed Java had none)
+- 6d5b10881 feat: kotlin, csharp, node, ruby, lua, php (php: app limited) + lang::unicode_utf16
 
 ## IN PROGRESS
 
-- kotlin, csharp, node / ruby, lua, php / nim, d, zig, julia / ocaml, haskell, pascal:
+- nim, d, zig, julia / ocaml, haskell, pascal:
   implemented by helper agents in this worktree (no commits by them); reviewed and committed
   here.
 
