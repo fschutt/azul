@@ -22,7 +22,8 @@
 //! one link per line (`Azul::Dom.div.with_css("..").with_child(..)`; it
 //! moves its receiver, as in Rust); a parameter is a Crystal `String` with
 //! the component's default as its default argument, a joined string an
-//! interpolation (`"by #{author}"`). The UI module is `AzulUi`.
+//! interpolation (`"by #{author}"`). A component instance calls the
+//! component's class method (`render_badge(tag)`). The UI module is `AzulUi`.
 
 use alloc::{
     format,
@@ -298,6 +299,17 @@ impl ExprSyntax for Crystal {
         Doc::text(cr_param(name))
     }
 
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `render_card("Hi", title)`: another class method of the module,
+    /// called on the module's `self` (the native `String` arguments are the
+    /// default `native_string`).
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+        apply(item.snake(), args, broken)
+    }
+
     /// An interpolated string.
     fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
         let mut out = String::from("\"");
@@ -485,10 +497,11 @@ const REGISTRATION_HELPERS: &str = "
 ";
 
 /// The registration of a component library (`m.library`), inside the
-/// module: per component a default-arguments wrapper, a render and a
-/// compile function (class methods; the C function pointers are proc
-/// literals that only call them, so they capture nothing, which C function
-/// pointers require) and its `ComponentDef`; then `register_<library>_library`,
+/// module: per component a default-arguments wrapper, a render function (a
+/// class method; the C function pointer is a proc literal that only calls
+/// it, so it captures nothing, which C function pointers require) and its
+/// `ComponentDef` (code calls it through its render function:
+/// `ComponentCodegen::RenderFunction`); then `register_<library>_library`,
 /// which `Azul::AppConfig#add_component_library` takes as
 /// `->{ AzulUi.register_<library>_library }`. Items the module does not have
 /// are skipped.
@@ -538,13 +551,6 @@ fn crystal_registration(m: &Module, lib: &LibrarySpec) -> String {
              __take))\n  end\n",
             args.join(", ")
         );
-        let _ = write!(
-            s,
-            "\n  def self.{sn}_compile_fn(def_ : Void*, target : Void*, model : Void*, indent : \
-             LibC::SizeT) : LibAzul::AzResultStringCompileError\n    \
-             LibAzul.azResultStringCompileError_ok({})\n  end\n",
-            az(&format!("{module}.{item_fn}_default"))
-        );
         let fields = if item.params.is_empty() {
             "LibAzul.azComponentDataFieldVec_create".to_string()
         } else {
@@ -571,10 +577,8 @@ fn crystal_registration(m: &Module, lib: &LibrarySpec) -> String {
              LibAzul::AzComponentSource::UserDefined,\n      data_model: \
              LibAzul::AzComponentDataModel.new(\n        name: {},\n        description: {},\n        \
              fields: {fields}\n      ),\n      render_fn: ->(def_ : Void*, model : Void*, map : \
-             Void*) {{ {module}.{sn}_render_fn(def_, model, map) }},\n      compile_fn: ->(def_ : \
-             Void*, target : Void*, model : Void*, indent : LibC::SizeT) {{ \
-             {module}.{sn}_compile_fn(def_, target, model, indent) }},\n      render_fn_source: \
-             Azul::Conv.in_OptionString(nil),\n      compile_fn_source: \
+             Void*) {{ {module}.{sn}_render_fn(def_, model, map) }},\n      codegen: \
+             LibAzul.azComponentCodegen_renderFunction,\n      render_fn_source: \
              Azul::Conv.in_OptionString(nil)\n    ))\n  end\n",
             az(&lib.name),
             az(&c.name),

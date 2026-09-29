@@ -45,10 +45,6 @@ module AzulUi
     LibAzul.azResultStyledDomRenderDomError_ok(LibAzul.azStyledDom_createFromDom(dom.__take))
   end
 
-  def self.card_compile_fn(def_ : Void*, target : Void*, model : Void*, indent : LibC::SizeT) : LibAzul::AzResultStringCompileError
-    LibAzul.azResultStringCompileError_ok(Azul::Native.az_string("AzulUi.render_card_default"))
-  end
-
   def self.card_def : Azul::ComponentDef
     Azul::ComponentDef.__own(LibAzul::AzComponentDef.new(
       id: LibAzul.azComponentId_create(Azul::Native.az_string("user"), Azul::Native.az_string("card")),
@@ -68,9 +64,8 @@ module AzulUi
         ])
       ),
       render_fn: ->(def_ : Void*, model : Void*, map : Void*) { AzulUi.card_render_fn(def_, model, map) },
-      compile_fn: ->(def_ : Void*, target : Void*, model : Void*, indent : LibC::SizeT) { AzulUi.card_compile_fn(def_, target, model, indent) },
-      render_fn_source: Azul::Conv.in_OptionString(nil),
-      compile_fn_source: Azul::Conv.in_OptionString(nil)
+      codegen: LibAzul.azComponentCodegen_renderFunction,
+      render_fn_source: Azul::Conv.in_OptionString(nil)
     ))
   end
 

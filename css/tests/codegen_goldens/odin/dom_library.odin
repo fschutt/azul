@@ -77,11 +77,6 @@ card_render_fn :: proc "c" (def: ^azul.AzComponentDef, model: ^azul.AzComponentD
 	return azul.AzResultStyledDomRenderDomError_ok(azul.AzStyledDom_createFromDom(dom))
 }
 
-card_compile_fn :: proc "c" (def: ^azul.AzComponentDef, target: ^azul.AzCompileTarget, model: ^azul.AzComponentDataModel, indent: uint) -> azul.AzResultStringCompileError {
-	context = runtime.default_context()
-	return azul.AzResultStringCompileError_ok(css_str("render_card_default()"))
-}
-
 card_def :: proc() -> azul.AzComponentDef {
 	fields := [?]azul.AzComponentDataField{
 		string_field("title", "Hello", "Text of the <h2>"),
@@ -107,9 +102,8 @@ card_def :: proc() -> azul.AzComponentDef {
 			fields = field_vec,
 		},
 		render_fn = card_render_fn,
-		compile_fn = card_compile_fn,
+		codegen = azul.AzComponentCodegen_renderFunction(),
 		render_fn_source = azul.AzOptionString_none(),
-		compile_fn_source = azul.AzOptionString_none(),
 	}
 }
 

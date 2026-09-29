@@ -82,11 +82,6 @@ begin
   Dom.Free;
 end;
 
-function CardCompileFn(Def: PAzComponentDef; Target: PAzCompileTarget; Model: PAzComponentDataModel; Indent: SizeUInt): TAzResultStringCompileError; cdecl;
-begin
-  Result := AzResultStringCompileError_ok(azul_string_from('RenderCardDefault'));
-end;
-
 function CardDef: TAzComponentDef;
 var
   Fields: array[0..3] of TAzComponentDataField;
@@ -109,9 +104,8 @@ begin
   for Index := 0 to 3 do
     AzComponentDataField_delete(@Fields[Index]);
   Result.render_fn := @CardRenderFn;
-  Result.compile_fn := @CardCompileFn;
+  Result.codegen := AzComponentCodegen_renderFunction;
   Result.render_fn_source := AzOptionString_none;
-  Result.compile_fn_source := AzOptionString_none;
 end;
 
 { The component library `user`: hand AzAppConfig_addComponentLibrary a

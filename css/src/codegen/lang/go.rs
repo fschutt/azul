@@ -155,6 +155,25 @@ fn go_str(s: &str) -> String {
     format!("\"{}\"", escape_quoted(s, &[], &unicode_u4))
 }
 
+/// What turns a Go `string` into the `*azul.String` the wrapper methods take.
+const AZUL_STR: &str = "azul.Str(";
+
+/// `azul.Str(x)` for the Go `string` expression `x`.
+fn azul_str(x: &str) -> String {
+    format!("{AZUL_STR}{x})")
+}
+
+/// The Go `string` inside an [`azul_str`] argument: a DOM item takes Go
+/// strings, so an item call passes the string itself.
+fn go_string_arg(d: Doc) -> Doc {
+    if let Doc::Text(t) = &d {
+        if let Some(x) = t.strip_prefix(AZUL_STR).and_then(|r| r.strip_suffix(')')) {
+            return Doc::text(x);
+        }
+    }
+    d
+}
+
 /// The DOM through the wrapper layer (`*azul.Dom`, `*azul.SmallAriaInfo`).
 #[derive(Debug, Copy, Clone, Default)]
 struct GoDom;
@@ -165,7 +184,7 @@ impl WrapperDomSyntax for GoDom {
     }
 
     fn native_string(&self, s: &str) -> Doc {
-        Doc::text(format!("azul.Str({})", go_str(s)))
+        Doc::text(azul_str(&go_str(s)))
     }
 
     fn factory(&self, class: &str, method: &str, args: Vec<Doc>, broken: bool) -> Doc {
@@ -177,7 +196,7 @@ impl WrapperDomSyntax for GoDom {
     }
 
     fn param(&self, name: &Ident) -> Doc {
-        Doc::text(format!("azul.Str({})", go_param(name)))
+        Doc::text(azul_str(&go_param(name)))
     }
 
     fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
@@ -189,7 +208,24 @@ impl WrapperDomSyntax for GoDom {
             })
             .collect::<Vec<_>>()
             .join(" + ");
-        Doc::text(format!("azul.Str({joined})"))
+        Doc::text(azul_str(&joined))
+    }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `RenderCard("Hi", title)`: another function of the package (named
+    /// like `dom_item_fn` names it). The arguments arrive as
+    /// `azul.Str(..)` (the default `ExprSyntax::native_string` spells them
+    /// with `native_string` / `param` / `concat`); the callee takes the Go
+    /// `string` inside.
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+        go_call(
+            item.upper_camel(),
+            args.into_iter().map(go_string_arg).collect(),
+            broken,
+        )
     }
 }
 

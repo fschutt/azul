@@ -19,10 +19,11 @@
 //! where they are used; a joined string is `(string->azul-string
 //! (string-append "by " author))`. The app follows `examples/racket`
 //! (`window-create-options-create` registers the layout callback). The
-//! registration's render / compile functions are real C function pointers
+//! registration's render functions are real C function pointers
 //! (`function-ptr`: libffi callbacks, which return the result struct by
 //! value); the library function goes through the binding's host invoker
-//! (`app-config-add-component-library`).
+//! (`app-config-add-component-library`). A component instance is a call of
+//! its render function (`(render-badge tag)`, Racket strings as arguments).
 
 use alloc::{
     format,
@@ -214,19 +215,40 @@ impl ExprSyntax for Racket {
 
     /// `(string->azul-string (string-append "by " author))`.
     fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
-        let args: Vec<Doc> = parts
-            .iter()
-            .map(|p| match p {
-                ConcatPart::Lit(s) => Doc::text(quoted(s)),
-                ConcatPart::Param(i) => Doc::text(rkt_param(i)),
-            })
-            .collect();
-        form(
-            "string->azul-string".to_string(),
-            vec![form("string-append".to_string(), args, false)],
-            false,
-        )
+        form("string->azul-string".to_string(), vec![string_append(parts)], false)
     }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `(render-card "Hi" title)`: another function of the module.
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+        form(fn_name_of(item), args, broken)
+    }
+
+    /// A Racket string: a literal, a parameter passed on, or
+    /// `(string-append "by " author)`.
+    fn native_string(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        match parts {
+            [] => Doc::text(quoted("")),
+            [ConcatPart::Lit(s)] => Doc::text(quoted(s)),
+            [ConcatPart::Param(p)] => Doc::text(rkt_param(p)),
+            _ => string_append(parts),
+        }
+    }
+}
+
+/// `(string-append "by " author)`: a Racket string joined from `parts`.
+fn string_append(parts: &[ConcatPart<'_>]) -> Doc {
+    let args: Vec<Doc> = parts
+        .iter()
+        .map(|p| match p {
+            ConcatPart::Lit(s) => Doc::text(quoted(s)),
+            ConcatPart::Param(i) => Doc::text(rkt_param(i)),
+        })
+        .collect();
+    form("string-append".to_string(), args, false)
 }
 
 /// `(name [title "Hello"] ..)`: parameters are optional with their
@@ -275,7 +297,12 @@ const CSS_UNION: &str = r";; A union value of TYPE holding one variant. The vari
 ";
 
 fn fn_name(item: &Item) -> String {
-    item.name.kebab()
+    fn_name_of(&item.name)
+}
+
+/// [`fn_name`] of the item named `name`.
+fn fn_name_of(name: &Ident) -> String {
+    name.kebab()
 }
 
 /// What the registration calls (only when a component takes parameters).
@@ -308,9 +335,11 @@ const REGISTRATION_HELPERS: &str = r";; The String value of the data-model field
 ";
 
 /// The registration of a component library (`m.library`): per component a
-/// default-arguments wrapper, a render and a compile function made C
-/// function pointers with `function-ptr` (kept alive by their module-level
-/// definitions), and its `ComponentDef`; then `register-<library>-library`,
+/// default-arguments wrapper, a render function made a C function pointer
+/// with `function-ptr` (kept alive by its module-level definition), and its
+/// `ComponentDef` (built positionally; code calls the component through its
+/// render function: `ComponentCodegen::RenderFunction`); then
+/// `register-<library>-library`,
 /// which `app-config-add-component-library` takes (through the binding's
 /// host invoker). Items the module does not have are skipped.
 fn racket_registration(m: &Module, lib: &LibrarySpec) -> String {
@@ -365,13 +394,6 @@ fn racket_registration(m: &Module, lib: &LibrarySpec) -> String {
              (result-styled-dom-render-dom-error-ok (styled-dom-create-from-dom {render_call})))\n   \
              (_fun _pointer _pointer _pointer -> _AzResultStyledDomRenderDomError)))\n"
         );
-        let _ = write!(
-            s,
-            "\n(define {ck}-compile-fn\n  (function-ptr\n   (lambda (def target model indent)\n     \
-             (result-string-compile-error-ok {}))\n   (_fun _pointer _pointer _pointer _size -> \
-             _AzResultStringCompileError)))\n",
-            az(&format!("({item_fn}-default)"))
-        );
         let fields = if item.params.is_empty() {
             "(component-data-field-vec-create)".to_string()
         } else {
@@ -397,8 +419,7 @@ fn racket_registration(m: &Module, lib: &LibrarySpec) -> String {
             "\n(define ({ck}-def)\n  (make-AzComponentDef\n   (component-id-create {} {})\n   \
              {}\n   {}\n   ;; The CSS is applied per node by {item_fn}.\n   {}\n   \
              AzComponentSource_UserDefined\n   (make-AzComponentDataModel\n    {}\n    {}\n    \
-             {fields})\n   {ck}-render-fn\n   {ck}-compile-fn\n   (option-string-none)\n   \
-             (option-string-none)))\n",
+             {fields})\n   {ck}-render-fn\n   {}\n   (option-string-none)))\n",
             az(&lib.name),
             az(&c.name),
             az(&c.display_name),
@@ -406,6 +427,10 @@ fn racket_registration(m: &Module, lib: &LibrarySpec) -> String {
             az(""),
             az(&c.data_model),
             az(&c.data_model_description),
+            // `(component-codegen-render-function)`
+            Racket
+                .variant("ComponentCodegen", EnumShape::Tagged, "RenderFunction", Vec::new(), false)
+                .flat(),
         );
         defs.push(format!("({ck}-def)"));
     }

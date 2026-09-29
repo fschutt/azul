@@ -16,8 +16,9 @@
 //! `$ptr`). Parameters are typed PHP `string`s defaulting to the values the
 //! item was made with, converted by `azul_str(..)` at every use; a joined
 //! text is `azul_str("by " . $author)`; DOM literals are double-quoted (`$`
-//! escaped). No app can open a window through the FFI binding (every
-//! callback goes through `Azul::registerCallback`, which throws: php-ffi
+//! escaped). A component instance calls the component's function with PHP
+//! strings (`render_badge($tag)`). No app can open a window through the FFI
+//! binding (every callback goes through `Azul::registerCallback`, which throws: php-ffi
 //! cannot turn a closure into a C function pointer), and the Zend extension
 //! that can (`php_api.rs`) has no `Dom::create_a` / `SmallAriaInfo`, so an
 //! app's `main.php` builds the window's content and says why on STDERR.
@@ -211,16 +212,37 @@ impl ExprSyntax for PhpDom {
     }
 
     fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
-        let joined = parts
-            .iter()
-            .map(|p| match p {
-                ConcatPart::Lit(s) => php_dq(s),
-                ConcatPart::Param(i) => php_param(i),
-            })
-            .collect::<Vec<_>>()
-            .join(" . ");
-        Doc::text(format!("azul_str({joined})"))
+        Doc::text(format!("azul_str({})", php_joined(parts)))
     }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `render_card("Hi", $title)`: another function of the module.
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+        Doc::call(item.snake(), args, broken)
+    }
+
+    /// A PHP string argument: `"Hi"`, `$title`, `"by " . $author`.
+    fn native_string(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        Doc::text(php_joined(parts))
+    }
+}
+
+/// A PHP string joined from `parts` (`"by " . $author`).
+fn php_joined(parts: &[ConcatPart<'_>]) -> String {
+    if parts.is_empty() {
+        return php_dq("");
+    }
+    parts
+        .iter()
+        .map(|p| match p {
+            ConcatPart::Lit(s) => php_dq(s),
+            ConcatPart::Param(i) => php_param(i),
+        })
+        .collect::<Vec<_>>()
+        .join(" . ")
 }
 
 /// A DOM item: a function taking PHP strings that default to the values

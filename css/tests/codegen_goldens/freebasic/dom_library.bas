@@ -59,10 +59,6 @@ Function CardRenderFn Cdecl (ByVal def_ As AzComponentDef Ptr, ByVal model As Az
     Return AzResultStyledDomRenderDomError_ok(AzStyledDom_createFromDom(RenderCard(ModelString(model, "title", "Hello"), ModelString(model, "text", "Some text"), ModelString(model, "href", "https://azul.rs"), ModelString(model, "author", "me"))))
 End Function
 
-Function CardCompileFn Cdecl (ByVal def_ As AzComponentDef Ptr, ByVal target As AzCompileTarget Ptr, ByVal model As AzComponentDataModel Ptr, ByVal indent As UInteger) As AzResultStringCompileError
-    Return AzResultStringCompileError_ok(CssStr("RenderCardDefault()"))
-End Function
-
 Function CardDef() As AzComponentDef
     Dim fields(0 To 3) As AzComponentDataField
     fields(0) = StringField("title", "Hello", "Text of the <h2>")
@@ -84,9 +80,8 @@ Function CardDef() As AzComponentDef
         AzComponentDataField_delete(@fields(i))
     Next
     d.render_fn = @CardRenderFn
-    d.compile_fn = @CardCompileFn
+    d.codegen = AzComponentCodegen_renderFunction()
     d.render_fn_source = AzOptionString_none()
-    d.compile_fn_source = AzOptionString_none()
     Return d
 End Function
 

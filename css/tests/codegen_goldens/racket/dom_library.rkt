@@ -70,12 +70,6 @@
      (result-styled-dom-render-dom-error-ok (styled-dom-create-from-dom (render-card (model-string m "title" "Hello") (model-string m "text" "Some text") (model-string m "href" "https://azul.rs") (model-string m "author" "me")))))
    (_fun _pointer _pointer _pointer -> _AzResultStyledDomRenderDomError)))
 
-(define card-compile-fn
-  (function-ptr
-   (lambda (def target model indent)
-     (result-string-compile-error-ok (string->azul-string "(render-card-default)")))
-   (_fun _pointer _pointer _pointer _size -> _AzResultStringCompileError)))
-
 (define (card-def)
   (make-AzComponentDef
    (component-id-create (string->azul-string "user") (string->azul-string "card"))
@@ -96,8 +90,7 @@
       (string-field "href" "https://azul.rs" "`href` of the <a>")
       (string-field "author" "me" "Text of the <span>"))))
    card-render-fn
-   card-compile-fn
-   (option-string-none)
+   (component-codegen-render-function)
    (option-string-none)))
 
 ;; The component library `user`:

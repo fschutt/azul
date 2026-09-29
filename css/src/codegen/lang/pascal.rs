@@ -306,8 +306,9 @@ fn pas_item_name(name: &Ident) -> String {
 }
 
 /// Each parameter's Pascal name: one that is reserved, or that the body
-/// uses (`Result`, the wrapper classes, the item's own function) or an
-/// earlier parameter took (Pascal ignores case), gets `_`.
+/// uses (`Result`, the wrapper classes, the item's own function and the
+/// functions of the items it calls) or an earlier parameter took (Pascal
+/// ignores case), gets `_`.
 fn pas_params(item: &Item) -> Vec<(Ident, String)> {
     let mut taken: Vec<String> = vec![
         "result".to_string(),
@@ -315,6 +316,11 @@ fn pas_params(item: &Item) -> Vec<(Ident, String)> {
         "tsmallariainfo".to_string(),
         pas_item_name(&item.name).to_ascii_lowercase(),
     ];
+    item.value.walk(&mut |e| {
+        if let Expr::ItemCall { item: callee, .. } = e {
+            taken.push(pas_item_name(callee).to_ascii_lowercase());
+        }
+    });
     item.params
         .iter()
         .map(|p| {
@@ -421,6 +427,22 @@ impl ExprSyntax for PascalDom {
                 .join(" + "),
         )
     }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `RenderCard('Hi', Title)`: another function of the unit (its
+    /// interface declares them all); the arguments are the default
+    /// `native_string` (Pascal strings, as the wrapper classes take).
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+        let f = pas_item_name(item);
+        if args.is_empty() {
+            Doc::text(f)
+        } else {
+            Doc::call(f, args, broken)
+        }
+    }
 }
 
 /// A DOM item: a function of `const` strings (the trailing ones default to
@@ -514,8 +536,9 @@ end;
 /// `dom::c_family_registration` writes for C: per component a
 /// default-arguments wrapper, a `cdecl` render function that reads the data
 /// model and hands the raw `TAzDom` (`TDom.Release`) to
-/// `AzStyledDom_createFromDom`, a compile function and its
-/// `TAzComponentDef`; then `Register<Library>Library`. Returns its interface
+/// `AzStyledDom_createFromDom`, and its `TAzComponentDef` (code calls it
+/// through its render function: `ComponentCodegen::RenderFunction`); then
+/// `Register<Library>Library`. Returns its interface
 /// declaration and the implementation. Items the module does not have are
 /// skipped.
 fn registration(m: &Module, lib: &LibrarySpec) -> (String, String) {
@@ -578,13 +601,6 @@ fn registration(m: &Module, lib: &LibrarySpec) -> (String, String) {
              {dom}.Free;\nend;\n",
             call(reads, ",")
         );
-        let _ = write!(
-            s,
-            "\nfunction {cn}CompileFn({def}: PAzComponentDef; Target: PAzCompileTarget; {model}: \
-             PAzComponentDataModel; Indent: SizeUInt): TAzResultStringCompileError; \
-             cdecl;\nbegin\n  Result := AzResultStringCompileError_ok(azul_string_from({}));\nend;\n",
-            pas_str(&format!("{item_fn}Default"))
-        );
         let n = item.params.len();
         let _ = writeln!(s, "\nfunction {cn}Def: TAzComponentDef;");
         if n > 0 {
@@ -634,9 +650,8 @@ fn registration(m: &Module, lib: &LibrarySpec) -> (String, String) {
             );
         }
         let _ = writeln!(s, "  Result.render_fn := @{cn}RenderFn;");
-        let _ = writeln!(s, "  Result.compile_fn := @{cn}CompileFn;");
         s.push_str(
-            "  Result.render_fn_source := AzOptionString_none;\n  Result.compile_fn_source := \
+            "  Result.codegen := AzComponentCodegen_renderFunction;\n  Result.render_fn_source := \
              AzOptionString_none;\nend;\n",
         );
         defs.push(format!("{cn}Def"));

@@ -16,8 +16,13 @@
 //! call breaks (so `-strict-style` accepts it); a parameter is an Odin
 //! `string` with the component's default as its default value, converted
 //! by `css_str` where it is used; a joined string is `css_concat("by ",
-//! author)`. The app's layout callback is a `proc "c"` that sets up the
-//! Odin context before it calls the (Odin-convention) render function.
+//! author)`. A component instance calls the component's proc with Odin
+//! `string`s (`render_badge(tag)`); a text joined from parameters would need
+//! memory the caller frees, so such a call is a limitation (as in C). A
+//! registered component is called through its render function
+//! (`azul.AzComponentCodegen_renderFunction()`). The app's layout callback
+//! is a `proc "c"` that sets up the Odin context before it calls the
+//! (Odin-convention) render function.
 
 use alloc::{
     format,
@@ -202,7 +207,41 @@ impl ExprSyntax for Odin {
             .collect();
         Doc::text(format!("css_concat({})", args.join(", ")))
     }
+
+    fn limitation(&self, e: &Expr) -> Option<String> {
+        match e {
+            Expr::ItemCall { args, .. } if args.iter().any(|a| matches!(a, Expr::Concat(_))) => {
+                Some(ODIN_JOINED_ARG.to_string())
+            }
+            _ => None,
+        }
+    }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `render_card("Hi", title)`: another proc of the package (Odin
+    /// resolves package-level declarations in any order).
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+        odin_call(item.snake(), args, broken)
+    }
+
+    /// An Odin `string` argument: a literal or a parameter passed on.
+    fn native_string(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        match parts {
+            [] => Doc::text(odin_lit("")),
+            [ConcatPart::Lit(s)] => Doc::text(odin_lit(s)),
+            [ConcatPart::Param(p)] => Doc::text(odin_param(p)),
+            _ => self.unsupported(ODIN_JOINED_ARG),
+        }
+    }
 }
+
+/// Why Odin cannot pass a text joined from parameters to a component's
+/// render function.
+const ODIN_JOINED_ARG: &str = "a component's text is an Odin `string`: a text joined from \
+                               parameters would need memory the caller frees";
 
 /// `title: string = "Hello", ..` and the `_ = x` lines of the parameters
 /// the body never reads (`-vet` rejects unused ones).
@@ -293,9 +332,10 @@ string_field :: proc(name: string, value: string, description: string) -> azul.A
 ";
 
 /// The registration of a component library (`m.library`), mirroring the C
-/// one: per component a default-arguments wrapper, a `proc "c"` render and
-/// compile function (they set up the Odin context first) and its
-/// `ComponentDef`; then `register_<library>_library`, the
+/// one: per component a default-arguments wrapper, a `proc "c"` render
+/// function (it sets up the Odin context first) and its `ComponentDef`
+/// (code calls it through its render function:
+/// `ComponentCodegen::RenderFunction`); then `register_<library>_library`, the
 /// `AzRegisterComponentLibraryFnType` that
 /// `azul.AzAppConfig_addComponentLibrary` takes. Items the module does not
 /// have are skipped.
@@ -344,14 +384,6 @@ fn odin_registration(m: &Module, lib: &LibrarySpec) -> String {
              azul.AzResultStyledDomRenderDomError_ok(azul.AzStyledDom_createFromDom(dom))\n}}\n",
             args.join(", ")
         );
-        let _ = write!(
-            s,
-            "\n{sn}_compile_fn :: proc \"c\" (def: ^azul.AzComponentDef, target: \
-             ^azul.AzCompileTarget, model: ^azul.AzComponentDataModel, indent: uint) -> \
-             azul.AzResultStringCompileError {{\n\tcontext = runtime.default_context()\n\treturn \
-             azul.AzResultStringCompileError_ok({})\n}}\n",
-            az(&format!("{item_fn}_default()"))
-        );
         let _ = write!(s, "\n{sn}_def :: proc() -> azul.AzComponentDef {{\n");
         let fields = if item.params.is_empty() {
             "azul.AzComponentDataFieldVec_create()".to_string()
@@ -381,8 +413,8 @@ fn odin_registration(m: &Module, lib: &LibrarySpec) -> String {
              {item_fn}.\n\t\tcss = {},\n\t\tsource = azul.AzComponentSource.UserDefined,\n\t\t\
              data_model = azul.AzComponentDataModel{{\n\t\t\tname = {},\n\t\t\tdescription = \
              {},\n\t\t\tfields = {fields},\n\t\t}},\n\t\trender_fn = {sn}_render_fn,\n\t\t\
-             compile_fn = {sn}_compile_fn,\n\t\trender_fn_source = azul.AzOptionString_none(),\n\t\t\
-             compile_fn_source = azul.AzOptionString_none(),\n\t}}\n}}\n",
+             codegen = azul.AzComponentCodegen_renderFunction(),\n\t\trender_fn_source = \
+             azul.AzOptionString_none(),\n\t}}\n}}\n",
             az(&lib.name),
             az(&c.name),
             az(&c.display_name),

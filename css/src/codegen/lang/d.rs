@@ -15,7 +15,8 @@
 //! rule in `lang_d/wrappers.rs`), a by-value `self` method replaces its
 //! receiver's value and returns it (`.withChild(..)`, chained), parameters
 //! are `string`s defaulting to the component's values, and a joined text is
-//! `"by " ~ author`. A DOM module is `module ui;`. An app is a dub project
+//! `"by " ~ author`. A component instance calls the component's function
+//! (`renderBadge(tag)`). A DOM module is `module ui;`. An app is a dub project
 //! (depending on the generated `target/codegen/d` package):
 //! `WindowCreateOptions(&layout)` with a typed layout function over any
 //! class, the window title, `App(new AppData, AppConfig())` and
@@ -175,6 +176,17 @@ impl ExprSyntax for D {
                 .collect::<Vec<_>>()
                 .join(" ~ "),
         )
+    }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `renderCard("Hi", title)`: another function of the module (D
+    /// resolves module-level functions in any order; the `string`
+    /// arguments are the default `native_string`).
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+        Doc::call(item.lower_camel(), args, broken)
     }
 }
 

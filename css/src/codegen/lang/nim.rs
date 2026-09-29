@@ -16,8 +16,10 @@
 //! deeper-indented line after a `.` (the `'.' optInd symbolOrKeyword` rule
 //! of Nim's grammar). Parameters are Nim
 //! `string`s defaulting to the component's values, converted by `azStr(..)`;
-//! a joined text is `azStr("by " & author)`. An app mirrors the binding's
-//! hello world: a `RefAny` from `AzRefAny_newC`, a `{.cdecl.}` layout proc
+//! a joined text is `azStr("by " & author)`. A component instance calls the
+//! component's proc (defined above it) with Nim `string`s
+//! (`renderBadge(tag)`, `renderBadge("by " & author)`). An app mirrors the
+//! binding's hello world: a `RefAny` from `AzRefAny_newC`, a `{.cdecl.}` layout proc
 //! for `AzWindowCreateOptions_create`, the window title, `AzApp_create` and
 //! `AzApp_run`.
 
@@ -204,16 +206,38 @@ impl ExprSyntax for Nim {
 
     /// `azStr("by " & author)`.
     fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
-        let joined = parts
-            .iter()
-            .map(|p| match p {
-                ConcatPart::Lit(s) => nim_str(s),
-                ConcatPart::Param(i) => nim_param(i),
-            })
-            .collect::<Vec<_>>()
-            .join(" & ");
-        Doc::text(format!("azStr({joined})"))
+        Doc::text(format!("azStr({})", nim_joined(parts)))
     }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `renderCard("Hi", title)`: another proc of the module (the module
+    /// lists callees first, so it is declared above its caller).
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+        Doc::call(item.lower_camel(), args, broken)
+    }
+
+    /// A Nim `string` argument: `"Hi"`, `title`, `"by " & author`.
+    fn native_string(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        Doc::text(nim_joined(parts))
+    }
+}
+
+/// A Nim `string` joined from `parts` (`"by " & author`).
+fn nim_joined(parts: &[ConcatPart<'_>]) -> String {
+    if parts.is_empty() {
+        return nim_str("");
+    }
+    parts
+        .iter()
+        .map(|p| match p {
+            ConcatPart::Lit(s) => nim_str(s),
+            ConcatPart::Param(i) => nim_param(i),
+        })
+        .collect::<Vec<_>>()
+        .join(" & ")
 }
 
 /// The Vec helper (CSS values only); [`STR_HELPER`] follows it.

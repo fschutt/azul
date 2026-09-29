@@ -205,12 +205,32 @@ fn apply(f: &str, args: &[String]) -> String {
 
 /// A style's Ada name: `style_btn` -> `Style_Btn`.
 fn unit_name(item: &Item) -> String {
-    sanitize(&pascalize_method(&item.name.snake()))
+    unit_name_of(&item.name)
+}
+
+/// [`unit_name`] of the item named `name`.
+fn unit_name_of(name: &Ident) -> String {
+    sanitize(&pascalize_method(&name.snake()))
 }
 
 /// A parameter's Ada name: `text_2` -> `Text_2`.
 fn ada_param(name: &Ident) -> String {
     sanitize(&pascalize_method(&name.snake()))
+}
+
+/// An Ada `String` expression joined from `parts` (`"by " & Author`).
+fn ada_joined(parts: &[ConcatPart<'_>]) -> String {
+    if parts.is_empty() {
+        return ada_string("");
+    }
+    parts
+        .iter()
+        .map(|p| match p {
+            ConcatPart::Lit(s) => ada_string(s),
+            ConcatPart::Param(i) => ada_param(i),
+        })
+        .collect::<Vec<_>>()
+        .join(" & ")
 }
 
 /// The package of a DOM export (`Ui`) or of styles (`Styles`).
@@ -381,14 +401,22 @@ impl LinearSyntax for Ada {
 
     /// `To_Az_String ("by " & Author)`.
     fn concat_expr(&self, parts: &[ConcatPart<'_>]) -> Option<String> {
-        let parts: Vec<String> = parts
-            .iter()
-            .map(|p| match p {
-                ConcatPart::Lit(s) => ada_string(s),
-                ConcatPart::Param(i) => ada_param(i),
-            })
-            .collect();
-        Some(format!("To_Az_String ({})", parts.join(" & ")))
+        Some(format!("To_Az_String ({})", ada_joined(parts)))
+    }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// An Ada `String`: a literal, a parameter passed on, or `"by " & Author`.
+    fn native_string_arg(&self, parts: &[ConcatPart<'_>]) -> String {
+        ada_joined(parts)
+    }
+
+    /// `Render_Card ("Hi", Title)`: another function of the package (its
+    /// spec declares them all), without parentheses when nullary.
+    fn item_call_expr(&self, item: &Ident, args: &[String]) -> Option<String> {
+        Some(apply(&unit_name_of(item), args))
     }
 }
 
@@ -538,10 +566,10 @@ const REGISTRATION_HELPERS: &str = "
 ";
 
 /// The registration of a component library (`m.library`): (spec lines,
-/// body text). Per component a default-arguments wrapper (in the spec: the
-/// compile function names it), a C-convention render and compile function
-/// (their `'Address` is the `ComponentDef`'s function pointer) and the
-/// `ComponentDef`; then `Register_<Library>_Library` (C convention, the
+/// body text). Per component a default-arguments wrapper (in the spec), a
+/// C-convention render function (its `'Address` is the `ComponentDef`'s
+/// function pointer) and the `ComponentDef` (code calls it through its
+/// render function: `ComponentCodegen::RenderFunction`); then `Register_<Library>_Library` (C convention, the
 /// function libazul calls) and `Add_<Library>_Library`, which registers it
 /// on an app config. `azul.ads` imports `AzAppConfig_addComponentLibrary`
 /// with the wrapper record where libazul takes the function pointer, so the
@@ -609,18 +637,6 @@ fn ada_registration(m: &Module, lib: &LibrarySpec) -> (String, String) {
              Az_ResultStyledDomRenderDomError_Ok\n        (Az_StyledDom_Create_From_Dom \
              ({render_call}));\n   end {cp}_Render_Fn;\n"
         );
-        let _ = write!(
-            s,
-            "\n   function {cp}_Compile_Fn\n     (Def : System.Address; Target : System.Address; Model \
-             : System.Address;\n      Indent : Interfaces.C.size_t) return \
-             Az_ResultStringCompileError\n     with Convention => C;\n\n   function \
-             {cp}_Compile_Fn\n     (Def : System.Address; Target : System.Address; Model : \
-             System.Address;\n      Indent : Interfaces.C.size_t) return \
-             Az_ResultStringCompileError\n   is\n      pragma Unreferenced (Def, Target, Model, \
-             Indent);\n   begin\n      return Az_ResultStringCompileError_Ok ({});\n   end \
-             {cp}_Compile_Fn;\n",
-            az(&format!("{}.{item_fn}_Default", package_name(m)))
-        );
         let _ = write!(s, "\n   function {cp}_Def return Az_ComponentDef is\n");
         let fields = if item.params.is_empty() {
             s.push_str("   begin\n");
@@ -659,9 +675,8 @@ fn ada_registration(m: &Module, lib: &LibrarySpec) -> (String, String) {
              Description => {},\n              --  The CSS is applied per node by \
              {item_fn}.\n              Css => {},\n              Source => UserDefined,\n              \
              Data_Model => (Name => {}, Description => {}, Fields => {fields}),\n              \
-             Render_Fn => {cp}_Render_Fn'Address,\n              Compile_Fn => \
-             {cp}_Compile_Fn'Address,\n              Render_Fn_Source => Az_OptionString_None,\n              \
-             Compile_Fn_Source => Az_OptionString_None);\n   end {cp}_Def;\n",
+             Render_Fn => {cp}_Render_Fn'Address,\n              Codegen => {},\n              \
+             Render_Fn_Source => Az_OptionString_None);\n   end {cp}_Def;\n",
             az(&lib.name),
             az(&c.name),
             az(&c.display_name),
@@ -669,6 +684,7 @@ fn ada_registration(m: &Module, lib: &LibrarySpec) -> (String, String) {
             az(""),
             az(&c.data_model),
             az(&c.data_model_description),
+            Ada.variant_expr("ComponentCodegen", "RenderFunction", &[]).unwrap_or_default(),
         );
         defs.push(format!("{cp}_Def"));
     }

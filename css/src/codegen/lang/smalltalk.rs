@@ -22,7 +22,9 @@
 //! method (`renderCardTitle: title text: text ..`) plus a unary one with the
 //! component's defaults (`renderCard`); a parameter is a Smalltalk string
 //! converted by `self str:` where it is used, a joined string `self str:
-//! 'by ' , author`. The binding makes no C callbacks at all (no
+//! 'by ' , author`. A component instance calls its item with Smalltalk
+//! strings (`self renderBadgeText: tag`, see [`StModule`]). The binding
+//! makes no C callbacks at all (no
 //! `FFICallback` wrappers, no host invoker): an app builds its UI once
 //! instead of opening a window, and no library is registered
 //! ([`NO_CALLBACKS`]).
@@ -255,32 +257,143 @@ impl ExprSyntax for Smalltalk {
 
     /// `self str: 'by ' , author`.
     fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
-        let parts: Vec<String> = parts
-            .iter()
-            .map(|p| match p {
-                ConcatPart::Lit(s) => st_string(s),
-                ConcatPart::Param(i) => st_param(i),
-            })
-            .collect();
-        Doc::text(format!("self str: {}", parts.join(" , ")))
+        Doc::text(format!("self str: {}", st_joined(parts)))
     }
 }
 
-/// The keyword selector of an item with parameters, with its parameters
-/// (`renderCardTitle: title text: text`).
-fn keyword_header(item: &Item) -> String {
+/// A Smalltalk string expression joined from `parts` (`'by ' , author`).
+fn st_joined(parts: &[ConcatPart<'_>]) -> String {
+    if parts.is_empty() {
+        return st_string("");
+    }
+    parts
+        .iter()
+        .map(|p| match p {
+            ConcatPart::Lit(s) => st_string(s),
+            ConcatPart::Param(i) => st_param(i),
+        })
+        .collect::<Vec<_>>()
+        .join(" , ")
+}
+
+/// [`Smalltalk`] for the items of one module: a call of another item
+/// ([`Expr::ItemCall`]) is a message to `self` (the class side of the same
+/// class) whose keyword selector names the CALLEE's parameters
+/// (`self renderCardTitle: 'Hi' tag: title`), so it needs the module's
+/// items.
+struct StModule<'a> {
+    items: &'a [Item],
+}
+
+impl ExprSyntax for StModule<'_> {
+    fn int(&self, value: i128, ty: Prim) -> String {
+        Smalltalk.int(value, ty)
+    }
+
+    fn float(&self, text: &str, ty: Prim) -> String {
+        Smalltalk.float(text, ty)
+    }
+
+    fn boolean(&self, b: bool) -> String {
+        Smalltalk.boolean(b)
+    }
+
+    fn string(&self, s: &str) -> Doc {
+        Smalltalk.string(s)
+    }
+
+    fn call(&self, class: &str, method: &str, args: Vec<Doc>, broken: bool) -> Doc {
+        Smalltalk.call(class, method, args, broken)
+    }
+
+    fn variant(&self, ty: &str, shape: EnumShape, variant: &str, args: Vec<Doc>, broken: bool) -> Doc {
+        Smalltalk.variant(ty, shape, variant, args, broken)
+    }
+
+    fn strukt(&self, ty: &str, fields: Vec<(String, Doc)>, broken: bool) -> Doc {
+        Smalltalk.strukt(ty, fields, broken)
+    }
+
+    fn vec(&self, ty: &str, elem: &str, items: Vec<Doc>, broken: bool) -> Doc {
+        Smalltalk.vec(ty, elem, items, broken)
+    }
+
+    fn unsupported(&self, what: &str) -> Doc {
+        Smalltalk.unsupported(what)
+    }
+
+    fn limitation(&self, e: &Expr) -> Option<String> {
+        Smalltalk.limitation(e)
+    }
+
+    fn dom_limitation(&self) -> Option<&'static str> {
+        Smalltalk.dom_limitation()
+    }
+
+    fn method(&self, recv: Doc, class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
+        Smalltalk.method(recv, class, method, args, layout)
+    }
+
+    fn param(&self, name: &Ident) -> Doc {
+        Smalltalk.param(name)
+    }
+
+    fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        Smalltalk.concat(parts)
+    }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `self renderBadgeText: tag`, or `self renderUi` for an item without
+    /// parameters.
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, _broken: bool) -> Doc {
+        let Some(callee) = self.items.iter().find(|i| &i.name == item) else {
+            return self.unsupported(&format!("a call of {}: not an item of this class", item.snake()));
+        };
+        if args.is_empty() {
+            return Doc::text(format!("self {}", method_name(callee)));
+        }
+        let mut parts = vec![Doc::text("self")];
+        for (key, a) in keywords(callee).into_iter().zip(args) {
+            parts.push(Doc::text(format!(" {key}: ")));
+            parts.push(a);
+        }
+        Doc::cat(parts)
+    }
+
+    /// A Smalltalk string: a literal, a parameter passed on, or
+    /// `'by ' , author` (a binary expression: a keyword argument as is).
+    fn native_string(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        Doc::text(st_joined(parts))
+    }
+}
+
+/// The keywords of an item's selector, one per parameter
+/// (`renderCardTitle`, `text`, ..): the first joins the item's name.
+fn keywords(item: &Item) -> Vec<String> {
     let name = method_name(item);
     item.params
         .iter()
         .enumerate()
         .map(|(i, p)| {
-            let key = if i == 0 {
+            if i == 0 {
                 format!("{name}{}", capitalize(&p.name.lower_camel()))
             } else {
                 p.name.lower_camel()
-            };
-            format!("{key}: {}", st_param(&p.name))
+            }
         })
+        .collect()
+}
+
+/// The keyword selector of an item with parameters, with its parameters
+/// (`renderCardTitle: title text: text`).
+fn keyword_header(item: &Item) -> String {
+    keywords(item)
+        .iter()
+        .zip(&item.params)
+        .map(|(key, p)| format!("{key}: {}", st_param(&p.name)))
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -289,16 +402,10 @@ fn keyword_header(item: &Item) -> String {
 /// the component's defaults.
 fn defaults_method(item: &Item, class: &str) -> String {
     let name = method_name(item);
-    let call = item
-        .params
+    let call = keywords(item)
         .iter()
-        .enumerate()
-        .map(|(i, p)| {
-            let key = if i == 0 {
-                format!("{name}{}", capitalize(&p.name.lower_camel()))
-            } else {
-                p.name.lower_camel()
-            };
+        .zip(&item.params)
+        .map(|(key, p)| {
             let value = match &p.default {
                 Some(Expr::Str(s)) => st_string(s),
                 Some(d) => expr_doc(&Smalltalk, d).flat(),
@@ -364,15 +471,18 @@ fn method_name(item: &Item) -> String {
     item.name.lower_camel()
 }
 
-fn item_method(item: &Item, class: &str) -> (bool, String) {
+/// Item `item` of module `m` as a class-side method of the module's class.
+fn item_method(m: &Module, item: &Item) -> (bool, String) {
+    let class = class_name(m);
+    let syntax = StModule { items: &m.items };
     // one comment per method (Tonel reads a single comment before it)
-    let comments = item_comments(&Smalltalk, item);
+    let comments = item_comments(&syntax, item);
     let mut out = String::new();
     if !comments.is_empty() {
         out.push_str(&format!("\"{}\"\n", comments.join("\n").replace('"', "''")));
     }
     let name = method_name(item);
-    match item_doc(&Smalltalk, item) {
+    match item_doc(&syntax, item) {
         Ok(doc) if !item.params.is_empty() => {
             out.push_str(&format!(
                 "{{ #category : 'ui' }}\n{class} class >> {} [\n    ^ {}\n]\n",
@@ -435,7 +545,7 @@ impl CodegenBackend for Smalltalk {
         }
         for item in &m.items {
             out.push('\n');
-            out.push_str(&item_method(item, class).1);
+            out.push_str(&item_method(m, item).1);
         }
         if let Some(lib) = &m.library {
             out.push_str(&format!(
@@ -467,7 +577,7 @@ impl CodegenBackend for Smalltalk {
             "\"Load target/codegen/Azul.st (Tonel, see BaselineOfAzul.st) and AzulStyles.st into \
              a Pharo image with libazul on the library path, then evaluate:\"\n",
         );
-        for item in m.items.iter().filter(|i| item_method(i, class_name(m)).0) {
+        for item in m.items.iter().filter(|i| item_method(m, i).0) {
             let name = method_name(item);
             main.push_str(&format!(
                 "Transcript show: '{name}: ', AzulStyles {name} len printString, ' \

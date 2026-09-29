@@ -203,6 +203,16 @@ impl WrapperDomSyntax for NodeDom {
                 .join(" + "),
         )
     }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `renderCard("Hi", title)`: another function of the module (named
+    /// like `dom_item_fn` names it).
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+        Doc::call(item.lower_camel(), args, broken)
+    }
 }
 
 /// A DOM item: a function whose parameters (JS strings) default to the

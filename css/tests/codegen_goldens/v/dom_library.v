@@ -55,10 +55,6 @@ fn card_render_fn(def &azul.AzComponentDef, model &azul.AzComponentDataModel, co
 	return C.AzResultStyledDomRenderDomError_ok(C.AzStyledDom_createFromDom(dom))
 }
 
-fn card_compile_fn(def &azul.AzComponentDef, target &azul.AzCompileTarget, model &azul.AzComponentDataModel, indent usize) azul.AzResultStringCompileError {
-	return C.AzResultStringCompileError_ok(azul.az_str('render_card_default()'))
-}
-
 fn card_def() azul.AzComponentDef {
 	mut fields := [
 		string_field('title', 'Hello', 'Text of the <h2>'),
@@ -84,9 +80,8 @@ fn card_def() azul.AzComponentDef {
 			fields: field_vec
 		}
 		render_fn: card_render_fn
-		compile_fn: card_compile_fn
+		codegen: C.AzComponentCodegen_renderFunction()
 		render_fn_source: C.AzOptionString_none()
-		compile_fn_source: C.AzOptionString_none()
 	}
 }
 

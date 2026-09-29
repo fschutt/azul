@@ -206,6 +206,17 @@ impl WrapperDomSyntax for RubyDom {
         out.push('"');
         Doc::text(out)
     }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `render_card("Hi", title)`: another module function (named like
+    /// `dom_item_fn` names it); inside a `def self.` body `self` is the
+    /// module, so the bare call resolves.
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+        Doc::call(item.snake(), args, broken)
+    }
 }
 
 /// A DOM item: a module function taking Ruby strings that default to the

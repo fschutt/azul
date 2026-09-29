@@ -101,11 +101,6 @@ $script:CardRenderFn = [Azul.AzComponentRenderFn]{
     return [Azul.NativeMethods]::AzResultStyledDomRenderDomError_ok([Azul.NativeMethods]::AzStyledDom_createFromDom($dom))
 }
 
-$script:CardCompileFn = [Azul.AzComponentCompileFn]{
-    param([IntPtr]$Def, [IntPtr]$Target, [IntPtr]$Model, [UIntPtr]$Indent)
-    return [Azul.NativeMethods]::AzResultStringCompileError_ok((New-CssString 'Get-RenderCardDefault'))
-}
-
 function Get-CardDef {
     $fields = (New-CssVec 'AzComponentDataFieldVec_copyFromPtr' ([Azul.AzComponentDataField]) @(
         (New-StringField 'title' 'Hello' 'Text of the <h2>'),
@@ -122,9 +117,8 @@ function Get-CardDef {
         source = [Azul.ComponentSource]::UserDefined
         data_model = [Azul.AzComponentDataModel]@{ name = (New-CssString 'CardData'); description = (New-CssString 'Converted from a <div> subtree in AzBuilder'); fields = $fields }
         render_fn = [System.Runtime.InteropServices.Marshal]::GetFunctionPointerForDelegate($script:CardRenderFn)
-        compile_fn = [System.Runtime.InteropServices.Marshal]::GetFunctionPointerForDelegate($script:CardCompileFn)
+        codegen = [Azul.NativeMethods]::AzComponentCodegen_renderFunction()
         render_fn_source = [Azul.NativeMethods]::AzOptionString_none()
-        compile_fn_source = [Azul.NativeMethods]::AzOptionString_none()
     }
 }
 

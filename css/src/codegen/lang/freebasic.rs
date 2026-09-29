@@ -218,15 +218,39 @@ impl LinearSyntax for FreeBasic {
 
     /// `CssStr("by " & author)`.
     fn concat_expr(&self, parts: &[ConcatPart<'_>]) -> Option<String> {
-        let parts: Vec<String> = parts
-            .iter()
-            .map(|p| match p {
-                ConcatPart::Lit(s) => basic_string(s),
-                ConcatPart::Param(i) => fb_param(i),
-            })
-            .collect();
-        Some(format!("CssStr({})", parts.join(" & ")))
+        Some(format!("CssStr({})", fb_joined(parts)))
     }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// A FreeBASIC `String`: a literal, a parameter passed on, or
+    /// `"by " & author`.
+    fn native_string_arg(&self, parts: &[ConcatPart<'_>]) -> String {
+        fb_joined(parts)
+    }
+
+    /// `RenderCard("Hi", title)`: another function of the file (defined
+    /// above it: the module lists callees first).
+    fn item_call_expr(&self, item: &Ident, args: &[String]) -> Option<String> {
+        Some(apply(&fn_name_of(item), args))
+    }
+}
+
+/// A BASIC string expression joined from `parts` (`"by " & author`).
+fn fb_joined(parts: &[ConcatPart<'_>]) -> String {
+    if parts.is_empty() {
+        return basic_string("");
+    }
+    parts
+        .iter()
+        .map(|p| match p {
+            ConcatPart::Lit(s) => basic_string(s),
+            ConcatPart::Param(i) => fb_param(i),
+        })
+        .collect::<Vec<_>>()
+        .join(" & ")
 }
 
 /// `ByRef title As Const String = "Hello", ..`.
@@ -248,7 +272,12 @@ fn params_decl(item: &Item) -> String {
 }
 
 fn fn_name(item: &Item) -> String {
-    item.name.upper_camel()
+    fn_name_of(&item.name)
+}
+
+/// [`fn_name`] of the item named `name`.
+fn fn_name_of(name: &Ident) -> String {
+    name.upper_camel()
 }
 
 fn item_fn(item: &Item) -> (bool, String) {
@@ -316,9 +345,10 @@ End Function
 ";
 
 /// The registration of a component library (`m.library`), mirroring the C
-/// one: per component a default-arguments wrapper, a `Cdecl` render and
-/// compile function (their addresses are the `ComponentDef`'s function
-/// pointers) and its `ComponentDef`; then the `Cdecl` library function and
+/// one: per component a default-arguments wrapper, a `Cdecl` render
+/// function (its address is the `ComponentDef`'s function pointer) and its
+/// `ComponentDef` (code calls it through its render function:
+/// `ComponentCodegen::RenderFunction`); then the `Cdecl` library function and
 /// `Add<Library>Library`, which registers it on an app config. azul.bi
 /// declares `AzAppConfig_addComponentLibrary` with the wrapper type where
 /// libazul takes the function pointer, so this declares it again as libazul
@@ -368,14 +398,6 @@ fn freebasic_registration(m: &Module, lib: &LibrarySpec) -> String {
              Function\n",
             args.join(", ")
         );
-        let _ = write!(
-            s,
-            "\nFunction {cu}CompileFn Cdecl (ByVal def_ As AzComponentDef Ptr, ByVal target As \
-             AzCompileTarget Ptr, ByVal model As AzComponentDataModel Ptr, ByVal indent As UInteger) \
-             As AzResultStringCompileError\n    Return \
-             AzResultStringCompileError_ok({})\nEnd Function\n",
-            az(&format!("{item_fn}Default()"))
-        );
         let _ = write!(s, "\nFunction {cu}Def() As AzComponentDef\n");
         if !item.params.is_empty() {
             let n = item.params.len();
@@ -419,9 +441,11 @@ fn freebasic_registration(m: &Module, lib: &LibrarySpec) -> String {
         }
         let _ = write!(
             s,
-            "    d.render_fn = @{cu}RenderFn\n    d.compile_fn = @{cu}CompileFn\n    \
-             d.render_fn_source = AzOptionString_none()\n    d.compile_fn_source = \
-             AzOptionString_none()\n    Return d\nEnd Function\n"
+            "    d.render_fn = @{cu}RenderFn\n    d.codegen = {}\n    d.render_fn_source = \
+             AzOptionString_none()\n    Return d\nEnd Function\n",
+            FreeBasic
+                .variant_expr("ComponentCodegen", "RenderFunction", &[])
+                .unwrap_or_default()
         );
         defs.push(format!("{cu}Def()"));
     }

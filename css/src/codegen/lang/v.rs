@@ -82,6 +82,24 @@ fn v_param(name: &Ident) -> String {
     ident(&name.snake())
 }
 
+/// A single-quoted V string joined from `parts`, parameters interpolated
+/// (`'by ${author}'`).
+fn v_interpolated(parts: &[ConcatPart<'_>]) -> String {
+    let mut s = String::from("'");
+    for p in parts {
+        match p {
+            ConcatPart::Lit(t) => s.push_str(&v_escaped(t)),
+            ConcatPart::Param(i) => {
+                s.push_str("${");
+                s.push_str(&v_param(i));
+                s.push('}');
+            }
+        }
+    }
+    s.push('\'');
+    s
+}
+
 impl LinearSyntax for V {
     fn int(&self, value: i128, _ty: Prim) -> String {
         value.to_string()
@@ -206,19 +224,24 @@ impl LinearSyntax for V {
 
     /// An interpolated V string.
     fn concat_expr(&self, parts: &[ConcatPart<'_>]) -> Option<String> {
-        let mut s = String::from("'");
-        for p in parts {
-            match p {
-                ConcatPart::Lit(t) => s.push_str(&v_escaped(t)),
-                ConcatPart::Param(i) => {
-                    s.push_str("${");
-                    s.push_str(&v_param(i));
-                    s.push('}');
-                }
-            }
+        Some(format!("azul.az_str({})", v_interpolated(parts)))
+    }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// A V `string`: a literal, a parameter passed on, or an interpolation.
+    fn native_string_arg(&self, parts: &[ConcatPart<'_>]) -> String {
+        match parts {
+            [ConcatPart::Param(p)] => v_param(p),
+            _ => v_interpolated(parts),
         }
-        s.push('\'');
-        Some(format!("azul.az_str({s})"))
+    }
+
+    /// `render_card('Hi', title)`: another function of the module.
+    fn item_call_expr(&self, item: &Ident, args: &[String]) -> Option<String> {
+        Some(apply(&item.snake(), args))
     }
 }
 
@@ -311,8 +334,9 @@ fn string_field(name string, value string, description string) azul.AzComponentD
 ";
 
 /// The registration of a component library (`m.library`), mirroring the C
-/// one: per component a default-arguments wrapper, a render and a compile
-/// function (V functions are C functions) and its `ComponentDef`; then
+/// one: per component a default-arguments wrapper, a render function (V
+/// functions are C functions) and its `ComponentDef` (code calls it through
+/// its render function: `ComponentCodegen::RenderFunction`); then
 /// `register_<library>_library`, the `AzRegisterComponentLibraryFnType` that
 /// `C.AzAppConfig_addComponentLibrary` takes. Items the module does not have
 /// are skipped.
@@ -360,13 +384,6 @@ fn v_registration(m: &Module, lib: &LibrarySpec) -> String {
              C.AzResultStyledDomRenderDomError_ok(C.AzStyledDom_createFromDom(dom))\n}}\n",
             args.join(", ")
         );
-        let _ = write!(
-            s,
-            "\nfn {sn}_compile_fn(def &azul.AzComponentDef, target &azul.AzCompileTarget, model \
-             &azul.AzComponentDataModel, indent usize) azul.AzResultStringCompileError {{\n\treturn \
-             C.AzResultStringCompileError_ok({})\n}}\n",
-            az(&format!("{item_fn}_default()"))
-        );
         let _ = write!(s, "\nfn {sn}_def() azul.AzComponentDef {{\n");
         let fields = if item.params.is_empty() {
             "C.AzComponentDataFieldVec_create()".to_string()
@@ -397,9 +414,8 @@ fn v_registration(m: &Module, lib: &LibrarySpec) -> String {
              display_name: {}\n\t\tdescription: {}\n\t\t// The CSS is applied per node by \
              {item_fn}.\n\t\tcss: {}\n\t\tsource: azul.AzComponentSource.UserDefined\n\t\tdata_model: \
              azul.AzComponentDataModel{{\n\t\t\tname: {}\n\t\t\tdescription: {}\n\t\t\tfields: \
-             {fields}\n\t\t}}\n\t\trender_fn: {sn}_render_fn\n\t\tcompile_fn: \
-             {sn}_compile_fn\n\t\trender_fn_source: C.AzOptionString_none()\n\t\t\
-             compile_fn_source: C.AzOptionString_none()\n\t}}\n}}\n",
+             {fields}\n\t\t}}\n\t\trender_fn: {sn}_render_fn\n\t\tcodegen: {}\n\t\t\
+             render_fn_source: C.AzOptionString_none()\n\t}}\n}}\n",
             az(&lib.name),
             az(&c.name),
             az(&c.display_name),
@@ -407,6 +423,7 @@ fn v_registration(m: &Module, lib: &LibrarySpec) -> String {
             az(""),
             az(&c.data_model),
             az(&c.data_model_description),
+            V.variant_expr("ComponentCodegen", "RenderFunction", &[]).unwrap_or_default(),
         );
         defs.push(format!("{sn}_def()"));
     }

@@ -221,6 +221,16 @@ impl WrapperDomSyntax for LuaDom {
                 .join(" .. "),
         )
     }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `M.render_card("Hi", title)`: another function of the module table
+    /// (named like `dom_item_fn` names it).
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+        Doc::call(format!("M.{}", item.snake()), args, broken)
+    }
 }
 
 /// A DOM item: a module function taking Lua strings.

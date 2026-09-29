@@ -102,20 +102,6 @@ package body Ui is
         (Az_StyledDom_Create_From_Dom (Render_Card (Model_String (Model, "title", "Hello"), Model_String (Model, "text", "Some text"), Model_String (Model, "href", "https://azul.rs"), Model_String (Model, "author", "me"))));
    end Card_Render_Fn;
 
-   function Card_Compile_Fn
-     (Def : System.Address; Target : System.Address; Model : System.Address;
-      Indent : Interfaces.C.size_t) return Az_ResultStringCompileError
-     with Convention => C;
-
-   function Card_Compile_Fn
-     (Def : System.Address; Target : System.Address; Model : System.Address;
-      Indent : Interfaces.C.size_t) return Az_ResultStringCompileError
-   is
-      pragma Unreferenced (Def, Target, Model, Indent);
-   begin
-      return Az_ResultStringCompileError_Ok (To_Az_String ("Ui.Render_Card_Default"));
-   end Card_Compile_Fn;
-
    function Card_Def return Az_ComponentDef is
       Fields : aliased array (0 .. 3) of Az_ComponentDataField :=
         (0 => String_Field ("title", "Hello", "Text of the <h2>"),
@@ -137,9 +123,8 @@ package body Ui is
               Source => UserDefined,
               Data_Model => (Name => To_Az_String ("CardData"), Description => To_Az_String ("Converted from a <div> subtree in AzBuilder"), Fields => Field_Vec),
               Render_Fn => Card_Render_Fn'Address,
-              Compile_Fn => Card_Compile_Fn'Address,
-              Render_Fn_Source => Az_OptionString_None,
-              Compile_Fn_Source => Az_OptionString_None);
+              Codegen => Az_ComponentCodegen_Render_Function,
+              Render_Fn_Source => Az_OptionString_None);
    end Card_Def;
 
    function Register_User_Library return Az_ComponentLibrary is

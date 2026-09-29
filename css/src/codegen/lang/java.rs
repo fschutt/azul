@@ -230,6 +230,16 @@ impl WrapperDomSyntax for JavaDom {
                 .join(" + "),
         )
     }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `renderCard("Hi", title)`: another static method of the same class
+    /// (named like `dom_item_method` names it).
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+        Doc::call(item.lower_camel(), args, broken)
+    }
 }
 
 /// A DOM item: a static method taking its parameters as `String`s.

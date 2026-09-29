@@ -202,6 +202,16 @@ impl WrapperDomSyntax for KotlinDom {
         out.push('"');
         Doc::text(out)
     }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `renderCard("Hi", title)`: another top-level function of the file
+    /// (named like `dom_item_fn` names it).
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+        Doc::call(item.lower_camel(), args, broken)
+    }
 }
 
 /// A DOM item: a top-level function taking its parameters as `String`s

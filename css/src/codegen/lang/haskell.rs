@@ -20,7 +20,9 @@
 //! receiver LAST (`Dom.withCss :: String -> Dom -> IO Dom`). So a DOM item
 //! is an `IO Dom` whose `do` block first binds every argument that is itself
 //! an action (children, aria infos; children before parents), then runs the
-//! `>>=` pipeline (`Dom.createDiv >>= Dom.withChild child1`). An app is
+//! `>>=` pipeline (`Dom.createDiv >>= Dom.withChild child1`). A component
+//! instance is its function's action, bound like any child
+//! (`child2 <- renderBadge tag`). An app is
 //! `WindowCreateOptions.create layout` with a typed layout function and
 //! `AppConfig.create >>= App.create AppData >>= App.run window`.
 
@@ -281,6 +283,7 @@ impl HsDom {
                     Expr::Call { class, .. } | Expr::Method { class, .. } if class == "Dom" => {
                         "child"
                     }
+                    Expr::ItemCall { .. } => "child",
                     Expr::Call { class, .. } if class == "SmallAriaInfo" => "aria",
                     _ => "value",
                 };
@@ -334,7 +337,15 @@ impl HsDom {
                 Ok(HsVal::Io(chained_infix(recv, link)))
             }
             Expr::Unsupported { what } => Err(what.clone()),
-            Expr::ItemCall { .. } => Err(super::ITEM_CALL_LIMITATION.to_string()),
+            // Another DOM function of the module: an `IO` action taking
+            // Haskell `String`s (`renderBadge tag`), bound like a child.
+            Expr::ItemCall { item, args } => {
+                let args = args
+                    .iter()
+                    .map(|a| self.arg(a))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(HsVal::Io(Doc::text(hs_apply(hs_ident(item.lower_camel()), &args))))
+            }
             // Rejected by `wrapper_dom_limitation` above.
             Expr::Variant { ty, .. } | Expr::Struct { ty, .. } | Expr::Vec { ty, .. } => Err(format!(
                 "a raw {ty} value: the Haskell class modules take native values"

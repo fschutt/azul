@@ -230,6 +230,16 @@ impl WrapperDomSyntax for CSharpDom {
                 .join(" + "),
         )
     }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `RenderCard("Hi", title)`: another static method of the same class
+    /// (named like `dom_item_method` names it).
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+        Doc::call(item.upper_camel(), args, broken)
+    }
 }
 
 /// A parameter's default as a C# constant (a string literal), if it has one.

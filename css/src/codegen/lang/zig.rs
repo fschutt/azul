@@ -22,10 +22,14 @@
 //! `C.AzString_copyFromBytes(title.ptr, 0, title.len)`, a joined text is
 //! `azConcat(&[_][]const u8{ "by ", author })`, and a parameter the body
 //! never reads is discarded (`_ = name;`: Zig rejects unused parameters).
+//! A component instance calls the component's function with `[]const u8`
+//! arguments (`renderBadge(tag)`); a text joined from parameters would need
+//! memory the caller frees, so such a call is a limitation (as in C).
 //! A component library gets the registration of the C export, transliterated
 //! (`azul.C` mirrors `azul.h`: the same functions, fields and union members):
-//! `callconv(.c)` render and compile functions, a `C.AzComponentDef` per
-//! component and a `register<Library>Library()` for
+//! `callconv(.c)` render functions, a `C.AzComponentDef` per component (code
+//! calls it through its render function: `C.AzComponentCodegen_renderFunction()`)
+//! and a `register<Library>Library()` for
 //! `AzAppConfig_addComponentLibrary`. An app is `build.zig`, `ui.zig` and a
 //! `main.zig` in the style of the binding's hello world:
 //! `azul.WindowCreateOptions.create(layout)` with a layout function over
@@ -42,7 +46,7 @@ use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{snake_to_lower_camel, EnumShape, Ident, Item, LibrarySpec, Module, Prim},
+    ir::{snake_to_lower_camel, EnumShape, Expr, Ident, Item, LibrarySpec, Module, Prim},
     lang::{
         dom::{is_dom_item, one_line, unused_params, uses_concat},
         item_comments, item_doc, uses_nonfinite_float, variant_ctor_method, ConcatPart,
@@ -258,7 +262,41 @@ impl ExprSyntax for Zig {
             .collect();
         Doc::text(format!("azConcat(&[_][]const u8{{ {} }})", parts.join(", ")))
     }
+
+    fn limitation(&self, e: &Expr) -> Option<String> {
+        match e {
+            Expr::ItemCall { args, .. } if args.iter().any(|a| matches!(a, Expr::Concat(_))) => {
+                Some(ZIG_JOINED_ARG.to_string())
+            }
+            _ => None,
+        }
+    }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `renderCard("Hi", title)`: another function of the file (Zig
+    /// resolves top-level declarations in any order).
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+        Doc::call(item.lower_camel(), args, broken)
+    }
+
+    /// A `[]const u8` argument: a literal or a parameter passed on.
+    fn native_string(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        match parts {
+            [] => Doc::text("\"\""),
+            [ConcatPart::Lit(s)] => Doc::text(zig_lit(s)),
+            [ConcatPart::Param(p)] => Doc::text(zig_param(p)),
+            _ => self.unsupported(ZIG_JOINED_ARG),
+        }
+    }
 }
+
+/// Why Zig cannot pass a text joined from parameters to a component's
+/// render function.
+const ZIG_JOINED_ARG: &str = "a component's text is a `[]const u8`: a text joined from parameters \
+                              would need memory the caller frees";
 
 /// What a joined text ([`ExprSyntax::concat`]) calls: the parts are
 /// runtime slices, so the joined bytes need memory of their own.
@@ -337,9 +375,10 @@ fn azStringField(name: []const u8, value: []const u8, description: []const u8) C
 
 /// The registration of a component library: the C export's
 /// (`dom::c_family_registration`) in Zig. Per component a default-arguments
-/// wrapper, a `callconv(.c)` render function reading the data model, a
-/// compile function and its `C.AzComponentDef`; then
-/// `register<Library>Library()`. Items the module does not have are skipped.
+/// wrapper, a `callconv(.c)` render function reading the data model and its
+/// `C.AzComponentDef` (code calls it through its render function:
+/// `ComponentCodegen::RenderFunction`); then `register<Library>Library()`.
+/// Items the module does not have are skipped.
 fn zig_registration(m: &Module, lib: &LibrarySpec) -> String {
     let az = |s: &str| Zig.string(s).flat();
     let mut s = String::from("\n// -- registration --\n");
@@ -360,7 +399,6 @@ fn zig_registration(m: &Module, lib: &LibrarySpec) -> String {
         let default_fn = camel(&item.name, &["default"]);
         let cn = Ident::from_text(&c.name);
         let render_fn = camel(&cn, &["render", "fn"]);
-        let compile_fn = camel(&cn, &["compile", "fn"]);
         let def_fn = camel(&cn, &["def"]);
         let qn = format!("{}:{}", lib.name, c.name);
         let defaults: Vec<String> = item.params.iter().map(|p| zig_lit(p.default_text())).collect();
@@ -395,18 +433,6 @@ fn zig_registration(m: &Module, lib: &LibrarySpec) -> String {
         let _ = writeln!(s, "    const dom = {item_fn}({});", args.join(", "));
         s.push_str(
             "    return C.AzResultStyledDomRenderDomError_ok(C.AzStyledDom_createFromDom(dom));\n}\n",
-        );
-        let _ = writeln!(
-            s,
-            "\nfn {compile_fn}(def: [*c]const C.AzComponentDef, target: [*c]const \
-             C.AzCompileTarget, model: [*c]const C.AzComponentDataModel, indent: usize) \
-             callconv(.c) C.AzResultStringCompileError {{"
-        );
-        s.push_str("    _ = def;\n    _ = target;\n    _ = model;\n    _ = indent;\n");
-        let _ = writeln!(
-            s,
-            "    return C.AzResultStringCompileError_ok({});\n}}",
-            az(&format!("{default_fn}()"))
         );
         let _ = writeln!(s, "\nfn {def_fn}() C.AzComponentDef {{");
         s.push_str("    var def: C.AzComponentDef = .{};\n");
@@ -452,9 +478,8 @@ fn zig_registration(m: &Module, lib: &LibrarySpec) -> String {
             );
         }
         let _ = writeln!(s, "    def.render_fn = &{render_fn};");
-        let _ = writeln!(s, "    def.compile_fn = &{compile_fn};");
-        s.push_str("    def.render_fn_source = C.AzOptionString_none();\n");
-        s.push_str("    def.compile_fn_source = C.AzOptionString_none();\n    return def;\n}\n");
+        s.push_str("    def.codegen = C.AzComponentCodegen_renderFunction();\n");
+        s.push_str("    def.render_fn_source = C.AzOptionString_none();\n    return def;\n}\n");
         defs.push(format!("{def_fn}()"));
     }
     let mut words = vec!["register".to_string()];

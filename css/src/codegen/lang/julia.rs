@@ -17,7 +17,9 @@
 //! (`Azul.AzDom_withChild(Azul.AzDom_withCss(Azul.AzDom_createDiv(), s), child)`),
 //! parameters are `AbstractString`s defaulting to the component's values,
 //! converted by `Azul.az_string(title)`, and a joined text is an
-//! interpolation (`Azul.az_string("by $(author)")`). An app mirrors the
+//! interpolation (`Azul.az_string("by $(author)")`). A component instance
+//! calls the component's function with Julia strings (`render_badge(tag)`,
+//! `render_badge("by $(author)")`). An app mirrors the
 //! binding's hello world: an isbits `AppData` in a `RefAny`
 //! (`Azul.AzRefAny_newC`), a `@cfunction` layout callback for
 //! `Azul.AzWindowCreateOptions_create`, the title through `Azul.setfields`,
@@ -168,16 +170,38 @@ impl ExprSyntax for Julia {
 
     /// An interpolation: `Azul.az_string("by $(author)")`.
     fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
-        let mut out = String::from("Azul.az_string(\"");
-        for p in parts {
-            match p {
-                ConcatPart::Lit(s) => out.push_str(&escape_quoted(s, &['$'], &unicode_u4)),
-                ConcatPart::Param(i) => out.push_str(&format!("$({})", julia_param(i))),
-            }
-        }
-        out.push_str("\")");
-        Doc::text(out)
+        Doc::text(format!("Azul.az_string({})", julia_interp(parts)))
     }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `render_card("Hi", title)`: another function of the module.
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+        Doc::call(item.snake(), args, broken)
+    }
+
+    /// A Julia string argument: `"Hi"`, `title`, `"by $(author)"`.
+    fn native_string(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        match parts {
+            [ConcatPart::Param(p)] => Doc::text(julia_param(p)),
+            _ => Doc::text(julia_interp(parts)),
+        }
+    }
+}
+
+/// A Julia string literal interpolating `parts` (`"by $(author)"`).
+fn julia_interp(parts: &[ConcatPart<'_>]) -> String {
+    let mut out = String::from("\"");
+    for p in parts {
+        match p {
+            ConcatPart::Lit(s) => out.push_str(&escape_quoted(s, &['$'], &unicode_u4)),
+            ConcatPart::Param(i) => out.push_str(&format!("$({})", julia_param(i))),
+        }
+    }
+    out.push('"');
+    out
 }
 
 const HELPERS: &str = r"# Copies the items into a Julia array; the C API clones them into the Vec.

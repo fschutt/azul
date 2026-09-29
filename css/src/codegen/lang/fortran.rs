@@ -319,19 +319,47 @@ impl LinearSyntax for Fortran {
 
     /// `azul_string('by ' // author)`.
     fn concat_expr(&self, parts: &[ConcatPart<'_>]) -> Option<String> {
-        let parts: Vec<String> = parts
-            .iter()
-            .map(|p| match p {
-                ConcatPart::Lit(s) => fortran_string(s),
-                ConcatPart::Param(i) => f_param(i),
-            })
-            .collect();
-        Some(format!("azul_string({})", parts.join(" // ")))
+        Some(format!("azul_string({})", f_joined(parts)))
+    }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// A Fortran character expression: a literal, a dummy passed on, or
+    /// `'by ' // author`.
+    fn native_string_arg(&self, parts: &[ConcatPart<'_>]) -> String {
+        f_joined(parts)
+    }
+
+    /// `render_card('Hi', title)`: another function of the module.
+    fn item_call_expr(&self, item: &Ident, args: &[String]) -> Option<String> {
+        Some(apply(&fn_name_of(item), args))
     }
 }
 
+/// A Fortran character expression joined from `parts` (`'by ' // author`).
+fn f_joined(parts: &[ConcatPart<'_>]) -> String {
+    if parts.is_empty() {
+        return fortran_string("");
+    }
+    parts
+        .iter()
+        .map(|p| match p {
+            ConcatPart::Lit(s) => fortran_string(s),
+            ConcatPart::Param(i) => f_param(i),
+        })
+        .collect::<Vec<_>>()
+        .join(" // ")
+}
+
 fn fn_name(item: &Item) -> String {
-    sanitize(&item.name.snake())
+    fn_name_of(&item.name)
+}
+
+/// [`fn_name`] of the item named `name`.
+fn fn_name_of(name: &Ident) -> String {
+    sanitize(&name.snake())
 }
 
 /// The app around a DOM module (`m.app`), as in `examples/fortran`: the

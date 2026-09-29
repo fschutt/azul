@@ -215,15 +215,47 @@ impl ExprSyntax for PowerShell {
 
     /// `(New-CssString ('by ' + $Author))`.
     fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
-        let parts: Vec<String> = parts
-            .iter()
-            .map(|p| match p {
-                ConcatPart::Lit(s) => ps_string(s),
-                ConcatPart::Param(i) => ps_param(i),
-            })
-            .collect();
-        Doc::text(format!("(New-CssString ({}))", parts.join(" + ")))
+        Doc::text(format!("(New-CssString {})", ps_joined(parts)))
     }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `(Get-RenderCard 'Hi' $Title)`: a command invocation of another
+    /// function of the script (positional arguments), parenthesized as an
+    /// argument of a method call. Never broken: a command's arguments
+    /// continue on the next line only after a backtick.
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, _broken: bool) -> Doc {
+        let name = fn_name_of(item);
+        if args.is_empty() {
+            return Doc::text(format!("({name})"));
+        }
+        Doc::list(&format!("({name} "), args, " ", ")", false, false, false)
+    }
+
+    /// A PowerShell string as a command argument: a literal, a parameter
+    /// passed on, or `('by ' + $Author)`.
+    fn native_string(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        match parts {
+            [] => Doc::text(ps_string("")),
+            [ConcatPart::Lit(s)] => Doc::text(ps_string(s)),
+            [ConcatPart::Param(p)] => Doc::text(ps_param(p)),
+            _ => Doc::text(ps_joined(parts)),
+        }
+    }
+}
+
+/// `('by ' + $Author)`: a string joined from `parts`, parenthesized.
+fn ps_joined(parts: &[ConcatPart<'_>]) -> String {
+    let parts: Vec<String> = parts
+        .iter()
+        .map(|p| match p {
+            ConcatPart::Lit(s) => ps_string(s),
+            ConcatPart::Param(i) => ps_param(i),
+        })
+        .collect();
+    format!("({})", parts.join(" + "))
 }
 
 /// `    param([string]$Title = 'Hello', ..)` plus the `$null = $X` lines of
@@ -293,7 +325,7 @@ function New-CssString([string]$S) {
 ";
 
 fn fn_name(item: &Item) -> String {
-    format!("Get-{}", item.name.upper_camel())
+    fn_name_of(&item.name)
 }
 
 /// The app around a DOM module (`m.app`): a `LayoutCallbackInvokerDelegate`
@@ -387,9 +419,10 @@ function New-StringField([string]$Name, [string]$Value, [string]$Description) {
 ";
 
 /// The registration of a component library (`m.library`): per component a
-/// default-arguments wrapper, a render and a compile script block of the C#
-/// layer's delegate types (kept in script variables, so they stay alive
-/// while libazul holds their function pointers) and its `ComponentDef`;
+/// default-arguments wrapper, a render script block of the C# layer's
+/// delegate type (kept in a script variable, so it stays alive while
+/// libazul holds its function pointer) and its `ComponentDef` (code calls
+/// it through its render function: `ComponentCodegen::RenderFunction`);
 /// then the library function and `Add-<Library>Library`, which registers it
 /// on an app config through `AzAppConfig_addComponentLibraryStruct`. Items
 /// the module does not have are skipped.
@@ -446,13 +479,6 @@ fn ps_registration(m: &Module, lib: &LibrarySpec) -> String {
              [Azul.NativeMethods]::AzResultStyledDomRenderDomError_ok([Azul.NativeMethods]::\
              AzStyledDom_createFromDom($dom))\n}}\n"
         );
-        let _ = write!(
-            s,
-            "\n$script:{cu}CompileFn = [Azul.AzComponentCompileFn]{{\n    param([IntPtr]$Def, \
-             [IntPtr]$Target, [IntPtr]$Model, [UIntPtr]$Indent)\n    return \
-             [Azul.NativeMethods]::AzResultStringCompileError_ok({})\n}}\n",
-            az(&format!("{item_fn}Default"))
-        );
         let fields = if item.params.is_empty() {
             "[Azul.NativeMethods]::AzComponentDataFieldVec_create()".to_string()
         } else {
@@ -485,10 +511,8 @@ fn ps_registration(m: &Module, lib: &LibrarySpec) -> String {
              [Azul.ComponentSource]::UserDefined\n        data_model = [Azul.AzComponentDataModel]@{{ \
              name = {}; description = {}; fields = $fields }}\n        render_fn = \
              [System.Runtime.InteropServices.Marshal]::GetFunctionPointerForDelegate($script:\
-             {cu}RenderFn)\n        compile_fn = \
-             [System.Runtime.InteropServices.Marshal]::GetFunctionPointerForDelegate($script:\
-             {cu}CompileFn)\n        render_fn_source = \
-             [Azul.NativeMethods]::AzOptionString_none()\n        compile_fn_source = \
+             {cu}RenderFn)\n        codegen = \
+             [Azul.NativeMethods]::AzComponentCodegen_renderFunction()\n        render_fn_source = \
              [Azul.NativeMethods]::AzOptionString_none()\n    }}\n}}\n",
             az(&lib.name),
             az(&c.name),

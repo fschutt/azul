@@ -75,14 +75,6 @@ fn cardRenderFn(def: [*c]const C.AzComponentDef, model: [*c]const C.AzComponentD
     return C.AzResultStyledDomRenderDomError_ok(C.AzStyledDom_createFromDom(dom));
 }
 
-fn cardCompileFn(def: [*c]const C.AzComponentDef, target: [*c]const C.AzCompileTarget, model: [*c]const C.AzComponentDataModel, indent: usize) callconv(.c) C.AzResultStringCompileError {
-    _ = def;
-    _ = target;
-    _ = model;
-    _ = indent;
-    return C.AzResultStringCompileError_ok(C.AzString_copyFromBytes("renderCardDefault()", 0, 19));
-}
-
 fn cardDef() C.AzComponentDef {
     var def: C.AzComponentDef = .{};
     def.id = C.AzComponentId_create(C.AzString_copyFromBytes("user", 0, 4), C.AzString_copyFromBytes("card", 0, 4));
@@ -102,9 +94,8 @@ fn cardDef() C.AzComponentDef {
     // copyFromPtr cloned them.
     for (&fields) |*f| C.AzComponentDataField_delete(f);
     def.render_fn = &cardRenderFn;
-    def.compile_fn = &cardCompileFn;
+    def.codegen = C.AzComponentCodegen_renderFunction();
     def.render_fn_source = C.AzOptionString_none();
-    def.compile_fn_source = C.AzOptionString_none();
     return def;
 }
 

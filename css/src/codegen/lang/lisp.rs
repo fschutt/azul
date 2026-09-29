@@ -276,17 +276,38 @@ impl ExprSyntax for Lisp {
 
     /// `(css-str (concatenate 'string "by " author))`.
     fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
-        let mut args = vec![Doc::text("'string")];
-        args.extend(parts.iter().map(|p| match p {
-            ConcatPart::Lit(s) => Doc::text(lisp_lit(s)),
-            ConcatPart::Param(i) => Doc::text(lisp_param(i)),
-        }));
-        form(
-            "css-str".to_string(),
-            vec![form("concatenate".to_string(), args, false)],
-            false,
-        )
+        form("css-str".to_string(), vec![concatenate(parts)], false)
     }
+
+    fn item_call_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// `(render-card "Hi" title)`: another function of the package.
+    fn item_call(&self, item: &Ident, args: Vec<Doc>, broken: bool) -> Doc {
+        form(fn_name_of(item), args, broken)
+    }
+
+    /// A Lisp string: a literal, a parameter passed on, or
+    /// `(concatenate 'string "by " author)`.
+    fn native_string(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        match parts {
+            [] => Doc::text(lisp_lit("")),
+            [ConcatPart::Lit(s)] => Doc::text(lisp_lit(s)),
+            [ConcatPart::Param(p)] => Doc::text(lisp_param(p)),
+            _ => concatenate(parts),
+        }
+    }
+}
+
+/// `(concatenate 'string "by " author)`: a Lisp string joined from `parts`.
+fn concatenate(parts: &[ConcatPart<'_>]) -> Doc {
+    let mut args = vec![Doc::text("'string")];
+    args.extend(parts.iter().map(|p| match p {
+        ConcatPart::Lit(s) => Doc::text(lisp_lit(s)),
+        ConcatPart::Param(i) => Doc::text(lisp_param(i)),
+    }));
+    form("concatenate".to_string(), args, false)
 }
 
 /// ` (&optional (title "Hello") ..)`'s lambda list: `()` without parameters.
@@ -338,7 +359,12 @@ const CSS_STR: &str = r#"(defun css-str (s)
 "#;
 
 fn fn_name(item: &Item) -> String {
-    item.name.kebab()
+    fn_name_of(&item.name)
+}
+
+/// [`fn_name`] of the item named `name`.
+fn fn_name_of(name: &Ident) -> String {
+    name.kebab()
 }
 
 fn item_fn(item: &Item) -> (bool, String) {
