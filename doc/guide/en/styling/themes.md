@@ -301,10 +301,10 @@ The cascade has three layers, from outermost to innermost:
 1. **System discovery** (the `system:*` keywords and `@theme dark`
    condition). Resolved per frame from the running OS, so a theme
    toggle takes effect on the next paint without a re-layout.
-2. **End-user ricing** — the optional CSS file the user dropped into
-   `~/.config/azul/styles/<app>.css` (Linux/macOS) or
-   `%APPDATA%\azul\styles\<app>.css` (Windows). Loaded at app startup
-   when the `io` feature is on.
+2. **End-user ricing** — the CSS files the user dropped into
+   `~/.azul/css/<theme>/` (and the older per-app
+   `~/.config/azul/styles/<app>.css`), each at the priority its header
+   asks for, `base` by default. See [Ricing (User Themes)](ricing.md).
 3. **Application CSS** — every component-level `Css` attached via
    `Dom::style(...)` on a subtree root, plus inline rules attached
    via `Dom::with_css(...)` on individual nodes. CSS lives on the
@@ -315,8 +315,8 @@ Components don't fight user theming because their selectors target
 component-internal classes (`.shadcn-card`, `.my-row`) while user
 theming targets the `system:*` color and font hooks. As long as a
 component reads its colors from `system:*` instead of hard-coding
-hex values, the user's `~/.config/azul/styles/<app>.css` can repaint
-the component without the component's source changing.
+hex values, a user's rice can repaint the component without the
+component's source changing.
 
 A few escape hatches when the discovery isn't enough:
 
@@ -332,25 +332,30 @@ A few escape hatches when the discovery isn't enough:
 Azul has a single env var for the entire end-user-customization
 layer: `AZ_RICING`.
 
-Unset (the default) means the framework loads the user CSS file at
-`~/.config/azul/styles/<app>.css` if it exists, and on Linux runs the
-standard detection chain (`KDE > GNOME > riced-desktop > defaults`).
+Unset (the default) means the framework loads the user's rice
+([Ricing (User Themes)](ricing.md)) if there is any, and on Linux runs
+the standard detection chain (`KDE > GNOME > riced-desktop > defaults`).
 This is the right behavior for a normal install on a normal
 desktop.
 
 `AZ_RICING=off` (aliases: `disabled`, `none`, `0`) skips both the
-user CSS file and the riced-desktop sources. Pick this for a kiosk
-build, a CI runner, or any install that must not pick up local
-theme customization. The cascade still runs `system:*` resolution
-and `@theme` conditions — disabling ricing only stops the
-*user-supplied* layer; the OS-supplied palette is still honored.
+rice and the riced-desktop sources. Pick this for a kiosk
+build, a CI runner, any install that must not pick up local
+theme customization, and before reporting a bug: a bug that
+reproduces with `AZ_RICING=off` is the app's. The cascade still runs
+`system:*` resolution and `@theme` conditions — disabling ricing only
+stops the *user-supplied* layer; the OS-supplied palette is still
+honored.
+
+`AZ_RICING=watch` (aliases: `live`, `reload`) loads the rice and
+rebuilds every window when a rice file changes, for writing a theme.
 
 `AZ_RICING=force` (aliases: `prefer`, `aggressive`, `1`) reorders the
 Linux detection chain so riced-desktop sources (Hyprland config,
 pywal cache, i3/sway) win over the GNOME and KDE paths. Use this
 when `XDG_CURRENT_DESKTOP` still reports `gnome` but the actual
-session is a tiling WM with a custom palette. The user CSS file
-still loads in this mode.
+session is a tiling WM with a custom palette. The rice still
+loads in this mode.
 
 ## Choosing the theme and the mode from the environment
 

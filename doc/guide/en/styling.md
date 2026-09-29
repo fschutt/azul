@@ -364,3 +364,5 @@ and the icon and text-styling primitives:
   style, alignment, plus the `system:` font keywords.
 - [Icon Packs](styling/icon-packs.md). Registering image and font icons
   under named packs.
+- [Ricing (User Themes)](styling/ricing.md). How end users restyle any Azul
+  app from `~/.azul/css/<theme>/`, the priority header, and `AZ_RICING`.
