@@ -106,18 +106,20 @@ Recipe: scripts/T1_APP_THEME_2026_09_29.md §4. Nothing is compiled here (house 
   nothing to condition. Guard test (see git log): they render the same under every app theme and
   carry no theme blocks. Left for a follow-up: a flora look + theme option each.
 
+- review pass: 2c137a878 (chain style), da28d0906 (boxed helper in the guard test)
+- report: scripts/T3_THEME_MIGRATION_2026_09_29.md
+
 ## IN PROGRESS
 
-- review pass over every commit, then the report
+(none - T3 finished; the parent builds and runs the suites)
 
-## NEXT
+## NEXT (for the parent / a follow-up agent)
 
- stepper, number_input, progressbar, slider, spinner, switch, text_area,
-text_input, video, combobox (+ theme option + flora look), file_input (same), then the six
-single-look widgets (ribbon, quick_access, statusbar, tabs, titlebar, tree_view).
+- build + run: `-p azul-layout --lib` (widgets + `themes::flat::follow_tests`), `--test all
+  widgets_follow_the_app_theme`, the full `--test all`; autofix for ComboBox / FileInput (report §5)
+- a flora look + theme option for ribbon, quick_access, statusbar, tabs, titlebar, tree_view
 
-## Open questions
+## Open questions (report §2.3 / §7)
 
-- ribbon / quick_access / statusbar / tabs / titlebar / tree_view have NO UiTheme and no flora
-  look (the ledger's "HAVE" list counted their palette structs). Nothing to condition until a flora
-  look exists.
+- const statics vs the runtime merge; a caller's style repeated per theme in DOM-merged widgets;
+  the doubled a11y warning of DOM-merged unnamed widgets; theme_checks.rs ignores `Theme(Custom)`.
