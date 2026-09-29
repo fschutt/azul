@@ -1311,6 +1311,56 @@ fn red_declares_every_alias_before_use_and_sizes_unions_like_c() {
     );
 }
 
+/// VB6 (B2: "a `Declare` cannot pass or return a UDT by value; the binding
+/// skips every CSS constructor and does not declare the `..Byref` twins").
+/// A function that passes or returns an aggregate by value is declared and
+/// called through the `<symbol>Byref` twin libazul exports for exactly this
+/// (aggregates by pointer, the result through an out-pointer) - never as
+/// its by-value symbol with the record silently passed ByRef, and never
+/// left as a `SKIPPED` note.
+#[test]
+fn vb6_calls_every_aggregate_function_through_its_byref_twin() {
+    let vb6 = super::lang_vb6::generate(ir(), &super::CodegenConfig::c_header())
+        .expect("the VB6 binding generates");
+    let aliases: BTreeSet<&str> = vb6
+        .lines()
+        .filter(|l| l.trim_start().starts_with("Public Declare "))
+        .filter_map(|l| l.split("Alias \"").nth(1)?.split('"').next())
+        .collect();
+    let mut offenders: Vec<String> = vb6
+        .lines()
+        .filter(|l| l.contains("UDT ByVal") || l.contains("AzXxx ByVal"))
+        .map(|l| format!("still a SKIPPED note: {}", l.trim()))
+        .collect();
+    let mut twins = 0usize;
+    for f in &ir().functions {
+        let aggregate = f
+            .args
+            .iter()
+            .any(|a| a.ref_kind == ArgRefKind::Owned && ir().is_value_aggregate(&a.type_name))
+            || f.return_type.as_deref().is_some_and(|r| ir().is_value_aggregate(r));
+        if !aggregate {
+            continue;
+        }
+        let symbol = super::managed_host_invoker::managed_c_symbol(f);
+        if aliases.contains(symbol.as_str()) {
+            offenders.push(format!("{symbol}: declared by value, VB6 cannot call it"));
+        }
+        if aliases.contains(format!("{symbol}Byref").as_str()) {
+            twins += 1;
+        }
+    }
+    assert!(twins > 1000, "only {twins} Byref twins declared");
+    let shown: Vec<String> = offenders.iter().take(40).cloned().collect();
+    assert!(
+        offenders.is_empty(),
+        "{} VB6 declaration(s) of an aggregate function (first {}):\n  {}",
+        offenders.len(),
+        shown.len(),
+        shown.join("\n  ")
+    );
+}
+
 /// c_layout (the Fortran union blobs, `return_c_size`) sizes and aligns
 /// every tagged union exactly as Rust does.
 #[test]
