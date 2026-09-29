@@ -4141,6 +4141,15 @@ pub fn spinner(s: crate::widgets::spinner::Spinner) -> Dom {
 }
 
 // ==== chip ====
+//
+// The flat chip is the widget's established tag: a 12px-radius pill, the
+// neutral kind light grey (the desktop's quiet neutral highlight and label
+// ink at night), a coloured kind its own colour in both modes. What it
+// lacked was a visible focus: the remove button and a clickable label take
+// the keyboard but had no border to colour, so a focused "x" looked exactly
+// like an unfocused one. They get a halo in flat's focus colour (the fields'
+// ring, #4286F4; flat's night accent in the dark theme) - a spread shadow,
+// so the pill's geometry does not move.
 
 /// The flat pill for a chip kind: the widget's own style, plus the neutral
 /// tag's dark twins (a coloured chip is its own colour in both modes).
@@ -4154,17 +4163,27 @@ fn flat_chip_container(
     style
 }
 
-/// The flat chip.
+/// The flat chip: the established tag, with a focus halo on everything that
+/// takes the keyboard.
 #[must_use]
 pub fn chip(c: crate::widgets::chip::Chip) -> Dom {
+    use super::decl;
     use crate::widgets::chip::{ChipLook, CHIP_LABEL_STYLE, CHIP_REMOVE_STYLE};
+
+    let mut label_focus = decl::radius(3).to_vec();
+    label_focus.extend(decl::focus_halo(FIELD_RING, DARK_ACC));
+
+    let mut remove = CHIP_REMOVE_STYLE.to_vec();
+    remove.extend(decl::radius(4));
+    remove.extend(decl::focus_halo(FIELD_RING, DARK_ACC));
+
     crate::widgets::chip::build(
         c,
         &ChipLook {
             container: flat_chip_container,
             label: CHIP_LABEL_STYLE.to_vec(),
-            label_focus: Vec::new(),
-            remove: CHIP_REMOVE_STYLE.to_vec(),
+            label_focus,
+            remove,
             marker: None,
         },
     )

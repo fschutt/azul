@@ -4482,9 +4482,116 @@ pub fn spinner(s: crate::widgets::spinner::Spinner) -> Dom {
 }
 
 // ==== chip ====
+//
+// A flora tag is the badge's `.pill` cut for content: the same raised paper in
+// a --fl-bd2 hairline and the 3px house radius, but set in the content ink
+// (--fl-ink2) at normal weight, because a tag is a word the user wrote, not a
+// label the application stamped. A coloured tag is one of the shared stones.
+// The remove "x" has no colour of its own - it inherits the pill's ink, so it
+// reads on paper and on every stone - and lights up under the pointer with a
+// translucent wash of that ink. Focus is flora.css's `--focus-color`: the
+// accent, lifted to its glow at night, drawn as a halo.
 
-/// The flora chip.
+/// The tag kind's stone, or `None` for the neutral paper tag.
+const fn chip_stone(kind: crate::widgets::chip::ChipKind) -> Option<FloraStone> {
+    use crate::widgets::chip::ChipKind;
+    match kind {
+        ChipKind::Default => None,
+        ChipKind::Primary => Some(STONE_ACCENT),
+        ChipKind::Success => Some(STONE_LEAF),
+        ChipKind::Danger => Some(STONE_CLAY),
+        ChipKind::Warning => Some(STONE_AMBER),
+        ChipKind::Info => Some(STONE_SLATE),
+    }
+}
+
+/// The flora pill for one tag kind.
+fn flora_chip_container(kind: crate::widgets::chip::ChipKind) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+
+    let mut style = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+            LayoutFlexDirection::Row,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
+            0,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            12,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    style.extend(decl::padding(3, 7, 3, 9));
+    style.extend(decl::radius(3));
+    style.extend(decl::border(1));
+    match chip_stone(kind) {
+        None => {
+            style.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
+            style.extend(decl::themed_layers(
+                vec![RAISED_FACE_LIGHT],
+                vec![RAISED_FACE_DARK],
+            ));
+            style.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
+        }
+        Some(stone) => {
+            style.extend(decl::border_colors(stone.deep).map(CssPropertyWithConditions::simple));
+            style.push(CssPropertyWithConditions::simple(decl::layers(stone_face(
+                stone.stone,
+                STONE_STREAK,
+            ))));
+            style.push(CssPropertyWithConditions::simple(decl::ink(LIGHT_ON_ACC)));
+        }
+    }
+    style
+}
+
+/// The flora chip: flora's paper tag or a stone, with a quiet remove button
+/// and the accent's focus halo.
 #[must_use]
 pub fn chip(c: crate::widgets::chip::Chip) -> Dom {
-    super::flat::chip(c)
+    use super::decl;
+    use crate::widgets::chip::{ChipLook, CHIP_LABEL_STYLE};
+
+    let mut label_focus = decl::radius(3).to_vec();
+    label_focus.extend(decl::focus_halo(LIGHT_ACC, DARK_GLOW));
+
+    let mut remove = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
+            0,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            13,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+        CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+        CssPropertyWithConditions::simple(CssProperty::const_margin_left(
+            LayoutMarginLeft::const_px(5),
+        )),
+    ];
+    remove.extend(decl::padding(0, 3, 0, 3));
+    remove.extend(decl::radius(3));
+    // A wash of the pill's own ink: dark on paper by day, light at night.
+    remove.extend(decl::hover_fill(
+        ColorU::new(38, 37, 33, 26),
+        ColorU::new(255, 255, 255, 36),
+    ));
+    remove.extend(decl::active_fill(
+        ColorU::new(38, 37, 33, 46),
+        ColorU::new(255, 255, 255, 56),
+    ));
+    remove.extend(decl::focus_halo(LIGHT_ACC, DARK_GLOW));
+
+    crate::widgets::chip::build(
+        c,
+        &ChipLook {
+            container: flora_chip_container,
+            label: CHIP_LABEL_STYLE.to_vec(),
+            label_focus,
+            remove,
+            marker: Some("__azul-theme-flora"),
+        },
+    )
 }
