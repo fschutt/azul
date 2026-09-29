@@ -3626,11 +3626,77 @@ mod autotest_generated {
     }
 
     #[test]
-    fn a_video_without_a_theme_renders_flat() {
+    fn a_video_without_a_theme_follows_the_app_theme_flat_by_default() {
         use crate::widgets::themes::{theme_checks as tc, OptionUiTheme};
         let w = VideoWidget::create(VideoConfig::default());
         assert_eq!(w.theme, OptionUiTheme::None);
         assert!(tc::has_class(&w.dom(), "__azul-theme-flat"));
+        let dom = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            VideoWidget::create(VideoConfig::default()).dom()
+        };
+        assert!(tc::has_class(&dom, "__azul-theme-flora"), "built for flora, it is flora's");
+    }
+
+    /// An UNPINNED video's poster carries every theme's block: under either
+    /// app theme it paints that theme's poster, in light and in dark.
+    #[test]
+    fn an_unpinned_videos_poster_carries_every_themes_block() {
+        use azul_css::{
+            dynamic_selector::{CssPropertyWithConditions, DynamicSelectorContext, ThemeCondition},
+            props::property::CssProperty,
+        };
+
+        use crate::widgets::themes::UiTheme;
+
+        let dom = VideoWidget::create(VideoConfig::default()).dom();
+        let dataset = dom.root.get_dataset().cloned().expect("the widget state");
+        let ret = with_virtual_view_info(320.0, 180.0, |info| {
+            video_widget_render(dataset.clone(), info)
+        });
+        let poster = match ret.dom {
+            OptionDom::Some(d) => d,
+            OptionDom::None => panic!("no frame yet must still render the poster"),
+        };
+        let decls: Vec<CssPropertyWithConditions> = poster
+            .root
+            .style
+            .iter_inline_properties()
+            .map(|(p, c)| CssPropertyWithConditions {
+                property: p.clone(),
+                apply_if: c.clone(),
+            })
+            .collect();
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let own: Vec<CssPropertyWithConditions> = poster_of(theme)
+                .root
+                .style
+                .iter_inline_properties()
+                .map(|(p, c)| CssPropertyWithConditions {
+                    property: p.clone(),
+                    apply_if: c.clone(),
+                })
+                .collect();
+            for dark in [false, true] {
+                let ctx = DynamicSelectorContext {
+                    theme: if dark {
+                        ThemeCondition::Dark
+                    } else {
+                        ThemeCondition::Light
+                    },
+                    ..Default::default()
+                }
+                .with_app_theme(theme.name());
+                let bg = |v: &[CssPropertyWithConditions]| {
+                    v.iter()
+                        .filter(|p| p.matches(&ctx))
+                        .filter(|p| matches!(p.property, CssProperty::BackgroundContent(_)))
+                        .last()
+                        .map(|p| p.property.clone())
+                };
+                assert_eq!(bg(&decls), bg(&own), "{theme:?} dark={dark}");
+            }
+        }
     }
 
     #[test]

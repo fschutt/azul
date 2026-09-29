@@ -624,3 +624,20 @@ fn progress_bars_follow_the_app_theme() {
         });
     }
 }
+
+/// A video's own chrome is its "no signal" poster, drawn by its
+/// `VirtualView` (pinned by the widget's own tests); the outer DOM carries
+/// the theme marker the structure theme puts on it.
+#[test]
+fn videos_follow_the_app_theme() {
+    use azul_core::video::VideoConfig;
+    use azul_layout::widgets::video::VideoWidget;
+    assert_follows_the_app_theme("video", |t| {
+        pinned(
+            VideoWidget::create(VideoConfig::default()),
+            t,
+            VideoWidget::with_theme,
+        )
+        .dom()
+    });
+}
