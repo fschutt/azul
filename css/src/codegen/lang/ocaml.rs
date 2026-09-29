@@ -13,6 +13,16 @@
 //! A hand-built `CssProperty` union (`revert` / `unset` of a property that
 //! has an api.json constructor) is a limitation: its payload offset is not
 //! the payload's alignment.
+//!
+//! A DOM goes through the idiomatic modules instead (`lang_ocaml/wrappers.rs`):
+//! snake_case functions of the class module that take OCaml strings
+//! (`Dom.create_div ()`, `SmallAriaInfo.label ".."`), and by-value `self`
+//! methods that take the receiver FIRST and return a new `Dom.t`, so a chain
+//! is a pipeline through `Fun.flip` (`|> Fun.flip Dom.with_child (..)`). A
+//! DOM item takes optional labelled strings defaulting to the component's
+//! values, then `()`; an unused one is marked used (dune's dev profile makes
+//! unused variables errors). An app is `Azul.App.create ~data ~app_config ()`
+//! with a typed layout function lifted over a `RefAny.key`.
 
 use alloc::{
     format,
@@ -23,10 +33,14 @@ use alloc::{
 
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{lower_first, snake_to_lower_camel, EnumShape, Expr, Item, Module, Prim},
+    ir::{lower_first, snake_to_lower_camel, EnumShape, Expr, Ident, Item, Module, Prim},
     lang::{
+        dom::{
+            chained_infix, is_dom_item, one_line, registration_note, unused_params, WrapperDom,
+            WrapperDomSyntax,
+        },
         escape_quoted, item_comments, item_doc, simple_snake, unicode_braced, variant_ctor_method,
-        ExprSyntax,
+        ConcatPart, ExprSyntax, MethodLayout,
     },
     lower_types::union_tag,
     CodegenBackend, GeneratedFile,
@@ -218,6 +232,216 @@ fn item_fn(item: &Item) -> String {
     out
 }
 
+// ── DOM export ──
+
+/// OCaml keywords (`is_ocaml_reserved` in `lang_ocaml/mod.rs`): the
+/// bindings give a function spelled like one a `_`; so does a parameter.
+const KEYWORDS: &[&str] = &[
+    "and", "as", "assert", "asr", "begin", "class", "constraint", "do", "done", "downto", "else",
+    "end", "exception", "external", "false", "for", "fun", "function", "functor", "if", "in",
+    "include", "inherit", "initializer", "land", "lazy", "let", "lor", "lsl", "lsr", "lxor",
+    "match", "method", "mod", "module", "mutable", "new", "nonrec", "object", "of", "open", "or",
+    "private", "rec", "sig", "struct", "then", "to", "true", "try", "type", "val", "virtual",
+    "when", "while", "with", "effect",
+];
+
+/// `name`, or `name_` for a keyword.
+fn ml_ident(name: String) -> String {
+    if KEYWORDS.contains(&name.as_str()) {
+        format!("{name}_")
+    } else {
+        name
+    }
+}
+
+/// A parameter's OCaml name (also its label).
+fn ml_param(name: &Ident) -> String {
+    ml_ident(name.snake())
+}
+
+/// An OCaml string literal.
+fn ml_str(s: &str) -> String {
+    format!("\"{}\"", escape_quoted(s, &[], &unicode_braced))
+}
+
+/// `s` inside a `(* .. *)` comment: OCaml nests comments and lexes string
+/// literals inside them, so neither a comment delimiter nor a `"` may stay.
+fn ml_comment(s: &str) -> String {
+    s.replace("(*", "( *").replace("*)", "* )").replace('"', "'")
+}
+
+/// A function argument: a literal, a parameter or a joined text stays as it
+/// is (already atomic or parenthesized), an application gets parentheses.
+fn ml_arg(d: Doc) -> Doc {
+    match d {
+        Doc::Text(_) => d,
+        other => Doc::cat(vec![Doc::text("("), other, Doc::text(")")]),
+    }
+}
+
+/// `f a b` (`f ()` without arguments), every argument atomic.
+fn ml_apply(f: String, args: Vec<Doc>) -> Doc {
+    if args.is_empty() {
+        return Doc::cat(vec![Doc::text(format!("{f} ()"))]);
+    }
+    let mut parts = vec![Doc::text(f)];
+    for a in args {
+        parts.push(Doc::text(" "));
+        parts.push(ml_arg(a));
+    }
+    Doc::cat(parts)
+}
+
+/// The DOM through the idiomatic modules (`Dom`, `SmallAriaInfo`).
+#[derive(Debug, Copy, Clone, Default)]
+struct OCamlDom;
+
+impl WrapperDomSyntax for OCamlDom {
+    fn base(&self) -> &dyn ExprSyntax {
+        &OCaml
+    }
+
+    fn native_string(&self, s: &str) -> Doc {
+        Doc::text(ml_str(s))
+    }
+
+    fn factory(&self, class: &str, method: &str, args: Vec<Doc>, _broken: bool) -> Doc {
+        ml_apply(format!("{class}.{}", ml_ident(method.to_string())), args)
+    }
+
+    /// The receiver is the FIRST argument, so a pipeline flips the builder
+    /// (every builder method the DOM lowering emits takes one argument).
+    fn method(&self, recv: Doc, class: &str, method: &str, args: Vec<Doc>, _layout: MethodLayout) -> Doc {
+        let f = format!("{class}.{}", ml_ident(method.to_string()));
+        let link = match args.len() {
+            0 => Doc::text(format!("|> {f}")),
+            1 => Doc::cat(vec![
+                Doc::text(format!("|> Fun.flip {f} ")),
+                ml_arg(args.into_iter().next().unwrap_or_else(|| Doc::text("()"))),
+            ]),
+            _ => {
+                let mut parts = vec![Doc::text(format!("|> (fun dom' -> {f} dom'"))];
+                for a in args {
+                    parts.push(Doc::text(" "));
+                    parts.push(ml_arg(a));
+                }
+                parts.push(Doc::text(")"));
+                Doc::cat(parts)
+            }
+        };
+        chained_infix(recv, link)
+    }
+
+    fn param(&self, name: &Ident) -> Doc {
+        Doc::text(ml_param(name))
+    }
+
+    fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        let joined = parts
+            .iter()
+            .map(|p| match p {
+                ConcatPart::Lit(s) => ml_str(s),
+                ConcatPart::Param(i) => ml_param(i),
+            })
+            .collect::<Vec<_>>()
+            .join(" ^ ");
+        Doc::text(format!("({joined})"))
+    }
+}
+
+/// A DOM item: a function of optional labelled strings (defaulting to the
+/// values the item was made with) and `()`.
+fn dom_item_fn(item: &Item) -> String {
+    let syntax = WrapperDom(OCamlDom);
+    let mut out = String::new();
+    for line in &item_comments(&syntax, item) {
+        out.push_str(&format!("(* {} *)\n", ml_comment(line)));
+    }
+    let mut params: Vec<String> = item
+        .params
+        .iter()
+        .map(|p| match &p.default {
+            Some(Expr::Str(d)) => format!("?({} = {})", ml_param(&p.name), ml_str(d)),
+            _ => format!("~({} : string)", ml_param(&p.name)),
+        })
+        .collect();
+    params.push("()".to_string());
+    let head = format!(
+        "let {} {} : {}.t =",
+        ml_ident(item.name.snake()),
+        params.join(" "),
+        item.ty
+    );
+    match item_doc(&syntax, item) {
+        Ok(doc) => {
+            // dune's dev profile makes an unused variable an error.
+            let unused: String = unused_params(item)
+                .iter()
+                .map(|p| format!("  let _ = {} in\n", ml_param(&p.name)))
+                .collect();
+            out.push_str(&format!("{head}\n{unused}  {}\n", render(&doc, "  ", 1)));
+        }
+        Err(reason) => {
+            let unused: String = item
+                .params
+                .iter()
+                .map(|p| format!("  let _ = {} in\n", ml_param(&p.name)))
+                .collect();
+            out.push_str(&format!(
+                "(* not expressible with the OCaml bindings: {} *)\n{head}\n{unused}  failwith {}\n",
+                ml_comment(&reason),
+                ml_str(&format!("not expressible: {reason}"))
+            ));
+        }
+    }
+    out
+}
+
+/// Why the OCaml bindings cannot register a component library.
+const NO_REGISTRATION: &str = "the OCaml bindings cannot fill one: ComponentDef and \
+                               ComponentLibrary have no constructor in the idiomatic modules, \
+                               and ComponentRenderFn is a \
+                               bare `unit ptr` without the host-handle route that \
+                               RegisterComponentLibraryFn has, so a render_fn would be a \
+                               hand-made ctypes-foreign closure writing a \
+                               ResultStyledDomRenderDomError, which the bindings model only as \
+                               an opaque blob";
+
+/// The app's `main.ml` around a DOM module (`m.app`) in `ui.ml`. The
+/// idiomatic `WindowCreateOptions` sets no window title (it is a field of
+/// the raw `window_state`).
+fn app_main(m: &Module) -> String {
+    let Some(app) = &m.app else {
+        return String::new();
+    };
+    let root = format!("Ui.{} ()", ml_ident(app.root.snake()));
+    let body = if app.is_body {
+        root
+    } else {
+        format!("Azul.Dom.with_child (Azul.Dom.create_body ()) ({root})")
+    };
+    format!(
+        "(* {} - generated by AzBuilder (azul-css codegen, OCaml). *)\n\n(* The app's data: the \
+         layout callback gets it back. *)\ntype app_data = App_data\n\nlet model : app_data \
+         Azul.RefAny.key = Azul.RefAny.key \"app_data\"\n\nlet layout (_ : app_data) (_info : \
+         Azul.LayoutCallbackInfo.t) : Azul.Dom.t =\n  {body}\n\nlet () =\n  let data = \
+         Azul.RefAny.upcast model App_data in\n  let window = Azul.WindowCreateOptions.create \
+         ~layout:(Azul.RefAny.lift model layout) () in\n  let app_config = Azul.AppConfig.create \
+         () in\n  let app = Azul.App.create ~data ~app_config () in\n  Azul.App.run app window\n",
+        ml_comment(&one_line(&app.title))
+    )
+}
+
+/// The `dune` file of an executable `main` over `main.ml` and `<module>.ml`;
+/// `azul` names the copy of the bindings.
+fn dune(module: &str, azul: &str) -> String {
+    format!(
+        "; Copy target/codegen/ocaml/ (library `azul`) to {azul} and libazul here,\n; then: dune \
+         exec ./main.exe\n(executable\n (name main)\n (modules main {module})\n (libraries ctypes \
+         ctypes-foreign azul))\n"
+    )
+}
+
 impl CodegenBackend for OCaml {
     fn lang(&self) -> &'static str {
         "ocaml"
@@ -235,19 +459,58 @@ impl CodegenBackend for OCaml {
         "ml"
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn emit_module(&self, m: &Module) -> String {
-        let mut out = String::from(
-            "(* Generated by azul-css codegen (OCaml). Do not edit by hand. *)\nopen Azul\n\n",
-        );
-        out.push_str(HELPERS);
+        let mut out =
+            String::from("(* Generated by azul-css codegen (OCaml). Do not edit by hand. *)\nopen Azul\n");
+        // The raw-layer helpers serve CSS values only.
+        if !m.is_dom() || m.items.iter().any(|i| !is_dom_item(i)) {
+            out.push('\n');
+            out.push_str(HELPERS);
+        }
         for item in &m.items {
             out.push('\n');
-            out.push_str(&item_fn(item));
+            if is_dom_item(item) {
+                out.push_str(&dom_item_fn(item));
+            } else {
+                out.push_str(&item_fn(item));
+            }
+        }
+        if let Some(lib) = &m.library {
+            out.push('\n');
+            for line in registration_note(lib, NO_REGISTRATION) {
+                out.push_str(&format!("(* {} *)\n", ml_comment(&line)));
+            }
         }
         out
     }
 
     fn emit_project_files(&self, m: &Module) -> Vec<GeneratedFile> {
+        if m.app.is_some() {
+            return vec![
+                GeneratedFile {
+                    path: "dune-project".to_string(),
+                    contents: "(lang dune 3.0)\n".to_string(),
+                },
+                GeneratedFile {
+                    path: "dune".to_string(),
+                    // A copy that keeps its own dune-project is a project of
+                    // its own, whose private library `azul` is out of reach.
+                    contents: dune("ui", "./azul (without its dune-project)"),
+                },
+                GeneratedFile {
+                    path: "ui.ml".to_string(),
+                    contents: self.emit_module(m),
+                },
+                GeneratedFile {
+                    path: "main.ml".to_string(),
+                    contents: app_main(m),
+                },
+            ];
+        }
         let mut main = String::from("let () =\n");
         for (i, item) in m.items.iter().enumerate() {
             let name = item.name.snake();
@@ -266,10 +529,7 @@ impl CodegenBackend for OCaml {
             },
             GeneratedFile {
                 path: "dune".to_string(),
-                contents: "; Copy target/codegen/ocaml/ (library `azul`) to ./azul and libazul here,\n; \
-                           then: dune exec ./main.exe\n(executable\n (name main)\n (modules main \
-                           styles)\n (libraries ctypes ctypes-foreign azul))\n"
-                    .to_string(),
+                contents: dune("styles", "./azul"),
             },
             GeneratedFile {
                 path: "styles.ml".to_string(),

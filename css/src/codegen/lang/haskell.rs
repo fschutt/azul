@@ -13,6 +13,16 @@
 //! style is an `IO [CssPropertyWithConditions]`. A Vec (or `AzString`)
 //! inside a value has no pure constructor: a limitation that drops the
 //! property with a comment.
+//!
+//! A DOM goes through the class modules (`import qualified Azul.Dom as
+//! Dom`, `lang_haskell/wrappers.rs`): every constructor and builder method is
+//! an `IO` action taking Haskell `String`s, a builder method takes its
+//! receiver LAST (`Dom.withCss :: String -> Dom -> IO Dom`). So a DOM item
+//! is an `IO Dom` whose `do` block first binds every argument that is itself
+//! an action (children, aria infos; children before parents), then runs the
+//! `>>=` pipeline (`Dom.createDiv >>= Dom.withChild child1`). An app is
+//! `WindowCreateOptions.create layout` with a typed layout function and
+//! `AppConfig.create >>= App.create AppData >>= App.run window`.
 
 use alloc::{
     format,
@@ -23,10 +33,16 @@ use alloc::{
 
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{EnumShape, Expr, Item, Module, Prim},
+    ir::{snake_to_lower_camel, EnumShape, Expr, Ident, Item, Module, Prim},
     lang::{
-        escape_quoted, is_droppable_vec, item_comments, kept_items, swift::swift_camel,
-        unicode_u4, ExprSyntax,
+        concat_parts,
+        dom::{
+            chained_infix, is_dom_item, one_line, registration_note, unused_params,
+            wrapper_dom_limitation, DOM_CLASSES,
+        },
+        escape_quoted, is_droppable_vec, item_comments, kept_items, module_any,
+        swift::swift_camel,
+        unicode_u4, ConcatPart, ExprSyntax,
     },
     lower::desugar_calls,
     CodegenBackend, GeneratedFile,
@@ -146,6 +162,311 @@ fn item_fn(item: &Item) -> String {
     out
 }
 
+// ── DOM export ──
+
+/// Haskell's reserved words (`is_haskell_reserved` in `lang_haskell/mod.rs`):
+/// the bindings prime a function spelled like one (`default'`); so does a
+/// parameter.
+const KEYWORDS: &[&str] = &[
+    "case", "class", "data", "default", "deriving", "do", "else", "foreign", "if", "import", "in",
+    "infix", "infixl", "infixr", "instance", "let", "module", "newtype", "of", "then", "type",
+    "where", "_",
+];
+
+/// `name`, or `name'` for a reserved word.
+fn hs_ident(name: String) -> String {
+    if KEYWORDS.contains(&name.as_str()) {
+        format!("{name}'")
+    } else {
+        name
+    }
+}
+
+/// A parameter's Haskell name.
+fn hs_param(name: &Ident) -> String {
+    hs_ident(name.lower_camel())
+}
+
+/// A Haskell `String` literal. Haskell has no `\u` escape: anything
+/// outside printable ASCII is `\x<hex>`, followed by `\&` when a hex digit
+/// comes next (it would extend the escape).
+fn hs_str(s: &str) -> String {
+    let mut out = String::from("\"");
+    let mut numeric = false;
+    for c in s.chars() {
+        if numeric && c.is_ascii_hexdigit() {
+            out.push_str("\\&");
+        }
+        numeric = false;
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ' '..='~' => out.push(c),
+            c => {
+                out.push_str(&format!("\\x{:x}", u32::from(c)));
+                numeric = true;
+            }
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// A `String` joined from literals and parameters.
+fn hs_concat(parts: &[ConcatPart<'_>]) -> String {
+    let joined = parts
+        .iter()
+        .map(|p| match p {
+            ConcatPart::Lit(s) => hs_str(s),
+            ConcatPart::Param(i) => hs_param(i),
+        })
+        .collect::<Vec<_>>()
+        .join(" ++ ");
+    format!("({joined})")
+}
+
+/// The class-module function of api.json `class::method` (`Dom.createH2WithText`,
+/// `SmallAriaInfo.label`): the class module exports the lowerCamel name.
+fn hs_fn(class: &str, method: &str) -> String {
+    format!("{class}.{}", hs_ident(snake_to_lower_camel(method)))
+}
+
+/// `f a b`; `f` alone without arguments (every argument atomic).
+fn hs_apply(f: String, args: &[String]) -> String {
+    if args.is_empty() {
+        f
+    } else {
+        format!("{f} {}", args.join(" "))
+    }
+}
+
+/// A DOM value: a pure expression, or an `IO` action.
+enum HsVal {
+    Pure(String),
+    Io(Doc),
+}
+
+/// The `do` block of a DOM item under construction.
+struct HsDom {
+    /// `name <- action`, children before parents.
+    binds: Vec<(String, Doc)>,
+    /// The names in scope (parameters, bound values).
+    taken: Vec<String>,
+}
+
+impl HsDom {
+    /// The first of `base1`, `base2`, .. not in scope yet.
+    fn fresh(&mut self, base: &str) -> String {
+        let mut n = 1_usize;
+        loop {
+            let name = format!("{base}{n}");
+            if !self.taken.contains(&name) {
+                self.taken.push(name.clone());
+                return name;
+            }
+            n += 1;
+        }
+    }
+
+    /// `e` as an argument: a pure value inline, an action bound to a fresh
+    /// name first.
+    fn arg(&mut self, e: &Expr) -> Result<String, String> {
+        match self.value(e)? {
+            HsVal::Pure(s) => Ok(s),
+            HsVal::Io(action) => {
+                let base = match e {
+                    Expr::Call { class, .. } | Expr::Method { class, .. } if class == "Dom" => {
+                        "child"
+                    }
+                    Expr::Call { class, .. } if class == "SmallAriaInfo" => "aria",
+                    _ => "value",
+                };
+                let name = self.fresh(base);
+                self.binds.push((name.clone(), action));
+                Ok(name)
+            }
+        }
+    }
+
+    /// `e`, or why the Haskell bindings cannot build it.
+    fn value(&mut self, e: &Expr) -> Result<HsVal, String> {
+        if let Some(reason) = wrapper_dom_limitation(e) {
+            return Err(reason);
+        }
+        match e {
+            Expr::Str(s) => Ok(HsVal::Pure(hs_str(s))),
+            Expr::Param(i) => Ok(HsVal::Pure(hs_param(i))),
+            Expr::Concat(parts) => Ok(HsVal::Pure(hs_concat(&concat_parts(parts)))),
+            Expr::Int { value, ty } => Ok(HsVal::Pure(Haskell.int(*value, *ty))),
+            Expr::Float { text, ty } => Ok(HsVal::Pure(Haskell.float(text, *ty))),
+            // The class modules take Haskell `Bool`s.
+            Expr::Bool(b) => Ok(HsVal::Pure(String::from(if *b { "True" } else { "False" }))),
+            Expr::Call {
+                class,
+                method,
+                args,
+            } => {
+                let args = args
+                    .iter()
+                    .map(|a| self.arg(a))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(HsVal::Io(Doc::text(hs_apply(hs_fn(class, method), &args))))
+            }
+            // The receiver's own arguments are bound before this link's.
+            Expr::Method {
+                recv,
+                class,
+                method,
+                args,
+            } => {
+                let recv = match self.value(recv)? {
+                    HsVal::Io(action) => action,
+                    HsVal::Pure(v) => Doc::text(format!("pure {v}")),
+                };
+                let args = args
+                    .iter()
+                    .map(|a| self.arg(a))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let link = Doc::text(format!(">>= {}", hs_apply(hs_fn(class, method), &args)));
+                Ok(HsVal::Io(chained_infix(recv, link)))
+            }
+            Expr::Unsupported { what } => Err(what.clone()),
+            // Rejected by `wrapper_dom_limitation` above.
+            Expr::Variant { ty, .. } | Expr::Struct { ty, .. } | Expr::Vec { ty, .. } => Err(format!(
+                "a raw {ty} value: the Haskell class modules take native values"
+            )),
+        }
+    }
+}
+
+/// A DOM item: `IO` of its `String` parameters (an unused one is `_name`).
+/// Returns its name (for the export list) and its text.
+fn dom_item_fn(item: &Item) -> (String, String) {
+    let mut out = String::new();
+    for line in &item.doc {
+        out.push_str(&format!("-- {line}\n"));
+    }
+    let name = hs_ident(item.name.lower_camel());
+    let mut sig: Vec<String> = item.params.iter().map(|_| "String".to_string()).collect();
+    sig.push(format!("IO {}", item.ty));
+    let sig = format!("{name} :: {}\n", sig.join(" -> "));
+    let unused = unused_params(item);
+    let params: Vec<String> = item
+        .params
+        .iter()
+        .map(|p| {
+            if unused.iter().any(|u| u.name == p.name) {
+                format!("_{}", hs_param(&p.name))
+            } else {
+                hs_param(&p.name)
+            }
+        })
+        .collect();
+    let mut cx = HsDom {
+        binds: Vec::new(),
+        taken: params.clone(),
+    };
+    let body = match cx.value(&item.value) {
+        Ok(HsVal::Io(action)) => action,
+        Ok(HsVal::Pure(v)) => Doc::text(format!("pure {v}")),
+        Err(reason) => {
+            let lhs: String = core::iter::once(name.clone())
+                .chain(item.params.iter().map(|_| "_".to_string()))
+                .collect::<Vec<_>>()
+                .join(" ");
+            out.push_str(&format!(
+                "-- not expressible with the Haskell bindings: {}\n{sig}{lhs} = ioError (userError \
+                 {})\n",
+                one_line(&reason),
+                hs_str(&format!("not expressible: {}", one_line(&reason)))
+            ));
+            return (name, out);
+        }
+    };
+    out.push_str(&sig);
+    let lhs: String = core::iter::once(name.clone()).chain(params).collect::<Vec<_>>().join(" ");
+    if cx.binds.is_empty() {
+        out.push_str(&format!("{lhs} = {}\n", render(&body, "  ", 1)));
+    } else {
+        out.push_str(&format!("{lhs} = do\n"));
+        for (bound, action) in &cx.binds {
+            out.push_str(&format!("  {bound} <- {}\n", render(action, "  ", 1)));
+        }
+        out.push_str(&format!("  {}\n", render(&body, "  ", 1)));
+    }
+    (name, out)
+}
+
+/// Why the Haskell bindings cannot register a component library.
+const NO_REGISTRATION: &str = "the Haskell bindings cannot fill one: ComponentDef and \
+                               ComponentLibrary have no constructor in the class modules, and \
+                               GHC's foreign import wrapper cannot make a function that returns a \
+                               ResultStyledDomRenderDomError by value (the cbits shim routes every \
+                               ComponentRenderFn through one process-wide trampoline, \
+                               AzComponentRenderFn_set_inner)";
+
+/// The DOM classes the module's items construct (sorted), for the
+/// qualified imports of their class modules.
+fn dom_classes(m: &Module) -> Vec<&'static str> {
+    DOM_CLASSES
+        .iter()
+        .copied()
+        .filter(|c| {
+            module_any(m, &|e| {
+                matches!(e, Expr::Call { class, .. } | Expr::Method { class, .. } if class == c)
+            })
+        })
+        .collect()
+}
+
+/// The app's `Main.hs` around a DOM module (`m.app`) in `Ui.hs`. The class
+/// modules set no window title (it is a field of the raw `window_state`).
+fn app_main(m: &Module) -> String {
+    let Some(app) = &m.app else {
+        return String::new();
+    };
+    let root = format!("Ui.{}", hs_ident(app.root.lower_camel()));
+    let (dom_import, layout) = if app.is_body {
+        (String::new(), format!("layout _ _ = {root}\n"))
+    } else {
+        (
+            "import qualified Azul.Dom as Dom\n".to_string(),
+            format!("layout _ _ = do\n  root <- {root}\n  Dom.createBody >>= Dom.withChild root\n"),
+        )
+    };
+    format!(
+        "-- {} - generated by AzBuilder (azul-css codegen, Haskell).\nmodule Main (main) \
+         where\n\nimport Azul\nimport qualified Azul.App as App\nimport qualified Azul.AppConfig \
+         as AppConfig\n{dom_import}import qualified Azul.WindowCreateOptions as \
+         WindowCreateOptions\nimport qualified Ui\n\n-- The app's data: the layout callback gets \
+         it back.\ndata AppData = AppData\n\nlayout :: AppData -> LayoutCallbackInfo -> IO \
+         Dom\n{layout}\nmain :: IO ()\nmain = do\n  window <- WindowCreateOptions.create layout\n  \
+         AppConfig.create >>= App.create AppData >>= App.run window\n",
+        one_line(&app.title)
+    )
+}
+
+/// The cabal file of executable `name` whose other module is `module`.
+fn cabal(name: &str, module: &str) -> String {
+    format!(
+        "cabal-version: 2.4\nname: {name}\nversion: 0.1.0\n\nexecutable {name}\n  main-is: \
+         Main.hs\n  other-modules: {module}\n  build-depends: base >= 4.14 && < 5, azul\n  \
+         default-language: Haskell2010\n  ghc-options: -threaded\n"
+    )
+}
+
+/// The `cabal.project` of executable `name`.
+fn cabal_project(name: &str) -> String {
+    format!(
+        "-- Copy target/codegen/haskell/ to ./azul-haskell (azul.h into its cbits/),\n-- then: \
+         cabal run {name} --extra-lib-dirs=<dir of libazul>\npackages: .\noptional-packages: \
+         ./azul-haskell\n"
+    )
+}
+
 impl CodegenBackend for Haskell {
     fn lang(&self) -> &'static str {
         "haskell"
@@ -163,27 +484,78 @@ impl CodegenBackend for Haskell {
         "hs"
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn emit_module(&self, m: &Module) -> String {
-        let names: Vec<String> = m
-            .items
-            .iter()
-            .filter(|i| is_droppable_vec(&i.ty))
-            .map(|i| i.name.lower_camel())
-            .collect();
+        let mut names: Vec<String> = Vec::new();
+        let mut bodies: Vec<String> = Vec::new();
+        for item in &m.items {
+            if is_dom_item(item) {
+                let (name, body) = dom_item_fn(item);
+                names.push(name);
+                bodies.push(body);
+            } else {
+                if is_droppable_vec(&item.ty) {
+                    names.push(item.name.lower_camel());
+                }
+                bodies.push(item_fn(item));
+            }
+        }
+        let module = if m.is_dom() { "Ui" } else { "Styles" };
         let mut out = format!(
-            "-- Generated by azul-css codegen (Haskell). Do not edit by hand.\nmodule Styles ({}) \
-             where\n\nimport Azul\nimport qualified Azul.Types as T\nimport qualified \
-             Azul.CssPropertyWithConditions as CssPropertyWithConditions\n",
+            "-- Generated by azul-css codegen (Haskell). Do not edit by hand.\nmodule {module} ({}) \
+             where\n\nimport Azul\n",
             names.join(", ")
         );
-        for item in &m.items {
+        // The pure ADTs and the CssPropertyWithConditions handles serve CSS
+        // values only.
+        if !m.is_dom() || m.items.iter().any(|i| !is_dom_item(i)) {
+            out.push_str(
+                "import qualified Azul.Types as T\nimport qualified Azul.CssPropertyWithConditions \
+                 as CssPropertyWithConditions\n",
+            );
+        }
+        if m.items.iter().any(is_dom_item) {
+            for class in dom_classes(m) {
+                out.push_str(&format!("import qualified Azul.{class} as {class}\n"));
+            }
+        }
+        for body in &bodies {
             out.push('\n');
-            out.push_str(&item_fn(item));
+            out.push_str(body);
+        }
+        if let Some(lib) = &m.library {
+            out.push('\n');
+            for line in registration_note(lib, NO_REGISTRATION) {
+                out.push_str(&format!("-- {line}\n"));
+            }
         }
         out
     }
 
     fn emit_project_files(&self, m: &Module) -> Vec<GeneratedFile> {
+        if m.app.is_some() {
+            return vec![
+                GeneratedFile {
+                    path: "azul-app.cabal".to_string(),
+                    contents: cabal("azul-app", "Ui"),
+                },
+                GeneratedFile {
+                    path: "cabal.project".to_string(),
+                    contents: cabal_project("azul-app"),
+                },
+                GeneratedFile {
+                    path: "Ui.hs".to_string(),
+                    contents: self.emit_module(m),
+                },
+                GeneratedFile {
+                    path: "Main.hs".to_string(),
+                    contents: app_main(m),
+                },
+            ];
+        }
         let mut main = String::from("module Main (main) where\n\nimport Styles\n\nmain :: IO ()\nmain = do\n");
         for item in m.items.iter().filter(|i| is_droppable_vec(&i.ty)) {
             let name = item.name.lower_camel();
@@ -196,18 +568,11 @@ impl CodegenBackend for Haskell {
         vec![
             GeneratedFile {
                 path: "azul-styles.cabal".to_string(),
-                contents: "cabal-version: 2.4\nname: azul-styles\nversion: 0.1.0\n\nexecutable \
-                           azul-styles\n  main-is: Main.hs\n  other-modules: Styles\n  \
-                           build-depends: base >= 4.14 && < 5, azul\n  default-language: \
-                           Haskell2010\n  ghc-options: -threaded\n"
-                    .to_string(),
+                contents: cabal("azul-styles", "Styles"),
             },
             GeneratedFile {
                 path: "cabal.project".to_string(),
-                contents: "-- Copy target/codegen/haskell/ to ./azul-haskell (azul.h into its \
-                           cbits/),\n-- then: cabal run azul-styles --extra-lib-dirs=<dir of \
-                           libazul>\npackages: .\noptional-packages: ./azul-haskell\n"
-                    .to_string(),
+                contents: cabal_project("azul-styles"),
             },
             GeneratedFile {
                 path: "Styles.hs".to_string(),

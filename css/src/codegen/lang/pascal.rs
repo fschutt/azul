@@ -8,6 +8,17 @@
 //! is only literal in a typed constant, so styles are built with statements
 //! ([`super::linear`]); a Vec is copied from an `array[0..n-1] of TAzXxx`
 //! (`AzXxxVecCopyFromPtr(@a[0], n)`); strings use `azul_string_from('..')`.
+//!
+//! A DOM goes through the wrapper classes instead (`lang_pascal/wrappers.rs`),
+//! as one expression: a static `create_<x>` is the constructor `T<Class>.<X>`
+//! (`TDom.Div_`, `TDom.P(Text)` for `create_p_with_text`), any other one
+//! `Create<Name>` (`TSmallAriaInfo.CreateLabel('..')`), and a by-value `self`
+//! method mutates its receiver and returns it (`.WithChild(..)`, chained).
+//! Arguments are Pascal strings (`'by ' + Author`); a DOM item's parameters
+//! default to the component's values. A component library is registered
+//! like the C export does it: `TDom.Release` hands out the raw `TAzDom`, and
+//! a `cdecl` render function returns its `TAzResultStyledDomRenderDomError`
+//! by value. An app is `TAzApp<TAppData>.Create(TAppData.Create, Layout)`.
 
 use alloc::{
     format,
@@ -15,11 +26,17 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use super::linear::{item_blocker, linear_comments, lower_to_statements, LinearSyntax};
 use crate::codegen::{
-    ir::{capitalize, snake_to_upper_camel, Item, Module, Prim},
-    lang::{doubled_quote, variant_ctor_method},
+    doc::{render, Doc},
+    ir::{capitalize, snake_to_upper_camel, EnumShape, Expr, Ident, Item, LibrarySpec, Module, Prim},
+    lang::{
+        dom::{is_dom_item, one_line, wrapper_dom_limitation},
+        doubled_quote, item_comments, item_doc, uses_nonfinite_float, variant_ctor_method,
+        ConcatPart, ExprSyntax, MethodLayout,
+    },
     CodegenBackend, GeneratedFile,
 };
 
@@ -165,6 +182,531 @@ fn item_fn(item: &Item) -> (String, String) {
     (decl, out)
 }
 
+// ── DOM export ──
+
+/// Reserved besides [`KEYWORDS`] where a generated name stands alone
+/// (`is_pascal_reserved` in `lang_pascal/mod.rs`).
+const RESERVED_EXTRA: &[&str] = &["absolute", "external"];
+
+/// The names a constructor of a wrapper class is kept off
+/// (`is_pascal_method_shadow` in `lang_pascal/mod.rs`).
+const METHOD_SHADOWS: &[&str] = &[
+    "result", "len", "cap", "clone", "create", "delete", "free", "raw", "wrap", "destroy", "ptr",
+    "string", "self", "tag", "get", "set", "id", "value",
+];
+
+/// `true` for a Pascal reserved word (any case).
+fn is_reserved(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    KEYWORDS.contains(&lower.as_str()) || RESERVED_EXTRA.contains(&lower.as_str())
+}
+
+/// The `_with_<arg>` suffixes of the constructors whose argument is named
+/// `<arg>` (`create_h1_with_text(text)`, `create_abbr_with_title(abbr_text,
+/// title)`, `create_th_with_scope(scope, text)`): they fold into an
+/// overload of the base name.
+const FOLDED_ARGS: &[&str] = &["_with_text", "_with_title", "_with_scope"];
+
+/// The `create_<x>_with_text` whose argument is not `text`
+/// (`create_code_with_text(code)` stays `TDom.CodeWithText`).
+const FOLD_EXCEPTIONS: &[&str] = &["code_with_text"];
+
+/// The wrapper-class constructor of the static api.json `method`
+/// (`constructor_pascal_names` in `lang_pascal/wrappers.rs`): `create_<x>`
+/// is `<X>`, a trailing `_with_<arg>` naming the constructor's own argument
+/// folds into an overload of `<X>` (`create_p_with_text` -> `P`), a guarded
+/// name gets `_` (`create_div` -> `Div_`); any other name is `Create<Name>`
+/// (`SmallAriaInfo::label` -> `CreateLabel`). Checked against every `Dom`
+/// constructor of the generated `azul.pas`.
+fn pas_ctor(method: &str) -> String {
+    if method == "create" || method == "new" {
+        return "Create".to_string();
+    }
+    let Some(rest) = method
+        .strip_prefix("create_")
+        .or_else(|| method.strip_prefix("new_"))
+    else {
+        return format!("Create{}", snake_to_upper_camel(method));
+    };
+    let base = if FOLD_EXCEPTIONS.contains(&rest) {
+        rest
+    } else {
+        FOLDED_ARGS
+            .iter()
+            .find_map(|s| rest.strip_suffix(*s))
+            .unwrap_or(rest)
+    };
+    let name = snake_to_upper_camel(base);
+    if is_reserved(&name) || METHOD_SHADOWS.contains(&name.to_ascii_lowercase().as_str()) {
+        format!("{name}_")
+    } else {
+        name
+    }
+}
+
+/// The wrapper-class method of api.json `method` (`idiomatic_method_name`
+/// in `lang_pascal/wrappers.rs`): PascalCase, `_X` after a `TObject`
+/// member, `_` after a reserved word (`with_child` -> `WithChild`).
+fn pas_method(method: &str) -> String {
+    let name = snake_to_upper_camel(method);
+    if matches!(
+        name.as_str(),
+        "ToString" | "Equals" | "GetHashCode" | "Free" | "Destroy" | "ClassName" | "ClassType"
+            | "Dispatch"
+    ) {
+        return format!("{name}_X");
+    }
+    if is_reserved(&name) {
+        return format!("{name}_");
+    }
+    name
+}
+
+/// A Pascal string literal that keeps the source ASCII: printable ASCII in
+/// quotes (`'` doubled), every other byte of the UTF-8 text a `#$xx`
+/// character code (`'caf'#$C3#$A9`), so the string holds the UTF-8 bytes.
+fn pas_str(s: &str) -> String {
+    let mut out = String::new();
+    let mut quoted = false;
+    for b in s.bytes() {
+        if (0x20..=0x7e).contains(&b) {
+            if !quoted {
+                out.push('\'');
+                quoted = true;
+            }
+            if b == b'\'' {
+                out.push('\'');
+            }
+            out.push(char::from(b));
+        } else {
+            if quoted {
+                out.push('\'');
+                quoted = false;
+            }
+            out.push_str(&format!("#${b:02X}"));
+        }
+    }
+    if quoted {
+        out.push('\'');
+    }
+    if out.is_empty() {
+        out.push_str("''");
+    }
+    out
+}
+
+/// `s` inside a `{ .. }` comment.
+fn pas_comment(s: &str) -> String {
+    s.replace('}', ")")
+}
+
+/// An item's function name.
+fn pas_item_name(name: &Ident) -> String {
+    ident(&name.upper_camel())
+}
+
+/// Each parameter's Pascal name: one that is reserved, or that the body
+/// uses (`Result`, the wrapper classes, the item's own function) or an
+/// earlier parameter took (Pascal ignores case), gets `_`.
+fn pas_params(item: &Item) -> Vec<(Ident, String)> {
+    let mut taken: Vec<String> = vec![
+        "result".to_string(),
+        "tdom".to_string(),
+        "tsmallariainfo".to_string(),
+        pas_item_name(&item.name).to_ascii_lowercase(),
+    ];
+    item.params
+        .iter()
+        .map(|p| {
+            let mut n = p.name.upper_camel();
+            while is_reserved(&n) || taken.contains(&n.to_ascii_lowercase()) {
+                n.push('_');
+            }
+            taken.push(n.to_ascii_lowercase());
+            (p.name.clone(), n)
+        })
+        .collect()
+}
+
+/// The DOM of one item through the wrapper classes (`TDom`,
+/// `TSmallAriaInfo`): one expression, a chain of the builder methods.
+struct PascalDom {
+    /// Each parameter's Pascal name.
+    params: Vec<(Ident, String)>,
+}
+
+impl PascalDom {
+    fn name_of(&self, name: &Ident) -> String {
+        self.params
+            .iter()
+            .find(|(i, _)| i == name)
+            .map_or_else(|| ident(&name.upper_camel()), |(_, n)| n.clone())
+    }
+}
+
+impl ExprSyntax for PascalDom {
+    fn int(&self, value: i128, ty: Prim) -> String {
+        LinearSyntax::int(&Pascal, value, ty)
+    }
+
+    fn float(&self, text: &str, ty: Prim) -> String {
+        LinearSyntax::float(&Pascal, text, ty)
+    }
+
+    fn boolean(&self, b: bool) -> String {
+        LinearSyntax::boolean(&Pascal, b)
+    }
+
+    fn string(&self, s: &str) -> Doc {
+        Doc::text(pas_str(s))
+    }
+
+    fn call(&self, class: &str, method: &str, args: Vec<Doc>, broken: bool) -> Doc {
+        let f = format!("T{class}.{}", pas_ctor(method));
+        if args.is_empty() {
+            Doc::text(f)
+        } else {
+            Doc::call(f, args, broken)
+        }
+    }
+
+    // The next four are never reached: `limitation` rejects their nodes.
+    fn variant(&self, _ty: &str, _shape: EnumShape, _variant: &str, _args: Vec<Doc>, _broken: bool) -> Doc {
+        Doc::text("nil")
+    }
+
+    fn strukt(&self, _ty: &str, _fields: Vec<(String, Doc)>, _broken: bool) -> Doc {
+        Doc::text("nil")
+    }
+
+    fn vec(&self, _ty: &str, _elem: &str, _items: Vec<Doc>, _broken: bool) -> Doc {
+        Doc::text("nil")
+    }
+
+    fn unsupported(&self, _what: &str) -> Doc {
+        Doc::text("nil")
+    }
+
+    fn limitation(&self, e: &Expr) -> Option<String> {
+        wrapper_dom_limitation(e)
+    }
+
+    fn dom_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    fn method(&self, recv: Doc, _class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
+        let m = format!(".{}", pas_method(method));
+        let link = if args.is_empty() {
+            Doc::text(m)
+        } else {
+            Doc::call(m, args, layout.args_tall)
+        };
+        Doc::chained(recv, link)
+    }
+
+    fn param(&self, name: &Ident) -> Doc {
+        Doc::text(self.name_of(name))
+    }
+
+    fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
+        Doc::text(
+            parts
+                .iter()
+                .map(|p| match p {
+                    ConcatPart::Lit(s) => pas_str(s),
+                    ConcatPart::Param(i) => self.name_of(i),
+                })
+                .collect::<Vec<_>>()
+                .join(" + "),
+        )
+    }
+}
+
+/// A DOM item: a function of `const` strings (the trailing ones default to
+/// the values the item was made with) returning the `TDom` it builds.
+fn dom_item_fn(item: &Item) -> (String, String) {
+    let syntax = PascalDom {
+        params: pas_params(item),
+    };
+    let name = pas_item_name(&item.name);
+    // A default only where every later parameter has one too.
+    let mut first_default = item.params.len();
+    while first_default > 0 && matches!(item.params[first_default - 1].default, Some(Expr::Str(_))) {
+        first_default -= 1;
+    }
+    let params: Vec<String> = item
+        .params
+        .iter()
+        .zip(&syntax.params)
+        .enumerate()
+        .map(|(i, (p, (_, n)))| match &p.default {
+            Some(Expr::Str(d)) if i >= first_default => format!("const {n}: string = {}", pas_str(d)),
+            _ => format!("const {n}: string"),
+        })
+        .collect();
+    let ty = format!("T{}", item.ty);
+    let decl = if params.is_empty() {
+        format!("function {name}: {ty};")
+    } else {
+        format!("function {name}({}): {ty};", params.join("; "))
+    };
+    let mut out = String::new();
+    for line in &item_comments(&syntax, item) {
+        out.push_str(&format!("{{ {} }}\n", pas_comment(line)));
+    }
+    match item_doc(&syntax, item) {
+        Ok(doc) => out.push_str(&format!(
+            "{decl}\nbegin\n  Result := {};\nend;\n",
+            render(&doc, "  ", 1)
+        )),
+        Err(reason) => out.push_str(&format!(
+            "{{ not expressible with the Pascal bindings: {} }}\n{decl}\nbegin\n  Result := \
+             nil;\nend;\n",
+            pas_comment(&reason)
+        )),
+    }
+    (decl, out)
+}
+
+/// What the registration calls when a component takes parameters: the
+/// String value of a data-model field, and a String field.
+const REGISTRATION_HELPERS: &str = r"
+{ The String value of the data-model field Name, or Fallback (tag 1 is
+  Some of TAzOptionComponentDefaultValue and String of
+  TAzComponentDefaultValue). }
+function AzModelString(Model: PAzComponentDataModel; const Name: string; const Fallback: string): string;
+var
+  Field: PAzComponentDataField;
+  Index: SizeUInt;
+  FieldName: string;
+begin
+  Result := Fallback;
+  Field := Model^.fields.ptr_;
+  Index := 0;
+  while Index < Model^.fields.len_ do
+  begin
+    SetString(FieldName, Field^.name.vec.ptr_, Field^.name.vec.len_);
+    if (FieldName = Name) and (Field^.default_value.Tag = 1)
+      and (Field^.default_value.Payload_Some.Tag = 1) then
+    begin
+      Result := azul_string_to(Field^.default_value.Payload_Some.Payload_String_);
+      Exit;
+    end;
+    Inc(Field);
+    Inc(Index);
+  end;
+end;
+
+{ A String field of a component's data model. }
+function AzStringField(const Name: string; const Value: string; const Description: string): TAzComponentDataField;
+begin
+  Result.name := azul_string_from(Name);
+  Result.field_type := AzComponentFieldType_string;
+  Result.default_value := AzOptionComponentDefaultValue_some(
+    AzComponentDefaultValue_string(azul_string_from(Value)));
+  Result.required := False;
+  Result.description := azul_string_from(Description);
+end;
+";
+
+/// The registration of component library `lib`, what
+/// `dom::c_family_registration` writes for C: per component a
+/// default-arguments wrapper, a `cdecl` render function that reads the data
+/// model and hands the raw `TAzDom` (`TDom.Release`) to
+/// `AzStyledDom_createFromDom`, a compile function and its
+/// `TAzComponentDef`; then `Register<Library>Library`. Returns its interface
+/// declaration and the implementation. Items the module does not have are
+/// skipped.
+fn registration(m: &Module, lib: &LibrarySpec) -> (String, String) {
+    let lib_fn = format!("Register{}Library", Ident::from_text(&lib.name).upper_camel());
+    let decl = format!("function {lib_fn}: TAzComponentLibrary; cdecl;");
+    let comps: Vec<_> = lib
+        .components
+        .iter()
+        .filter_map(|c| m.item(&c.item).map(|i| (c, i)))
+        .collect();
+    let mut s = String::from("\n{ -- registration -- }\n");
+    if comps.iter().any(|(_, i)| !i.params.is_empty()) {
+        s.push_str(REGISTRATION_HELPERS);
+    }
+    let mut defs: Vec<String> = Vec::new();
+    for (c, item) in &comps {
+        let item_fn = pas_item_name(&item.name);
+        let cn = Ident::from_text(&c.name).upper_camel();
+        let call = |args: Vec<String>, sep: &str| {
+            if args.is_empty() {
+                item_fn.clone()
+            } else {
+                format!("{item_fn}({})", args.join(sep))
+            }
+        };
+        // The render function's own names must not hide the item's function.
+        let local = |n: &str| {
+            if n.eq_ignore_ascii_case(&item_fn) {
+                format!("{n}_")
+            } else {
+                n.to_string()
+            }
+        };
+        let (def, model, map, dom) = (local("Def"), local("Model"), local("Map"), local("Dom"));
+        let defaults: Vec<String> = item.params.iter().map(|p| pas_str(p.default_text())).collect();
+        let _ = write!(
+            s,
+            "\n{{ `{}` with its default arguments. }}\nfunction {item_fn}Default: TDom;\nbegin\n  \
+             Result := {};\nend;\n",
+            pas_comment(&one_line(&format!("{}:{}", lib.name, c.name))),
+            call(defaults, ", ")
+        );
+        let reads: Vec<String> = item
+            .params
+            .iter()
+            .map(|p| {
+                format!(
+                    "\n    AzModelString({model}, {}, {})",
+                    pas_str(&p.name.snake()),
+                    pas_str(p.default_text())
+                )
+            })
+            .collect();
+        let _ = write!(
+            s,
+            "\nfunction {cn}RenderFn({def}: PAzComponentDef; {model}: PAzComponentDataModel; {map}: \
+             PAzComponentMap): TAzResultStyledDomRenderDomError; cdecl;\nvar\n  {dom}: \
+             TDom;\nbegin\n  {dom} := {};\n  Result := \
+             AzResultStyledDomRenderDomError_ok(AzStyledDom_createFromDom({dom}.Release));\n  \
+             {dom}.Free;\nend;\n",
+            call(reads, ",")
+        );
+        let _ = write!(
+            s,
+            "\nfunction {cn}CompileFn({def}: PAzComponentDef; Target: PAzCompileTarget; {model}: \
+             PAzComponentDataModel; Indent: SizeUInt): TAzResultStringCompileError; \
+             cdecl;\nbegin\n  Result := AzResultStringCompileError_ok(azul_string_from({}));\nend;\n",
+            pas_str(&format!("{item_fn}Default"))
+        );
+        let n = item.params.len();
+        let _ = writeln!(s, "\nfunction {cn}Def: TAzComponentDef;");
+        if n > 0 {
+            let _ = write!(
+                s,
+                "var\n  Fields: array[0..{}] of TAzComponentDataField;\n  Index: Integer;\n",
+                n - 1
+            );
+        }
+        s.push_str("begin\n");
+        let _ = writeln!(
+            s,
+            "  Result.id_ := AzComponentId_create(azul_string_from({}), azul_string_from({}));",
+            pas_str(&lib.name),
+            pas_str(&c.name)
+        );
+        let _ = writeln!(s, "  Result.display_name := azul_string_from({});", pas_str(&c.display_name));
+        let _ = writeln!(s, "  Result.description := azul_string_from({});", pas_str(&c.description));
+        let _ = writeln!(s, "  {{ The CSS is applied per node by {item_fn}. }}");
+        s.push_str("  Result.css := azul_string_from('');\n");
+        s.push_str("  Result.source := TAzComponentSource.UserDefined;\n");
+        let _ = writeln!(s, "  Result.data_model.name := azul_string_from({});", pas_str(&c.data_model));
+        let _ = writeln!(
+            s,
+            "  Result.data_model.description := azul_string_from({});",
+            pas_str(&c.data_model_description)
+        );
+        if n == 0 {
+            s.push_str("  Result.data_model.fields := AzComponentDataFieldVec_create;\n");
+        } else {
+            for (i, p) in item.params.iter().enumerate() {
+                let desc = c.field_descriptions.get(i).map_or("", String::as_str);
+                let _ = writeln!(
+                    s,
+                    "  Fields[{i}] := AzStringField({}, {}, {});",
+                    pas_str(&p.name.snake()),
+                    pas_str(p.default_text()),
+                    pas_str(desc)
+                );
+            }
+            let _ = writeln!(
+                s,
+                "  Result.data_model.fields := AzComponentDataFieldVec_copyFromPtr(@Fields[0], \
+                 {n});\n  {{ copyFromPtr cloned them. }}\n  for Index := 0 to {} do\n    \
+                 AzComponentDataField_delete(@Fields[Index]);",
+                n - 1
+            );
+        }
+        let _ = writeln!(s, "  Result.render_fn := @{cn}RenderFn;");
+        let _ = writeln!(s, "  Result.compile_fn := @{cn}CompileFn;");
+        s.push_str(
+            "  Result.render_fn_source := AzOptionString_none;\n  Result.compile_fn_source := \
+             AzOptionString_none;\nend;\n",
+        );
+        defs.push(format!("{cn}Def"));
+    }
+    let n = defs.len();
+    let _ = writeln!(
+        s,
+        "\n{{ The component library `{}`: hand AzAppConfig_addComponentLibrary a\n  \
+         TAzRegisterComponentLibraryFn whose cb is @{lib_fn} (ctx: AzOptionRefAny_none). \
+         }}\n{decl}",
+        pas_comment(&one_line(&lib.name))
+    );
+    if n > 0 {
+        let _ = write!(
+            s,
+            "var\n  Defs: array[0..{}] of TAzComponentDef;\n  Index: Integer;\n",
+            n - 1
+        );
+    }
+    s.push_str("begin\n");
+    for (i, d) in defs.iter().enumerate() {
+        let _ = writeln!(s, "  Defs[{i}] := {d};");
+    }
+    let _ = writeln!(s, "  Result.name := azul_string_from({});", pas_str(&lib.name));
+    let _ = writeln!(s, "  Result.version := azul_string_from({});", pas_str(&lib.version));
+    s.push_str("  Result.description := azul_string_from('Exported from AzBuilder');\n");
+    if n == 0 {
+        s.push_str("  Result.components := AzComponentDefVec_create;\n");
+    } else {
+        let _ = writeln!(
+            s,
+            "  Result.components := AzComponentDefVec_copyFromPtr(@Defs[0], {n});\n  {{ \
+             copyFromPtr cloned them. }}\n  for Index := 0 to {} do\n    \
+             AzComponentDef_delete(@Defs[Index]);",
+            n - 1
+        );
+    }
+    s.push_str(
+        "  Result.exportable := True;\n  Result.modifiable := False;\n  Result.data_models := \
+         AzComponentDataModelVec_create;\n  Result.enum_models := \
+         AzComponentEnumModelVec_create;\nend;\n",
+    );
+    (decl, s)
+}
+
+/// The app's `main.pas` around a DOM module (`m.app`) in unit `Ui`.
+fn app_main(m: &Module) -> String {
+    let Some(app) = &m.app else {
+        return String::new();
+    };
+    let root = format!("Ui.{}", pas_item_name(&app.root));
+    let body = if app.is_body {
+        root
+    } else {
+        format!("TDom.Body.WithChild({root})")
+    };
+    format!(
+        "{{ {} - generated by AzBuilder (azul-css codegen, Pascal).\n  Copy \
+         target/codegen/azul.pas and libazul here, then:\n    fpc -Mdelphi -Fl. -k-L. -k-lazul \
+         main.pas && ./main }}\nprogram Main;\n\n{{$mode delphi}}\n\nuses Azul, Ui;\n\ntype\n  {{ \
+         The app's data: the layout callback gets it back. }}\n  TAppData = class(TObject)\n  \
+         end;\n\nfunction Layout(Model: TAppData; Info: TAzLayoutCallbackInfo): TDom;\nbegin\n  \
+         Result := {body};\nend;\n\nvar\n  App: TAzApp<TAppData>;\nbegin\n  App := \
+         TAzApp<TAppData>.Create(TAppData.Create, Layout);\n  App.Window.Title := {};\n  \
+         App.Run;\n  App.Free;\nend.\n",
+        pas_comment(&one_line(&app.title)),
+        pas_str(&app.title)
+    )
+}
+
 impl CodegenBackend for Pascal {
     fn lang(&self) -> &'static str {
         "pascal"
@@ -182,13 +724,34 @@ impl CodegenBackend for Pascal {
         "pas"
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn emit_module(&self, m: &Module) -> String {
-        let fns: Vec<(String, String)> = m.items.iter().map(item_fn).collect();
-        let mut out = String::from(
-            "{ Generated by azul-css codegen (Pascal). Do not edit by hand. }\nunit \
-             Styles;\n\n{$mode delphi}\n\ninterface\n\nuses Math, Azul;\n\n",
+        let fns: Vec<(String, String)> = m
+            .items
+            .iter()
+            .map(|i| if is_dom_item(i) { dom_item_fn(i) } else { item_fn(i) })
+            .collect();
+        let reg = m.library.as_ref().map(|lib| registration(m, lib));
+        let unit = if m.is_dom() { "Ui" } else { "Styles" };
+        // `Math` spells the non-finite floats of CSS values.
+        let css = !m.is_dom() || m.items.iter().any(|i| !is_dom_item(i));
+        let uses = if css || uses_nonfinite_float(m) {
+            "Math, Azul"
+        } else {
+            "Azul"
+        };
+        let mut out = format!(
+            "{{ Generated by azul-css codegen (Pascal). Do not edit by hand. }}\nunit \
+             {unit};\n\n{{$mode delphi}}\n\ninterface\n\nuses {uses};\n\n"
         );
         for (decl, _) in &fns {
+            out.push_str(decl);
+            out.push('\n');
+        }
+        if let Some((decl, _)) = &reg {
             out.push_str(decl);
             out.push('\n');
         }
@@ -197,11 +760,26 @@ impl CodegenBackend for Pascal {
             out.push('\n');
             out.push_str(body);
         }
+        if let Some((_, body)) = &reg {
+            out.push_str(body);
+        }
         out.push_str("\nend.\n");
         out
     }
 
     fn emit_project_files(&self, m: &Module) -> Vec<GeneratedFile> {
+        if m.app.is_some() {
+            return vec![
+                GeneratedFile {
+                    path: "ui.pas".to_string(),
+                    contents: self.emit_module(m),
+                },
+                GeneratedFile {
+                    path: "main.pas".to_string(),
+                    contents: app_main(m),
+                },
+            ];
+        }
         let mut main = String::from(
             "{ Copy target/codegen/azul.pas and libazul here, then:\n    fpc -Mdelphi -Fl. \
              -k-L. -k-lazul main.pas && ./main }\nprogram Main;\n\n{$mode delphi}\n\nuses \

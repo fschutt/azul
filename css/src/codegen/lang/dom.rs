@@ -448,6 +448,36 @@ pub fn chained_dot_at_line_end(recv: Doc, link: Doc) -> Doc {
     }
 }
 
+/// `recv op link` as a chain of infix links (`|> ..` in OCaml, `>>= ..` in
+/// Haskell): flat with one link (the link carries its leading space), one
+/// link per line from two on.
+#[must_use]
+pub fn chained_infix(recv: Doc, link: Doc) -> Doc {
+    match recv {
+        Doc::Chain {
+            head, mut links, ..
+        } => {
+            // The first link of a flat chain carries its leading space.
+            if let Some(Doc::Cat(parts)) = links.first_mut() {
+                if matches!(parts.first(), Some(Doc::Text(t)) if t == " ") {
+                    let _space = parts.remove(0);
+                }
+            }
+            links.push(link);
+            Doc::Chain {
+                head,
+                links,
+                broken: true,
+            }
+        }
+        other => Doc::Chain {
+            head: alloc::boxed::Box::new(other),
+            links: vec![Doc::cat(vec![Doc::text(" "), link])],
+            broken: false,
+        },
+    }
+}
+
 /// `s` on one line (a window title or a library name in a comment).
 #[must_use]
 pub fn one_line(s: &str) -> String {
@@ -466,7 +496,7 @@ pub fn registration_note(lib: &LibrarySpec, reason: &str) -> Vec<String> {
         ),
         "needs a ComponentDef whose render_fn is a C function pointer, and".to_string(),
         format!("{reason}."),
-        "Register the library from the Rust, C or C++ export; the functions above".to_string(),
-        "build its components.".to_string(),
+        "Register the library from an export that can (Rust, C, C++, Zig, Pascal); the".to_string(),
+        "functions above build its components.".to_string(),
     ]
 }
