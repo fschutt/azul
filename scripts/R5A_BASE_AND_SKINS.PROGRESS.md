@@ -8,8 +8,11 @@ badge, breadcrumb, button, card, check_box, chip, color_input.
 - `cd89505ca` GREEN accordion: `ACCORDION_{CONTAINER,SECTION,HEADER,TITLE,CHEVRON}_BASE`, laid
   first by `accordion::build`; flat / flora skins only.
 
+- `692fff6ac` GREEN breadcrumb: `BREADCRUMB_ITEM_BASE`, `BREADCRUMB_LABEL_BASE`; two static-reading
+  tests now read base + flat skin.
+
 ## IN PROGRESS
-- GREEN breadcrumb.
+- GREEN color_input.
 
 ## NEXT
 1. GREEN accordion (container + header base), breadcrumb (crumb + label base), color_input (panel /
