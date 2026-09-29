@@ -28,12 +28,14 @@ microphone, screencap, map, node_graph.
   set_theme / with_theme.
 - pagination: RED e8ef3e2e7, impl 817a22b6a. API: Pagination.theme (last),
   set_theme / with_theme. Click restyle reads the marker (PaginationSkin.restyle).
+- radio_group: RED eb21dd0d1, impl be8d8ae0c. API: RadioGroup.theme (last),
+  set_theme / with_theme.
 
 ## IN PROGRESS
-- radio_group
+- segmented
 
 ## NEXT
-radio_group -> segmented -> split_pane -> stepper -> time_picker ->
+segmented -> split_pane -> stepper -> time_picker ->
 toast -> tooltip -> video -> decisions (camera/mic/screencap/map/node_graph) -> report
 
 ## Open questions
