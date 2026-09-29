@@ -30,12 +30,14 @@ microphone, screencap, map, node_graph.
   set_theme / with_theme. Click restyle reads the marker (PaginationSkin.restyle).
 - radio_group: RED eb21dd0d1, impl be8d8ae0c. API: RadioGroup.theme (last),
   set_theme / with_theme.
+- segmented: RED 3271883b5, impl ec82375ee. API: Segmented.theme (last),
+  set_theme / with_theme. Selection restyle reads the marker.
 
 ## IN PROGRESS
-- segmented
+- split_pane
 
 ## NEXT
-segmented -> split_pane -> stepper -> time_picker ->
+split_pane -> stepper -> time_picker ->
 toast -> tooltip -> video -> decisions (camera/mic/screencap/map/node_graph) -> report
 
 ## Open questions
