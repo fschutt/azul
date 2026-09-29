@@ -6224,15 +6224,16 @@ fn resolve_click_position(
             if !t.as_str().contains(txt.as_str()) {
                 continue;
             }
-            // Text nodes often have no hit-test bounds of their own.
-            let node_hier = &hierarchy[NodeId::new(i)];
-            let parent_idx = if node_hier.parent > 0 {
-                node_hier.parent - 1
-            } else {
-                i
-            };
-            if let Some(pos) = centre(parent_idx).or_else(|| centre(i)) {
-                return Some(pos);
+            // Text nodes, and the inline boxes around them (a label's
+            // `<span>`), often have no bounds of their own: the target is
+            // the text or its nearest ancestor that has.
+            let mut at = Some(i);
+            while let Some(n) = at {
+                if let Some(pos) = centre(n) {
+                    return Some(pos);
+                }
+                let parent = hierarchy[NodeId::new(n)].parent;
+                at = (parent > 0).then(|| parent - 1);
             }
         }
     }
@@ -14434,115 +14435,17 @@ pub fn process_debug_event(
                 id::NodeId,
             };
 
-            // Resolve the click target position
-            let click_pos: Option<(f32, f32)> = if let (Some(x), Some(y)) = (x, y) {
-                // Direct position provided
-                Some((*x, *y))
-            } else if let Some(nid) = node_id {
-                // Click by node ID - use hit test bounds from display list
-                let dom_id = target_dom(request);
-                let dom_node_id = DomNodeId {
-                    dom: dom_id,
-                    node: Some(NodeId::new(*nid as usize)).into(),
-                };
-                node_centre_for_click(callback_info, dom_node_id)
-            } else if let Some(sel) = selector {
-                // Click by CSS selector using matches_html_element
-                use azul_core::style::matches_html_element;
-                use azul_css::parser2::parse_css_path;
-
-                let dom_id = target_dom(request);
-                let layout_window = callback_info.get_layout_window();
-                let mut found = None;
-
-                if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
-                    // Parse the CSS selector string into a CssPath
-                    if let Ok(css_path) = parse_css_path(sel.as_str()) {
-                        let styled_dom = &layout_result.styled_dom;
-                        let node_hierarchy = styled_dom.node_hierarchy.as_container();
-                        let node_data = styled_dom.node_data.as_container();
-                        let cascade_info = styled_dom.cascade_info.as_container();
-                        let node_count = node_data.len();
-
-                        // Iterate through all nodes and find the first match
-                        for i in 0..node_count {
-                            let node_id = NodeId::new(i);
-                            if matches_html_element(
-                                &css_path,
-                                node_id,
-                                &node_hierarchy,
-                                &node_data,
-                                &cascade_info,
-                                None, // No expected pseudo-selector
-                            ) {
-                                let dom_node_id = DomNodeId {
-                                    dom: dom_id,
-                                    node: Some(NodeId::new(i)).into(),
-                                };
-                                // Hit-test bounds where they exist, laid-out
-                                // rect otherwise — see `node_centre_for_click`.
-                                if let Some(c) = node_centre_for_click(callback_info, dom_node_id) {
-                                    found = Some(c);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-                found
-            } else if let Some(txt) = text {
-                // Click by text content
-                let dom_id = target_dom(request);
-                let layout_window = callback_info.get_layout_window();
-                let mut found = None;
-
-                if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
-                    let styled_dom = &layout_result.styled_dom;
-                    let node_data = styled_dom.node_data.as_container();
-                    let node_count = node_data.len();
-
-                    for i in 0..node_count {
-                        let data = &node_data[NodeId::new(i)];
-                        if let azul_core::dom::NodeType::Text(t) = data.get_node_type() {
-                            if t.as_str().contains(txt.as_str()) {
-                                // For text nodes, get the parent's rect (the container)
-                                let dom_node_id = DomNodeId {
-                                    dom: dom_id,
-                                    node: Some(NodeId::new(i)).into(),
-                                };
-                                // Try parent first (text nodes might not have rects)
-                                let hierarchy = styled_dom.node_hierarchy.as_container();
-                                let node_hier = &hierarchy[NodeId::new(i)];
-                                let parent_idx = if node_hier.parent > 0 {
-                                    node_hier.parent - 1
-                                } else {
-                                    i
-                                };
-                                let parent_dom_node_id = DomNodeId {
-                                    dom: dom_id,
-                                    node: Some(NodeId::new(parent_idx)).into(),
-                                };
-                                // Use get_node_hit_test_bounds for reliable positions from display
-                                // list
-                                if let Some(c) =
-                                    node_centre_for_click(callback_info, parent_dom_node_id)
-                                {
-                                    found = Some(c);
-                                    break;
-                                } else if let Some(c) =
-                                    node_centre_for_click(callback_info, dom_node_id)
-                                {
-                                    found = Some(c);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-                found
-            } else {
-                None
-            };
+            // The same target resolution as `double_click`: an explicit
+            // position, a node id, a CSS selector or text content.
+            let click_pos = resolve_click_position(
+                callback_info,
+                target_dom(request),
+                x.as_ref(),
+                y.as_ref(),
+                node_id.as_ref(),
+                selector.as_ref(),
+                text.as_ref(),
+            );
 
             match click_pos {
                 Some((cx, cy)) => {
