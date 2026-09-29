@@ -1426,6 +1426,10 @@ extern "C" fn did_finish_launching(
 
 extern "C" fn app_did_become_active(_this: &Object, _cmd: Sel, _app: *mut Object) {
     log_info!(LogCategory::EventLoop, "[iOS] applicationDidBecomeActive:");
+    // Notifications: a response from now on is a tap on a running app (the
+    // one that cold-launched it arrived before this), and the permission the
+    // user may have changed in Settings meanwhile is re-read.
+    crate::desktop::notifications::app_became_active();
     // Covers the resume path that skips willEnterForeground (first launch
     // does both; unpausing twice is a harmless idempotent setter).
     unsafe { set_display_link_paused(false) };

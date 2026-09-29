@@ -826,22 +826,34 @@ pub mod wire {
 
         /// macOS: the launch named the response by its request identifier.
         pub fn name(&mut self, request_id: String) {
-            let _ = request_id;
+            self.named = Some(request_id);
         }
 
         /// The process was started for a response that has not arrived yet.
-        pub fn expect_first(&mut self) {}
+        pub fn expect_first(&mut self) {
+            self.expecting_first = true;
+        }
 
         /// iOS: the app became active. A response from now on is a tap on an
         /// app that was running - unless the launch NAMED it (macOS), which
         /// stays marked however late it arrives.
-        pub fn launch_finished(&mut self) {}
+        pub fn launch_finished(&mut self) {
+            self.expecting_first = false;
+        }
 
         /// Judge one response, by the id of the notification it answers: did
         /// it launch the app?
         pub fn launched_app(&mut self, notification_id: &str) -> bool {
-            let _ = notification_id;
-            false
+            if let Some(named) = self.named.as_deref() {
+                // A named launch response is the only one that can be it.
+                if named != notification_id {
+                    return false;
+                }
+                self.named = None;
+                self.expecting_first = false;
+                return true;
+            }
+            core::mem::replace(&mut self.expecting_first, false)
         }
     }
 

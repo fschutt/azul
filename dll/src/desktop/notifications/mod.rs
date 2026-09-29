@@ -123,16 +123,19 @@ pub unsafe fn note_launch_notification(notification: *mut core::ffi::c_void) {
     unsafe { apple::note_launch_notification(notification.cast()) };
 }
 
-/// Re-read the notification permission the OS keeps for this app - the user
-/// may have changed it in System Settings while the app was in the background.
-/// Called when the app becomes active. Only macOS and iOS store a decision
-/// that can change behind the app's back and be read cheaply.
-pub fn refresh_permission() {
+/// The app became active (`applicationDidBecomeActive:` on macOS and iOS).
+///
+/// * Re-read the notification permission the OS keeps for this app - the user may have changed
+///   it in System Settings while the app was in the background. Only macOS and iOS store a
+///   decision that can change behind the app's back and be read cheaply.
+/// * End the launch: on iOS the response that LAUNCHED the app arrives before the first
+///   activation, so one arriving later is a tap on a running app (`launched_app` stays false).
+pub fn app_became_active() {
     if HEADLESS.load(Ordering::Relaxed) {
         return;
     }
     #[cfg(any(target_os = "macos", target_os = "ios"))]
-    apple::refresh_authorization();
+    apple::app_became_active();
 }
 
 /// The notification permission as last read from `UNUserNotificationCenter`

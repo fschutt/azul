@@ -44,7 +44,11 @@
 //! from the run loop's setup, between the app delegate and `finishLaunching`
 //! (and from `application:didFinishLaunchingWithOptions:` on iOS), not at the
 //! first post. The response's event then has no live callback in this process
-//! and goes to the app-level handler, with the payload from `userInfo`.
+//! and goes to the app-level handler, with the payload from `userInfo` and
+//! `launched_app` set: macOS names that response at launch
+//! (`NSApplicationLaunchUserNotificationKey`); iOS does not for a local
+//! notification, so there it is the first response before the app first
+//! became active (`wire::LaunchResponseMarker`).
 //!
 //! # Authorization
 //!
@@ -126,10 +130,10 @@ const STATUS_AUTHORIZED: i64 = 2;
 /// `UNAuthorizationStatusProvisional`.
 const STATUS_PROVISIONAL: i64 = 3;
 
-/// The request identifier of the notification whose click LAUNCHED the app
-/// (macOS: `NSApplicationLaunchUserNotificationKey`), until its response
-/// arrives and is marked `launched_app`.
-static LAUNCH_RESPONSE_ID: Mutex<Option<String>> = Mutex::new(None);
+/// Which response LAUNCHED the app (`launched_app`): named by
+/// `NSApplicationLaunchUserNotificationKey` on macOS, the first one before the
+/// app first became active on iOS (`wire::LaunchResponseMarker`).
+static LAUNCH: Mutex<wire::LaunchResponseMarker> = Mutex::new(wire::LaunchResponseMarker::new());
 
 #[cfg(target_os = "macos")]
 #[link(name = "AppKit", kind = "framework")]
@@ -385,10 +389,31 @@ fn refresh_authorization_throttled() {
 /// all, and read the stored authorization. A no-op for an unbundled process
 /// (see the module docs); idempotent.
 pub(super) fn install_launch_hooks() {
+    // iOS names no launch notification for a LOCAL notification: the first
+    // response before the app first becomes active is the one that launched
+    // it (`wire::LaunchResponseMarker`). macOS names it instead
+    // (`note_launch_notification`).
+    #[cfg(target_os = "ios")]
+    LAUNCH
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .expect_first();
     let Some(center) = center() else {
         return;
     };
     unsafe { install_delegate(center) };
+    refresh_authorization();
+}
+
+/// The app became active: whatever response arrives from now on is a tap on
+/// a running app (iOS; a response macOS named at launch stays marked), and
+/// the permission is re-read - the user may have changed it in Settings
+/// while the app was in the background.
+pub(super) fn app_became_active() {
+    LAUNCH
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .launch_finished();
     refresh_authorization();
 }
 
@@ -446,9 +471,10 @@ pub(super) unsafe fn note_launch_notification(notification: *mut AnyObject) {
             return;
         }
         if let Some(id) = response_request_identifier(response) {
-            *LAUNCH_RESPONSE_ID
+            LAUNCH
                 .lock()
-                .unwrap_or_else(PoisonError::into_inner) = Some(id);
+                .unwrap_or_else(PoisonError::into_inner)
+                .name(id);
         }
     }
 }
@@ -595,15 +621,10 @@ unsafe fn handle_response(response: *mut AnyObject) {
     let (default_id, dismiss_id) = action_identifiers();
     let mut event = wire::apple_response_event(&app_id, &action, default_id, dismiss_id);
     event.payload = AzString::from(payload);
-    {
-        let mut launch = LAUNCH_RESPONSE_ID
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if launch.as_deref() == Some(app_id.as_str()) {
-            *launch = None;
-            event.launched_app = true;
-        }
-    }
+    event.launched_app = LAUNCH
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .launched_app(&app_id);
     queue_and_wake(event);
 }
 

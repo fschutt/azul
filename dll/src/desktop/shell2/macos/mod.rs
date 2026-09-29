@@ -2918,7 +2918,7 @@ define_class!(
             Self::order_front_registered_windows();
             // The user may have turned this app's notifications on or off in
             // System Settings while it was in the background.
-            crate::desktop::notifications::refresh_permission();
+            crate::desktop::notifications::app_became_active();
         }
 
         /// Launching finished. If a notification click launched the app, the
