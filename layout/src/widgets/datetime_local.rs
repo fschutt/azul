@@ -217,8 +217,11 @@ impl DateTimeLocalPicker {
 
         let inner = self.state.inner;
         let shared = RefAny::new(self.state);
+        // The row's theme is its parts' theme.
+        let theme = self.theme.into_option().unwrap_or(UiTheme::Flat);
 
         let date = DatePicker::create(inner.date.year, inner.date.month, inner.date.day)
+            .with_theme(theme)
             .with_on_change(
                 shared.clone(),
                 on_date_part_change as DatePickerOnChangeCallbackType,
@@ -228,6 +231,7 @@ impl DateTimeLocalPicker {
         let mut time_part = TimePicker::create(0, 0);
         time_part.state.inner = inner.time;
         let time = time_part
+            .with_theme(theme)
             .with_on_change(
                 shared.clone(),
                 on_time_part_change as TimePickerOnChangeCallbackType,
@@ -235,7 +239,6 @@ impl DateTimeLocalPicker {
             .with_accessibility_name(AzString::from_const_str("Time"))
             .dom();
 
-        let theme = self.theme.into_option().unwrap_or(UiTheme::Flat);
         let mut row = match theme {
             UiTheme::Flat => flat::datetime_local(date, time),
             UiTheme::Flora => flora::datetime_local(date, time),
