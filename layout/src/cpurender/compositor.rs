@@ -3193,8 +3193,9 @@ pub struct TranslateBlitResult {
 /// One blit PER MOVER RECT (never the union — the gaps between movers are
 /// static backdrop that must not be dragged). Clip per mover =
 /// old∪(old+delta) so both the vacated source and the destination lie
-/// inside the memmove region; exposed strips repaint per mover, and so do
-/// the scrollbars painted over a mover, which the memmove dragged.
+/// inside the memmove region; exposed strips repaint per mover, and so does
+/// whatever is painted over a mover without moving with it, which the
+/// memmove dragged ([`painted_over_mover`]).
 #[must_use]
 pub fn execute_translate_blit(
     output: &mut AzulPixmap,
@@ -3206,6 +3207,11 @@ pub fn execute_translate_blit(
 ) -> TranslateBlitResult {
     let mut res = TranslateBlitResult::default();
     let d = hint.delta;
+    // Where every mover now is: what lies inside one moved with it.
+    let destinations: Vec<LogicalRect> = mover_rects
+        .iter()
+        .map(|m| moved_by(*m, (-d.0, -d.1)))
+        .collect();
     if std::env::var_os("AZ_BLIT_DEBUG").is_some() {
         eprintln!(
             "[blit] delta={:?} movers={} exceptions={}",
@@ -3294,18 +3300,19 @@ pub fn execute_translate_blit(
             }
         }
         // What is painted OVER a mover without moving with it: a scroll
-        // container's bar (the viewport's tops the whole page). It is the
-        // bar of the movers' ANCESTOR, which `compute_patch_move_summary`
-        // takes to paint below them, yet a box paints its bar after its
-        // content. The memmove dragged the part of the bar inside `clip` by
-        // the move, and an unchanged bar is in no diff's damage: the old
-        // thumb stayed where the move put it. Repaint that part where it is
-        // and where its pixels were dragged to. (The hint is refused while
-        // anything is scrolled - `translate_hint_for_patch` - so the list's
-        // bounds are where things are painted.)
+        // container's bar (the viewport's tops the whole page), the focus
+        // ring the engine inserts at the end of its frame. They belong to
+        // the movers' ANCESTORS, which `compute_patch_move_summary` takes to
+        // paint below them. The memmove dragged the part of them inside
+        // `clip` by the move, and an unchanged item is in no diff's damage:
+        // the old thumb or ring side stayed where the move put it. Repaint
+        // that part where it is and where its pixels were dragged to. (The
+        // hint is refused while anything is scrolled -
+        // `translate_hint_for_patch` - so the list's bounds are where things
+        // are painted.)
         if moved {
-            for bar in new_display_list.items.iter().filter_map(scrollbar_bounds) {
-                let under = intersect_logical_rects(bar, clip);
+            for over in painted_over_mover(new_display_list, &dest, &destinations) {
+                let under = intersect_logical_rects(over, clip);
                 if under.size.width > 0.0 && under.size.height > 0.0 {
                     res.damage.push(under);
                     res.damage.push(intersect_logical_rects(
@@ -3328,6 +3335,57 @@ fn scrollbar_bounds(it: &DisplayListItem) -> Option<LogicalRect> {
         DisplayListItem::ScrollBar { bounds, .. } => Some(*bounds.inner()),
         _ => None,
     }
+}
+
+/// The visual bounds of everything `display_list` paints OVER the mover now
+/// at `dest` without moving with it:
+///
+/// - every scrollbar: a scroll container paints its bar after its content,
+///   and the viewport's bar tops the whole page;
+/// - every other painting item AFTER the mover's first item (the first one
+///   inside `dest`) that lies inside no mover's destination - an ancestor's
+///   focus ring, which the engine inserts at the end of its frame (the layer
+///   of CSS 2.2 Appendix E step 10), or an ancestor's inline content, which
+///   paints after its block children's backgrounds.
+///
+/// What lies inside a destination moved with its mover. What is painted
+/// before the mover is below its opaque background (`compute_patch_move_
+/// summary` blits only opaque movers). An item this finds that does not
+/// cross the blit clip costs nothing: the caller intersects.
+fn painted_over_mover(
+    display_list: &DisplayList,
+    dest: &LogicalRect,
+    destinations: &[LogicalRect],
+) -> Vec<LogicalRect> {
+    const EPS: f32 = 0.5;
+    let inside = |outer: &LogicalRect, r: &LogicalRect| {
+        r.origin.x >= outer.origin.x - EPS
+            && r.origin.y >= outer.origin.y - EPS
+            && r.origin.x + r.size.width <= outer.origin.x + outer.size.width + EPS
+            && r.origin.y + r.size.height <= outer.origin.y + outer.size.height + EPS
+    };
+    let paints = |it: &DisplayListItem| {
+        !it.is_state_management() && !matches!(it, DisplayListItem::HitTestArea { .. })
+    };
+    let first = display_list
+        .items
+        .iter()
+        .position(|it| paints(it) && it.bounds().is_some_and(|b| inside(dest, &b)));
+    display_list
+        .items
+        .iter()
+        .enumerate()
+        .filter_map(|(i, it)| {
+            if let Some(bar) = scrollbar_bounds(it) {
+                return Some(bar);
+            }
+            if !first.is_some_and(|f| i > f) || !paints(it) {
+                return None;
+            }
+            let b = it.visual_bounds()?;
+            (!destinations.iter().any(|m| inside(m, &b))).then_some(b)
+        })
+        .collect()
 }
 
 /// [`compute_display_list_damage`] + the translate hint. Returns
