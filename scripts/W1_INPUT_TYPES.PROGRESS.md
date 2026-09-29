@@ -7,8 +7,12 @@
 - 2 search: RED db3a54852, impl e7ca659e1 (wrapper row [field, clear x]; flat/flora search_clear_button +
   search_field appended; clear_field / replace_engine_line / sync_live_looks in text_input.rs)
 
+- 3 email/tel/url + pattern: RED 0f9eed9b4, impl 885972248 (ValidityReason::TypeMismatch; form::is_valid_email /
+  is_valid_absolute_url / value_matches_type; TextInputState::compute_validity; :user-invalid ring via
+  override_node_css_properties, theme found by marker class on constrained fields; mark_user_invalid)
+
 ## IN PROGRESS
-- 3 email/tel/url + pattern
+- 4 month/week (DatePicker modes) + datetime-local
 
 ## NEXT (in order)
 2. search (wrapper div [container, clear x]; x hidden when empty; Escape + x clear)
