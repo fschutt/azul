@@ -5,10 +5,12 @@ Final report: `scripts/I1_ICON_METADATA_2026_09_29.md`. Nothing compiled (house 
 Design: `scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md` sections 8, 8.1, 8.2, 9.1 pitfall 10.
 
 ## DONE
-- (none yet)
+- `3a2c83b43` plan checkpoint
+- `8e1d021ac` RED: metadata defaults, variant per mode, request x capability (layout/src/icon.rs tests)
+- `b4fa0dc75` impl: IconMeta & friends (core), capability-aware resolver (layout), CURRENT_COLOR_TOKEN (css)
 
 ## IN PROGRESS
-- plan checkpoint
+- step 2: E15 headless pixel test
 
 ## NEXT (in order)
 1. RED + impl: `IconMeta` (designed_for / variants / recolor / monochrome) on the registered data,
