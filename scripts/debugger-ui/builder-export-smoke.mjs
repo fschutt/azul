@@ -123,10 +123,15 @@ const DOC_CSS = '.card { padding-top: 8px; }\n.pill { margin-top: 2px; }\n';
 function exportOp(msg) {
     switch (msg.op) {
         case 'get_codegen_languages':
+            // ONE list (azul_css::codegen::all_backends), `dom`: the printer does DOM export.
             return {
-                dom: [{ id: 'rust', label: 'Rust', ext: 'rs' }, { id: 'c', label: 'C', ext: 'c' },
-                      { id: 'cpp', label: 'C++', ext: 'cpp' }, { id: 'python', label: 'Python', ext: 'py' }],
-                css: [{ id: 'rust', label: 'Rust', ext: 'rs' }, { id: 'cpp', label: 'C++', ext: 'cpp' }],
+                languages: [
+                    { id: 'rust', label: 'Rust', ext: 'rs', dom: true },
+                    { id: 'c', label: 'C', ext: 'h', dom: true },
+                    { id: 'cpp', label: 'C++', ext: 'hpp', dom: true },
+                    { id: 'python', label: 'Python', ext: 'py', dom: true },
+                    { id: 'java', label: 'Java', ext: 'java', dom: false },
+                ],
             };
         case 'get_css_rules': {
             let css;
@@ -139,9 +144,9 @@ function exportOp(msg) {
         case 'compile_css': {
             const all = rulesOf(msg.css || '');
             const picked = msg.rules ? msg.rules.map((i) => all[i]).filter(Boolean) : all;
-            if (msg.language === 'cobol') throw new Error('no CSS code generator for "cobol"');
+            if (msg.language === 'klingon') throw new Error('no code generator for "klingon"');
             return {
-                language: msg.language, file_name: 'styles.' + (msg.language === 'cpp' ? 'cpp' : 'rs'),
+                language: msg.language, file_name: 'styles.' + (msg.language === 'cpp' ? 'hpp' : 'rs'),
                 code: `// ${msg.language}: ${picked.map((r) => r.selector).join(' ')}\n`,
                 warnings: [], rule_count: picked.length,
             };
@@ -150,14 +155,22 @@ function exportOp(msg) {
             if (msg.node !== 0 && !(mock.doc && find(mock.doc.root, msg.node))) {
                 throw new Error(`no node with uid ${msg.node} in the builder document`);
             }
-            const ext = { rust: 'rs', c: 'c', cpp: 'cpp', python: 'py' }[msg.language];
+            const ext = { rust: 'rs', c: 'h', cpp: 'hpp', python: 'py' }[msg.language];
             const name = msg.function_name || 'render_x';
-            return {
-                language: msg.language,
-                file_name: msg.mode === 'app' ? 'main.' + ext : name + '.' + ext,
-                code: `// subtree ${msg.node} ${msg.language} ${msg.mode || 'function'} ${name}\n`,
-                warnings: [],
-            };
+            const code = `// subtree ${msg.node} ${msg.language} ${msg.mode || 'function'} ${name}\n`;
+            if (msg.mode === 'app') {
+                // An app is a project; `code` is its main file.
+                const main = msg.language === 'c' ? 'main.c' : 'main.' + ext;
+                return {
+                    language: msg.language, file_name: main, code, warnings: [],
+                    files: [
+                        { path: 'ui.' + ext, contents: `// ui ${msg.language}\n` },
+                        { path: main, contents: code },
+                        { path: 'Makefile', contents: 'app: main.c\n' },
+                    ],
+                };
+            }
+            return { language: msg.language, file_name: name + '.' + ext, code, files: [], warnings: [] };
         }
         case 'export_component_code':
             return {
@@ -378,9 +391,10 @@ async function main() {
         check('...and compiles every rule at once (no `rules` = the whole sheet)',
             JSON.stringify(lastSent('compile_css')) === JSON.stringify({ op: 'compile_css', language: 'rust', source: 'text', css: DOC_CSS }),
             lastSent('compile_css'));
-        check('...the CSS languages are the server\u2019s CSS code generators',
+        check('...the CSS languages are the server\u2019s ONE list of code generators, all usable',
             await cdp.eval(`[...document.querySelectorAll('.azx-dialog select')].some(s =>
-                [...s.options].map(o => o.value).join(',') === 'rust,cpp')`));
+                [...s.options].map(o => o.value).join(',') === 'rust,c,cpp,python,java'
+                && [...s.options].every(o => !o.disabled))`));
 
         // Untick .card: only rule 1 compiles.
         await cdp.eval(`(() => { const cb = document.querySelector('.azx-rule input[data-index="0"]'); cb.checked = false;
@@ -390,7 +404,7 @@ async function main() {
             && await cdp.eval(`__t.code() === '// rust: .pill\\n'`), lastSent('compile_css'));
 
         // Another language.
-        await cdp.eval(`(() => { const s = [...document.querySelectorAll('.azx-dialog select')].find(s => [...s.options].some(o => o.value === 'cpp') && s.options.length === 2);
+        await cdp.eval(`(() => { const s = [...document.querySelectorAll('.azx-dialog select')].find(s => [...s.options].some(o => o.value === 'java'));
             s.value = 'cpp'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
         await waitFor(cdp, `(__t.code() || '').startsWith('// cpp')`);
         check('picking another language recompiles with it', lastSent('compile_css').language === 'cpp');
@@ -398,7 +412,7 @@ async function main() {
         // Download and Copy.
         await cdp.eval(`document.querySelector('.azx-download').click(); true`);
         check('Download saves the code under the server\u2019s file name',
-            await cdp.eval(`window.__downloads.some(d => d.download === 'styles.cpp' && d.href.startsWith('blob:'))`),
+            await cdp.eval(`window.__downloads.some(d => d.download === 'styles.hpp' && d.href.startsWith('blob:'))`),
             await cdp.eval(`window.__downloads`));
         await cdp.eval(`document.querySelector('.azx-copy').click(); true`);
         check('Copy reports what happened', await waitFor(cdp, `/clipboard|copy it/.test(__t.status() || '')`),
@@ -434,6 +448,11 @@ async function main() {
         check('...and names the node it exports',
             await cdp.eval(`document.querySelector('.azx-node').textContent === 'div.card  #1'`),
             await cdp.eval(`document.querySelector('.azx-node') && document.querySelector('.azx-node').textContent`));
+        check('...from the same list, the languages without DOM export disabled',
+            await cdp.eval(`(() => { const s = [...document.querySelectorAll('.azx-dialog select')].find(s => [...s.options].some(o => o.value === 'java'));
+                const j = [...s.options].find(o => o.value === 'java');
+                return s.options.length === 5 && j.disabled && /no DOM export/.test(j.textContent)
+                    && [...s.options].filter(o => o.disabled).length === 1; })()`));
 
         await cdp.eval(`(() => { const s = [...document.querySelectorAll('.azx-dialog select')].find(s => [...s.options].some(o => o.value === 'python'));
             s.value = 'c'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
@@ -451,6 +470,18 @@ async function main() {
         check('"A runnable app" asks for an app and hides the function name',
             lastSent('export_subtree_code').mode === 'app'
             && await cdp.eval(`document.querySelector('.azx-input').getClientRects().length === 0`));
+        check('...shows the project\u2019s main file first and lists every file',
+            await cdp.eval(`(() => { const f = document.querySelector('.azx-out-files');
+                return !!f && f.getClientRects().length > 0
+                    && [...f.options].map(o => o.textContent).join(',') === 'main.c,ui.h,Makefile'; })()`),
+            await cdp.eval(`(() => { const f = document.querySelector('.azx-out-files'); return f && [...f.options].map(o => o.textContent); })()`));
+        await cdp.eval(`(() => { const f = document.querySelector('.azx-out-files'); f.value = '1';
+            f.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+        check('...and picking a file shows it (Copy / Download take it)',
+            await cdp.eval(`__t.code() === '// ui c\\n'`)
+            && await cdp.eval(`(() => { document.querySelector('.azx-download').click();
+                return window.__downloads.some(d => d.download === 'ui.h'); })()`),
+            await cdp.eval(`__t.code()`));
 
         await cdp.eval(`__t.key('Escape')`);
         check('Escape returns focus to the toolbar button that opened it',

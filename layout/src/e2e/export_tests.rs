@@ -112,25 +112,26 @@ fn card_steps() -> Vec<serde_json::Value> {
 }
 
 #[test]
-fn the_export_dialogs_list_every_dom_language_and_every_css_code_generator() {
+fn the_export_dialogs_get_one_language_list_every_code_generator_and_whether_it_does_dom() {
     let result = run(
         "export_languages",
         vec![serde_json::json!({ "op": "get_codegen_languages" })],
     );
     let v = value(&result, 0);
-    let dom: Vec<&str> = v["dom"]
-        .as_array()
-        .expect("dom list")
+    let langs = v["languages"].as_array().expect("one list").clone();
+    let ids: Vec<&str> = langs.iter().filter_map(|l| l["id"].as_str()).collect();
+    let supported = azul_css::codegen::supported_languages();
+    assert_eq!(ids.join(", "), supported, "exactly azul_css::codegen::all_backends()");
+    let dom: Vec<&str> = langs
         .iter()
+        .filter(|l| l["dom"] == true)
         .filter_map(|l| l["id"].as_str())
         .collect();
     assert_eq!(dom, ["rust", "c", "cpp", "python"]);
-    let css = v["css"].as_array().expect("css list");
-    assert!(
-        css.iter().any(|l| l["id"] == "rust"),
-        "the Rust CSS code generator is listed: {css:?}"
-    );
-    assert!(css.iter().all(|l| l["label"].is_string() && l["ext"].is_string()));
+    assert!(langs
+        .iter()
+        .all(|l| l["label"].is_string() && l["ext"].is_string() && l["dom"].is_boolean()));
+    assert!(langs.iter().any(|l| l["id"] == "cpp" && l["label"] == "C++"));
 }
 
 #[test]
@@ -147,7 +148,10 @@ fn css_rules_are_listed_in_source_order_and_a_picked_subset_compiles() {
             /* 3 */
             serde_json::json!({ "op": "compile_css", "language": "rust", "css": css,
                                 "rules": [7] }),
-            /* 4 */ serde_json::json!({ "op": "compile_css", "language": "cobol", "css": css }),
+            /* 4 */
+            serde_json::json!({ "op": "compile_css", "language": "klingon", "css": css }),
+            /* 5: every code generator compiles CSS, not only the DOM ones */
+            serde_json::json!({ "op": "compile_css", "language": "cobol", "css": css }),
         ],
     );
     let rules = value(&result, 0)["rules"].as_array().cloned().expect("rules");
@@ -166,7 +170,12 @@ fn css_rules_are_listed_in_source_order_and_a_picked_subset_compiles() {
     assert_eq!(value(&result, 2)["rule_count"], 3);
 
     has(&refusal(&result, 3), "rule 7");
-    has(&refusal(&result, 4), "no CSS code generator");
+    let unknown = refusal(&result, 4);
+    has(&unknown, "no code generator for \"klingon\"");
+    has(&unknown, &azul_css::codegen::supported_languages());
+    let cobol = value(&result, 5);
+    assert_eq!(cobol["language"], "cobol");
+    assert_eq!(cobol["rule_count"], 3);
 }
 
 #[test]
@@ -230,38 +239,76 @@ fn a_document_subtree_exports_as_one_render_function_per_language() {
                             "function_name": "build_card" }),
         /* 9 */ serde_json::json!({ "op": "export_subtree_code", "node": 99, "language": "rust" }),
         /* 10 */
-        serde_json::json!({ "op": "export_subtree_code", "node": 1, "language": "cobol" }),
+        serde_json::json!({ "op": "export_subtree_code", "node": 1, "language": "klingon" }),
+        /* 11: a printer without DOM export answers, and says why it prints no UI */
+        serde_json::json!({ "op": "export_subtree_code", "node": 1, "language": "java" }),
     ]);
     let result = run("export_subtree", steps);
 
+    // The same printers as the CSS export (azul_css::codegen), Rust:
     let rust = code(&result, 3);
     has(&rust, "pub fn render_card() -> Dom {");
-    has(&rust, ".with_class(\"card\")");
-    has(&rust, "Dom::create_h2_with_text(\"Hello\")");
+    has(&rust, ".with_class(azul::str::String::from(\"card\"))");
     has(
         &rust,
-        "Dom::create_a_no_a11y(\"https://azul.rs\", OptionString::some(\"Docs\"))",
+        "Dom::create_h2_with_text(azul::str::String::from(\"Hello\"))",
+    );
+    // A link's text is its accessible name.
+    has(
+        &rust,
+        "Dom::create_a(azul::str::String::from(\"https://azul.rs\"), \
+         azul::str::String::from(\"Docs\"), \
+         SmallAriaInfo::label(azul::str::String::from(\"Docs\")))",
     );
     // The builder's own marker classes stay in the builder.
     has_not(&rust, "azb-");
     assert_eq!(value(&result, 3)["file_name"], "render_card.rs");
 
     let c = code(&result, 4);
-    has(&c, "AzDom render_card(void) {");
-    has(&c, "AzDom_createH2WithText(AZ_STR(\"Hello\"))");
+    has(&c, "static AzDom render_card(void) {");
+    has(
+        &c,
+        "AzDom_createH2WithText(AzString_copyFromBytes((const uint8_t*)\"Hello\", 0, 5))",
+    );
     has_not(&c, "azb-");
-    has(&code(&result, 5), "Dom render_card() {");
+    assert_eq!(value(&result, 4)["file_name"], "render_card.h");
+    has(&code(&result, 5), "inline AzDom render_card() {");
     has(&code(&result, 6), "def render_card():");
 
-    let app = code(&result, 7);
-    has(&app, "fn main()");
-    has(&app, "Dom::create_body()");
-    has(&app, "WindowCreateOptions::create(layout)");
-    assert_eq!(value(&result, 7)["file_name"], "main.rs");
+    // An app is a project: the dialog shows its main file, `files` has all.
+    let app = value(&result, 7);
+    assert_eq!(app["file_name"], "main.rs");
+    let main = app["code"].as_str().expect("code");
+    has(main, "fn main()");
+    has(main, "WindowCreateOptions::create(layout)");
+    has(main, "ui::render_ui()");
+    let files = app["files"].as_array().expect("files");
+    let file = |path: &str| {
+        files
+            .iter()
+            .find(|f| f["path"] == path)
+            .and_then(|f| f["contents"].as_str())
+            .unwrap_or_else(|| panic!("{path} in {files:?}"))
+            .to_string()
+    };
+    has(&file("src/ui.rs"), "Dom::create_body()");
+    has(&file("Cargo.toml"), "registry = \"azul\"");
 
     has(&code(&result, 8), "pub fn build_card() -> Dom {");
     has(&refusal(&result, 9), "99");
-    has(&refusal(&result, 10), "no DOM code generator");
+    has(&refusal(&result, 10), "no code generator for \"klingon\"");
+
+    let java = value(&result, 11);
+    assert_eq!(java["file_name"], "render_card.java");
+    has(java["code"].as_str().expect("code"), "not implemented");
+    assert!(
+        java["warnings"]
+            .as_array()
+            .is_some_and(|w| w.iter().any(|w| w
+                .as_str()
+                .is_some_and(|w| w.contains("does not print DOM")))),
+        "{java}"
+    );
 }
 
 #[test]
@@ -304,9 +351,16 @@ fn a_converted_component_exports_to_code_that_recreates_its_subtree() {
         &rust,
         "pub fn render_my_card(text: &str, href: &str, text_2: &str) -> Dom {",
     );
-    has(&rust, ".with_class(\"card\")");
-    has(&rust, "Dom::create_h2_with_text(text)");
-    has(&rust, "Dom::create_a_no_a11y(href, OptionString::some(text_2))");
+    has(&rust, ".with_class(azul::str::String::from(\"card\"))");
+    has(
+        &rust,
+        "Dom::create_h2_with_text(azul::str::String::from(text))",
+    );
+    has(
+        &rust,
+        "Dom::create_a(azul::str::String::from(href), azul::str::String::from(text_2), \
+         SmallAriaInfo::label(azul::str::String::from(text_2)))",
+    );
     // …the defaults are what was converted…
     has(&rust, "render_my_card(\"Hello\", \"https://azul.rs\", \"Docs\")");
     // …and the component registers again.
@@ -314,27 +368,36 @@ fn a_converted_component_exports_to_code_that_recreates_its_subtree() {
         &rust,
         "pub extern \"C\" fn register_user_library() -> ComponentLibrary {",
     );
-    has(&rust, "id: ComponentId::create(\"user\", \"my-card\"),");
+    has(
+        &rust,
+        "id: ComponentId::create(azul::str::String::from(\"user\"), \
+         azul::str::String::from(\"my-card\")),",
+    );
     has(&rust, "string_field(\"text\", \"Hello\",");
-    has(&rust, "let text = model_string(model, \"text\", \"Hello\");");
+    has(&rust, "let arg_text = model_string(model, \"text\", \"Hello\");");
     assert_eq!(value(&result, 4)["file_name"], "user_my_card.rs");
 
     let c = code(&result, 5);
     has(
         &c,
-        "AzDom render_my_card(const char* text, const char* href, const char* text_2) {",
+        "static AzDom render_my_card(const char* text, const char* href, const char* text_2) {",
     );
-    has(&c, "AzDom_createH2WithText(AZ_STR(text))");
+    has(
+        &c,
+        "AzDom_createH2WithText(AzString_copyFromBytes((const uint8_t*)text, 0, strlen(text)))",
+    );
     has(&c, "AzComponentLibrary register_user_library(void) {");
-    has(&c, "char* text = az_model_string(model, \"text\", \"Hello\");");
+    has(&c, "char* arg_text = az_model_string(model, \"text\", \"Hello\");");
+    assert_eq!(value(&result, 5)["file_name"], "user_my_card.h");
 
     let cpp = code(&result, 6);
     has(
         &cpp,
-        "Dom render_my_card(const std::string& text, const std::string& href, const \
+        "inline AzDom render_my_card(const std::string& text, const std::string& href, const \
          std::string& text_2) {",
     );
-    has(&cpp, "AzDom dom = render_my_card(text, href, text_2).release();");
+    has(&cpp, "AzDom_createH2WithText(az_string(text))");
+    has(&cpp, "AzComponentLibrary register_user_library(void) {");
 
     has(
         &code(&result, 7),
@@ -349,7 +412,7 @@ fn a_converted_component_exports_to_code_that_recreates_its_subtree() {
     has_not(&source, "children.push");
 
     let doc = code(&result, 9);
-    has(&doc, "Dom::create_h2_with_text(\"Hello\")");
+    has(&doc, "Dom::create_h2_with_text(azul::str::String::from(\"Hello\"))");
     has_not(&doc, "azb-");
 
     has(&refusal(&result, 10), "nope");
@@ -395,7 +458,7 @@ fn a_converted_component_survives_a_library_export_and_an_import_as_a_template()
 
     let rust = code(&result, 6);
     has(&rust, "pub fn render_card(text: &str) -> Dom {");
-    has(&rust, "Dom::create_p_with_text(text)");
+    has(&rust, "Dom::create_p_with_text(azul::str::String::from(text))");
     for i in [10, 11] {
         assert!(
             result
@@ -425,10 +488,12 @@ fn export_code_writes_a_project_with_the_document_its_components_and_a_build_fil
 
     let files = value(&result, 4)["files"].clone();
     let main = files["src/main.rs"].as_str().expect("src/main.rs").to_string();
+    let ui = files["src/ui.rs"].as_str().expect("src/ui.rs").to_string();
     // The builder document is the app (its instance expanded), not the live
     // DOM with the builder's marker classes.
-    has(&main, "Dom::create_h2_with_text(\"Hello\")");
-    has_not(&main, "azb-");
+    has(&ui, "Dom::create_h2_with_text(azul::str::String::from(\"Hello\"))");
+    has_not(&ui, "azb-");
+    has(&main, "mod ui;");
     has(&main, "mod components;");
     has(
         files["src/components/user.rs"].as_str().expect("the library"),
@@ -440,7 +505,8 @@ fn export_code_writes_a_project_with_the_document_its_components_and_a_build_fil
     );
     let cargo = files["Cargo.toml"].as_str().expect("Cargo.toml");
     has_not(cargo, "azul = \"0.0.1\"");
-    has(cargo, "package = \"azul-dll\"");
+    has(cargo, "registry = \"azul\"");
+    assert!(files[".cargo/config.toml"].is_string());
     assert!(files["README.md"].is_string());
 
     let zip = value(&result, 5);
@@ -453,7 +519,7 @@ fn export_code_writes_a_project_with_the_document_its_components_and_a_build_fil
         .iter()
         .filter_map(|p| p.as_str())
         .collect();
-    for want in ["main.c", "components/user.c", "README.md"] {
+    for want in ["main.c", "ui.h", "Makefile", "components/user.h", "README.md"] {
         assert!(paths.contains(&want), "{want} in {paths:?}");
     }
     // A library filter that matches nothing leaves only the app.

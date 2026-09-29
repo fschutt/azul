@@ -474,3 +474,28 @@ fn every_backend_is_reachable_by_its_id_and_aliases() {
     }
     assert!(azul_css::codegen::backend_for("brainfuck").is_none());
 }
+
+#[test]
+fn exports_dom_is_true_exactly_for_the_printers_that_build_the_dom() {
+    // AzBuilder's dialogs offer DOM export for the languages whose
+    // `exports_dom()` is true: it must say what the printer does. The card's
+    // link text is printed only when the printer builds the DOM (a printer
+    // without DOM export prints why instead of the value).
+    let card = codegen_cases::dom_card_module();
+    let mut dom = Vec::new();
+    for backend in all_backends() {
+        let src = backend.emit_module(&card);
+        assert_eq!(
+            src.contains("Read more"),
+            backend.exports_dom(),
+            "{}: exports_dom() is {} but the printer {} the DOM:\n{src}",
+            backend.lang(),
+            backend.exports_dom(),
+            if src.contains("Read more") { "builds" } else { "does not build" }
+        );
+        if backend.exports_dom() {
+            dom.push(backend.lang());
+        }
+    }
+    assert_eq!(dom, ["rust", "c", "cpp", "python"]);
+}

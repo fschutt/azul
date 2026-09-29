@@ -26,27 +26,62 @@ function test(name, fn) {
 
 test('the server language list is used as it comes, de-duplicated; the DOM list falls back to the four targets', () => {
     const list = L.languageOptions([
-        { id: 'rust', label: 'Rust', ext: 'rs' },
+        { id: 'rust', label: 'Rust', ext: 'rs', dom: true },
         { id: 'rust', label: 'dup' },
         { id: '' },
         null,
         { id: 'go' },
     ], []);
     assert.deepStrictEqual(list, [
-        { id: 'rust', label: 'Rust', ext: 'rs' },
-        { id: 'go', label: 'go', ext: 'txt' },
+        { id: 'rust', label: 'Rust', ext: 'rs', dom: true },
+        { id: 'go', label: 'go', ext: 'txt', dom: false },
     ]);
     assert.deepStrictEqual(L.languageOptions(undefined, L.DOM_FALLBACK).map((l) => l.id),
         ['rust', 'c', 'cpp', 'python']);
-    assert.deepStrictEqual(L.languageOptions([], []), [], 'no CSS generators: nothing to offer');
+    assert.deepStrictEqual(L.languageOptions([], []), [], 'no code generators: nothing to offer');
+});
+
+test('get_codegen_languages is ONE list: the CSS dialog offers all of it, the DOM dialogs disable what does no DOM export', () => {
+    const v = L.dialogLanguages({ languages: [
+        { id: 'rust', label: 'Rust', ext: 'rs', dom: true },
+        { id: 'c', label: 'C', ext: 'h', dom: true },
+        { id: 'java', label: 'Java', ext: 'java', dom: false },
+    ] });
+    assert.deepStrictEqual(v.css.map((l) => l.id), ['rust', 'c', 'java']);
+    assert.deepStrictEqual(v.dom.map((l) => l.id), ['rust', 'c', 'java'], 'the same list');
+    assert.deepStrictEqual(v.dom.map((l) => !!l.disabled), [false, false, true]);
+    assert.strictEqual(v.dom[2].label, 'Java (no DOM export yet)');
+    // A remembered language the DOM dialog cannot use falls back to a usable one.
+    assert.strictEqual(L.pickLanguage(v.dom, 'java'), 'rust');
+    assert.strictEqual(L.pickLanguage(v.css, 'java'), 'java');
+    // No answer (an old server): the DOM dialogs still offer the four.
+    const none = L.dialogLanguages(null);
+    assert.deepStrictEqual(none.css, []);
+    assert.deepStrictEqual(none.dom.map((l) => l.id), ['rust', 'c', 'cpp', 'python']);
 });
 
 test('a dialog opens on the language used last, if the server still has it', () => {
     const opts = L.languageOptions([{ id: 'rust' }, { id: 'cpp' }], []);
     assert.strictEqual(L.pickLanguage(opts, 'cpp'), 'cpp');
-    assert.strictEqual(L.pickLanguage(opts, 'cobol'), 'rust');
+    assert.strictEqual(L.pickLanguage(opts, 'klingon'), 'rust');
     assert.strictEqual(L.pickLanguage(opts, null), 'rust');
     assert.strictEqual(L.pickLanguage([], 'rust'), null);
+});
+
+test('an app answer is a project: its files, the one in file_name first', () => {
+    const v = {
+        file_name: 'main.rs',
+        code: 'fn main() {}',
+        files: [
+            { path: 'Cargo.toml', contents: '[package]' },
+            { path: 'src/ui.rs', contents: 'pub fn render_ui() -> Dom' },
+            { path: 'src/main.rs', contents: 'fn main() {}' },
+            { path: 'broken' },
+        ],
+    };
+    assert.deepStrictEqual(L.projectFiles(v).map((f) => f.path), ['src/main.rs', 'Cargo.toml', 'src/ui.rs']);
+    assert.deepStrictEqual(L.projectFiles({ file_name: 'x.rs', code: '', files: [] }), []);
+    assert.deepStrictEqual(L.projectFiles({ file_name: 'x.rs', code: '' }), []);
 });
 
 test('each stylesheet source asks get_css_rules for what the server can resolve', () => {
