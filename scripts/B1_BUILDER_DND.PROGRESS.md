@@ -58,13 +58,15 @@ assets, `debug_server/platform.rs`), shell = `dll/src/desktop/shell2/common/even
 
 - 01faf30e9 fix: `layout/src/e2e/builder.rs` (document model + 20 unit tests), `DebugEvent` variants + arms in `full.rs`, `render_tree` on create/update component, gene2e OP_POLICY rows
 
+- 6a8304229 fix: render_tree import drops `azb-<uid>` markers
+- 9635a5f49 RED: `debugger-dnd.test.js` (node, 13 cases) + `scripts/debugger-ui/builder-dnd-smoke.mjs` (headless Chrome + mock server, 25 checks)
+- 47dbf79b5 feat: `debugger-dnd.js` served + loaded; debugger.js: first launch no longer lands in Testing, `showView` crash fixed. node test 13/13, smoke 25/25 green
+
 ## IN PROGRESS
-- Browser: `debugger-dnd.js` (written, node test 13/13 green) — serve it (build.rs + platform.rs), load it (debugger.html), fix `showView` in debugger.js
+- HTTP request read loop (platform.rs reads ONE 16 KiB chunk) — separate small fix
 
 ## NEXT
-1. Commit the browser part.
-2. HTTP request read loop (platform.rs reads ONE 16 KiB chunk) — separate small fix.
-3. Report `scripts/B1_BUILDER_DND_2026_09_29.md`.
+1. Report `scripts/B1_BUILDER_DND_2026_09_29.md`.
 
 ## Open questions
 - Template components are not carried by `export_component_library` (no field for them in `ExportedComponentDef`); export is B3's area.
