@@ -46,10 +46,14 @@ Branch `wt/n1-notification-platforms`, based on `0a326afe5`. House rules:
   `RelinkFile`, `DylibTree`; command: `-id` + `-change` in binary and dylibs, `make_writable`,
   `--portable`. Notarization: documented in the module docs + usage.
 
+- Extra: `d2b410b12` (core doc of `launched_app`), `73219938f` (3 wiring guards in
+  `platform_invariants.rs`).
+- G. Report `scripts/N1_NOTIFICATION_PLATFORMS_2026_09_29.md` (the commit that adds it).
+
 ## IN PROGRESS
 
-- G. Report `scripts/N1_NOTIFICATION_PLATFORMS_2026_09_29.md`.
+- nothing: the task is complete. NEXT is the parent's compile + test run (report section 6).
 
 ## Open questions
 
-- none yet
+- `AppConfig::app_id` (ABI): the user's decision; the design is report section 3.
