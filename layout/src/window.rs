@@ -14666,12 +14666,6 @@ impl LayoutWindow {
         ))
     }
 
-    /// Ctrl+D: select the next occurrence of the current selection/word.
-    ///
-    /// If the primary selection is a cursor (no range), first expand it to a word.
-    /// Then search forward in the text for the next occurrence and add it as a
-    /// new multi-cursor selection.
-    ///
     /// Select the WORD under the caret (U2).
     ///
     /// What `UIKit`'s `select:` means and what a long-press on unselected text
@@ -14705,183 +14699,130 @@ impl LayoutWindow {
         true
     }
 
-    /// Returns true if a new selection was added.
-    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-    /// # Panics
+    /// Ctrl+D: select the next occurrence of the primary selection - or,
+    /// for a caret, of the word it stands in, which is selected first - and
+    /// add it as one more selection. `true` when a selection was added or
+    /// the caret became its word.
     ///
-    /// Panics if there is no active multi-cursor.
+    /// Read in the caret's own numbering ([`Self::block_content`]) with every
+    /// end's affinity resolved: a word range ends `Trailing` on its last
+    /// grapheme, and cut at that end's raw `start_byte_in_run` the search
+    /// text lost its last letter ("foo" found "fox"). An occurrence ends the
+    /// way a word does ([`BlockContent::run_range`]); `Trailing` on the byte
+    /// after the match took the grapheme after it. The search runs on after
+    /// the last selection - after the word itself for a caret, which from
+    /// the word's start found the word - and wraps around to the first
+    /// occurrence nothing selects yet.
+    ///
+    /// [`BlockContent::run_range`]: crate::block_content::BlockContent::run_range
+    #[allow(clippy::too_many_lines)] // one search, read in the carets' numbering
     pub fn select_next_occurrence(&mut self) -> bool {
         use crate::text3::selection::select_word_at_cursor;
 
-        let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() else {
+        let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() else {
             return false;
         };
         let block = mc.block;
         // The occurrence search reads the block's ELEMENT's text; an
         // anonymous block has none.
-        let Some(dom_node_id) = block.element() else {
+        if block.element().is_none() {
+            return false;
+        }
+        // The LOCAL primary (U3): what Ctrl+D extends.
+        let Some(primary) = mc.get_primary().map(|s| s.selection) else {
             return false;
         };
-
-        // Get primary selection text (or word at cursor). The LOCAL primary
-        // (U3): `first()` happened to be local only because the list is
-        // owner-sorted, and the primary is what Ctrl+D extends.
-        let primary = match mc.get_primary() {
-            Some(s) => *s,
-            None => return false,
-        };
-
-        let (search_range, need_word_expand) = match &primary.selection {
-            Selection::Range(r) => (*r, false),
+        let word_range = match primary {
+            Selection::Range(r) => r,
             Selection::Cursor(c) => {
-                // Need to expand to word first
-                (SelectionRange { start: *c, end: *c }, true)
-            }
-        };
-
-        // Get the inline layout
-        let Some(inline_layout) = self.block_inline_layout(block) else {
-            return false;
-        };
-
-        // If no range yet, expand to word
-        let word_range = if need_word_expand {
-            match select_word_at_cursor(&search_range.start, &inline_layout) {
-                Some(r) => r,
-                None => return false,
-            }
-        } else {
-            search_range
-        };
-
-        // Extract the search text from inline content - in the carets' own
-        // numbering: in a list item the word is run 1, behind the `::marker`,
-        // and the DOM's text alone has no run 1 to search.
-        let (content, _) = self.element_content(block.dom(), dom_node_id).into_parts();
-
-        // Extract the selected word text using byte offsets
-        let start_byte = word_range.start.cluster_id.start_byte_in_run as usize;
-        let end_byte = word_range.end.cluster_id.start_byte_in_run as usize;
-        let search_text =
-            if word_range.start.cluster_id.source_run == word_range.end.cluster_id.source_run {
-                if let Some(InlineContent::Text(run)) =
-                    content.get(word_range.start.cluster_id.source_run as usize)
-                {
-                    if start_byte <= end_byte && end_byte <= run.text.len() {
-                        run.text[start_byte..end_byte].to_string()
-                    } else {
-                        return false;
-                    }
-                } else {
+                let Some(inline_layout) = self.block_inline_layout(block) else {
                     return false;
-                }
-            } else {
-                return false; // Multi-run selection search not yet supported
-            };
+                };
+                let Some(word) = select_word_at_cursor(&c, &inline_layout) else {
+                    return false;
+                };
+                word
+            }
+        };
+        let need_word_expand = matches!(primary, Selection::Cursor(_));
 
-        if search_text.is_empty() {
+        // The search text, in the carets' own numbering: in a list item the
+        // word is run 1, behind the `::marker`.
+        let content = self.block_content(block);
+        let (Some((run, a)), Some((end_run, b))) = (
+            content.run_byte_of(&word_range.start),
+            content.run_byte_of(&word_range.end),
+        ) else {
+            return false;
+        };
+        if run != end_run {
+            return false; // a search across runs is not supported
+        }
+        let (word_start, word_end) = (a.0.min(b.0), a.0.max(b.0));
+        let Some(InlineContent::Text(text_run)) = content.items().get(run) else {
+            return false;
+        };
+        let text = &text_run.text;
+        let Some(search_text) = text.get(word_start..word_end).filter(|s| !s.is_empty()) else {
+            return false;
+        };
+
+        // What the local selections already cover in this run (the word
+        // itself included, for a caret about to become it), and where the
+        // search goes on from: after the last of them.
+        let mut taken: Vec<(usize, usize)> = mc
+            .local_selections()
+            .filter_map(|s| {
+                let (x, y) = match s.selection {
+                    Selection::Cursor(c) => (c, c),
+                    Selection::Range(r) => (r.start, r.end),
+                };
+                let (rx, x) = content.run_byte_of(&x)?;
+                let (ry, y) = content.run_byte_of(&y)?;
+                (rx == run && ry == run).then_some((x.0.min(y.0), x.0.max(y.0)))
+            })
+            .collect();
+        taken.push((word_start, word_end));
+        let search_from = if need_word_expand {
+            word_end
+        } else {
+            taken.iter().map(|&(_, end)| end).max().unwrap_or(word_end)
+        };
+        let len = search_text.len();
+        let free = |at: usize| {
+            !taken
+                .iter()
+                .any(|&(lo, hi)| at < hi.max(lo + 1) && lo < at + len)
+        };
+        let occurrences = || text.match_indices(search_text).map(|(at, _)| at);
+        let found = occurrences()
+            .find(|&at| at >= search_from && free(at))
+            .or_else(|| occurrences().find(|&at| free(at)));
+        let new_range = found.and_then(|at| {
+            content.run_range(
+                run,
+                crate::block_content::RunByte(at),
+                crate::block_content::RunByte(at + len),
+            )
+        });
+
+        if new_range.is_none() && !need_word_expand {
             return false;
         }
-
-        // Search forward from the end of the last selection
-        let mc = self.text_edit_manager.multi_cursor.as_ref().unwrap();
-        // The last LOCAL selection (U3): a plain `last()` is a peer's entry
-        // whenever one exists, and Ctrl+D would have searched on from the
-        // peer's caret.
-        let last_end_byte = mc
-            .local_selections()
-            .last()
-            .map_or(0, |s| match &s.selection {
-                Selection::Range(r) => r.end.cluster_id.start_byte_in_run as usize,
-                Selection::Cursor(c) => c.cluster_id.start_byte_in_run as usize,
-            });
-
-        let search_run = word_range.start.cluster_id.source_run;
-
-        // Find next occurrence in the same run's text
-        if let Some(InlineContent::Text(run)) = content.get(search_run as usize) {
-            let search_in = &run.text;
-            // Search from after the last selection end
-            if let Some(offset) = search_in[last_end_byte..].find(&search_text) {
-                let match_start = last_end_byte + offset;
-                let match_end = match_start + search_text.len();
-
-                let new_range = SelectionRange {
-                    start: TextCursor {
-                        cluster_id: GraphemeClusterId {
-                            source_run: search_run,
-                            start_byte_in_run: match_start as u32,
-                        },
-                        affinity: CursorAffinity::Leading,
-                    },
-                    end: TextCursor {
-                        cluster_id: GraphemeClusterId {
-                            source_run: search_run,
-                            start_byte_in_run: match_end as u32,
-                        },
-                        affinity: CursorAffinity::Trailing,
-                    },
-                };
-
-                // If primary was a cursor, convert it to a word selection first
-                let mc = self.text_edit_manager.multi_cursor.as_mut().unwrap();
-                if need_word_expand {
-                    if let Some(first) = mc.local_selections_mut().next() {
-                        first.selection = Selection::Range(word_range);
-                    }
-                }
-                let _ = mc.add_selection(new_range);
-                self.text_edit_manager.mark_dirty();
-                return true;
-            } else if last_end_byte > 0 {
-                // Wrap around: search from the beginning
-                if let Some(offset) = search_in[..start_byte].find(&search_text) {
-                    let match_start = offset;
-                    let match_end = match_start + search_text.len();
-
-                    let new_range = SelectionRange {
-                        start: TextCursor {
-                            cluster_id: GraphemeClusterId {
-                                source_run: search_run,
-                                start_byte_in_run: match_start as u32,
-                            },
-                            affinity: CursorAffinity::Leading,
-                        },
-                        end: TextCursor {
-                            cluster_id: GraphemeClusterId {
-                                source_run: search_run,
-                                start_byte_in_run: match_end as u32,
-                            },
-                            affinity: CursorAffinity::Trailing,
-                        },
-                    };
-
-                    let mc = self.text_edit_manager.multi_cursor.as_mut().unwrap();
-                    if need_word_expand {
-                        if let Some(first) = mc.local_selections_mut().next() {
-                            first.selection = Selection::Range(word_range);
-                        }
-                    }
-                    let _ = mc.add_selection(new_range);
-                    self.text_edit_manager.mark_dirty();
-                    return true;
-                }
-            }
-        }
-
-        // If primary was cursor and we expanded to word but found no other occurrence,
-        // still mark the word selection
+        let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() else {
+            return false;
+        };
+        // A caret becomes its word first.
         if need_word_expand {
-            let mc = self.text_edit_manager.multi_cursor.as_mut().unwrap();
-            if let Some(first) = mc.local_selections_mut().next() {
-                first.selection = Selection::Range(word_range);
+            if let Some(primary) = mc.get_primary_mut() {
+                primary.selection = Selection::Range(word_range);
             }
-            self.text_edit_manager.mark_dirty();
-            return true;
         }
-
-        false
+        if let Some(range) = new_range {
+            let _ = mc.add_selection(range);
+        }
+        self.text_edit_manager.mark_dirty();
+        true
     }
 
     /// Get the cursor rect for the currently focused text input node in VIEWPORT coordinates.

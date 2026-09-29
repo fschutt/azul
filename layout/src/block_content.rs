@@ -127,6 +127,45 @@ impl BlockContent {
         }
     }
 
+    /// The range over bytes `start..end` of text run `run`, shaped like a
+    /// word range (`text3::selection::select_word_at_cursor`): `Leading` on
+    /// the grapheme that begins at `start`, `Trailing` on the last grapheme
+    /// that begins before `end`. An empty span is a caret at `start`. `None`
+    /// when `run` is not a text run.
+    #[must_use]
+    pub fn run_range(&self, run: usize, start: RunByte, end: RunByte) -> Option<SelectionRange> {
+        use unicode_segmentation::UnicodeSegmentation;
+
+        let InlineContent::Text(t) = self.items.get(run)? else {
+            return None;
+        };
+        let text: &str = &t.text;
+        let first = caret_in_run(run, text, start.0);
+        if end.0 <= start.0 {
+            return Some(SelectionRange {
+                start: first,
+                end: first,
+            });
+        }
+        let end_byte = end.0.min(text.len());
+        let last = text
+            .grapheme_indices(true)
+            .map(|(at, _)| at)
+            .take_while(|&at| at < end_byte)
+            .last()
+            .unwrap_or(0);
+        Some(SelectionRange {
+            start: first,
+            end: TextCursor {
+                cluster_id: GraphemeClusterId {
+                    source_run: u32::try_from(run).unwrap_or(u32::MAX),
+                    start_byte_in_run: u32::try_from(last).unwrap_or(u32::MAX),
+                },
+                affinity: CursorAffinity::Trailing,
+            },
+        })
+    }
+
     /// Where `cursor` stands in the block's flat text.
     ///
     /// A caret on a generated item stands before the text; a caret on an item
