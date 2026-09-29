@@ -1990,8 +1990,14 @@ fn element_from_render_json(
             .map(|c| c.split_whitespace().collect())
             .unwrap_or_default();
         for c in cs.iter().filter_map(serde_json::Value::as_str) {
-            // The mini tree tags its own drops; that is UI state, not markup.
-            if c != "component-instance" && !c.is_empty() && !classes.contains(&c) {
+            // UI state, not markup: the mini tree tags its own drops, and a
+            // subtree taken from a mounted document carries the builder's
+            // `azb-<uid>` markers, which must not be baked into a template.
+            if c != "component-instance"
+                && !c.starts_with("azb-")
+                && !c.is_empty()
+                && !classes.contains(&c)
+            {
                 classes.push(c);
             }
         }
@@ -2533,7 +2539,7 @@ mod tests {
     #[test]
     fn a_render_tree_becomes_nodes_and_a_raw_template_keeps_its_placeholders() {
         let tree = serde_json::json!([{
-            "tag": "div", "classes": ["panel", "component-instance"], "_idx": 0,
+            "tag": "div", "classes": ["panel", "component-instance", "azb-3"], "_idx": 0,
             "children": [
                 { "tag": "p", "text": "{text}", "children": [] },
                 { "tag": "__text__", "text": "tail" },
