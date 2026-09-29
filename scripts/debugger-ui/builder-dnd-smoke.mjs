@@ -255,6 +255,16 @@ function startServer() {
 
 // ── the browser ─────────────────────────────────────────────────────────
 
+/** SIGTERM, wait for the exit, SIGKILL after 3 s: never leave a headless Chrome behind. */
+async function stopChrome(proc) {
+    if (proc.exitCode !== null || proc.signalCode !== null) return;
+    const exited = new Promise((resolve) => proc.once('exit', resolve));
+    proc.kill('SIGTERM');
+    const hard = setTimeout(() => { try { proc.kill('SIGKILL'); } catch { /* gone */ } }, 3000);
+    await exited;
+    clearTimeout(hard);
+}
+
 async function startChrome() {
     const port = 9400 + Math.floor(Math.random() * 400);
     const profile = fs.mkdtempSync(path.join(process.env.AZB_TMP || os.tmpdir(), 'azb-chrome-'));
@@ -481,7 +491,7 @@ async function main() {
         check('no console errors', errors.length === 0, errors);
     } finally {
         if (cdp) cdp.close();
-        chrome.proc.kill();
+        await stopChrome(chrome.proc);
         server.close();
         if (!KEEP) { try { fs.rmSync(chrome.profile, { recursive: true, force: true }); } catch { /* ignore */ } }
     }
