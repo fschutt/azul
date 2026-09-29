@@ -578,3 +578,5 @@ mod a_scrollbar_in_a_virtual_view_is_pressed_where_it_is_painted;
 mod a_grown_scroll_box_paints_its_thumb_from_the_layout_that_grew_it;
 #[path = "a_drag_autoscrolls_the_box_its_containing_block_scrolls_in.rs"]
 mod a_drag_autoscrolls_the_box_its_containing_block_scrolls_in;
+#[path = "a_thin_scrollbar_is_pressed_where_it_is_painted.rs"]
+mod a_thin_scrollbar_is_pressed_where_it_is_painted;
