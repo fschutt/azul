@@ -209,12 +209,22 @@ pub(crate) fn deliver_to_win32_windows() {
 /// X11 / Wayland: at the top of every loop iteration. The loops park on the
 /// sources' descriptors (`loop_waker::wait_fds`), so this runs as soon as
 /// one of them has something.
+///
+/// A click on a notification also raises the window the events run
+/// against: the freedesktop server sends an `ActivationToken` just before
+/// the click's `ActionInvoked`, and on Wayland spending that token
+/// (`xdg_activation_v1.activate`) is the only way an app may take focus for
+/// a click that carries no input serial. It is taken right after the
+/// collection - which dispatched the D-Bus signals that bring it - also when
+/// the click has no callback to run, and never left behind for the next,
+/// unrelated delivery. X11 drops it (a startup id there).
 #[cfg(az_x11)]
 pub(crate) fn deliver_to_linux_windows() {
     use crate::desktop::shell2::linux::{registry, LinuxWindow};
 
     let events = AppEvents::collect();
-    if events.is_empty() {
+    let activation_token = crate::desktop::notifications::take_activation_token();
+    if events.is_empty() && activation_token.is_none() {
         return;
     }
     let candidates: Vec<AppTargetCandidate<*mut LinuxWindow>> = registry::get_all_window_ids()
@@ -243,6 +253,15 @@ pub(crate) fn deliver_to_linux_windows() {
         }
         #[cfg(target_os = "linux")]
         LinuxWindow::Wayland(w) => {
+            // Raise first, so what the callback shows is in front.
+            if let Some(token) = activation_token.as_deref() {
+                if !w.activate_with_token(token) {
+                    crate::plog_debug!(
+                        "[notifications] the activation token of a notification click could \
+                         not be spent: the compositor has no xdg_activation_v1"
+                    );
+                }
+            }
             if !matches!(events.invoke(w), ProcessEventResult::DoNothing) {
                 w.request_redraw();
             }
