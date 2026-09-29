@@ -1749,3 +1749,37 @@ mod autotest_generated {
         }
     }
 }
+
+#[cfg(test)]
+mod base_and_skin_tests {
+    //! R5: a progress bar's structure is its base, declared once for every
+    //! app theme - never inside a `@theme(<name>)` block.
+
+    use super::{follow_bar, ProgressBar};
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_progress_bar_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            for percent in [0.0_f32, 40.0, 100.0] {
+                let bar = ProgressBar::create(percent).with_accessibility_name("Upload");
+                let what = format!("progress bar at {percent}% built for {}", t.name());
+                // The mounted widget, the bare bar, and the bar its view
+                // renders into known bounds.
+                let (mounted, bare, sized) = under(t, || {
+                    (
+                        bar.clone().dom(),
+                        bar.clone().render_bar(),
+                        follow_bar(bar.clone(), Some((200.0, 15.0))),
+                    )
+                });
+                assert_structure_is_shared(&format!("{what} (mounted)"), &mounted, &[]);
+                assert_structure_is_shared(&format!("{what} (bare)"), &bare, &[]);
+                assert_structure_is_shared(&format!("{what} (in bounds)"), &sized, &[]);
+            }
+        }
+    }
+}

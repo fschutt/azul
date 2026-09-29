@@ -2849,3 +2849,52 @@ mod theme_tests {
         assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora_dom));
     }
 }
+
+#[cfg(test)]
+mod base_and_skin_tests {
+    //! R5: a radio group's structure is its base, declared once for every
+    //! app theme - never inside a `@theme(<name>)` block.
+
+    use azul_css::{AzString, StringVec};
+
+    use super::RadioGroup;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_radio_group_declares_its_structure_once_for_every_theme() {
+        let options = || {
+            StringVec::from_vec(alloc::vec![
+                AzString::from("Small"),
+                AzString::from("Medium"),
+                AzString::from("Large"),
+            ])
+        };
+        for t in BOTH {
+            // Stacked and side by side, each with a checked and unchecked
+            // radio (the dot shown and laid out invisible).
+            for horizontal in [false, true] {
+                for selected in [0, 2] {
+                    let dom = under(t, || {
+                        RadioGroup::create(options())
+                            .with_accessibility_name("Size")
+                            .with_horizontal(horizontal)
+                            .with_selected_index(selected)
+                            .dom()
+                    });
+                    assert_structure_is_shared(
+                        &format!(
+                            "radio group (horizontal: {horizontal}, #{selected} checked) built \
+                             for {}",
+                            t.name()
+                        ),
+                        &dom,
+                        &[],
+                    );
+                }
+            }
+        }
+    }
+}

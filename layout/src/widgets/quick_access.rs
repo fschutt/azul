@@ -1649,3 +1649,45 @@ mod flora_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod base_and_skin_tests {
+    //! R5: the title band's structure is its base - the flat part's geometry,
+    //! which the flora look keeps (`themes::flora::quick_access_style`) -
+    //! declared once for every app theme, never inside a `@theme(<name>)`
+    //! block.
+
+    use azul_core::dom::Dom;
+    use azul_css::AzString;
+
+    use super::QuickAccessBar;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_quick_access_band_declares_its_structure_once_for_every_theme() {
+        let title = || AzString::from("Document1 - AzWriter");
+        for t in BOTH {
+            // The Office band (actions, chevron, help, window keys), a bare
+            // band (title and window keys), and one with leading content.
+            let bands = [
+                ("office", QuickAccessBar::office_2013(title())),
+                ("bare", QuickAccessBar::new(title())),
+                (
+                    "leading",
+                    QuickAccessBar::office_2013(title()).with_leading(Dom::create_div()),
+                ),
+            ];
+            for (name, band) in bands {
+                let dom = under(t, || band.dom());
+                assert_structure_is_shared(
+                    &format!("quick access band ({name}) built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
+}

@@ -1759,3 +1759,46 @@ mod makeover_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod base_and_skin_tests {
+    //! R5: a spinner's structure is its base (`build_container_style`,
+    //! `part`), declared once for every app theme - never inside a
+    //! `@theme(<name>)` block.
+
+    use azul_css::props::basic::color::ColorU;
+
+    use super::{Spinner, SpinnerStyle};
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_spinner_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            // The theme's own indicator (the two themes draw different
+            // trees), each indicator asked for by name (the same tree), and
+            // the ring over a track.
+            for indicator in [SpinnerStyle::Auto, SpinnerStyle::Ring, SpinnerStyle::Spokes] {
+                let dom = under(t, || Spinner::create().with_indicator(indicator).dom());
+                assert_structure_is_shared(
+                    &format!("spinner {indicator:?} built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+            let tracked = under(t, || {
+                Spinner::create()
+                    .with_indicator(SpinnerStyle::Ring)
+                    .with_track_color(ColorU::rgb(200, 200, 200))
+                    .dom()
+            });
+            assert_structure_is_shared(
+                &format!("spinner ring over a track built for {}", t.name()),
+                &tracked,
+                &[],
+            );
+        }
+    }
+}

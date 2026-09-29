@@ -902,3 +902,38 @@ mod tests {
         assert_eq!(update, Update::RefreshDom);
     }
 }
+
+#[cfg(test)]
+mod base_and_skin_tests {
+    //! R5: a popover's structure is its base, declared once for every app
+    //! theme - never inside a `@theme(<name>)` block.
+
+    use azul_core::dom::Dom;
+
+    use super::Popover;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_popover_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            for open in [false, true] {
+                let dom = under(t, || {
+                    Popover::new(
+                        Dom::create_p_with_text("anchor"),
+                        Dom::create_p_with_text("panel"),
+                    )
+                    .with_open(open)
+                    .dom()
+                });
+                assert_structure_is_shared(
+                    &format!("popover (open: {open}) built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
+}

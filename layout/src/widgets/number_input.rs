@@ -2107,3 +2107,29 @@ mod theme_tests {
         assert_eq!(bg(&dom, false), Some(ColorU::rgb(1, 2, 3)));
     }
 }
+
+#[cfg(test)]
+mod base_and_skin_tests {
+    //! R5: a number field's structure is its base, declared once for every
+    //! app theme - never inside a `@theme(<name>)` block.
+
+    use super::NumberInput;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_number_input_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            for value in [0.0_f32, 42.5, -1.0e9] {
+                let dom = under(t, || NumberInput::create(value).dom());
+                assert_structure_is_shared(
+                    &format!("number_input {value} built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
+}

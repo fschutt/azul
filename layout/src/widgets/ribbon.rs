@@ -6599,4 +6599,39 @@ mod flora_tests {
             );
         }
     }
+
+    /// R5: the ribbon's structure is its base - the flat part's geometry,
+    /// which the flora look keeps (`themes::flora::ribbon_style`) - declared
+    /// once for every app theme, never inside a `@theme(<name>)` block. The
+    /// fixture embeds no foreign widget (a combo box, a drop-down, a check
+    /// box): built in the ribbon's look, those carry their OWN widget's
+    /// structure, which their own tests hold to this rule.
+    #[test]
+    fn a_ribbon_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::{
+            theme_blocks::checks::{under, BOTH},
+            theme_checks::assert_structure_is_shared,
+        };
+        for t in BOTH {
+            // Every chrome, with the first tab selected (its groups, the
+            // toggled button and the picked gallery cell shown) and with the
+            // second one selected (an empty tab).
+            for active in [0, 1] {
+                let chromes = under(t, || {
+                    [
+                        ("adaptive", fixture().with_active_tab(active).dom()),
+                        ("desktop", fixture().with_active_tab(active).dom_desktop()),
+                        ("mobile", fixture().with_active_tab(active).dom_mobile()),
+                    ]
+                });
+                for (chrome, dom) in chromes {
+                    assert_structure_is_shared(
+                        &format!("ribbon ({chrome}, tab {active}) built for {}", t.name()),
+                        &dom,
+                        &[],
+                    );
+                }
+            }
+        }
+    }
 }

@@ -3227,3 +3227,49 @@ mod theme_tests {
         assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora_dom));
     }
 }
+
+#[cfg(test)]
+mod base_and_skin_tests {
+    //! R5: a segmented control's structure is its base, declared once for
+    //! every app theme - never inside a `@theme(<name>)` block.
+
+    use azul_css::{AzString, StringVec};
+
+    use super::Segmented;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    fn labels(n: usize) -> StringVec {
+        StringVec::from_vec(
+            ["Day", "Week", "Month"][..n]
+                .iter()
+                .map(|l| AzString::from(*l))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn a_segmented_control_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            // The choice on the first, an inner and the last segment, and a
+            // one-segment control (first and last at once).
+            for (count, selected) in [(3, 0), (3, 1), (3, 2), (1, 0)] {
+                let dom = under(t, || {
+                    Segmented::create(labels(count))
+                        .with_selected_index(selected)
+                        .dom()
+                });
+                assert_structure_is_shared(
+                    &format!(
+                        "segmented ({count} segments, #{selected} chosen) built for {}",
+                        t.name()
+                    ),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
+}

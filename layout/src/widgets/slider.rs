@@ -2851,3 +2851,34 @@ mod autotest_generated {
         assert!((step(0.0, 0.0, 100.0, -1.0, true) - 0.0).abs() < 1e-4);
     }
 }
+
+#[cfg(test)]
+mod base_and_skin_tests {
+    //! R5: a slider's structure is its base, declared once for every app
+    //! theme - never inside a `@theme(<name>)` block.
+
+    use super::Slider;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_slider_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            // At the start, in the middle and at the end of its track.
+            for value in [0.0_f32, 50.0, 100.0] {
+                let dom = under(t, || {
+                    Slider::create(value, 0.0, 100.0)
+                        .with_accessibility_name("Volume")
+                        .dom()
+                });
+                assert_structure_is_shared(
+                    &format!("slider at {value} built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
+}

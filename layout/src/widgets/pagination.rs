@@ -2760,3 +2760,32 @@ mod theme_tests {
         assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora_dom));
     }
 }
+
+#[cfg(test)]
+mod base_and_skin_tests {
+    //! R5: a pager's structure is its base, declared once for every app
+    //! theme - never inside a `@theme(<name>)` block.
+
+    use super::Pagination;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_pagination_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            // Prev disabled, a page in the middle, Next disabled, and a
+            // one-page bar (both ends disabled): every face - neutral,
+            // current, disabled - on the first, an inner and the last button.
+            for (current, total) in [(1, 3), (2, 3), (3, 3), (1, 1)] {
+                let dom = under(t, || Pagination::create(current, total).dom());
+                assert_structure_is_shared(
+                    &format!("pagination {current}/{total} built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
+}

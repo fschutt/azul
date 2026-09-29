@@ -3896,3 +3896,33 @@ mod theme_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod base_and_skin_tests {
+    //! R5: a split pane's structure is its base, declared once for every app
+    //! theme - never inside a `@theme(<name>)` block.
+
+    use azul_core::dom::Dom;
+
+    use super::{SplitDirection, SplitPane};
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_split_pane_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            for dir in [SplitDirection::Horizontal, SplitDirection::Vertical] {
+                let dom = under(t, || {
+                    SplitPane::create(dir, Dom::create_div(), Dom::create_div()).dom()
+                });
+                assert_structure_is_shared(
+                    &format!("split pane {dir:?} built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
+}
