@@ -319,13 +319,18 @@ pub(crate) fn shadowed_states(dom: &Dom) -> Vec<String> {
         for ty in types {
             for dark in [false, true] {
                 for state in [Hover, Active, Focus] {
-                    let matching = || {
-                        props
-                            .iter()
-                            .filter(|(p, c)| p.get_type() == ty && applies(c, dark, Some(state)))
-                    };
-                    let declared = matching().any(|(_, c)| has_state(c, state));
-                    let winner_is_state = matching().last().is_some_and(|(_, c)| has_state(c, state));
+                    // Walk the declarations that apply in this state and mode
+                    // in order: the last one wins.
+                    let mut declared = false;
+                    let mut winner_is_state = false;
+                    for (p, c) in &props {
+                        if p.get_type() != ty || !applies(c, dark, Some(state)) {
+                            continue;
+                        }
+                        let is_state = has_state(c, state);
+                        declared |= is_state;
+                        winner_is_state = is_state;
+                    }
                     if declared && !winner_is_state {
                         out.push(format!(
                             "{path}: {ty:?} {state:?} (dark: {dark}) is shadowed by a later \
