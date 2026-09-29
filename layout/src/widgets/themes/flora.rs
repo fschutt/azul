@@ -5213,3 +5213,86 @@ pub fn date_picker(d: crate::widgets::date_picker::DatePicker) -> Dom {
 
     crate::widgets::date_picker::build(d, &look)
 }
+
+// ==== combobox ====
+//
+// A flora combobox is a flora FIELD with a LEAF of options under it
+// (`doc/templates/flora.css`). The field is the number field's: field paper
+// (`--fl-fld`; the night field `text_input` uses) under flora ink, a
+// `--fl-bd2` hairline, the house radius and the well a field is sunk in
+// (`--fl-well`), ringed on focus in the accent by day and the stone's glow by
+// night (`--focus-color`). The arrow is written in icon ink (`--fl-icon`).
+// The list is the popover's small leaf - `--fl-sur`, `--fl-bd2`, the nearer
+// shadow of `--fl-shadow-2`, square where it meets the field. Its rows are
+// flora ink, wash to `--fl-hov` under the pointer, and - Tab stops - take the
+// inset focus ring. Geometry is the widget's own (paddings, min-width).
+
+/// Flora's combobox skin.
+#[must_use]
+pub(crate) fn combobox_skin() -> crate::widgets::combobox::ComboBoxSkin {
+    use super::style_kit as kit;
+    use crate::widgets::combobox as c;
+    type P = CssPropertyWithConditions;
+
+    // The field: the widget's shape, flora's field paper sunk in its well.
+    let mut field = vec![
+        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        P::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+        P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        P::simple(CssProperty::const_cursor(StyleCursor::Text)),
+    ];
+    field.extend(kit::padding(3, 4, 3, 4));
+    field.extend(kit::border(kit::Edges::ALL, 1, LIGHT_BD2, DARK_BD));
+    field.extend(kit::radius(3));
+    field.extend(kit::themed_bg(LIGHT_FLD, DARK_SUR));
+    field.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
+    field.extend(kit::inset_shadow(
+        1,
+        2,
+        NUMBER_INPUT_WELL_LIGHT,
+        NUMBER_INPUT_WELL_DARK,
+    ));
+    // States last: a resting dark twin matches in every state.
+    field.extend(kit::focus_ring(LIGHT_ACC, DARK_GLOW));
+
+    let mut arrow = c::COMBOBOX_ARROW_STYLE.to_vec();
+    arrow.extend(kit::themed_ink(LIGHT_ICON, DARK_ICON));
+
+    // The list: a small leaf, square along the field.
+    let mut list = vec![
+        P::simple(CssProperty::const_display(LayoutDisplay::Block)),
+        P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(c::MIN_WIDTH))),
+    ];
+    list.extend(kit::border(kit::Edges::ALL, 1, LIGHT_BD2, DARK_BD2));
+    list.extend(kit::radius_corners(0, 0, 3, 3));
+    list.extend(kit::themed_bg(LIGHT_SUR, DARK_SUR));
+    list.extend(kit::drop_shadow(2, 5, POPOVER_SHADOW_LIGHT, POPOVER_SHADOW_DARK));
+
+    let mut option = vec![
+        P::simple(CssProperty::const_display(LayoutDisplay::Block)),
+        P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+        P::simple(CssProperty::user_select(StyleUserSelect::None)),
+    ];
+    option.extend(kit::padding(6, 10, 6, 10));
+    option.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
+    // States last.
+    option.extend(kit::hover_bg(RADIO_GROUP_HOVER_LIGHT, RADIO_GROUP_HOVER_DARK));
+    option.extend(kit::focus_shadow_ring(LIGHT_ACC, DARK_GLOW));
+
+    c::ComboBoxSkin {
+        theme: super::UiTheme::Flora,
+        wrapper: CssPropertyWithConditionsVec::from_const_slice(c::COMBOBOX_WRAPPER_STYLE),
+        field: CssPropertyWithConditionsVec::from_vec(field),
+        text: CssPropertyWithConditionsVec::from_const_slice(c::COMBOBOX_TEXT_STYLE),
+        arrow: CssPropertyWithConditionsVec::from_vec(arrow),
+        option: CssPropertyWithConditionsVec::from_vec(option),
+        list: CssPropertyWithConditionsVec::from_vec(list),
+    }
+}
+
+/// Renders a [`crate::widgets::combobox::ComboBox`] in the flora theme.
+#[must_use]
+pub fn combobox(c: crate::widgets::combobox::ComboBox) -> Dom {
+    c.build(combobox_skin())
+}

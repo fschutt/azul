@@ -91,9 +91,15 @@ Recipe: scripts/T1_APP_THEME_2026_09_29.md §4. Nothing is compiled here (house 
   (Rust-only struct), adopted by `merge_video_state`; unpinned `dom()` = `build_in(current(),
   true)`; the render callback's poster = `follow_props(flat, flora)` when following)
 
+- combobox: RED 10396f6d7, impl: see git log (NEW `theme: OptionUiTheme` LAST in the struct +
+  `set_theme` / `with_theme`; `ComboBoxSkin` + `skin_for` / `follow_skin` / `skin_of`; flat skin =
+  the established statics (now `pub(crate)`) + an inset focus ring on the option rows; flora skin
+  = field paper over a leaf (new `// ==== combobox ====` sections at the END of flat.rs /
+  flora.rs); the wrapper now carries the theme marker; resolvers answer for the theme)
+
 ## IN PROGRESS
 
-- combobox (theme option + flora look + follow)
+- file_input (theme option + flora look + follow)
 
 ## NEXT
 

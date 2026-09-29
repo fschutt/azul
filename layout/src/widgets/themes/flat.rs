@@ -4930,3 +4930,39 @@ mod follow_tests {
         }
     }
 }
+
+// ==== combobox ====
+//
+// Flat is the established combobox, unchanged: a white field in a #acacac
+// hairline with a 4px radius, the desktop's field and separator at night, the
+// `FIELD_RING` / `DARK_ACC` ring on focus; a white list in the same hairline;
+// option rows in the page's ink that wash on hover. What it adds is the ring
+// the option rows never had - each row is a Tab stop - drawn as flat's inset
+// focus ring, so the row's box does not grow.
+
+/// Flat's combobox skin.
+#[must_use]
+pub(crate) fn combobox_skin() -> crate::widgets::combobox::ComboBoxSkin {
+    use super::style_kit as kit;
+    use crate::widgets::combobox as c;
+
+    let mut option = c::COMBOBOX_OPTION_STYLE.to_vec();
+    // States last: the hover wash (and its dark twin) is already declared.
+    option.extend(kit::focus_shadow_ring(FIELD_RING, DARK_ACC));
+
+    c::ComboBoxSkin {
+        theme: super::UiTheme::Flat,
+        wrapper: CssPropertyWithConditionsVec::from_const_slice(c::COMBOBOX_WRAPPER_STYLE),
+        field: CssPropertyWithConditionsVec::from_const_slice(c::COMBOBOX_INPUT_STYLE),
+        text: CssPropertyWithConditionsVec::from_const_slice(c::COMBOBOX_TEXT_STYLE),
+        arrow: CssPropertyWithConditionsVec::from_const_slice(c::COMBOBOX_ARROW_STYLE),
+        option: CssPropertyWithConditionsVec::from_vec(option),
+        list: c::build_list_style(false),
+    }
+}
+
+/// Renders a [`crate::widgets::combobox::ComboBox`] in the flat theme.
+#[must_use]
+pub fn combobox(c: crate::widgets::combobox::ComboBox) -> Dom {
+    c.build(combobox_skin())
+}

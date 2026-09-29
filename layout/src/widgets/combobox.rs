@@ -83,7 +83,10 @@ use azul_css::{
     AzString, OptionString, StringVec,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::themes::{OptionUiTheme, UiTheme},
+};
 
 static COMBOBOX_WRAPPER_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-combobox"))];
@@ -113,7 +116,7 @@ const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
 /// simplification - see the module-level `TODO2`; the field is ~26px tall).
 const LIST_OFFSET_Y: isize = 28;
 /// Minimum width of the field and the list.
-const MIN_WIDTH: isize = 160;
+pub(crate) const MIN_WIDTH: isize = 160;
 const RADIUS: isize = 4;
 const ARROW_FONT_SIZE_PX: isize = 18;
 
@@ -226,6 +229,69 @@ pub struct ComboBox {
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
+    /// The widget theme, or `None` to follow the app theme
+    /// (`AppConfig::with_theme`). A theme is a DOM-level choice: it picks the
+    /// skin the field, its arrow, the list and its rows are built from, so
+    /// switching it rebuilds the combobox.
+    pub theme: OptionUiTheme,
+}
+
+/// What a theme supplies for a combobox: the style of every part a caller
+/// did not style itself, and the theme it belongs to (whose marker class
+/// goes on the wrapper). Built by `themes::flat::combobox_skin` /
+/// `themes::flora::combobox_skin`.
+pub(crate) struct ComboBoxSkin {
+    pub theme: UiTheme,
+    /// The `position: relative` wrapper.
+    pub wrapper: CssPropertyWithConditionsVec,
+    /// The editable field - focusable, so it owes the focus ring.
+    pub field: CssPropertyWithConditionsVec,
+    /// The text inside the field.
+    pub text: CssPropertyWithConditionsVec,
+    /// The drop-down arrow.
+    pub arrow: CssPropertyWithConditionsVec,
+    /// One option row - a Tab stop too, so it owes the focus ring.
+    pub option: CssPropertyWithConditionsVec,
+    /// The options panel; a caller's `list_style` extras are appended to it.
+    pub list: CssPropertyWithConditionsVec,
+}
+
+/// The skin `theme` draws comboboxes with.
+#[must_use]
+pub(crate) fn skin_for(theme: UiTheme) -> ComboBoxSkin {
+    match theme {
+        UiTheme::Flat => crate::widgets::themes::flat::combobox_skin(),
+        UiTheme::Flora => crate::widgets::themes::flora::combobox_skin(),
+    }
+}
+
+/// The skin an UNPINNED combobox is built with, so it follows the app
+/// theme: `structure`'s theme (its marker goes on the wrapper) and every
+/// part in BOTH themes' blocks (`themes::flat::follow_props`).
+#[must_use]
+pub(crate) fn follow_skin(structure: UiTheme) -> ComboBoxSkin {
+    use crate::widgets::themes::flat::follow_props as both;
+    let (flat, flora) = (skin_for(UiTheme::Flat), skin_for(UiTheme::Flora));
+    ComboBoxSkin {
+        theme: structure,
+        wrapper: both(flat.wrapper.as_slice(), flora.wrapper.as_slice()),
+        field: both(flat.field.as_slice(), flora.field.as_slice()),
+        text: both(flat.text.as_slice(), flora.text.as_slice()),
+        arrow: both(flat.arrow.as_slice(), flora.arrow.as_slice()),
+        option: both(flat.option.as_slice(), flora.option.as_slice()),
+        list: both(flat.list.as_slice(), flora.list.as_slice()),
+    }
+}
+
+/// The skin a combobox carrying `theme` renders with: the pinned theme's, or
+/// - unpinned - [`follow_skin`] in the structure of the theme the DOM is
+/// built for. What the render and the style resolvers both ask.
+#[must_use]
+pub(crate) fn skin_of(theme: OptionUiTheme) -> ComboBoxSkin {
+    match theme.into_option() {
+        Some(pinned) => skin_for(pinned),
+        None => follow_skin(UiTheme::current()),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -276,7 +342,7 @@ impl Default for ComboBoxState {
 
 /// Wrapper: an inline-block positioning context so the absolutely-positioned list
 /// is placed relative to it.
-static COMBOBOX_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static COMBOBOX_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)),
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
@@ -288,7 +354,7 @@ static COMBOBOX_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
 ];
 
 /// The clickable, focusable, editable input field (text + arrow).
-static COMBOBOX_INPUT_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static COMBOBOX_INPUT_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
     CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
@@ -393,7 +459,7 @@ static COMBOBOX_INPUT_STYLE: &[CssPropertyWithConditions] = &[
 ];
 
 /// The editable text inside the field - takes the remaining horizontal space.
-static COMBOBOX_TEXT_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static COMBOBOX_TEXT_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
@@ -402,7 +468,7 @@ static COMBOBOX_TEXT_STYLE: &[CssPropertyWithConditions] = &[
 ];
 
 /// The drop-down arrow icon on the right of the field.
-static COMBOBOX_ARROW_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static COMBOBOX_ARROW_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
         ARROW_FONT_SIZE_PX,
@@ -423,7 +489,7 @@ static COMBOBOX_ARROW_STYLE: &[CssPropertyWithConditions] = &[
 /// `open` therefore no longer selects `display` — the WINDOW opens and closes —
 /// but the parameter stays so the caller keeps one entry point, and the panel
 /// is explicitly `display: block` in both states.
-fn build_list_style(_open: bool) -> CssPropertyWithConditionsVec {
+pub(crate) fn build_list_style(_open: bool) -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from_vec(alloc::vec![
         CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
         CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(
@@ -500,7 +566,7 @@ fn build_list_style(_open: bool) -> CssPropertyWithConditionsVec {
 }
 
 /// Per-option row style: a padded, pointer-cursor block highlighted on hover.
-static COMBOBOX_OPTION_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static COMBOBOX_OPTION_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
     CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         6,
@@ -550,6 +616,7 @@ impl ComboBox {
             option_style: OptionCssPropertyWithConditionsVec::None,
             list_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
+            theme: OptionUiTheme::None,
         }
     }
 
@@ -557,6 +624,21 @@ impl ComboBox {
     #[must_use]
     pub fn create() -> Self {
         Self::new(StringVec::from_const_slice(&[]))
+    }
+
+    /// Pick the widget theme. Unset (`None`), the combobox follows the app
+    /// theme (`AppConfig::with_theme`, flat by default).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// Sets the initially-selected option index.
@@ -625,14 +707,15 @@ impl ComboBox {
 
     /// The wrapper CSS this combobox renders with.
     ///
-    /// `None` means no opinion, so the widget's default applies — the same
-    /// answer both themes give, asked in one place so they cannot drift. The
+    /// `None` means no opinion, so the theme's part applies - asked of the
+    /// same skin the render uses (`skin_of`), so the two cannot drift. The
     /// five resolvers below follow the same rule.
     #[must_use]
     pub fn resolved_wrapper_style(&self) -> CssPropertyWithConditionsVec {
-        self.wrapper_style.clone().into_option().unwrap_or_else(|| {
-            CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_WRAPPER_STYLE)
-        })
+        self.wrapper_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| skin_of(self.theme).wrapper)
     }
 
     /// The input-field CSS this combobox renders with.
@@ -641,7 +724,7 @@ impl ComboBox {
         self.field_style
             .clone()
             .into_option()
-            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_INPUT_STYLE))
+            .unwrap_or_else(|| skin_of(self.theme).field)
     }
 
     /// The field-text CSS this combobox renders with.
@@ -650,7 +733,7 @@ impl ComboBox {
         self.text_style
             .clone()
             .into_option()
-            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_TEXT_STYLE))
+            .unwrap_or_else(|| skin_of(self.theme).text)
     }
 
     /// The arrow CSS this combobox renders with.
@@ -659,19 +742,20 @@ impl ComboBox {
         self.arrow_style
             .clone()
             .into_option()
-            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_ARROW_STYLE))
+            .unwrap_or_else(|| skin_of(self.theme).arrow)
     }
 
     /// The option-row CSS this combobox renders with.
     #[must_use]
     pub fn resolved_option_style(&self) -> CssPropertyWithConditionsVec {
-        self.option_style.clone().into_option().unwrap_or_else(|| {
-            CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_OPTION_STYLE)
-        })
+        self.option_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| skin_of(self.theme).option)
     }
 
-    /// The panel CSS this combobox renders with: the widget's own open/closed
-    /// `display` toggle, with the caller's extras appended so they win.
+    /// The panel CSS this combobox renders with: the theme's panel, with the
+    /// caller's extras appended so they win.
     ///
     /// Unlike the others this MERGES rather than replaces — see
     /// [`Self::list_style`]. `None` and `Some(empty)` therefore resolve alike
@@ -679,8 +763,18 @@ impl ComboBox {
     /// a caller asking a second time.
     #[must_use]
     pub fn resolved_list_style(&self, open: bool) -> CssPropertyWithConditionsVec {
-        let base = build_list_style(open);
-        match self.list_style.as_ref() {
+        Self::list_style_on(skin_of(self.theme).list, self.list_style.as_ref(), open)
+    }
+
+    /// `base` (a theme's panel) with the caller's `extra` appended. The
+    /// panel is `display: block` open or closed - the popup WINDOW is what
+    /// opens and closes (`build_list_style`) - so `open` changes nothing.
+    fn list_style_on(
+        base: CssPropertyWithConditionsVec,
+        extra: Option<&CssPropertyWithConditionsVec>,
+        _open: bool,
+    ) -> CssPropertyWithConditionsVec {
+        match extra {
             None => base,
             Some(extra) => {
                 let mut merged = base.into_library_owned_vec();
@@ -701,8 +795,25 @@ impl ComboBox {
 
     /// Renders the combobox into a [`Dom`] subtree with the `__azul-native-combobox`
     /// class.
+    ///
+    /// Rendering goes through the theme modules (as `Button::dom` does): each
+    /// hands [`Self::build`] its skin. Unpinned (`theme: None`), the combobox
+    /// follows the APP theme: built in the structure of the theme its DOM is
+    /// built for, carrying every theme's blocks (`follow_skin`).
     #[must_use]
     pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::combobox(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::combobox(self),
+            None => self.build(follow_skin(UiTheme::current())),
+        }
+    }
+
+    /// Renders the combobox with `skin` supplying every part the caller did
+    /// not style - what `themes::flat::combobox` / `themes::flora::combobox`
+    /// call.
+    #[must_use]
+    pub(crate) fn build(self, skin: ComboBoxSkin) -> Dom {
         // Initial field text: the typed/selected text if present, else the
         // placeholder (a simplification — there is no separate placeholder node,
         // so the placeholder is just the initial label and is replaced on the
@@ -717,13 +828,15 @@ impl ComboBox {
         let items = self.combo_state.items.clone();
 
         // Resolved before `self.combo_state` is moved into the shared RefAny
-        // below; the resolvers borrow `&self`.
-        let wrapper_style = self.resolved_wrapper_style();
-        let field_style = self.resolved_field_style();
-        let text_style = self.resolved_text_style();
-        let arrow_style = self.resolved_arrow_style();
-        let option_style = self.resolved_option_style();
-        let list_style = self.resolved_list_style(open);
+        // below. A caller's style replaces the skin's part; the list's extras
+        // are appended to the skin's panel.
+        let theme = skin.theme;
+        let wrapper_style = self.wrapper_style.clone().into_option().unwrap_or(skin.wrapper);
+        let field_style = self.field_style.clone().into_option().unwrap_or(skin.field);
+        let text_style = self.text_style.clone().into_option().unwrap_or(skin.text);
+        let arrow_style = self.arrow_style.clone().into_option().unwrap_or(skin.arrow);
+        let option_style = self.option_style.clone().into_option().unwrap_or(skin.option);
+        let list_style = Self::list_style_on(skin.list, self.list_style.as_ref(), open);
 
         // ONE shared RefAny: the field handlers and every option handler all
         // read/mutate the same ComboBoxStateWrapper (the text_input shared-state
@@ -841,8 +954,10 @@ impl ComboBox {
         );
         let popup = Dom::create_from_data(transient).with_child(list);
 
+        let mut classes: Vec<IdOrClass> = COMBOBOX_WRAPPER_CLASS.to_vec();
+        classes.push(crate::widgets::themes::style_kit::marker(theme));
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_WRAPPER_CLASS))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(wrapper_style)
             // children: [field, popup] — the popup (holding the list) is the
             // field's next sibling, so `get_next_sibling(field)` still names it.
