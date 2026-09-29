@@ -574,3 +574,5 @@ mod a_scroll_box_keeps_its_blit_on_a_scrolled_page;
 mod a_layout_blit_repaints_the_scrollbar_it_dragged;
 #[path = "a_scrollbar_in_a_virtual_view_is_pressed_where_it_is_painted.rs"]
 mod a_scrollbar_in_a_virtual_view_is_pressed_where_it_is_painted;
+#[path = "a_grown_scroll_box_paints_its_thumb_from_the_layout_that_grew_it.rs"]
+mod a_grown_scroll_box_paints_its_thumb_from_the_layout_that_grew_it;
