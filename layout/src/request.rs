@@ -233,7 +233,9 @@ pub fn pending_count() -> usize {
 /// hanging modal is the worst outcome an e2e run can have - so every request
 /// function asks this store FIRST. The store is *armed* under an e2e run
 /// (`AZ_E2E` / `AZ_E2E_TEST` set, or `AZ_BACKEND=headless`; explicitly with
-/// [`arm`]) and disarmed in production, where it costs one relaxed load.
+/// [`arm`]) and disarmed in production, where it costs one relaxed load. A
+/// bare headless launch (no script) still sends unmocked HTTP requests: no
+/// modal can hang on one, and headless apps need the network.
 ///
 /// * A **mocked** operation resumes immediately with the canned answer; the resume path is the
 ///   normal one, so a mocked test exercises the whole request / resume machinery except the OS call
@@ -352,10 +354,24 @@ pub mod mock {
         *s.armed.get_or_insert_with(env_armed)
     }
 
+    /// A script drives the run (`AZ_E2E` / `AZ_E2E_TEST`), as opposed to a
+    /// bare headless launch.
+    fn env_scripted() -> bool {
+        let set = |k: &str| std::env::var(k).map(|v| !v.is_empty()).unwrap_or(false);
+        set("AZ_E2E") || set("AZ_E2E_TEST")
+    }
+
+    fn scripted_in(s: &mut MockState) -> bool {
+        *s.scripted.get_or_insert_with(env_scripted)
+    }
+
     /// Arm the store explicitly (an e2e host that is not driven by the
-    /// environment variables).
+    /// environment variables): a scripted run.
     pub fn arm() {
-        with(|s| s.armed = Some(true));
+        with(|s| {
+            s.armed = Some(true);
+            s.scripted = Some(true);
+        });
     }
 
     /// Disarm the store: every request performs its real OS call again.
@@ -373,9 +389,10 @@ pub mod mock {
     /// stays.
     pub fn reset() {
         with(|s| {
-            let armed = s.armed;
+            let (armed, scripted) = (s.armed, s.scripted);
             *s = MockState::default();
             s.armed = armed;
+            s.scripted = scripted;
         });
     }
 
@@ -525,6 +542,11 @@ pub mod mock {
                     .is_some_and(|prefix| url.starts_with(prefix))
         });
         let taken = found.map(|(_, canned)| canned.clone());
+        // No modal can hang on an HTTP request: without a script to keep
+        // deterministic, an unmocked request goes out (see the tests).
+        if taken.is_none() && !scripted_in(s) {
+            return Answer::NotArmed;
+        }
         answer(s, taken, &alloc::format!("http {url}"))
     }
 
