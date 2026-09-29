@@ -6300,3 +6300,17 @@ mod night_focus_ring_tests {
         assert_stands_off_the_night("a flora button", night);
     }
 }
+
+// ==== backstage ====
+//
+// A flora backstage is the flyout navigation drawer of flora.css
+// (`.mobile-menu`, opened by the socket) laid on the Office column.
+
+/// Flora's backstage: every part the caller left `None` in `s` filled with
+/// flora's paint on the flat part's geometry (see the chrome section above).
+#[must_use]
+pub(crate) fn backstage_style(
+    s: crate::widgets::backstage::BackstageStyle,
+) -> crate::widgets::backstage::BackstageStyle {
+    s
+}

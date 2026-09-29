@@ -27,6 +27,12 @@
 //! without touching widget code. [`BackstageBehavior`] holds the
 //! interactions the backstage performs by itself (currently: Escape invokes
 //! the back callback, like classic office suites).
+//!
+//! The backstage has a widget theme ([`Backstage::theme`]): flat is the
+//! Office look [`BackstageStyle`] describes; flora is the flyout navigation
+//! drawer of flora.css (`themes::flora::backstage_style`) on the same
+//! column. Unpinned (`None`) it follows the app theme; its back button is
+//! built in the backstage's theme.
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
@@ -62,7 +68,7 @@ use azul_css::{
 
 use super::{
     button::{Button, ButtonOnClick, OptionButtonOnClick},
-    themes::flat,
+    themes::{flat, style_kit, OptionUiTheme, UiTheme},
 };
 use crate::callbacks::CallbackInfo;
 
@@ -751,6 +757,12 @@ pub struct Backstage {
     pub behavior: BackstageBehavior,
     /// All part styles (defaults to the the Office-2013-era look look).
     pub style: BackstageStyle,
+    /// The widget theme, or `None` to follow the app theme
+    /// (`AppConfig::with_theme`). Flat is the Office look [`Self::style`]
+    /// describes; flora lays the flyout drawer of flora.css - a leaf of
+    /// paper, inset keys, the selected item a sunken stone - on the same
+    /// column. A part the caller set in [`Self::style`] wins in either theme.
+    pub theme: OptionUiTheme,
 }
 
 // -- CSS classes --
@@ -796,6 +808,7 @@ impl Backstage {
             content: None.into(),
             behavior: BackstageBehavior::office_2013(),
             style: BackstageStyle::office_2013(),
+            theme: OptionUiTheme::None,
         }
     }
 
@@ -910,7 +923,25 @@ impl Backstage {
         self
     }
 
-    /// Renders the backstage.
+    /// Pick the widget theme: the backstage and its back button keep this
+    /// look whatever the app theme is. Unset (`None`), the backstage follows
+    /// the app theme (`AppConfig::with_theme`, flat by default).
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// Renders the backstage in its theme: a pinned theme is that look; no
+    /// theme follows the app theme (every part carries both looks, each
+    /// inside its `@theme(<name>)` block, in the structure of the theme the
+    /// DOM is built for). The tree is built ONCE either way, so the caller's
+    /// title strip and pane content are never cloned.
     #[must_use]
     pub fn dom(self) -> Dom {
         let Self {
@@ -922,7 +953,20 @@ impl Backstage {
             content,
             behavior,
             style,
+            theme,
         } = self;
+
+        // The parts this build paints with, and the theme whose structure
+        // (the root's marker) it has. The back button takes the backstage's
+        // own theme: pinned with it, following the app theme with it.
+        let (style, structure) = match theme.into_option() {
+            Some(UiTheme::Flat) => (style, UiTheme::Flat),
+            Some(UiTheme::Flora) => (
+                crate::widgets::themes::flora::backstage_style(style),
+                UiTheme::Flora,
+            ),
+            None => (follow_style(style), UiTheme::current()),
+        };
 
         // Every part resolved up front: the resolvers borrow `&style`, and
         // `root_style` is moved out of it at the end of this function.
@@ -941,7 +985,10 @@ impl Backstage {
 
         {
             let mut b = Button::create(AzString::from_const_str(""));
-            b.set_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK);
+            // The backstage's theme: pinned, the button wears the same look;
+            // `None`, it follows the app theme with the backstage (its part
+            // styles below already carry both looks' blocks).
+            b.theme = theme;
             b.icon = AzString::from_const_str("arrow_back");
             b.container_style = OptionCssPropertyWithConditionsVec::Some(part_back_button);
             b.icon_style = OptionCssPropertyWithConditionsVec::Some(part_back_icon);
@@ -1017,7 +1064,10 @@ impl Backstage {
             .with_children(DomVec::from_vec(right_children));
 
         let mut root = Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_BACKSTAGE))
+            .with_ids_and_classes(IdOrClassVec::from_vec(vec![
+                CLS_BACKSTAGE[0].clone(),
+                style_kit::marker(structure),
+            ]))
             .with_css_props(part_root)
             .with_children(DomVec::from_vec(vec![nav, right]));
 
@@ -1064,6 +1114,53 @@ fn merged_style(
     let mut v: Vec<Cond> = base.as_ref().to_vec();
     v.extend_from_slice(extra.as_ref());
     CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// The parts an UNPINNED backstage renders with, so it follows the app
+/// theme: every part in BOTH looks - the flat one `style` describes and
+/// flora's (`themes::flora::backstage_style`) - through the one merge
+/// (`themes::theme_blocks::follow_props`). What both looks declare alike (the
+/// column's layout, the flex boxes, the fonts) is declared once, outside any
+/// theme block; the rest sits in its theme's `@theme(<name>)` block, and the
+/// cascade keeps the live theme's. A part the caller set is the same in both
+/// looks, so it comes back as it is.
+fn follow_style(style: BackstageStyle) -> BackstageStyle {
+    use crate::widgets::themes::theme_blocks::follow_props;
+    let flora = crate::widgets::themes::flora::backstage_style(style.clone());
+    let flat = style;
+    let both = |a: CssPropertyWithConditionsVec, b: CssPropertyWithConditionsVec| {
+        OptionCssPropertyWithConditionsVec::Some(follow_props(a.as_slice(), b.as_slice()))
+    };
+    BackstageStyle {
+        theme: flat.theme,
+        root_style: both(flat.resolved_root_style(), flora.resolved_root_style()),
+        nav_style: both(flat.resolved_nav_style(), flora.resolved_nav_style()),
+        back_button_style: both(
+            flat.resolved_back_button_style(),
+            flora.resolved_back_button_style(),
+        ),
+        back_icon_style: both(
+            flat.resolved_back_icon_style(),
+            flora.resolved_back_icon_style(),
+        ),
+        nav_item_style: both(
+            flat.resolved_nav_item_style(),
+            flora.resolved_nav_item_style(),
+        ),
+        nav_item_active_style: both(
+            flat.resolved_nav_item_active_style(),
+            flora.resolved_nav_item_active_style(),
+        ),
+        nav_item_gap_style: both(
+            flat.resolved_nav_item_gap_style(),
+            flora.resolved_nav_item_gap_style(),
+        ),
+        right_style: both(flat.resolved_right_style(), flora.resolved_right_style()),
+        content_style: both(
+            flat.resolved_content_style(),
+            flora.resolved_content_style(),
+        ),
+    }
 }
 
 // -- Nav-click / Escape plumbing --

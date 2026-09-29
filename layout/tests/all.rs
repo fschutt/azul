@@ -556,8 +556,6 @@ mod app_color_scheme_override;
 mod app_theme_override;
 #[path = "widgets_follow_the_app_theme.rs"]
 mod widgets_follow_the_app_theme;
-#[path = "a_widget_without_a_theme_option_pins_what_it_embeds.rs"]
-mod a_widget_without_a_theme_option_pins_what_it_embeds;
 #[path = "a_theme_chain_ranks_its_blocks.rs"]
 mod a_theme_chain_ranks_its_blocks;
 #[path = "rice_styles_the_window.rs"]
