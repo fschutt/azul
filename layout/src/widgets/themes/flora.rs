@@ -5894,10 +5894,116 @@ pub(crate) fn quick_access_style(
 
 // ==== tree_view ====
 //
-// PLACEHOLDER until the flora tree lands: the flat look.
+// A flora tree is a sheet of FIELD PAPER laid in the leaf: `--fl-fld` (by
+// night the night field) inside a `--fl-bd2` hairline with the house radius,
+// written in flora ink, its disclosure chevrons in `--fl-icon`. A row washes
+// to `--fl-hov` under the pointer (the radio row's wash) and sinks to the
+// pressed face while held. The selected row is the sunken accent stone
+// (`selected_stone`, flora's `.nav-links a.active`), its label and chevron in
+// `--fl-on-acc` - its own colour by day and by night. An open parent's
+// children hang from a `--fl-sep` guide rule under its chevron (the indent
+// stays 16px a level). The rows have no border to colour, so each is ringed
+// on focus with an inset ring: the accent by day, the glow by night and on
+// the stone. The 16px icon column is the flat tree's, so leaves line up with
+// their parents' labels in both looks.
 
 /// Flora's tree-view look.
 #[must_use]
 pub(crate) fn tree_view_look() -> crate::widgets::tree_view::TreeViewLook {
-    super::flat::tree_view_look()
+    use super::style_kit as kit;
+    use crate::widgets::tree_view as t;
+    type P = CssPropertyWithConditions;
+    let part = CssPropertyWithConditionsVec::from_vec;
+
+    let mut container = vec![
+        P::simple(CssProperty::const_overflow_y(LayoutOverflow::Auto)),
+        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        P::simple(CssProperty::const_flex_direction(
+            LayoutFlexDirection::Column,
+        )),
+        kit::font_size(13),
+        P::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    container.extend(kit::padding(3, 3, 3, 3));
+    container.extend(kit::border(kit::Edges::ALL, 1, LIGHT_BD2, DARK_BD2));
+    container.extend(kit::radius(3));
+    container.extend(kit::themed_bg(LIGHT_FLD, DARK_FLD));
+    container.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
+
+    // A row's box, selected or not.
+    let row_box = || {
+        let mut v = vec![
+            P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+            P::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+            P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+            P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+        ];
+        v.extend(kit::padding(3, 6, 3, 6));
+        v.extend(kit::radius(3));
+        v
+    };
+    let mut row = row_box();
+    // States last: a resting dark twin matches in every state.
+    row.extend(kit::hover_bg(RADIO_GROUP_HOVER_LIGHT, RADIO_GROUP_HOVER_DARK));
+    row.extend(kit::active_layers(
+        vec![PRESSED_FACE_LIGHT],
+        vec![PRESSED_FACE_DARK],
+    ));
+    row.extend(kit::focus_shadow_ring(LIGHT_ACC, DARK_GLOW));
+
+    let mut row_selected = row_box();
+    row_selected.push(P::simple(kit::layers(selected_stone())));
+    row_selected.push(P::simple(kit::ink(LIGHT_ON_ACC)));
+    row_selected.extend(kit::focus_shadow_ring(LIGHT_GLOW, DARK_GLOW));
+
+    // The guide rule sits under the parent's chevron (6px row padding + half
+    // the 16px icon column); margin + rule + padding keep the 16px indent.
+    let mut children = vec![
+        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        P::simple(CssProperty::const_flex_direction(
+            LayoutFlexDirection::Column,
+        )),
+        P::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(13))),
+        P::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(2))),
+    ];
+    let guide = kit::Edges {
+        top: false,
+        right: false,
+        bottom: false,
+        left: true,
+    };
+    children.extend(kit::border(guide, 1, LIGHT_SEP, DARK_SEP));
+
+    // The chevron: the flat tree's 16px column, flora's icon ink - or, on the
+    // stone, the stone's ink.
+    let icon = |ink: Vec<P>| {
+        let mut v = vec![
+            kit::font_size(16),
+            P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        ];
+        v.extend(ink);
+        v
+    };
+
+    let label = |ink: Vec<P>| {
+        let mut v = vec![
+            P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+            P::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(4))),
+        ];
+        v.extend(ink);
+        v
+    };
+
+    t::TreeViewLook {
+        container: part(container),
+        row: part(row),
+        row_selected: part(row_selected),
+        children: part(children),
+        icon: part(icon(kit::themed_ink(LIGHT_ICON, DARK_ICON).to_vec())),
+        icon_selected: part(icon(vec![P::simple(kit::ink(LIGHT_ON_ACC))])),
+        leaf_spacer: CssPropertyWithConditionsVec::from_const_slice(t::LEAF_SPACER_STYLE),
+        label: part(label(kit::themed_ink(LIGHT_INK, DARK_INK).to_vec())),
+        label_selected: part(label(vec![P::simple(kit::ink(LIGHT_ON_ACC))])),
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
 }
