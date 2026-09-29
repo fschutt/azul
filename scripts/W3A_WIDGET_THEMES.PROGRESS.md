@@ -131,12 +131,18 @@ DONE:
   on_focus probes) for date, month and week in both looks + integration
   test for all 3 modes.
 
+- A3 7376e28b9 feat(date_picker): flat rings on every stop in every mode;
+  flora paper calendar (field, leaf, brass buttons, stone pick for day /
+  week / month); build_day_cell_style pub(crate).
+- report 8b2825d1f: redo + fixes table + compile risks + follow-up
+  (DateTimeLocalPicker does not forward its theme to its parts).
+
 ## IN PROGRESS
-A3: date_picker feat.
+Nothing.
 
 ## NEXT
-A3 feat (flat rings incl. month/week cells; flora paper calendar, the
-day faces shared by month + week cells); report update; final message.
+Done - hand back: branch wt/w3a-date-picker (parent integrates, compiles,
+runs; api.json: DatePicker.theme after `mode`).
 
 ## Open questions
 - ENGINE GAP (spinner): `-azul-animation-in` tracks are started only by
