@@ -1149,17 +1149,161 @@ mod makeover_tests {
         }
     }
 
+    /// The ring's parts, each with the angle it is turned by (degrees,
+    /// clockwise): the ARC is the spinning frame; inside it the WINDOW
+    /// (clipped to half the ring, turned to the tail) holds the BODY (the
+    /// inked half-annulus, turned so its leading edge is the head), and the
+    /// two round CAPS (head first, then tail) sit on the ends.
+    struct RingPose {
+        window: (SvgMultiPolygon, f32),
+        body: (SvgMultiPolygon, f32),
+        caps: Vec<(SvgMultiPolygon, f32)>,
+    }
+
+    fn one<'a>(dom: &'a Dom, class: &str) -> &'a Dom {
+        let found = with_class(dom, class);
+        assert_eq!(found.len(), 1, "one {class}");
+        found[0]
+    }
+
+    /// The ring's parts turned by `turn(node)` for each node (composed down
+    /// the tree, as the renderers compose nested reference frames).
+    fn ring_pose(dom: &Dom, turn: &dyn Fn(&Dom) -> f32) -> RingPose {
+        let arc = one(dom, "__azul-spinner-arc");
+        let spin = turn(arc);
+        let window = one(arc, "__azul-spinner-arc-window");
+        let body = one(window, "__azul-spinner-arc-body");
+        let caps = with_class(arc, "__azul-spinner-arc-cap");
+        assert_eq!(caps.len(), 2, "a round cap on each end");
+        let shape = |n: &Dom| clip(n).cloned().expect("a clip shape");
+        RingPose {
+            window: (shape(window), spin + turn(window)),
+            body: (shape(body), spin + turn(window) + turn(body)),
+            caps: caps.iter().map(|c| (shape(*c), spin + turn(*c))).collect(),
+        }
+    }
+
+    /// Whether the ring paints the point `r` px from the centre of a 32px
+    /// spinner, `deg` degrees clockwise from 12 o'clock: inside the window
+    /// AND the body (the nested clips intersect), or on a cap.
+    fn ring_paints(pose: &RingPose, deg: f32, r: f32) -> bool {
+        let at = |(shape, turned): &(SvgMultiPolygon, f32)| {
+            inside(shape, polar(32.0, deg - turned, r))
+        };
+        (at(&pose.window) && at(&pose.body)) || pose.caps.iter().any(|c| at(c))
+    }
+
+    /// At rest - reduced motion, or before the first frame - the ring is the
+    /// same picture it always was: a round-capped 135-degree arc from 12
+    /// o'clock on the Windows ring.
     #[test]
     fn the_ring_is_a_round_capped_arc_on_the_windows_ring() {
         // At 32: centre-line radius 0.4375 x 32 = 14, stroke 0.09375 x 32 = 3.
         let dom = spinner(UiTheme::Flat, SpinnerStyle::Ring);
-        let arc = with_class(&dom, "__azul-spinner-arc");
-        let shape = clip(arc[0]).expect("the arc is a clip shape");
-        assert!(inside(shape, polar(32.0, 60.0, 14.0)), "on the arc");
-        assert!(!inside(shape, polar(32.0, 60.0, 11.0)), "inside the ring");
-        assert!(!inside(shape, polar(32.0, 60.0, 16.0)), "outside the ring");
-        assert!(!inside(shape, polar(32.0, 225.0, 14.0)), "the gap in the arc");
-        assert!(!inside(shape, (16.0, 16.0)), "the centre");
+        let rest = ring_pose(&dom, &|_| 0.0);
+        assert!(ring_paints(&rest, 60.0, 14.0), "on the arc");
+        assert!(ring_paints(&rest, 5.0, 14.0), "near its tail");
+        assert!(ring_paints(&rest, 130.0, 14.0), "near its head");
+        assert!(!ring_paints(&rest, 60.0, 11.0), "inside the ring");
+        assert!(!ring_paints(&rest, 60.0, 16.0), "outside the ring");
+        assert!(!ring_paints(&rest, 225.0, 14.0), "the gap in the arc");
+        assert!(!ring_paints(&rest, 160.0, 14.0), "past the head's cap");
+        assert!(!ring_paints(&rest, 0.0, 0.0), "the centre");
+        // Round caps: a point just past each end, on the centre line.
+        assert!(ring_paints(&rest, -3.0, 14.0), "the tail's round cap");
+        assert!(ring_paints(&rest, 138.0, 14.0), "the head's round cap");
+    }
+
+    /// The angle each part is turned by `t` (0..=1) into its loop - sampled
+    /// by the ENGINE's own track (`compile_keyframes_track`, then
+    /// `AnimTrack::sample`), easing included.
+    fn turn_at(dom: &Dom, node: &Dom, t: f32) -> f32 {
+        let Some(anim) = animation_in(&applying(node, &light())) else {
+            return 0.0;
+        };
+        let kf = keyframes(dom, anim.name.as_str()).expect("the part's @keyframes");
+        let mut track = crate::window::compile_keyframes_track(
+            kf,
+            azul_core::geom::LogicalRect::zero(),
+            anim.duration.millis() as f32 / 1000.0,
+            anim.timing,
+        );
+        track.t = t;
+        track.sample().rotate_deg
+    }
+
+    /// The Windows 11 `ProgressRing` (reference section 3.2): over a 2 s
+    /// loop the arc grows from nothing to half the ring and shrinks from its
+    /// TAIL back to nothing, while the whole ring turns at 450 degrees a
+    /// second. The caps ride the ends.
+    #[test]
+    fn the_ring_arc_grows_to_half_the_ring_then_shrinks_from_its_tail() {
+        let dom = spinner(UiTheme::Flat, SpinnerStyle::Ring);
+        let arc = one(&dom, "__azul-spinner-arc");
+        let window = one(arc, "__azul-spinner-arc-window");
+        let body = one(window, "__azul-spinner-arc-body");
+        for part in [arc, window, body] {
+            let anim = animation_in(&applying(part, &light())).expect("every ring part moves");
+            assert_eq!(anim.duration.millis(), 2000, "one 2 s loop");
+            assert_eq!(anim.iterations, AnimationIterationCount::Infinite);
+        }
+
+        // The arc's two ends at `t`: where the body's leading edge (the head)
+        // and the window's leading edge (the tail) are, in the world.
+        let ends = |t: f32| {
+            let spin = turn_at(&dom, arc, t);
+            let tail = spin + turn_at(&dom, window, t);
+            let head = tail + turn_at(&dom, body, t) + ARC_SWEEP_DEG;
+            (tail, head)
+        };
+        let length = |t: f32| {
+            let (tail, head) = ends(t);
+            head - tail
+        };
+        assert!(length(0.0).abs() < 0.5, "it starts as nothing, is {}", length(0.0));
+        assert!((length(0.5) - 180.0).abs() < 0.5, "half the ring half way, is {}", length(0.5));
+        assert!(length(1.0).abs() < 0.5, "and ends as nothing, is {}", length(1.0));
+        let samples: Vec<f32> = (0..=20).map(|i| length(i as f32 / 20.0)).collect();
+        assert!(
+            samples[..=10].windows(2).all(|w| w[1] >= w[0] - 0.01),
+            "it only grows in the first second: {samples:?}"
+        );
+        assert!(
+            samples[10..].windows(2).all(|w| w[1] <= w[0] + 0.01),
+            "it only shrinks in the second: {samples:?}"
+        );
+        // It grows at the HEAD and shrinks from the TAIL.
+        let (tail0, _) = ends(0.0);
+        let (tail_half, _) = ends(0.5);
+        let spin_half = turn_at(&dom, arc, 0.5);
+        assert!(
+            (tail_half - spin_half - tail0).abs() < 0.5,
+            "the tail holds still (on the turning ring) while the arc grows"
+        );
+
+        // The caps sit on the two ends at every moment, and what the ring
+        // paints is that arc.
+        for i in 0..=8 {
+            let t = i as f32 / 8.0;
+            let pose = ring_pose(&dom, &|n| turn_at(&dom, n, t));
+            let (tail, head) = ends(t);
+            let mut cap_turns: Vec<f32> = pose.caps.iter().map(|c| c.1).collect();
+            cap_turns.sort_by(f32::total_cmp);
+            let mut want = vec![tail, head - ARC_SWEEP_DEG];
+            want.sort_by(f32::total_cmp);
+            assert!(
+                cap_turns.iter().zip(&want).all(|(a, b)| (a - b).abs() < 0.5),
+                "t={t}: caps turned {cap_turns:?}, the ends want {want:?}"
+            );
+            if head - tail > 20.0 {
+                let middle = (tail + head) / 2.0;
+                assert!(ring_paints(&pose, middle, 14.0), "t={t}: the arc's middle");
+                assert!(
+                    !ring_paints(&pose, middle + 180.0, 14.0),
+                    "t={t}: the far side of the ring is empty"
+                );
+            }
+        }
     }
 
     #[test]
@@ -1237,17 +1381,20 @@ mod makeover_tests {
 
     #[test]
     fn the_ring_spins_clockwise_at_450_degrees_a_second() {
+        // The Windows ring turns 450 degrees a second, steadily, over its
+        // 2 s grow-and-shrink loop: two and a half turns per loop.
         let dom = spinner(UiTheme::Flat, SpinnerStyle::Ring);
         let arc = with_class(&dom, "__azul-spinner-arc");
         let anim = animation_in(&applying(arc[0], &light())).expect("the arc spins");
-        assert_eq!(anim.duration.millis(), 800);
+        assert_eq!(anim.duration.millis(), 2000, "one grow-and-shrink loop");
         assert_eq!(anim.iterations, AnimationIterationCount::Infinite);
         assert_eq!(anim.timing, AnimationTiming::Linear);
         let turns = rotation_track(keyframes(&dom, anim.name.as_str()).expect("@keyframes"));
         assert_eq!(turns.first().map(|t| t.0), Some(0.0));
         assert_eq!(turns.last().map(|t| t.0), Some(1.0));
         let sweep = turns.last().map_or(0.0, |t| t.1) - turns.first().map_or(0.0, |t| t.1);
-        assert!(close(sweep, 360.0), "a full clockwise turn per cycle, got {sweep}");
+        let per_second = sweep / (anim.duration.millis() as f32 / 1000.0);
+        assert!(close(per_second, 450.0), "450 degrees a second clockwise, got {per_second}");
     }
 
     #[test]
@@ -1333,49 +1480,75 @@ mod makeover_tests {
     }
 
     #[test]
+    /// The parts of a ring that carry its ink: the body and the two caps.
+    fn arc_ink_parts(dom: &Dom) -> Vec<&Dom> {
+        let mut parts = with_class(dom, "__azul-spinner-arc-body");
+        parts.extend(with_class(dom, "__azul-spinner-arc-cap"));
+        assert_eq!(parts.len(), 3, "the body and two caps");
+        parts
+    }
+
+    #[test]
     fn the_flat_ring_is_the_desktop_accent() {
         let dom = spinner(UiTheme::Flat, SpinnerStyle::Ring);
-        let arc = with_class(&dom, "__azul-spinner-arc")[0];
         let accent = Some(vec![StyleBackgroundContent::SystemColor(
             SystemColorRef::Accent,
         )]);
-        assert_eq!(last_fill(&applying(arc, &light())), accent);
-        assert_eq!(last_fill(&applying(arc, &dark())), accent, "resolved per theme");
+        for part in arc_ink_parts(&dom) {
+            assert_eq!(last_fill(&applying(part, &light())), accent);
+            assert_eq!(last_fill(&applying(part, &dark())), accent, "resolved per theme");
+        }
     }
 
     #[test]
     fn the_flora_ring_is_the_accent_stone_lifted_to_its_glow_at_night() {
         let dom = spinner(UiTheme::Flora, SpinnerStyle::Ring);
-        let arc = with_class(&dom, "__azul-spinner-arc")[0];
-        assert_eq!(
-            last_fill(&applying(arc, &light())),
-            Some(vec![StyleBackgroundContent::Color(flora::LIGHT_ACC)])
-        );
-        assert_eq!(
-            last_fill(&applying(arc, &dark())),
-            Some(vec![StyleBackgroundContent::Color(flora::DARK_GLOW)])
-        );
+        for part in arc_ink_parts(&dom) {
+            assert_eq!(
+                last_fill(&applying(part, &light())),
+                Some(vec![StyleBackgroundContent::Color(flora::LIGHT_ACC)])
+            );
+            assert_eq!(
+                last_fill(&applying(part, &dark())),
+                Some(vec![StyleBackgroundContent::Color(flora::DARK_GLOW)])
+            );
+        }
+    }
+
+    /// The ring's frame and window only turn and clip: they paint nothing
+    /// of their own, so the ink shows only where the body and caps are.
+    #[test]
+    fn the_ring_s_frame_and_window_paint_nothing() {
+        let dom = spinner(UiTheme::Flat, SpinnerStyle::Ring);
+        for class in ["__azul-spinner-arc", "__azul-spinner-arc-window"] {
+            for node in with_class(&dom, class) {
+                assert_eq!(last_fill(&applying(node, &light())), None, "{class}");
+                assert_eq!(last_fill(&applying(node, &dark())), None, "{class}");
+            }
+        }
     }
 
     #[test]
     fn a_chosen_colour_paints_the_indicator_in_both_modes() {
         for theme in [UiTheme::Flat, UiTheme::Flora] {
-            for (style, part) in [
-                (SpinnerStyle::Spokes, "__azul-spinner-spoke"),
-                (SpinnerStyle::Ring, "__azul-spinner-arc"),
-            ] {
+            for style in [SpinnerStyle::Spokes, SpinnerStyle::Ring] {
                 let dom = Spinner::create()
                     .with_theme(theme)
                     .with_indicator(style)
                     .with_color(RED)
                     .dom();
-                let node = with_class(&dom, part)[0];
-                for mode in [light(), dark()] {
-                    assert_eq!(
-                        last_fill(&applying(node, &mode)),
-                        Some(vec![StyleBackgroundContent::Color(RED)]),
-                        "{theme:?} {style:?}"
-                    );
+                let inked = match style {
+                    SpinnerStyle::Ring => arc_ink_parts(&dom),
+                    _ => with_class(&dom, "__azul-spinner-spoke"),
+                };
+                for node in inked {
+                    for mode in [light(), dark()] {
+                        assert_eq!(
+                            last_fill(&applying(node, &mode)),
+                            Some(vec![StyleBackgroundContent::Color(RED)]),
+                            "{theme:?} {style:?}"
+                        );
+                    }
                 }
             }
         }
