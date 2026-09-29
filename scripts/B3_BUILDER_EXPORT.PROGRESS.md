@@ -55,13 +55,14 @@ WARNINGS.txt    "No user-defined component libraries to export. Generated minima
 - `f861cf64c` docs(b3): audit
 - `0d6318f46` test(xml): page exporters keep styles / free data / Python link; fragment goldens (RED)
 - `95afd6be5` fix(xml): `compile_xml_fragment(_app)` + page exporter fixes
+- `2086d25fa` test(builder): quick exports + Export > Code scenarios (RED, `export_tests`)
+- `b9dd44cff` fix(builder): export.rs + 5 ops + project zip + template compile_fn / JSON
 
 ## IN PROGRESS
-- layout `e2e/export.rs` (languages, CSS rules + compile, subtree / component → code, template
-  compile_fn, zip) + server ops + tests.
+- UI `debugger-export.js` (three dialogs, Export > Code download) + node test + headless smoke.
 
 ## NEXT
-- UI `debugger-export.js` + node test + headless smoke.
+- symbol check of the generated Rust against dll_api_external.rs; compile script for goldens.
 - report.
 
 ## Open questions / notes for the parent
