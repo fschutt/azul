@@ -31,6 +31,11 @@ pub use runner::run_e2e_test;
 mod report;
 pub use report::{load_e2e_tests, render_report, E2eVerdict};
 
+// The AzBuilder server messages (drag and drop, convert, previews), driven
+// through the real dispatcher on a headless window.
+#[cfg(test)]
+mod builder_tests;
+
 pub mod hooks {
     //! Dependency-injection seam for the three host-coupled call sites in
     //! [`super::full`]. See the module docs above.
