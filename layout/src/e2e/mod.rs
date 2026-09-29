@@ -40,6 +40,12 @@ pub use report::{load_e2e_tests, render_report, E2eVerdict};
 #[cfg(test)]
 mod builder_tests;
 
+// AzBuilder projects: a folder on disk (tree, read / write / rename / delete
+// confined to the root, save / load of the document, components and
+// stylesheets, zip export / import), driven through the real dispatcher.
+#[cfg(test)]
+mod project_tests;
+
 pub mod hooks {
     //! Dependency-injection seam for the three host-coupled call sites in
     //! [`super::full`]. See the module docs above.
