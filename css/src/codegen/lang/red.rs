@@ -99,7 +99,16 @@ impl ExprSyntax for Red {
             _ => Some(UNION_REASON.to_string()),
         }
     }
+
+    fn dom_limitation(&self) -> Option<&'static str> {
+        Some(DOM_REASON)
+    }
 }
+
+/// Why the Red/System printer does not export a DOM.
+const DOM_REASON: &str = "the binding declares every tagged union as an 8-byte opaque \
+                          placeholder, so a Dom - whose NodeData holds the NodeType union - \
+                          crosses the FFI by value with the wrong size";
 
 const UNION_REASON: &str = "the Red/System bindings declare every tagged union (CssProperty, \
                             LayoutWidth, ...) as an 8-byte opaque placeholder, so no CSS \

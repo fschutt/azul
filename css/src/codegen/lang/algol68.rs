@@ -128,6 +128,14 @@ fn leng(value: &str) -> String {
 }
 
 impl LinearSyntax for Algol68 {
+    fn dom_limitation(&self) -> Option<&'static str> {
+        Some(
+            "a68g rejects the binding's `ALIEN` procedure declarations (it has no foreign \
+             function interface), so no libazul function - and no Dom - can be called from \
+             ALGOL 68",
+        )
+    }
+
     fn int(&self, value: i128, ty: Prim) -> String {
         match ty {
             Prim::U8 | Prim::I8 => format!("REPR {value}"),

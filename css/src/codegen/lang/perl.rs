@@ -36,6 +36,13 @@ use crate::codegen::{
 #[derive(Debug, Copy, Clone, Default)]
 pub struct Perl;
 
+/// Why the Perl printer does not export a DOM: every `Dom` crosses the FFI
+/// by value, and its `NodeData` holds the `NodeType` union.
+const DOM_REASON: &str = "the Perl binding lays every tagged union out as a fake record (`sint32` \
+                          tag + `uint8[256]` payload, not its C layout), so a Dom - whose NodeData \
+                          holds the NodeType union - has the wrong size when it crosses the FFI \
+                          by value";
+
 /// `\x{e9}`.
 fn unicode_perl(cp: u32) -> String {
     format!("\\x{{{cp:x}}}")
@@ -126,6 +133,10 @@ impl ExprSyntax for Perl {
             )),
             _ => None,
         }
+    }
+
+    fn dom_limitation(&self) -> Option<&'static str> {
+        Some(DOM_REASON)
     }
 
     fn field_value(&self, field: &Expr, value: Doc) -> Doc {

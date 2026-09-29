@@ -180,6 +180,15 @@ fn call_byref(symbol: &str, target: &str, args: &[String]) -> String {
 const POINTER_LITERAL: &str = "POINTER:";
 
 impl LinearSyntax for Cobol {
+    fn dom_limitation(&self) -> Option<&'static str> {
+        Some(
+            "the copybook's records are packed (no SYNC or FILLER), so an AzDom record is \
+             smaller than the C struct `AzDom_withChildByref` writes into it (its AzDomVec ends \
+             in a 1-byte FLAGS-X without the C padding), and COBOL cannot define the C function \
+             an app's layout callback must be",
+        )
+    }
+
     fn int(&self, value: i128, ty: Prim) -> String {
         if matches!(ty, Prim::Isize | Prim::Usize) {
             format!("{POINTER_LITERAL}{value}")
