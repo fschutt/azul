@@ -282,7 +282,7 @@ pub struct Toast {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub container_style: OptionCssPropertyWithConditionsVec,
-    /// The widget theme, or `None` for the default (`UiTheme::Flat`). A
+    /// The widget theme, or `None` to follow the app theme (`AppConfig::with_theme`). A
     /// theme is a DOM-level choice: it picks the skin the card, message and
     /// close button are built from, so switching it rebuilds the toast.
     pub theme: OptionUiTheme,
@@ -487,6 +487,31 @@ pub(crate) fn skin_for(theme: UiTheme) -> ToastSkin {
     }
 }
 
+/// The card of a `kind` toast in BOTH themes' blocks
+/// (`themes::flat::follow_props`): what an unpinned toast carries.
+#[must_use]
+fn follow_container(kind: ToastKind) -> CssPropertyWithConditionsVec {
+    crate::widgets::themes::flat::follow_props(
+        (skin_for(UiTheme::Flat).container)(kind).as_slice(),
+        (skin_for(UiTheme::Flora).container)(kind).as_slice(),
+    )
+}
+
+/// The skin an UNPINNED toast is built with, so it follows the app theme:
+/// `structure`'s theme (its marker goes on the card) and every part in BOTH
+/// themes' blocks.
+#[must_use]
+pub(crate) fn follow_skin(structure: UiTheme) -> ToastSkin {
+    use crate::widgets::themes::flat::follow_props as both;
+    let (flat, flora) = (skin_for(UiTheme::Flat), skin_for(UiTheme::Flora));
+    ToastSkin {
+        theme: structure,
+        container: follow_container,
+        message: both(flat.message.as_slice(), flora.message.as_slice()),
+        close: both(flat.close.as_slice(), flora.close.as_slice()),
+    }
+}
+
 impl Toast {
     /// Creates a new informational (blue) toast with the given message (visible,
     /// with a "x" close button).
@@ -510,8 +535,8 @@ impl Toast {
         }
     }
 
-    /// Pick the widget theme. Unset (`None`), the toast renders in the
-    /// default theme (`UiTheme::default()`, flat).
+    /// Pick the widget theme. Unset (`None`), the toast follows the
+    /// app theme (`AppConfig::with_theme`, flat by default).
     #[inline]
     pub const fn set_theme(&mut self, theme: UiTheme) {
         self.theme = OptionUiTheme::Some(theme);
@@ -528,15 +553,17 @@ impl Toast {
     /// The container CSS this toast renders with.
     ///
     /// `None` means no opinion, so the kind's default in the toast's theme
-    /// applies. In the flat theme (the default) that is the kind's LIGHT face
-    /// alone - `dom()` appends its dark twins (`build_toast_dark_twins`);
-    /// the flora card comes complete.
+    /// applies. Pinned to flat that is the kind's LIGHT face alone - `dom()`
+    /// appends its dark twins (`build_toast_dark_twins`); the flora card
+    /// comes complete; unpinned, it is the card the render carries, every
+    /// theme's block of it (the toast follows the app theme).
     #[must_use]
     pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
         self.container_style.clone().into_option().unwrap_or_else(|| {
-            match self.theme.into_option().unwrap_or_default() {
-                UiTheme::Flat => build_toast_style(self.kind),
-                UiTheme::Flora => (skin_for(UiTheme::Flora).container)(self.kind),
+            match self.theme.into_option() {
+                Some(UiTheme::Flat) => build_toast_style(self.kind),
+                Some(UiTheme::Flora) => (skin_for(UiTheme::Flora).container)(self.kind),
+                None => follow_container(self.kind),
             }
         })
     }
@@ -609,13 +636,16 @@ impl Toast {
     /// Converts this toast into a DOM subtree with the `__azul-native-toast` class.
     ///
     /// Rendering goes through the theme modules (as `Button::dom` does): each
-    /// hands [`Self::build`] its skin. `UiTheme::default()` is flat.
+    /// hands [`Self::build`] its skin. Unpinned (`theme: None`), the toast
+    /// follows the APP theme: built in the structure of the theme its DOM is
+    /// built for, carrying every theme's blocks (`follow_skin`).
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
         match self.theme.into_option() {
             Some(UiTheme::Flora) => crate::widgets::themes::flora::toast(self),
-            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::toast(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::toast(self),
+            None => self.build(follow_skin(UiTheme::current())),
         }
     }
 
@@ -1427,8 +1457,9 @@ mod autotest_generated {
         );
         assert!(toast.toast_state.inner.visible, "a fresh toast is visible");
         assert!(toast.toast_state.on_dismiss.is_none());
+        // The flat card (an unpinned toast carries every theme's blocks).
         assert_eq!(
-            toast.resolved_container_style(),
+            toast.clone().with_theme(UiTheme::Flat).resolved_container_style(),
             build_toast_style(ToastKind::Info)
         );
     }
@@ -1512,7 +1543,7 @@ mod autotest_generated {
             assert!(toast.toast_state.on_dismiss.is_none());
             assert!(toast.toast_state.inner.visible);
             assert_eq!(
-                toast.resolved_container_style(),
+                toast.clone().with_theme(UiTheme::Flat).resolved_container_style(),
                 build_toast_style(kind),
                 "{kind:?}: the container style must match the kind it was built with"
             );
@@ -1537,7 +1568,8 @@ mod autotest_generated {
 
     #[test]
     fn set_kind_recomputes_the_style_and_is_idempotent() {
-        let mut toast = Toast::create(AzString::from("m"));
+        // The flat card (an unpinned toast carries every theme's blocks).
+        let mut toast = Toast::create(AzString::from("m")).with_theme(UiTheme::Flat);
 
         for kind in ALL_KINDS {
             toast.set_kind(kind);
@@ -1603,6 +1635,7 @@ mod autotest_generated {
         }
 
         let toast = Toast::create(AzString::from("m"))
+            .with_theme(UiTheme::Flat)
             .with_toast_kind(ToastKind::Danger)
             .with_toast_kind(ToastKind::Success);
         assert_eq!(toast.kind, ToastKind::Success);
@@ -1723,6 +1756,7 @@ mod autotest_generated {
     #[test]
     fn with_on_dismiss_keeps_message_and_kind() {
         let toast = Toast::with_kind(AzString::from("boom"), ToastKind::Danger)
+            .with_theme(UiTheme::Flat)
             .with_on_dismiss(RefAny::new(0u8), dismiss_cb(dismiss_do_nothing));
 
         assert_eq!(toast.message.as_str(), "boom");
@@ -1843,7 +1877,8 @@ mod autotest_generated {
 
     #[test]
     fn dom_of_a_default_toast_is_a_container_with_message_and_close() {
-        let toast = Toast::create(AzString::from("hi"));
+        // The flat card (an unpinned toast carries every theme's blocks).
+        let toast = Toast::create(AzString::from("hi")).with_theme(UiTheme::Flat);
         let style = toast.resolved_container_style();
         let dom = toast.dom();
 
@@ -1870,7 +1905,10 @@ mod autotest_generated {
     #[test]
     fn dom_gives_every_kind_colour_a_dark_twin_and_keeps_the_light_face() {
         for kind in ALL_KINDS {
-            let dom = Toast::with_kind(AzString::from("m"), kind).dom();
+            // The flat card (an unpinned toast carries every theme's blocks).
+            let dom = Toast::with_kind(AzString::from("m"), kind)
+                .with_theme(UiTheme::Flat)
+                .dom();
             let (bg, border, text) = kind.dark_colors();
             let dark = crate::widgets::theme_probe::dark(&dom);
             assert_eq!(
@@ -1921,7 +1959,10 @@ mod autotest_generated {
 
     #[test]
     fn dom_children_carry_exactly_the_static_child_styles() {
-        let dom = Toast::create(AzString::from("hi")).dom();
+        // The flat look (an unpinned toast carries every theme's blocks).
+        let dom = Toast::create(AzString::from("hi"))
+            .with_theme(UiTheme::Flat)
+            .dom();
         let children = dom.children.as_ref();
 
         let want_message: Vec<CssProperty> = TOAST_MESSAGE_STYLE

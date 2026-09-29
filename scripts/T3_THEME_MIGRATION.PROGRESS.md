@@ -41,13 +41,17 @@ Recipe: scripts/T1_APP_THEME_2026_09_29.md §4. Nothing is compiled here (house 
   `resolved_container_style` answers the follow skin; the const-container pin pins
   `with_theme(Flat)`)
 
+- toast: RED 887996171, impl: see git log (`toast::{follow_skin, follow_container}`; unpinned
+  `resolved_container_style` = the card the render carries; 8 autotest pins on the flat card /
+  flat child styles now pin `with_theme(Flat)`)
+
 ## IN PROGRESS
 
-- toast
+- pagination
 
 ## NEXT
 
-toast,
+
 pagination, segmented, stepper, number_input, progressbar, slider, spinner, switch, text_area,
 text_input, video, combobox (+ theme option + flora look), file_input (same), then the six
 single-look widgets (ribbon, quick_access, statusbar, tabs, titlebar, tree_view).
