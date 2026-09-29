@@ -271,22 +271,37 @@ Layout properties (`width`, `padding`, `flex-grow`, ...) and most visual
 properties (`background`, `border`, ...) don't inherit. Write `inherit`
 explicitly if you want one to.
 
-## Dynamic properties (var(...))
+## Custom properties (`--name`) and var()
 
-A dynamic declaration is a CSS value swappable from Rust per frame.
-Syntax in CSS: `var(--my_id, <default>)`. It compiles to
-`DynamicCssProperty`:
+A custom property is a declaration like any other: `--accent: #ff6600`
+in a stylesheet rule or in a node's own style, under that rule's
+`@theme` / `@media` / `@os` / `:hover` conditions. It inherits: every
+node sees the nearest definition of each name, so a definition on a
+panel beats the `:root` one inside that panel (whatever either's
+priority), and a sibling subtree keeps seeing `:root`'s.
 
-```rust,ignore
-pub struct DynamicCssProperty {
-    pub dynamic_id: AzString,
-    pub default_value: CssProperty,
-}
+`var(--name, <fallback>)` reads it. The cascade resolves every `var()`
+per node under the window's live context, across all stylesheets and a
+node's own declarations, so one set of rules follows the mode:
+
+```css
+@theme(dark)  { :root { --face: #272822; } }
+@theme(light) { :root { --face: #fafafa; } }
+.button { background: var(--face, system:button-face); }
 ```
 
-Use them when you want to change a single value (an accent color, a
-spacing unit) without re-parsing the stylesheet. The override path lives
-on `Dom::with_css_property`.
+A light/dark switch re-resolves the variables through the ordinary
+restyle, without rebuilding the DOM.
+
+- Always declare a fallback: an undefined or mistyped variable then
+  degrades to a working value. A `var()` without one takes the property's
+  initial value, the parser warns, and the widget lint rejects it.
+- A fallback may itself be a `var()`: `var(--a, var(--b, 4px))`.
+- A definition may read other variables; it is resolved where it is
+  defined. A reference cycle makes the names in it undefined there.
+- `var()` works on longhand properties, and on `background` /
+  `background-color` (one longhand each). `margin: var(--m)` is refused
+  as ambiguous - write `margin-top: var(--m)`.
 
 ## system: keywords
 
