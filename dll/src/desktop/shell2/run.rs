@@ -269,37 +269,75 @@ fn run_e2e_dispatcher(dir: &str) {
     
     drop(tx); // Close the master sender so the receiver terminates when all workers finish
     
-    let mut passed = 0;
-    let mut failed = 0;
+    // The children's own tallies, read back from the summary line each
+    // printed (`render_report`), summed per TEST. The exit code alone said
+    // "ok" for a file whose tests were all skipped by their `only_on` gate.
+    let mut tally = debug_server::E2eVerdict::default();
     let mut failures = Vec::new();
-    
+
     let target_dir = std::path::Path::new("target/e2e/logs");
     let _ = std::fs::create_dir_all(target_dir);
-    
+
     for (file, success, stdout, stderr) in rx {
         let name = file.file_stem().unwrap_or_default().to_string_lossy();
-        if success {
-            passed += 1;
-            eprintln!("test {} ... ok", name);
+        let child_log = String::from_utf8_lossy(&stderr);
+        let verdict = child_log
+            .lines()
+            .rev()
+            .find_map(debug_server::E2eVerdict::parse_summary);
+        match verdict {
+            Some(v) => {
+                tally.passed += v.passed;
+                tally.failed += v.failed;
+                tally.xfail += v.xfail;
+                tally.xpass += v.xpass;
+                tally.skipped += v.skipped;
+            }
+            // A child that died before its report is one failure at least.
+            None if !success => tally.failed += 1,
+            None => {}
+        }
+        let ran_any = verdict.map_or(true, |v| v.passed + v.failed + v.xfail + v.xpass > 0);
+        if success && !ran_any {
+            // Nothing in the file runs on this host: SKIP, with the reasons.
+            eprintln!("test {} ... SKIP", name);
+            for line in child_log
+                .lines()
+                .filter(|l| l.starts_with("test ") && l.contains("SKIP"))
+            {
+                eprintln!("    {line}");
+            }
+        } else if success {
+            match verdict.map_or(0, |v| v.skipped) {
+                0 => eprintln!("test {} ... ok", name),
+                skipped => eprintln!("test {} ... ok ({} skipped)", name, skipped),
+            }
         } else {
-            failed += 1;
             eprintln!("test {} ... FAILED", name);
-            
+
             let log_path = target_dir.join(format!("{}.log", name));
             let mut log_content = String::new();
             log_content.push_str("--- STDOUT ---\n");
             log_content.push_str(&String::from_utf8_lossy(&stdout));
             log_content.push_str("\n--- STDERR ---\n");
-            log_content.push_str(&String::from_utf8_lossy(&stderr));
+            log_content.push_str(&child_log);
             let _ = std::fs::write(&log_path, log_content);
-            
+
             failures.push((name.into_owned(), log_path));
         }
     }
+
+    eprintln!(
+        "\ntest result: {}. {} passed; {} failed; {} xfailed; {} xpassed; {} skipped",
+        if failures.is_empty() { "ok" } else { "FAILED" },
+        tally.passed,
+        tally.failed,
+        tally.xfail,
+        tally.xpass,
+        tally.skipped
+    );
     
-    eprintln!("\ntest result: {}. {} passed; {} failed", if failed == 0 { "ok" } else { "FAILED" }, passed, failed);
-    
-    if failed > 0 {
+    if !failures.is_empty() {
         eprintln!("\nfailures:");
         for (name, log_path) in failures {
             eprintln!("    {} (logs saved to {})", name, log_path.display());

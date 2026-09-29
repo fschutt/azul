@@ -65,8 +65,30 @@ impl E2eVerdict {
     /// reading a device log. `None` when `line` is not a summary line.
     #[must_use]
     pub fn parse_summary(line: &str) -> Option<Self> {
-        let _ = line;
-        None
+        let (_, tail) = line.split_once("test result:")?;
+        let mut v = Self::default();
+        let mut any = false;
+        // "<word>. 3 passed; 1 failed; 0 xfailed; 0 xpassed; 2 skipped; 0 measured; ..."
+        for part in tail.split(';') {
+            let mut words = part.split_whitespace().rev();
+            let (Some(name), Some(count)) = (words.next(), words.next()) else {
+                continue;
+            };
+            let Ok(count) = count.parse::<usize>() else {
+                continue;
+            };
+            let slot = match name {
+                "passed" => &mut v.passed,
+                "failed" => &mut v.failed,
+                "xfailed" => &mut v.xfail,
+                "xpassed" => &mut v.xpass,
+                "skipped" => &mut v.skipped,
+                _ => continue,
+            };
+            *slot = count;
+            any = true;
+        }
+        any.then_some(v)
     }
 }
 
