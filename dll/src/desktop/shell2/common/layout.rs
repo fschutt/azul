@@ -1002,248 +1002,137 @@ pub fn regenerate_layout(
     // capture threads). Previously the whole reconcile pass was gated on an
     // existing old layout, so frame 0 was skipped and AfterMount NEVER fired for
     // an app whose first DOM already contains the widget — only the synthetic
-    // empty→full path (headless_lifecycle test) ever exercised it. The `.to_vec()`
-    // clones below release the `layout_results` borrow before the later
-    // `update_managers_with_node_moves(layout_window, …)` &mut borrow.
-    // Filled at the diff seam below, consumed after the solve (see 3.5b / 5b).
-    // Locals rather than window state: First and Last are two points in THIS
-    // function, and parking them on `LayoutWindow` would invite a later frame
-    // to read a stale half-pair.
-    let mut anim_first_rects: std::collections::BTreeMap<
-        azul_core::dom::NodeId,
-        azul_core::geom::LogicalRect,
-    > = std::collections::BTreeMap::new();
-    let mut anim_node_moves: Vec<azul_core::diff::NodeMove> = Vec::new();
-    let mut anim_new_node_data: Vec<azul_core::dom::NodeData> = Vec::new();
-    let mut anim_new_hierarchy: Vec<azul_core::styled_dom::NodeHierarchyItem> = Vec::new();
+    // empty→full path (headless_lifecycle test) ever exercised it.
+    // ONE reconciliation, the engine's (`LayoutWindow::begin_reconciliation`,
+    // completed by `finish_reconciliation` after the solve): the diff, the
+    // state transfer, the runtime-override migration, the NodeId remap, the
+    // CSS transitions a changed property starts, and a departing node's exit
+    // animation (kept as a zombie). This shell used to hand-roll its own
+    // reconcile with the FLIP moves only, so in the real app nothing entered,
+    // left or tweened on a rebuild - that only ever ran in the E2E runner.
+    let mut pending = layout_window.begin_reconciliation(
+        azul_core::dom::DomId::ROOT_ID,
+        &mut styled_dom,
+        azul_core::task::Instant::now(),
+    );
+    // A window resize is no state change: what its rebuild moves (a ribbon
+    // compressing its groups at a breakpoint) reflows in place. Sliding it
+    // there would drag the layout behind the window edge, and a resized
+    // window would not look like a fresh one at the same size.
+    pending.animate_moves = relayout_reason != azul_core::callbacks::RelayoutReason::Resize;
 
-    {
-        let (old_node_data, old_hierarchy): (
-            Vec<azul_core::dom::NodeData>,
-            Vec<azul_core::styled_dom::NodeHierarchyItem>,
-        ) = match layout_window
-            .layout_results
-            .get(&azul_core::dom::DomId::ROOT_ID)
-        {
-            Some(old_layout_result) => (
-                old_layout_result.styled_dom.node_data.as_ref().to_vec(),
-                old_layout_result
-                    .styled_dom
-                    .node_hierarchy
-                    .as_ref()
-                    .to_vec(),
-            ),
-            None => (Vec::new(), Vec::new()),
-        };
-
-        // Get new node data (from current frame — now also includes titlebar)
-        let mut new_node_data: Vec<azul_core::dom::NodeData> =
-            styled_dom.node_data.as_ref().to_vec();
-        let new_hierarchy: Vec<azul_core::styled_dom::NodeHierarchyItem> =
-            styled_dom.node_hierarchy.as_ref().to_vec();
-
-        // Build layout maps for reconciliation (empty for now - we just need node moves)
-        let old_layout_map = azul_core::OrderedMap::default();
-        let new_layout_map = azul_core::OrderedMap::default();
-
-        // Run reconciliation to find matched nodes
-        let diff_result = azul_core::diff::reconcile_dom(
-            &old_node_data,
-            &new_node_data,
-            &old_hierarchy,
-            &new_hierarchy,
-            &old_layout_map,
-            &new_layout_map,
-            azul_core::dom::DomId::ROOT_ID,
-            azul_core::task::Instant::now(),
-        );
-
-        // `AZ_RECONCILE_DEBUG=1`: name every NEW node the reconcile could not
-        // match to an old one (it is a fresh mount: state, focus and scroll on
-        // its old counterpart are dropped). Diagnostic only.
-        if std::env::var_os("AZ_RECONCILE_DEBUG").is_some() {
-            let matched: std::collections::BTreeSet<usize> = diff_result
-                .node_moves
+    // `AZ_RECONCILE_DEBUG=1`: name every NEW node the reconcile could not
+    // match to an old one (it is a fresh mount: state, focus and scroll on
+    // its old counterpart are dropped). Diagnostic only.
+    if std::env::var_os("AZ_RECONCILE_DEBUG").is_some() {
+        let describe = |nd: &azul_core::dom::NodeData| {
+            let classes: Vec<String> = nd
+                .get_ids_and_classes()
+                .as_ref()
                 .iter()
-                .map(|m| m.new_node_id.index())
+                .map(|c| format!("{c:?}"))
                 .collect();
-            let describe = |nd: &azul_core::dom::NodeData| {
-                let classes: Vec<String> = nd
-                    .get_ids_and_classes()
-                    .as_ref()
-                    .iter()
-                    .map(|c| format!("{c:?}"))
-                    .collect();
-                format!("{:?} {}", nd.get_node_type(), classes.join(" "))
-            };
-            let unmatched: Vec<String> = (0..new_node_data.len())
-                .filter(|i| !matched.contains(i))
-                .map(|i| format!("#{i} {}", describe(&new_node_data[i])))
-                .collect();
-            eprintln!(
-                "[reconcile] {} old -> {} new, {} matched, {} unmatched: {}",
-                old_node_data.len(),
-                new_node_data.len(),
-                matched.len(),
-                unmatched.len(),
-                unmatched
-                    .iter()
-                    .take(60)
-                    .map(|u| u.chars().take(90).collect::<String>())
-                    .collect::<Vec<_>>()
-                    .join(" | ")
-            );
-        }
-
-        // Execute state migration for matched nodes with merge callbacks
-        if !diff_result.node_moves.is_empty() {
-            let mut old_node_data_mut = old_node_data.clone();
-            azul_core::diff::transfer_states(
-                &mut old_node_data_mut,
-                &mut new_node_data,
-                &diff_result.node_moves,
-            );
-
-            // Update the styled_dom with the merged node data
-            styled_dom.node_data = new_node_data.into();
-
-            // Runtime CSS overrides follow node identity too — same contract
-            // as the dataset transfer above and the manager NodeId updates
-            // below. Without this, every `set_css_property` patch reverted on
-            // the next app-driven rebuild (the ribbon's collapsed band and
-            // open gallery panel "un-toggled" whenever any callback returned
-            // RefreshDom, e.g. the ribbon's own tab-click).
-            if let Some(old_layout_result) = layout_window
-                .layout_results
-                .get(&azul_core::dom::DomId::ROOT_ID)
-            {
-                styled_dom.migrate_user_overrides_from(
-                    &old_layout_result.styled_dom.css_property_cache.ptr,
-                    &diff_result.node_moves,
-                );
-            }
-
-            log_debug!(
-                LogCategory::Layout,
-                "[regenerate_layout] State migration: {} node moves processed",
-                diff_result.node_moves.len()
-            );
-        }
-
-        // 3.5b. CAPTURE "FIRST" FOR ENGINE-DRIVEN LAYOUT ANIMATION
-        //
-        // This is the only moment both geometries are reachable: the old
-        // layout_results still hold the PREVIOUS frame's solved rects, and
-        // `node_moves` says which old node became which new one. The matching
-        // "Last" rects do not exist yet — the new tree has not been solved — so
-        // First is stashed here and the pair is completed after the solve.
-        //
-        // No application involvement: an app that returns a different DOM gets
-        // the transition for free, because the diff already knows what moved.
-        // Nothing is seeded yet, so a frame that ends up not animating has paid
-        // only for this map.
-        anim_first_rects = diff_result
-            .node_moves
+            format!("{:?} {}", nd.get_node_type(), classes.join(" "))
+        };
+        let unmatched: Vec<String> = pending
+            .entered
             .iter()
-            .filter_map(|m| {
-                let r =
-                    layout_window.get_node_bounds(azul_core::dom::DomId::ROOT_ID, m.old_node_id)?;
-                Some((m.old_node_id, layout_rect_to_logical(r)))
-            })
+            .filter_map(|n| pending.new_node_data.get(n.index()).map(|nd| (n, nd)))
+            .map(|(n, nd)| format!("#{} {}", n.index(), describe(nd)))
             .collect();
-        anim_node_moves = diff_result.node_moves.clone();
-        anim_new_node_data = styled_dom.node_data.as_ref().to_vec();
-        anim_new_hierarchy = styled_dom.node_hierarchy.as_ref().to_vec();
-
-        // 3.6. UPDATE MANAGERS WITH NEW NODE IDS
-        // The node_moves tell us which old NodeIds map to which new NodeIds.
-        // We need to update FocusManager, ScrollManager, etc. so they point to
-        // the correct nodes in the new DOM.
-        update_managers_with_node_moves(
-            layout_window,
-            &diff_result.node_moves,
-            azul_core::dom::DomId::ROOT_ID,
+        eprintln!(
+            "[reconcile] {} old -> {} new, {} matched, {} unmatched: {}",
+            pending.old_node_data.len(),
+            pending.new_node_data.len(),
+            pending.node_moves.len(),
+            unmatched.len(),
+            unmatched
+                .iter()
+                .take(60)
+                .map(|u| u.chars().take(90).collect::<String>())
+                .collect::<Vec<_>>()
+                .join(" | ")
         );
+    }
 
-        // 3.7. QUEUE LIFECYCLE EVENTS FOR DISPATCH
-        //
-        // Mount / Update / Resize events target NEW NodeIds — they resolve
-        // cleanly against the freshly-installed `layout_results` later in
-        // the dispatch path.
-        //
-        // Unmount events are different: their `target.node` is an OLD NodeId
-        // that does NOT exist in the new tree. By the time
-        // `dispatch_events_propagated` runs, `layout_results` has already
-        // been replaced by the new layout, so a NodeId-based lookup will
-        // miss the BeforeUnmount callback. To keep that callback firing we
-        // resolve it RIGHT HERE — while the OLD `old_node_data` slice is
-        // still in scope — and stash a `(CoreCallbackData, SyntheticEvent)`
-        // pair on the layout window. The dispatcher drains this side queue
-        // and invokes the callbacks directly, bypassing the DOM lookup.
-        for event in diff_result.events {
-            use azul_core::events::{ComponentEventFilter, EventFilter, EventType};
-            if event.event_type == EventType::Unmount {
-                let old_node_id = event
-                    .target
-                    .node
-                    .into_crate_internal()
-                    .map(|nid| nid.index());
-                if let Some(idx) = old_node_id {
-                    if let Some(nd) = old_node_data.get(idx) {
-                        for cb in nd.get_callbacks().as_ref().iter() {
-                            if matches!(
-                                cb.event,
-                                EventFilter::Component(ComponentEventFilter::BeforeUnmount)
-                            ) {
-                                layout_window
-                                    .pending_unmount_invocations
-                                    .push((cb.clone(), event.clone()));
-                            }
+    // 3.7. QUEUE LIFECYCLE EVENTS FOR DISPATCH
+    //
+    // Mount / Update / Resize events target NEW NodeIds — they resolve
+    // cleanly against the freshly-installed `layout_results` later in
+    // the dispatch path.
+    //
+    // Unmount events are different: their `target.node` is an OLD NodeId
+    // that does NOT exist in the new tree. By the time
+    // `dispatch_events_propagated` runs, `layout_results` has already
+    // been replaced by the new layout, so a NodeId-based lookup will
+    // miss the BeforeUnmount callback. To keep that callback firing we
+    // resolve it RIGHT HERE — while the OLD `old_node_data` slice is
+    // still in scope — and stash a `(CoreCallbackData, SyntheticEvent)`
+    // pair on the layout window. The dispatcher drains this side queue
+    // and invokes the callbacks directly, bypassing the DOM lookup.
+    for event in core::mem::take(&mut pending.events) {
+        use azul_core::events::{ComponentEventFilter, EventFilter, EventType};
+        if event.event_type == EventType::Unmount {
+            let old_node_id = event
+                .target
+                .node
+                .into_crate_internal()
+                .map(|nid| nid.index());
+            if let Some(idx) = old_node_id {
+                if let Some(nd) = pending.old_node_data.get(idx) {
+                    for cb in nd.get_callbacks().as_ref().iter() {
+                        if matches!(
+                            cb.event,
+                            EventFilter::Component(ComponentEventFilter::BeforeUnmount)
+                        ) {
+                            layout_window
+                                .pending_unmount_invocations
+                                .push((cb.clone(), event.clone()));
                         }
                     }
                 }
-            } else {
-                layout_window.pending_lifecycle_events.push(event);
             }
+        } else {
+            layout_window.pending_lifecycle_events.push(event);
         }
+    }
 
-        // A FOCUSED node that the rebuild did not carry over loses its focus -
-        // the arena index now denotes a different element - and it used to
-        // lose it silently: a plain field write in `remap_node_ids`, no Blur,
-        // no FocusLost, no line in the log. An app that commits a text field,
-        // closes a popup or validates when a field loses focus heard nothing
-        // at all, and the next thing it heard was the focus arriving
-        // somewhere else.
-        //
-        // The callback lives on the OLD node, which is gone from the new tree
-        // but still in `old_node_data` right here - the same reason
-        // BeforeUnmount is resolved at this exact spot, through the same side
-        // queue.
-        let focus_lost = layout_window.focus_manager.take_focus_lost_to_unmount();
-        for lost in focus_lost {
-            use azul_core::events::{
-                EventData, EventFilter, EventSource, EventType, FocusEventFilter,
-                SyntheticEvent,
-            };
-            let Some(idx) = lost.node.into_crate_internal().map(|n| n.index()) else {
-                continue;
-            };
-            let Some(nd) = old_node_data.get(idx) else {
-                continue;
-            };
-            let blur = SyntheticEvent::new(
-                EventType::Blur,
-                EventSource::Lifecycle,
-                lost,
-                azul_core::task::Instant::now(),
-                EventData::None,
-            );
-            for cb in nd.get_callbacks().as_ref().iter() {
-                if matches!(cb.event, EventFilter::Focus(FocusEventFilter::FocusLost)) {
-                    layout_window
-                        .pending_unmount_invocations
-                        .push((cb.clone(), blur.clone()));
-                }
+    // A FOCUSED node that the rebuild did not carry over loses its focus -
+    // the arena index now denotes a different element - and it used to
+    // lose it silently: a plain field write in `remap_node_ids`, no Blur,
+    // no FocusLost, no line in the log. An app that commits a text field,
+    // closes a popup or validates when a field loses focus heard nothing
+    // at all, and the next thing it heard was the focus arriving
+    // somewhere else.
+    //
+    // The callback lives on the OLD node, which is gone from the new tree
+    // but still in `old_node_data` right here - the same reason
+    // BeforeUnmount is resolved at this exact spot, through the same side
+    // queue.
+    let focus_lost = layout_window.focus_manager.take_focus_lost_to_unmount();
+    for lost in focus_lost {
+        use azul_core::events::{
+            EventData, EventFilter, EventSource, EventType, FocusEventFilter,
+            SyntheticEvent,
+        };
+        let Some(idx) = lost.node.into_crate_internal().map(|n| n.index()) else {
+            continue;
+        };
+        let Some(nd) = pending.old_node_data.get(idx) else {
+            continue;
+        };
+        let blur = SyntheticEvent::new(
+            EventType::Blur,
+            EventSource::Lifecycle,
+            lost,
+            azul_core::task::Instant::now(),
+            EventData::None,
+        );
+        for cb in nd.get_callbacks().as_ref().iter() {
+            if matches!(cb.event, EventFilter::Focus(FocusEventFilter::FocusLost)) {
+                layout_window
+                    .pending_unmount_invocations
+                    .push((cb.clone(), blur.clone()));
             }
         }
     }
@@ -1257,7 +1146,7 @@ pub fn regenerate_layout(
     // The DOM text is intentionally stale. After layout_and_generate_display_list
     // runs on the new DOM, update_text_cache_after_edit will be called for each
     // dirty_text_node to patch the LayoutCache with the edited content.
-    // dirty_text_nodes keys are remapped in update_managers_with_node_moves (step 8).
+    // dirty_text_nodes keys are remapped by the reconciliation's remap_node_ids.
 
     log_debug!(
         LogCategory::Layout,
@@ -1538,56 +1427,10 @@ pub fn regenerate_layout(
         layout_window.layout_results.len()
     );
 
-    // 5b. SEED LAYOUT ANIMATIONS ("Last" is now solved)
-    //
-    // The other half of 3.5b. Every diff correspondence whose rect actually
-    // changed becomes a FLIP; identity transforms are skipped by `seed_moves`
-    // so a static frame allocates nothing. Keyed by reconciliation identity, so
-    // a node that keeps animating across several rebuilds is RETARGETED — the
-    // spring keeps its position and velocity instead of snapping and restarting.
-    if !anim_node_moves.is_empty() {
-        // Collected BEFORE seeding: the "Last" accessor borrows `layout_window`
-        // to read the freshly solved rects, and seeding borrows it mutably to
-        // reach the manager. Two statements, so the read is finished before the
-        // write starts.
-        let correspondences = azul_core::animation::correspondences_from_moves(
-            &anim_node_moves,
-            &anim_new_node_data,
-            &anim_new_hierarchy,
-            |old_id| anim_first_rects.get(&old_id).copied(),
-            |new_id| {
-                layout_window
-                    .get_node_bounds(azul_core::dom::DomId::ROOT_ID, new_id)
-                    .map(layout_rect_to_logical)
-            },
-        );
-        // Rebuild the identity→NodeId bridge BEFORE seeding, so a key seeded
-        // this frame is already resolvable when the first tick composites it.
-        // Rebuilt wholesale: after a rebuild the previous NodeIds are
-        // meaningless, and a surviving stale entry would push this frame's
-        // transform onto whatever unrelated node inherited the array slot.
-        layout_window.anim_key_to_node = azul_core::animation::anim_keys_for_moves(
-            &anim_node_moves,
-            &anim_new_node_data,
-            &anim_new_hierarchy,
-        )
-        .into_iter()
-        .collect();
-
-        let seeded = azul_core::animation::seed_moves(
-            &mut layout_window.animations,
-            correspondences,
-            azul_core::animation::InterpolationMode::Spring(azul_core::animation::Spring::SMOOTH),
-        );
-        if seeded > 0 {
-            log_debug!(
-                LogCategory::Layout,
-                "[regenerate_layout] Seeded {} layout animation(s) from {} node move(s)",
-                seeded,
-                anim_node_moves.len()
-            );
-        }
-    }
+    // 5b. COMPLETE THE RECONCILIATION ("Last" is now solved): FLIP moves,
+    // enter animations (every entering node that declares one, the first
+    // frame included), and the zombies' rects.
+    layout_window.finish_reconciliation(azul_core::dom::DomId::ROOT_ID, &pending);
 
     // 5. + 6. Register scrollable nodes / scrollbar states, then sync the
     // scrollbar fade opacities that follow from them.
@@ -2003,28 +1846,6 @@ fn apply_runtime_states_before_layout(
     }
 
     styled_dom
-}
-
-/// Fold a DOM reconciliation into every piece of `NodeId`-keyed window state.
-///
-/// `NodeId`s are arena indices: a rebuild renumbers them, so any manager that is
-/// not remapped keeps pointing at a live-but-WRONG node (deleting a preceding
-/// sibling shifts every later index down by one). `node_moves` maps every
-/// MATCHED old id to its new one; an old id ABSENT from it was unmounted, and
-/// its state must be dropped, not kept.
-///
-/// This function is deliberately a two-liner: the exhaustive, can't-forget
-/// dispatch lives in `LayoutWindow::remap_node_ids` (layout/src/window.rs),
-/// where a new `LayoutWindow` field fails to compile until it is classified as
-/// node-keyed or exempt, and every node-keyed manager implements
-/// `azul_layout::managers::NodeIdRemap`.
-fn update_managers_with_node_moves(
-    layout_window: &mut LayoutWindow,
-    node_moves: &[azul_core::diff::NodeMove],
-    dom_id: azul_core::dom::DomId,
-) {
-    let map = azul_layout::managers::NodeIdMap::from_node_moves(node_moves);
-    layout_window.remap_node_ids(dom_id, &map);
 }
 
 /// Helper function to generate WebRender frame

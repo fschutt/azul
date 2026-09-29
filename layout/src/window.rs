@@ -12109,10 +12109,14 @@ impl LayoutWindow {
                     &diff.node_moves,
                 );
             }
-
-            let map = crate::managers::NodeIdMap::from_node_moves(&diff.node_moves);
-            self.remap_node_ids(dom_id, &map);
         }
+
+        // ALWAYS, even with no match: an old id absent from the map was
+        // unmounted and its focus / scroll / hover state must be DROPPED (and
+        // a focused node that went reports its focus loss), not kept pointing
+        // at whatever element inherited its arena index.
+        let map = crate::managers::NodeIdMap::from_node_moves(&diff.node_moves);
+        self.remap_node_ids(dom_id, &map);
 
         // Frame-0 of every captured transition: override the NEW tree to the
         // `from` value BEFORE its first layout, so a transition never flashes
@@ -12276,7 +12280,40 @@ impl LayoutWindow {
             exit_rects,
             new_node_data,
             new_hierarchy,
+            entered: unmatched_new.into_iter().collect(),
+            events: diff.events,
+            old_node_data,
+            animate_moves: true,
         }
+    }
+
+    /// The track a node's declared `-azul-animation-in` resolves to, over its
+    /// solved rect: `None` when it declares none, or has no layout yet.
+    fn declared_enter_track(&self, dom_id: DomId, node_id: NodeId) -> Option<AnimTrack> {
+        let r = self.layout_results.get(&dom_id)?;
+        let sd = &r.styled_dom;
+        let nd = sd.node_data.as_ref().get(node_id.index())?;
+        let st = sd.styled_nodes.as_ref().get(node_id.index())?;
+        let prop = sd.css_property_cache.ptr.get_property(
+            nd,
+            &node_id,
+            &st.styled_node_state,
+            &azul_css::props::property::CssPropertyType::AnimationIn,
+        )?;
+        let azul_css::props::property::CssProperty::AnimationIn(v) = prop else {
+            return None;
+        };
+        let rect = self
+            .get_node_bounds(dom_id, node_id)
+            .map(layout_rect_to_logical)?;
+        v.get_property()?.as_ref().iter().find_map(|anim| {
+            resolve_named_track(
+                anim,
+                &sd.css_property_cache.ptr.retained_author_css,
+                nd,
+                rect,
+            )
+        })
     }
 
     /// Complete the reconciliation once the new tree has been solved.
@@ -12302,7 +12339,7 @@ impl LayoutWindow {
         .into_iter()
         .collect();
 
-        if !pending.node_moves.is_empty() {
+        if pending.animate_moves && !pending.node_moves.is_empty() {
             // Collected BEFORE seeding: the Last accessor borrows self to read
             // the freshly solved rects, and seeding borrows it mutably.
             let correspondences = azul_core::animation::correspondences_from_moves(
@@ -12379,31 +12416,7 @@ impl LayoutWindow {
                 // A declared `-azul-animation-in` drives the return, seeded
                 // from the exit's current state; otherwise the out-track
                 // plays back in reverse. Either way: continuity, no snap.
-                let named_in = self.layout_results.get(&dom_id).and_then(|r| {
-                    let sd = &r.styled_dom;
-                    let nd = sd.node_data.as_ref().get(node_id.index())?;
-                    let st = sd.styled_nodes.as_ref().get(node_id.index())?;
-                    let prop = sd.css_property_cache.ptr.get_property(
-                        nd,
-                        node_id,
-                        &st.styled_node_state,
-                        &azul_css::props::property::CssPropertyType::AnimationIn,
-                    )?;
-                    let azul_css::props::property::CssProperty::AnimationIn(v) = prop else {
-                        return None;
-                    };
-                    let rect = self
-                        .get_node_bounds(dom_id, *node_id)
-                        .map(layout_rect_to_logical)?;
-                    v.get_property()?.as_ref().iter().find_map(|anim| {
-                        resolve_named_track(
-                            anim,
-                            &sd.css_property_cache.ptr.retained_author_css,
-                            nd,
-                            rect,
-                        )
-                    })
-                });
+                let named_in = self.declared_enter_track(dom_id, *node_id);
                 let track = match named_in {
                     Some(mut t) => {
                         t.override_start(&sample);
@@ -12438,32 +12451,23 @@ impl LayoutWindow {
             // the anim GPU channels from the node's SOLVED rect — layout is
             // final; only presentation animates (USER ruling). Unknown names
             // fall back to the default slide.
-            let named_in = self.layout_results.get(&dom_id).and_then(|r| {
-                let sd = &r.styled_dom;
-                let nd = sd.node_data.as_ref().get(node_id.index())?;
-                let st = sd.styled_nodes.as_ref().get(node_id.index())?;
-                let prop = sd.css_property_cache.ptr.get_property(
-                    nd,
-                    node_id,
-                    &st.styled_node_state,
-                    &azul_css::props::property::CssPropertyType::AnimationIn,
-                )?;
-                let azul_css::props::property::CssProperty::AnimationIn(v) = prop else {
-                    return None;
-                };
-                let rect = self
-                    .get_node_bounds(dom_id, *node_id)
-                    .map(layout_rect_to_logical)?;
-                v.get_property()?.as_ref().iter().find_map(|anim| {
-                    resolve_named_track(
-                        anim,
-                        &sd.css_property_cache.ptr.retained_author_css,
-                        nd,
-                        rect,
-                    )
-                })
-            });
-            if let Some(track) = named_in {
+            if let Some(track) = self.declared_enter_track(dom_id, *node_id) {
+                self.live_tracks.insert(*node_id, track);
+            }
+        }
+
+        // Every OTHER entering node that declares an enter animation starts
+        // its track too: the nodes INSIDE a mounted subtree, and on the first
+        // frame every node. A looping one is how anything spins at all (a
+        // spinner's `-azul-animation-in: <keyframes> 800ms linear infinite`),
+        // and only the subtree's ROOT used to start one - never on the first
+        // frame - so a spinner that was in the first DOM, or inside a card
+        // that mounted, stood still.
+        for node_id in &pending.entered {
+            if self.live_tracks.contains_key(node_id) || pending.mounted.contains(node_id) {
+                continue;
+            }
+            if let Some(track) = self.declared_enter_track(dom_id, *node_id) {
                 self.live_tracks.insert(*node_id, track);
             }
         }
@@ -26289,6 +26293,23 @@ pub struct PendingReconciliation {
     pub new_node_data: Vec<azul_core::dom::NodeData>,
     /// The new hierarchy, same reason.
     pub new_hierarchy: Vec<azul_core::styled_dom::NodeHierarchyItem>,
+    /// EVERY node of the new tree with no counterpart in the old one: each
+    /// node of a mounted subtree (not only its root, which is what
+    /// [`Self::mounted`] holds), and on the first frame every node. What a
+    /// declared `-azul-animation-in` starts on.
+    pub entered: Vec<NodeId>,
+    /// The lifecycle events the diff produced (Mount, Unmount, Resize,
+    /// Update), for the caller to dispatch.
+    pub events: Vec<azul_core::events::SyntheticEvent>,
+    /// The OLD tree's node data - where an `Unmount`'s `BeforeUnmount`
+    /// callbacks and a removed focused node's `FocusLost` callbacks are read
+    /// from once the old tree is gone.
+    pub old_node_data: Vec<azul_core::dom::NodeData>,
+    /// Whether the matched nodes that MOVED animate there (FLIP). `true` from
+    /// [`LayoutWindow::begin_reconciliation`]; a caller clears it for a
+    /// rebuild that is no state change - a window resize reflows in place,
+    /// it does not slide the layout after the dragged edge.
+    pub animate_moves: bool,
 }
 
 /// `LayoutRect` (integer origin, what the layout query returns) → `LogicalRect`
