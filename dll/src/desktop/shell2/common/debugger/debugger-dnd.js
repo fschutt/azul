@@ -223,6 +223,132 @@
             .replace(/^[^a-z]+/, '').replace(/-+$/, '');
     }
 
+    // ── B5: the properties panel ──
+
+    /** What the panel offers on every element, in this order (`text` is its text). */
+    var ELEMENT_ATTRS = ['text', 'id', 'class', 'style'];
+    /** What an instance takes besides its arguments: builder.rs puts them on its root. */
+    var PASSTHROUGH = ['class', 'id', 'style'];
+    /** Argument types one attribute can carry (builder.rs `data_model_with_args`). */
+    var EDITABLE_TYPES = ['String', 'Bool', 'I32', 'I64', 'U32', 'U64', 'Usize', 'F32', 'F64', 'ColorU'];
+
+    /** The registry entry (`get_component_registry`) of `library:name`, or null. */
+    function componentDef(registry, library, name) {
+        var libs = (registry && registry.libraries) || [];
+        for (var i = 0; i < libs.length; i++) {
+            if (libs[i].name !== library) continue;
+            var comps = libs[i].components || [];
+            for (var j = 0; j < comps.length; j++) {
+                if ((comps[j].tag || comps[j].name) === name) return comps[j];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The rows of the properties panel for a document node:
+     * `{name, group, fieldType, value, default, description, required}`.
+     * `value` null = the node does not set it (an argument then takes its
+     * default). A text node has its text; an element its text, id, classes,
+     * style and whatever else it carries; an instance its arguments (the
+     * component's data model, `def`), then class / id / style.
+     */
+    function propertyRows(node, def) {
+        if (!node) return [];
+        var attrs = node.attrs || {};
+        if (node.kind === 'text') {
+            return [{ name: 'text', group: 'attribute', fieldType: 'String', value: node.text || '',
+                default: '', description: 'The text', required: false }];
+        }
+        var rows = [];
+        var taken = {};
+        var attrRow = function (name) {
+            taken[name] = true;
+            rows.push({ name: name, group: 'attribute', fieldType: 'String',
+                value: attrs[name] != null ? String(attrs[name]) : '', default: '', description: '',
+                required: false });
+        };
+        if (node.kind === 'component') {
+            ((def && def.data_model) || []).forEach(function (f) {
+                if (!f || !f.name || taken[f.name]) return;
+                taken[f.name] = true;
+                rows.push({ name: f.name, group: 'argument', fieldType: f.field_type || 'String',
+                    value: attrs[f.name] != null ? String(attrs[f.name]) : null,
+                    default: f.default != null ? String(f.default) : '',
+                    description: f.description || '', required: !!f.required });
+            });
+            PASSTHROUGH.forEach(function (n) { if (!taken[n]) attrRow(n); });
+        } else {
+            var noText = node.uid === 0 || VOID.indexOf(node.tag) !== -1;
+            ELEMENT_ATTRS.forEach(function (n) { if (!(n === 'text' && noText)) attrRow(n); });
+        }
+        Object.keys(attrs).sort().forEach(function (n) { if (!taken[n]) attrRow(n); });
+        return rows;
+    }
+
+    /**
+     * The message an edit of `name` to `value` sends, or null when nothing
+     * changes. Empty removes the attribute (an argument falls back to its
+     * default); a text node's text may be empty.
+     */
+    function propertyMessage(node, name, value) {
+        if (!node || !name) return null;
+        value = value == null ? '' : String(value);
+        if (node.kind === 'text') {
+            if (value === (node.text || '')) return null;
+            return { op: 'builder_set_attribute', node: node.uid, name: 'text', value: value };
+        }
+        var current = (node.attrs || {})[name];
+        if (value === '') {
+            return current == null ? null : { op: 'builder_set_attribute', node: node.uid, name: name };
+        }
+        if (value === current) return null;
+        return { op: 'builder_set_attribute', node: node.uid, name: name, value: value };
+    }
+
+    function hex2(n) { return ('0' + ((Number(n) || 0) & 255).toString(16)).slice(-2); }
+
+    /** A field widget's typed value (`{type, value}`) as the attribute text the server parses. */
+    function attrString(v) {
+        if (v == null) return '';
+        if (typeof v !== 'object') return String(v);
+        if (v.type === 'None') return '';
+        var x = v.value;
+        if (v.type === 'Bool') return x ? 'true' : 'false';
+        if (v.type === 'ColorU' && x && typeof x === 'object') {
+            var a = x.a == null ? 255 : x.a;
+            return '#' + hex2(x.r) + hex2(x.g) + hex2(x.b) + (a === 255 ? '' : hex2(a));
+        }
+        return x == null ? '' : String(x);
+    }
+
+    /** The attribute text as a field widget's value of `type`; null: nothing to show. */
+    function typedValue(s, type) {
+        if (s == null || s === '') return null;
+        s = String(s);
+        switch (type) {
+            case 'Bool': return /^(true|1|yes|on)$/i.test(s.trim());
+            case 'I32': case 'I64': case 'U32': case 'U64': case 'Usize': {
+                var n = parseInt(s, 10);
+                return isNaN(n) ? null : n;
+            }
+            case 'F32': case 'F64': {
+                var f = parseFloat(s);
+                return isNaN(f) ? null : f;
+            }
+            case 'ColorU': {
+                var m = /^#?([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(s.trim());
+                if (!m) return null;
+                var h = parseInt(m[1], 16);
+                return { r: (h >> 16) & 255, g: (h >> 8) & 255, b: h & 255, a: m[2] ? parseInt(m[2], 16) : 255 };
+            }
+            default: return s;
+        }
+    }
+
+    /** Whether the panel edits an argument of this (parsed) type as one attribute. */
+    function editableType(type) { return EDITABLE_TYPES.indexOf(type) !== -1; }
+
     var logic = {
         NON_VISUAL: NON_VISUAL, VOID: VOID, AUTO_CLOSE: AUTO_CLOSE,
         acceptsChildren: acceptsChildren, canContain: canContain, dropZone: dropZone, flatten: flatten,
@@ -231,6 +357,9 @@
         dropMessage: dropMessage, stepMessage: stepMessage, insertTarget: insertTarget,
         paletteEntries: paletteEntries, suggestComponentName: suggestComponentName,
         sanitizeComponentName: sanitizeComponentName,
+        // B5
+        componentDef: componentDef, propertyRows: propertyRows, propertyMessage: propertyMessage,
+        attrString: attrString, typedValue: typedValue, editableType: editableType,
     };
 
     if (typeof module !== 'undefined' && module.exports) module.exports = logic;
@@ -262,6 +391,7 @@
         paletteFilter: '',
         observer: null,
         liveCache: null,         // last get_node_hierarchy value
+        registry: null,          // last get_component_registry value (the panel's data models)
     };
 
     var origRefreshSidebar = app.handlers.refreshSidebar;
@@ -419,6 +549,8 @@
         set('convert', !!sel && sel.kind === 'element');
         set('delete', !!sel);
         set('reset', docMode && !!S.doc.active);
+        // Every change of mode, document or selection passes here.
+        refreshPanels();
     }
 
     function runAction(act) {
@@ -890,11 +1022,14 @@
             return;
         }
         S.palette = paletteEntries(reg);
+        S.registry = reg;
         // Fresh pictures on every reload; the server answers from its cache
         // unless the component changed.
         S.thumbs = {};
         S.thumbQueue = [];
         drawPalette(container);
+        // An instance's arguments come from the registry's data models.
+        refreshPanels();
     }
 
     function drawPalette(container) {
@@ -1051,6 +1186,180 @@
             });
     }
 
+    // ── B5: the Inspector's builder panels ──
+    //
+    // In Document mode the Inspector's editor area is a row: the node detail
+    // (debugger.js) on the left, the builder's side panel on the right
+    // (Properties). Live DOM mode hides the builder's part.
+
+    var GROUP_TITLES = { argument: 'Arguments', attribute: 'Attributes' };
+
+    function injectInspectorLayout() {
+        var view = document.getElementById('view-inspector');
+        var detail = document.getElementById('node-detail-panel');
+        if (!view || !detail || document.getElementById('azb-side')) return;
+        var row = document.createElement('div');
+        row.id = 'azb-inspector-row';
+        row.className = 'azb-inspector-row';
+        var main = document.createElement('div');
+        main.id = 'azb-inspector-main';
+        main.className = 'azb-inspector-main';
+        view.insertBefore(row, detail);
+        main.appendChild(detail);
+        row.appendChild(main);
+
+        var side = document.createElement('div');
+        side.id = 'azb-side';
+        // Shown once the mode is known (refreshPanels).
+        side.className = 'azb-side hidden';
+        var head = document.createElement('div');
+        head.className = 'sidebar-header';
+        head.innerHTML = '<span>Properties</span><span id="azb-props-what" class="azb-props-what"></span>';
+        var props = document.createElement('div');
+        props.id = 'azb-props';
+        props.className = 'azb-props';
+        side.appendChild(head);
+        side.appendChild(props);
+        row.appendChild(side);
+    }
+
+    /** Show / hide the builder panels for the mode and re-render them. */
+    function refreshPanels() {
+        var docMode = S.mode === 'document';
+        var side = document.getElementById('azb-side');
+        if (side) side.classList.toggle('hidden', !docMode);
+        if (docMode) renderProps();
+    }
+
+    function nodeTitle(node) {
+        var what = node.kind === 'text' ? '#text'
+            : node.kind === 'component' ? node.library + ':' + node.tag : '<' + node.tag + '>';
+        return what + '  ·  uid ' + node.uid;
+    }
+
+    /** The focused field of the panel, to put the caret back after a re-render. */
+    function panelFocus(box) {
+        var ae = document.activeElement;
+        if (!ae || !box.contains(ae)) return null;
+        var row = ae.closest ? ae.closest('[data-prop]') : null;
+        if (!row) return null;
+        var f = { name: row.dataset.prop, start: null, end: null };
+        try { f.start = ae.selectionStart; f.end = ae.selectionEnd; } catch (e) { /* checkbox */ }
+        return f;
+    }
+
+    function restoreFocus(box, f) {
+        if (!f) return;
+        var rows = box.querySelectorAll('[data-prop]');
+        for (var i = 0; i < rows.length; i++) {
+            if (rows[i].dataset.prop !== f.name) continue;
+            var input = rows[i].querySelector('input, textarea, select');
+            if (!input) return;
+            input.focus();
+            try { if (f.start != null) input.setSelectionRange(f.start, f.end); } catch (e) { /* not text */ }
+            return;
+        }
+    }
+
+    function renderProps() {
+        var box = document.getElementById('azb-props');
+        var what = document.getElementById('azb-props-what');
+        if (!box) return;
+        var node = S.doc && S.selected != null ? findNode(S.doc.root, S.selected) : null;
+        var focus = panelFocus(box);
+        box.innerHTML = '';
+        if (what) what.textContent = node ? nodeTitle(node) : '';
+        if (!node) {
+            var hint = document.createElement('div');
+            hint.className = 'azb-hint';
+            hint.textContent = 'Select a node in the Document tree to edit its text, id and classes '
+                + '- and, for a component instance, its arguments.';
+            box.appendChild(hint);
+            return;
+        }
+        var def = node.kind === 'component' ? componentDef(S.registry, node.library, node.tag) : null;
+        var group = null;
+        propertyRows(node, def).forEach(function (row) {
+            if (row.group !== group) {
+                group = row.group;
+                var h = document.createElement('div');
+                h.className = 'azb-props-group';
+                h.textContent = GROUP_TITLES[group] || group;
+                box.appendChild(h);
+            }
+            box.appendChild(propertyEditor(node.uid, row));
+        });
+        if (node.kind === 'component' && !def) {
+            var note = document.createElement('div');
+            note.className = 'azb-hint';
+            note.textContent = 'The component ' + node.library + ':' + node.tag
+                + ' is not registered: its arguments are unknown.';
+            box.appendChild(note);
+        }
+        restoreFocus(box, focus);
+    }
+
+    /**
+     * One row: the Components view's field editor (`app.widgets.FieldEditor`:
+     * label, type badge, input). An edit is committed on `change` (Enter,
+     * leaving the field, a checkbox click) as ONE builder_set_attribute - one
+     * undo step - not on every keystroke.
+     */
+    function propertyEditor(uid, row) {
+        var W = app.widgets;
+        var ft = W && W._parseFieldType ? W._parseFieldType(row.fieldType) : { type: 'String' };
+        var editable = editableType(ft.type);
+        var el;
+        if (!editable || !W || !W.FieldEditor) {
+            // Not one attribute (a callback, a slot, a list…): shown, set in code.
+            el = document.createElement('div');
+            el.className = 'azd-field-row azb-prop-readonly';
+            var label = document.createElement('label');
+            label.className = 'azd-field-label';
+            label.textContent = row.name;
+            el.appendChild(label);
+            if (W && W.TypeBadge) el.appendChild(W.TypeBadge.render({ fieldType: ft }));
+            var ro = document.createElement('span');
+            ro.className = 'azb-prop-note';
+            ro.textContent = 'set in code';
+            el.appendChild(ro);
+            el.title = row.name + ': ' + row.fieldType + ' - an argument of this type is not one attribute';
+        } else {
+            // A String argument the instance does not set shows its default as
+            // the placeholder; any other type shows the value in effect.
+            var raw = row.value != null ? row.value : (ft.type === 'String' ? null : row.default);
+            var pending = null;
+            el = W.FieldEditor.render({
+                name: row.name,
+                fieldType: ft,
+                default: row.default || '',
+                description: row.description || '',
+                required: !!row.required,
+            }, { value: typedValue(raw, ft.type) }, {
+                onChange: function (_, v) { pending = attrString(v); },
+            });
+            el.addEventListener('change', function () {
+                if (pending === null || !S.doc) return;
+                var node = findNode(S.doc.root, uid);
+                var msg = node ? propertyMessage(node, row.name, pending) : null;
+                pending = null;
+                if (msg) send(msg);
+            });
+            el.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' && e.target && e.target.tagName === 'INPUT') {
+                    e.preventDefault();
+                    e.target.blur();
+                } else if (e.key === 'Escape') {
+                    pending = null;
+                    renderProps();
+                }
+            });
+        }
+        el.dataset.prop = row.name;
+        el.classList.add('azb-prop');
+        return el;
+    }
+
     // ── slash commands ──
 
     function registerSchema() {
@@ -1112,6 +1421,17 @@
             '.azb-thumb-letter{color:#9a9a9a;font:600 18px/1 sans-serif}',
             '.azb-thumb-letter.azb-thumb-tag{font:11px/1 monospace}',
             '.azb-card-label{font-size:10px;padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;color:var(--text-main)}',
+            // B5: the Inspector's builder panels (the page's tokens; rows are the Components view's field rows)
+            '.azb-inspector-row{flex:1;display:flex;min-height:0;overflow:hidden}',
+            '.azb-inspector-main{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden}',
+            '.azb-side{width:290px;flex-shrink:0;display:flex;flex-direction:column;overflow:hidden;background:var(--bg-sidebar);border-left:1px solid var(--border)}',
+            '.azb-props-what{font-weight:400;text-transform:none;color:var(--text-muted);font-family:Consolas,Monaco,"Courier New",monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-left:8px}',
+            '.azb-props{flex:1;overflow:auto;min-height:60px}',
+            '.azb-props-group{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);padding:8px 8px 3px;border-bottom:1px solid var(--border)}',
+            '.azb-prop .azd-field-label{flex:0 0 84px;color:var(--attr-color)}',
+            '.azb-prop .azd-input-string,.azb-prop .azd-input-int,.azb-prop .azd-input-float{background:var(--bg-input);color:var(--text-main)}',
+            '.azb-prop-readonly .azd-field-label{color:var(--text-muted)}',
+            '.azb-prop-note{flex:1;font-size:11px;color:var(--text-muted);font-style:italic}',
         ].join('\n');
         document.head.appendChild(s);
     }
@@ -1121,6 +1441,7 @@
     function install() {
         injectStyle();
         injectToolbar();
+        injectInspectorLayout();
         installContainerDrop();
         registerSchema();
 

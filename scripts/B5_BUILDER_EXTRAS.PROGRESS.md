@@ -14,11 +14,11 @@ Branch `wt/b5-builder-extras`, base `d240a1b1d`. Nothing is compiled here (house
 
 ## DONE
 
-(none yet)
+- 1 RED `bb244292b` (node test + smoke + lib/smoke.mjs)
 
 ## IN PROGRESS
 
-1. Properties panel.
+1. Properties panel: implementation commit (this one).
 
 ## NEXT
 

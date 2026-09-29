@@ -54,6 +54,20 @@ it, **F2** or **Enter** (or double-click) to edit its text, and use the context 
 ids, move up / down and delete. Every edit goes to the native window at once, and clicking a row
 shows its live node - CSS, layout, box model - in the inspector.
 
+## Properties
+
+In Document mode the Inspector has a **Properties** panel on its right. It shows the selected
+node: an element's text, id, classes, style and any other attribute it carries; a text node's
+text; and for a component instance its **arguments** - one field per field of the component's
+data model, with the default as the placeholder when the instance does not set it - followed by
+the class, id and style that go on the instance's root. A `bool` argument is a checkbox, a number
+a number field; an argument no single attribute can hold (a callback, a slot, a list) is shown
+but set in code.
+
+A field is sent when you press Enter or leave it (a checkbox at once), as one edit: **Ctrl/Cmd+Z**
+undoes it like any other. Emptying a field removes the attribute, so an argument takes its default
+again. The context menu and F2 still work as shortcuts.
+
 ## Undo and redo
 
 Every edit of the document is one undo step: **Ctrl/Cmd+Z** undoes, **Shift+Ctrl/Cmd+Z** or
