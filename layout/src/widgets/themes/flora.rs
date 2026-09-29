@@ -3120,29 +3120,23 @@ pub(crate) fn pagination_skin() -> crate::widgets::pagination::PaginationSkin {
     }
 }
 
-/// One flora pagination button: box, joined hairline, face, then states.
+/// One flora pagination button: the widget's base (its structure, the same in
+/// every theme), then the skin - box, joined hairline, face, then states.
 fn pagination_button(
     face: crate::widgets::pagination::PageFace,
     is_first: bool,
     is_last: bool,
 ) -> CssPropertyWithConditionsVec {
     use super::style_kit as kit;
-    use crate::widgets::pagination::PageFace;
+    use crate::widgets::pagination::{PageFace, PAGINATION_BUTTON_BASE};
     type P = CssPropertyWithConditions;
 
-    let mut v = vec![
-        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        P::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
-        P::simple(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
-        P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        P::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    let mut v = PAGINATION_BUTTON_BASE.to_vec();
+    v.extend([
         P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(36))),
-        P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
         kit::font_size(13),
         P::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-        P::simple(CssProperty::user_select(StyleUserSelect::None)),
-    ];
+    ]);
     v.extend(kit::padding(6, 12, 6, 12));
     // Joined: every button draws top, bottom and right; only the first draws
     // a left edge, so neighbours share one hairline.
@@ -3312,22 +3306,17 @@ pub(crate) fn segmented_skin() -> crate::widgets::segmented::SegmentedSkin {
     }
 }
 
-/// One flora segment: box, joined hairline, face, then states.
+/// One flora segment: the widget's base (its structure, the same in every
+/// theme), then the skin - box, joined hairline, face, then states.
 fn segmented_segment(selected: bool, is_first: bool, is_last: bool) -> CssPropertyWithConditionsVec {
     use super::style_kit as kit;
     type P = CssPropertyWithConditions;
 
-    let mut v = vec![
-        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        P::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
-        P::simple(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
-        P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    let mut v = crate::widgets::segmented::SEGMENT_BASE.to_vec();
+    v.extend([
         kit::font_size(13),
         P::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-        P::simple(CssProperty::user_select(StyleUserSelect::None)),
-    ];
+    ]);
     v.extend(kit::padding(6, 12, 6, 12));
     // Joined: only the first segment draws a left edge.
     let edges = kit::Edges {
@@ -3391,39 +3380,25 @@ pub(crate) fn split_pane_skin(
     use crate::widgets::split_pane::{self as s, SplitDirection};
     type P = CssPropertyWithConditions;
 
-    let (size, cursor, edges) = match direction {
-        SplitDirection::Horizontal => (
-            CssProperty::const_width(LayoutWidth::const_px(s::DIVIDER_THICKNESS)),
-            StyleCursor::ColResize,
-            kit::Edges {
-                top: false,
-                right: true,
-                bottom: false,
-                left: true,
-            },
-        ),
-        SplitDirection::Vertical => (
-            CssProperty::const_height(LayoutHeight::const_px(s::DIVIDER_THICKNESS)),
-            StyleCursor::RowResize,
-            kit::Edges {
-                top: true,
-                right: false,
-                bottom: true,
-                left: false,
-            },
-        ),
+    // The hairlines run along the bar's long sides.
+    let edges = match direction {
+        SplitDirection::Horizontal => kit::Edges {
+            top: false,
+            right: true,
+            bottom: false,
+            left: true,
+        },
+        SplitDirection::Vertical => kit::Edges {
+            top: true,
+            right: false,
+            bottom: true,
+            left: false,
+        },
     };
-    let mut divider = vec![
-        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        P::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
-            inner: FloatValue::const_new(0),
-        })),
-        P::simple(size),
-        P::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
-        P::simple(CssProperty::const_cursor(cursor)),
-        // The containing block of the sash.
-        P::simple(CssProperty::const_position(LayoutPosition::Relative)),
-    ];
+    // The widget's base (its structure, the same in every theme), then the
+    // skin: the thickness, the channel, the states.
+    let mut divider = s::divider_base(direction);
+    divider.push(P::simple(s::divider_thickness(direction)));
     divider.extend(kit::border(edges, 1, LIGHT_BD, DARK_BD));
     divider.extend(kit::themed_bg(LIGHT_STRIP, DARK_STRIP));
     // States last: a resting dark twin matches in every state.

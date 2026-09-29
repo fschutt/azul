@@ -198,9 +198,37 @@ static PAGINATION_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
 ];
 
-/// Builds the style for one button. The active/disabled colours and the rounding
-/// of the outer corners (only the first button — `Prev` — is rounded on the left,
-/// only the last — `Next` — on the right) are position-dependent, so the style is
+/// One button's BASE: how a pagination button lays out, the same in every
+/// theme (R5) - its label centred in a flex row that never grows, a
+/// border-box (so the skin's `min-width` measures the WHOLE button), the
+/// pointer, and no text selection. Every theme's button starts with it -
+/// flat's [`build_button_style`], `themes::flora::pagination_button` - and
+/// adds its skin after it: sizes, padding, borders, font, colours.
+///
+/// Declared once here, it is declared once in a button that follows the app
+/// theme too (`themes::theme_blocks`): outside every `@theme` block, so it
+/// holds under an app theme no widget knows.
+pub(crate) static PAGINATION_BUTTON_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(
+        LayoutJustifyContent::Center,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    // Keep single-digit page buttons from collapsing too narrow: the skin's
+    // `min-width` is for the WHOLE button. Under content-box sizing the
+    // minimum measured the content alone and a "3" came out 36 + 24 padding
+    // + 1 border = 61px.
+    CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// Builds the style for one button: the [`PAGINATION_BUTTON_BASE`], then the
+/// flat skin. The active/disabled colours and the rounding of the outer
+/// corners (only the first button — `Prev` — is rounded on the left, only the
+/// last — `Next` — on the right) are position-dependent, so the style is
 /// built at runtime (mirroring `segmented::build_segment_style`).
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 #[allow(clippy::fn_params_excessive_bools)] // independent boolean render flags, not a state enum
@@ -219,24 +247,9 @@ fn build_button_style(
         NEUTRAL_TEXT
     };
 
-    let mut v: Vec<CssPropertyWithConditions> = vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Row,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_justify_content(
-            LayoutJustifyContent::Center,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
-        // Keep single-digit page buttons from collapsing too narrow: 36px for
-        // the WHOLE button. Under content-box sizing the minimum measured the
-        // content alone and a "3" came out 36 + 24 padding + 1 border = 61px.
-        CssPropertyWithConditions::simple(CssProperty::const_box_sizing(
-            LayoutBoxSizing::BorderBox,
-        )),
+    let mut v: Vec<CssPropertyWithConditions> = PAGINATION_BUTTON_BASE.to_vec();
+    v.extend([
+        // 36px for the whole button (the base's border-box).
         CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(
             36,
         ))),
@@ -294,17 +307,15 @@ fn build_button_style(
                 inner: PAGE_BORDER_COLOR,
             },
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             13,
         ))),
         CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-        CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(bg)),
         CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
             inner: text,
         })),
-    ];
+    ]);
 
     if is_first {
         v.push(CssPropertyWithConditions::simple(

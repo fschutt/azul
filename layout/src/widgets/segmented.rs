@@ -178,10 +178,32 @@ static SEGMENTED_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
 ];
 
-/// Builds the style for one segment. The selected/unselected colours and the
-/// rounding of the outer corners (only the first segment is rounded on the left,
-/// only the last on the right) are the position-dependent properties, so the
-/// style is built at runtime.
+/// One segment's BASE: how a segment lays out, the same in every theme (R5) -
+/// its label centred in a flex row that never grows, the pointer, and no
+/// text selection. Every theme's segment starts with it - flat's
+/// [`build_segment_style`], `themes::flora::segmented_segment` - and adds
+/// its skin after it: padding, borders, font, colours.
+///
+/// Declared once here, it is declared once in a segment that follows the
+/// app theme too (`themes::theme_blocks`): outside every `@theme` block, so
+/// it holds under an app theme no widget knows.
+pub(crate) static SEGMENT_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(
+        LayoutJustifyContent::Center,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// Builds the style for one segment: the [`SEGMENT_BASE`], then the flat
+/// skin. The selected/unselected colours and the rounding of the outer
+/// corners (only the first segment is rounded on the left, only the last on
+/// the right) are the position-dependent properties, so the style is built
+/// at runtime.
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
                                  // (one branch per case)
 fn build_segment_style(
@@ -195,18 +217,8 @@ fn build_segment_style(
         (SEG_UNSELECTED_BG, SEG_UNSELECTED_TEXT)
     };
 
-    let mut v: Vec<CssPropertyWithConditions> = alloc::vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Row,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_justify_content(
-            LayoutJustifyContent::Center,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
+    let mut v: Vec<CssPropertyWithConditions> = SEGMENT_BASE.to_vec();
+    v.extend([
         // padding: 6px 12px
         CssPropertyWithConditions::simple(CssProperty::const_padding_top(
             LayoutPaddingTop::const_px(6,)
@@ -261,17 +273,15 @@ fn build_segment_style(
                 inner: SEG_BORDER_COLOR,
             },
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             13
         ))),
         CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-        CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(bg)),
         CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
             inner: text,
         })),
-    ];
+    ]);
 
     if is_first {
         v.push(CssPropertyWithConditions::simple(

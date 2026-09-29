@@ -64,9 +64,9 @@ use azul_css::{
     props::{
         basic::{color::ColorU, FloatValue, PixelValue},
         layout::{
-            LayoutDisplay, LayoutFlexBasis, LayoutFlexDirection, LayoutFlexGrow, LayoutFlexShrink,
-            LayoutHeight, LayoutLeft, LayoutMinHeight, LayoutMinWidth, LayoutOverflow,
-            LayoutPosition, LayoutTop, LayoutWidth,
+            LayoutBoxSizing, LayoutDisplay, LayoutFlexBasis, LayoutFlexDirection, LayoutFlexGrow,
+            LayoutFlexShrink, LayoutHeight, LayoutLeft, LayoutMinHeight, LayoutMinWidth,
+            LayoutOverflow, LayoutPosition, LayoutTop, LayoutWidth,
         },
         property::{
             CssProperty, LayoutFlexBasisValue, LayoutFlexGrowValue, LayoutHeightValue,
@@ -323,37 +323,67 @@ fn pane_style(grow: f32) -> CssPropertyWithConditionsVec {
     ])
 }
 
-/// Builds the divider's style: fixed thickness, no grow/shrink, a resize cursor
-/// matching the drag axis, and a visible fill. The cross-axis size is left to the
-/// flex default (stretch), so the divider spans the container. The flat
-/// theme's resting divider.
-pub(crate) fn divider_style(dir: SplitDirection) -> CssPropertyWithConditionsVec {
-    let (size_prop, cursor) = match dir {
-        SplitDirection::Horizontal => (
-            CssProperty::const_width(LayoutWidth::const_px(DIVIDER_THICKNESS)),
-            StyleCursor::ColResize,
-        ),
-        SplitDirection::Vertical => (
-            CssProperty::const_height(LayoutHeight::const_px(DIVIDER_THICKNESS)),
-            StyleCursor::RowResize,
-        ),
+/// The divider's BASE: how the splitter lays out, the same in every theme
+/// (R5). A bar that neither grows nor shrinks (either would let it eat the
+/// panes' space and silently change the split ratio), measured border-box
+/// (a theme that draws hairlines draws them INSIDE the
+/// [`DIVIDER_THICKNESS`] the drag arithmetic subtracts), the resize cursor
+/// of its drag axis, and the containing block of its sash (`sash_style`).
+/// Every theme's divider starts with it - flat's [`divider_style`],
+/// `themes::flora::split_pane_skin` - and adds its skin after it: the
+/// thickness, the fill, the hairlines, the states.
+///
+/// Declared once here, it is declared once in a divider that follows the
+/// app theme too (`themes::theme_blocks`): outside every `@theme` block, so
+/// it holds under an app theme no widget knows.
+pub(crate) fn divider_base(dir: SplitDirection) -> Vec<CssPropertyWithConditions> {
+    let cursor = match dir {
+        SplitDirection::Horizontal => StyleCursor::ColResize,
+        SplitDirection::Vertical => StyleCursor::RowResize,
     };
-    CssPropertyWithConditionsVec::from_vec(vec![
+    vec![
         CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
             0,
         ))),
         CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
             inner: FloatValue::const_new(0),
         })),
-        CssPropertyWithConditions::simple(size_prop),
+        CssPropertyWithConditions::simple(CssProperty::const_box_sizing(
+            LayoutBoxSizing::BorderBox,
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_cursor(cursor)),
-        // The containing block of the sash (`sash_style`).
         CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
+    ]
+}
+
+/// Builds the divider's style: the [`divider_base`], then the flat skin -
+/// the fixed thickness and a visible fill. The cross-axis size is left to
+/// the flex default (stretch), so the divider spans the container. The flat
+/// theme's resting divider.
+pub(crate) fn divider_style(dir: SplitDirection) -> CssPropertyWithConditionsVec {
+    let mut v = divider_base(dir);
+    v.extend([
+        CssPropertyWithConditions::simple(divider_thickness(dir)),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(DIVIDER_BG)),
         CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(
             DIVIDER_DARK_BG,
         )),
-    ])
+    ]);
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// The divider's [`DIVIDER_THICKNESS`] along the drag axis: its width in a
+/// horizontal split, its height in a vertical one. Every theme's skin
+/// declares it (the drag arithmetic subtracts it).
+pub(crate) fn divider_thickness(dir: SplitDirection) -> CssProperty {
+    match dir {
+        SplitDirection::Horizontal => {
+            CssProperty::const_width(LayoutWidth::const_px(DIVIDER_THICKNESS))
+        }
+        SplitDirection::Vertical => {
+            CssProperty::const_height(LayoutHeight::const_px(DIVIDER_THICKNESS))
+        }
+    }
 }
 
 /// Builds the divider's SASH: its grab area, transparent, `2 * GRAB_THRESHOLD`
@@ -1738,9 +1768,10 @@ mod autotest_generated {
     fn divider_style_never_grows_or_shrinks_and_is_visible() {
         for dir in BOTH_DIRECTIONS {
             let s = divider_style(dir);
-            // Six for the light bar (the last is `position: relative`, the
-            // sash's containing block), plus its dark-theme colour.
-            assert_eq!(properties(&s).len(), 7, "{dir:?}");
+            // Seven for the light bar (the base's grow, shrink, border-box,
+            // cursor and `position: relative` - the sash's containing block -
+            // then the thickness and the fill), plus its dark-theme colour.
+            assert_eq!(properties(&s).len(), 8, "{dir:?}");
             assert_eq!(
                 s.as_ref().iter().filter(|p| p.is_dark_twin()).count(),
                 1,
