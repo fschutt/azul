@@ -687,6 +687,7 @@ mod autotest_generated {
             notification_handler,
             global_hotkeys,
             global_hotkeys_callback,
+            color_scheme,
             log_level,
             natural_scroll,
             termination_behavior,
@@ -713,6 +714,7 @@ mod autotest_generated {
             + size_of_field(notification_handler)
             + size_of_field(global_hotkeys)
             + size_of_field(global_hotkeys_callback)
+            + size_of_field(color_scheme)
             + size_of_field(log_level)
             + size_of_field(natural_scroll)
             + size_of_field(termination_behavior)

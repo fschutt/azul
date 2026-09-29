@@ -1609,6 +1609,12 @@ impl LayoutCallbackInfo {
     /// The tracked way to read what the `theme` field also holds. Use this
     /// and a change that leaves the polarity alone — a new accent colour, a
     /// different light scheme — will not rebuild the DOM.
+    ///
+    /// It is what the window SHOWS: the desktop's polarity, or the app's
+    /// colour-scheme pin (`AppConfig::color_scheme`,
+    /// `CallbackInfo::set_color_scheme`). Reading it is also what makes a
+    /// colour-scheme switch re-run this callback; a callback that never reads
+    /// it is only re-styled.
     #[must_use]
     pub fn get_theme(&self) -> WindowTheme {
         self.depends_on_system_style(SystemStyleDependency::Theme);

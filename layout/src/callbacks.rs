@@ -310,6 +310,12 @@ pub enum CallbackChange {
     SetLocale {
         locale: AzString,
     },
+    /// Switch the APP's colour scheme - every window, and every window opened
+    /// later: `None` follows the desktop, `Some` pins light / dark
+    /// (`CallbackInfo::set_color_scheme`).
+    SetColorScheme {
+        scheme: azul_core::window::OptionWindowTheme,
+    },
 
     // Focus Management
     /// Change keyboard focus to a specific node or clear focus
@@ -1775,6 +1781,38 @@ impl CallbackInfo {
     /// Change the active locale for UI translations
     pub fn set_locale(&mut self, locale: AzString) {
         self.push_change(CallbackChange::SetLocale { locale });
+    }
+
+    /// Switch the app's colour scheme: `Some(theme)` pins EVERY window of
+    /// the app to light or dark, whatever the desktop says; `None` follows
+    /// the desktop again, at once and through every later change of it.
+    ///
+    /// Applied after the callback returns, to every open window and to every
+    /// window opened afterwards. It is a restyle - colours only, the DOM is
+    /// kept, `layout()` does not run - unless a window's `layout()` read the
+    /// scheme (`LayoutCallbackInfo::get_theme`), in which case that window's
+    /// `layout()` runs again. The `AZ_THEME` environment pin still wins. The
+    /// startup value is `AppConfig::color_scheme`.
+    pub fn set_color_scheme(&mut self, scheme: azul_core::window::OptionWindowTheme) {
+        self.push_change(CallbackChange::SetColorScheme { scheme });
+    }
+
+    /// The app's colour-scheme CHOICE: `None` = follows the desktop,
+    /// `Some(theme)` = pinned. Not what the window shows - that is
+    /// [`Self::get_resolved_color_scheme`]; an app showing "System (dark)"
+    /// needs both. A `set_color_scheme` in the same callback is not visible
+    /// here yet (it applies when the callback returns).
+    #[must_use]
+    pub const fn get_color_scheme(&self) -> azul_core::window::OptionWindowTheme {
+        self.get_layout_window().color_scheme
+    }
+
+    /// The light / dark this window shows: the app's choice resolved against
+    /// the window's own (desktop-following) theme and the `AZ_THEME` pin.
+    #[must_use]
+    pub fn get_resolved_color_scheme(&self) -> azul_core::window::WindowTheme {
+        self.get_layout_window()
+            .window_theme_for(self.get_current_window_state().theme)
     }
 
     /// The node seat `seat_id` focuses (9b-ii-a-i-d); the primary's for

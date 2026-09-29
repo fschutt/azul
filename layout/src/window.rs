@@ -343,6 +343,95 @@ pub fn system_natural_scroll() -> Option<bool> {
     }
 }
 
+/// App-global `AppConfig::color_scheme`: the APP's light / dark choice, which
+/// every window of the app shares. `App::create` publishes the startup value;
+/// `CallbackInfo::set_color_scheme` switches it at runtime. `0` follows the
+/// desktop, `1` pins light, `2` pins dark.
+///
+/// Global, like the settings above, because the choice belongs to no window:
+/// a window opened AFTER a switch has to start in it, and window creation has
+/// no path back to the window whose callback switched. Each `LayoutWindow`
+/// mirrors it in [`LayoutWindow::color_scheme`] - seeded from here when it is
+/// built, updated when the app switches - and the cascade reads the mirror,
+/// so a test (which never publishes anything here) can pin one window
+/// without touching the others running beside it.
+static APP_COLOR_SCHEME: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+
+/// Publish the app's colour-scheme choice (`None` follows the desktop).
+pub fn set_app_color_scheme(scheme: azul_core::window::OptionWindowTheme) {
+    use azul_core::window::{OptionWindowTheme, WindowTheme};
+    let v = match scheme {
+        OptionWindowTheme::None => 0,
+        OptionWindowTheme::Some(WindowTheme::LightMode) => 1,
+        OptionWindowTheme::Some(WindowTheme::DarkMode) => 2,
+    };
+    APP_COLOR_SCHEME.store(v, Ordering::Relaxed);
+}
+
+/// The app's colour-scheme choice: `None` follows the desktop.
+#[must_use]
+pub fn app_color_scheme() -> azul_core::window::OptionWindowTheme {
+    use azul_core::window::{OptionWindowTheme, WindowTheme};
+    match APP_COLOR_SCHEME.load(Ordering::Relaxed) {
+        1 => OptionWindowTheme::Some(WindowTheme::LightMode),
+        2 => OptionWindowTheme::Some(WindowTheme::DarkMode),
+        _ => OptionWindowTheme::None,
+    }
+}
+
+/// THE colour-scheme decision (theme-chain invariant I1): the light / dark a
+/// window shows, given the app's choice and the window's OWN theme.
+///
+/// ```text
+/// AZ_THEME=light|dark  >  the app's choice  >  the window's own theme
+/// ```
+///
+/// The window's own theme is what the shells keep in
+/// `FullWindowState::theme` while the app follows the desktop: the desktop's
+/// theme, or the `WindowCreateOptions::theme` the window was created with
+/// until the desktop next changes. So the full order is env pin > app >
+/// window > desktop. The env pin outranks everything, or a screenshot run
+/// would follow whatever the app or the machine is set to.
+///
+/// Every place that turns "which theme?" into an answer calls this: the
+/// cascade context ([`LayoutWindow::dynamic_selector_context`]), a window's
+/// initial theme, the shells' desktop-theme adoption, the app's runtime
+/// switch and the `CallbackInfo` getters. It is idempotent - handing it a
+/// theme it already decided returns that theme - so a caller that is not
+/// sure whether its input was resolved yet may always resolve again.
+#[must_use]
+pub fn resolve_window_theme(
+    app: azul_core::window::OptionWindowTheme,
+    window: azul_core::window::WindowTheme,
+) -> azul_core::window::WindowTheme {
+    resolve_window_theme_with(
+        azul_css::dynamic_selector::theme_pinned_by_env(),
+        app,
+        window,
+    )
+}
+
+/// [`resolve_window_theme`] with the `AZ_THEME` pin passed in rather than
+/// read from the environment - the testable core of the decision.
+#[must_use]
+pub fn resolve_window_theme_with(
+    env: Option<azul_css::dynamic_selector::ThemeCondition>,
+    app: azul_core::window::OptionWindowTheme,
+    window: azul_core::window::WindowTheme,
+) -> azul_core::window::WindowTheme {
+    use azul_core::window::{OptionWindowTheme, WindowTheme};
+    use azul_css::dynamic_selector::ThemeCondition;
+    match env {
+        Some(ThemeCondition::Dark) => return WindowTheme::DarkMode,
+        Some(ThemeCondition::Light) => return WindowTheme::LightMode,
+        _ => {}
+    }
+    match app {
+        OptionWindowTheme::Some(pinned) => pinned,
+        OptionWindowTheme::None => window,
+    }
+}
+
 /// App-global `AppConfig::expose_system_media_controls`, published the same way
 /// and for the same reason: the Linux media-key backend starts from a place
 /// with no path back to the `AppConfig` the app was built with.
@@ -931,6 +1020,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         depends_on_text_direction: _,
         locale_override: _,
         known_languages: _,
+        // One small enum, the app's colour-scheme choice.
+        color_scheme: _,
         // A handle (Arc) plus a u64: the manager it points at is the APP's,
         // bounded by the app's accelerators, not by this window's document.
         global_hotkeys: _,
@@ -1349,6 +1440,15 @@ pub struct LayoutWindow {
     /// The app's known languages (`AppConfig::localization`): where a locale
     /// chosen at runtime gets its right-to-left-ness from.
     pub known_languages: azul_css::system::SystemLanguageVec,
+    /// The APP's colour-scheme choice as this window applies it: `None`
+    /// follows the desktop, `Some` pins light / dark
+    /// (`AppConfig::color_scheme`, `CallbackInfo::set_color_scheme`).
+    ///
+    /// A mirror of the app-global [`app_color_scheme`], seeded from it when
+    /// the window is built and updated when the app switches; the cascade
+    /// reads THIS through [`Self::window_theme_for`], never the global. See
+    /// [`resolve_window_theme`] for where it sits in the precedence.
+    pub color_scheme: azul_core::window::OptionWindowTheme,
     /// Pre-cascade fingerprints of the LAST adopted user DOM (two tiers:
     /// structure vs style — see `azul_core::diff::DomFingerprints`). The
     /// produce side of `regenerate_layout` compares the fresh callback DOM
@@ -2048,6 +2148,18 @@ impl LayoutWindow {
             return true;
         }
         if old.theme != new.theme {
+            // While the app pins its scheme (or `AZ_THEME` does), the
+            // desktop's light / dark is not this window's: what `layout()`
+            // reads as the theme is the pin, and the pin did not move. Weigh
+            // the rest of the change - the palette, fonts, metrics - as if the
+            // desktop had kept its polarity.
+            let pinned = self.color_scheme.is_some()
+                || azul_css::dynamic_selector::theme_pinned_by_env().is_some();
+            if pinned {
+                let mut same_polarity = new.clone();
+                same_polarity.theme = old.theme;
+                return self.system_style_change_needs_full_regeneration(old, &same_polarity);
+            }
             return true;
         }
 
@@ -2135,6 +2247,9 @@ impl LayoutWindow {
             depends_on_text_direction: false,
             locale_override: None,
             known_languages: azul_css::system::SystemLanguageVec::from_const_slice(&[]),
+            // The app's choice as it stands NOW: a window opened after a
+            // runtime switch starts in it.
+            color_scheme: app_color_scheme(),
             last_dom_fingerprints: None,
             frame_report_reset_request: core::sync::atomic::AtomicU64::new(0),
             #[cfg(feature = "pdf")]
@@ -5421,8 +5536,13 @@ impl LayoutWindow {
     /// a second, system-only context for the inherited text colour, which could
     /// disagree with the cascade's. One builder, used by both, is the fix.
     ///
-    /// `AZ_THEME` still outranks everything, or a pinned screenshot run would
-    /// follow the machine's theme again.
+    /// The app's colour-scheme choice ([`Self::color_scheme`]) outranks the
+    /// window's theme, and `AZ_THEME` outranks everything, or a pinned
+    /// screenshot run would follow the machine's theme again - both through
+    /// the one decision, [`Self::window_theme_for`]. The shells already write
+    /// the resolved theme into `window_state.theme`; resolving again here is
+    /// a no-op for them and keeps every other caller (a test, the E2E runner)
+    /// from bypassing the pin.
     #[must_use]
     pub fn dynamic_selector_context(
         &self,
@@ -5441,11 +5561,10 @@ impl LayoutWindow {
         // Both focus flags, read through the one helper: every backend
         // writes `window_focused`, only Win32 `flags.has_focus`.
         ctx.window_focused = window_state.is_window_active();
-        ctx.theme =
-            azul_css::dynamic_selector::theme_pinned_by_env().unwrap_or(match window_state.theme {
-                azul_core::window::WindowTheme::DarkMode => ThemeCondition::Dark,
-                azul_core::window::WindowTheme::LightMode => ThemeCondition::Light,
-            });
+        ctx.theme = match self.window_theme_for(window_state.theme) {
+            azul_core::window::WindowTheme::DarkMode => ThemeCondition::Dark,
+            azul_core::window::WindowTheme::LightMode => ThemeCondition::Light,
+        };
         // The `system:` palette follows the theme just chosen, not the
         // desktop's: a window the app pins light on a dark desktop must not
         // resolve `system:window-background` to the dark desktop's colour.
@@ -5457,6 +5576,44 @@ impl LayoutWindow {
             });
         }
         ctx
+    }
+
+    /// The light / dark this window shows when its own theme is `window`
+    /// (the desktop's, while the app follows it): the app's choice
+    /// ([`Self::color_scheme`]) and the `AZ_THEME` pin applied - see
+    /// [`resolve_window_theme`], of which this is the per-window call.
+    #[must_use]
+    pub fn window_theme_for(
+        &self,
+        window: azul_core::window::WindowTheme,
+    ) -> azul_core::window::WindowTheme {
+        resolve_window_theme(self.color_scheme, window)
+    }
+
+    /// Does a flip of this window's light / dark need its `layout()` to run
+    /// again, or only a restyle of the DOM it already has?
+    ///
+    /// The colour scheme is paint-only (theme-chain invariant I6): every
+    /// `@theme` rule, `prefers-color-scheme` block, `system:` colour and UA
+    /// default re-resolves on a restyle of the retained `StyledDom`. What a
+    /// restyle cannot redo is a DOM that `layout()` built FROM the scheme -
+    /// so, like `depends_on_locale` for a locale change, the answer is "did
+    /// the last `layout()` read it": `LayoutCallbackInfo::get_theme` records
+    /// [`SystemStyleDependency::Theme`](azul_core::callbacks::SystemStyleDependency::Theme),
+    /// `get_system_style` records `Everything`, which contains it.
+    ///
+    /// Reading the `LayoutCallbackInfo::theme` FIELD directly declares
+    /// nothing - the engine cannot see a field read - so a `layout()` that
+    /// branches on it must call `get_theme` instead.
+    ///
+    /// `true` as well while nothing has been laid out: there is no DOM to
+    /// restyle.
+    #[must_use]
+    pub fn color_scheme_change_needs_new_dom(&self) -> bool {
+        self.layout_results.is_empty()
+            || self
+                .recorded_style_dependencies
+                .contains(azul_core::callbacks::SystemStyleDependency::Theme)
     }
 
     /// The window was activated or deactivated: mirror that into
@@ -22515,6 +22672,8 @@ impl LayoutWindow {
             depends_on_text_direction: _,
             locale_override: _,
             known_languages: _,
+            // The app's colour-scheme choice, keyed by nothing.
+            color_scheme: _,
             // Pre-order hashes, positionally aligned with the NEXT produce's
             // flatten — never carries NodeIds.
             last_dom_fingerprints: _,

@@ -3506,6 +3506,26 @@ impl Runner {
                     ProcessEventResult::DoNothing
                 }
             }
+            CallbackChange::SetColorScheme { scheme } => {
+                // One window and no `layout()` callback: the choice is this
+                // window's, and a flip of what it shows is a restyle of the
+                // mounted DOM. The runner never publishes the app-global
+                // choice - scenarios run side by side in one process. Its
+                // "desktop" is its system style.
+                let desktop = match self.layout_window.system_style.as_deref().map(|s| s.theme)
+                {
+                    Some(azul_css::system::Theme::Dark) => azul_core::window::WindowTheme::DarkMode,
+                    _ => azul_core::window::WindowTheme::LightMode,
+                };
+                self.layout_window.color_scheme = *scheme;
+                let target = self.layout_window.window_theme_for(desktop);
+                if self.window_state.theme == target {
+                    ProcessEventResult::DoNothing
+                } else {
+                    self.window_state.theme = target;
+                    ProcessEventResult::ShouldIncrementalRelayout
+                }
+            }
         }
     }
 

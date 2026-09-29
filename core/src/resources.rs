@@ -1019,6 +1019,21 @@ pub struct AppConfig {
     /// no window. Declared on top of [`Self::global_hotkeys`]; see
     /// [`crate::global_hotkey::GlobalHotkeysCallbackType`] for when it runs.
     pub global_hotkeys_callback: crate::global_hotkey::OptionGlobalHotkeysCallback,
+    /// The app's colour scheme: `None` (the default) follows the desktop's
+    /// light / dark setting, and every change of it; `Some(theme)` pins every
+    /// window of the app to `theme`, whatever the desktop says.
+    ///
+    /// Switch it at runtime with `CallbackInfo::set_color_scheme` (every
+    /// window, and every window opened later); `CallbackInfo::get_color_scheme`
+    /// reads the choice back, `get_resolved_color_scheme` the light / dark it
+    /// gives. A switch is a restyle - colours only, the DOM is kept - unless a
+    /// `layout()` read the scheme (`LayoutCallbackInfo::get_theme`), which then
+    /// runs again. The `AZ_THEME=light|dark` environment pin (screenshots, CI)
+    /// outranks this; this outranks a window's own `WindowCreateOptions::theme`.
+    ///
+    /// 8 bytes, 4-aligned: it sits with the 4-byte enums below (a 4-byte
+    /// `repr(C)` enum here would leave 4 bytes of tail padding).
+    pub color_scheme: crate::window::OptionWindowTheme,
     /// If enabled, logs error and info messages.
     ///
     /// Default is `LevelFilter::Error` to log all errors by default
@@ -1136,6 +1151,21 @@ impl AppConfig {
             crate::global_hotkey::OptionGlobalHotkeysCallback::Some(cb.into());
     }
 
+    /// Start the app in a colour scheme: `Some(theme)` pins every window to
+    /// light or dark, `None` (the default) follows the desktop. See
+    /// [`Self::color_scheme`]; switch it later with
+    /// `CallbackInfo::set_color_scheme`.
+    #[must_use]
+    pub fn with_color_scheme(mut self, scheme: crate::window::OptionWindowTheme) -> Self {
+        self.set_color_scheme(scheme);
+        self
+    }
+
+    /// In-place [`Self::with_color_scheme`].
+    pub fn set_color_scheme(&mut self, scheme: crate::window::OptionWindowTheme) {
+        self.color_scheme = scheme;
+    }
+
     #[must_use]
     pub fn create() -> Self {
         let log_level = AppLogLevel::Error;
@@ -1176,6 +1206,8 @@ impl AppConfig {
                 &[],
             ),
             global_hotkeys_callback: crate::global_hotkey::OptionGlobalHotkeysCallback::None,
+            // Follow the desktop.
+            color_scheme: crate::window::OptionWindowTheme::None,
         };
         // Dogfood: register the 52 built-in HTML elements via the
         // same `add_component_library` API that users call.
