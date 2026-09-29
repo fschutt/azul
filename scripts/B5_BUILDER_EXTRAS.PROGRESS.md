@@ -23,14 +23,16 @@ Branch `wt/b5-builder-extras`, base `d240a1b1d`. Nothing is compiled here (house
 - 4 RED `367cf5065` (hierarchy scenario, node, smoke)
 - 4 GREEN `a2ec15ebd` markers answered as builder_uid (node 15/15, smoke 35/35)
 - 5 RED `c99da1d4a` (duplicate / save / load scenarios, node, smoke)
+- 5 GREEN `611a1d122` duplicate + document file (node 17/17, smoke 40/40)
+- Report `scripts/B5_BUILDER_EXTRAS_2026_09_29.md` (the commit after `611a1d122`)
 
 ## IN PROGRESS
 
-5. Duplicate + document file: implementation commit (this one).
+(nothing)
 
 ## NEXT
 
-the report `scripts/B5_BUILDER_EXTRAS_2026_09_29.md` `scripts/B5_BUILDER_EXTRAS_2026_09_29.md`.
+Parent: compile and run the commands in the report.
 
 ## Open questions
 
