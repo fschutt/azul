@@ -26,7 +26,7 @@ use alloc::{
 use core::{fmt, fmt::Write, hash::Hash};
 
 use azul_css::{
-    css::{Css, CssDeclaration, CssRuleBlock, NodeTypeTag},
+    css::{Css, CssRuleBlock, NodeTypeTag},
     parser2::{CssParseErrorOwned, ErrorLocation},
     props::{
         basic::{ColorU, StyleFontFamilyVec},
@@ -5299,8 +5299,10 @@ fn parse_svg_points(pts: &str, close: bool) -> Option<crate::svg::SvgMultiPolygo
 /// This is O(n) instead of O(n²) for large documents
 /// Apply the shared set of XML attributes onto a single [`NodeData`] node.
 ///
-/// Handles `<img src>` rebuild, `id`/`class`, `focusable`, `tabindex`, inline
-/// `style`, and SVG-shape geometry — the block that was previously duplicated
+/// Handles `<img src>` rebuild, every attribute of the ONE attribute table
+/// ([`attributes`]: `id`/`class`, `focusable`, `tabindex`, `contenteditable`,
+/// the typed attributes, `dir`, inline `style`), and SVG-shape geometry — the
+/// block that was previously duplicated
 /// verbatim between [`xml_node_to_dom_fast`] (operating on `dom.root`) and
 /// [`xml_node_to_fast_dom`] (operating on the arena `NodeData`). `component_name`
 /// must already be normalized (lowercased); the caller computes `child_inside_svg`.
@@ -5313,7 +5315,7 @@ fn apply_xml_node_attributes(
     component_name: &str,
     inside_svg: bool,
 ) {
-    use crate::dom::{IdOrClass, NodeType, TabIndex};
+    use crate::dom::NodeType;
 
     // `<img src="...">`: rebuild the placeholder Image node so its `NullImage`
     // carries the `src` string (as UTF-8 bytes in `tag`). The bytes are NOT
@@ -5356,100 +5358,10 @@ fn apply_xml_node_attributes(
         }
     }
 
-    // Set id and class attributes
-    let mut ids_and_classes = Vec::new();
-    if let Some(id_str) = xml_node.attributes.get_key("id") {
-        for id in id_str.split_whitespace() {
-            ids_and_classes.push(IdOrClass::Id(id.into()));
-        }
-    }
-    if let Some(class_str) = xml_node.attributes.get_key("class") {
-        for class in class_str.split_whitespace() {
-            ids_and_classes.push(IdOrClass::Class(class.into()));
-        }
-    }
-    if !ids_and_classes.is_empty() {
-        node.set_ids_and_classes(ids_and_classes.into());
-    }
-
-    // Handle focusable attribute
-    if let Some(focusable) = xml_node
-        .attributes
-        .get_key("focusable")
-        .and_then(|f| parse_bool(f.as_str()))
-    {
-        if focusable {
-            node.set_tab_index(TabIndex::Auto);
-        } else {
-            node.set_tab_index(TabIndex::NoKeyboardFocus);
-        }
-    }
-
-    if let Some(contenteditable) = xml_node
-        .attributes
-        .get_key("contenteditable")
-        .and_then(|f| parse_bool(f.as_str()))
-    {
-        node.set_contenteditable(contenteditable);
-    }
-
-    if xml_node.attributes.get_key("autofocus").is_some() {
-        let mut attrs = node.attributes().clone().into_library_owned_vec();
-        attrs.push(crate::dom::AttributeType::Autofocus);
-        node.set_attributes(attrs.into());
-    }
-
-    if let Some(placeholder) = xml_node.attributes.get_key("placeholder") {
-        let mut attrs = node.attributes().clone().into_library_owned_vec();
-        attrs.push(crate::dom::AttributeType::Placeholder(placeholder.as_str().into()));
-        node.set_attributes(attrs.into());
-    }
-
-    // Form controls: `type`, `value`, `min`, `checked`, ... onto the node as
-    // the typed attributes a `Dom::create_input(..).with_attribute(..)` would
-    // carry. Without them `<input type="range">` parsed to an Input with no
-    // type at all, so neither form validation nor the replacement by the
-    // matching widget (azul-layout's `form_controls`) could see what it was.
-    if is_form_control_tag(component_name) {
-        let form_attrs = form_control_attributes(xml_node);
-        if !form_attrs.is_empty() {
-            let mut attrs = node.attributes().clone().into_library_owned_vec();
-            attrs.extend(form_attrs);
-            node.set_attributes(attrs.into());
-        }
-    }
-
-    // Handle tabindex attribute
-    if let Some(tab_index) = xml_node
-        .attributes
-        .get_key("tabindex")
-        .and_then(|val| val.parse::<isize>().ok())
-    {
-        match tab_index {
-            0 => node.set_tab_index(TabIndex::Auto),
-            i if i > 0 => node.set_tab_index(TabIndex::OverrideInParent(
-                u32::try_from(i).unwrap_or(u32::MAX),
-            )),
-            _ => node.set_tab_index(TabIndex::NoKeyboardFocus),
-        }
-    }
-
-    // Table cell span attributes (`colspan` / `rowspan`).
-    apply_cell_span_attributes(node, xml_node);
-
-    // HTML `dir` attribute → the `direction` CSS property (dir="rtl"/"ltr"). Without
-    // this, dir="rtl" (the common way to set RTL in HTML) had no effect. Appended
-    // BEFORE the inline `style` below so author style still wins on equal specificity.
-    let dir_prop = xml_node.attributes.get_key("dir").and_then(|d| {
-        let v = d.as_str().trim();
-        if v.eq_ignore_ascii_case("rtl") {
-            Some(azul_css::props::style::StyleDirection::Rtl)
-        } else if v.eq_ignore_ascii_case("ltr") {
-            Some(azul_css::props::style::StyleDirection::Ltr)
-        } else {
-            None
-        }
-    });
+    // Every attribute that sets something on the node (ids, classes, focus,
+    // editing, typed attributes, the writing direction, the inline style):
+    // ONE table, `attributes`, which the code generator reads too.
+    let settings = attributes::node_settings(xml_node, component_name);
 
     // `<svg>`: its own viewport. Two things have to come off the element, and
     // both were being dropped.
@@ -5647,49 +5559,12 @@ fn apply_xml_node_attributes(
         );
     }
 
-    // Handle inline style attribute (and the mapped `dir` attribute above)
-    let style_attr = xml_node.attributes.get_key("style");
-    if style_attr.is_some() || dir_prop.is_some() || !intrinsic_props.is_empty() {
-        use azul_css::dynamic_selector::CssPropertyWithConditions;
-        let css_key_map = azul_css::props::property::get_css_key_map();
-        let mut props: Vec<CssPropertyWithConditions> = intrinsic_props;
-        if let Some(dir) = dir_prop {
-            props.push(CssPropertyWithConditions::simple(
-                azul_css::props::property::CssProperty::Direction(
-                    azul_css::css::CssPropertyValue::Exact(dir),
-                ),
-            ));
-        }
-        if let Some(style) = style_attr {
-            let mut attributes = Vec::new();
-            for s in style.as_str().split(';') {
-                let mut s = s.split(':');
-                let Some(key) = s.next() else {
-                    continue;
-                };
-                let Some(value) = s.next() else {
-                    continue;
-                };
-                // Called for its side effect (writes parsed props into `attributes`);
-                // the returned value is intentionally discarded.
-                drop(azul_css::parser2::parse_css_declaration(
-                    key.trim(),
-                    value.trim(),
-                    azul_css::parser2::ErrorLocationRange::default(),
-                    &css_key_map,
-                    &mut Vec::new(),
-                    &mut attributes,
-                ));
-            }
-            props.extend(attributes.into_iter().filter_map(|s| match s {
-                CssDeclaration::Static(s) => Some(CssPropertyWithConditions::simple(s)),
-                CssDeclaration::Dynamic(_) | CssDeclaration::CustomProperty(_) => None,
-            }));
-        }
-        if !props.is_empty() {
-            node.set_css_props(props.into());
-        }
-    }
+    // Land the table's settings: ids and classes, focus, the typed
+    // attributes, and ONE inline style - the intrinsic sizing above, the
+    // `dir` direction, then the `style` attribute (so author style wins).
+    attributes::apply_settings(node, settings, intrinsic_props, None, &mut |s: &str| {
+        AzString::from(s)
+    });
 
     // Handle SVG shape elements when inside an <svg> context
     let tag = component_name;
@@ -5869,119 +5744,6 @@ fn l10n_key_of(xml_node: &XmlNode) -> Option<&str> {
         .get_key("data-l10n")
         .map(AzString::as_str)
         .filter(|key| !key.is_empty())
-}
-
-/// The elements whose HTML attributes [`form_control_attributes`] reads.
-///
-/// `<button>` is here for its `type` / `name` / `value` / `disabled`: a
-/// `type="reset"` button is recognised by its `InputType` attribute alone.
-fn is_form_control_tag(component_name: &str) -> bool {
-    matches!(
-        component_name,
-        "input" | "select" | "option" | "optgroup" | "textarea" | "datalist" | "button"
-    )
-}
-
-/// A form element's HTML attributes as the typed `AttributeType`s the
-/// DOM builder API produces (`AttributeType::InputType`, `Min`, `Required`,
-/// ...), plus the ones with no typed variant (`size`, `rows`, `cols`,
-/// `multiple`, `accept`, `list`, `label`) as `Custom` and every `data-*` as
-/// `Data`.
-///
-/// Boolean attributes follow HTML - PRESENT means on, whatever the value -
-/// except that an explicit `"false"` means off, which is what an XML author
-/// writing `disabled="false"` meant. `id`, `class`, `style`, `tabindex`,
-/// `placeholder` and `autofocus` are handled by the caller for every element
-/// and are skipped here.
-fn form_control_attributes(xml_node: &XmlNode) -> Vec<crate::dom::AttributeType> {
-    use crate::dom::{AttributeNameValue, AttributeType as A};
-
-    let mut out = Vec::new();
-    for pair in xml_node.attributes.inner.iter() {
-        let key = pair.key.as_str().trim().to_ascii_lowercase();
-        let value = pair.value.as_str();
-        let on = !value.trim().eq_ignore_ascii_case("false");
-        let custom = |name: &str| {
-            A::Custom(AttributeNameValue {
-                attr_name: name.into(),
-                value: value.into(),
-            })
-        };
-        let attr = match key.as_str() {
-            "type" => A::InputType(value.trim().into()),
-            "name" => A::Name(value.into()),
-            "value" => A::Value(value.into()),
-            "min" => A::Min(value.into()),
-            "max" => A::Max(value.into()),
-            "step" => A::Step(value.into()),
-            "pattern" => A::Pattern(value.into()),
-            "autocomplete" => A::Autocomplete(value.into()),
-            "aria-label" => A::AriaLabel(value.into()),
-            "title" => A::Title(value.into()),
-            "alt" => A::Alt(value.into()),
-            "src" => A::Src(value.into()),
-            "minlength" => match value.trim().parse::<i32>() {
-                Ok(n) => A::MinLength(n),
-                Err(_) => continue,
-            },
-            "maxlength" => match value.trim().parse::<i32>() {
-                Ok(n) => A::MaxLength(n),
-                Err(_) => continue,
-            },
-            "required" if on => A::Required,
-            "disabled" if on => A::Disabled,
-            "readonly" if on => A::Readonly,
-            "selected" if on => A::Selected,
-            "checked" => {
-                if on {
-                    A::CheckedTrue
-                } else {
-                    A::CheckedFalse
-                }
-            }
-            "size" | "rows" | "cols" | "multiple" | "accept" | "list" | "label" | "wrap"
-            | "form" | "inputmode" | "dirname" | "capture" => custom(key.as_str()),
-            // `data-l10n` / `data-l10n-*` are the localization channel, read
-            // straight off the XML node elsewhere.
-            k if k.starts_with("data-") && !k.starts_with("data-l10n") => {
-                A::Data(AttributeNameValue {
-                    attr_name: k.into(),
-                    value: value.into(),
-                })
-            }
-            _ => continue,
-        };
-        out.push(attr);
-    }
-    out
-}
-
-/// Parse the HTML `colspan` / `rowspan` presentational attributes into
-/// `AttributeType`s on the node. The table layout reads them back via
-/// `get_cell_spans`. Without this the XML→DOM conversion dropped them and every
-/// cell defaulted to span 1, so `<th colspan="2">` only covered one column.
-/// Parsed unconditionally — non-cell elements simply don't carry these attributes.
-fn apply_cell_span_attributes(node: &mut crate::dom::NodeData, xml_node: &XmlNode) {
-    let mut spans = Vec::new();
-    if let Some(n) = xml_node
-        .attributes
-        .get_key("colspan")
-        .and_then(|v| v.as_str().trim().parse::<i32>().ok())
-    {
-        spans.push(crate::dom::AttributeType::ColSpan(n));
-    }
-    if let Some(n) = xml_node
-        .attributes
-        .get_key("rowspan")
-        .and_then(|v| v.as_str().trim().parse::<i32>().ok())
-    {
-        spans.push(crate::dom::AttributeType::RowSpan(n));
-    }
-    if !spans.is_empty() {
-        let mut v = node.attributes().clone().into_library_owned_vec();
-        v.extend(spans);
-        node.set_attributes(v.into());
-    }
 }
 
 #[allow(clippy::result_large_err)]
@@ -6724,6 +6486,11 @@ pub fn parse_bool(input: &str) -> Option<bool> {
         _ => None,
     }
 }
+
+/// ONE table: which XML attribute sets what on a node (the XML → DOM
+/// builders and the code generator both read it).
+#[path = "xml_attributes.rs"]
+pub mod attributes;
 
 #[cfg(test)]
 #[path = "xml_test.rs"]

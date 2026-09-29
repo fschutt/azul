@@ -7,7 +7,7 @@
 //! This module only DECIDES; it prints nothing. The decisions: the semantic /
 //! accessibility-aware constructor of an element (`analyze_node_ctor`), the
 //! zero-argument creator whitelist (`safe_container_tag`), and the CSS rule
-//! matching ([`CssMatcher`]) plus the `style` attribute (`node_inline_css`).
+//! matching ([`CssMatcher`]) plus the `style` attribute (`inline_css`).
 //!
 //! An element becomes `Dom::create_<x>(..)` followed by builder methods:
 //! `with_css` (every matching rule of the stylesheet, then the node's own
@@ -37,8 +37,15 @@
 //! [`lower_component_library`]). How code builds a component is its
 //! `ComponentDef::codegen` (`ComponentCodegen`).
 //!
-//! Not lowered yet: `tabindex`, `contenteditable`, `data-l10n`, images
-//! (`<img>` becomes a `div`) and event handlers.
+//! **Attributes.** What an attribute sets on a node comes from the ONE table
+//! the XML loaders use (`azul_core::xml::attributes`): ids / classes /
+//! `style` (+ `dir`) as above, the focus as `.with_tab_index(..)`,
+//! `contenteditable` as `.with_contenteditable(true)`, the typed attributes as
+//! `.with_attribute(AttributeType::..)` (after the element's constructor,
+//! without the attributes the constructor took). What code cannot say yet (a
+//! `data-l10n` text, a callback named in markup) is a note in the item's doc.
+//!
+//! Not lowered yet: images (`<img>` becomes a `div`).
 
 use alloc::{
     collections::BTreeMap,
@@ -51,7 +58,8 @@ use core::cell::RefCell;
 
 use azul_css::{
     codegen::ir::{
-        AppSpec, ComponentSpec, Expr, Ident, Item, ItemParam, LibrarySpec, Module, Prim,
+        AppSpec, ComponentSpec, EnumShape, Expr, Ident, Item, ItemParam, LibrarySpec, Module,
+        Prim,
     },
     css::{
         Css, CssDeclaration, CssPath, CssPathPseudoSelector, CssPathSelector, CssRuleBlock,
@@ -62,11 +70,12 @@ use azul_css::{
 
 use super::render_fn_name;
 use crate::{
-    dom::NodeType,
+    dom::{AttributeNameValue, AttributeType, NodeType, TabIndex},
     id::NodeId,
     styled_dom::StyledDom,
     window::{AzStringPair, StringPairVec},
     xml::{
+        attributes::{self, NodeSetting},
         element_draws_nothing, get_body_node, get_html_node, head_style_text, normalize_casing,
         tag_to_node_type, tag_to_node_type_tag, CompileError, ComponentCallCodegen,
         ComponentCodegen, ComponentDataField, ComponentDataModel, ComponentDef,
@@ -964,8 +973,35 @@ impl Lower<'_, '_> {
         };
         let mut e = self.ctor(tag, &analysed);
 
-        let ids = split_words(node.attributes.get_key("id"));
-        let classes = split_words(node.attributes.get_key("class"));
+        // What the attributes set, from the table the loaders use; the ones
+        // the constructor took are not set twice.
+        let taken = ctor_attributes(tag, &analysed);
+        let settings = attributes::ordered(node.attributes.as_slice().iter().filter_map(|p| {
+            let name = p.key.as_str().trim().to_ascii_lowercase();
+            if taken.contains(&name.as_str()) {
+                return None;
+            }
+            attributes::setting_of(tag, &name, p.value.as_str())
+        }));
+        let mut ids: Vec<String> = Vec::new();
+        let mut classes: Vec<String> = Vec::new();
+        let mut direction = None;
+        let mut style: Option<String> = None;
+        let mut calls: Vec<(&'static str, Expr)> = Vec::new();
+        for setting in settings {
+            match setting {
+                NodeSetting::Ids(v) => ids.extend(v.iter().map(|x| x.as_str().to_string())),
+                NodeSetting::Classes(v) => {
+                    classes.extend(v.iter().map(|x| x.as_str().to_string()));
+                }
+                NodeSetting::Direction(d) => direction = Some(d),
+                NodeSetting::Style(v) => style = Some(v.as_str().to_string()),
+                NodeSetting::TabIndex(t) => calls.push(("with_tab_index", tab_index_expr(t))),
+                NodeSetting::Editable => calls.push(("with_contenteditable", Expr::Bool(true))),
+                NodeSetting::Attribute(a) => calls.push(("with_attribute", attribute_expr(&a))),
+                NodeSetting::NotExported(why) => self.note(format!("<{tag}> {}", why.as_str())),
+            }
+        }
         matcher
             .path
             .push(CssPathSelector::Type(tag_to_node_type_tag(tag)));
@@ -976,7 +1012,11 @@ impl Lower<'_, '_> {
             .path
             .extend(classes.iter().map(|c| CssPathSelector::Class(c.clone().into())));
 
-        let css = node_inline_css(&get_css_blocks(self.css, &matcher), node);
+        let css = inline_css(
+            &get_css_blocks(self.css, &matcher),
+            direction,
+            style.as_deref(),
+        );
         if !css.is_empty() {
             e = with(e, "with_css", vec![Expr::str(&css)]);
         }
@@ -985,6 +1025,9 @@ impl Lower<'_, '_> {
         }
         for class in &classes {
             e = with(e, "with_class", vec![Expr::str(class)]);
+        }
+        for (method, arg) in calls {
+            e = with(e, method, vec![arg]);
         }
 
         if depth < MAX_XML_NESTING_DEPTH {
@@ -1095,12 +1138,12 @@ impl Lower<'_, '_> {
         matcher
             .path
             .extend(classes.iter().map(|c| CssPathSelector::Class(c.clone().into())));
-        let blocks = get_css_blocks(self.css, &matcher);
-        let css = if is_field("style") {
-            css_blocks_to_inline_string(&blocks)
+        let style = if is_field("style") {
+            None
         } else {
-            node_inline_css(&blocks, node)
+            node.attributes.get_key("style").map(|s| s.as_str())
         };
+        let css = inline_css(&get_css_blocks(self.css, &matcher), None, style);
         if !css.is_empty() {
             e = with(e, "with_css", vec![Expr::str(&css)]);
         }
@@ -1469,20 +1512,30 @@ fn css_blocks_to_inline_string(blocks: &[CssBlock]) -> String {
 }
 
 /// The inline CSS of an exported node: the stylesheet rules that match it
-/// (`css_blocks_to_inline_string`), then its own `style` attribute — last, so
-/// it wins like an inline style does. The attribute's whitespace is collapsed
-/// to single spaces: a newline inside a C / C++ / Python string literal would
-/// not compile.
-fn node_inline_css(blocks: &[CssBlock], node: &XmlNode) -> String {
+/// (`css_blocks_to_inline_string`), its writing direction (`dir`), then its
+/// own `style` attribute — last, so it wins like an inline style does (the
+/// order the XML loaders apply them in, `xml::attributes::apply_settings`).
+/// The attribute's whitespace is collapsed to single spaces: a newline inside
+/// a C / C++ / Python string literal would not compile.
+fn inline_css(
+    blocks: &[CssBlock],
+    direction: Option<azul_css::props::style::StyleDirection>,
+    style: Option<&str>,
+) -> String {
     let mut css = css_blocks_to_inline_string(blocks);
-    if let Some(style) = node.attributes.get_key("style") {
-        let style = style.as_str().split_whitespace().collect::<Vec<_>>().join(" ");
-        if !style.is_empty() {
+    let mut push = |part: &str| {
+        if !part.is_empty() {
             if !css.is_empty() {
                 css.push(' ');
             }
-            css.push_str(&style);
+            css.push_str(part);
         }
+    };
+    if let Some(d) = direction {
+        push(&attributes::direction_css(d));
+    }
+    if let Some(style) = style {
+        push(&style.split_whitespace().collect::<Vec<_>>().join(" "));
     }
     css
 }
@@ -2070,6 +2123,118 @@ impl NodeCtor {
                 ..
             }
         )
+    }
+}
+
+// ===========================================================================
+// Attributes as builder calls
+// ===========================================================================
+
+/// The attributes an element's constructor takes as arguments
+/// (`analyze_node_ctor`): the table's settings of them are not written
+/// again as builder calls.
+fn ctor_attributes(tag: &str, ctor: &NodeCtor) -> &'static [&'static str] {
+    if matches!(ctor, NodeCtor::Plain) {
+        return &[];
+    }
+    match tag {
+        "a" => &["href", "aria-label"],
+        "label" => &["for", "aria-label"],
+        "input" => &["type", "name", "aria-label"],
+        "textarea" | "select" => &["name", "aria-label"],
+        "option" => &["value", "aria-label"],
+        "optgroup" => &["label", "aria-label"],
+        "progress" => &["value", "max"],
+        "meter" => &["value", "min", "max"],
+        _ => &["aria-label"],
+    }
+}
+
+/// A `TabIndex` value in api.json vocabulary.
+fn tab_index_expr(t: TabIndex) -> Expr {
+    match t {
+        TabIndex::Auto => Expr::unit("TabIndex", EnumShape::Tagged, "Auto"),
+        TabIndex::OverrideInParent(n) => Expr::variant(
+            "TabIndex",
+            EnumShape::Tagged,
+            "OverrideInParent",
+            vec![Expr::int(i128::from(n), Prim::U32)],
+        ),
+        TabIndex::NoKeyboardFocus => Expr::unit("TabIndex", EnumShape::Tagged, "NoKeyboardFocus"),
+    }
+}
+
+/// An `AttributeType` value in api.json vocabulary.
+fn attribute_expr(a: &AttributeType) -> Expr {
+    fn v(variant: &str, args: Vec<Expr>) -> Expr {
+        Expr::variant("AttributeType", EnumShape::Tagged, variant, args)
+    }
+    fn unit(variant: &str) -> Expr {
+        Expr::unit("AttributeType", EnumShape::Tagged, variant)
+    }
+    fn text(variant: &str, s: &AzString) -> Expr {
+        v(variant, vec![Expr::str(s.as_str())])
+    }
+    fn pair(variant: &str, nv: &AttributeNameValue) -> Expr {
+        v(
+            variant,
+            vec![Expr::strukt(
+                "AttributeNameValue",
+                vec![
+                    ("attr_name", Expr::str(nv.attr_name.as_str())),
+                    ("value", Expr::str(nv.value.as_str())),
+                ],
+            )],
+        )
+    }
+    fn int(variant: &str, n: i32) -> Expr {
+        v(variant, vec![Expr::int(i128::from(n), Prim::I32)])
+    }
+    match a {
+        AttributeType::Id(s) => text("Id", s),
+        AttributeType::Class(s) => text("Class", s),
+        AttributeType::AriaLabel(s) => text("AriaLabel", s),
+        AttributeType::AriaLabelledBy(s) => text("AriaLabelledBy", s),
+        AttributeType::AriaDescribedBy(s) => text("AriaDescribedBy", s),
+        AttributeType::AriaRole(s) => text("AriaRole", s),
+        AttributeType::AriaState(nv) => pair("AriaState", nv),
+        AttributeType::AriaProperty(nv) => pair("AriaProperty", nv),
+        AttributeType::Href(s) => text("Href", s),
+        AttributeType::Rel(s) => text("Rel", s),
+        AttributeType::Target(s) => text("Target", s),
+        AttributeType::Src(s) => text("Src", s),
+        AttributeType::Alt(s) => text("Alt", s),
+        AttributeType::Title(s) => text("Title", s),
+        AttributeType::Name(s) => text("Name", s),
+        AttributeType::Value(s) => text("Value", s),
+        AttributeType::InputType(s) => text("InputType", s),
+        AttributeType::Placeholder(s) => text("Placeholder", s),
+        AttributeType::Required => unit("Required"),
+        AttributeType::Disabled => unit("Disabled"),
+        AttributeType::Readonly => unit("Readonly"),
+        AttributeType::CheckedTrue => unit("CheckedTrue"),
+        AttributeType::CheckedFalse => unit("CheckedFalse"),
+        AttributeType::Selected => unit("Selected"),
+        AttributeType::Max(s) => text("Max", s),
+        AttributeType::Min(s) => text("Min", s),
+        AttributeType::Step(s) => text("Step", s),
+        AttributeType::Pattern(s) => text("Pattern", s),
+        AttributeType::MinLength(n) => int("MinLength", *n),
+        AttributeType::MaxLength(n) => int("MaxLength", *n),
+        AttributeType::Autocomplete(s) => text("Autocomplete", s),
+        AttributeType::Scope(s) => text("Scope", s),
+        AttributeType::ColSpan(n) => int("ColSpan", *n),
+        AttributeType::RowSpan(n) => int("RowSpan", *n),
+        AttributeType::TabIndex(n) => int("TabIndex", *n),
+        AttributeType::Focusable => unit("Focusable"),
+        AttributeType::Autofocus => unit("Autofocus"),
+        AttributeType::Lang(s) => text("Lang", s),
+        AttributeType::Dir(s) => text("Dir", s),
+        AttributeType::ContentEditable(b) => v("ContentEditable", vec![Expr::Bool(*b)]),
+        AttributeType::Draggable(b) => v("Draggable", vec![Expr::Bool(*b)]),
+        AttributeType::Hidden => unit("Hidden"),
+        AttributeType::Data(nv) => pair("Data", nv),
+        AttributeType::Custom(nv) => pair("Custom", nv),
     }
 }
 

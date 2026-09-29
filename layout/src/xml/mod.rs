@@ -365,7 +365,7 @@ fn parse_xml_to_fast_dom_with_css(
     xml: &str,
 ) -> Result<(azul_core::dom::FastDom, Vec<Css>), XmlError> {
     use azul_core::{
-        dom::{IdOrClass, NodeData, NodeType, TabIndex},
+        dom::{NodeData, NodeType},
         xml::CompactDomBuilder,
     };
     use xmlparser::{
@@ -469,9 +469,10 @@ fn parse_xml_to_fast_dom_with_css(
                 _ => None,
             };
 
-            // Apply attributes — build AttributeTypeVec directly (avoids the
-            // clone + retain dance in set_ids_and_classes for fresh NodeData).
+            // `attr_vec`: what the popup config leaves on the node
+            // (`tearoff-zone`); `settings`: every other attribute.
             let mut attr_vec: Vec<azul_core::dom::AttributeType> = Vec::new();
+            let mut settings: Vec<(u8, azul_core::xml::attributes::NodeSetting)> = Vec::new();
             for (key, value) in attrs {
                 if let Some(cfg) = transient_cfg.as_mut() {
                     if cfg.apply_attr(key.as_str(), value.as_str()) {
@@ -492,103 +493,21 @@ fn parse_xml_to_fast_dom_with_css(
                         continue;
                     }
                 }
-                match key.as_str() {
-                    "id" => {
-                        for id in value.split_whitespace() {
-                            attr_vec.push(azul_core::dom::AttributeType::Id(str_arena.intern(id)));
-                        }
-                    }
-                    "class" => {
-                        for class in value.split_whitespace() {
-                            attr_vec.push(azul_core::dom::AttributeType::Class(
-                                str_arena.intern(class),
-                            ));
-                        }
-                    }
-                    "focusable" => {
-                        if let Some(f) = parse_bool(value.as_str()) {
-                            nd.set_tab_index(if f {
-                                TabIndex::Auto
-                            } else {
-                                TabIndex::NoKeyboardFocus
-                            });
-                        }
-                    }
-                    "tabindex" => {
-                        if let Ok(ti) = value.parse::<isize>() {
-                            match ti {
-                                0 => nd.set_tab_index(TabIndex::Auto),
-                                i if i > 0 => {
-                                    nd.set_tab_index(TabIndex::OverrideInParent(i as u32));
-                                }
-                                _ => nd.set_tab_index(TabIndex::NoKeyboardFocus),
-                            }
-                        }
-                    }
-                    "style" => {
-                        let mut css_attrs = Vec::new();
-                        for s in value.split(';') {
-                            let mut s = s.split(':');
-                            let Some(key) = s.next() else { continue };
-                            let Some(val) = s.next() else { continue };
-                            // Called for its side effect (writes parsed props into
-                            // `css_attrs`); the returned value is intentionally discarded.
-                            drop(azul_css::parser2::parse_css_declaration(
-                                key.trim(),
-                                val.trim(),
-                                azul_css::parser2::ErrorLocationRange::default(),
-                                css_key_map,
-                                &mut Vec::new(),
-                                &mut css_attrs,
-                            ));
-                        }
-                        let props = css_attrs
-                            .into_iter()
-                            .filter_map(|s| {
-                                use azul_css::{
-                                    css::CssDeclaration,
-                                    dynamic_selector::CssPropertyWithConditions,
-                                };
-                                match s {
-                                    CssDeclaration::Static(s) => {
-                                        Some(CssPropertyWithConditions::simple(s))
-                                    }
-                                    CssDeclaration::Dynamic(_)
-                                    | CssDeclaration::CustomProperty(_) => None,
-                                }
-                            })
-                            .collect::<Vec<_>>();
-                        if !props.is_empty() {
-                            nd.set_css_props(props.into());
-                        }
-                    }
-                    // Boolean attribute: presence is the value, as in HTML.
-                    "autofocus" => attr_vec.push(azul_core::dom::AttributeType::Autofocus),
-                    "placeholder" => attr_vec.push(azul_core::dom::AttributeType::Placeholder(
-                        value.clone().into(),
-                    )),
-                    "contenteditable" => {
-                        match parse_bool(value.as_str()) {
-                            Some(true) => nd.set_contenteditable(true),
-                            // An explicit `false` is NOT "no attribute": inside an
-                            // editable host it walls its subtree off (HTML's
-                            // inheritance rule, `is_node_contenteditable_inherited`)
-                            // and keeps that subtree out of the host's edit buffer
-                            // and out of the block the edit is shaped into. Dropped
-                            // here, a mounted `<p contenteditable="false">` island
-                            // behaved like any other child — the Rust API's
-                            // `with_attribute(ContentEditable(false))` and the HTML
-                            // loader disagreed on the same document.
-                            Some(false) => {
-                                attr_vec
-                                    .push(azul_core::dom::AttributeType::ContentEditable(false));
-                            }
-                            None => {}
-                        }
-                    }
-                    _ => {}
+                // Every other attribute through the ONE table core's loader and
+                // the code generator read too (`azul_core::xml::attributes`).
+                if let Some(setting) =
+                    azul_core::xml::attributes::setting_of(tag, key.as_str(), value.as_str())
+                {
+                    settings.push(setting);
                 }
             }
+            azul_core::xml::attributes::apply_settings(
+                &mut nd,
+                azul_core::xml::attributes::ordered(settings.into_iter()),
+                Vec::new(),
+                Some(css_key_map),
+                &mut |s: &str| str_arena.intern(s),
+            );
 
             // ---- Fluent / l10n handling ----
             // `<p data-l10n="greeting_key" data-l10n-name="Alice">` stays a
@@ -613,7 +532,9 @@ fn parse_xml_to_fast_dom_with_css(
             }
 
             if !attr_vec.is_empty() {
-                nd.set_attributes(attr_vec.into());
+                let mut all = nd.attributes().clone().into_library_owned_vec();
+                all.extend(attr_vec);
+                nd.set_attributes(all.into());
             }
             // Write the parsed popup config back into the node's payload.
             if let Some(cfg) = transient_cfg {
