@@ -77,10 +77,15 @@ is shared with other agents!). Append to files via Write-to-scratch + `cat >>`.
   chevron separator). API: `Breadcrumb.theme` appended after
   `container_style`; set_theme / with_theme.
 
+- accordion: 3ce4acd09 (plumbing: AccordionLook + accordion::build;
+  decl::focus_halo_inset), a48742efe (RED), 7c69e9d8e (flat hover + inset
+  ring; flora FAQ list). API: `Accordion.theme` appended after `on_toggle`;
+  set_theme / with_theme.
+
 ## IN PROGRESS
 
 ## NEXT
-accordion, menubar, color_input, date_picker
+menubar, color_input, date_picker
 
 ## Open questions
 - ENGINE GAP (spinner): `-azul-animation-in` tracks are started only by
