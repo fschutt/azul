@@ -52,10 +52,13 @@ AzClock alarms / scheduled notifications: NOT IN SCOPE (separate feature).
 
 - `a33e1365d` RED (item 1): `doc/src/bundle.rs` pure half stubbed + 11 unit tests, `pub mod bundle` in main.rs
 
+- `9dd190762` feat (item 1): `azul-doc bundle macos` (pure half + command + dispatch/help); the
+  unbundled reason names it
+
 ## 4. IN PROGRESS
 
-- 1 fix: implement the pure half + the `bundle macos` command (dispatch + help in main.rs); the
-  unbundled reason in `apple.rs` names the command
+- residuals of the DONE items: macOS category race (apple.rs), iOS launched_app, Android
+  requestPermissions thread - decide fix vs plan
 
 ## 5. Open questions
 
