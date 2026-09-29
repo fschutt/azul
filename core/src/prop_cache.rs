@@ -1595,17 +1595,19 @@ impl CssPropertyCache {
         // exactly as if absent, and `StyledDom::set_dynamic_selector_context`
         // re-runs the cascade when the context changes and the author css
         // has conditional rules. With NO context yet (a StyledDom no window
-        // has adopted), conditional rules do not apply — the same behaviour
-        // inline conditional properties have always had. (Until 2026-08-10
+        // has adopted), conditional rules do not apply - except the app
+        // theme's own `@theme(<name>)` blocks (`condition_holds`), the same
+        // rule inline conditional properties follow. (Until 2026-08-10
         // these conditions were silently IGNORED: an author
         // `@media (max-width: 720px)` block applied at every viewport.)
         let dyn_ctx = self.dynamic_context.clone();
+        let no_context_theme = dyn_ctx.is_none().then(crate::app_theme::current_theme);
         let rule_applies = |conds: &azul_css::dynamic_selector::DynamicSelectorVec| -> bool {
             let cs = conds.as_slice();
             cs.is_empty()
-                || dyn_ctx
-                    .as_deref()
-                    .is_some_and(|c| cs.iter().all(|sel| sel.matches(c)))
+                || cs.iter().all(|sel| {
+                    condition_holds(dyn_ctx.as_deref(), no_context_theme.as_ref(), sel)
+                })
         };
 
         // Re-enter build phase before repopulating. restyle() is not
@@ -2815,6 +2817,7 @@ impl CssPropertyCache {
         // they had before contexts were wired through, so creation-time
         // styling is unchanged.
         let ctx = self.dynamic_context.as_deref();
+        let no_context_theme = ctx.is_none().then(crate::app_theme::current_theme);
         let matches_pseudo_state = |conds: &azul_css::dynamic_selector::DynamicSelectorVec,
                                     state: PseudoStateType|
          -> bool {
@@ -2824,7 +2827,7 @@ impl CssPropertyCache {
             } else {
                 conditions.iter().all(|c| match c {
                     DynamicSelector::PseudoState(s) => *s == state,
-                    non_pseudo => ctx.is_some_and(|ctx| non_pseudo.matches(ctx)),
+                    non_pseudo => condition_holds(ctx, no_context_theme.as_ref(), non_pseudo),
                 })
             }
         };
@@ -5419,3 +5422,20 @@ impl CssPropertyCache {
 #[cfg(test)]
 #[path = "prop_cache_test.rs"]
 mod prop_cache_test;
+
+/// Whether a non-pseudo condition holds for a `StyledDom`: against the
+/// window's context, or - for a `StyledDom` no window has adopted yet -
+/// only the app theme the DOM is built for
+/// ([`DynamicSelector::matches_without_context`]). The ONE rule the property
+/// cache and the compact cache share, so the two paths cannot disagree.
+#[inline]
+pub(crate) fn condition_holds(
+    ctx: Option<&azul_css::dynamic_selector::DynamicSelectorContext>,
+    no_context_theme: Option<&azul_css::AzString>,
+    condition: &azul_css::dynamic_selector::DynamicSelector,
+) -> bool {
+    match ctx {
+        Some(ctx) => condition.matches(ctx),
+        None => no_context_theme.is_some_and(|t| condition.matches_without_context(t.as_str())),
+    }
+}

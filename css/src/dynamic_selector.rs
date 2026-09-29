@@ -1817,6 +1817,20 @@ impl EnvVariable {
 }
 
 impl DynamicSelector {
+    /// Whether this condition holds for a `StyledDom` no window has adopted
+    /// yet (no [`DynamicSelectorContext`]: headless styling, PDF export, a
+    /// test), built for the app theme `app_theme`: only that theme's
+    /// `@theme(<name>)` does. A widget that follows the app theme carries
+    /// every theme's block, so without this rule it lost its whole themed
+    /// look outside a window (a menubar's `display: flex` sits in its
+    /// `@theme(flat)` block). Every other condition needs the window -
+    /// viewport, OS, mode, container - and does not hold, as before contexts
+    /// were wired through.
+    #[must_use]
+    pub fn matches_without_context(&self, app_theme: &str) -> bool {
+        matches!(self, Self::Theme(ThemeCondition::Custom(name)) if name.as_str() == app_theme)
+    }
+
     /// Check if this selector matches in the given context
     #[must_use]
     pub fn matches(&self, ctx: &DynamicSelectorContext) -> bool {

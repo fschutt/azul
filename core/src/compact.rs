@@ -922,6 +922,10 @@ impl CssPropertyCache {
 
             // Scan inline CSS (node_data.style — typically 0-3 properties).
             // Inline CSS has highest specificity — applied last to override stylesheet.
+            let no_context_theme = self
+                .dynamic_context
+                .is_none()
+                .then(crate::app_theme::current_theme);
             for (prop, conds) in nd.style.iter_inline_properties() {
                 // Apply when the conditions hold for the RESTING state:
                 // pseudo-state conditions must be Normal, and every other
@@ -957,9 +961,11 @@ impl CssPropertyCache {
                                     .inline_viewport_h
                                     .extend(h.into_iter().map(f32::to_bits));
                             }
-                            self.dynamic_context
-                                .as_deref()
-                                .is_some_and(|ctx| non_pseudo.matches(ctx))
+                            crate::prop_cache::condition_holds(
+                                self.dynamic_context.as_deref(),
+                                no_context_theme.as_ref(),
+                                non_pseudo,
+                            )
                         }
                     });
                 if !is_normal {
