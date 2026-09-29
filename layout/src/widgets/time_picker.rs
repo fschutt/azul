@@ -8,6 +8,11 @@
 //! `0..=59`), updates the state, retexts the display node via
 //! `info.change_node_text`, and invokes the optional `on_change(state)`.
 //!
+//! From the keyboard each column is a SPIN BUTTON (WAI-ARIA APG spinbutton):
+//! the column is ONE Tab stop whose value Up / Down, PageUp / PageDown and
+//! Home / End change, through the same clamp + retext + `on_change` a click
+//! takes. The arrows are click targets only, no Tab stops.
+//!
 //! The clamping/retext path mirrors `number_input.rs` (a proven pattern) and the
 //! clickable-cell + sibling navigation mirrors `segmented.rs`, so this widget is
 //! well-supported. The only deliberate behaviour note:
@@ -226,8 +231,8 @@ const ACCENT_BG_VEC: StyleBackgroundContentVec =
 // `*_STYLE` statics for flat (`themes::flat::time_picker_skin`), and
 // `themes::flora::time_picker_skin` for flora. The base comes first in every
 // theme, so an unpinned picker (`follow_skin`) declares it once, outside
-// every `@theme` block. The spinner column has no skin: `SPINNER_STYLE` is
-// its whole style in every theme.
+// every `@theme` block. The spinner column is `SPINNER_STYLE` in every theme;
+// a theme adds only its focus ring (the column is the spin button).
 
 /// The frame's structure: a horizontal row that hugs its content (the parent
 /// decides where it goes, `align-self: start`).
@@ -440,10 +445,11 @@ pub(crate) struct TimePickerSkin {
     pub theme: UiTheme,
     /// The frame, unless the app brings a container style.
     pub container: CssPropertyWithConditionsVec,
-    /// One spinner column.
+    /// One spinner column - the spin button, the Tab stop, so it owes the
+    /// focus ring.
     pub spinner: CssPropertyWithConditionsVec,
-    /// An up / down arrow - a focusable button, so it owes the focus ring.
-    /// Every theme keeps its 40x16 hit box.
+    /// An up / down arrow - a click target, no Tab stop. Every theme keeps
+    /// its 40x16 hit box.
     pub arrow: CssPropertyWithConditionsVec,
     /// The value readout.
     pub display: CssPropertyWithConditionsVec,
@@ -644,6 +650,7 @@ impl TimePicker {
                 on_hour_up as usize,
                 on_hour_down as usize,
                 on_hour_scroll as usize,
+                on_hour_key as usize,
                 "hour",
                 &skin,
             ),
@@ -656,6 +663,7 @@ impl TimePicker {
                 on_minute_up as usize,
                 on_minute_down as usize,
                 on_minute_scroll as usize,
+                on_minute_key as usize,
                 "minute",
                 &skin,
             ),
@@ -685,7 +693,7 @@ impl TimePicker {
                         .into(),
                     )
                     .with_tab_index(TabIndex::Auto)
-                    // Hour/minute steppers act as buttons.
+                    // The AM/PM toggle is a button (a Tab stop of its own).
                     .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
                         role: azul_core::a11y::AccessibilityRole::PushButton,
                         ..Default::default()
@@ -717,6 +725,7 @@ fn build_spinner(
     up_cb: usize,
     down_cb: usize,
     scroll_cb: usize,
+    key_cb: usize,
     unit: &str,
 ) -> Dom {
     build_spinner_skinned(
@@ -725,6 +734,7 @@ fn build_spinner(
         up_cb,
         down_cb,
         scroll_cb,
+        key_cb,
         unit,
         &skin_for(UiTheme::Flat),
     )
@@ -734,16 +744,23 @@ fn build_spinner(
 /// down arrows carry the shared `state` `RefAny` and the given click handlers; the
 /// middle display is class-tagged so handlers can re-text it. `skin` styles the
 /// column, the arrows and the readout.
+///
+/// The COLUMN is a spin button (WAI-ARIA APG): the one Tab stop, named for its
+/// `unit` ("Hour"), carrying its value and the keys (`key_cb`, see
+/// [`spin_on_key`]). The arrows are click targets only - no Tab stops; a click
+/// on one focuses its column, the nearest focusable ancestor of the click.
+#[allow(clippy::too_many_arguments)] // one column: its value, state, four handlers, unit and skin
 fn build_spinner_skinned(
     value: AzString,
     state: RefAny,
     up_cb: usize,
     down_cb: usize,
     scroll_cb: usize,
+    key_cb: usize,
     unit: &str,
     skin: &TimePickerSkin,
 ) -> Dom {
-    use azul_core::dom::{EventFilter, HoverEventFilter};
+    use azul_core::dom::{EventFilter, FocusEventFilter, HoverEventFilter};
 
     let arrow_cell = |arrow: AzString, name: String, cb: usize, refany: RefAny| -> Dom {
         crate::widgets::widget_p_with_text(arrow)
@@ -760,7 +777,7 @@ fn build_spinner_skinned(
                 }]
                 .into(),
             )
-            .with_tab_index(TabIndex::Auto)
+            // No tab index: the column is the spin button's one Tab stop.
             // A stepper arrow IS a button. It used to declare `ComboBox` (the
             // comment "the time field opens a chooser" belongs to a field, not
             // to an arrow) — a screen reader announced a combo box that offered
@@ -773,23 +790,47 @@ fn build_spinner_skinned(
             })
     };
 
+    // "hour" -> "Hour": what the column is called.
+    let mut column_name = String::from(unit);
+    if let Some(first) = column_name.get_mut(..1) {
+        first.make_ascii_uppercase();
+    }
+
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(SPINNER_CLASS))
         .with_css_props(skin.spinner.clone())
         // The WHOLE column takes the wheel, not just the arrows: spinning the
         // hours by pointing at them is what a native time field does, and the
-        // arrows are far too small to aim a gesture at.
+        // arrows are far too small to aim a gesture at. And it takes the
+        // keys: it is the spin button.
         .with_callbacks(
-            alloc::vec![CoreCallbackData {
-                event: EventFilter::Hover(HoverEventFilter::Scroll),
-                callback: CoreCallback {
-                    cb: scroll_cb,
-                    ctx: OptionRefAny::None,
+            alloc::vec![
+                CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::Scroll),
+                    callback: CoreCallback {
+                        cb: scroll_cb,
+                        ctx: OptionRefAny::None,
+                    },
+                    refany: state.clone(),
                 },
-                refany: state.clone(),
-            }]
+                CoreCallbackData {
+                    event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                    callback: CoreCallback {
+                        cb: key_cb,
+                        ctx: OptionRefAny::None,
+                    },
+                    refany: state.clone(),
+                },
+            ]
             .into(),
         )
+        .with_tab_index(TabIndex::Auto)
+        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+            role: azul_core::a11y::AccessibilityRole::SpinButton,
+            accessibility_name: Some(AzString::from(column_name)).into(),
+            accessibility_value: Some(value.clone()).into(),
+            ..Default::default()
+        })
         .with_children(
             alloc::vec![
                 arrow_cell(UP_ARROW, format!("Increase {unit}"), up_cb, state.clone()),
@@ -867,8 +908,68 @@ fn adjust_spinner_at(
         (update, display_text)
     };
 
-    info.change_node_text(display, display_text);
+    info.change_node_text(display, display_text.clone());
+    // The column is a spin button and its value is live: announced whichever
+    // way it changed (an arrow, the wheel, a key) - no rebuild follows.
+    info.set_accessibility_value(spinner, display_text);
     update
+}
+
+/// How far PageUp / PageDown move the hour column: the spin button's "larger
+/// step" (WAI-ARIA APG) - two hours, as react-aria's time field steps.
+const PAGE_STEP_HOURS: i64 = 2;
+
+/// How far PageUp / PageDown move the minute column: a quarter hour.
+const PAGE_STEP_MINUTES: i64 = 15;
+
+/// A delta past both ends of every band, however far out of range a
+/// hand-written state is: Home / End hand it to the clamp, which lands on the
+/// band's end. Small enough that `i64::from(u32::MAX) + TO_THE_END` cannot
+/// overflow.
+const TO_THE_END: i64 = 1 << 40;
+
+/// A column is a SPIN BUTTON (WAI-ARIA APG spinbutton): ONE Tab stop whose
+/// value the keys change - Up / Down by one, PageUp / PageDown by the large
+/// step, Home / End to the ends of its band - through the very body an arrow
+/// click and the wheel take ([`adjust_spinner_at`]: clamp, retext, announce,
+/// `on_change`, which also fires for a step clamped away, as a click does).
+/// A handled key's default (spatial navigation, scrolling) is cancelled, also
+/// at an end, so Up / Down never walk out of the column. Every other key, and
+/// every key held with Alt, Ctrl, Cmd or Shift, keeps its default
+/// (`roving::plain_key`, as the stepper's spin button). Focus stays on the
+/// column.
+fn spin_on_key(mut data: RefAny, mut info: CallbackInfo, is_hour: bool) -> Update {
+    use azul_core::window::VirtualKeyCode as K;
+
+    let page = if is_hour {
+        PAGE_STEP_HOURS
+    } else {
+        PAGE_STEP_MINUTES
+    };
+    let delta = match crate::widgets::roving::plain_key(&info.get_current_keyboard_state()) {
+        Some(K::Up) => 1,
+        Some(K::Down) => -1,
+        Some(K::PageUp) => page,
+        Some(K::PageDown) => -page,
+        Some(K::Home) => -TO_THE_END,
+        Some(K::End) => TO_THE_END,
+        _ => return Update::DoNothing,
+    };
+    // Not our state (or already borrowed): leave the key alone.
+    if data.downcast_ref::<TimePickerStateWrapper>().is_none() {
+        return Update::DoNothing;
+    }
+    info.prevent_default();
+    let column = info.get_hit_node();
+    adjust_spinner_at(data, info, column, is_hour, delta)
+}
+
+extern "C" fn on_hour_key(data: RefAny, info: CallbackInfo) -> Update {
+    spin_on_key(data, info, true)
+}
+
+extern "C" fn on_minute_key(data: RefAny, info: CallbackInfo) -> Update {
+    spin_on_key(data, info, false)
 }
 
 /// How much wheel travel advances the spinner by one unit.
@@ -2602,7 +2703,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_wires_each_of_the_five_handlers_exactly_once() {
+    fn dom_wires_each_of_the_seven_handlers_exactly_once() {
         let styled = StyledDom::create_from_dom(TimePicker::create(8, 8).with_24h(false).dom());
         for (name, handler) in [
             ("on_hour_up", on_hour_up as usize),
@@ -2610,6 +2711,8 @@ mod autotest_generated {
             ("on_minute_up", on_minute_up as usize),
             ("on_minute_down", on_minute_down as usize),
             ("on_ampm_toggle", on_ampm_toggle as usize),
+            ("on_hour_key", on_hour_key as usize),
+            ("on_minute_key", on_minute_key as usize),
         ] {
             let count = styled
                 .node_data
@@ -2873,6 +2976,7 @@ mod autotest_generated {
                 up,
                 down,
                 on_hour_scroll as usize,
+                on_hour_key as usize,
                 "hour",
             );
             let cells = dom.children.as_ref();
@@ -2898,6 +3002,7 @@ mod autotest_generated {
             1,
             2,
             on_hour_scroll as usize,
+            on_hour_key as usize,
             "hour",
         );
         assert_eq!(classes(&dom), vec![CLASS_SPINNER.to_string()]);
@@ -2931,7 +3036,7 @@ mod autotest_generated {
             long,
         ];
         for v in values {
-            let dom = build_spinner(AzString::from(v.clone()), RefAny::new(0u8), 1, 2, 3, "hour");
+            let dom = build_spinner(AzString::from(v.clone()), RefAny::new(0u8), 1, 2, 3, 4, "hour");
             let shown = text_of(&dom.children.as_ref()[1]);
             assert_eq!(
                 shown.as_deref(),
@@ -2951,6 +3056,7 @@ mod autotest_generated {
             1,
             2,
             on_hour_scroll as usize,
+            on_hour_key as usize,
             "hour",
         );
         let cells = dom.children.as_ref();
@@ -2987,6 +3093,7 @@ mod autotest_generated {
             1,
             2,
             on_hour_scroll as usize,
+            on_hour_key as usize,
             "hour",
         );
         for (which, cell) in [("up", 0usize), ("down", 2usize)] {
@@ -3012,7 +3119,7 @@ mod autotest_generated {
     #[test]
     fn build_spinner_reports_its_three_children() {
         for value in ["", "0", "999999"] {
-            let dom = build_spinner(AzString::from(value.to_string()), RefAny::new(0u8), 1, 2, 3, "hour");
+            let dom = build_spinner(AzString::from(value.to_string()), RefAny::new(0u8), 1, 2, 3, 4, "hour");
             assert_eq!(dom.estimated_total_children, descendants(&dom));
             // Three cells (▲ / value / ▼), each a styled `<p>` wrapping its
             // bare text leaf per the label convention: 6 descendants.

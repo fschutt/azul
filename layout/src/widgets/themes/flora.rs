@@ -3501,8 +3501,9 @@ pub fn stepper(s: crate::widgets::stepper::Stepper) -> Dom {
 // The readouts are flora ink, the `:` soft ink, and the arrows icon ink
 // (`--fl-icon`) that turns to ink on a raised hover face and sinks on a press -
 // quiet controls, no chrome at rest. The AM/PM toggle is raised paper
-// (`.btn-secondary`) in ink. Every arrow and the toggle are ringed on focus: the
-// accent by day, the glow by night. The arrows keep the widget's 40x16 hit box.
+// (`.btn-secondary`) in ink. Every column (the spin button, the Tab stop - the
+// arrows are click targets only) and the toggle are ringed on focus: the accent
+// by day, the glow by night. The arrows keep the widget's 40x16 hit box.
 
 /// Flora's time picker skin.
 #[must_use]
@@ -3547,7 +3548,11 @@ pub(crate) fn time_picker_skin() -> crate::widgets::time_picker::TimePickerSkin 
         vec![PRESSED_FACE_LIGHT],
         vec![PRESSED_FACE_DARK],
     ));
-    arrow.extend(kit::focus_shadow_ring(LIGHT_ACC, DARK_GLOW));
+
+    // The column is the spin button: its base, then its focus ring.
+    let mut spinner = t::SPINNER_STYLE.to_vec();
+    spinner.extend(kit::radius(3));
+    spinner.extend(kit::focus_shadow_ring(LIGHT_ACC, DARK_GLOW));
 
     let mut display = t::READOUT_BASE.to_vec();
     display.extend([
@@ -3594,7 +3599,7 @@ pub(crate) fn time_picker_skin() -> crate::widgets::time_picker::TimePickerSkin 
     t::TimePickerSkin {
         theme: super::UiTheme::Flora,
         container: CssPropertyWithConditionsVec::from_vec(container),
-        spinner: CssPropertyWithConditionsVec::from_const_slice(t::SPINNER_STYLE),
+        spinner: CssPropertyWithConditionsVec::from_vec(spinner),
         arrow: CssPropertyWithConditionsVec::from_vec(arrow),
         display: CssPropertyWithConditionsVec::from_vec(display),
         separator: CssPropertyWithConditionsVec::from_vec(separator),

@@ -3703,9 +3703,10 @@ pub fn stepper(s: crate::widgets::stepper::Stepper) -> Dom {
 // Flat is the established picker: a #ced4da frame (the desktop's separator in
 // the dark), grey arrows, dark readouts, the accent AM/PM pill. What it adds are
 // the states its buttons never had: an arrow hovers to `LIGHT_HT` / `DARK_HT` and
-// presses to `LIGHT_PT` / `DARK_PT`, and every arrow and the toggle are ringed on
-// focus with an inset 2px ring (`FIELD_RING` / `DARK_ACC`; white on the accent
-// pill) - no border, so the arrows keep their 40x16 hit box.
+// presses to `LIGHT_PT` / `DARK_PT`, and every column (the spin button, the Tab
+// stop - the arrows are click targets only) and the toggle are ringed on focus
+// with an inset 2px ring (`FIELD_RING` / `DARK_ACC`; white on the accent pill) -
+// no border, so the arrows keep their 40x16 hit box.
 
 /// Flat's time picker skin.
 #[must_use]
@@ -3713,13 +3714,17 @@ pub(crate) fn time_picker_skin() -> crate::widgets::time_picker::TimePickerSkin 
     use super::style_kit as kit;
     use crate::widgets::time_picker as t;
 
+    // The column is the spin button: its base, then its focus ring.
+    let mut spinner = t::SPINNER_STYLE.to_vec();
+    spinner.extend(kit::radius(3));
+    spinner.extend(kit::focus_shadow_ring(FIELD_RING, DARK_ACC));
+
     // Every part is the widget's base, then flat's established const skin.
     let mut arrow = on_base(t::CLICKABLE_BASE, t::ARROW_STYLE).into_library_owned_vec();
     arrow.extend(kit::radius(3));
     // States last: the resting dark twin matches in every state.
     arrow.extend(kit::hover_bg(LIGHT_HT, DARK_HT));
     arrow.extend(kit::active_bg(LIGHT_PT, DARK_PT));
-    arrow.extend(kit::focus_shadow_ring(FIELD_RING, DARK_ACC));
 
     let mut ampm = on_base(t::CLICKABLE_BASE, t::AMPM_STYLE).into_library_owned_vec();
     ampm.extend(kit::focus_shadow_ring(LIGHT_ON_ACC, DARK_ON_ACC));
@@ -3727,7 +3732,7 @@ pub(crate) fn time_picker_skin() -> crate::widgets::time_picker::TimePickerSkin 
     t::TimePickerSkin {
         theme: super::UiTheme::Flat,
         container: on_base(t::CONTAINER_BASE, t::CONTAINER_STYLE),
-        spinner: CssPropertyWithConditionsVec::from_const_slice(t::SPINNER_STYLE),
+        spinner: CssPropertyWithConditionsVec::from_vec(spinner),
         arrow: CssPropertyWithConditionsVec::from_vec(arrow),
         display: on_base(t::READOUT_BASE, t::DISPLAY_STYLE),
         separator: on_base(t::READOUT_BASE, t::SEPARATOR_STYLE),
