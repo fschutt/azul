@@ -3716,3 +3716,144 @@ mod autotest_generated {
         assert_eq!(name(&minute_cells[2]).as_deref(), Some("Decrease minute"));
     }
 }
+
+#[cfg(test)]
+mod theme_tests {
+    //! The time picker's theme is a DOM-level choice: the frame, spinners,
+    //! arrows, readouts and AM/PM toggle are built from the skin of the theme
+    //! the picker carries, flat by default.
+
+    use azul_core::dom::Dom;
+    use azul_css::props::{
+        basic::color::ColorU,
+        property::{CssProperty, CssPropertyType},
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLAT: &str = "__azul-theme-flat";
+    const FLORA: &str = "__azul-theme-flora";
+
+    /// A 12-hour picker, so the AM/PM toggle is there too.
+    fn picker(theme: Option<UiTheme>) -> Dom {
+        let p = TimePicker::create(9, 30)
+            .with_24h(false)
+            .with_accessibility_name("Alarm");
+        match theme {
+            Some(t) => p.with_theme(t).dom(),
+            None => p.dom(),
+        }
+    }
+
+    fn bg(node: &Dom, dark: bool) -> Option<ColorU> {
+        tc::background(node, dark).and_then(|p| tc::bg_color(&p))
+    }
+
+    #[test]
+    fn a_time_picker_without_a_theme_renders_flat() {
+        let p = TimePicker::create(0, 0);
+        assert_eq!(p.theme, OptionUiTheme::None);
+        assert!(tc::has_class(&picker(None), FLAT));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_agree() {
+        let mut a = TimePicker::create(1, 2);
+        a.set_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(a, TimePicker::create(1, 2).with_theme(UiTheme::Flora));
+    }
+
+    #[test]
+    fn a_flat_time_picker_keeps_its_frame_and_accent_toggle() {
+        let dom = picker(Some(UiTheme::Flat));
+        assert_eq!(
+            tc::border_top_color(&dom, false, None),
+            Some(ColorU::rgb(206, 212, 218))
+        );
+        let ampm = tc::find(&dom, "__azul-native-time-picker-ampm").expect("AM/PM");
+        assert_eq!(bg(ampm, false), Some(ColorU::rgb(13, 110, 253)));
+    }
+
+    #[test]
+    fn a_flora_time_picker_is_a_well_of_field_paper_with_a_paper_toggle() {
+        let dom = picker(Some(UiTheme::Flora));
+        assert!(tc::has_class(&dom, FLORA));
+        assert_eq!(bg(&dom, false), Some(flora::LIGHT_FLD));
+        assert_eq!(bg(&dom, true), Some(flora::DARK_FLD));
+        assert_eq!(tc::border_top_color(&dom, false, None), Some(flora::LIGHT_BD2));
+        assert_eq!(tc::border_top_color(&dom, true, None), Some(flora::DARK_BD2));
+
+        let display = tc::find(&dom, "__azul-native-time-picker-display").expect("readout");
+        assert_eq!(tc::text_color(display, false), Some(flora::LIGHT_INK));
+        assert_eq!(tc::text_color(display, true), Some(flora::DARK_INK));
+        let arrow = tc::find(&dom, "__azul-native-time-picker-arrow").expect("arrow");
+        assert_eq!(tc::text_color(arrow, false), Some(flora::LIGHT_ICON));
+        assert_eq!(tc::text_color(arrow, true), Some(flora::DARK_ICON));
+
+        let ampm = tc::find(&dom, "__azul-native-time-picker-ampm").expect("AM/PM");
+        let face = |dark: bool| {
+            tc::background(ampm, dark)
+                .map(|p| tc::bg_layers(&p))
+                .unwrap_or_default()
+        };
+        assert_eq!(face(false), vec![flora::RAISED_FACE_LIGHT]);
+        assert_eq!(face(true), vec![flora::RAISED_FACE_DARK]);
+        assert_eq!(tc::text_color(ampm, false), Some(flora::LIGHT_INK));
+        assert_eq!(tc::text_color(ampm, true), Some(flora::DARK_INK));
+    }
+
+    #[test]
+    fn the_container_resolver_answers_for_the_theme() {
+        let flora_picker = TimePicker::create(1, 2).with_theme(UiTheme::Flora);
+        assert!(
+            flora_picker
+                .resolved_container_style()
+                .as_ref()
+                .iter()
+                .any(|p| tc::bg_color(&p.property) == Some(flora::LIGHT_FLD)),
+            "the resolver and the render agree on flora's frame"
+        );
+    }
+
+    #[test]
+    fn an_arrow_keeps_its_hit_box_in_every_theme() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = picker(Some(theme));
+            for arrow in tc::find_all(&dom, "__azul-native-time-picker-arrow") {
+                assert_eq!(
+                    tc::resolve(arrow, CssPropertyType::Width, false, None),
+                    Some(CssProperty::const_width(LayoutWidth::const_px(40))),
+                    "{theme:?}"
+                );
+                assert_eq!(
+                    tc::resolve(arrow, CssPropertyType::Height, false, None),
+                    Some(CssProperty::const_height(LayoutHeight::const_px(16))),
+                    "{theme:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_arrow_and_the_toggle_show_a_focus_ring_in_every_theme_and_mode() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = picker(Some(theme));
+            assert_eq!(tc::focusable(&dom).len(), 5, "{theme:?}: four arrows and AM/PM");
+            tc::assert_theme_invariants(&format!("time_picker {theme:?}"), &dom);
+        }
+        let dom = picker(Some(UiTheme::Flora));
+        let arrow = tc::find(&dom, "__azul-native-time-picker-arrow").expect("arrow");
+        assert_eq!(tc::focus_ring_color(arrow, false), Some(flora::LIGHT_ACC));
+        assert_eq!(tc::focus_ring_color(arrow, true), Some(flora::DARK_GLOW));
+    }
+
+    #[test]
+    fn the_theme_changes_the_look_not_the_accessibility_tree() {
+        let flat = picker(Some(UiTheme::Flat));
+        let flora_dom = picker(Some(UiTheme::Flora));
+        assert!(tc::a11y_outline(&flat).len() >= 5);
+        assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora_dom));
+    }
+}
