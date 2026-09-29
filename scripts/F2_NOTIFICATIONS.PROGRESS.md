@@ -42,10 +42,12 @@ AzClock alarms / scheduled notifications: NOT IN SCOPE (separate feature).
 - `3c5fcd9dd` RED: rejected post reports to its owner (not via routing); withdraw fits a full queue
   (`layout/tests/native_notifications.rs`, `gaps::follow_ups` + the updated
   `a_post_to_a_full_queue_without_a_callback_still_reports_failed`)
+- `1b9d2f601` fix: `reject_notification` -> own callback / app handler as a waiting delivery;
+  withdraws get 2 x MAX room; dll logs a Failed the full mailbox refused
 
 ## 4. IN PROGRESS
 
-- 7/8 fix: `reject_notification` -> own callback or app handler directly; withdraw headroom
+- 5: RED source invariant (activation token spent by `deliver_to_linux_windows`)
 
 ## 5. Open questions
 
