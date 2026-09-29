@@ -49,7 +49,7 @@ const YELLOW: ColorU = ColorU::rgb(220, 200, 0);
 const BOX: NodeId = NodeId::new(1);
 
 fn env_pinned() -> bool {
-    azul_css::dynamic_selector::theme_pinned_by_env().is_some()
+    azul_css::dynamic_selector::mode_pinned_by_env().is_some()
 }
 
 fn fill(c: ColorU) -> CssProperty {
@@ -91,7 +91,7 @@ fn lay_out(lw: &mut LayoutWindow, styled: StyledDom, ws: &FullWindowState) {
 fn window() -> LayoutWindow {
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
     lw.set_system_style(Arc::new(defaults::macos_modern_light()));
-    lw.color_scheme = OptionWindowTheme::None;
+    lw.mode = OptionWindowTheme::None;
     let dom = Dom::create_body()
         .with_css("margin: 0;")
         .with_child(Dom::create_div().with_css_props(box_style(40, RED, BLUE)));
@@ -100,10 +100,10 @@ fn window() -> LayoutWindow {
 }
 
 /// The app switches its colour scheme; the RETAINED DOM is re-styled (no
-/// new DOM - the restyle path of `set_color_scheme`).
+/// new DOM - the restyle path of `set_mode`).
 fn switch_scheme(lw: &mut LayoutWindow, scheme: OptionWindowTheme) {
-    lw.color_scheme = scheme;
-    let ws = window_state(lw.window_theme_for(WindowTheme::LightMode));
+    lw.mode = scheme;
+    let ws = window_state(lw.window_mode_for(WindowTheme::LightMode));
     let retained = lw
         .layout_results
         .remove(&DomId::ROOT_ID)

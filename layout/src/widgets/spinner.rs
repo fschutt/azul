@@ -1648,7 +1648,6 @@ mod makeover_tests {
         );
     }
 
-    #[test]
     /// The parts of a ring that carry its ink: the body and the two caps.
     fn arc_ink_parts(dom: &Dom) -> Vec<&Dom> {
         let mut parts = with_class(dom, "__azul-spinner-arc-body");

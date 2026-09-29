@@ -38,7 +38,6 @@ use azul_css::{
 use azul_layout::{
     cpurender::{render_dom_to_image, AzulPixmap},
     icon::{create_default_icon_provider, register_image_icon_with_meta},
-    image::decode::{decode_raw_image_from_any_bytes, ResultRawImageDecodeImageError},
 };
 
 /// The PNG's side, which is also the icon's natural size in logical px.
@@ -66,17 +65,22 @@ const WHITE: ColorU = ColorU {
     a: 255,
 };
 
-/// Black ink on a transparent margin, as a real PNG decoded the way an icon
-/// pack's files are.
+/// Black ink on a transparent margin: an RGBA raster, what an icon pack's
+/// decoded files are. Built from the pixels directly - the test is about the
+/// tint, not the PNG codec (the `png` format feature is not a default one).
 fn glyph_image() -> ImageRef {
     let mut pm = AzulPixmap::new(SIDE, SIDE).expect("pixmap");
     pm.fill(0, 0, 0, 0);
     pm.fill_rect(INK_AT, INK_AT, INK_SIDE, INK_SIDE, 0, 0, 0, 255);
-    let png = pm.encode_png().expect("encode the glyph as PNG");
-    let ResultRawImageDecodeImageError::Ok(raw) = decode_raw_image_from_any_bytes(&png) else {
-        panic!("the glyph PNG must decode");
+    let raw = azul_core::resources::RawImage {
+        pixels: azul_core::resources::RawImageData::U8(pm.data().to_vec().into()),
+        width: SIDE as usize,
+        height: SIDE as usize,
+        premultiplied_alpha: false,
+        data_format: azul_core::resources::RawImageFormat::RGBA8,
+        tag: Vec::new().into(),
     };
-    ImageRef::new_rawimage(raw).expect("an image from the decoded PNG")
+    ImageRef::new_rawimage(raw).expect("an image from the glyph's pixels")
 }
 
 /// The icon, resolved under `tint`, inside an ordinary block container (so

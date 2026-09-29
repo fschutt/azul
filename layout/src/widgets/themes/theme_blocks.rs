@@ -1042,7 +1042,7 @@ mod tests {
                 r.declarations
                     .as_slice()
                     .iter()
-                    .any(|d| d.get_type() == CssPropertyType::TextColor)
+                    .any(|d| d.get_type() == Some(CssPropertyType::TextColor))
             })
             .collect();
         assert_eq!(inks.len(), 2, "the light half and its twin, once: {inks:?}");

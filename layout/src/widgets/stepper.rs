@@ -1579,11 +1579,15 @@ mod autotest_generated {
                 CallbackChange::SetNodeInlineStyle { node_id, style, .. } => {
                     Some((node_id.index(), style.clone()))
                 }
-                // The one tab stop moving with the step and the live
-                // "step N of M" value (S2) are not style writes.
-                CallbackChange::SetNodeTabIndex { .. }
-                | CallbackChange::ChangeNodeAccessibilityValue { .. } => None,
-                other => panic!("the restyle must only replace inline styles, got {other:?}"),
+                // The restyle must never go back to BAKED overrides: they
+                // outrank the cascade and go stale on a mode switch (V1).
+                baked @ CallbackChange::ChangeNodeCssProperties { .. } => {
+                    panic!("the restyle must only replace inline styles, got {baked:?}")
+                }
+                // Everything else a step emits is not a style write: the one
+                // tab stop and the focus moving with the step, the live
+                // "step N of M" value, the handled key (S2).
+                _ => None,
             })
             .collect()
     }
@@ -4315,7 +4319,9 @@ mod theme_tests {
     fn every_step_shows_a_focus_ring_in_every_theme_and_mode() {
         for theme in [UiTheme::Flat, UiTheme::Flora] {
             let dom = steps(Some(theme));
-            assert_eq!(tc::focusable(&dom).len(), 3, "{theme:?}: one stop per step");
+            // ONE stop for the whole stepper, stepped with the arrow keys
+            // (the spinbutton pattern, S2) - no longer one stop per step.
+            assert_eq!(tc::focusable(&dom).len(), 1, "{theme:?}: one stop");
             tc::assert_theme_invariants(&format!("stepper {theme:?}"), &dom);
         }
         let dom = steps(Some(UiTheme::Flora));

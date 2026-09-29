@@ -6,7 +6,7 @@
 //! click (no DOM rebuild). They used `set_css_property` with colours baked
 //! for the mode of the moment, each deciding the mode itself
 //! (`window_is_dark` / `renders_dark`): a user override outranks every
-//! declaration, so after `set_color_scheme` switched the retained DOM to
+//! declaration, so after `set_mode` switched the retained DOM to
 //! dark, a clicked control kept its light colours until the next rebuild
 //! (W4 section 6.2).
 //!
@@ -44,7 +44,7 @@ use azul_layout::{
 use rust_fontconfig::FcFontCache;
 
 fn env_pinned() -> bool {
-    azul_css::dynamic_selector::theme_pinned_by_env().is_some()
+    azul_css::dynamic_selector::mode_pinned_by_env().is_some()
 }
 
 fn window_state(theme: WindowTheme) -> FullWindowState {
@@ -70,7 +70,7 @@ fn lay_out(lw: &mut LayoutWindow, styled: StyledDom, ws: &FullWindowState) {
 fn window(widget: Dom) -> LayoutWindow {
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
     lw.set_system_style(Arc::new(defaults::macos_modern_light()));
-    lw.color_scheme = OptionWindowTheme::None;
+    lw.mode = OptionWindowTheme::None;
     let dom = Dom::create_body().with_css("margin: 0;").with_child(widget);
     lay_out(
         &mut lw,
@@ -80,11 +80,11 @@ fn window(widget: Dom) -> LayoutWindow {
     lw
 }
 
-/// `CallbackInfo::set_color_scheme`'s restyle path: the RETAINED DOM
+/// `CallbackInfo::set_mode`'s restyle path: the RETAINED DOM
 /// re-styled under the new scheme, no new DOM.
 fn switch_scheme(lw: &mut LayoutWindow, scheme: OptionWindowTheme) {
-    lw.color_scheme = scheme;
-    let ws = window_state(lw.window_theme_for(WindowTheme::LightMode));
+    lw.mode = scheme;
+    let ws = window_state(lw.window_mode_for(WindowTheme::LightMode));
     let retained = lw
         .layout_results
         .remove(&DomId::ROOT_ID)
