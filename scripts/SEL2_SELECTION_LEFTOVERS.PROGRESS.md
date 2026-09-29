@@ -27,13 +27,16 @@ List: scripts/SELECTION_LEFTOVERS_FIX_2026_09_28.md "## Open".
 6. inspect previews: d50ff317a test (unit tests in callbacks.rs), fb68e7516 fix
    (new `LayoutWindow::delete_preview` / `select_all_preview`; the two inspect fns call them).
 
+7. E2E document selection: 2ee3c4465 refactor (`selection_state` fn), e7aa670e5 test
+   (selection_state_tests in layout/src/e2e/full.rs), 0f3295a9f fix. (`get_cursor_state.position`
+   was already fixed on the base by E1, 7a317019f.)
+
 ## IN PROGRESS
 
-7. E2E `get_selection_state` reporting a document selection.
+8. ScopeText inline host / nested block order.
 
 ## NEXT
 
-8. ScopeText inline host / nested block order.
 9. `TextTarget::caret_at_byte` caller switch + dead code.
 10. Re-verify review §5 #5 / #7.
 
