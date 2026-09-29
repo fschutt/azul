@@ -6287,3 +6287,107 @@ pub(crate) fn titlebar_look(
 /// The fill of a flora combobox's active option, `[light, dark]`.
 pub(crate) const COMBOBOX_ACTIVE_OPTION: [ColorU; 2] =
     [RADIO_GROUP_HOVER_LIGHT, RADIO_GROUP_HOVER_DARK];
+
+// ==== night focus ring (V1) ====
+//
+// flora.css lifts the focus ring to the stone's own highlight at night
+// (`--focus-color: var(--fl-glow)`, "so it survives on a dark ground"): the
+// accent stone #2F4A85 stands only 1.8:1 off `--fl-sur` #232323, and WCAG 2.2
+// (1.4.11, non-text contrast) asks 3:1 of a focus indicator against what it
+// sits on. Every flora ring drawn at night - the shared `FOCUS_BORDER_*_DARK`
+// of buttons and text fields included - must clear that on every night
+// surface flora paints.
+
+#[cfg(test)]
+mod night_focus_ring_tests {
+    use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType, ThemeCondition};
+
+    use super::*;
+    use crate::widgets::themes::{theme_checks as tc, UiTheme};
+
+    /// Every surface a flora control and its ring sit on at night: the page,
+    /// the leaf, the desk, strips and tracks, a control's raised, hover and
+    /// pressed faces, the field papers and the disabled face.
+    const NIGHT_SURFACES: [(&str, ColorU); 14] = [
+        ("--fl-pg", DARK_PG),
+        ("--fl-sur", DARK_SUR),
+        ("--fl-desk", DARK_DESK),
+        ("--fl-strip", DARK_STRIP),
+        ("--fl-track", DARK_TRACK),
+        ("--fl-rT", DARK_RT),
+        ("--fl-rB", DARK_RB),
+        ("--fl-hT", DARK_HT),
+        ("--fl-hB", DARK_HB),
+        ("--fl-pT", DARK_PT),
+        ("--fl-pB", DARK_PB),
+        ("--fl-fld", DARK_FLD),
+        ("--fl-fld2", DARK_FLD2),
+        ("--fl-disbg", DARK_DISBG),
+    ];
+
+    fn border_colour(p: &CssPropertyWithConditions) -> ColorU {
+        tc::border_color(&p.property).expect("a focus ring edge is a border colour")
+    }
+
+    fn assert_stands_off_the_night(what: &str, ring: ColorU) {
+        for (name, surface) in NIGHT_SURFACES {
+            let ratio = ring.contrast_ratio(&surface);
+            assert!(
+                ratio >= 3.0,
+                "{what}: the night focus ring {ring:?} stands {ratio:.2}:1 off {name} \
+                 {surface:?}; a focus indicator needs 3:1"
+            );
+        }
+    }
+
+    #[test]
+    fn the_shared_night_focus_ring_stands_three_to_one_off_every_night_surface() {
+        for (edge, ring) in [
+            ("TOP", FOCUS_BORDER_TOP_DARK),
+            ("RIGHT", FOCUS_BORDER_RIGHT_DARK),
+            ("BOTTOM", FOCUS_BORDER_BOTTOM_DARK),
+            ("LEFT", FOCUS_BORDER_LEFT_DARK),
+        ] {
+            let conds = ring.apply_if.as_ref();
+            assert!(
+                conds.contains(&DynamicSelector::Theme(ThemeCondition::Dark))
+                    && conds.contains(&DynamicSelector::PseudoState(PseudoStateType::Focus)),
+                "premise: the {edge} edge is the dark :focus twin, {conds:?}"
+            );
+            assert_stands_off_the_night(
+                &alloc::format!("FOCUS_BORDER_{edge}_DARK"),
+                border_colour(&ring),
+            );
+        }
+    }
+
+    /// The token the ring takes is flora.css's night `--focus-color`, the
+    /// one every newer flora widget already rings in.
+    #[test]
+    fn the_night_focus_ring_is_flora_s_glow_token() {
+        assert_stands_off_the_night("--fl-glow", DARK_GLOW);
+        for ring in [
+            FOCUS_BORDER_TOP_DARK,
+            FOCUS_BORDER_RIGHT_DARK,
+            FOCUS_BORDER_BOTTOM_DARK,
+            FOCUS_BORDER_LEFT_DARK,
+        ] {
+            assert_eq!(border_colour(&ring), DARK_GLOW);
+        }
+    }
+
+    /// Through a real widget: a focused flora button at night.
+    #[test]
+    fn a_focused_flora_button_rings_in_the_glow_at_night() {
+        let dom = crate::widgets::button::Button::create(AzString::from_const_str("OK"))
+            .with_theme(UiTheme::Flora)
+            .dom();
+        assert_eq!(
+            tc::focus_ring_color(&dom, false),
+            Some(LIGHT_ACC),
+            "by day: the stone"
+        );
+        let night = tc::focus_ring_color(&dom, true).expect("a flora button rings at night");
+        assert_stands_off_the_night("a flora button", night);
+    }
+}
