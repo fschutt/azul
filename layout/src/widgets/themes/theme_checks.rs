@@ -407,3 +407,163 @@ pub(crate) fn assert_theme_invariants(what: &str, dom: &Dom) {
         assert!(has_focus_ring(node, true), "{what}: {path} has no dark focus ring");
     }
 }
+
+// ==== R5: a widget's structure is its BASE, never a theme's ====
+
+/// The properties that lay a widget out. They are the same in every theme,
+/// so they belong to the widget's BASE (unconditioned, live under flat,
+/// flora and any future theme), never inside a `@theme(<name>)` block (user
+/// ruling 2026-09-29: the rules that apply to all themes go outside the
+/// `@theme` blocks). What a theme owns is paint and metrics: colours,
+/// backgrounds, borders, radii, shadows, fonts, padding, gaps and sizes.
+pub(crate) const STRUCTURE_PROPERTIES: &[CssPropertyType] = &[
+    CssPropertyType::Display,
+    CssPropertyType::Position,
+    CssPropertyType::Float,
+    CssPropertyType::BoxSizing,
+    CssPropertyType::FlexDirection,
+    CssPropertyType::FlexWrap,
+    CssPropertyType::FlexGrow,
+    CssPropertyType::FlexShrink,
+    CssPropertyType::JustifyContent,
+    CssPropertyType::AlignItems,
+    CssPropertyType::AlignContent,
+    CssPropertyType::AlignSelf,
+    CssPropertyType::OverflowX,
+    CssPropertyType::OverflowY,
+    CssPropertyType::Cursor,
+    CssPropertyType::UserSelect,
+    CssPropertyType::WhiteSpace,
+    CssPropertyType::TextOverflow,
+];
+
+/// A structure declaration a widget's themes REALLY draw differently, which
+/// may stay inside its theme's block: the class of the node (or the
+/// selector of the component-sheet rule), the property, and why.
+pub(crate) type ThemedStructure = (&'static str, CssPropertyType, &'static str);
+
+/// Every structure declaration of `dom` (its nodes' inline styles and
+/// component sheets) that sits inside an app theme's `@theme(<name>)` block
+/// and is not `allowed`, one line each: `<path> .<class> <property>
+/// @theme(<name>)`, or `<path> sheet <selector> ...` for a sheet's rule.
+pub(crate) fn themed_structure(dom: &Dom, allowed: &[ThemedStructure]) -> Vec<String> {
+    let mut out = Vec::new();
+    for (path, node) in nodes(dom) {
+        let classes: Vec<String> = node
+            .root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .filter_map(|c| match c {
+                IdOrClass::Class(s) => Some(String::from(s.as_str())),
+                IdOrClass::Id(_) => None,
+            })
+            .collect();
+        let sheets = core::iter::once((true, &node.root.style))
+            .chain(node.css.as_slice().iter().map(|css| (false, css)));
+        for (inline, css) in sheets {
+            for rule in css.rules.as_slice() {
+                let Some(theme) = rule.conditions.as_slice().iter().find_map(|c| match c {
+                    DynamicSelector::Theme(ThemeCondition::Custom(name)) => Some(name.as_str()),
+                    _ => None,
+                }) else {
+                    continue;
+                };
+                let selector = format!("{}", rule.path);
+                for d in rule.declarations.as_slice() {
+                    let Some(ty) = d.get_type() else { continue };
+                    if !STRUCTURE_PROPERTIES.contains(&ty) {
+                        continue;
+                    }
+                    let is_allowed = allowed.iter().any(|(who, t, _why)| {
+                        *t == ty
+                            && if inline {
+                                classes.iter().any(|c| c.as_str() == *who)
+                            } else {
+                                selector.contains(*who)
+                            }
+                    });
+                    if is_allowed {
+                        continue;
+                    }
+                    let whom = if inline {
+                        format!(".{}", classes.first().map_or("<no class>", String::as_str))
+                    } else {
+                        format!("sheet {selector}")
+                    };
+                    out.push(format!("{path} {whom} {ty:?} @theme({theme})"));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Asserts that `dom` - a widget that FOLLOWS the app theme (no
+/// `with_theme` pin), so it carries every theme's block - declares its
+/// structure in its base: no [`STRUCTURE_PROPERTIES`] inside a `@theme`
+/// block except the `allowed` ones.
+pub(crate) fn assert_structure_is_shared(what: &str, dom: &Dom, allowed: &[ThemedStructure]) {
+    let themed = themed_structure(dom, allowed);
+    assert!(
+        themed.is_empty(),
+        "{what}: structure inside a theme block (make it the widget's base, or allow it with \
+         the reason the themes differ):\n  {}",
+        themed.join("\n  ")
+    );
+}
+
+#[cfg(test)]
+mod structure_tests {
+    use azul_core::dom::Dom;
+    use azul_css::{
+        dynamic_selector::CssPropertyWithConditions,
+        props::{
+            layout::{LayoutDisplay, LayoutFlexDirection},
+            property::{CssProperty, CssPropertyType},
+        },
+    };
+
+    use super::{themed_structure, UiTheme};
+    use crate::widgets::themes::theme_blocks::follow_dom;
+
+    fn look(direction: LayoutFlexDirection) -> Dom {
+        Dom::create_div()
+            .with_class("probe")
+            .with_css_props(
+                vec![
+                    CssPropertyWithConditions::simple(CssProperty::const_display(
+                        LayoutDisplay::Flex,
+                    )),
+                    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+                        direction,
+                    )),
+                ]
+                .into(),
+            )
+    }
+
+    #[test]
+    fn a_structure_both_themes_declare_alike_is_the_base() {
+        let dom = follow_dom(
+            UiTheme::Flat,
+            look(LayoutFlexDirection::Row),
+            look(LayoutFlexDirection::Row),
+        );
+        assert!(themed_structure(&dom, &[]).is_empty());
+    }
+
+    #[test]
+    fn a_structure_the_themes_declare_apart_is_reported_unless_allowed() {
+        let dom = follow_dom(
+            UiTheme::Flat,
+            look(LayoutFlexDirection::Row),
+            look(LayoutFlexDirection::Column),
+        );
+        let themed = themed_structure(&dom, &[]);
+        assert_eq!(themed.len(), 2, "{themed:?}");
+        assert!(themed.iter().all(|l| l.contains(".probe FlexDirection")), "{themed:?}");
+        let allowed = [("probe", CssPropertyType::FlexDirection, "the probe differs")];
+        assert!(themed_structure(&dom, &allowed).is_empty());
+    }
+}
