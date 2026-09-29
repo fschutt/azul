@@ -55,18 +55,22 @@ assets, `debug_server/platform.rs`), shell = `dll/src/desktop/shell2/common/even
 ## DONE
 - 7403fddb5 audit (this file, section 1)
 - 90c194056 RED: `layout/src/e2e/builder_tests.rs` (9 scenarios; run `cargo test -p azul-layout --features e2e-server --lib builder_tests`)
-
-- 01faf30e9 fix: `layout/src/e2e/builder.rs` (document model + 20 unit tests), `DebugEvent` variants + arms in `full.rs`, `render_tree` on create/update component, gene2e OP_POLICY rows
-
+- 01faf30e9 fix: `layout/src/e2e/builder.rs` (document model + unit tests), `DebugEvent` variants + arms in `full.rs`, `render_tree` on create/update component, gene2e OP_POLICY rows
 - 6a8304229 fix: render_tree import drops `azb-<uid>` markers
 - 9635a5f49 RED: `debugger-dnd.test.js` (node, 13 cases) + `scripts/debugger-ui/builder-dnd-smoke.mjs` (headless Chrome + mock server, 25 checks)
 - 47dbf79b5 feat: `debugger-dnd.js` served + loaded; debugger.js: first launch no longer lands in Testing, `showView` crash fixed. node test 13/13, smoke 25/25 green
+- c49c048eb fix: the debug server reads the whole HTTP request (Content-Length), not one 16 KiB read
+- 759b7bed3 test: a component instance takes no children (builder.rs now has 18 unit tests)
+- report `scripts/B1_BUILDER_DND_2026_09_29.md` (the commit after this list)
 
 ## IN PROGRESS
-- HTTP request read loop (platform.rs reads ONE 16 KiB chunk) — separate small fix
+- nothing — B1 is done; waiting for the parent's build and suite run
 
-## NEXT
-1. Report `scripts/B1_BUILDER_DND_2026_09_29.md`.
+## NEXT (for the parent)
+1. Cherry-pick the branch (upstream only moved `layout/src/e2e/runner.rs`, untouched here).
+2. `cargo test -p azul-layout --features e2e-server --lib builder` (27 tests) and `cargo test -p azul-doc every_real_op_is_classified` / `no_zombie_is_reachable`.
+3. RED pass: `git apply -R` of 01faf30e9 (+6a8304229) turns builder_tests red; of 47dbf79b5 turns the node test and the smoke test red.
+4. Build the dll with `build-dll,debug-server`, run AzBuilder, follow the manual script (report §5).
 
 ## Open questions
 - Template components are not carried by `export_component_library` (no field for them in `ExportedComponentDef`); export is B3's area.
