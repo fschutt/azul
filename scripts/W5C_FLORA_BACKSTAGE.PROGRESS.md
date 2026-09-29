@@ -22,13 +22,16 @@ caller's title strip / pane content is never cloned).
   + `the_backstage_has_a_flora_look_of_its_own` (widgets_follow_the_app_theme.rs,
   which also got the missing `}` of W5a's own-look test - the base did not
   compile); `backstages_read_in_both_themes_in_both_looks`
-- (flora) flora.rs `// ==== backstage ====`: `backstage_style`
+- f40f52798 flora: flora.rs `// ==== backstage ====`: `backstage_style`
+- report scripts/W5C_FLORA_BACKSTAGE_2026_09_29.md (this commit)
 
 ## IN PROGRESS
-- report scripts/W5C_FLORA_BACKSTAGE_2026_09_29.md
+- none
 
 ## NEXT
-- parent: compile, run the commands in the report, autofix api.json
+- parent: compile, run the commands in the report (section 4), autofix
+  api.json (section 5)
 
 ## Open questions
-- (see report)
+- report section 3 (design guesses) and 7 (the base's missing `}`, the
+  stale ribbon / status bar / quick-access single-look tests)
