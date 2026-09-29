@@ -347,9 +347,13 @@ def gen_css_property():
 # auto / initial` take a `CssPropertyType`.
 HAND_LOWERED = {'CssPropertyType'}
 
+# Types the DOM export (azul_core::xml's fragment lowering) constructs besides
+# the CSS closure: printers import their modules too.
+DOM_EXPORT_TYPES = {'Dom', 'SmallAriaInfo'}
+
 
 def gen_api_modules(cl):
-    names = sorted(set(t for t, v in cl.items() if v is not None) | HAND_LOWERED)
+    names = sorted(set(t for t, v in cl.items() if v is not None) | HAND_LOWERED | DOM_EXPORT_TYPES)
     out = [
         '/// The api.json module of every type the lowering can produce, sorted by',
         '/// name (binary-searchable). Printers whose bindings are split into',

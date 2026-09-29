@@ -306,10 +306,23 @@ pub fn desugar_calls(e: &Expr) -> Expr {
             elem: elem.clone(),
             items: items.iter().map(desugar_calls).collect(),
         },
+        Expr::Method {
+            recv,
+            class,
+            method,
+            args,
+        } => Expr::method(
+            desugar_calls(recv),
+            class,
+            method,
+            args.iter().map(desugar_calls).collect(),
+        ),
+        Expr::Concat(parts) => Expr::Concat(parts.iter().map(desugar_calls).collect()),
         Expr::Int { .. }
         | Expr::Float { .. }
         | Expr::Bool(_)
         | Expr::Str(_)
+        | Expr::Param(_)
         | Expr::Unsupported { .. } => e.clone(),
     }
 }
@@ -640,6 +653,7 @@ pub fn lower_styles(css: &Css) -> Module {
                 name,
                 doc,
                 ty: "CssPropertyWithConditionsVec".to_string(),
+                params: Vec::new(),
                 value: Expr::vec(
                     "CssPropertyWithConditionsVec",
                     "CssPropertyWithConditions",
@@ -648,7 +662,10 @@ pub fn lower_styles(css: &Css) -> Module {
             }
         })
         .collect();
-    Module { items }
+    Module {
+        items,
+        ..Module::default()
+    }
 }
 
 /// The exact `Css` value (rules with their selectors, declarations,
@@ -665,8 +682,10 @@ pub fn lower_stylesheet(css: &Css) -> Module {
             name: Ident::from_text("stylesheet"),
             doc,
             ty: "Css".to_string(),
+            params: Vec::new(),
             value,
         }],
+        ..Module::default()
     }
 }
 
@@ -687,12 +706,14 @@ pub fn lower_property_list(name: &str, props: &[CssPropertyWithConditions]) -> M
             name: Ident::from_text(name),
             doc: notes,
             ty: "CssPropertyWithConditionsVec".to_string(),
+            params: Vec::new(),
             value: Expr::vec(
                 "CssPropertyWithConditionsVec",
                 "CssPropertyWithConditions",
                 items,
             ),
         }],
+        ..Module::default()
     }
 }
 

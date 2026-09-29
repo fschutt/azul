@@ -283,9 +283,18 @@ impl Ctx<'_> {
                 self.out.dropped.push(what.clone());
                 String::new()
             }
+            // Never reached: `item_blocker` rejects an item that has them.
+            Expr::Method { .. } | Expr::Param(_) | Expr::Concat(_) => {
+                self.out.dropped.push(LINEAR_DOM.to_string());
+                String::new()
+            }
         }
     }
 }
+
+/// Why the statement-oriented printers do not print DOM construction.
+pub const LINEAR_DOM: &str = "DOM export (builder methods and parameters) is not implemented for \
+                              the statement-oriented printers yet";
 
 /// Flatten `e` into temporaries `t1`, `t2`, ... (children first).
 #[must_use]
@@ -303,7 +312,16 @@ pub fn lower_to_statements(s: &dyn LinearSyntax, e: &Expr) -> Statements {
 /// Why this language cannot build the item at all (`None` if it can).
 #[must_use]
 pub fn item_blocker(s: &dyn LinearSyntax, item: &Item) -> Option<String> {
-    blocker_with(&|n| s.limitation(n), &item.value)
+    if !item.params.is_empty() {
+        return Some(LINEAR_DOM.to_string());
+    }
+    blocker_with(
+        &|n| {
+            s.limitation(n)
+                .or_else(|| n.is_dom_node().then(|| LINEAR_DOM.to_string()))
+        },
+        &item.value,
+    )
 }
 
 /// The item's comment lines: its doc plus the language's dropped items.

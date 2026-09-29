@@ -16,7 +16,7 @@ use alloc::{
 pub use super::ir::is_droppable_vec;
 use super::{
     doc::Doc,
-    ir::{EnumShape, Expr, Module, Prim},
+    ir::{EnumShape, Expr, Ident, Module, Prim},
     CodegenBackend,
 };
 
@@ -28,6 +28,7 @@ pub mod cpp;
 pub mod crystal;
 pub mod csharp;
 pub mod d;
+pub mod dom;
 pub mod fortran;
 pub mod freebasic;
 pub mod go;
@@ -92,6 +93,85 @@ pub trait ExprSyntax {
     fn field_value(&self, _field: &Expr, value: Doc) -> Doc {
         value
     }
+
+    // ── DOM construction (Expr::Method / Param / Concat) ──
+
+    /// Why this language does not print the DOM node kinds ([`Expr::Method`],
+    /// [`Expr::Param`], [`Expr::Concat`]) and item parameters, or `None` once
+    /// its printer implements [`Self::method`], [`Self::param`],
+    /// [`Self::concat`] and prints `Item::params`. Default: not implemented.
+    fn dom_limitation(&self) -> Option<&'static str> {
+        Some(
+            "DOM export (builder methods and parameters) is not implemented for this language's \
+             printer yet",
+        )
+    }
+
+    /// `recv.method(args)`: the by-value `self` method `class.method`.
+    /// `layout.node_tall`: the whole node is tall (a chain of 2+ methods,
+    /// or a tall part); `layout.args_tall`: one of `args` is tall.
+    fn method(
+        &self,
+        _recv: Doc,
+        class: &str,
+        method: &str,
+        _args: Vec<Doc>,
+        _layout: MethodLayout,
+    ) -> Doc {
+        self.unsupported(&format!("{class}.{method}"))
+    }
+
+    /// Item parameter `name` (a native string of the language), as the
+    /// api.json `String` a call takes.
+    fn param(&self, name: &Ident) -> Doc {
+        self.unsupported(&format!("parameter {}", name.snake()))
+    }
+
+    /// An api.json `String` joined from `parts`.
+    fn concat(&self, _parts: &[ConcatPart<'_>]) -> Doc {
+        self.unsupported("a string joined from parameters")
+    }
+}
+
+/// How a [`ExprSyntax::method`] node lays out.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct MethodLayout {
+    /// The node is tall: a chain of two or more methods, or a tall part.
+    pub node_tall: bool,
+    /// One of the method's own arguments is tall.
+    pub args_tall: bool,
+}
+
+/// A part of an [`Expr::Concat`].
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ConcatPart<'a> {
+    /// Literal text.
+    Lit(&'a str),
+    /// An item parameter (a native string).
+    Param(&'a Ident),
+}
+
+/// The parts of an [`Expr::Concat`] (anything but a literal or a parameter
+/// is left out; the lowering never produces it).
+#[must_use]
+pub fn concat_parts(parts: &[Expr]) -> Vec<ConcatPart<'_>> {
+    parts
+        .iter()
+        .filter_map(|p| match p {
+            Expr::Str(s) => Some(ConcatPart::Lit(s.as_str())),
+            Expr::Param(i) => Some(ConcatPart::Param(i)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Why `e` itself (a DOM node kind) cannot be printed in language `s`.
+fn dom_node_limitation(s: &dyn ExprSyntax, e: &Expr) -> Option<String> {
+    if e.is_dom_node() {
+        s.dom_limitation().map(ToString::to_string)
+    } else {
+        None
+    }
 }
 
 /// Why `e` cannot be built in language `s`: the first [`Expr::Unsupported`]
@@ -99,7 +179,10 @@ pub trait ExprSyntax {
 /// droppable list (that one drops its own bad items).
 #[must_use]
 pub fn blocker(s: &dyn ExprSyntax, e: &Expr) -> Option<String> {
-    blocker_with(&|n| s.limitation(n), e)
+    blocker_with(
+        &|n| s.limitation(n).or_else(|| dom_node_limitation(s, n)),
+        e,
+    )
 }
 
 /// [`blocker`] for any limitation function (the statement-oriented printers
@@ -120,11 +203,15 @@ pub fn blocker_with(limitation: &dyn Fn(&Expr) -> Option<String>, e: &Expr) -> O
                 items.iter().find_map(|i| blocker_with(limitation, i))
             }
         }
-        Expr::Call { args, .. } | Expr::Variant { args, .. } => {
+        Expr::Call { args, .. } | Expr::Variant { args, .. } | Expr::Concat(args) => {
             args.iter().find_map(|a| blocker_with(limitation, a))
         }
+        Expr::Method { recv, args, .. } => blocker_with(limitation, recv)
+            .or_else(|| args.iter().find_map(|a| blocker_with(limitation, a))),
         Expr::Struct { fields, .. } => fields.iter().find_map(|(_, v)| blocker_with(limitation, v)),
-        Expr::Int { .. } | Expr::Float { .. } | Expr::Bool(_) | Expr::Str(_) => None,
+        Expr::Int { .. } | Expr::Float { .. } | Expr::Bool(_) | Expr::Str(_) | Expr::Param(_) => {
+            None
+        }
         // Answered by the early return above.
         Expr::Unsupported { .. } => None,
     }
@@ -183,17 +270,38 @@ pub fn is_tall(s: &dyn ExprSyntax, e: &Expr) -> bool {
         }
         Expr::Call { args, .. } | Expr::Variant { args, .. } => args.iter().any(|a| is_tall(s, a)),
         Expr::Struct { fields, .. } => fields.iter().any(|(_, v)| is_tall(s, v)),
+        // A chain of two or more builder methods is one link per line.
+        Expr::Method { recv, args, .. } => {
+            matches!(**recv, Expr::Method { .. })
+                || is_tall(s, recv)
+                || args.iter().any(|a| is_tall(s, a))
+        }
         Expr::Int { .. }
         | Expr::Float { .. }
         | Expr::Bool(_)
         | Expr::Str(_)
+        | Expr::Param(_)
+        | Expr::Concat(_)
         | Expr::Unsupported { .. } => false,
     }
 }
 
 /// An item's value, or why this language cannot build it at all.
 pub fn item_doc(s: &dyn ExprSyntax, item: &super::ir::Item) -> Result<Doc, String> {
+    if let Some(reason) = item_dom_blocker(s, item) {
+        return Err(reason);
+    }
     blocker(s, &item.value).map_or_else(|| Ok(expr_doc_top(s, &item.value)), Err)
+}
+
+/// A DOM item (it takes parameters or builds a `Dom`) in a language whose
+/// printer does not do DOM export: why it is not printed.
+#[must_use]
+pub fn item_dom_blocker(s: &dyn ExprSyntax, item: &super::ir::Item) -> Option<String> {
+    if item.params.is_empty() && item.ty != "Dom" {
+        return None;
+    }
+    s.dom_limitation().map(ToString::to_string)
 }
 
 /// For languages that return a style as a NATIVE list of
@@ -305,6 +413,23 @@ fn expr_doc_inner(s: &dyn ExprSyntax, e: &Expr, broken: bool) -> Doc {
             broken,
         ),
         Expr::Unsupported { what } => s.unsupported(what),
+        Expr::Method {
+            recv,
+            class,
+            method,
+            args,
+        } => s.method(
+            expr_doc(s, recv),
+            class,
+            method,
+            args.iter().map(|a| expr_doc(s, a)).collect(),
+            MethodLayout {
+                node_tall: broken,
+                args_tall: args.iter().any(|a| is_tall(s, a)),
+            },
+        ),
+        Expr::Param(name) => s.param(name),
+        Expr::Concat(parts) => s.concat(&concat_parts(parts)),
     }
 }
 

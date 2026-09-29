@@ -197,6 +197,10 @@ fn c_names(e: &Expr, out: &mut BTreeSet<String>) {
         Expr::Str(_) => {
             out.insert("AzString_copyFromBytes(".to_string());
         }
+        // a by-value `self` method: `AzDom_withChild(AzDom dom, ..`
+        Expr::Method { class, method, .. } => {
+            out.insert(format!("Az{class}_{}(Az{class} ", snake_to_lower_camel(method)));
+        }
         _ => {}
     });
 }
@@ -220,6 +224,15 @@ fn every_c_abi_name_the_ir_produces_exists_in_azul_h() {
     }
     for item in &lower_property_list("keywords", &keyword_list()).items {
         c_names(&item.value, &mut names);
+    }
+    // the DOM export's constructors and builder methods
+    for m in [
+        codegen_cases::dom_card_module(),
+        codegen_cases::dom_app_module(),
+    ] {
+        for item in &m.items {
+            c_names(&item.value, &mut names);
+        }
     }
     let missing: Vec<&String> = names.iter().filter(|n| !header.contains(n.as_str())).collect();
     assert!(missing.is_empty(), "not in azul.h: {missing:#?}");

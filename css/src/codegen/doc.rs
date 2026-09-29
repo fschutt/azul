@@ -31,6 +31,13 @@ pub enum Doc {
         /// Broken mode also puts the separator after the last item.
         trailing: bool,
     },
+    /// A method chain (`head.a(..).b(..)`): flat, or `broken` with every
+    /// link on a line of its own, one level deeper than the head.
+    Chain {
+        head: alloc::boxed::Box<Doc>,
+        links: Vec<Doc>,
+        broken: bool,
+    },
 }
 
 impl Doc {
@@ -74,6 +81,49 @@ impl Doc {
         }
     }
 
+    /// `recv` followed by the chained call `link` (`.with_child(x)`): a new
+    /// chain, or `recv`'s chain one link longer. A chain of two or more
+    /// links puts each on a line of its own.
+    #[must_use]
+    pub fn chained(recv: Self, link: Self) -> Self {
+        match recv {
+            Self::Chain {
+                head, mut links, ..
+            } => {
+                links.push(link);
+                let broken = links.len() >= 2;
+                Self::Chain {
+                    head,
+                    links,
+                    broken,
+                }
+            }
+            other => Self::Chain {
+                head: alloc::boxed::Box::new(other),
+                links: alloc::vec![link],
+                broken: false,
+            },
+        }
+    }
+
+    /// `true` if this renders on more than one line (a broken list or
+    /// chain, at the top or inside).
+    #[must_use]
+    pub fn is_multiline(&self) -> bool {
+        match self {
+            Self::Text(s) => s.contains('\n'),
+            Self::Cat(ps) => ps.iter().any(Self::is_multiline),
+            Self::List { items, broken, .. } => {
+                (*broken && !items.is_empty()) || items.iter().any(Self::is_multiline)
+            }
+            Self::Chain {
+                head,
+                links,
+                broken,
+            } => *broken || head.is_multiline() || links.iter().any(Self::is_multiline),
+        }
+    }
+
     /// Render flat (ignores `broken`).
     #[must_use]
     pub fn flat(&self) -> String {
@@ -113,6 +163,12 @@ fn flat_into(d: &Doc, out: &mut String) {
                 out.push(' ');
             }
             out.push_str(close);
+        }
+        Doc::Chain { head, links, .. } => {
+            flat_into(head, out);
+            for l in links {
+                flat_into(l, out);
+            }
         }
     }
 }
@@ -164,6 +220,24 @@ fn render_into(d: &Doc, indent: &str, level: usize, out: &mut String) {
                 out.push_str(indent);
             }
             out.push_str(close);
+        }
+        Doc::Chain {
+            head,
+            links,
+            broken,
+        } => {
+            render_into(head, indent, level, out);
+            for l in links {
+                if *broken {
+                    out.push('\n');
+                    for _ in 0..=level {
+                        out.push_str(indent);
+                    }
+                    render_into(l, indent, level + 1, out);
+                } else {
+                    render_into(l, indent, level, out);
+                }
+            }
         }
     }
 }
