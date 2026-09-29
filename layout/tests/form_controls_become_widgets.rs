@@ -2528,3 +2528,102 @@ mod file_inputs {
         assert_eq!(text_under(&styled, button), "2 files");
     }
 }
+
+// ── Widgets the app built, inside a Form ────────────────────────────────────
+
+/// A widget the APP builds - not a replaced raw control - takes part in its
+/// form by a `name` on its root, as a TextInput does, and is spelled like the
+/// replaced control of its kind: a checkbox or switch submits "on" (or its
+/// `value`) while checked and nothing otherwise, a slider its number, a
+/// colour input its hex, a drop-down and a radio group their chosen label, a
+/// time picker `HH:MM`, a file input its file ("" for none). Only text-like
+/// widgets and date pickers were read before; the others needed the app to
+/// keep `name` + `value` attributes current by hand.
+mod hand_built_controls {
+    use azul_css::{AzString, OptionString, StringVec};
+    use azul_layout::widgets::{
+        check_box::CheckBox,
+        color_input::ColorInput,
+        drop_down::DropDown,
+        file_input::FileInput,
+        form::{collect_form_data, Form},
+        radio_group::RadioGroup,
+        slider::Slider,
+        switch::Switch,
+        time_picker::TimePicker,
+    };
+
+    use super::{
+        forms::{initial_values, mount, owned, pairs, the_form},
+        *,
+    };
+
+    fn named_root(dom: Dom, name: &str) -> Dom {
+        dom.with_attribute(AttributeType::Name(name.into()))
+    }
+
+    fn labels(items: &[&str]) -> StringVec {
+        StringVec::from_vec(items.iter().map(|s| AzString::from(*s)).collect())
+    }
+
+    fn settings() -> Dom {
+        page(
+            Form::create(azul_core::dom::DomVec::from_vec(vec![
+                named_root(CheckBox::create(true).dom(), "news"),
+                named_root(CheckBox::create(false).dom(), "spam"),
+                named_root(Switch::create(true).dom(), "dark"),
+                named_root(Slider::create(7.0, 0.0, 10.0).dom(), "vol"),
+                named_root(
+                    ColorInput::create(ColorU {
+                        r: 255,
+                        g: 0,
+                        b: 0,
+                        a: 255,
+                    })
+                    .dom(),
+                    "tint",
+                ),
+                named_root(DropDown::new(labels(&["Apple", "Pear"])).with_selected(1).dom(), "fruit"),
+                named_root(TimePicker::create(9, 5).with_24h(true).dom(), "at"),
+                named_root(
+                    RadioGroup::create(labels(&["Free", "Pro"]))
+                        .with_selected_index(1)
+                        .dom(),
+                    "plan",
+                ),
+                named_root(FileInput::create(OptionString::None).dom(), "doc"),
+            ]))
+            .dom(),
+        )
+    }
+
+    #[test]
+    fn widgets_the_app_built_are_in_their_forms_data() {
+        let expected = owned(&[
+            ("news", "on"),
+            ("dark", "on"),
+            ("vol", "7"),
+            ("tint", "#ff0000"),
+            ("fruit", "Pear"),
+            ("at", "09:05"),
+            ("plan", "Pro"),
+            ("doc", ""),
+        ]);
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(settings());
+        let form = the_form(&styled);
+        assert_eq!(
+            initial_values(&styled, form),
+            Some(expected.clone()),
+            "the form's initial values, recorded at its build"
+        );
+
+        mount(&mut lw, styled);
+        let data = with_info(&lw, dom_node(form), |mut info| {
+            collect_form_data(&mut info, dom_node(form))
+        })
+        .0
+        .expect("the form node is in a form");
+        assert_eq!(pairs(&data), expected, "the form's current values");
+    }
+}
