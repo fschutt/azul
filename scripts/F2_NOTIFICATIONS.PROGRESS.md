@@ -54,12 +54,15 @@ AzClock alarms / scheduled notifications: NOT IN SCOPE (separate feature).
 
 - `9dd190762` feat (item 1): `azul-doc bundle macos` (pure half + command + dispatch/help); the
   unbundled reason names it
+- `5ce7e18b6` fix (G4 residual): a new button set's first notification waits for its category
+  (`getNotificationCategoriesWithCompletionHandler:` before the add)
 
 ## 4. IN PROGRESS
 
-- residuals of the DONE items: macOS category race (apple.rs), iOS launched_app, Android
-  requestPermissions thread - decide fix vs plan
+- none: final report `scripts/F2_NOTIFICATIONS_2026_09_29.md`. iOS `launched_app`, the Android
+  `requestPermissions` thread, the Windows COM activator, `AppConfig::app_id` and the E2E
+  notification op are PLANS in the report, not code.
 
 ## 5. Open questions
 
-- none yet
+- none
