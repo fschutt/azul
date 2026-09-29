@@ -3548,3 +3548,38 @@ fn pagination_button(
 pub fn pagination(p: crate::widgets::pagination::Pagination) -> Dom {
     p.build(pagination_skin())
 }
+
+// ==== radio_group ====
+//
+// Flat is the established group: the #9b9b9b ring holding the accent dot (the
+// desktop's accent in the dark), labels in the page's ink. What it adds is the
+// focus ring the rows never had - the row is the focusable radio (the group's
+// Tab stop, and the arrow keys' targets), so the row gets a transparent 1px ring
+// slot and a little inset, and takes `FIELD_RING` / `DARK_ACC` on focus. The
+// indicator's fixed geometry is the widget's own and stays.
+
+/// Renders a [`crate::widgets::radio_group::RadioGroup`] in the flat theme.
+#[must_use]
+pub fn radio_group(rg: crate::widgets::radio_group::RadioGroup) -> Dom {
+    use super::style_kit as kit;
+    use crate::widgets::radio_group as r;
+
+    let mut row = r::build_row_style(rg.radio_group_state.horizontal).into_library_owned_vec();
+    row.extend(kit::padding(1, 4, 1, 2));
+    row.extend(kit::radius(3));
+    row.extend(kit::ring_slot());
+    row.extend(kit::focus_ring(FIELD_RING, DARK_ACC));
+
+    rg.build(r::RadioGroupSkin {
+        theme: super::UiTheme::Flat,
+        row: CssPropertyWithConditionsVec::from_vec(row),
+        circle: CssPropertyWithConditionsVec::from_const_slice(r::RADIO_GROUP_CIRCLE_STYLE),
+        dot_selected: CssPropertyWithConditionsVec::from_const_slice(
+            r::RADIO_GROUP_DOT_STYLE_SELECTED,
+        ),
+        dot_unselected: CssPropertyWithConditionsVec::from_const_slice(
+            r::RADIO_GROUP_DOT_STYLE_UNSELECTED,
+        ),
+        label: CssPropertyWithConditionsVec::from_const_slice(r::RADIO_GROUP_LABEL_STYLE),
+    })
+}

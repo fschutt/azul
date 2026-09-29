@@ -3211,3 +3211,87 @@ fn pagination_colours(
 pub fn pagination(p: crate::widgets::pagination::Pagination) -> Dom {
     p.build(pagination_skin())
 }
+
+// ==== radio_group ====
+//
+// A flora radio is a WELL cut into the leaf: field paper (`--fl-fld`, by night
+// the night field) under a `--fl-bd3` hairline - the heavier rule a control
+// takes - sunk by `--fl-well`. The checked radio holds a small accent stone
+// (`--fl-acc` under the orb's specular cap, `.fl-orb-gloss`), its own colour by
+// day and by night. Labels are flora ink. A row washes to `--fl-hov` under the
+// pointer and is ringed on focus, in the accent by day and the glow by night.
+// The indicator keeps the widget's fixed geometry (16px, never shrinks).
+
+/// `--fl-hov` by day: rgba(253, 252, 248, 0.6).
+const RADIO_GROUP_HOVER_LIGHT: ColorU = ColorU::new(253, 252, 248, 153);
+/// `--fl-hov` by night: rgba(58, 58, 58, 0.7).
+const RADIO_GROUP_HOVER_DARK: ColorU = ColorU::new(58, 58, 58, 179);
+
+/// Renders a [`crate::widgets::radio_group::RadioGroup`] in the flora theme.
+#[must_use]
+pub fn radio_group(rg: crate::widgets::radio_group::RadioGroup) -> Dom {
+    use super::style_kit as kit;
+    use crate::widgets::radio_group as r;
+    type P = CssPropertyWithConditions;
+
+    let mut row = r::build_row_style(rg.radio_group_state.horizontal).into_library_owned_vec();
+    row.extend(kit::padding(1, 4, 1, 2));
+    row.extend(kit::radius(3));
+    row.extend(kit::ring_slot());
+    // States last.
+    row.extend(kit::hover_bg(RADIO_GROUP_HOVER_LIGHT, RADIO_GROUP_HOVER_DARK));
+    row.extend(kit::focus_ring(LIGHT_ACC, DARK_GLOW));
+
+    // The well: the widget's geometry, flora's paper.
+    let mut circle = vec![
+        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        P::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+        P::simple(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+        P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        r::NO_SHRINK,
+        P::simple(CssProperty::const_width(LayoutWidth::const_px(r::CIRCLE_SIZE))),
+        P::simple(CssProperty::const_height(LayoutHeight::const_px(r::CIRCLE_SIZE))),
+    ];
+    circle.extend(kit::border(kit::Edges::ALL, r::CIRCLE_BORDER, LIGHT_BD3, DARK_BD3));
+    circle.extend(kit::radius(r::CIRCLE_RADIUS));
+    circle.extend(kit::themed_bg(LIGHT_FLD, DARK_FLD));
+    // `--fl-well`, the same inset the flora number field is sunk by.
+    circle.extend(kit::inset_shadow(
+        1,
+        2,
+        NUMBER_INPUT_WELL_LIGHT,
+        NUMBER_INPUT_WELL_DARK,
+    ));
+
+    // The stone, shown (100) or laid out and invisible (0).
+    let dot = |opacity: isize| {
+        let mut v = vec![
+            P::simple(CssProperty::const_width(LayoutWidth::const_px(r::DOT_SIZE))),
+            P::simple(CssProperty::const_height(LayoutHeight::const_px(r::DOT_SIZE))),
+            P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+            r::NO_SHRINK,
+            P::simple(kit::layers(vec![
+                StyleBackgroundContent::Color(LIGHT_ACC),
+                ORB_GLOSS,
+            ])),
+        ];
+        v.extend(kit::radius(r::DOT_RADIUS));
+        v.push(P::simple(CssProperty::const_opacity(StyleOpacity::const_new(
+            opacity,
+        ))));
+        CssPropertyWithConditionsVec::from_vec(v)
+    };
+
+    let mut label = r::RADIO_GROUP_LABEL_STYLE.to_vec();
+    label.extend(kit::themed_ink(LIGHT_INK, DARK_INK));
+
+    rg.build(r::RadioGroupSkin {
+        theme: super::UiTheme::Flora,
+        row: CssPropertyWithConditionsVec::from_vec(row),
+        circle: CssPropertyWithConditionsVec::from_vec(circle),
+        dot_selected: dot(100),
+        dot_unselected: dot(0),
+        label: CssPropertyWithConditionsVec::from_vec(label),
+    })
+}

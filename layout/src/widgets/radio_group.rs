@@ -46,7 +46,10 @@ use azul_css::{
     AzString, OptionString, StringVec,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::themes::{style_kit, OptionUiTheme, UiTheme},
+};
 
 static RADIO_GROUP_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-radio-group"))];
@@ -112,6 +115,10 @@ pub struct RadioGroup {
     /// accessibility declaration the widget builds anyway, beside its role and
     /// state.
     pub accessibility_name: OptionString,
+    /// The widget theme, or `None` for the default (`UiTheme::Flat`). A
+    /// theme is a DOM-level choice: it picks the skin the rows, indicators
+    /// and labels are built from, so switching it rebuilds the group.
+    pub theme: OptionUiTheme,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -134,16 +141,16 @@ pub struct RadioGroupState {
     pub selected_index: usize,
 }
 
-// ---- dimensions (logical px) ----
-const CIRCLE_SIZE: isize = 16;
-const CIRCLE_RADIUS: isize = 8;
-const CIRCLE_BORDER: isize = 1;
-const DOT_SIZE: isize = 8;
-const DOT_RADIUS: isize = 4;
+// ---- dimensions (logical px) - every theme's indicator has this geometry ----
+pub(crate) const CIRCLE_SIZE: isize = 16;
+pub(crate) const CIRCLE_RADIUS: isize = 8;
+pub(crate) const CIRCLE_BORDER: isize = 1;
+pub(crate) const DOT_SIZE: isize = 8;
+pub(crate) const DOT_RADIUS: isize = 4;
 /// Gap between stacked rows (vertical) / between side-by-side rows (horizontal).
 const ROW_GAP: isize = 6;
 /// Gap between the indicator circle and its label.
-const LABEL_GAP: isize = 8;
+pub(crate) const LABEL_GAP: isize = 8;
 
 // ---- colours ----
 /// Indicator ring colour (#9b9b9b).
@@ -172,14 +179,14 @@ const DOT_BG: StyleBackgroundContentVec = StyleBackgroundContentVec::from_const_
 /// group short) squeezed the 18 x 18 ring into a 10 x 18 pill with the dot
 /// off its centre. The label wraps or overflows instead, as next to a native
 /// radio button.
-const NO_SHRINK: CssPropertyWithConditions =
+pub(crate) const NO_SHRINK: CssPropertyWithConditions =
     CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
         inner: FloatValue::const_new(0),
     }));
 
 /// Outer ring of one option's indicator (parameter-independent → const slice).
 /// A flex box that centres its inner dot.
-static RADIO_GROUP_CIRCLE_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static RADIO_GROUP_CIRCLE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
     CssPropertyWithConditions::simple(CssProperty::const_justify_content(
@@ -251,7 +258,7 @@ static RADIO_GROUP_CIRCLE_STYLE: &[CssPropertyWithConditions] = &[
 ];
 
 /// Inner filled dot when the option is SELECTED (opacity 100).
-static RADIO_GROUP_DOT_STYLE_SELECTED: &[CssPropertyWithConditions] = &[
+pub(crate) static RADIO_GROUP_DOT_STYLE_SELECTED: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(DOT_SIZE))),
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(DOT_SIZE))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
@@ -275,7 +282,7 @@ static RADIO_GROUP_DOT_STYLE_SELECTED: &[CssPropertyWithConditions] = &[
 ];
 
 /// Inner filled dot when the option is UNSELECTED (opacity 0 — hidden but laid out).
-static RADIO_GROUP_DOT_STYLE_UNSELECTED: &[CssPropertyWithConditions] = &[
+pub(crate) static RADIO_GROUP_DOT_STYLE_UNSELECTED: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(DOT_SIZE))),
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(DOT_SIZE))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
@@ -318,7 +325,7 @@ fn build_container_style(horizontal: bool) -> CssPropertyWithConditionsVec {
 
 /// Builds one option's row style. The orientation decides whether the inter-row
 /// gap is applied to the bottom (vertical) or the right (horizontal).
-fn build_row_style(horizontal: bool) -> CssPropertyWithConditionsVec {
+pub(crate) fn build_row_style(horizontal: bool) -> CssPropertyWithConditionsVec {
     let mut v: Vec<CssPropertyWithConditions> = alloc::vec![
         CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
         CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
@@ -344,13 +351,32 @@ fn build_row_style(horizontal: bool) -> CssPropertyWithConditionsVec {
 }
 
 /// The label-text style: a small left gap from the indicator.
-static RADIO_GROUP_LABEL_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static RADIO_GROUP_LABEL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
     CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(
         LABEL_GAP,
     ))),
 ];
+
+/// What a theme supplies for a radio group: the style of each option's row,
+/// indicator ring, dot (checked / unchecked) and label. Built by
+/// `themes::flat::radio_group` / `themes::flora::radio_group` for the group's
+/// orientation. Every theme keeps the indicator's fixed geometry
+/// ([`CIRCLE_SIZE`], [`NO_SHRINK`]).
+pub(crate) struct RadioGroupSkin {
+    pub theme: UiTheme,
+    /// One option's row - the focusable radio, so it owes the focus ring.
+    pub row: CssPropertyWithConditionsVec,
+    /// The indicator ring.
+    pub circle: CssPropertyWithConditionsVec,
+    /// The dot of the checked option.
+    pub dot_selected: CssPropertyWithConditionsVec,
+    /// The dot of every other option (laid out, invisible).
+    pub dot_unselected: CssPropertyWithConditionsVec,
+    /// The option's text.
+    pub label: CssPropertyWithConditionsVec,
+}
 
 impl RadioGroup {
     /// Creates a radio group from the given options, with the first one selected.
@@ -372,7 +398,23 @@ impl RadioGroup {
             options,
             container_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the group renders in the
+    /// default theme (`UiTheme::default()`, flat).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// The container CSS this group renders with.
@@ -452,8 +494,21 @@ impl RadioGroup {
         self
     }
 
+    /// Renders the group. Rendering goes through the theme modules (as
+    /// `Button::dom` does): each hands [`Self::build`] its skin.
+    /// `UiTheme::default()` is flat.
     #[must_use]
     pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::radio_group(self),
+            Some(UiTheme::Flat) | None => crate::widgets::themes::flat::radio_group(self),
+        }
+    }
+
+    /// Renders the group with `skin` styling its rows, indicators and labels
+    /// - what `themes::flat::radio_group` / `themes::flora::radio_group` call.
+    #[must_use]
+    pub(crate) fn build(self, skin: RadioGroupSkin) -> Dom {
         // Read before the widget's fields are moved into the DOM below.
         let rg_name = self.accessibility_name.clone();
         let container_style = self.resolved_container_style();
@@ -467,13 +522,14 @@ impl RadioGroup {
         };
 
         let selected = self.radio_group_state.inner.selected_index;
-        let horizontal = self.radio_group_state.horizontal;
         let count = self.options.as_ref().len();
         // WAI-ARIA APG: the group is ONE Tab stop - the checked radio, or the
         // first one when none is checked. The arrow keys move within it.
         let tab_stop = crate::widgets::roving::stop_index(Some(selected), count);
 
-        let row_style = build_row_style(horizontal);
+        // The skin's row already follows the orientation (the theme module
+        // built it from the horizontal flag).
+        let row_style = skin.row;
 
         // One shared RefAny across every row's callback (RefAny::clone shares
         // the underlying state — same pattern as segmented/tabs/map).
@@ -484,16 +540,14 @@ impl RadioGroup {
         let mut children: Vec<Dom> = Vec::with_capacity(count);
         for (i, label) in self.options.as_ref().iter().enumerate() {
             let dot_style = if i == selected {
-                CssPropertyWithConditionsVec::from_const_slice(RADIO_GROUP_DOT_STYLE_SELECTED)
+                skin.dot_selected.clone()
             } else {
-                CssPropertyWithConditionsVec::from_const_slice(RADIO_GROUP_DOT_STYLE_UNSELECTED)
+                skin.dot_unselected.clone()
             };
 
             let circle = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(RADIO_GROUP_CIRCLE_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                    RADIO_GROUP_CIRCLE_STYLE,
-                ))
+                .with_css_props(skin.circle.clone())
                 .with_children(
                     vec![Dom::create_div()
                         .with_ids_and_classes(IdOrClassVec::from_const_slice(RADIO_GROUP_DOT_CLASS))
@@ -503,9 +557,7 @@ impl RadioGroup {
 
             let label_node = crate::widgets::widget_p_with_text(label.clone())
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(RADIO_GROUP_LABEL_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                    RADIO_GROUP_LABEL_STYLE,
-                ));
+                .with_css_props(skin.label.clone());
 
             children.push(
                 Dom::create_div()
@@ -552,8 +604,10 @@ impl RadioGroup {
             );
         }
 
+        let mut classes: Vec<IdOrClass> = RADIO_GROUP_CLASS.to_vec();
+        classes.push(style_kit::marker(skin.theme));
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(RADIO_GROUP_CLASS))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(container_style)
             // The name belongs to the GROUP, not to each row. Every row already
             // has its own option text, which azul derives a name from; stamping
