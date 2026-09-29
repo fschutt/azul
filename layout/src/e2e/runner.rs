@@ -3526,6 +3526,25 @@ impl Runner {
                     ProcessEventResult::ShouldIncrementalRelayout
                 }
             }
+            CallbackChange::SetTheme { theme } => {
+                // One window, and the choice is this window's: the runner
+                // never publishes the app-global theme (scenarios run side by
+                // side in one process). A theme switch is a DOM RECREATION,
+                // and the runner's DOM source is its mounted document: mount
+                // it again, so the next pass rebuilds it under the new theme
+                // (any DOM mutation an earlier op made to it is dropped, as a
+                // rebuilt `layout()` would drop it).
+                if self.layout_window.app_theme == *theme {
+                    ProcessEventResult::DoNothing
+                } else {
+                    self.layout_window.app_theme = theme.clone();
+                    let mounted = self.layout_window.e2e_mount.xml().map(str::to_string);
+                    if mounted.is_some() {
+                        self.layout_window.e2e_mount.set(mounted);
+                    }
+                    ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                }
+            }
         }
     }
 

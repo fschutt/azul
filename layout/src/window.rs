@@ -1449,6 +1449,18 @@ pub struct LayoutWindow {
     /// reads THIS through [`Self::window_theme_for`], never the global. See
     /// [`resolve_window_theme`] for where it sits in the precedence.
     pub color_scheme: azul_core::window::OptionWindowTheme,
+    /// The APP THEME this window's DOM is built under (`"flat"`, `"flora"`,
+    /// ...): what its cascade matches `@theme(<name>)` blocks against
+    /// ([`Self::dynamic_selector_context`]) and what its DOM builds read
+    /// (`azul_core::app_theme::current_theme`, entered around them).
+    ///
+    /// The app's choice (`azul_core::app_theme::app_theme`) as this window
+    /// last BUILT for it: seeded from the choice when the window is built,
+    /// brought up to it by the shells' `regenerate_layout` - a window whose
+    /// value lags the choice owes a rebuild (`RelayoutReason::AppThemeChange`).
+    /// A theme change is never a restyle: a theme may change a widget's
+    /// structure. Tests set it per window without publishing the choice.
+    pub app_theme: AzString,
     /// Pre-cascade fingerprints of the LAST adopted user DOM (two tiers:
     /// structure vs style — see `azul_core::diff::DomFingerprints`). The
     /// produce side of `regenerate_layout` compares the fresh callback DOM
@@ -2250,6 +2262,9 @@ impl LayoutWindow {
             // The app's choice as it stands NOW: a window opened after a
             // runtime switch starts in it.
             color_scheme: app_color_scheme(),
+            // The app's theme as it stands NOW: a window opened after a
+            // runtime switch builds for it from its first layout.
+            app_theme: azul_core::app_theme::app_theme(),
             last_dom_fingerprints: None,
             frame_report_reset_request: core::sync::atomic::AtomicU64::new(0),
             #[cfg(feature = "pdf")]
@@ -5565,6 +5580,9 @@ impl LayoutWindow {
             azul_core::window::WindowTheme::DarkMode => ThemeCondition::Dark,
             azul_core::window::WindowTheme::LightMode => ThemeCondition::Light,
         };
+        // The APP theme beside the colour scheme: `@theme(<name>)` blocks
+        // match this window's theme chain, `@theme(dark)` the scheme above.
+        ctx.theme_chain = azul_css::dynamic_selector::app_theme_chain(self.app_theme.as_str());
         // The `system:` palette follows the theme just chosen, not the
         // desktop's: a window the app pins light on a dark desktop must not
         // resolve `system:window-background` to the dark desktop's colour.
@@ -16404,12 +16422,18 @@ impl LayoutWindow {
         window_state: &FullWindowState,
         form_scope: u64,
     ) -> StyledDom {
+        // The form controls are widgets built HERE, after `layout()`
+        // returned: build them for this window's theme, like the rest of its
+        // DOM (their structure may depend on it).
         #[cfg(feature = "widgets")]
-        let _ = crate::form_controls::resolve_form_controls_in_dom(
-            &mut dom,
-            &self.form_control_memory,
-            form_scope,
-        );
+        let _ = {
+            let _theme = azul_core::app_theme::ThemeScope::enter(self.app_theme.clone());
+            crate::form_controls::resolve_form_controls_in_dom(
+                &mut dom,
+                &self.form_control_memory,
+                form_scope,
+            )
+        };
         #[cfg(not(feature = "widgets"))]
         let _ = form_scope;
         #[cfg(feature = "fluent")]

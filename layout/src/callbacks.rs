@@ -316,6 +316,12 @@ pub enum CallbackChange {
     SetColorScheme {
         scheme: azul_core::window::OptionWindowTheme,
     },
+    /// Switch the APP THEME (`"flat"`, `"flora"`, ...) - every window's DOM
+    /// is RECREATED under it, and every window opened later starts in it
+    /// (`CallbackInfo::set_theme`).
+    SetTheme {
+        theme: AzString,
+    },
 
     // Focus Management
     /// Change keyboard focus to a specific node or clear focus
@@ -1813,6 +1819,28 @@ impl CallbackInfo {
     pub fn get_resolved_color_scheme(&self) -> azul_core::window::WindowTheme {
         self.get_layout_window()
             .window_theme_for(self.get_current_window_state().theme)
+    }
+
+    /// Switch the app's THEME to `name` (`"flat"`, `"flora"`, ...): the
+    /// `@theme(<name>)` blocks every widget carries apply, the other themes'
+    /// go inert. Not the colour scheme ([`Self::set_color_scheme`]).
+    ///
+    /// Applied after the callback returns, to EVERY window, as a DOM
+    /// RECREATION - each window's `layout()` runs again with
+    /// `RelayoutReason::AppThemeChange` - never a restyle: a theme may change
+    /// a widget's structure (flora wraps nodes flat does not). Windows opened
+    /// afterwards start in it. Switching to the theme already shown does
+    /// nothing. The startup value is `AppConfig::theme`.
+    pub fn set_theme(&mut self, name: AzString) {
+        self.push_change(CallbackChange::SetTheme { theme: name });
+    }
+
+    /// The app theme this window's DOM is built under. A `set_theme` in the
+    /// same callback is not visible here yet (it applies when the callback
+    /// returns). In `layout()`: `LayoutCallbackInfo::get_theme_name`.
+    #[must_use]
+    pub fn get_theme(&self) -> AzString {
+        self.get_layout_window().app_theme.clone()
     }
 
     /// The node seat `seat_id` focuses (9b-ii-a-i-d); the primary's for
