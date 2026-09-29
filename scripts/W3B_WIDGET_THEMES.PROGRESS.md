@@ -54,11 +54,13 @@ microphone, screencap, map, node_graph.
   (no chrome), map (look = MapTheme cartography; placeholder tiles light-only =
   follow-up), node_graph (transpiled card CSS + own NodeGraphStyle enum; plan in report).
 
+- final report: scripts/W3B_WIDGET_THEMES_2026_09_29.md
+
 ## IN PROGRESS
-- final report scripts/W3B_WIDGET_THEMES_2026_09_29.md
+(none)
 
 ## NEXT
-report -> done
+DONE - parent integrates (autofix the API list in the report, compile, run suites, RED pass).
 
 ## Open questions
 (none yet)
