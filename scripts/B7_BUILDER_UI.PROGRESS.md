@@ -7,13 +7,14 @@ Branch `wt/b7-builder-ui`, base `4b3eae56a`. Nothing compiled here (house rule).
   `aa4f063c8` (fix: drop line at the landing gap/depth, INTO tint+outline, refused-INTO fallback,
   after screenshots). Screenshots: `scripts/debugger-ui/screenshots/dnd-{before,after}-fix-{light,dark}-*.png`.
 
+- 1. Previews: `16089b8ff` (RED: builder_tests every-builtin thumbnail test, node thumbOf, smoke
+  "no visual" card), `4f88c3862` (fix: core `BUILTIN_ELEMENTS` table + `builtin_preview_dom` /
+  `builtin_no_visual`, layout `style_detached_dom` + `preview_styled_dom`, card label).
+
 ## IN PROGRESS
-- 1. Previews: RED Rust test
+- 3. Export > Code (ZIP) languages
 
 ## NEXT
-1. Previews: RED Rust test (every visual builtin previews, the rest say why) → core table
-   `BUILTIN_ELEMENTS` (text default + preview example / no-visual reason) → layout thumbnail
-   resolves form controls + icons → card "no visual" label.
 3. Export > Code (ZIP): the one language list (`get_codegen_languages`), non-DOM disabled with reason.
 4. Export menu: Compile > (CSS…, DOM…), Subtree as Component…, Components…; tests, smokes, guide.
 
