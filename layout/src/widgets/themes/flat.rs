@@ -4109,13 +4109,33 @@ pub fn divider(d: crate::widgets::divider::Divider) -> Dom {
 }
 
 // ==== spinner ====
+//
+// Flat's own indicator is the Windows 11 ProgressRing: a round-capped arc in
+// the desktop accent. `system:accent` resolves in whichever theme paints it,
+// so the arc needs no dark twin - it is the user's accent in both. Asked for
+// the spokes, flat draws macOS's exactly: pure black by day, pure white at
+// night; the sprite is ink and only its alpha varies. The show / hide fade is
+// quick, 150 ms (KDE fades its busy indicator over 100). A spinner takes no
+// focus, so there is no ring to draw.
 
-/// The flat spinner.
+/// The flat spinner: the Windows ring, or the macOS spokes when asked.
 #[must_use]
 pub fn spinner(s: crate::widgets::spinner::Spinner) -> Dom {
-    Dom::create_div()
-        .with_ids_and_classes(IdOrClassVec::from_const_slice(
-            crate::widgets::spinner::SPINNER_CLASS,
-        ))
-        .with_css_props(s.resolved_spinner_style())
+    use crate::widgets::spinner::{SpinnerLook, SpinnerStyle};
+    crate::widgets::spinner::build(
+        s,
+        &SpinnerLook {
+            auto: SpinnerStyle::Ring,
+            spoke_ink: (
+                StyleBackgroundContent::Color(ColorU::BLACK),
+                Some(StyleBackgroundContent::Color(ColorU::WHITE)),
+            ),
+            arc_ink: (
+                StyleBackgroundContent::SystemColor(SystemColorRef::Accent),
+                None,
+            ),
+            fade_ms: 150,
+            marker: None,
+        },
+    )
 }

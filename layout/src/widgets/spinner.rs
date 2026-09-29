@@ -1,43 +1,67 @@
-//! Spinner / activity-indicator widget — a small indeterminate "busy" ring. A
-//! stateless single styled node (a near-clone of the leaf-node construction of
-//! [`crate::widgets::badge::Badge`] / [`crate::widgets::progressbar::ProgressBar`]),
-//! drawn as a circular ring whose three sides use a faint "track" colour and
-//! whose top side uses a solid accent colour — the classic spinner look frozen
-//! mid-rotation.
+//! Spinner / activity indicator: the desktop's indeterminate "busy" indicator,
+//! in the shape the desktop draws it.
 //!
-//! ## PARTIAL — STATIC ONLY (no spin animation). See `TODO2` below.
+//! Two native shapes, measured in
+//! `scripts/NATIVE_WIDGET_LOOK_REFERENCE_2026_09_28.md` (sections 3 and 5.2):
 //!
-//! TODO2: this spinner is **static** — it shows the indeterminate ring shape but
-//! does NOT rotate. Azul has no declarative CSS animation: there is no
-//! `@keyframes` / `animation` / `transition` CSS property (`css/src/props` only
-//! exposes one-shot `Transform`/`TransformOrigin` GPU props and the system-level
-//! `AnimationMetrics` toggle; `props/basic/animation.rs` is SVG-curve
-//! interpolation maths, not a style-driven keyframe engine). Producing real
-//! motion would require a timer-driven `Update` loop that re-issues a rotating
-//! `CssProperty::Transform` each tick (the same mechanism scroll-smoothing uses),
-//! driven from the host app — there is no widget-local way to start such a timer
-//! at DOM-build time. Rather than fake motion that cannot be produced, the ring
-//! is rendered statically; a future revision can add the timer-driven rotation
-//! once a widget-owned animation hook exists. (Compile-verified; not GUI-verified.)
+//! * [`SpinnerStyle::Spokes`] - macOS 11-15 `NSProgressIndicator` (spinning) and iOS
+//!   `UIActivityIndicatorView`: eight capsule spokes, D/8 wide, from 0.40 of the radius out to
+//!   the rim. A wave of opacity travels clockwise, one revolution per 0.8 s: 0.55 at the head,
+//!   0.07 less per spoke behind it, down to 0.06 just ahead of it.
+//! * [`SpinnerStyle::Ring`] - the Windows 11 `ProgressRing`: a round-capped arc on a ring of
+//!   centre-line radius 0.4375 D and stroke 0.09375 D, turning at 450 degrees a second. The native
+//!   arc also grows and shrinks; a fixed 135-degree arc is what one clip shape can hold.
 //!
-//! Key types: [`Spinner`].
+//! Flat draws the ring and Flora the spokes ([`SpinnerStyle::Auto`]); either theme draws either
+//! shape when asked.
+//!
+//! The shapes are real clip paths: each spoke, the arc and the optional track is a full-size
+//! node painted in its colour and clipped to its outline (`Dom::with_svg_clip_path`), in the user
+//! space the container declares (`SvgNodeData::ViewBox`, `0 0 D D`) - so the geometry scales
+//! with the size, and hit-testing follows the shape.
+//!
+//! The motion is declared, not driven: every moving part carries
+//! `-azul-animation-in: <keyframes> 800ms linear infinite`, and the container fades in and out
+//! as it is shown and hidden (`-azul-animation-in` / `-azul-animation-out`). CSS would stagger
+//! ONE spoke track with negative `animation-delay`s; a `CssDuration` holds no negative time, so
+//! each spoke gets its own `@keyframes` block, phase-rotated so it starts at frame 0 of the wave.
+//! Every animation is gated on `prefers-reduced-motion: no-preference`: with reduced motion the
+//! indicator is the same picture, held still - the spokes at their frame-0 ramp, the arc where it
+//! starts.
+//!
+//! Key types: [`Spinner`], [`SpinnerStyle`].
 
-use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
+use alloc::vec::Vec;
+
+use azul_core::{
+    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, SvgNodeData},
+    svg::{SvgLine, SvgMultiPolygon, SvgPath, SvgPathElement, SvgPathElementVec, SvgPathVec},
+};
 use azul_css::{
+    css::{Css, KeyframeStop, KeyframeStopVec, Keyframes, KeyframesVec},
     dynamic_selector::{
-        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+        BoolCondition, CssPropertyWithConditions, CssPropertyWithConditionsVec, DynamicSelector,
+        OptionCssPropertyWithConditionsVec,
     },
     props::{
-        basic::{color::ColorU, *},
-        layout::{LayoutAlignSelf, LayoutFlexGrow, LayoutHeight, LayoutWidth},
-        property::{CssProperty, *},
+        basic::{
+            angle::AngleValue,
+            animation::{
+                AnimationIterationCount, AnimationTiming, StyleAnimation, StyleAnimationVec,
+                SvgPoint,
+            },
+            color::{ColorU, OptionColorU},
+            length::{FloatValue, PercentageValue},
+            time::CssDuration,
+        },
+        layout::{
+            LayoutAlignSelf, LayoutFlexGrow, LayoutFlexShrink, LayoutHeight, LayoutLeft,
+            LayoutPosition, LayoutTop, LayoutWidth,
+        },
+        property::{CssProperty, CssPropertyVec, StyleAnimationVecValue},
         style::{
-            BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
-            LayoutBorderTopWidth, StyleBorderBottomColor, StyleBorderBottomLeftRadius,
-            StyleBorderBottomRightRadius, StyleBorderBottomStyle, StyleBorderLeftColor,
-            StyleBorderLeftStyle, StyleBorderRightColor, StyleBorderRightStyle,
-            StyleBorderTopColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius,
-            StyleBorderTopStyle,
+            StyleBackgroundContent, StyleBackgroundContentVec, StyleOpacity, StyleTransform,
+            StyleTransformVec,
         },
     },
     AzString,
@@ -62,132 +86,108 @@ pub enum SpinnerStyle {
     Ring,
 }
 
-/// Default ring diameter, in logical px.
-const DEFAULT_SIZE: isize = 24;
-/// Faint "track" colour for the three inactive sides (#d0d4d9).
-const DEFAULT_TRACK_COLOR: ColorU = ColorU {
-    r: 208,
-    g: 212,
-    b: 217,
-    a: 255,
-};
-/// Solid accent colour for the active (top) arc (#0d6efd, accent blue).
-const DEFAULT_ACCENT_COLOR: ColorU = ColorU {
-    r: 13,
-    g: 110,
-    b: 253,
-    a: 255,
-};
+/// Default diameter, in logical px: macOS's regular spinner and the Windows
+/// 11 `ProgressRing` are both 32 (small 16, mini 10).
+const DEFAULT_SIZE: isize = 32;
 
-/// An indeterminate busy-indicator ring. Stateless; renders a single styled
-/// node. **Static** — the ring shows the spinner shape but does not rotate
-/// (see the module-level `TODO2`).
+/// One revolution, in ms: macOS's 0.8 s per turn for the spoke wave, and
+/// Windows 11's 450 degrees a second for the ring.
+const CYCLE_MS: u32 = 800;
+
+/// Number of spokes (macOS 11+ and iOS; the 12-spoke look is pre-Big Sur).
+const SPOKES: usize = 8;
+
+/// How much of the ring the arc covers, in degrees.
+const ARC_SWEEP_DEG: f32 = 135.0;
+
+/// Segments per half-circle cap and per 45 degrees of arc: fine enough that
+/// the mask, rasterised at 2x, shows no facets at any native size.
+const CAP_STEPS: usize = 8;
+const ARC_STEPS_PER_45_DEG: usize = 8;
+
+/// Each spoke's `@keyframes` name. `&'static` because a keyframes block is
+/// looked up by name, and spoke `k` always runs the same phase.
+const SPOKE_TRACKS: [&str; SPOKES] = [
+    "__azul-spinner-spoke-0",
+    "__azul-spinner-spoke-1",
+    "__azul-spinner-spoke-2",
+    "__azul-spinner-spoke-3",
+    "__azul-spinner-spoke-4",
+    "__azul-spinner-spoke-5",
+    "__azul-spinner-spoke-6",
+    "__azul-spinner-spoke-7",
+];
+const SPIN_TRACK: &str = "__azul-spinner-spin";
+const FADE_IN_TRACK: &str = "__azul-spinner-fade-in";
+const FADE_OUT_TRACK: &str = "__azul-spinner-fade-out";
+
+/// An indeterminate busy indicator. Stateless; see the module docs for the
+/// two shapes it draws.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct Spinner {
-    /// The ring diameter, in logical px.
+    /// The indicator's diameter, in logical px.
     pub size: isize,
-    /// Colour of the active (top) arc.
-    pub color: ColorU,
-    /// Colour of the three inactive ("track") sides.
-    pub track_color: ColorU,
-    /// The ring's CSS, or `None` for "no opinion" — in which case the style is
-    /// derived from `size`, `color` and `track_color` at render time.
+    /// The container's CSS, or `None` for "no opinion" - in which case the
+    /// container is sized from `size` and fades in and out.
     ///
     /// `None` and `Some(empty)` are different answers: the first means the
     /// widget picks, the second means the caller asked for no properties at all
-    /// and gets none.
+    /// and gets none. The indicator inside is drawn either way.
     pub spinner_style: OptionCssPropertyWithConditionsVec,
     /// Which native indicator to draw; `Auto` lets the theme pick.
     pub indicator: SpinnerStyle,
     /// The widget theme, or `None` for the default
     /// (`crate::widgets::themes::UiTheme::default()`, Flat).
     pub theme: crate::widgets::themes::OptionUiTheme,
+    /// The indicator's ink - the spokes, or the ring's arc - or `None` for the
+    /// native one: pure black / white spokes (flora: its ink), the desktop
+    /// accent ring (flora: its accent stone). A colour given here is used in
+    /// both the light and the dark theme.
+    pub color: OptionColorU,
+    /// The ring's track, drawn under the arc, or `None` for none (the Windows
+    /// ring has none). The spokes have no track.
+    pub track_color: OptionColorU,
 }
 
-/// Builds the ring style for the given diameter and colours. All three are
-/// instance-dependent, so the style is built at runtime per the recipe's
-/// "runtime vec when param-dependent" path (see `badge::build_badge_style`).
-fn build_spinner_style(
-    size: isize,
-    color: ColorU,
-    track_color: ColorU,
-) -> CssPropertyWithConditionsVec {
-    // Ring thickness scales with the diameter (min 2px); radius = size/2 → circle.
-    let border_width = (size / 8).max(2);
-    let radius = size / 2;
+/// What a theme decides about a spinner; [`build`] turns it and the widget's
+/// state into the DOM. Built by `themes::flat::spinner` and
+/// `themes::flora::spinner`.
+pub(crate) struct SpinnerLook {
+    /// What [`SpinnerStyle::Auto`] draws under this theme.
+    pub auto: SpinnerStyle,
+    /// The spokes' native ink: the light layer, and its dark twin if it has
+    /// one.
+    pub spoke_ink: (StyleBackgroundContent, Option<StyleBackgroundContent>),
+    /// The ring's native arc: the light layer, and its dark twin if it has
+    /// one.
+    pub arc_ink: (StyleBackgroundContent, Option<StyleBackgroundContent>),
+    /// How long the show / hide fade takes, in ms.
+    pub fade_ms: u32,
+    /// The theme's marker class on the root, if it has one.
+    pub marker: Option<&'static str>,
+}
+
+/// The container: sized from `size`, never grown or stretched, and the
+/// positioning context the full-size parts are laid over.
+fn build_container_style(size: isize) -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from_vec(alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
         // Hug its own size inside a flex parent rather than stretch/grow.
         CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
         CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
             0,
         ))),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        })),
         CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(size))),
         CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(size))),
-        // border: <border_width>px solid — three sides track, top accent.
-        CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
-            LayoutBorderTopWidth::const_px(border_width),
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
-            LayoutBorderBottomWidth::const_px(border_width),
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
-            LayoutBorderLeftWidth::const_px(border_width),
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
-            LayoutBorderRightWidth::const_px(border_width),
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(
-            StyleBorderTopStyle {
-                inner: BorderStyle::Solid,
-            }
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
-            StyleBorderBottomStyle {
-                inner: BorderStyle::Solid,
-            },
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_left_style(
-            StyleBorderLeftStyle {
-                inner: BorderStyle::Solid,
-            }
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
-            StyleBorderRightStyle {
-                inner: BorderStyle::Solid,
-            },
-        )),
-        // top = accent (the visible "arc"); other three = faint track.
-        CssPropertyWithConditions::simple(CssProperty::const_border_top_color(
-            StyleBorderTopColor { inner: color }
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
-            StyleBorderBottomColor { inner: track_color },
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_left_color(
-            StyleBorderLeftColor { inner: track_color }
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
-            StyleBorderRightColor { inner: track_color },
-        )),
-        // border-radius: size/2 → a circle.
-        CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
-            StyleBorderTopLeftRadius::const_px(radius),
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_top_right_radius(
-            StyleBorderTopRightRadius::const_px(radius),
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_left_radius(
-            StyleBorderBottomLeftRadius::const_px(radius),
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_right_radius(
-            StyleBorderBottomRightRadius::const_px(radius),
-        )),
     ])
 }
 
 impl Spinner {
-    /// Creates a new spinner with the default size (24px) and accent colour.
+    /// Creates a new spinner with the default size (32px) and the native ink.
     #[inline]
     #[must_use]
     pub const fn create() -> Self {
@@ -195,41 +195,39 @@ impl Spinner {
     }
 
     /// Creates a new spinner with the given diameter (logical px) and the
-    /// default colours.
+    /// native ink.
     #[inline]
     #[must_use]
     pub const fn with_size(size: isize) -> Self {
         Self {
             size,
-            color: DEFAULT_ACCENT_COLOR,
-            track_color: DEFAULT_TRACK_COLOR,
             spinner_style: OptionCssPropertyWithConditionsVec::None,
             indicator: SpinnerStyle::Auto,
             theme: crate::widgets::themes::OptionUiTheme::None,
+            color: OptionColorU::None,
+            track_color: OptionColorU::None,
         }
     }
 
-    /// The ring CSS this spinner renders with.
+    /// The container CSS this spinner renders with.
     ///
-    /// `None` means no opinion, so the geometry and colours decide — the same
-    /// answer both themes give, asked in one place so they cannot drift. It is
-    /// also what makes the three setters below plain field writes: there is no
-    /// cached vec left for them to keep in step.
+    /// `None` means no opinion, so the size decides - the same answer both
+    /// themes give, asked in one place so they cannot drift.
     #[must_use]
     pub fn resolved_spinner_style(&self) -> CssPropertyWithConditionsVec {
         self.spinner_style
             .clone()
             .into_option()
-            .unwrap_or_else(|| build_spinner_style(self.size, self.color, self.track_color))
+            .unwrap_or_else(|| build_container_style(self.size))
     }
 
-    /// Sets the ring diameter (logical px).
+    /// Sets the diameter (logical px).
     #[inline]
     pub const fn set_size(&mut self, size: isize) {
         self.size = size;
     }
 
-    /// Builder-style setter for the ring diameter.
+    /// Builder-style setter for the diameter.
     #[inline]
     #[must_use]
     pub const fn with_spinner_size(mut self, size: isize) -> Self {
@@ -237,13 +235,14 @@ impl Spinner {
         self
     }
 
-    /// Sets the active-arc colour.
+    /// Sets the indicator's ink (the spokes, or the ring's arc), in both the
+    /// light and the dark theme.
     #[inline]
     pub const fn set_color(&mut self, color: ColorU) {
-        self.color = color;
+        self.color = OptionColorU::Some(color);
     }
 
-    /// Builder-style setter for the active-arc colour.
+    /// Builder-style setter for the indicator's ink.
     #[inline]
     #[must_use]
     pub const fn with_color(mut self, color: ColorU) -> Self {
@@ -251,27 +250,18 @@ impl Spinner {
         self
     }
 
-    /// Sets the inactive "track" colour.
+    /// Sets the ring's track colour (drawn under the arc).
     #[inline]
     pub const fn set_track_color(&mut self, track_color: ColorU) {
-        self.track_color = track_color;
+        self.track_color = OptionColorU::Some(track_color);
     }
 
-    /// Builder-style setter for the inactive "track" colour.
+    /// Builder-style setter for the ring's track colour.
     #[inline]
     #[must_use]
     pub const fn with_track_color(mut self, track_color: ColorU) -> Self {
         self.set_track_color(track_color);
         self
-    }
-
-    /// Replaces `self` with a default spinner and returns the original.
-    #[inline]
-    #[must_use]
-    pub const fn swap_with_default(&mut self) -> Self {
-        let mut s = Self::create();
-        core::mem::swap(&mut s, self);
-        s
     }
 
     /// Picks the native indicator to draw (`Auto`: the theme's own).
@@ -303,6 +293,15 @@ impl Spinner {
         self
     }
 
+    /// Replaces `self` with a default spinner and returns the original.
+    #[inline]
+    #[must_use]
+    pub const fn swap_with_default(&mut self) -> Self {
+        let mut s = Self::create();
+        core::mem::swap(&mut s, self);
+        s
+    }
+
     /// Converts this spinner into its DOM, root classed
     /// `__azul-native-spinner`. The look comes from the theme module
     /// (`themes::flat::spinner` / `themes::flora::spinner`); `None` renders
@@ -330,86 +329,391 @@ impl From<Spinner> for Dom {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The build: one function, two looks
+// ---------------------------------------------------------------------------
+
+/// The spinner's DOM in `look`: the container (user space, fade, keyframes)
+/// and the indicator's parts inside it.
+pub(crate) fn build(s: Spinner, look: &SpinnerLook) -> Dom {
+    let style = match s.indicator {
+        SpinnerStyle::Auto => look.auto,
+        chosen => chosen,
+    };
+    // A look never answers `Auto` with `Auto`; if one did, the ring is the
+    // indicator every platform family can show.
+    let style = if style == SpinnerStyle::Auto {
+        SpinnerStyle::Ring
+    } else {
+        style
+    };
+    // Geometry of a negative size is an empty box; the CSS keeps the value.
+    #[allow(clippy::cast_precision_loss)] // a spinner is far below 2^24 px
+    let d = s.size.max(0) as f32;
+
+    let owns_container = s.spinner_style.as_ref().is_none();
+    let mut container: Vec<CssPropertyWithConditions> =
+        s.resolved_spinner_style().as_slice().to_vec();
+    if owns_container {
+        container.push(motion(CssProperty::AnimationIn(animation(
+            FADE_IN_TRACK,
+            look.fade_ms,
+            AnimationIterationCount::Count(1),
+            AnimationTiming::EaseOut,
+        ))));
+        container.push(motion(CssProperty::AnimationOut(animation(
+            FADE_OUT_TRACK,
+            look.fade_ms,
+            AnimationIterationCount::Count(1),
+            AnimationTiming::EaseIn,
+        ))));
+    }
+
+    let mut tracks = alloc::vec![
+        fade_track(FADE_IN_TRACK, 0.0, 1.0),
+        fade_track(FADE_OUT_TRACK, 1.0, 0.0),
+    ];
+    let mut parts: Vec<Dom> = Vec::new();
+    let shape_class = match style {
+        SpinnerStyle::Spokes => {
+            let ink = match s.color.into_option() {
+                Some(c) => (StyleBackgroundContent::Color(c), None),
+                None => look.spoke_ink.clone(),
+            };
+            for k in 0..SPOKES {
+                tracks.push(spoke_track(k));
+                parts.push(part(
+                    "__azul-spinner-spoke",
+                    s.size,
+                    ink.clone(),
+                    Some(spoke_opacity(k, 0)),
+                    Some(SPOKE_TRACKS[k]),
+                    spoke_shape(d, k),
+                ));
+            }
+            "__azul-spinner-spokes"
+        }
+        SpinnerStyle::Ring | SpinnerStyle::Auto => {
+            tracks.push(spin_track());
+            if let Some(track) = s.track_color.into_option() {
+                parts.push(part(
+                    "__azul-spinner-track",
+                    s.size,
+                    (StyleBackgroundContent::Color(track), None),
+                    None,
+                    None,
+                    track_shape(d),
+                ));
+            }
+            let ink = match s.color.into_option() {
+                Some(c) => (StyleBackgroundContent::Color(c), None),
+                None => look.arc_ink.clone(),
+            };
+            parts.push(part(
+                "__azul-spinner-arc",
+                s.size,
+                ink,
+                None,
+                Some(SPIN_TRACK),
+                arc_shape(d),
+            ));
+            "__azul-spinner-ring"
+        }
+    };
+
+    let mut classes = alloc::vec![
+        Class(AzString::from_const_str("__azul-native-spinner")),
+        Class(AzString::from_const_str(shape_class)),
+    ];
+    if let Some(marker) = look.marker {
+        classes.push(Class(AzString::from_const_str(marker)));
+    }
+
+    let mut keyframes = Css::empty();
+    keyframes.keyframes = KeyframesVec::from_vec(tracks);
+
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(container))
+        // The user space every part's clip path is drawn in: one unit per px.
+        .with_svg_data(SvgNodeData::ViewBox {
+            min_x: 0.0,
+            min_y: 0.0,
+            width: d,
+            height: d,
+        })
+        .with_component_css(keyframes)
+        .with_children(parts.into())
+}
+
+/// Only where the reader has not asked for less motion.
+const NO_REDUCED_MOTION: &[DynamicSelector] =
+    &[DynamicSelector::PrefersReducedMotion(BoolCondition::False)];
+
+/// A motion declaration, gated on `prefers-reduced-motion: no-preference`.
+fn motion(property: CssProperty) -> CssPropertyWithConditions {
+    CssPropertyWithConditions::with_single_condition(property, NO_REDUCED_MOTION)
+}
+
+/// One entry of `-azul-animation-in` / `-out`.
+fn animation(
+    track: &'static str,
+    millis: u32,
+    iterations: AnimationIterationCount,
+    timing: AnimationTiming,
+) -> StyleAnimationVecValue {
+    StyleAnimationVecValue::Exact(StyleAnimationVec::from_vec(alloc::vec![StyleAnimation {
+        name: AzString::from_const_str(track),
+        duration: CssDuration::from_millis(millis),
+        delay: CssDuration::from_millis(0),
+        iterations,
+        timing,
+        clip: true,
+    }]))
+}
+
+/// One full-size part of the indicator: absolutely placed over the
+/// container, painted in `ink` (with its dark twin), clipped to `shape`, at a
+/// resting `opacity` and running `track` (both optional).
+fn part(
+    class: &'static str,
+    size: isize,
+    ink: (StyleBackgroundContent, Option<StyleBackgroundContent>),
+    opacity: Option<f32>,
+    track: Option<&'static str>,
+    shape: SvgMultiPolygon,
+) -> Dom {
+    let fill = |layer: StyleBackgroundContent| {
+        CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(alloc::vec![
+            layer
+        ]))
+    };
+    let mut style = alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
+        CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop::const_px(0))),
+        CssPropertyWithConditions::simple(CssProperty::const_left(LayoutLeft::const_px(0))),
+        CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(size))),
+        CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(size))),
+        CssPropertyWithConditions::simple(fill(ink.0)),
+    ];
+    if let Some(dark) = ink.1 {
+        style.push(CssPropertyWithConditions::dark_theme(fill(dark)));
+    }
+    if let Some(o) = opacity {
+        style.push(CssPropertyWithConditions::simple(opacity_property(o)));
+    }
+    if let Some(track) = track {
+        style.push(motion(CssProperty::AnimationIn(animation(
+            track,
+            CYCLE_MS,
+            AnimationIterationCount::Infinite,
+            AnimationTiming::Linear,
+        ))));
+    }
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(alloc::vec![Class(
+            AzString::from_const_str(class)
+        )]))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(style))
+        .with_svg_clip_path(shape)
+}
+
+// ---------------------------------------------------------------------------
+// Motion: the spoke wave, the spin, the fades
+// ---------------------------------------------------------------------------
+
+/// Spoke `k`'s opacity at `permille` of the cycle.
+///
+/// The spoke is the head at `k / 8` of the cycle, at 0.55; it fades linearly
+/// to 0.06 over the next 7/8 of a cycle, then rises back to 0.55 in the last
+/// eighth as the head comes round again (reference section 3.1, "per-spoke
+/// opacity curve"). In thousandths, so the stops are exact.
+const fn spoke_opacity_milli(k: usize, permille: u32) -> u32 {
+    #[allow(clippy::cast_possible_truncation)] // k < 8
+    let phase = (k as u32) * 1000 / (SPOKES as u32);
+    let x = (permille % 1000 + 1000 - phase) % 1000;
+    if x <= 875 {
+        550 - 490 * x / 875
+    } else {
+        60 + 490 * (x - 875) / 125
+    }
+}
+
+/// [`spoke_opacity_milli`] as a fraction.
+#[allow(clippy::cast_precision_loss)] // at most 550
+fn spoke_opacity(k: usize, permille: u32) -> f32 {
+    spoke_opacity_milli(k, permille) as f32 / 1000.0
+}
+
+fn opacity_property(o: f32) -> CssProperty {
+    CssProperty::const_opacity(StyleOpacity {
+        inner: PercentageValue::new(o * 100.0),
+    })
+}
+
+fn stop(permille: u16, props: Vec<CssProperty>) -> KeyframeStop {
+    KeyframeStop {
+        permille,
+        props: CssPropertyVec::from_vec(props),
+    }
+}
+
+/// Spoke `k`'s phase of the wave: stops at the cycle's ends, the moment it
+/// is the head and the moment it bottoms out - the curve is linear between.
+fn spoke_track(k: usize) -> Keyframes {
+    #[allow(clippy::cast_possible_truncation)] // k < 8
+    let head = (k as u32) * 1000 / (SPOKES as u32);
+    let trough = (head + 875) % 1000;
+    let mut at: Vec<u32> = alloc::vec![0, head, trough, 1000];
+    at.sort_unstable();
+    at.dedup();
+    Keyframes {
+        name: AzString::from_const_str(SPOKE_TRACKS[k]),
+        stops: KeyframeStopVec::from_vec(
+            at.into_iter()
+                .map(|p| {
+                    #[allow(clippy::cast_possible_truncation)] // p <= 1000
+                    let permille = p as u16;
+                    stop(permille, alloc::vec![opacity_property(spoke_opacity(k, p))])
+                })
+                .collect(),
+        ),
+    }
+}
+
+/// One clockwise turn.
+fn spin_track() -> Keyframes {
+    let rotate = |deg: isize| {
+        CssProperty::const_transform(StyleTransformVec::from_vec(alloc::vec![
+            StyleTransform::Rotate(AngleValue::const_deg(deg))
+        ]))
+    };
+    Keyframes {
+        name: AzString::from_const_str(SPIN_TRACK),
+        stops: KeyframeStopVec::from_vec(alloc::vec![
+            stop(0, alloc::vec![rotate(0)]),
+            stop(1000, alloc::vec![rotate(360)]),
+        ]),
+    }
+}
+
+/// An opacity ramp from `from` to `to`.
+fn fade_track(name: &'static str, from: f32, to: f32) -> Keyframes {
+    Keyframes {
+        name: AzString::from_const_str(name),
+        stops: KeyframeStopVec::from_vec(alloc::vec![
+            stop(0, alloc::vec![opacity_property(from)]),
+            stop(1000, alloc::vec![opacity_property(to)]),
+        ]),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shapes, in the container's user space (one unit per px, origin top left)
+// ---------------------------------------------------------------------------
+
+/// The point `r` from the centre `c` (both axes), `deg` degrees clockwise from
+/// 12 o'clock.
+fn polar(c: f32, r: f32, deg: f32) -> SvgPoint {
+    let (s, co) = deg.to_radians().sin_cos();
+    SvgPoint {
+        x: c + r * s,
+        y: c - r * co,
+    }
+}
+
+/// A closed polygon through `points`.
+fn closed(points: &[SvgPoint]) -> SvgPath {
+    let n = points.len();
+    let items: Vec<SvgPathElement> = (0..n)
+        .map(|i| SvgPathElement::Line(SvgLine::new(points[i], points[(i + 1) % n])))
+        .collect();
+    SvgPath::create(SvgPathElementVec::from_vec(items))
+}
+
+/// Half a circle of radius `h` around `centre`, from `centre + h*a` through
+/// `centre + h*b` to `centre - h*a`, endpoints included.
+fn half_circle(centre: SvgPoint, h: f32, a: (f32, f32), b: (f32, f32), out: &mut Vec<SvgPoint>) {
+    for i in 0..=CAP_STEPS {
+        #[allow(clippy::cast_precision_loss)] // i <= 8
+        let phi = core::f32::consts::PI * i as f32 / CAP_STEPS as f32;
+        let (sp, cp) = phi.sin_cos();
+        out.push(SvgPoint {
+            x: centre.x + h * (cp * a.0 + sp * b.0),
+            y: centre.y + h * (cp * a.1 + sp * b.1),
+        });
+    }
+}
+
+/// Spoke `k` of a `d`-wide spinner: a capsule D/8 wide from 13/64 D (0.40 of
+/// the radius) to the rim, `k * 45` degrees clockwise from 12 o'clock.
+pub(crate) fn spoke_shape(d: f32, k: usize) -> SvgMultiPolygon {
+    #[allow(clippy::cast_precision_loss)] // k < 8
+    let deg = k as f32 * 360.0 / SPOKES as f32;
+    let c = d / 2.0;
+    let h = d / 16.0;
+    let (r_in, r_out) = (d * 13.0 / 64.0, d / 2.0);
+    let (s, co) = deg.to_radians().sin_cos();
+    let out = (s, -co); // away from the centre
+    let side = (co, s); // clockwise across the spoke
+    let inner_cap = polar(c, r_in + h, deg);
+    let outer_cap = polar(c, r_out - h, deg);
+    let mut points = Vec::with_capacity(2 * (CAP_STEPS + 1));
+    half_circle(outer_cap, h, side, out, &mut points);
+    half_circle(inner_cap, h, (-side.0, -side.1), (-out.0, -out.1), &mut points);
+    SvgMultiPolygon::create(SvgPathVec::from_vec(alloc::vec![closed(&points)]))
+}
+
+/// The Windows ring's centre-line radius and half its stroke, for diameter `d`.
+fn ring_metrics(d: f32) -> (f32, f32) {
+    (d * 0.4375, d * 0.093_75 / 2.0)
+}
+
+/// The arc: [`ARC_SWEEP_DEG`] of the ring from 12 o'clock clockwise, with
+/// round caps at both ends.
+pub(crate) fn arc_shape(d: f32) -> SvgMultiPolygon {
+    let c = d / 2.0;
+    let (rc, h) = ring_metrics(d);
+    let steps = ARC_STEPS_PER_45_DEG * 3;
+    #[allow(clippy::cast_precision_loss)] // small counts
+    let angle = |i: usize| ARC_SWEEP_DEG * i as f32 / steps as f32;
+    let mut points = Vec::with_capacity(2 * (steps + CAP_STEPS + 2));
+    for i in 0..=steps {
+        points.push(polar(c, rc + h, angle(i)));
+    }
+    // The leading cap: from the outer edge, forward, to the inner edge.
+    let end = ARC_SWEEP_DEG.to_radians();
+    let (se, ce) = end.sin_cos();
+    half_circle(polar(c, rc, ARC_SWEEP_DEG), h, (se, -ce), (ce, se), &mut points);
+    for i in (0..=steps).rev() {
+        points.push(polar(c, rc - h, angle(i)));
+    }
+    // The trailing cap at 12 o'clock: from the inner edge, back, to the outer.
+    half_circle(polar(c, rc, 0.0), h, (0.0, 1.0), (-1.0, 0.0), &mut points);
+    SvgMultiPolygon::create(SvgPathVec::from_vec(alloc::vec![closed(&points)]))
+}
+
+/// The track: the whole ring, the outer edge clockwise and the inner edge
+/// counter-clockwise so the centre is a hole under the nonzero rule.
+pub(crate) fn track_shape(d: f32) -> SvgMultiPolygon {
+    let c = d / 2.0;
+    let (rc, h) = ring_metrics(d);
+    let n = ARC_STEPS_PER_45_DEG * 8;
+    #[allow(clippy::cast_precision_loss)] // small counts
+    let angle = |i: usize| 360.0 * i as f32 / n as f32;
+    let outer: Vec<SvgPoint> = (0..n).map(|i| polar(c, rc + h, angle(i))).collect();
+    let inner: Vec<SvgPoint> = (0..n).rev().map(|i| polar(c, rc - h, angle(i))).collect();
+    SvgMultiPolygon::create(SvgPathVec::from_vec(alloc::vec![
+        closed(&outer),
+        closed(&inner),
+    ]))
+}
+
 #[cfg(test)]
-#[allow(
-    clippy::too_many_lines,
-    clippy::unreadable_literal,
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::float_cmp
-)]
-mod autotest_generated {
-    use azul_core::dom::NodeType;
-
+mod api_tests {
     use super::*;
+    use crate::widgets::themes::{OptionUiTheme, UiTheme};
 
-    // ------------------------------------------------------------------
-    // Helpers
-    // ------------------------------------------------------------------
-
-    /// The number of declarations `build_spinner_style` is supposed to emit.
-    const DECLARATIONS: usize = 20;
-
-    /// Every property the ring declares, in source order. A missing side (or a
-    /// side declared twice) is the difference between a ring and a solid box.
-    const EXPECTED_ORDER: [CssPropertyType; DECLARATIONS] = [
-        CssPropertyType::AlignSelf,
-        CssPropertyType::FlexGrow,
-        CssPropertyType::Width,
-        CssPropertyType::Height,
-        CssPropertyType::BorderTopWidth,
-        CssPropertyType::BorderBottomWidth,
-        CssPropertyType::BorderLeftWidth,
-        CssPropertyType::BorderRightWidth,
-        CssPropertyType::BorderTopStyle,
-        CssPropertyType::BorderBottomStyle,
-        CssPropertyType::BorderLeftStyle,
-        CssPropertyType::BorderRightStyle,
-        CssPropertyType::BorderTopColor,
-        CssPropertyType::BorderBottomColor,
-        CssPropertyType::BorderLeftColor,
-        CssPropertyType::BorderRightColor,
-        CssPropertyType::BorderTopLeftRadius,
-        CssPropertyType::BorderTopRightRadius,
-        CssPropertyType::BorderBottomLeftRadius,
-        CssPropertyType::BorderBottomRightRadius,
-    ];
-
-    /// `FloatValue` stores `value * FP_PRECISION_MULTIPLIER` as an `isize`, so a
-    /// whole-pixel size only survives while `|size| <= isize::MAX / 1000`.
-    const FP_SCALE: isize = 1000;
-
-    /// The largest / smallest diameters that still fit the fixed-point encoding.
-    /// `isize::MIN / 1000` truncates toward zero, so it scales back to
-    /// `-9223372036854775000`, one step inside `isize::MIN`.
-    const MAX_ENCODABLE_SIZE: isize = isize::MAX / FP_SCALE;
-    const MIN_ENCODABLE_SIZE: isize = isize::MIN / FP_SCALE;
-
-    /// Diameters that must all build a style without panicking: the degenerate
-    /// small ones (where the 2px floor is thicker than the box), the ordinary
-    /// ones, negatives (nothing in the widget rejects them), and both ends of
-    /// the encodable range.
-    const SAFE_SIZES: [isize; 16] = [
-        0,
-        1,
-        2,
-        3,
-        4,
-        7,
-        8,
-        15,
-        16,
-        24,
-        1_000,
-        -1,
-        -3,
-        -24,
-        MAX_ENCODABLE_SIZE,
-        MIN_ENCODABLE_SIZE,
-    ];
-
-    /// Colours that are trivially distinguishable in a failure message, plus the
-    /// fully transparent one (alpha is carried untouched, so it must survive).
     const RED: ColorU = ColorU {
         r: 255,
         g: 0,
@@ -422,930 +726,113 @@ mod autotest_generated {
         b: 0,
         a: 255,
     };
-    const GHOST: ColorU = ColorU {
-        r: 0,
-        g: 0,
-        b: 0,
-        a: 0,
-    };
-
-    /// The declared properties of a style vec, in declaration order.
-    fn props(v: &CssPropertyWithConditionsVec) -> Vec<CssProperty> {
-        v.as_slice().iter().map(|p| p.property.clone()).collect()
-    }
-
-    /// The first property matching `f`, or `None` if the style never declares it.
-    fn find<T>(
-        v: &CssPropertyWithConditionsVec,
-        f: impl Fn(&CssProperty) -> Option<T>,
-    ) -> Option<T> {
-        v.as_slice().iter().find_map(|p| f(&p.property))
-    }
-
-    /// The raw fixed-point encoding of a length — the value that actually
-    /// survives, without a second lossy round trip through `get()`.
-    fn raw(pv: PixelValue) -> isize {
-        pv.number.number()
-    }
-
-    fn width(v: &CssPropertyWithConditionsVec) -> PixelValue {
-        find(v, |p| match p {
-            CssProperty::Width(x) => match x.get_property() {
-                Some(LayoutWidth::Px(pv)) => Some(*pv),
-                other => panic!("the ring must size in absolute lengths, got {other:?}"),
-            },
-            _ => None,
-        })
-        .expect("the ring must declare a width")
-    }
-
-    fn height(v: &CssPropertyWithConditionsVec) -> PixelValue {
-        find(v, |p| match p {
-            CssProperty::Height(x) => match x.get_property() {
-                Some(LayoutHeight::Px(pv)) => Some(*pv),
-                other => panic!("the ring must size in absolute lengths, got {other:?}"),
-            },
-            _ => None,
-        })
-        .expect("the ring must declare a height")
-    }
-
-    /// Border widths in `[top, right, bottom, left]` order.
-    fn border_widths(v: &CssPropertyWithConditionsVec) -> [PixelValue; 4] {
-        [
-            find(v, |p| match p {
-                CssProperty::BorderTopWidth(x) => x.get_property().map(|x| x.inner),
-                _ => None,
-            }),
-            find(v, |p| match p {
-                CssProperty::BorderRightWidth(x) => x.get_property().map(|x| x.inner),
-                _ => None,
-            }),
-            find(v, |p| match p {
-                CssProperty::BorderBottomWidth(x) => x.get_property().map(|x| x.inner),
-                _ => None,
-            }),
-            find(v, |p| match p {
-                CssProperty::BorderLeftWidth(x) => x.get_property().map(|x| x.inner),
-                _ => None,
-            }),
-        ]
-        .map(|o| o.expect("the ring must declare all four border widths"))
-    }
-
-    /// Border colours in `[top, right, bottom, left]` order.
-    fn border_colors(v: &CssPropertyWithConditionsVec) -> [ColorU; 4] {
-        [
-            find(v, |p| match p {
-                CssProperty::BorderTopColor(x) => x.get_property().map(|x| x.inner),
-                _ => None,
-            }),
-            find(v, |p| match p {
-                CssProperty::BorderRightColor(x) => x.get_property().map(|x| x.inner),
-                _ => None,
-            }),
-            find(v, |p| match p {
-                CssProperty::BorderBottomColor(x) => x.get_property().map(|x| x.inner),
-                _ => None,
-            }),
-            find(v, |p| match p {
-                CssProperty::BorderLeftColor(x) => x.get_property().map(|x| x.inner),
-                _ => None,
-            }),
-        ]
-        .map(|o| o.expect("the ring must declare all four border colours"))
-    }
-
-    /// Border styles in `[top, right, bottom, left]` order.
-    fn border_styles(v: &CssPropertyWithConditionsVec) -> [BorderStyle; 4] {
-        [
-            find(v, |p| match p {
-                CssProperty::BorderTopStyle(x) => x.get_property().map(|x| x.inner),
-                _ => None,
-            }),
-            find(v, |p| match p {
-                CssProperty::BorderRightStyle(x) => x.get_property().map(|x| x.inner),
-                _ => None,
-            }),
-            find(v, |p| match p {
-                CssProperty::BorderBottomStyle(x) => x.get_property().map(|x| x.inner),
-                _ => None,
-            }),
-            find(v, |p| match p {
-                CssProperty::BorderLeftStyle(x) => x.get_property().map(|x| x.inner),
-                _ => None,
-            }),
-        ]
-        .map(|o| o.expect("the ring must declare all four border styles"))
-    }
-
-    /// Corner radii in `[top-left, top-right, bottom-left, bottom-right]` order.
-    fn radii(v: &CssPropertyWithConditionsVec) -> [PixelValue; 4] {
-        [
-            find(v, |p| match p {
-                CssProperty::BorderTopLeftRadius(x) => x.get_property().map(|x| x.inner),
-                _ => None,
-            }),
-            find(v, |p| match p {
-                CssProperty::BorderTopRightRadius(x) => x.get_property().map(|x| x.inner),
-                _ => None,
-            }),
-            find(v, |p| match p {
-                CssProperty::BorderBottomLeftRadius(x) => x.get_property().map(|x| x.inner),
-                _ => None,
-            }),
-            find(v, |p| match p {
-                CssProperty::BorderBottomRightRadius(x) => x.get_property().map(|x| x.inner),
-                _ => None,
-            }),
-        ]
-        .map(|o| o.expect("the ring must declare all four corner radii"))
-    }
-
-    /// Every absolute length the style declares — width, height, the four border
-    /// widths and the four radii.
-    fn lengths(v: &CssPropertyWithConditionsVec) -> Vec<PixelValue> {
-        let mut out = vec![width(v), height(v)];
-        out.extend(border_widths(v));
-        out.extend(radii(v));
-        out
-    }
-
-    /// The properties a built DOM node carries inline, in declaration order.
-    fn dom_props(dom: &Dom) -> Vec<CssProperty> {
-        dom.root
-            .style
-            .iter_inline_properties()
-            .map(|(p, _)| p.clone())
-            .collect()
-    }
-
-    fn dom_classes(dom: &Dom) -> Vec<String> {
-        dom.root
-            .get_ids_and_classes()
-            .as_ref()
-            .iter()
-            .filter_map(|c| match c {
-                Class(s) => Some(s.as_str().to_string()),
-                IdOrClass::Id(_) => None,
-            })
-            .collect()
-    }
-
-    // ==================================================================
-    // build_spinner_style — shape of the emitted style
-    // ==================================================================
 
     #[test]
-    fn build_spinner_style_declares_every_side_exactly_once() {
-        // A ring is four independently-declared sides. A dropped or duplicated
-        // declaration silently turns the spinner into a box (or a solid disc).
-        for size in SAFE_SIZES {
-            let style = build_spinner_style(size, RED, GREEN);
-            let types: Vec<CssPropertyType> =
-                props(&style).iter().map(CssProperty::get_type).collect();
-
-            assert_eq!(
-                style.len(),
-                DECLARATIONS,
-                "declaration count changed for {size}"
-            );
-            assert_eq!(
-                types,
-                EXPECTED_ORDER.to_vec(),
-                "declaration order changed for {size}"
-            );
-
-            let mut sorted = types.clone();
-            sorted.sort_unstable();
-            sorted.dedup();
-            assert_eq!(
-                sorted.len(),
-                DECLARATIONS,
-                "a property is declared twice for {size}"
-            );
-        }
-    }
-
-    #[test]
-    fn build_spinner_style_declarations_are_all_unconditional() {
-        // `simple()` means "no @media/@os/:hover guard". A condition sneaking in
-        // would make the ring vanish on some platforms only.
-        let style = build_spinner_style(24, RED, GREEN);
-        for p in style.as_slice() {
-            assert!(
-                p.apply_if.is_empty(),
-                "{:?} became conditional: {:?}",
-                p.property.get_type(),
-                p.apply_if,
-            );
-        }
-    }
-
-    #[test]
-    fn build_spinner_style_is_deterministic() {
-        for size in SAFE_SIZES {
-            assert_eq!(
-                build_spinner_style(size, RED, GREEN),
-                build_spinner_style(size, RED, GREEN),
-                "two identical calls produced different styles for {size}",
-            );
-        }
-    }
-
-    // ==================================================================
-    // build_spinner_style — numeric edges
-    // ==================================================================
-
-    #[test]
-    fn build_spinner_style_at_zero_size() {
-        // 0 / 8 = 0, so the `.max(2)` floor is what keeps the border declarable;
-        // the radius collapses to 0 and the box to 0x0.
-        let style = build_spinner_style(0, RED, GREEN);
-
-        assert_eq!(raw(width(&style)), 0);
-        assert_eq!(raw(height(&style)), 0);
-        for bw in border_widths(&style) {
-            assert_eq!(
-                raw(bw),
-                2 * FP_SCALE,
-                "the 2px border floor stopped applying at size 0"
-            );
-        }
-        for r in radii(&style) {
-            assert_eq!(raw(r), 0, "a zero-diameter ring must have a zero radius");
-        }
-    }
-
-    #[test]
-    fn border_width_is_an_eighth_of_the_size_with_a_two_px_floor() {
-        // `(size / 8).max(2)`: integer division truncates toward zero, and every
-        // negative eighth is swallowed by the floor.
-        for size in (-256_isize..=256).chain(SAFE_SIZES) {
-            let style = build_spinner_style(size, RED, GREEN);
-            let expected = (size / 8).max(2);
-
-            for bw in border_widths(&style) {
-                assert_eq!(
-                    raw(bw),
-                    expected * FP_SCALE,
-                    "border width wrong for size {size}",
-                );
-                assert!(
-                    raw(bw) >= 2 * FP_SCALE,
-                    "border width dropped below 2px for {size}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn radius_is_half_the_size_truncated_toward_zero() {
-        // `size / 2` truncates, so odd diameters get a radius half a pixel short
-        // of a perfect circle — deterministic, and identical on all four corners.
-        for size in (-256_isize..=256).chain(SAFE_SIZES) {
-            let style = build_spinner_style(size, RED, GREEN);
-            let corners = radii(&style);
-
-            for r in corners {
-                assert_eq!(
-                    raw(r),
-                    (size / 2) * FP_SCALE,
-                    "radius wrong for size {size}"
-                );
-            }
-            assert!(
-                corners.iter().all(|r| *r == corners[0]),
-                "the four corners disagree for size {size}: {corners:?}",
-            );
-        }
-    }
-
-    #[test]
-    fn negative_sizes_pass_straight_through_unclamped() {
-        // Nothing rejects or clamps a negative diameter: the box and the radius
-        // both go negative while the border keeps its 2px floor. Pinned because
-        // it is the *only* documented behaviour — if the widget ever starts
-        // clamping to 0, this flips loudly rather than silently changing layout.
-        let style = build_spinner_style(-24, RED, GREEN);
-
-        assert_eq!(raw(width(&style)), -24 * FP_SCALE);
-        assert_eq!(raw(height(&style)), -24 * FP_SCALE);
-        assert_eq!(raw(border_widths(&style)[0]), 2 * FP_SCALE);
-        assert_eq!(raw(radii(&style)[0]), -12 * FP_SCALE);
-    }
-
-    #[test]
-    fn the_ring_is_thicker_than_its_box_only_below_four_px() {
-        // Below 4px the 2px-per-side floor eats more than the whole diameter, so
-        // the "ring" degenerates into a filled blob. Above it, `size / 8` keeps
-        // the two borders at a quarter of the box at most.
-        for size in 0_isize..=64 {
-            let style = build_spinner_style(size, RED, GREEN);
-            let total = 2 * (raw(border_widths(&style)[0]) / FP_SCALE);
-
-            if size >= 4 {
-                assert!(
-                    total <= size,
-                    "size {size}: borders ({total}px) overflow the box"
-                );
-            } else {
-                assert!(
-                    total > size,
-                    "size {size}: expected the degenerate 2px-floor ring"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn every_length_is_an_absolute_pixel() {
-        // A relative unit here would resolve against the parent font or box and
-        // either vanish or blow up — the ring must be self-contained.
-        for size in SAFE_SIZES {
-            let style = build_spinner_style(size, RED, GREEN);
-            for length in lengths(&style) {
-                assert_eq!(
-                    length.metric,
-                    SizeMetric::Px,
-                    "size {size} produced a relative length: {length:?}",
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn size_round_trips_through_the_fixed_point_encoding() {
-        // encode == decode: the diameter goes in as an `isize` and must come back
-        // out of the style unchanged, including at both ends of the range.
-        for size in SAFE_SIZES {
-            let style = build_spinner_style(size, RED, GREEN);
-
-            assert_eq!(
-                raw(width(&style)),
-                size * FP_SCALE,
-                "width encoding lost {size}"
-            );
-            assert_eq!(
-                raw(width(&style)) / FP_SCALE,
-                size,
-                "width did not round-trip for {size}"
-            );
-            assert_eq!(
-                raw(height(&style)) / FP_SCALE,
-                size,
-                "height did not round-trip for {size}"
-            );
-
-            // The `f32` view is only exact for values a float can hold.
-            if size.abs() <= 1_000 {
-                assert_eq!(
-                    width(&style).number.get(),
-                    size as f32,
-                    "float view wrong for {size}",
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn the_edges_of_the_encodable_range_do_not_overflow() {
-        // `isize::MAX / 1000` is the largest whole-pixel diameter `const_px` can
-        // scale without wrapping; one more is the overflow pinned below.
-        for size in [MAX_ENCODABLE_SIZE, MIN_ENCODABLE_SIZE] {
-            let style = build_spinner_style(size, RED, GREEN);
-
-            assert_eq!(style.len(), DECLARATIONS);
-            assert_eq!(raw(width(&style)), size * FP_SCALE);
-            assert_eq!(raw(radii(&style)[0]), (size / 2) * FP_SCALE);
-            assert_eq!(raw(border_widths(&style)[0]), (size / 8).max(2) * FP_SCALE);
-        }
-    }
-
-    #[cfg(panic = "unwind")]
-    #[test]
-    fn sizes_beyond_the_encodable_range_are_not_saturated() {
-        use std::{
-            hint::black_box,
-            panic::{catch_unwind, AssertUnwindSafe},
-        };
-
-        // LATENT BUG, pinned: `PixelValue::const_px` multiplies by 1000 with a
-        // plain `*`, so any diameter above `isize::MAX / 1000` (~9.2e15) either
-        // panics (overflow checks on: `Spinner::with_size(isize::MAX)` kills a
-        // debug build) or wraps to a garbage length (checks off) — it never
-        // saturates. Asserted against a probe of the *current* profile so the
-        // test is profile-independent; adding saturation flips it loudly.
-        let profile_traps_overflow = catch_unwind(AssertUnwindSafe(|| {
-            let big = black_box(isize::MAX);
-            let _ = black_box(big * FP_SCALE);
-        }))
-        .is_err();
-
-        for size in [
-            isize::MAX,
-            isize::MIN,
-            MAX_ENCODABLE_SIZE + 1,
-            MIN_ENCODABLE_SIZE - 1,
-        ] {
-            let widget_panicked = catch_unwind(AssertUnwindSafe(|| {
-                drop(build_spinner_style(size, RED, GREEN))
-            }))
-            .is_err();
-
-            assert_eq!(
-                widget_panicked, profile_traps_overflow,
-                "size {size}: the fixed-point encoding no longer behaves like a raw multiply \
-                 (expected panic == {profile_traps_overflow})",
-            );
-        }
-    }
-
-    // ==================================================================
-    // build_spinner_style — colour placement
-    // ==================================================================
-
-    #[test]
-    fn only_the_top_side_gets_the_accent_colour() {
-        // The whole spinner illusion is "one lit side, three faint ones". Swapping
-        // a side would render a static ring with no visible arc.
-        for (color, track) in [
-            (RED, GREEN),
-            (GHOST, RED),
-            (RED, GHOST),
-            (RED, RED),
-            (
-                ColorU {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 0,
-                },
-                ColorU {
-                    r: 255,
-                    g: 255,
-                    b: 255,
-                    a: 255,
-                },
-            ),
-        ] {
-            let style = build_spinner_style(24, color, track);
-            let [top, right, bottom, left] = border_colors(&style);
-
-            assert_eq!(top, color, "the top side lost the accent colour");
-            assert_eq!(
-                [right, bottom, left],
-                [track; 3],
-                "a track side lost its colour"
-            );
-        }
-    }
-
-    #[test]
-    fn colour_channels_survive_untouched() {
-        // Alpha in particular: a fully transparent accent must stay transparent
-        // rather than being normalised to opaque somewhere in the pipeline.
-        for a in [0_u8, 1, 127, 255] {
-            let color = ColorU {
-                r: 1,
-                g: 2,
-                b: 3,
-                a,
-            };
-            let track = ColorU {
-                r: 253,
-                g: 254,
-                b: 255,
-                a: 255 - a,
-            };
-            let style = build_spinner_style(24, color, track);
-            let [top, right, bottom, left] = border_colors(&style);
-
-            assert_eq!((top.r, top.g, top.b, top.a), (1, 2, 3, a));
-            for side in [right, bottom, left] {
-                assert_eq!((side.r, side.g, side.b, side.a), (253, 254, 255, 255 - a));
-            }
-        }
-    }
-
-    #[test]
-    fn all_four_sides_are_solid() {
-        // `BorderStyle::None` on any side would delete that quarter of the ring.
-        for size in SAFE_SIZES {
-            assert_eq!(
-                border_styles(&build_spinner_style(size, RED, GREEN)),
-                [BorderStyle::Solid; 4],
-                "a side stopped being solid at size {size}",
-            );
-        }
-    }
-
-    #[test]
-    fn the_ring_neither_grows_nor_stretches() {
-        // `align-self: start` + `flex-grow: 0` are what stop a flex parent from
-        // stretching the ring into an ellipse.
-        let style = build_spinner_style(24, RED, GREEN);
-
-        let align = find(&style, |p| match p {
-            CssProperty::AlignSelf(x) => x.get_property().copied(),
-            _ => None,
-        });
-        let grow = find(&style, |p| match p {
-            CssProperty::FlexGrow(x) => x.get_property().map(|x| x.inner),
-            _ => None,
-        });
-
-        assert_eq!(align, Some(LayoutAlignSelf::Start));
-        assert_eq!(grow.map(|g| g.number()), Some(0));
-    }
-
-    // ==================================================================
-    // create / with_size / Default — construction invariants
-    // ==================================================================
-
-    #[test]
-    fn create_matches_the_documented_defaults() {
+    fn create_is_the_documented_default() {
         let s = Spinner::create();
-
         assert_eq!(s.size, DEFAULT_SIZE);
-        assert_eq!(s.size, 24, "the documented default diameter changed");
-        assert_eq!(
-            s.color,
-            ColorU {
-                r: 13,
-                g: 110,
-                b: 253,
-                a: 255
-            }
-        );
-        assert_eq!(
-            s.track_color,
-            ColorU {
-                r: 208,
-                g: 212,
-                b: 217,
-                a: 255
-            }
-        );
-        assert_eq!(
-            s.resolved_spinner_style(),
-            build_spinner_style(DEFAULT_SIZE, DEFAULT_ACCENT_COLOR, DEFAULT_TRACK_COLOR),
-        );
-        // 24px → 3px border, 12px radius.
-        assert_eq!(
-            raw(border_widths(&s.resolved_spinner_style())[0]),
-            3 * FP_SCALE
-        );
-        assert_eq!(raw(radii(&s.resolved_spinner_style())[0]), 12 * FP_SCALE);
+        assert_eq!(s.color, OptionColorU::None, "the native ink");
+        assert_eq!(s.track_color, OptionColorU::None, "no track");
+        assert_eq!(s.indicator, SpinnerStyle::Auto);
+        assert_eq!(s.theme, OptionUiTheme::None);
+        assert_eq!(s.spinner_style, OptionCssPropertyWithConditionsVec::None);
+        assert_eq!(Spinner::default(), s);
     }
 
     #[test]
-    fn default_is_create() {
-        assert_eq!(Spinner::default(), Spinner::create());
-    }
-
-    #[test]
-    fn with_size_records_the_size_and_rebuilds_the_style() {
-        for size in SAFE_SIZES {
-            let s = Spinner::with_size(size);
-
-            assert_eq!(s.size, size, "the size field does not match the argument");
-            assert_eq!(s.color, DEFAULT_ACCENT_COLOR);
-            assert_eq!(s.track_color, DEFAULT_TRACK_COLOR);
-            assert_eq!(s.resolved_spinner_style().len(), DECLARATIONS);
-            assert_eq!(
-                s.resolved_spinner_style(),
-                build_spinner_style(size, DEFAULT_ACCENT_COLOR, DEFAULT_TRACK_COLOR),
-            );
-            assert_eq!(raw(width(&s.resolved_spinner_style())) / FP_SCALE, size);
-        }
-    }
-
-    // ==================================================================
-    // set_size / set_color / set_track_color — no cross-clobbering
-    // ==================================================================
-
-    #[test]
-    fn set_size_keeps_the_custom_colours() {
-        // `set_size` rebuilds the whole style, so it has to feed the *current*
-        // colours back in — a regression here silently resets the palette.
-        let mut s = Spinner::create().with_color(RED).with_track_color(GREEN);
-        s.set_size(64);
-
-        assert_eq!(s.size, 64);
-        assert_eq!(s.color, RED);
-        assert_eq!(s.track_color, GREEN);
-        assert_eq!(
-            border_colors(&s.resolved_spinner_style()),
-            [RED, GREEN, GREEN, GREEN]
-        );
-        assert_eq!(raw(width(&s.resolved_spinner_style())), 64 * FP_SCALE);
-    }
-
-    #[test]
-    fn set_color_touches_only_the_accent() {
-        let mut s = Spinner::with_size(48).with_track_color(GREEN);
+    fn every_setter_touches_only_its_own_field() {
+        let base = Spinner::create();
+        let mut s = base.clone();
         s.set_color(RED);
-
-        assert_eq!(s.size, 48, "set_color moved the diameter");
-        assert_eq!(s.track_color, GREEN, "set_color clobbered the track colour");
-        assert_eq!(
-            border_colors(&s.resolved_spinner_style()),
-            [RED, GREEN, GREEN, GREEN]
-        );
-        assert_eq!(raw(width(&s.resolved_spinner_style())), 48 * FP_SCALE);
-    }
-
-    #[test]
-    fn set_track_color_touches_only_the_track() {
-        let mut s = Spinner::with_size(48).with_color(RED);
+        assert_eq!(s.color, OptionColorU::Some(RED));
+        assert_eq!(s.track_color, base.track_color);
         s.set_track_color(GREEN);
-
-        assert_eq!(s.size, 48, "set_track_color moved the diameter");
-        assert_eq!(s.color, RED, "set_track_color clobbered the accent colour");
+        assert_eq!(s.track_color, OptionColorU::Some(GREEN));
+        assert_eq!(s.color, OptionColorU::Some(RED), "set_track_color clobbered the ink");
+        s.set_size(48);
+        s.set_indicator(SpinnerStyle::Spokes);
+        s.set_theme(UiTheme::Flora);
         assert_eq!(
-            border_colors(&s.resolved_spinner_style()),
-            [RED, GREEN, GREEN, GREEN]
+            s,
+            Spinner::with_size(48)
+                .with_color(RED)
+                .with_track_color(GREEN)
+                .with_indicator(SpinnerStyle::Spokes)
+                .with_theme(UiTheme::Flora),
+            "the builders and the setters agree"
         );
-    }
-
-    #[test]
-    fn setters_are_idempotent_and_never_grow_the_style() {
-        // The style is *replaced*, not appended to: a hundred rounds of setters
-        // must leave exactly the same 20 declarations as one round.
-        let mut s = Spinner::create();
-        for _ in 0..100 {
-            s.set_size(24);
-            s.set_color(RED);
-            s.set_track_color(GREEN);
-        }
-
-        let once = Spinner::with_size(24)
-            .with_color(RED)
-            .with_track_color(GREEN);
-        assert_eq!(
-            s.resolved_spinner_style().len(),
-            DECLARATIONS,
-            "the style vec grew"
-        );
-        assert_eq!(
-            s, once,
-            "repeated setters diverged from a single application"
-        );
-    }
-
-    #[test]
-    fn set_size_survives_every_encodable_diameter() {
-        // The same spinner walked across the whole safe range: each step must
-        // leave a fully-formed style, with no state left over from the previous.
-        let mut s = Spinner::create().with_color(RED).with_track_color(GREEN);
-        for size in SAFE_SIZES {
-            s.set_size(size);
-
-            assert_eq!(s.size, size);
-            assert_eq!(s.resolved_spinner_style().len(), DECLARATIONS);
-            assert_eq!(
-                s,
-                Spinner::with_size(size)
-                    .with_color(RED)
-                    .with_track_color(GREEN)
-            );
-        }
-    }
-
-    // ==================================================================
-    // Builder setters mirror the mutating ones
-    // ==================================================================
-
-    #[test]
-    fn builder_setters_match_the_mutating_setters() {
-        for size in SAFE_SIZES {
-            let mut mutated = Spinner::create();
-            mutated.set_size(size);
-            assert_eq!(
-                Spinner::create().with_spinner_size(size),
-                mutated,
-                "size {size}"
-            );
-        }
-
-        let mut mutated = Spinner::create();
-        mutated.set_color(RED);
-        assert_eq!(Spinner::create().with_color(RED), mutated);
-
-        let mut mutated = Spinner::create();
-        mutated.set_track_color(GHOST);
-        assert_eq!(Spinner::create().with_track_color(GHOST), mutated);
-    }
-
-    #[test]
-    fn the_builder_chain_is_order_independent() {
-        // Each setter rebuilds from all three fields, so the final spinner must
-        // not depend on the order the fields were set in.
-        let a = Spinner::create()
-            .with_spinner_size(40)
-            .with_color(RED)
-            .with_track_color(GREEN);
-        let b = Spinner::create()
-            .with_track_color(GREEN)
-            .with_color(RED)
-            .with_spinner_size(40);
-        let c = Spinner::create()
-            .with_color(RED)
-            .with_spinner_size(40)
-            .with_track_color(GREEN);
-
-        assert_eq!(a, b, "setting the size last changed the result");
-        assert_eq!(a, c, "interleaving the setters changed the result");
     }
 
     #[test]
     fn equality_distinguishes_every_field() {
         let base = Spinner::create();
-
         assert_ne!(base, Spinner::create().with_spinner_size(25));
         assert_ne!(base, Spinner::create().with_color(RED));
         assert_ne!(base, Spinner::create().with_track_color(RED));
+        assert_ne!(base, Spinner::create().with_indicator(SpinnerStyle::Ring));
+        assert_ne!(base, Spinner::create().with_theme(UiTheme::Flat));
         assert_eq!(base, Spinner::create().with_spinner_size(DEFAULT_SIZE));
     }
 
-    // ==================================================================
-    // swap_with_default
-    // ==================================================================
-
     #[test]
     fn swap_with_default_returns_the_original_and_installs_a_default() {
-        let mut s = Spinner::with_size(96)
-            .with_color(RED)
-            .with_track_color(GREEN);
+        let mut s = Spinner::with_size(96).with_color(RED);
         let expected = s.clone();
-
-        let taken = s.swap_with_default();
-
-        assert_eq!(taken, expected, "the returned spinner is not the original");
-        assert_eq!(s, Spinner::create(), "the receiver is not a fresh default");
-        // The returned value must own a live style, not a moved-out husk.
-        assert_eq!(taken.resolved_spinner_style().len(), DECLARATIONS);
-        assert_eq!(
-            border_colors(&taken.resolved_spinner_style()),
-            [RED, GREEN, GREEN, GREEN]
-        );
-    }
-
-    #[test]
-    fn swapping_twice_leaves_a_default_both_times() {
-        let mut s = Spinner::with_size(MAX_ENCODABLE_SIZE);
-
-        let first = s.swap_with_default();
-        let second = s.swap_with_default();
-
-        assert_eq!(first.size, MAX_ENCODABLE_SIZE);
-        assert_eq!(
-            second,
-            Spinner::create(),
-            "the second swap did not return the default"
-        );
+        assert_eq!(s.swap_with_default(), expected);
         assert_eq!(s, Spinner::create());
     }
 
     #[test]
-    fn swap_on_a_default_is_observationally_a_no_op() {
-        let mut s = Spinner::create();
-        let taken = s.swap_with_default();
-
-        assert_eq!(taken, Spinner::create());
-        assert_eq!(s, Spinner::create());
-    }
-
-    // ==================================================================
-    // Clone / ownership — the style vec is heap memory behind a C ABI
-    // ==================================================================
-
-    #[test]
-    fn clone_deep_copies_the_style_buffer() {
-        // `CssPropertyWithConditionsVec` is a raw-pointer FFI vec: a shallow clone
-        // would alias one allocation into two owners and double-free it.
-        // Only a STORED style owns a buffer — a resolved one is built fresh per
-        // call and has nothing to alias — so this asks with an explicit style.
-        let mut original = Spinner::with_size(32).with_color(RED);
-        original.spinner_style =
-            OptionCssPropertyWithConditionsVec::Some(build_spinner_style(32, RED, GREEN));
-        let copy = original.clone();
-
-        assert_eq!(copy, original);
-        let buffer = |s: &Spinner| {
-            s.spinner_style
-                .as_ref()
-                .expect("the fixture stores a style")
-                .as_ptr()
-        };
-        assert_ne!(
-            buffer(&original),
-            buffer(&copy),
-            "the clone shares the original's style buffer",
-        );
-    }
-
-    #[test]
-    fn mutating_a_clone_leaves_the_original_alone() {
-        let original = Spinner::with_size(32).with_color(RED);
-        let mut copy = original.clone();
-
-        copy.set_size(8);
-        copy.set_track_color(GHOST);
-
-        assert_eq!(
-            original.size, 32,
-            "mutating the clone moved the original's size"
-        );
-        assert_eq!(original.track_color, DEFAULT_TRACK_COLOR);
-        assert_eq!(
-            raw(width(&original.resolved_spinner_style())),
-            32 * FP_SCALE
-        );
-        assert_eq!(border_colors(&original.resolved_spinner_style())[0], RED);
-    }
-
-    // ==================================================================
-    // dom()
-    // ==================================================================
-
-    #[test]
-    fn dom_is_a_single_classed_div() {
-        let dom = Spinner::create().dom();
-
-        assert_eq!(*dom.root.get_node_type(), NodeType::Div);
+    fn the_container_is_sized_and_never_grows() {
+        let style = Spinner::with_size(20).resolved_spinner_style();
+        let props: Vec<&CssProperty> = style.as_ref().iter().map(|p| &p.property).collect();
+        assert!(props.contains(&&CssProperty::const_width(LayoutWidth::const_px(20))));
+        assert!(props.contains(&&CssProperty::const_height(LayoutHeight::const_px(20))));
+        assert!(props.contains(&&CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))));
         assert!(
-            dom.children.as_ref().is_empty(),
-            "the spinner must be a leaf node"
+            props.contains(&&CssProperty::const_position(LayoutPosition::Relative)),
+            "the parts are laid over it"
         );
-        assert_eq!(dom.estimated_total_children, 0);
-        assert_eq!(dom_classes(&dom), vec!["__azul-native-spinner".to_string()]);
     }
 
     #[test]
-    fn dom_carries_exactly_the_spinner_style() {
-        // `with_css_props` turns the vec into one inline rule per declaration;
-        // nothing may be dropped, reordered or made conditional on the way.
-        for size in SAFE_SIZES {
-            let s = Spinner::with_size(size)
-                .with_color(RED)
-                .with_track_color(GREEN);
-            let expected = props(&s.resolved_spinner_style());
-            let dom = s.dom();
-
+    fn the_wave_is_continuous_across_the_cycle_boundary() {
+        for k in 0..SPOKES {
             assert_eq!(
-                dom_props(&dom),
-                expected,
-                "the DOM lost declarations for size {size}"
+                spoke_opacity_milli(k, 0),
+                spoke_opacity_milli(k, 1000),
+                "spoke {k} jumps when the cycle repeats"
             );
-            assert!(
-                dom.root
-                    .style
-                    .iter_inline_properties()
-                    .all(|(_, c)| c.is_empty()),
-                "size {size}: an inline declaration became conditional",
-            );
+            let values: Vec<u32> = (0..=1000).step_by(25).map(|p| spoke_opacity_milli(k, p)).collect();
+            assert_eq!(values.iter().max(), Some(&550), "spoke {k}");
+            assert_eq!(values.iter().min(), Some(&60), "spoke {k}");
         }
     }
 
     #[test]
-    fn from_impl_matches_the_dom_method() {
-        let s = Spinner::with_size(17).with_color(GHOST);
-        assert_eq!(Dom::from(s.clone()), s.dom());
-    }
-
-    #[test]
-    fn dom_is_deterministic_for_equal_inputs() {
-        let a = Spinner::with_size(13)
-            .with_color(RED)
-            .with_track_color(GHOST)
-            .dom();
-        let b = Spinner::with_size(13)
-            .with_color(RED)
-            .with_track_color(GHOST)
-            .dom();
-
-        assert_eq!(a, b, "two identically-built spinners rendered differently");
-    }
-
-    #[test]
-    fn dom_survives_every_encodable_size_and_colour() {
-        for size in SAFE_SIZES {
-            for (color, track) in [(RED, GREEN), (GHOST, GHOST)] {
-                let dom = Spinner::with_size(size)
-                    .with_color(color)
-                    .with_track_color(track)
+    fn a_negative_or_zero_size_builds_without_panicking() {
+        for size in [0, 1, -24] {
+            for style in [SpinnerStyle::Spokes, SpinnerStyle::Ring] {
+                let _ = Spinner::with_size(size)
+                    .with_indicator(style)
+                    .with_track_color(RED)
                     .dom();
-
-                assert_eq!(
-                    dom_props(&dom).len(),
-                    DECLARATIONS,
-                    "shape changed for {size}"
-                );
-                assert!(dom.children.as_ref().is_empty());
-                assert_eq!(dom_classes(&dom).len(), 1);
             }
+        }
+    }
+
+    #[test]
+    fn the_shapes_stay_inside_the_box() {
+        let d = 32.0_f32;
+        let mut shapes: Vec<SvgMultiPolygon> = (0..SPOKES).map(|k| spoke_shape(d, k)).collect();
+        shapes.push(arc_shape(d));
+        shapes.push(track_shape(d));
+        for (i, shape) in shapes.iter().enumerate() {
+            let b = shape.get_bounds();
+            assert!(
+                b.x >= -0.01 && b.y >= -0.01 && b.x + b.width <= d + 0.01 && b.y + b.height <= d + 0.01,
+                "shape {i} leaves the box: {b:?}"
+            );
         }
     }
 }

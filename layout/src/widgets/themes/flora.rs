@@ -4448,9 +4448,35 @@ pub fn divider(d: crate::widgets::divider::Divider) -> Dom {
 }
 
 // ==== spinner ====
+//
+// Flora's own indicator is the spoke wheel - "motion is slow and continuous;
+// light moves across a stone, it does not snap" is what the travelling
+// opacity wave is - drawn in the house ink (--fl-ink, #262521 by day and
+// #E7E7E7 at night) rather than pure black. Asked for the ring, flora draws
+// it in the accent stone (--fl-acc), lifted at night to the stone's own
+// highlight (--fl-glow) the way flora.css lifts its focus colour, because the
+// deep blue disappears on the night ground. The fade takes --fl-dur (0.42 s),
+// flora's duration for a state change.
 
-/// The flora spinner.
+/// The flora spinner: the spoke wheel in the house ink, or the ring in the
+/// accent stone when asked.
 #[must_use]
 pub fn spinner(s: crate::widgets::spinner::Spinner) -> Dom {
-    super::flat::spinner(s)
+    use crate::widgets::spinner::{SpinnerLook, SpinnerStyle};
+    crate::widgets::spinner::build(
+        s,
+        &SpinnerLook {
+            auto: SpinnerStyle::Spokes,
+            spoke_ink: (
+                StyleBackgroundContent::Color(LIGHT_INK),
+                Some(StyleBackgroundContent::Color(DARK_INK)),
+            ),
+            arc_ink: (
+                StyleBackgroundContent::Color(LIGHT_ACC),
+                Some(StyleBackgroundContent::Color(DARK_GLOW)),
+            ),
+            fade_ms: 420,
+            marker: Some("__azul-theme-flora"),
+        },
+    )
 }
