@@ -4233,3 +4233,291 @@ mod titlebar_centring_tests {
         }
     }
 }
+
+/// The titlebar's two looks (W5b). Flat is the native bar. Flora is flora's
+/// window chrome (`.azul-titlebar`, docs-guide.css): a band of `--fl-ct`
+/// over `--fl-cb` with its night values, closed by a `--fl-bd5` line where
+/// the bar has one, the title in the chrome's light ink (stepping back when
+/// the window loses focus), window controls that wash under the pointer and
+/// a close control that turns to the clay stone. A theme changes the paint,
+/// never the platform's metrics: the 28pt band, the centred
+/// `system:title:bold` title, the padding, the line's width, the drag region.
+#[cfg(test)]
+mod theme_tests {
+    use alloc::{string::String, vec::Vec};
+
+    use azul_core::dom::Dom;
+    use azul_css::{
+        dynamic_selector::PseudoStateType,
+        props::{basic::color::ColorU, property::CssPropertyType},
+        system::{defaults, TitlebarButtonSide, TitlebarButtons},
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, style_kit, theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLORA: &str = "__azul-theme-flora";
+
+    const ALL: TitlebarButtons = TitlebarButtons {
+        has_close: true,
+        has_minimize: true,
+        has_maximize: true,
+        has_fullscreen: false,
+    };
+
+    /// The bar's metrics: the platform's in every look.
+    const BAR_METRICS: [CssPropertyType; 13] = [
+        CssPropertyType::Display,
+        CssPropertyType::FlexDirection,
+        CssPropertyType::AlignItems,
+        CssPropertyType::JustifyContent,
+        CssPropertyType::Height,
+        CssPropertyType::BoxSizing,
+        CssPropertyType::BorderBottomWidth,
+        CssPropertyType::BorderBottomStyle,
+        CssPropertyType::Cursor,
+        CssPropertyType::AppRegion,
+        CssPropertyType::UserSelect,
+        CssPropertyType::PaddingLeft,
+        CssPropertyType::PaddingRight,
+    ];
+
+    /// The title's metrics: the platform's font, size and centring.
+    const TITLE_METRICS: [CssPropertyType; 6] = [
+        CssPropertyType::FontSize,
+        CssPropertyType::FontFamily,
+        CssPropertyType::MinWidth,
+        CssPropertyType::TextAlign,
+        CssPropertyType::WhiteSpace,
+        CssPropertyType::OverflowX,
+    ];
+
+    /// Every shape a bar is built in, for one bar: title-only, the CSD row
+    /// with its controls on either side, and the controls alone.
+    fn shapes(bar: &Titlebar, theme: UiTheme) -> Vec<(String, Dom)> {
+        let bar = bar.clone().with_theme(theme);
+        let mut out = vec![(String::from("title-only"), bar.clone().dom())];
+        for side in [TitlebarButtonSide::Left, TitlebarButtonSide::Right] {
+            out.push((
+                alloc::format!("csd {side:?}"),
+                bar.clone().dom_with_buttons(&ALL, side),
+            ));
+            out.push((
+                alloc::format!("controls-only {side:?}"),
+                bar.clone().dom_controls_only(&ALL, side),
+            ));
+        }
+        out
+    }
+
+    /// The bars the platform builds: the macOS native bar, a CSD bar the
+    /// desktop coloured, and one with no desktop to ask.
+    fn bars() -> Vec<(&'static str, Titlebar)> {
+        vec![
+            (
+                "macos",
+                Titlebar::from_system_style("Title".into(), &defaults::macos_modern_light()),
+            ),
+            (
+                "gnome csd",
+                Titlebar::from_system_style_csd("Title".into(), &defaults::gnome_adwaita_light()),
+            ),
+            (
+                "windows",
+                Titlebar::from_system_style("Title".into(), &defaults::windows_11_light()),
+            ),
+            ("new", Titlebar::new("Title".into())),
+            (
+                "new with a line",
+                Titlebar::new("Title".into()).with_border_bottom(1.0, ColorU::rgb(200, 0, 0)),
+            ),
+        ]
+    }
+
+    fn title_of(dom: &Dom) -> Option<&Dom> {
+        tc::find(dom, "csd-title")
+    }
+
+    fn control<'a>(dom: &'a Dom, id: &str) -> &'a Dom {
+        tc::nodes(dom)
+            .into_iter()
+            .map(|(_, n)| n)
+            .find(|n| {
+                n.root
+                    .get_ids_and_classes()
+                    .as_ref()
+                    .iter()
+                    .any(|c| matches!(c, IdOrClass::Id(s) if s.as_str() == id))
+            })
+            .unwrap_or_else(|| panic!("no #{id}"))
+    }
+
+    fn hover_fill(node: &Dom, dark: bool) -> Option<ColorU> {
+        tc::resolve(
+            node,
+            CssPropertyType::BackgroundContent,
+            dark,
+            Some(PseudoStateType::Hover),
+        )
+        .as_ref()
+        .and_then(tc::bg_color)
+    }
+
+    #[test]
+    fn a_titlebar_without_a_theme_follows_the_app_theme_and_set_theme_pins_it() {
+        for (name, bar) in bars() {
+            assert_eq!(bar.theme, OptionUiTheme::None, "{name}: a fresh bar follows the app");
+        }
+        let bar = Titlebar::new("Title".into());
+        let mut set = bar.clone();
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set, bar.with_theme(UiTheme::Flora), "set_theme and with_theme agree");
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+    }
+
+    #[test]
+    fn a_flora_titlebar_keeps_every_platform_metric() {
+        for (name, bar) in bars() {
+            let flat = shapes(&bar, UiTheme::Flat);
+            let flora = shapes(&bar, UiTheme::Flora);
+            for ((shape, a), (_, b)) in flat.iter().zip(flora.iter()) {
+                assert_eq!(
+                    tc::nodes(a).len(),
+                    tc::nodes(b).len(),
+                    "{name} {shape}: the same nodes"
+                );
+                for dark in [false, true] {
+                    for ty in BAR_METRICS {
+                        assert_eq!(
+                            tc::resolve(a, ty, dark, None),
+                            tc::resolve(b, ty, dark, None),
+                            "{name} {shape} dark={dark}: flora moved the bar's {ty:?}"
+                        );
+                    }
+                    if let (Some(ta), Some(tb)) = (title_of(a), title_of(b)) {
+                        for ty in TITLE_METRICS {
+                            assert_eq!(
+                                tc::resolve(ta, ty, dark, None),
+                                tc::resolve(tb, ty, dark, None),
+                                "{name} {shape} dark={dark}: flora moved the title's {ty:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_flora_titlebar_is_flora_window_chrome() {
+        for (name, bar) in bars() {
+            for (shape, dom) in shapes(&bar, UiTheme::Flora) {
+                assert!(tc::has_class(&dom, FLORA), "{name} {shape}: flora's marker");
+                assert!(tc::has_class(&dom, "csd-titlebar"), "{name} {shape}: still the bar");
+                for (dark, top, foot, line) in [
+                    (false, flora::LIGHT_CT, flora::LIGHT_CB, flora::LIGHT_BD5),
+                    (true, flora::DARK_CT, flora::DARK_CB, flora::DARK_BD5),
+                ] {
+                    assert_eq!(
+                        tc::background(&dom, dark).map(|p| tc::bg_layers(&p)),
+                        Some(vec![style_kit::face(top, foot)]),
+                        "{name} {shape} dark={dark}: the chrome band"
+                    );
+                    assert_eq!(
+                        tc::text_color(&dom, dark),
+                        Some(flora::CHROME_INK),
+                        "{name} {shape} dark={dark}: the controls' glyphs are the chrome's ink"
+                    );
+                    let has_line = tc::resolve(&dom, CssPropertyType::BorderBottomWidth, dark, None)
+                        .is_some();
+                    if has_line {
+                        assert_eq!(
+                            tc::resolve(&dom, CssPropertyType::BorderBottomColor, dark, None)
+                                .as_ref()
+                                .and_then(tc::border_color),
+                            Some(line),
+                            "{name} {shape} dark={dark}: the line is --fl-bd5"
+                        );
+                    }
+                    if let Some(title) = title_of(&dom) {
+                        assert_eq!(
+                            tc::text_color(title, dark),
+                            Some(flora::CHROME_INK),
+                            "{name} {shape} dark={dark}: the title"
+                        );
+                        assert_eq!(
+                            tc::resolve(
+                                title,
+                                CssPropertyType::TextColor,
+                                dark,
+                                Some(PseudoStateType::Backdrop),
+                            ),
+                            Some(CssProperty::const_text_color(StyleTextColor {
+                                inner: flora::CHROME_INK_DIM,
+                            })),
+                            "{name} {shape} dark={dark}: an unfocused window's title steps back"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn flora_window_controls_wash_under_the_pointer_and_close_turns_to_clay() {
+        let bar = Titlebar::from_system_style_csd("Title".into(), &defaults::gnome_adwaita_light())
+            .with_theme(UiTheme::Flora);
+        for dom in [
+            bar.clone().dom_with_buttons(&ALL, TitlebarButtonSide::Right),
+            bar.clone().dom_controls_only(&ALL, TitlebarButtonSide::Right),
+        ] {
+            for dark in [false, true] {
+                for id in ["csd-button-minimize", "csd-button-maximize"] {
+                    assert_eq!(
+                        hover_fill(control(&dom, id), dark),
+                        Some(flora::CHROME_HOVER),
+                        "dark={dark}: #{id} washes in the chrome's ink"
+                    );
+                }
+                let close = control(&dom, "csd-button-close");
+                assert_eq!(
+                    hover_fill(close, dark),
+                    Some(flora::STONE_CLAY.stone),
+                    "dark={dark}: close turns to the clay stone"
+                );
+                assert_eq!(
+                    tc::resolve(
+                        close,
+                        CssPropertyType::TextColor,
+                        dark,
+                        Some(PseudoStateType::Hover),
+                    ),
+                    Some(CssProperty::const_text_color(StyleTextColor {
+                        inner: flora::LIGHT_ON_ACC,
+                    })),
+                    "dark={dark}: its glyph in the stone's ink"
+                );
+            }
+            tc::assert_theme_invariants("flora titlebar", &dom);
+        }
+    }
+
+    #[test]
+    fn both_looks_build_the_same_bar_and_accessibility_tree() {
+        for (name, bar) in bars() {
+            for ((shape, a), (_, b)) in shapes(&bar, UiTheme::Flat)
+                .iter()
+                .zip(shapes(&bar, UiTheme::Flora).iter())
+            {
+                assert_eq!(tc::a11y_outline(a), tc::a11y_outline(b), "{name} {shape}");
+                for ((path, x), (_, y)) in tc::nodes(a).iter().zip(tc::nodes(b).iter()) {
+                    assert_eq!(
+                        x.root.get_callbacks().as_ref().len(),
+                        y.root.get_callbacks().as_ref().len(),
+                        "{name} {shape} {path}: the same drag and control callbacks"
+                    );
+                }
+            }
+        }
+    }
+}

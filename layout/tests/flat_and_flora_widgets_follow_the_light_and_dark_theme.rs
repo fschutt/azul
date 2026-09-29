@@ -713,3 +713,30 @@ fn tab_bars_and_their_panels_read_in_both_themes_in_both_looks() {
     }
     assert_follow_the_theme(widgets);
 }
+
+/// Titlebars in both looks and both modes (W5b): the title-only bar and the
+/// CSD row as `create` builds them - the flat look's light defaults with
+/// their night twins, flora's window chrome. (A bar `from_system_style`
+/// coloured is the desktop's own for ONE mode by design, so it is not
+/// walked in the other.)
+#[test]
+fn titlebars_read_in_both_themes_in_both_looks() {
+    use azul_css::system::{TitlebarButtonSide, TitlebarButtons};
+    use azul_layout::widgets::titlebar::Titlebar;
+    let all = TitlebarButtons {
+        has_close: true,
+        has_minimize: true,
+        has_maximize: true,
+        has_fullscreen: false,
+    };
+    let mut widgets = Vec::new();
+    for (look, theme) in LOOKS {
+        let bar = Titlebar::create(AzString::from("Window")).with_theme(theme);
+        widgets.push((format!("{look} titlebar"), bar.clone().dom()));
+        widgets.push((
+            format!("{look} csd titlebar"),
+            bar.dom_with_buttons(&all, TitlebarButtonSide::Right),
+        ));
+    }
+    assert_follow_the_theme(widgets);
+}

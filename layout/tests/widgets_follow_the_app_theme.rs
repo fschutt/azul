@@ -940,3 +940,47 @@ fn tab_bars_and_their_panels_follow_the_app_theme() {
         });
     }
 }
+
+/// A titlebar follows the app theme (W5b) in every shape the shell builds it
+/// in - the title-only bar, the CSD row with its controls on either side, the
+/// controls alone - whether the desktop coloured it (`from_system_style`,
+/// `from_system_style_csd`) or not (`create`). The shell injects these bars
+/// unpinned, so under a flora app theme the window's own chrome is flora's.
+#[test]
+fn titlebars_follow_the_app_theme_in_every_shape() {
+    use azul_css::system::{defaults, TitlebarButtonSide, TitlebarButtons};
+    use azul_layout::widgets::titlebar::Titlebar;
+    let all = TitlebarButtons {
+        has_close: true,
+        has_minimize: true,
+        has_maximize: true,
+        has_fullscreen: false,
+    };
+    fn create() -> Titlebar {
+        Titlebar::create(AzString::from("Window"))
+    }
+    fn macos() -> Titlebar {
+        Titlebar::from_system_style(AzString::from("Window"), &defaults::macos_modern_light())
+    }
+    fn gnome_csd() -> Titlebar {
+        Titlebar::from_system_style_csd(
+            AzString::from("Window"),
+            &defaults::gnome_adwaita_light(),
+        )
+    }
+    let bars: [(&str, fn() -> Titlebar); 3] =
+        [("create", create), ("macos", macos), ("gnome csd", gnome_csd)];
+    for (name, bar) in bars {
+        assert_follows_the_app_theme(&format!("{name} titlebar"), |t| {
+            pinned(bar(), t, Titlebar::with_theme).dom()
+        });
+        for side in [TitlebarButtonSide::Left, TitlebarButtonSide::Right] {
+            assert_follows_the_app_theme(&format!("{name} csd titlebar {side:?}"), |t| {
+                pinned(bar(), t, Titlebar::with_theme).dom_with_buttons(&all, side)
+            });
+            assert_follows_the_app_theme(&format!("{name} window controls {side:?}"), |t| {
+                pinned(bar(), t, Titlebar::with_theme).dom_controls_only(&all, side)
+            });
+        }
+    }
+}

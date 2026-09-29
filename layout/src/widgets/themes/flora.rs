@@ -6193,6 +6193,23 @@ pub(crate) fn tab_content_look() -> crate::widgets::tabs::TabContentLook {
 //
 // PLACEHOLDER until the flora titlebar lands: the flat look.
 
+/// `--fl-ct`: the top of flora's window chrome by day (#837F74).
+pub const LIGHT_CT: ColorU = ColorU::rgb(0x83, 0x7F, 0x74);
+/// `--fl-cb`: the foot of flora's window chrome by day (#67635A).
+pub const LIGHT_CB: ColorU = ColorU::rgb(0x67, 0x63, 0x5A);
+/// `--fl-ct` by night (#383838).
+pub const DARK_CT: ColorU = ColorU::rgb(0x38, 0x38, 0x38);
+/// `--fl-cb` by night (#262626).
+pub const DARK_CB: ColorU = ColorU::rgb(0x26, 0x26, 0x26);
+/// The ink written on flora's window chrome, by day and by night
+/// (`.azul-titlebar`'s #F2F2F2): the band is dark in both modes.
+pub const CHROME_INK: ColorU = ColorU::rgb(0xF2, 0xF2, 0xF2);
+/// The chrome's ink while the window is unfocused (`:backdrop`): the title
+/// steps back, as every desktop's does.
+pub const CHROME_INK_DIM: ColorU = ColorU::rgb(0xB9, 0xB5, 0xAB);
+/// A window control under the pointer: the chrome's ink as a 15% wash.
+pub const CHROME_HOVER: ColorU = ColorU::new(0xF2, 0xF2, 0xF2, 38);
+
 /// Flora's titlebar look.
 #[must_use]
 pub(crate) fn titlebar_look(
