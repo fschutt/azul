@@ -1,7 +1,7 @@
-//! The DOM-fragment LOWERING (`azul_core::xml::lower_xml_fragment`,
+//! The DOM-fragment LOWERING (`azul_core::codegen::dom::lower_xml_fragment`,
 //! `lower_xml_fragment_app`): a builder subtree, a component template or a
 //! page body → the codegen IR (`azul_css::codegen::ir`) that every binding
-//! language's printer turns into source.
+//! language's printer turns into source. Needs azul-core's `codegen` feature.
 //!
 //! The printers are tested in ONE place, B2's golden harness
 //! (`css/tests/codegen_goldens.rs`, cases `dom_card` / `dom_library` /
@@ -11,11 +11,12 @@
 //! terms, independent of any language.
 
 use azul_core::{
-    window::{AzStringPair, StringPairVec},
-    xml::{
-        compile_xml_fragment, compile_xml_fragment_app, lower_xml_fragment,
-        lower_xml_fragment_app, FragmentParam, XmlAttributeMap, XmlNode, XmlNodeChild,
+    codegen::{
+        backend,
+        dom::{lower_xml_fragment, lower_xml_fragment_app, FragmentParam},
     },
+    window::{AzStringPair, StringPairVec},
+    xml::{XmlAttributeMap, XmlNode, XmlNodeChild},
 };
 use azul_css::{
     codegen::{
@@ -310,21 +311,25 @@ fn inline_content_keeps_the_space_before_the_next_element() {
 fn every_language_prints_a_fragment_or_says_why_it_cannot() {
     let nodes = vec![el("p", &[("class", "x")], vec![txt("{text}")])];
     let params = [FragmentParam::new("text", "Hi")];
+    let m = lower_xml_fragment(&nodes, "", "render_x", Some(&params), Vec::new());
     for b in all_backends() {
-        let code = compile_xml_fragment(&nodes, "", b.lang(), "render_x", Some(&params))
-            .expect("every listed language compiles");
+        let code = backend(b.lang())
+            .expect("every listed language has a code generator")
+            .emit_module(&m);
         assert!(!code.trim().is_empty(), "{}", b.lang());
     }
-    let rust = compile_xml_fragment(&nodes, "", "rust", "render_x", Some(&params)).unwrap();
+    let rust = backend("rust").expect("rust").emit_module(&m);
     assert!(rust.contains("pub fn render_x(text: &str) -> Dom {"), "{rust}");
-    let err = compile_xml_fragment(&nodes, "", "klingon", "render_x", None).unwrap_err();
+    let err = backend("klingon").err().expect("no such language");
     assert!(err.contains("available:"), "{err}");
 }
 
 #[test]
 fn a_c_app_reflects_its_data_instead_of_a_refany_with_a_null_destructor() {
     let body = vec![el("body", &[], vec![el("p", &[], vec![txt("x")])])];
-    let files = compile_xml_fragment_app(&body, "", "c", "T").expect("c");
+    let files = backend("c")
+        .expect("c")
+        .emit_project_files(&lower_xml_fragment_app(&body, "", "T"));
     let main = files
         .iter()
         .find(|f| f.path == "main.c")

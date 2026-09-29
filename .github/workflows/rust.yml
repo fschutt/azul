@@ -1758,7 +1758,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          cargo test -p azul-dll --test xml_to_rust_compilation --test kitchen_sink_integration --features xml 2>&1 | tee xml-codegen-tests.txt
+          cargo test -p azul-core --features codegen --test export_page_codegen --test dom_fragment_codegen 2>&1 | tee xml-codegen-tests.txt
           ./scripts/zero_test_guard.sh --strict xml-codegen-tests.txt
 
       - name: Run export-code E2E (export live page -> compile 4 languages)
