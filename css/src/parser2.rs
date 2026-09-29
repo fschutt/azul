@@ -1973,16 +1973,42 @@ fn new_from_str_inner<'a>(
                 }
             }
             Token::Declaration(key, val) => {
-                current_declarations.insert(
-                    key,
-                    (
+                let location = ErrorLocationRange {
+                    start: last_error_location,
+                    end: get_error_location(tokenizer),
+                };
+                // An INVALID declaration is dropped and an earlier valid one of
+                // the same property stands. The block keeps ONE value per
+                // property, so a repeated property may replace the earlier
+                // value only once its own value is known to parse - otherwise
+                // `a: valid; a: invalid` lost both. (The kept value is parsed
+                // for real, with its warnings, in `css_blocks_to_stylesheet`.)
+                let invalid_repeat = if !key.starts_with("--")
+                    && current_declarations.contains_key(key)
+                {
+                    parse_declaration_resilient(
+                        key,
                         val,
-                        ErrorLocationRange {
-                            start: last_error_location,
-                            end: get_error_location(tokenizer),
+                        location,
+                        &crate::props::property::get_css_key_map(),
+                    )
+                    .err()
+                } else {
+                    None
+                };
+                match invalid_repeat {
+                    Some(error) => warnings.push(CssParseWarnMsg {
+                        warning: CssParseWarnMsgInner::SkippedDeclaration {
+                            key,
+                            value: val,
+                            error,
                         },
-                    ),
-                );
+                        location,
+                    }),
+                    None => {
+                        current_declarations.insert(key, (val, location));
+                    }
+                }
             }
             Token::EndOfStream => {
                 if block_nesting != 0 {
