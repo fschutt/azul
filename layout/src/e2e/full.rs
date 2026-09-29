@@ -1758,6 +1758,38 @@ fn selection_range_info(
     }
 }
 
+/// What `get_selection_state` reports: the editing session's selections, in
+/// its block (`selector_of` names a node for the response - the handler's
+/// `build_selector_for_node`, which needs the callback).
+#[cfg(feature = "std")]
+fn selection_state(
+    lw: &azul_layout::window::LayoutWindow,
+    selector_of: impl Fn(azul_core::dom::DomId, azul_core::dom::NodeId) -> Option<String>,
+) -> SelectionStateResponse {
+    let mut selections = Vec::new();
+    if let Some(mc) = lw.text_edit_manager.multi_cursor.as_ref() {
+        let dom_id = mc.block.dom();
+        let node = mc.block.container();
+        let ranges = mc
+            .selections
+            .iter()
+            .map(|s| selection_range_info(lw, mc.block, &s.selection))
+            .collect();
+        selections.push(DomSelectionInfo {
+            dom_id: dom_id.inner as u32,
+            node_id: Some(node.index() as u64),
+            selector: selector_of(dom_id, node),
+            ranges,
+            rectangles: Vec::new(),
+        });
+    }
+    SelectionStateResponse {
+        has_selection: !selections.is_empty(),
+        selection_count: selections.len(),
+        selections,
+    }
+}
+
 /// JSON-serializable LogicalSize
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
@@ -17192,30 +17224,9 @@ pub fn process_debug_event(
         }
 
         DebugEvent::GetSelectionState => {
-            let layout_window = callback_info.get_layout_window();
-            let mut selections = Vec::new();
-            if let Some(ref mc) = layout_window.text_edit_manager.multi_cursor {
-                let dom_id = mc.block.dom();
-                let node_id = Some(mc.block.container().index() as u64);
-                let selector = build_selector_for_node(callback_info, dom_id, mc.block.container());
-                let ranges = mc
-                    .selections
-                    .iter()
-                    .map(|s| selection_range_info(layout_window, mc.block, &s.selection))
-                    .collect();
-                selections.push(DomSelectionInfo {
-                    dom_id: dom_id.inner as u32,
-                    node_id,
-                    selector,
-                    ranges,
-                    rectangles: Vec::new(),
-                });
-            }
-            let response = SelectionStateResponse {
-                has_selection: !selections.is_empty(),
-                selection_count: selections.len(),
-                selections,
-            };
+            let response = selection_state(callback_info.get_layout_window(), |dom_id, node| {
+                build_selector_for_node(callback_info, dom_id, node)
+            });
             send_ok(request, None, Some(ResponseData::SelectionState(response)));
         }
 
