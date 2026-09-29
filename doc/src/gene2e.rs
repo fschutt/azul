@@ -422,6 +422,13 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("add_image_to_cache",        None),
     ("remove_image_from_cache",   None),
     ("key_down",                  None),
+    // Global hotkeys through the window's manager on the SIMULATED backend
+    // (AZ_BACKEND=headless): press a declared accelerator, program the
+    // backend's answer to the next grab (taken / refused / pending), and
+    // settle a pending one. Deterministic input, like key_down.
+    ("global_hotkey",             None),
+    ("global_hotkey_answer",      None),
+    ("global_hotkey_settle",      None),
     ("key_up",                    None),
     ("text_input",                None),
     ("touch_start",               None),
