@@ -21,13 +21,15 @@ List: scripts/SELECTION_LEFTOVERS_FIX_2026_09_28.md "## Open".
    3ef1c620d fix (`fc::white_space_runs` split out of `split_text_for_whitespace`; the edit
    model reads normal/nowrap text through it). Behaviour change: an edit stores collapsed text.
 
+5. generation shift in a list item: b1e38aef0 test (a_list_item_caret_moves_with_the_apps_text.rs),
+   64d90b739 fix (diff + writer snapshot both read `element_content`).
+
 ## IN PROGRESS
 
-5. `shift_carets_across_generation` in a list item.
+6. `inspect_delete_changeset` / `inspect_select_all_changeset` with session carets.
 
 ## NEXT
 
-6. `inspect_delete_changeset` / `inspect_select_all_changeset` with session carets.
 7. E2E `get_selection_state` reporting a document selection.
 8. ScopeText inline host / nested block order.
 9. `TextTarget::caret_at_byte` caller switch + dead code.
