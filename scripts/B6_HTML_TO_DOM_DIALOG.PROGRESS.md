@@ -32,13 +32,22 @@ Branch `wt/b6-html-to-dom-dialog` from `81d31d94e` (B3 + X1a/X1b). Nothing compi
 ## DONE
 - 1a RED 747bd0b59 (core tests at the new paths; dll walker tests deleted; CI step moved)
 - 1a impl 6f6ee890c (core/src/codegen/{mod,dom,dom_test}.rs; walkers deleted; features)
+- 1b RED 518387c7b (core/tests/codegen_components.rs, css case dom_components + goldens rust/c/python,
+  structure test) and 765e0deb2 (layout export_tests: calls instead of inlining)
+- 1b css 85833bc7c (Expr::ItemCall, hooks, rust/c/cpp/python, C-family registration codegen,
+  API_MODULES = every api.json class)
+- 1b core 75ce2e612 (ComponentCodegen replaces compile_fn; component-aware lowering)
+- 1b layout 6fbd708fe (export.rs component-aware; update_component_compile_fn op removed)
+- 1b printers a665219a8 (26 printers by 3 helpers), 04b7bccc5 (ItemCall params, string_arg,
+  method_result_class)
 
 ## IN PROGRESS
-- 1b design: IR `Expr::ItemCall`, typed `ItemParam`, `ComponentCodegen` replacing `compile_fn`
+- helpers adapt the 26 printers to 04b7bccc5 (uncommitted until they report)
+- 1c: attribute table (inventory in scratchpad b6_attr_inventory.md)
 
 ## NEXT
-- 1b RED + impl (+ helpers for 26 printers), 1c inventory (scratchpad b6_attr_inventory.md) → table,
-  2, 3, docs, report
+- 1c RED + impl, 2 (zip API), 3 (dialog), docs, report
+- Decided: typed params stay text (templates substitute text); slots = children appended to the call
 
 ## Open questions
 - none yet
