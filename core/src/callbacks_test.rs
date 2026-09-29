@@ -2022,3 +2022,156 @@ mod global_hotkey_recorder_tests {
         );
     }
 }
+#[cfg(test)]
+mod app_theme_tests {
+    //! The app theme a DOM is BUILT for (`@theme(<name>)` blocks select by
+    //! it in the cascade; a widget's STRUCTURE branches on it at build time).
+    //!
+    //! A widget's `dom()` has no `LayoutCallbackInfo`, so the theme is
+    //! ambient, the seam shape of the style-dependency recorder: the engine
+    //! enters a [`ThemeScope`] with the window's theme around every DOM build
+    //! of that window, and outside one the app's published theme applies.
+    //!
+    //! This binary never PUBLISHES an app theme (`set_app_theme` is
+    //! `App::create`'s and `CallbackInfo::set_theme`'s; the dll's headless
+    //! test covers it), so outside a scope the answer here is the default.
+    use azul_css::{dynamic_selector::DEFAULT_APP_THEME, system::SystemStyle, AzString};
+
+    use super::*;
+    use crate::{
+        app_theme::{app_theme, current_theme, ThemeScope},
+        geom::LogicalSize,
+    };
+
+    struct Rd {
+        image_cache: crate::resources::ImageCache,
+        gl: crate::gl::OptionGlContextPtr,
+        fonts: rust_fontconfig::FcFontCache,
+        style: alloc::sync::Arc<SystemStyle>,
+    }
+    impl Rd {
+        fn new() -> Self {
+            Self {
+                image_cache: crate::resources::ImageCache::default(),
+                gl: crate::gl::OptionGlContextPtr::None,
+                fonts: rust_fontconfig::FcFontCache::default(),
+                style: alloc::sync::Arc::new(SystemStyle::default()),
+            }
+        }
+        fn ref_data(&self) -> LayoutCallbackInfoRefData<'_> {
+            static EN_US: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
+            let locale = EN_US.get_or_init(|| AzString::from("en-US"));
+            LayoutCallbackInfoRefData {
+                locale,
+                accessed_locale: core::cell::Cell::new(false),
+                accessed_text_direction: core::cell::Cell::new(false),
+                text_direction: crate::callbacks::TextDirection::LeftToRight,
+                image_cache: &self.image_cache,
+                gl_context: &self.gl,
+                system_fonts: &self.fonts,
+                system_style: alloc::sync::Arc::clone(&self.style),
+                active_route: None,
+                monitors: crate::window::MonitorVec::from_const_slice(&[]),
+                safe_area: azul_css::system::SafeAreaInsets::default(),
+                global_hotkeys: crate::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
+            }
+        }
+    }
+
+    fn info(rd: &LayoutCallbackInfoRefData<'_>) -> LayoutCallbackInfo {
+        LayoutCallbackInfo::new(
+            rd,
+            WindowSize {
+                dimensions: LogicalSize::new(800.0, 600.0),
+                ..WindowSize::default()
+            },
+            WindowTheme::LightMode,
+        )
+    }
+
+    #[test]
+    fn outside_any_dom_build_the_theme_is_the_apps_which_defaults_to_flat() {
+        assert_eq!(app_theme().as_str(), DEFAULT_APP_THEME);
+        assert_eq!(current_theme().as_str(), "flat");
+    }
+
+    #[test]
+    fn a_theme_scope_sets_the_theme_a_dom_is_built_for_and_restores_the_outer_one() {
+        assert_eq!(current_theme().as_str(), "flat");
+        {
+            let _flora = ThemeScope::enter(AzString::from("flora"));
+            assert_eq!(current_theme().as_str(), "flora");
+            {
+                let _inner = ThemeScope::enter(AzString::from("monokai"));
+                assert_eq!(current_theme().as_str(), "monokai");
+            }
+            assert_eq!(
+                current_theme().as_str(),
+                "flora",
+                "leaving the inner scope restores the outer one"
+            );
+        }
+        assert_eq!(
+            current_theme().as_str(),
+            "flat",
+            "and leaving the outer one the app's"
+        );
+    }
+
+    #[test]
+    fn a_theme_scope_belongs_to_the_thread_that_builds() {
+        let _flora = ThemeScope::enter(AzString::from("flora"));
+        let elsewhere = std::thread::spawn(|| current_theme().as_str().to_string())
+            .join()
+            .expect("the probe thread");
+        assert_eq!(
+            elsewhere, "flat",
+            "another thread's DOM build is not inside this window's scope"
+        );
+        assert_eq!(current_theme().as_str(), "flora");
+    }
+
+    /// `layout()` reads the theme it builds for through its info. The name
+    /// getter is `get_theme_name` because `get_theme` is the colour scheme
+    /// (and stays so until the AZ_THEME / colour-scheme migration).
+    #[test]
+    fn get_theme_name_answers_the_scope_and_leaves_the_colour_scheme_getter_alone() {
+        let rd = Rd::new();
+        let rd = rd.ref_data();
+        let info = info(&rd);
+        let _ = take_recorded_style_dependencies();
+
+        assert_eq!(info.get_theme_name().as_str(), "flat");
+        {
+            let _flora = ThemeScope::enter(AzString::from("flora"));
+            assert_eq!(info.get_theme_name().as_str(), "flora");
+        }
+        assert!(
+            take_recorded_style_dependencies().is_empty(),
+            "a theme switch ALWAYS rebuilds the DOM, so reading the name declares nothing"
+        );
+        assert_eq!(
+            info.get_theme(),
+            WindowTheme::LightMode,
+            "the colour scheme, as before"
+        );
+    }
+
+    #[test]
+    fn a_theme_switch_has_its_own_relayout_reason() {
+        let rd = Rd::new();
+        let rd = rd.ref_data();
+        let info = LayoutCallbackInfo::new_with_reason(
+            &rd,
+            WindowSize::default(),
+            WindowTheme::LightMode,
+            RelayoutReason::AppThemeChange,
+        );
+        assert_eq!(info.relayout_reason(), RelayoutReason::AppThemeChange);
+        assert_ne!(
+            RelayoutReason::AppThemeChange,
+            RelayoutReason::ThemeChange,
+            "ThemeChange is the colour scheme; the app theme is a DOM rebuild of its own"
+        );
+    }
+}

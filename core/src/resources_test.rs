@@ -687,6 +687,7 @@ mod autotest_generated {
             notification_handler,
             global_hotkeys,
             global_hotkeys_callback,
+            theme,
             color_scheme,
             log_level,
             natural_scroll,
@@ -714,6 +715,7 @@ mod autotest_generated {
             + size_of_field(notification_handler)
             + size_of_field(global_hotkeys)
             + size_of_field(global_hotkeys_callback)
+            + size_of_field(theme)
             + size_of_field(color_scheme)
             + size_of_field(log_level)
             + size_of_field(natural_scroll)
@@ -729,6 +731,31 @@ mod autotest_generated {
             "AppConfig carries {} bytes of padding",
             core::mem::size_of::<AppConfig>().saturating_sub(fields)
         );
+    }
+
+    /// The app theme (`@theme(<name>)` blocks, the widgets' flat / flora
+    /// looks) is a NAME, separate from the colour scheme: `flat` unless the
+    /// app chooses another, and choosing one leaves the colour scheme alone.
+    #[test]
+    fn the_app_theme_defaults_to_flat_and_with_theme_chooses_another() {
+        let config = AppConfig::create();
+        assert_eq!(config.theme.as_str(), "flat");
+        assert_eq!(
+            config.theme.as_str(),
+            azul_css::dynamic_selector::DEFAULT_APP_THEME,
+            "the default is the ONE constant, not a second spelling of it"
+        );
+
+        let flora = AppConfig::create().with_theme(AzString::from_const_str("flora"));
+        assert_eq!(flora.theme.as_str(), "flora");
+        assert!(
+            matches!(flora.color_scheme, crate::window::OptionWindowTheme::None),
+            "choosing a theme does not pin light / dark"
+        );
+
+        let mut config = AppConfig::create();
+        config.set_theme(AzString::from_const_str("monokai"));
+        assert_eq!(config.theme.as_str(), "monokai");
     }
 
     // =====================================================================
