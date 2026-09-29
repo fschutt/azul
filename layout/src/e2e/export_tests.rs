@@ -731,3 +731,39 @@ fn the_documents_own_stylesheet_is_the_exported_apps_stylesheet_and_the_document
     has(value(&result, 3)["css"].as_str().expect("css"), ".note { margin-top: 7px; }");
     has(value(&result, 4)["css"].as_str().expect("css"), "margin-top");
 }
+
+// ── B7: Export > Code (ZIP) offers every language, the non-DOM ones with their reason ──
+
+#[test]
+fn a_language_that_cannot_build_a_ui_says_why_in_the_one_language_list() {
+    let result = run(
+        "export_language_reasons",
+        vec![serde_json::json!({ "op": "get_codegen_languages" })],
+    );
+    let langs = value(&result, 0)["languages"]
+        .as_array()
+        .expect("one list")
+        .clone();
+    assert_eq!(
+        langs.len(),
+        azul_css::codegen::all_backends().len(),
+        "every code generator is listed, the non-DOM ones too"
+    );
+    let mut without_dom = 0;
+    for l in &langs {
+        if l["dom"] == true {
+            assert!(
+                l["no_dom_reason"].is_null(),
+                "a DOM printer has no reason: {l}"
+            );
+        } else {
+            without_dom += 1;
+            let why = l["no_dom_reason"].as_str().unwrap_or_default();
+            assert!(
+                why.contains("DOM"),
+                "a printer without DOM export says why (the export's own warning): {l}"
+            );
+        }
+    }
+    assert!(without_dom > 0, "some printers do not export a DOM (yet)");
+}

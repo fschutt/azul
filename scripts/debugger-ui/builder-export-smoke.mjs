@@ -51,12 +51,12 @@ const clone = (v) => JSON.parse(JSON.stringify(v));
 const mock = {
     sent: [],
     registry: { libraries: [
-        { name: 'builtin', modifiable: false, components: [
+        { name: 'builtin', modifiable: false, exportable: false, components: [
             { tag: 'div', display_name: 'Div' },
             { tag: 'p', display_name: 'Paragraph' },
             { tag: 'span', display_name: 'Span' },
         ] },
-        { name: 'user', modifiable: true, components: [
+        { name: 'user', modifiable: true, exportable: true, components: [
             { tag: 'my-card', display_name: 'My Card' },
         ] },
     ] },
@@ -132,7 +132,8 @@ function exportOp(msg) {
                     { id: 'c', label: 'C', ext: 'h', dom: true },
                     { id: 'cpp', label: 'C++', ext: 'hpp', dom: true },
                     { id: 'python', label: 'Python', ext: 'py', dom: true },
-                    { id: 'java', label: 'Java', ext: 'java', dom: false },
+                    { id: 'java', label: 'Java', ext: 'java', dom: false,
+                      no_dom_reason: 'the Java printer does not print DOM construction yet' },
                 ],
             };
         case 'get_css_rules': {
@@ -199,6 +200,9 @@ function exportOp(msg) {
                 language: msg.language, file_name: `${msg.library}_${msg.name}.rs`,
                 code: `// component ${msg.library}:${msg.name} ${msg.language}\n`, warnings: [],
             };
+        case 'export_component_library':
+            if (msg.library === 'builtin') throw new Error("Library 'builtin' not found or is not exportable");
+            return { name: msg.library, version: '1.0.0', components: [{ name: 'my-card' }] };
         case 'export_code_zip':
             return { download_url: EMPTY_ZIP, filename: `azul-export-${msg.language}.zip`,
                 size_bytes: 22, file_count: 3, files: ['src/main.rs', 'Cargo.toml', 'README.md'], warnings: [] };
@@ -371,6 +375,17 @@ window.__t = {
     s.dispatchEvent(new Event('change', { bubbles: true }));
   },
   row(uid) { return document.querySelector('.azb-row[data-uid="' + uid + '"]'); },
+  /** An item's own label (its text, not its icon's). */
+  label(item) { return [...item.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join('').trim(); },
+  /** The Export menu, top level: labels, a submenu as 'Label > item, item'. */
+  exportMenu() {
+    const dd = document.querySelector('.menu-item[data-menu="export"] > .menu-dropdown');
+    return [...dd.children].filter(c => c.classList.contains('menu-dropdown-item')).map(c => {
+      const sub = c.querySelector(':scope > .menu-submenu');
+      return sub ? this.label(c) + ' > ' + [...sub.children].map(i => this.label(i)).join(', ') : this.label(c);
+    });
+  },
+  zipItem(lang) { return document.querySelector('.menu-dropdown-item[data-azx="zip"][data-lang="' + lang + '"]'); },
   inDialog() { const d = this.dlg(); return !!d && d.contains(document.activeElement); },
 };
 true`;
@@ -399,6 +414,34 @@ async function main() {
         check('..."HTML \u2192 DOM (code)" right after "Compile CSS to…"',
             await cdp.eval(`(() => { const items = [...document.querySelectorAll('.menu-dropdown-item[data-azx]')].map(i => i.dataset.azx);
                 return items.indexOf('html') === items.indexOf('css') + 1; })()`));
+        // B7: the Export menu, restructured (every old item has a place).
+        await waitFor(cdp, `!!__t.zipItem('java')`);
+        check('Export reads Compile > (CSS…, DOM…), Subtree as Component…, Components…, Code (ZIP) > …, then the page\'s own items',
+            JSON.stringify((await cdp.eval('__t.exportMenu()')).map((l) => l.replace(/ > .*$/, ''))) === JSON.stringify([
+                'Compile', 'Subtree as Component…', 'Components…', 'Code (ZIP)',
+                'Project as JSON', 'E2E Tests (CLI format)', 'Builder document (JSON)']),
+            await cdp.eval('__t.exportMenu()'));
+        check('...Compile holds CSS… and DOM… (the CSS and HTML → DOM dialogs)',
+            (await cdp.eval('__t.exportMenu()'))[0] === 'Compile > CSS…, DOM…'
+            && await cdp.eval(`[...document.querySelectorAll('.menu-submenu .menu-dropdown-item[data-azx]')].slice(0, 2).map(i => i.dataset.azx).join() === 'css,html'`));
+        check('...Code (ZIP) offers every language the server lists, in its order',
+            (await cdp.eval('__t.exportMenu()'))[3] === 'Code (ZIP) > Rust, C, C++, Python, Java (no DOM export yet)',
+            (await cdp.eval('__t.exportMenu()'))[3]);
+        check('...a language that cannot build a UI is listed but disabled, with the server\'s reason',
+            await cdp.eval(`(() => { const j = __t.zipItem('java'); return !!j && j.classList.contains('azx-disabled')
+                && j.getAttribute('aria-disabled') === 'true' && /does not print DOM construction/.test(j.title)
+                && !__t.zipItem('rust').classList.contains('azx-disabled'); })()`));
+        const zipsBefore = countSent('export_code_zip');
+        await cdp.eval(`window.__downloads = []; const j = __t.zipItem('java'); if (j) j.click(); true`);
+        await new Promise((r) => setTimeout(r, 150));
+        check('...clicking it exports nothing', countSent('export_code_zip') === zipsBefore);
+        await cdp.eval(`(() => { const c = __t.zipItem('cpp'); if (c) c.click(); return true; })()`);
+        await waitFor(cdp, `window.__downloads.length > 0`);
+        check('...clicking an enabled one downloads that project',
+            lastSent('export_code_zip') && lastSent('export_code_zip').language === 'cpp'
+            && await cdp.eval(`window.__downloads.some(d => d.download === 'azul-export-cpp.zip')`),
+            lastSent('export_code_zip'));
+
         check('the Document toolbar has an "export as code" button',
             await waitFor(cdp, `!!document.querySelector('#azb-toolbar [data-azx-act="export"]')`));
 
@@ -524,7 +567,7 @@ async function main() {
         // ── the tree's context menu ──
         await cdp.eval(`(() => { const r = __t.row(2).getBoundingClientRect();
             __t.row(2).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 20, clientY: r.top + 5 }));
-            const item = [...document.querySelectorAll('.azd-context-menu-item')].find(i => i.textContent.includes('Export as code'));
+            const item = [...document.querySelectorAll('.azd-context-menu-item')].find(i => i.textContent.includes('Subtree as Component'));
             if (item) item.click();
             return !!item; })()`);
         await waitFor(cdp, `__t.kind() === 'subtree' && /subtree 2 /.test(__t.code() || '')`);
@@ -545,6 +588,17 @@ async function main() {
             s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
         await waitFor(cdp, `/component builtin:p/.test(__t.code() || '')`);
         check('...and another component can be picked', lastSent('export_component_code').name === 'p');
+        check('...a builtin library cannot be exported as JSON (the button says so)',
+            await cdp.eval(`(() => { const b = document.querySelector('.azx-dialog [data-azx-lib-json]'); return !!b && b.disabled; })()`));
+        await cdp.eval(`(() => { const s = document.querySelector('.azx-dialog select'); s.value = 'user\\u0000my-card';
+            s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+        await waitFor(cdp, `/component user:my-card/.test(__t.code() || '')`);
+        await cdp.eval(`window.__downloads = []; const lj = document.querySelector('.azx-dialog [data-azx-lib-json]'); if (lj) lj.click(); true`);
+        await waitFor(cdp, `window.__downloads.length > 0`);
+        check('Components… also exports the component\'s library as JSON (the old "Component Library (JSON)")',
+            JSON.stringify(lastSent('export_component_library')) === JSON.stringify({ op: 'export_component_library', library: 'user' })
+            && await cdp.eval(`window.__downloads.some(d => d.download === 'user_components.json')`),
+            { sent: lastSent('export_component_library'), dl: await cdp.eval('window.__downloads') });
 
         // ── HTML -> DOM (code) ──
         await cdp.eval(`__t.key('Escape')`);

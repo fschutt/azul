@@ -26,7 +26,7 @@ function test(name, fn) {
     }
 }
 
-test('the server language list is used as it comes, de-duplicated; the DOM list falls back to the four targets', () => {
+test('the server language list is used as it comes, de-duplicated; there is no second list in the page', () => {
     const list = L.languageOptions([
         { id: 'rust', label: 'Rust', ext: 'rs', dom: true },
         { id: 'rust', label: 'dup' },
@@ -38,28 +38,33 @@ test('the server language list is used as it comes, de-duplicated; the DOM list 
         { id: 'rust', label: 'Rust', ext: 'rs', dom: true },
         { id: 'go', label: 'go', ext: 'txt', dom: false },
     ]);
-    assert.deepStrictEqual(L.languageOptions(undefined, L.DOM_FALLBACK).map((l) => l.id),
-        ['rust', 'c', 'cpp', 'python']);
+    assert.strictEqual(L.DOM_FALLBACK, undefined, 'no hard-coded language list: azul_css::codegen::all_backends() is THE list');
+    assert.deepStrictEqual(L.languageOptions(undefined), []);
     assert.deepStrictEqual(L.languageOptions([], []), [], 'no code generators: nothing to offer');
 });
 
 test('get_codegen_languages is ONE list: the CSS dialog offers all of it, the DOM dialogs disable what does no DOM export', () => {
     const v = L.dialogLanguages({ languages: [
-        { id: 'rust', label: 'Rust', ext: 'rs', dom: true },
+        { id: 'rust', label: 'Rust', ext: 'rs', dom: true, no_dom_reason: null },
         { id: 'c', label: 'C', ext: 'h', dom: true },
-        { id: 'java', label: 'Java', ext: 'java', dom: false },
+        { id: 'java', label: 'Java', ext: 'java', dom: false,
+          no_dom_reason: 'the Java printer does not print DOM construction yet' },
     ] });
     assert.deepStrictEqual(v.css.map((l) => l.id), ['rust', 'c', 'java']);
     assert.deepStrictEqual(v.dom.map((l) => l.id), ['rust', 'c', 'java'], 'the same list');
     assert.deepStrictEqual(v.dom.map((l) => !!l.disabled), [false, false, true]);
     assert.strictEqual(v.dom[2].label, 'Java (no DOM export yet)');
+    assert.strictEqual(v.dom[2].reason, 'the Java printer does not print DOM construction yet',
+        'the server says why (azul_core::codegen::dom_warning)');
+    assert.strictEqual(v.dom[0].reason, undefined);
     // A remembered language the DOM dialog cannot use falls back to a usable one.
     assert.strictEqual(L.pickLanguage(v.dom, 'java'), 'rust');
     assert.strictEqual(L.pickLanguage(v.css, 'java'), 'java');
-    // No answer (an old server): the DOM dialogs still offer the four.
-    const none = L.dialogLanguages(null);
-    assert.deepStrictEqual(none.css, []);
-    assert.deepStrictEqual(none.dom.map((l) => l.id), ['rust', 'c', 'cpp', 'python']);
+    // No answer: nothing to offer (the dialogs say the server did not list its languages).
+    assert.deepStrictEqual(L.dialogLanguages(null), { css: [], dom: [] });
+    // An older server without reasons: a generic one.
+    const old = L.dialogLanguages({ languages: [{ id: 'cobol', label: 'COBOL', dom: false }] });
+    assert.strictEqual(old.dom[0].reason, 'its printer does not export a DOM yet');
 });
 
 test('a dialog opens on the language used last, if the server still has it', () => {
@@ -192,6 +197,49 @@ test('rule rows count declarations and mark conditional rules', () => {
     ]);
     assert.deepStrictEqual(rows.map((r) => [r.index, r.selector, r.count, r.conditional]),
         [[0, '.a', 2, false], [1, '(no selector)', 0, true]]);
+});
+
+// ── B7: the Export menu ──
+
+test('the Export menu is Compile > (CSS, DOM), Subtree as Component, Components, Code (ZIP) > every language', () => {
+    const langs = L.dialogLanguages({ languages: [
+        { id: 'rust', label: 'Rust', ext: 'rs', dom: true },
+        { id: 'go', label: 'Go', ext: 'go', dom: true },
+        { id: 'cobol', label: 'COBOL', ext: 'cob', dom: false, no_dom_reason: 'the COBOL printer does not print DOM construction yet' },
+    ] });
+    const menu = L.exportMenu(langs);
+    const shape = menu.map((m) => m.submenu ? m.label + ' > ' + m.items.map((i) => i.label).join(', ') : m.label);
+    assert.deepStrictEqual(shape, [
+        'Compile > CSS…, DOM…',
+        'Subtree as Component…',
+        'Components…',
+        'Code (ZIP) > Rust, Go, COBOL (no DOM export yet)',
+    ]);
+    // Each item is the action of an existing dialog (the smoke clicks them by these).
+    assert.deepStrictEqual(menu[0].items.map((i) => i.act), ['css', 'html']);
+    assert.deepStrictEqual([menu[1].act, menu[2].act], ['subtree', 'component']);
+    // Code (ZIP): the ONE list; what cannot build a UI stays listed, disabled, with its reason.
+    const zip = menu[3].items;
+    assert.deepStrictEqual(zip.map((i) => [i.act, i.lang, !!i.disabled]),
+        [['zip', 'rust', false], ['zip', 'go', false], ['zip', 'cobol', true]]);
+    assert.strictEqual(zip[2].reason, 'the COBOL printer does not print DOM construction yet');
+    // No language list from the server: one disabled line saying so, never a guessed list.
+    const none = L.exportMenu(L.dialogLanguages(null))[3].items;
+    assert.strictEqual(none.length, 1);
+    assert.ok(none[0].disabled && none[0].lang == null && /did not list/.test(none[0].label), JSON.stringify(none));
+});
+
+test('Components exports a user library as JSON; a builtin library cannot be', () => {
+    const registry = { libraries: [
+        { name: 'builtin', exportable: false, components: [{ tag: 'p' }] },
+        { name: 'user', exportable: true, components: [{ tag: 'card' }] },
+        { name: 'old' },
+    ] };
+    assert.strictEqual(L.libraryExportable(registry, 'user'), true);
+    assert.strictEqual(L.libraryExportable(registry, 'builtin'), false);
+    assert.strictEqual(L.libraryExportable(registry, 'old'), true, 'a registry without the flag: any non-builtin');
+    assert.strictEqual(L.libraryExportable(registry, 'nope'), false);
+    assert.strictEqual(L.libraryExportable(null, 'user'), false);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
