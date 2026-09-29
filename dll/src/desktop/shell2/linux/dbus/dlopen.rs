@@ -135,7 +135,42 @@ pub struct DBusLib {
         *mut c_void,
         Option<unsafe extern "C" fn(*mut c_void)>,
     ) -> c_uint,
+
+    // Asynchronous method calls, for native notifications (`Notify` must not
+    // block the loop for the server's reply). Sent with a pending call, the
+    // reply completes it when the connection is DISPATCHED (the run loop's
+    // drain does that); the notification pump polls it. All exist in every
+    // libdbus-1.
+    pub dbus_connection_send_with_reply: unsafe extern "C" fn(
+        *mut DBusConnection,
+        *mut DBusMessage,
+        *mut *mut DBusPendingCall,
+        c_int,
+    ) -> c_uint,
+    pub dbus_pending_call_get_completed: unsafe extern "C" fn(*mut DBusPendingCall) -> c_uint,
+    pub dbus_pending_call_steal_reply:
+        unsafe extern "C" fn(*mut DBusPendingCall) -> *mut DBusMessage,
+    pub dbus_pending_call_cancel: unsafe extern "C" fn(*mut DBusPendingCall),
+    pub dbus_pending_call_unref: unsafe extern "C" fn(*mut DBusPendingCall),
+    /// `DBUS_MESSAGE_TYPE_*`: an error reply is [`DBUS_MESSAGE_TYPE_ERROR`].
+    pub dbus_message_get_type: unsafe extern "C" fn(*mut DBusMessage) -> c_int,
+    /// Fills a `DBusError` from an error reply (name + message); `FALSE` for
+    /// any other message.
+    pub dbus_set_error_from_message:
+        unsafe extern "C" fn(*mut DBusError, *mut DBusMessage) -> c_uint,
 }
+
+/// Opaque `DBusPendingCall`: a method call whose reply has not been read.
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct DBusPendingCall {
+    _private: [u8; 0],
+}
+
+/// `dbus_message_get_type` of an error reply.
+pub const DBUS_MESSAGE_TYPE_ERROR: c_int = 3;
+/// `dbus_connection_send_with_reply`'s timeout meaning "the default" (25 s).
+pub const DBUS_TIMEOUT_USE_DEFAULT: c_int = -1;
 
 /// `DBusHandleMessageFunction`: a filter, returning a `DBUS_HANDLER_RESULT_*`.
 pub type DBusHandleMessageFunction =
@@ -487,6 +522,46 @@ impl DBusLib {
                     Option<unsafe extern "C" fn(*mut c_void)>,
                 ) -> c_uint,
                 "dbus_connection_add_filter"
+            ),
+            dbus_connection_send_with_reply: load_symbol!(
+                lib,
+                unsafe extern "C" fn(
+                    *mut DBusConnection,
+                    *mut DBusMessage,
+                    *mut *mut DBusPendingCall,
+                    c_int,
+                ) -> c_uint,
+                "dbus_connection_send_with_reply"
+            ),
+            dbus_pending_call_get_completed: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusPendingCall) -> c_uint,
+                "dbus_pending_call_get_completed"
+            ),
+            dbus_pending_call_steal_reply: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusPendingCall) -> *mut DBusMessage,
+                "dbus_pending_call_steal_reply"
+            ),
+            dbus_pending_call_cancel: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusPendingCall),
+                "dbus_pending_call_cancel"
+            ),
+            dbus_pending_call_unref: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusPendingCall),
+                "dbus_pending_call_unref"
+            ),
+            dbus_message_get_type: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusMessage) -> c_int,
+                "dbus_message_get_type"
+            ),
+            dbus_set_error_from_message: load_symbol!(
+                lib,
+                unsafe extern "C" fn(*mut DBusError, *mut DBusMessage) -> c_uint,
+                "dbus_set_error_from_message"
             ),
 
             _lib: lib,

@@ -8,7 +8,7 @@
 //!
 //! | | macOS / iOS | Linux | Windows | Android |
 //! |---|---|---|---|---|
-//! | mechanism | `UNUserNotificationCenter` (UserNotifications.framework, dlopen'd) | `org.freedesktop.Notifications` over D-Bus (the tray's libdbus + session connection) | a WinRT toast under an AUMID registered in HKCU at first use; the `Shell_NotifyIconW` balloon when that fails | `NotificationManager` + a channel, through `AzulNotifications.java` over JNI |
+//! | mechanism | `UNUserNotificationCenter` (UserNotifications.framework, dlopen'd) | `org.freedesktop.Notifications` over D-Bus (the tray's libdbus + session connection), `Notify` sent without waiting; inside Flatpak `org.freedesktop.portal.Notification` on the same connection | a WinRT toast under an AUMID registered in HKCU at first use, with a COM activator for clicks after exit; the `Shell_NotifyIconW` balloon when that fails | `NotificationManager` + a channel, through `AzulNotifications.java` over JNI |
 //! | buttons | a `UNNotificationCategory` per button set | the `actions` list, where the server advertises it | toast `<action>`s (none on the balloon) | up to three `Notification.Action`s |
 //! | events arrive | the center's delegate, on UN's own queue | `ActionInvoked` / `NotificationClosed` (+ `ActivationToken`), in a D-Bus filter | `ToastNotification.Activated/Dismissed/Failed` on a thread-pool thread | the launch / `onNewIntent` intent and a manifest receiver, forwarded by the Java helper |
 //! | can it be absent? | **yes** on macOS: an unbundled binary has no bundle identifier | **yes**: no server on the session bus | practically no | no (Android 13+ needs the permission) |

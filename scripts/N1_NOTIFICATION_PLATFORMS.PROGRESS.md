@@ -30,12 +30,16 @@ Branch `wt/n1-notification-platforms`, based on `0a326afe5`. House rules:
   source invariant: new `dll/src/desktop/notifications/platform_invariants.rs` (reuses
   `loop_wakeup_invariants::top_level_fn_body`, made `pub(crate)`).
 
+- E. Linux (item 6): RED `333ff63b5`, fix = the commit after it. `wire::{FreedesktopPosts,
+  FreedesktopActions, FREEDESKTOP_SERVER_NAME, freedesktop_server_left, PortalNotification,
+  portal_notification, portal_action_event, in_flatpak_sandbox}`; linux.rs rewritten around
+  them (async Notify + pending-call poll in `pump`, NameOwnerChanged match + filter, portal
+  transport); DBusLib + 7 libdbus symbols (`dbus_connection_send_with_reply`,
+  `dbus_pending_call_{get_completed,steal_reply,cancel,unref}`, `dbus_message_get_type`,
+  `dbus_set_error_from_message`) + `DBusPendingCall`.
+
 ## IN PROGRESS
 
-- E. Linux (item 6): async `Notify` (`dbus_connection_send_with_reply` + pending-call poll,
-  `wire::FreedesktopPosts` bookkeeping), `NameOwnerChanged` watch (server restart ->
-  Dismissed events), Flatpak portal transport over the same libdbus connection
-  (`wire::portal_notification`, `wire::in_flatpak_sandbox`).
 - F. Bundle step (item 5): `.icns` from `[package.metadata.bundle] icon` / `--icon`
   (PNG -> ICNS container in pure Rust, or an `.icns` copied), `CFBundleIconFile`; recursive
   dylib walk (`plan_dylib_tree`, own-id skip, `install_name_tool -id/-change`), `--portable`.

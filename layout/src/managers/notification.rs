@@ -707,6 +707,24 @@ pub mod wire {
     }
 
     /// The freedesktop backend's bookkeeping between a `Notify` and its reply.
+    ///
+    /// `Notify` is ASYNCHRONOUS: it is sent, and its reply - the SERVER's id
+    /// for the notification - is read on a later pump, so the loop never
+    /// waits for a slow server. Meanwhile the app may post again under the
+    /// same id or withdraw it. The rules, pure so every host tests them:
+    ///
+    /// * a reply maps the server's id to the app's - if its post is still the newest under that
+    ///   id. A reply that arrives after the app posted again is stale and its notification is
+    ///   closed, unless it is the one a newer post replaces in place; a reply after a withdraw is
+    ///   closed.
+    /// * A server id the app's id had before, that the newest post did not replace in place (a
+    ///   repost before the first reply, a server that ignores `replaces_id`), is closed.
+    /// * An error reply, or none within the timeout ([`FreedesktopPosts::expired`]), is a
+    ///   `Failed` event - for the newest post only; an older one's failure is nobody's news.
+    /// * A signal names a server id ([`FreedesktopPosts::app_id_of`]); `NotificationClosed`
+    ///   forgets it.
+    /// * The server leaving the bus took its notifications with it
+    ///   ([`FreedesktopPosts::server_gone`]).
     #[derive(Debug, Default, Clone, PartialEq, Eq)]
     pub struct FreedesktopPosts {
         /// Server id -> the app's id, for what is on screen.
@@ -729,63 +747,165 @@ pub mod wire {
             }
         }
 
-        /// A `Notify` for `app_id` is about to be sent: `(token, replaces_id)`.
+        /// A `Notify` for `app_id` is about to be sent at `now_ms`:
+        /// `(token, replaces_id)` - the token its reply is reported under
+        /// ([`FreedesktopPosts::replied`]), and the server id it replaces (0:
+        /// none on screen).
         pub fn post(&mut self, app_id: &str, now_ms: u64) -> (u64, u32) {
-            let _ = (app_id, now_ms);
-            (0, 0)
+            self.next_token += 1;
+            let token = self.next_token;
+            let replaces = self.replaces_id(app_id);
+            self.pending.insert(
+                token,
+                PendingNotify {
+                    app_id: app_id.to_string(),
+                    replaces,
+                    sent_at_ms: now_ms,
+                },
+            );
+            self.newest.insert(app_id.to_string(), token);
+            (token, replaces)
         }
 
-        /// The reply (or the error, or the timeout) of the post `token`.
+        /// The reply of the post `token`: the server's id, or why there is
+        /// none (an error reply, no reply within the timeout).
         pub fn replied(&mut self, token: u64, result: Result<u32, String>) -> FreedesktopActions {
-            let _ = (token, result);
-            FreedesktopActions::default()
+            let mut actions = FreedesktopActions::default();
+            let Some(post) = self.pending.remove(&token) else {
+                return actions;
+            };
+            let is_newest = self.newest.get(&post.app_id) == Some(&token);
+            if is_newest {
+                self.newest.remove(&post.app_id);
+            }
+            let result = match result {
+                Ok(0) => Err(String::from(
+                    "the notification server answered Notify without an id",
+                )),
+                other => other,
+            };
+            match result {
+                Ok(server_id) if is_newest => {
+                    // Whatever this post did not replace in place is stale.
+                    let stale: Vec<u32> = self
+                        .shown
+                        .iter()
+                        .filter(|(id, app)| **id != server_id && **app == post.app_id)
+                        .map(|(id, _)| *id)
+                        .collect();
+                    for id in stale {
+                        self.shown.remove(&id);
+                        actions.close.push(id);
+                    }
+                    self.shown.insert(server_id, post.app_id);
+                }
+                Ok(server_id) => {
+                    // Stale (the app posted again) or withdrawn. Keep it only
+                    // if it is what is on screen for this id, or what a newer
+                    // post of it replaces in place.
+                    let on_screen = self.shown.get(&server_id) == Some(&post.app_id);
+                    let replaced_later = self
+                        .pending
+                        .values()
+                        .any(|p| p.app_id == post.app_id && p.replaces == server_id);
+                    if !on_screen && !replaced_later {
+                        actions.close.push(server_id);
+                    }
+                }
+                Err(why) if is_newest => {
+                    actions.events.push(NotificationEvent::failed(
+                        AzString::from(post.app_id),
+                        AzString::from(why),
+                    ));
+                }
+                Err(_) => {}
+            }
+            actions
         }
 
-        /// The posts whose reply is overdue.
+        /// The tokens of the posts sent `timeout_ms` or longer before
+        /// `now_ms` whose reply has not arrived. The caller gives up on each
+        /// and reports it through [`FreedesktopPosts::replied`] as an error.
         #[must_use]
         pub fn expired(&self, now_ms: u64, timeout_ms: u64) -> Vec<u64> {
-            let _ = (now_ms, timeout_ms);
-            Vec::new()
+            self.pending
+                .iter()
+                .filter(|(_, p)| now_ms.saturating_sub(p.sent_at_ms) >= timeout_ms)
+                .map(|(token, _)| *token)
+                .collect()
         }
 
-        /// `withdraw_notification`: the server ids to close now.
+        /// `withdraw_notification`: the server ids to close now. A post still
+        /// waiting for its reply is closed when the reply comes.
         pub fn withdraw(&mut self, app_id: &str) -> Vec<u32> {
-            let _ = app_id;
-            Vec::new()
+            self.newest.remove(app_id);
+            let ids: Vec<u32> = self
+                .shown
+                .iter()
+                .filter(|(_, app)| app.as_str() == app_id)
+                .map(|(id, _)| *id)
+                .collect();
+            for id in &ids {
+                self.shown.remove(id);
+            }
+            ids
         }
 
-        /// The app's id of a server id on screen.
+        /// The app's id of a server id on screen - what a signal names.
         #[must_use]
         pub fn app_id_of(&self, server_id: u32) -> Option<String> {
-            let _ = server_id;
-            None
+            self.shown.get(&server_id).cloned()
         }
 
         /// The server id showing the app's `app_id` (0: none).
         #[must_use]
         pub fn replaces_id(&self, app_id: &str) -> u32 {
-            let _ = app_id;
-            0
+            self.shown
+                .iter()
+                .find(|(_, app)| app.as_str() == app_id)
+                .map_or(0, |(id, _)| *id)
         }
 
-        /// `NotificationClosed`: forget the server id.
+        /// `NotificationClosed`: forget the server id - the server will not
+        /// report it again.
         pub fn closed(&mut self, server_id: u32) -> Option<String> {
-            let _ = server_id;
-            None
+            self.shown.remove(&server_id)
         }
 
-        /// The notification server left the bus.
+        /// The notification server left the bus (it quit, or restarted:
+        /// [`freedesktop_server_left`]). Every notification it showed went
+        /// with it, so each ends as `Dismissed`. A post still waiting gets
+        /// its error reply from the bus.
         pub fn server_gone(&mut self) -> FreedesktopActions {
-            FreedesktopActions::default()
+            let shown = core::mem::take(&mut self.shown);
+            FreedesktopActions {
+                close: Vec::new(),
+                events: shown
+                    .into_values()
+                    .map(|app_id| {
+                        NotificationEvent::dismissed_because(
+                            AzString::from(app_id),
+                            AzString::from_const_str(
+                                "the notification server went away (it quit or restarted)",
+                            ),
+                        )
+                    })
+                    .collect(),
+            }
         }
     }
 
+    /// The name the freedesktop notification server owns on the session bus.
+    pub const FREEDESKTOP_SERVER_NAME: &str = "org.freedesktop.Notifications";
+
     /// `org.freedesktop.DBus.NameOwnerChanged(name, old_owner, new_owner)`:
-    /// did the notification server leave the bus?
+    /// did the notification server leave the bus? A restart is a change
+    /// from one owner to another - the old one's notifications are gone
+    /// either way. A server APPEARING (no old owner) ends nothing.
     #[must_use]
     pub fn freedesktop_server_left(name: &str, old_owner: &str, new_owner: &str) -> bool {
-        let _ = (name, old_owner, new_owner);
-        false
+        let _ = new_owner;
+        name == FREEDESKTOP_SERVER_NAME && !old_owner.is_empty()
     }
 
     // ---- the Flatpak portal (org.freedesktop.portal.Notification) ----
@@ -801,30 +921,64 @@ pub mod wire {
         pub buttons: Vec<(String, String)>,
     }
 
-    /// A notification as the portal takes it.
+    /// What a button's action is renamed to when the app's id for it starts
+    /// with `app.`: the portal ACTIVATES such an action on the app's own D-Bus
+    /// name (`org.freedesktop.Application.ActivateAction`) instead of
+    /// reporting it as `ActionInvoked`, and an azul app exports no actions.
+    const PORTAL_APP_ACTION_PREFIX: &str = "azul.";
+
+    /// A notification as the portal's `AddNotification` takes it. The portal
+    /// keys notifications by the app's own id - no server id to map - and
+    /// attributes them to the sandbox's app id itself. The body click is
+    /// the `default` action, as on the bus; an empty or reserved button id
+    /// is skipped as there ([`freedesktop_actions`]).
     #[must_use]
     pub fn portal_notification(notification: &Notification) -> PortalNotification {
-        let _ = notification;
+        let buttons = notification
+            .actions
+            .as_ref()
+            .iter()
+            .filter(|a| {
+                !a.id.as_str().is_empty() && a.id.as_str() != FREEDESKTOP_DEFAULT_ACTION
+            })
+            .map(|a| {
+                let id = a.id.as_str();
+                let action = if id.starts_with("app.") {
+                    format!("{PORTAL_APP_ACTION_PREFIX}{id}")
+                } else {
+                    id.to_string()
+                };
+                (a.label.as_str().to_string(), action)
+            })
+            .collect();
         PortalNotification {
-            title: String::new(),
-            body: String::new(),
-            default_action: String::new(),
-            buttons: Vec::new(),
+            title: notification.title.as_str().to_string(),
+            body: notification.body.as_str().to_string(),
+            default_action: String::from(FREEDESKTOP_DEFAULT_ACTION),
+            buttons,
         }
     }
 
-    /// The portal's `ActionInvoked(id, action, parameter)`.
+    /// The portal's `ActionInvoked(id, action, parameter)`: the body click
+    /// (`default`) or a button - under the app's own action id again.
     #[must_use]
     pub fn portal_action_event(app_id: &str, action: &str) -> NotificationEvent {
-        let _ = action;
-        NotificationEvent::activated(AzString::from(app_id))
+        let action = match action.strip_prefix(PORTAL_APP_ACTION_PREFIX) {
+            Some(rest) if rest.starts_with("app.") => rest,
+            _ => action,
+        };
+        freedesktop_action_event(app_id, action)
     }
 
-    /// Does this process run in a Flatpak sandbox?
+    /// Does this process run in a Flatpak sandbox (`/.flatpak-info` exists,
+    /// or `FLATPAK_ID` is set)? Then its session bus is filtered down to the
+    /// portals, and notifications go through
+    /// `org.freedesktop.portal.Notification`. Unsandboxed, the portal is NOT
+    /// used: GNOME's backend drops the notifications of an app id with no
+    /// `.desktop` file.
     #[must_use]
     pub fn in_flatpak_sandbox(flatpak_info_exists: bool, flatpak_id: Option<&str>) -> bool {
-        let _ = (flatpak_info_exists, flatpak_id);
-        false
+        flatpak_info_exists || flatpak_id.is_some_and(|id| !id.trim().is_empty())
     }
 
     /// The `app_icon` argument: an absolute path becomes a `file://` URI
