@@ -1131,6 +1131,44 @@ fn azul_h_never_emits_one_name_as_macro_and_function_or_with_two_linkages() {
     assert_none("azul.h names with two meanings", offenders);
 }
 
+/// Ada (GNAT): an `in` parameter of a Convention-C record type is passed BY
+/// REFERENCE (RM B.3(69)), while libazul's C functions take records by
+/// value - every by-value record argument of the Ada binding was a pointer
+/// on the C side (B2, 2026-09-29). Every record type it declares, structs
+/// and tagged unions alike, has Convention `C_Pass_By_Copy` (RM B.3(60.13)).
+/// And a `repr(C, u8)` union's tag enumeration is one byte (`'Size use 8`),
+/// not the int a Convention-C enumeration gets: with an int tag, every union
+/// whose payloads are less than 4-aligned had them 3 bytes late.
+#[test]
+fn ada_records_cross_by_copy_and_u8_union_tags_are_one_byte() {
+    let ada = super::lang_ada::generate(ir(), &super::CodegenConfig::c_header())
+        .expect("the Ada binding generates");
+    let mut offenders = Vec::new();
+    let mut record: Option<String> = None;
+    for line in ada.lines() {
+        let t = line.trim();
+        // `type Az_Foo is record` / `type Az_Foo (Tag : ..) is record`
+        if let Some(rest) = t.strip_prefix("type ") {
+            if t.ends_with("is record") {
+                record = Some(leading_ident(rest).to_string());
+            }
+        }
+        if let Some(rest) = t.strip_prefix("pragma Convention (C, ") {
+            let name = rest.trim_end_matches(");");
+            if record.as_deref() == Some(name) {
+                offenders.push(format!("{name}: a Convention-C record crosses by reference"));
+            }
+        }
+    }
+    for u in every_tagged_union().iter().filter(|u| u.u8_tag) {
+        let tag = format!("{}_Tag", super::lang_ada::ada_ffi_type_name(&u.name));
+        if ada.contains(&format!("type {tag} is")) && !ada.contains(&format!("for {tag}'Size use 8;")) {
+            offenders.push(format!("{tag}: a u8 union tag with no `'Size use 8`"));
+        }
+    }
+    assert_none("Ada records and union tags unlike the C ABI", offenders);
+}
+
 /// c_layout (the Fortran union blobs, `return_c_size`) sizes and aligns
 /// every tagged union exactly as Rust does.
 #[test]
