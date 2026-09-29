@@ -6191,7 +6191,25 @@ pub(crate) fn tab_content_look() -> crate::widgets::tabs::TabContentLook {
 
 // ==== titlebar ====
 //
-// PLACEHOLDER until the flora titlebar lands: the flat look.
+// A flora titlebar is flora's WINDOW CHROME (`.azul-titlebar`, the frame
+// the docs draw around every screenshot): a band of `--fl-ct` over `--fl-cb`
+// - warm slate by day, near-black by night; dark in both, so its ink is the
+// chrome's light ink (#F2F2F2) in both - closed by a `--fl-bd5` line where
+// the bar has one. The title steps back to a dimmer ink when the window
+// loses focus (`:backdrop`), as every desktop's does. The window controls
+// inherit the chrome's ink; minimize and maximize wash in it under the
+// pointer and sink to the band's foot when pressed, and close turns to the
+// clay stone (flora's red alternate, the mock's close light) with its glyph
+// in `--fl-on-acc`. The traffic-light gems the mock draws are the OS's to
+// draw on macOS, so the controls stay the platform's glyphs.
+//
+// Flora changes the PAINT only: the band's height, the centred
+// `system:title:bold` title at the platform's size, the padding that clears
+// the OS's controls, whether there is a line and how wide, the drag region -
+// all of it is the platform's, built by `Titlebar::container_style_painted`
+// / `title_style_painted` exactly as for the native look. The desktop's
+// colour fields (`title_color`, `background_color`, the hover colours) are
+// the native look's; flora draws its own chrome.
 
 /// `--fl-ct`: the top of flora's window chrome by day (#837F74).
 pub const LIGHT_CT: ColorU = ColorU::rgb(0x83, 0x7F, 0x74);
@@ -6210,11 +6228,52 @@ pub const CHROME_INK_DIM: ColorU = ColorU::rgb(0xB9, 0xB5, 0xAB);
 /// A window control under the pointer: the chrome's ink as a 15% wash.
 pub const CHROME_HOVER: ColorU = ColorU::new(0xF2, 0xF2, 0xF2, 38);
 
-/// Flora's titlebar look.
+/// Flora's titlebar look: flora's window chrome on the bar's own metrics.
 #[must_use]
 pub(crate) fn titlebar_look(
     bar: &crate::widgets::titlebar::Titlebar,
     show_buttons: bool,
 ) -> crate::widgets::titlebar::TitlebarLook {
-    super::flat::titlebar_look(bar, show_buttons)
+    use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+
+    use super::style_kit as kit;
+    type P = CssPropertyWithConditions;
+
+    let band = kit::themed_layers(
+        vec![kit::face(LIGHT_CT, LIGHT_CB)],
+        vec![kit::face(DARK_CT, DARK_CB)],
+    )
+    .to_vec();
+    let line = P::themed(
+        CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: LIGHT_BD5 }),
+        CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: DARK_BD5 }),
+    )
+    .to_vec();
+    // The bar's own ink: the window controls' glyphs inherit it.
+    let ink = vec![P::simple(kit::ink(CHROME_INK))];
+    // Resting first, `:backdrop` after it: last match wins.
+    let title_ink = vec![
+        P::simple(kit::ink(CHROME_INK)),
+        P::with_single_condition(
+            kit::ink(CHROME_INK_DIM),
+            &[DynamicSelector::PseudoState(PseudoStateType::Backdrop)],
+        ),
+    ];
+
+    let mut button = Vec::new();
+    button.extend(kit::hover_bg(CHROME_HOVER, CHROME_HOVER));
+    button.extend(kit::active_bg(LIGHT_CB, DARK_CB));
+
+    let mut close = Vec::new();
+    close.extend(kit::hover_bg(STONE_CLAY.stone, STONE_CLAY.stone));
+    close.extend(kit::hover_ink(LIGHT_ON_ACC, LIGHT_ON_ACC));
+    close.extend(kit::active_bg(STONE_CLAY.deep, STONE_CLAY.deep));
+
+    crate::widgets::titlebar::TitlebarLook {
+        container: bar.container_style_painted(show_buttons, band, line, ink),
+        title: bar.title_style_painted(show_buttons, title_ink),
+        button: CssPropertyWithConditionsVec::from_vec(button),
+        close: CssPropertyWithConditionsVec::from_vec(close),
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
 }
