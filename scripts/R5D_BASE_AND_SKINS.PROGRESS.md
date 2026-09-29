@@ -20,13 +20,15 @@ text_input, time_picker, titlebar, toast, tooltip, tree_view, video.
 - daa25f33a GREEN tree_view: `TREE_CONTAINER_BASE` / `ROW_BASE` / `CHILDREN_BASE` / `ICON_BASE` /
   `LABEL_BASE`; `style_is` checks read base + static.
 
+- ad84d2163 report `scripts/R5D_BASE_AND_SKINS_2026_09_29.md`.
+
 ## IN PROGRESS
 
-- Final review of the diff, then the report.
+- nothing - R5-D is done.
 
 ## NEXT
 
-5. Report `scripts/R5D_BASE_AND_SKINS_2026_09_29.md`.
+- The parent compiles and runs the commands in the report.
 
 ## Coordinator facts (after the power cut)
 
