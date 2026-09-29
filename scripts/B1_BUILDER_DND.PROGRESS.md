@@ -53,13 +53,13 @@ assets, `debug_server/platform.rs`), shell = `dll/src/desktop/shell2/common/even
 * Browser: `debugger-dnd.js` (new) — Document/Live-DOM tree switch, Qt-Creator-style palette with native thumbnails, row drop zones (before / into / after with an indicator), drag-to-move, Delete key, Cmd/Ctrl+Z / Shift+Cmd/Ctrl+Z, context menu convert.
 
 ## DONE
-- (this audit)
+- 7403fddb5 audit (this file, section 1)
+- 90c194056 RED: `layout/src/e2e/builder_tests.rs` (9 scenarios; run `cargo test -p azul-layout --features e2e-server --lib builder_tests`)
 
 ## IN PROGRESS
-- RED tests for the builder ops
+- Fix: `layout/src/e2e/builder.rs` + dispatcher arms
 
 ## NEXT
-1. RED: `layout/src/e2e/builder_tests.rs` (run through `run_e2e_test`, fails today with "Unknown op").
 2. Fix: `builder.rs` + `DebugEvent` variants + dispatch arms; `render_tree` on create/update component.
 3. Browser: `debugger-dnd.js`, served + loaded; minimal hooks in `debugger.js`.
 4. Node test for the pure JS (drop-zone math, payloads).
