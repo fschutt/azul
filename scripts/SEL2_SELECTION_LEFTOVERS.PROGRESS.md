@@ -12,13 +12,17 @@ List: scripts/SELECTION_LEFTOVERS_FIX_2026_09_28.md "## Open".
    8acd8daa1 fix (`step_document_focus` VisualLine, `caret_at_column_in`,
    `TextTarget::caret_on_edge_line`).
 
+3. `<br>` in the edit model: 374757648 test (text_after_a_line_break_is_edited_at_its_caret.rs),
+   cb21b9d3f fix (`get_text_before_textinput` Br arm, seed before a lone br,
+   `caret_at_block_edges` lone-br block is empty, `dom_text_of` br = '\n').
+   Behaviour change: Delete before a trailing br deletes the br first.
+
 ## IN PROGRESS
 
-3. `<br>` in the edit model (run numbers, Enter-split child indices).
+4. `white-space: normal` collapse in the edit model.
 
 ## NEXT
 
-4. `white-space: normal` collapse in the edit model.
 5. `shift_carets_across_generation` in a list item.
 6. `inspect_delete_changeset` / `inspect_select_all_changeset` with session carets.
 7. E2E `get_selection_state` reporting a document selection.
