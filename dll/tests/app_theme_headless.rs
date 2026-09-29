@@ -94,6 +94,8 @@ struct Seen {
 struct Model {
     layout_calls: Arc<AtomicU32>,
     seen: Arc<Mutex<Vec<Seen>>>,
+    /// App STATE: `theme_moving_layout` inserts its extra row when non-zero.
+    extra_row: Arc<AtomicU32>,
 }
 
 impl Model {
@@ -101,6 +103,7 @@ impl Model {
         Self {
             layout_calls: Arc::new(AtomicU32::new(0)),
             seen: Arc::new(Mutex::new(Vec::new())),
+            extra_row: Arc::new(AtomicU32::new(0)),
         }
     }
 
@@ -149,6 +152,24 @@ extern "C" fn theme_blind_layout(mut data: RefAny, _info: LayoutCallbackInfo) ->
     Dom::create_body().with_child(
         Dom::create_div()
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(BOX_STYLE)),
+    )
+}
+
+/// A `layout()` whose box MOVES between themes, the way flora wraps or adds nodes flat does not:
+/// under flora a 20px row is inserted above the box - and the same row can come from app STATE
+/// (`extra_row`), so the same move can also be a state change.
+extern "C" fn theme_moving_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    let flora = info.get_theme_name().as_str() == "flora";
+    let extra_row = data.downcast_ref::<Model>().is_some_and(|model| {
+        model.layout_calls.fetch_add(1, Ordering::SeqCst);
+        model.extra_row.load(Ordering::SeqCst) != 0
+    });
+    let mut body = Dom::create_body().with_child(Dom::create_div().with_css("height: 10px;"));
+    if flora || extra_row {
+        body = body.with_child(Dom::create_div().with_css("height: 20px;"));
+    }
+    body.with_child(
+        Dom::create_div().with_css_props(CssPropertyWithConditionsVec::from_const_slice(BOX_STYLE)),
     )
 }
 
@@ -383,4 +404,45 @@ fn a_dom_identical_in_every_theme_still_repaints_in_the_new_theme() {
     let result = set_theme(&mut window, "flat");
     honor(&mut window, result);
     assert_eq!(box_fill(&window), Some(FLAT), "and back");
+}
+
+/// A theme switch rebuilds every node into the new theme's geometry. That is not a change the
+/// user made inside the UI, so it reflows IN PLACE, like a window resize: sliding every moved
+/// node from its old-theme position (FLIP) would animate the whole window at each switch.
+#[test]
+fn a_theme_switch_reflows_in_place_without_sliding_nodes() {
+    let _app = fresh_app();
+
+    // Premise: the same move made by a STATE change does slide.
+    let model = Model::new();
+    let mut window = make_window(model.clone(), theme_moving_layout);
+    window.regenerate_layout().expect("first layout");
+    model.extra_row.store(1, Ordering::SeqCst);
+    window.request_regeneration(RelayoutReason::RefreshDom);
+    window.regenerate_layout().expect("the state rebuild");
+    assert!(
+        !flip_moves_are_empty(&window),
+        "premise: a state rebuild that inserts a row above the box slides the box down"
+    );
+
+    let model = Model::new();
+    let mut window = make_window(model, theme_moving_layout);
+    window.regenerate_layout().expect("first layout");
+    let result = set_theme(&mut window, "flora");
+    honor(&mut window, result);
+    assert_eq!(window_theme(&window), "flora", "premise: the switch happened");
+    assert!(
+        flip_moves_are_empty(&window),
+        "the theme switch moved the box the same way and must not slide it"
+    );
+}
+
+fn flip_moves_are_empty(window: &HeadlessWindow) -> bool {
+    window
+        .common
+        .layout_window
+        .as_ref()
+        .expect("a layout window")
+        .animations
+        .is_empty()
 }
