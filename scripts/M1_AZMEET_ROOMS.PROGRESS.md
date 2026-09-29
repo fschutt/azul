@@ -4,17 +4,25 @@ Branch `wt/m1-azmeet-rooms` (base 4b3eae56a). Worker: `/Users/fschutt/Developmen
 `cf-workers-meet` (worktree of azul-apps `main`).
 
 ## DONE
-- (none yet)
-
-## IN PROGRESS
-- A. `cf-workers/meet/` in azul-apps-m1: handler + sql store + libsql (Hrana HTTP) and node:sqlite adapters,
-  dev-server.mjs, node --test suite, wrangler.toml, README.
-
-## NEXT
-- B. AzMeet: `src/rooms.rs` pure logic (link parsing, who dials, peer diff) RED then GREEN; lib.rs start screen,
-  new meeting / join, announce + 2 s poll in an azul Thread, per-peer tiles; demo fallback.
-- C. `examples/azul-meet/scripts/two-clients.sh`.
+- azul-apps `a75497c` test(meet): the Worker's behaviour, RED (modules missing).
+- azul-apps `047c7de` feat(meet): handler + SQL store + libSQL-over-HTTP and node:sqlite adapters, Worker entry,
+  dev-server.mjs, wrangler.toml, README. `node --test "test/*.test.mjs"`: 41 pass.
+- azul `1f8719619` test(azmeet): rooms.rs tests, stubs (RED).
+- azul `45891d7d2` feat(azmeet): rooms.rs pure logic (GREEN; type-checked alone with rustc --emit=metadata --test).
+- azul `07cbd6a10` test(azmeet): examples/azul-meet/scripts/two-clients.mjs (RED until the app has rooms;
+  orchestration dry-run PASS against a Node stand-in for the app).
+- azul `f6468fd94` feat(azmeet): start screen, new meeting / join, announce + poll on azul Threads, per-peer tiles,
+  demo fallback with a notice.
+- azul `27acb81a8` refactor(azmeet): server address via azul::url::Url (removed the duplicate host_port parser).
+- azul `aaa4df36c` fix(azmeet): demo notice wording.
 - Report `scripts/M1_AZMEET_ROOMS_2026_09_29.md`.
 
+## IN PROGRESS
+- nothing
+
+## NEXT (for the parent)
+- `cargo test -p AzMeet --lib`; build AzMeet + libazul with the debug server; run two-clients.mjs (see the report).
+
 ## Open questions
-- none yet
+- Short codes resolve on the landing route (rate limited) only; the peers API takes the full id. OK?
+- libSQL (Turso) chosen for production; D1 not implemented.
