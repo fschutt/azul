@@ -2008,11 +2008,18 @@ mod theme_tests {
     }
 
     #[test]
-    fn a_number_input_without_a_theme_renders_a_flat_field() {
+    fn a_number_input_without_a_theme_follows_the_app_theme_flat_by_default() {
         let n = NumberInput::create(1.0);
         assert_eq!(n.theme, OptionUiTheme::None);
-        let dom = n.dom();
-        assert!(tc::has_class(&dom, FLAT), "the default theme is flat");
+        let dom = n.clone().dom();
+        assert!(tc::has_class(&dom, FLAT), "the default app theme is flat");
+        assert!(tc::has_class(&dom, "__azul-native-text-input-container"));
+        let dom = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            n.dom()
+        };
+        assert!(tc::has_class(&dom, FLORA), "built for flora, it is flora's");
+        assert!(!tc::has_class(&dom, FLAT));
         assert!(tc::has_class(&dom, "__azul-native-text-input-container"));
     }
 

@@ -459,3 +459,18 @@ fn steppers_follow_the_app_theme() {
         }
     }
 }
+
+#[test]
+fn number_inputs_follow_the_app_theme() {
+    use azul_layout::widgets::number_input::NumberInput;
+    for value in [0.0f32, 42.5, -3.0] {
+        assert_follows_the_app_theme(&format!("number input {value}"), |t| {
+            pinned(
+                NumberInput::create(value).with_accessibility_name("Amount"),
+                t,
+                NumberInput::with_theme,
+            )
+            .dom()
+        });
+    }
+}
