@@ -40,12 +40,14 @@ microphone, screencap, map, node_graph.
 - time_picker: RED 6b6097192, impl e76ea579e. API: TimePicker.theme (last),
   set_theme / with_theme.
 
+- toast: RED d95b9bdb7, impl dc4e75e66. API: Toast.theme (last),
+  set_theme / with_theme.
+
 ## IN PROGRESS
-- toast
+- tooltip
 
 ## NEXT
-toast ->
-toast -> tooltip -> video -> decisions (camera/mic/screencap/map/node_graph) -> report
+tooltip -> video -> decisions (camera/mic/screencap/map/node_graph) -> report
 
 ## Open questions
 (none yet)
