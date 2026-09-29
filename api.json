@@ -19611,6 +19611,45 @@
                                     }
                                 ],
                                 "fn_body": "object.set_color_scheme(scheme)"
+                            },
+                            "get_theme": {
+                                "doc": [
+                                    "The app theme this window's DOM is built under. A `set_theme` in the",
+                                    "same callback is not visible here yet (it applies when the callback",
+                                    "returns). In `layout()`: `LayoutCallbackInfo::get_theme_name`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.get_theme().into()"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Switch the app's THEME to `name` (`\"flat\"`, `\"flora\"`, ...): the",
+                                    "`@theme(<name>)` blocks every widget carries apply, the other themes'",
+                                    "go inert. Not the colour scheme ([`Self::set_color_scheme`]).",
+                                    "",
+                                    "Applied after the callback returns, to EVERY window, as a DOM",
+                                    "RECREATION - each window's `layout()` runs again with",
+                                    "`RelayoutReason::AppThemeChange` - never a restyle: a theme may change",
+                                    "a widget's structure (flora wraps nodes flat does not). Windows opened",
+                                    "afterwards start in it. Switching to the theme already shown does",
+                                    "nothing. The startup value is `AppConfig::theme`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(name)"
                             }
                         },
                         "repr": "C"
@@ -20303,6 +20342,31 @@
                                     "type": "GlobalHotkeyInfoVec"
                                 },
                                 "fn_body": "object.get_global_hotkeys()"
+                            },
+                            "get_theme_name": {
+                                "doc": [
+                                    "The APP THEME this `layout()` builds for (`\"flat\"`, `\"flora\"`, ...;",
+                                    "`AppConfig::with_theme`, `CallbackInfo::set_theme`) - separate from",
+                                    "the colour scheme [`Self::get_theme`] returns.",
+                                    "",
+                                    "Branch the DOM's STRUCTURE on it; its CSS needs no branch, because",
+                                    "`@theme(<name>)` blocks select themselves. Declares nothing: a theme",
+                                    "switch always re-runs `layout()` (`RelayoutReason::AppThemeChange`).",
+                                    "A widget's `dom()`, which has no info, reads the same value through",
+                                    "`azul_core::app_theme::current_theme`.",
+                                    "",
+                                    "`get_theme_name` rather than `get_theme` because `get_theme` is the",
+                                    "colour scheme until the colour-scheme API migration renames it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.get_theme_name().into()"
                             }
                         },
                         "repr": "C"
@@ -54284,22 +54348,13 @@
                         ],
                         "enum_fields": [
                             {
-                                "Initial": {}
-                            },
-                            {
-                                "RefreshDom": {}
-                            },
-                            {
-                                "Resize": {}
-                            },
-                            {
-                                "ThemeChange": {}
-                            },
-                            {
-                                "RouteChange": {}
-                            },
-                            {
-                                "Other": {}
+                                "Initial": {},
+                                "RefreshDom": {},
+                                "Resize": {},
+                                "ThemeChange": {},
+                                "RouteChange": {},
+                                "Other": {},
+                                "AppThemeChange": {}
                             }
                         ],
                         "repr": "C"
@@ -133931,6 +133986,9 @@
                                 "global_hotkeys_callback": {
                                     "type": "OptionGlobalHotkeysCallback"
                                 },
+                                "theme": {
+                                    "type": "String"
+                                },
                                 "color_scheme": {
                                     "type": "OptionWindowTheme"
                                 },
@@ -134122,6 +134180,39 @@
                                     "type": "AppConfig"
                                 },
                                 "fn_body": "object.with_color_scheme(scheme)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "In-place [`Self::with_theme`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(name)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "Start the app in the theme `name` (`\"flat\"`, `\"flora\"`, ...): every",
+                                    "window's `@theme(<name>)` blocks apply, the other themes' are inert.",
+                                    "See [`Self::theme`]; switch it later with `CallbackInfo::set_theme`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AppConfig"
+                                },
+                                "fn_body": "object.with_theme(name)"
                             }
                         },
                         "repr": "C"
