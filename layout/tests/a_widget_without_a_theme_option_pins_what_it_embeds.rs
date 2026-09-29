@@ -3,13 +3,14 @@
 //! A pinned embedder passes its pin down (`ColorInput` to its hex field,
 //! number fields and labels, `DateTimeLocalPicker` to its date and time
 //! parts, `FileInput` to its button). A widget with NO theme option has one
-//! look today - the ribbon, the status bar, the quick-access bar, the
-//! backstage, the node graph - and the widgets it builds for itself (its
-//! Buttons, the status bar's zoom Slider, the node graph's fields) are pinned
+//! look today - the backstage, the node graph - and the widgets it builds for itself (its
+//! Buttons, the node graph's fields) are pinned
 //! to that look, so the whole widget, the embedded widgets' classes and
 //! styles included, is the same under every app theme. When such a widget
 //! gains a theme option it passes its own pin down instead
-//! (`UiTheme::SINGLE_LOOK` marks the places).
+//! (`UiTheme::SINGLE_LOOK` marks the places): the ribbon, the status bar and
+//! the quick-access bar did (W5a) - their parts follow the bar's theme, which
+//! `widgets_follow_the_app_theme` and their own flora tests check.
 
 use azul_core::{app_theme::ThemeScope, dom::Dom};
 use azul_css::{
@@ -73,48 +74,6 @@ fn assert_one_look(what: &str, make: &dyn Fn() -> Dom) {
     for (f, fl) in flat.iter().zip(flora.iter()) {
         assert_eq!(f, fl, "{what}: a node changes with the app theme");
     }
-}
-
-#[test]
-fn a_ribbons_buttons_wear_the_ribbons_one_look() {
-    use azul_layout::widgets::ribbon::{
-        Ribbon, RibbonButton, RibbonGroup, RibbonItem, RibbonTab, RibbonTabVec,
-    };
-    assert_one_look("ribbon", &|| {
-        Ribbon::new(RibbonTabVec::from_vec(vec![RibbonTab::new(AzString::from(
-            "HOME",
-        ))
-        .with_group(
-            RibbonGroup::new(AzString::from("Clipboard")).with_item(RibbonItem::LargeButton(
-                RibbonButton::new(AzString::from("content_paste"), AzString::from("Paste")),
-            )),
-        )]))
-        .dom()
-    });
-}
-
-#[test]
-fn a_status_bars_buttons_and_zoom_slider_wear_the_bars_one_look() {
-    use azul_layout::widgets::statusbar::{
-        StatusBar, StatusBarSegment, StatusBarSegmentVec, StatusBarViewSwitcher, StatusBarZoom,
-    };
-    assert_one_look("status bar", &|| {
-        StatusBar::new(StatusBarSegmentVec::from_vec(vec![StatusBarSegment::new(
-            AzString::from("Page 1 of 3"),
-        )
-        .with_icon(AzString::from("description"))]))
-        .with_views(StatusBarViewSwitcher::office_2013())
-        .with_zoom(StatusBarZoom::office_2013())
-        .dom()
-    });
-}
-
-#[test]
-fn a_quick_access_bars_buttons_wear_the_bars_one_look() {
-    use azul_layout::widgets::quick_access::QuickAccessBar;
-    assert_one_look("quick-access bar", &|| {
-        QuickAccessBar::office_2013(AzString::from("Document1")).dom()
-    });
 }
 
 #[test]

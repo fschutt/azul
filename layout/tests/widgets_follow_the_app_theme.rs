@@ -202,12 +202,16 @@ fn assert_follows_the_app_theme(widget: &str, make: impl Fn(Option<UiTheme>) -> 
 
     let looks_differ = styles(&built_for(UiTheme::Flat, &|| make(Some(UiTheme::Flat))))
         != styles(&built_for(UiTheme::Flat, &|| make(Some(UiTheme::Flora))));
+    // Where the looks differ the DOM carries a theme block - but not
+    // necessarily one per theme: a look whose declarations are all generic
+    // (the same in the other theme) has nothing of its own, only the base
+    // outside every block (user ruling: generic rules stay outside `@theme`).
     if looks_differ {
         for theme in THEMES {
             let names = theme_names(&built_for(theme, &|| make(None)));
-            if names != ["flat", "flora"] {
+            if names.is_empty() {
                 bad.push(format!(
-                    "{widget} built for {theme:?} carries the theme blocks {names:?}, not both"
+                    "{widget} built for {theme:?} carries no theme block although its looks differ"
                 ));
             }
         }
@@ -846,6 +850,7 @@ fn the_ribbon_quick_access_bar_and_status_bar_each_have_a_flora_look_of_their_ow
         let flora = built_for(UiTheme::Flat, &|| look(UiTheme::Flora));
         assert!(styles(&flat) != styles(&flora), "the {name} has no flora look of its own");
     }
+}
 
 /// A tree view follows the app theme (W5b): every row, icon, label and
 /// children container of an unpinned tree resolves like the tree pinned to

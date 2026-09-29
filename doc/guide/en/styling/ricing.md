@@ -58,7 +58,8 @@ The app runs in a **theme chain**, most specific first: `monokai:pink` is
 `[monokai:pink, monokai, <the app's default theme>]`, and a theme's header can
 say what it builds on (`fallback: native`). For every entry of the chain Azul
 reads `css/<entry>/*.css`. A `:` in a theme name is a directory level on disk
-(`css/monokai/pink/`), because `:` is not allowed in Windows file names.
+(`monokai:pink` lives in `~/.azul/css/monokai/pink/`), because `:` is not
+allowed in Windows file names.
 
 Every rule of a file under `css/<theme>/` only applies while that theme is in
 the chain, as if the file were wrapped in `@theme(<theme>) { ... }`. When two

@@ -447,7 +447,7 @@ fn a_dark_pin_clears_the_window_dark_on_a_light_desktop() {
     if env_pinned() {
         return;
     }
-    let mut window = make_desktop_window(Model::new(), scheme_blind_layout);
+    let mut window = make_desktop_window(Model::new(), mode_blind_layout);
     window.regenerate_layout().expect("first layout");
     assert!(
         !is_dark_rgba(paint_and_read_clear_color(&mut window)),
@@ -469,7 +469,7 @@ fn a_window_opened_under_a_dark_pin_starts_on_a_dark_canvas() {
         return;
     }
     azul_layout::window::set_app_mode(PIN_DARK);
-    let mut window = make_desktop_window(Model::new(), scheme_blind_layout);
+    let mut window = make_desktop_window(Model::new(), mode_blind_layout);
     window.regenerate_layout().expect("first layout");
     let clear = paint_and_read_clear_color(&mut window);
     assert!(is_dark_rgba(clear), "a dark-pinned window clears dark, got {clear:?}");
@@ -483,7 +483,7 @@ fn an_unseeded_canvas_takes_the_system_background_of_the_mode_the_window_shows()
     if env_pinned() {
         return;
     }
-    let mut window = make_window(Model::new(), scheme_blind_layout);
+    let mut window = make_window(Model::new(), mode_blind_layout);
     window.cpu_backend.follow_system_background = true;
     window.regenerate_layout().expect("first layout");
     assert!(
@@ -507,7 +507,7 @@ fn a_per_mode_background_follows_the_pin() {
         return;
     }
     let navy = ColorU::new_rgb(0x10, 0x18, 0x40);
-    let mut options = window_options(scheme_blind_layout);
+    let mut options = window_options(mode_blind_layout);
     options.background_color_dark = azul_css::props::basic::color::OptionColorU::Some(navy);
     let mut window = make_desktop_window_from(Model::new(), options);
     window.regenerate_layout().expect("first layout");
@@ -534,7 +534,7 @@ fn a_background_the_app_set_survives_a_mode_change() {
         return;
     }
     let brand = ColorU::new_rgb(0xc0, 0x30, 0x20);
-    let mut options = window_options(scheme_blind_layout);
+    let mut options = window_options(mode_blind_layout);
     options.window_state.background_color =
         azul_css::props::basic::color::OptionColorU::Some(brand);
     let mut window = make_desktop_window_from(Model::new(), options);
@@ -566,7 +566,7 @@ fn switching_back_to_system_returns_the_desktop_background() {
     if env_pinned() {
         return;
     }
-    let mut window = make_desktop_window(Model::new(), scheme_blind_layout);
+    let mut window = make_desktop_window(Model::new(), mode_blind_layout);
     window.regenerate_layout().expect("first layout");
     let desktop = paint_and_read_clear_color(&mut window);
 
@@ -586,7 +586,7 @@ fn modify_window_state_with_a_new_theme_moves_the_seeded_background() {
     if env_pinned() {
         return;
     }
-    let mut window = make_desktop_window(Model::new(), scheme_blind_layout);
+    let mut window = make_desktop_window(Model::new(), mode_blind_layout);
     window.regenerate_layout().expect("first layout");
     assert!(!is_dark_rgba(paint_and_read_clear_color(&mut window)), "premise");
 
@@ -612,7 +612,7 @@ fn the_native_chrome_is_forced_into_a_pinned_mode_and_inherits_otherwise() {
     if env_pinned() {
         return;
     }
-    let mut window = make_window(Model::new(), scheme_blind_layout);
+    let mut window = make_window(Model::new(), mode_blind_layout);
     window.regenerate_layout().expect("first layout");
     assert_eq!(
         window.common.native_chrome_mode(),
@@ -645,7 +645,7 @@ fn a_pin_that_matches_the_desktop_still_holds_the_chrome_when_the_desktop_flips(
     if env_pinned() {
         return;
     }
-    let mut window = make_window(Model::new(), scheme_blind_layout);
+    let mut window = make_window(Model::new(), mode_blind_layout);
     window.regenerate_layout().expect("first layout");
 
     let _ = set_mode(&mut window, PIN_LIGHT);

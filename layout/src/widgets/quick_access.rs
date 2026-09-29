@@ -1136,7 +1136,6 @@ fn action_button(
     theme: UiTheme,
 ) -> Dom {
     let mut b = Button::create(AzString::from_const_str(""));
-    b.set_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK);
     b.icon = action.icon;
     b.container_style = OptionCssPropertyWithConditionsVec::Some(container.clone());
     b.icon_style = OptionCssPropertyWithConditionsVec::Some(style.resolved_action_icon_style());
@@ -1155,7 +1154,6 @@ fn window_button(
     theme: UiTheme,
 ) -> Dom {
     let mut b = Button::create(AzString::from_const_str(""));
-    b.set_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK);
     b.icon = icon;
     b.icon_dom = icon_dom;
     b.container_style = OptionCssPropertyWithConditionsVec::Some(container);
@@ -1588,7 +1586,7 @@ mod flora_tests {
             assert_eq!(tc::text_color(save_glyph, dark), Some(icon), "glyph ink (dark: {dark})");
             for key in &keys[..6] {
                 assert_eq!(face(key, dark, None), fill(ColorU::TRANSPARENT));
-                assert_eq!(face(key, dark, Some(PseudoStateType::Hover)), vec![hover]);
+                assert_eq!(face(key, dark, Some(PseudoStateType::Hover)), vec![hover.clone()]);
             }
             for key in &keys {
                 assert!(tc::has_focus_ring(key, dark), "every key is ringed (dark: {dark})");

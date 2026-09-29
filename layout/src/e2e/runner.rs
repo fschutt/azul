@@ -5258,7 +5258,8 @@ mod tests {
         // THE DEVICE BUG (2026-08-31): tabbing into the filled NumberInput
         // showed '4|2' - the mid-pass finalize burned its retry budget on
         // transient layout absence and locked in the (0,0)+Trailing seed.
-        // End-of-text for "42" is the last cluster (byte 1), Trailing.
+        // End-of-text for "42": the resolved caret byte 2 (`get_cursor_state`
+        // reports the resolved position, not the cluster start), Trailing.
         let test: super::E2eTest = serde_json::from_value(serde_json::json!({
             "name": "tab_seats_caret_at_end",
             "setup": { "window_width": 600, "window_height": 200, "dpi": 96 },
@@ -5267,7 +5268,7 @@ mod tests {
                 { "op": "key_down", "key": "Tab" },
                 { "op": "wait_frame" },
                 { "op": "get_cursor_state" },
-                { "op": "assert_response", "contains": "\"position\":1" },
+                { "op": "assert_response", "contains": "\"position\":2" },
                 { "op": "get_cursor_state" },
                 { "op": "assert_response", "contains": "\"affinity\":\"trailing\"" }
             ]
@@ -5358,7 +5359,7 @@ mod tests {
                 { "op": "key_down", "key": "Tab" },
                 { "op": "wait_frame" },
                 { "op": "get_cursor_state" },
-                { "op": "assert_response", "contains": "\"position\":1" },
+                { "op": "assert_response", "contains": "\"position\":2" },
                 { "op": "get_cursor_state" },
                 { "op": "assert_response", "contains": "\"affinity\":\"trailing\"" }
             ]

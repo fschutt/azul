@@ -1531,7 +1531,6 @@ fn styled_button(
     theme: UiTheme,
 ) -> Dom {
     let mut b = Button::create(AzString::from_const_str(""));
-    b.set_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK);
     b.icon = icon;
     b.container_style = OptionCssPropertyWithConditionsVec::Some(container_style);
     b.icon_style = OptionCssPropertyWithConditionsVec::Some(icon_style);
@@ -1563,7 +1562,6 @@ fn segment_dom(seg: StatusBarSegment, style: &StatusBarStyle, theme: UiTheme) ->
         // Icon and/or clickable: expand to a Button (the bar's chassis), in
         // the bar's theme.
         let mut b = Button::create(label);
-        b.set_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK);
         b.icon = icon;
         b.container_style =
             OptionCssPropertyWithConditionsVec::Some(style.resolved_segment_style());
@@ -1765,7 +1763,6 @@ fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle, theme: UiTheme) -> Dom 
         ))]),
     );
     let mut slider = Slider::create(percent, min, max);
-    slider.set_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK);
     slider.track_style =
         OptionCssPropertyWithConditionsVec::Some(style.resolved_slider_track_style());
     slider.thumb_style = OptionCssPropertyWithConditionsVec::Some(thumb_style);
