@@ -15,11 +15,12 @@ Branch `wt/v1-visual-followups`, cut from `0a326afe5`. Nothing compiled (house r
 ## DONE
 - item 1: 09b31b32d RED (`layout/tests/a_box_shadow_paints_once.rs`), f042df374 fix (`getters::get_box_shadows`, painter paints each distinct slot shadow once)
 
+- item 4: 7f001d54a RED (`flora.rs` `night_focus_ring_tests`, appended), 4f299a1e8 fix (`FOCUS_BORDER_*_DARK` = `DARK_GLOW`)
+
 ## IN PROGRESS
-- item 4
+- item 3
 
 ## NEXT
-2. item 4 RED contrast test, then the ring colour
 3. item 3 (transform tween + chevron)
 4. item 2 (arc sweep)
 5. item 5 (engine: `CallbackInfo::set_node_inline_style`; widgets)
