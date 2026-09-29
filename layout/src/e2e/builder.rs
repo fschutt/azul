@@ -435,13 +435,13 @@ impl BuilderDocument {
     /// the history starts empty (opening a file is not an edit).
     #[must_use]
     pub fn from_root(root: BuilderNode) -> Self {
-        let mut root = match &root.kind {
-            BuilderNodeKind::Element { tag } if tag == "body" => root,
-            _ => {
-                let mut body = BuilderNode::element(ROOT_UID, "body");
-                body.children.push(root);
-                body
-            }
+        let is_body = matches!(&root.kind, BuilderNodeKind::Element { tag } if tag == "body");
+        let mut root = if is_body {
+            root
+        } else {
+            let mut body = BuilderNode::element(ROOT_UID, "body");
+            body.children.push(root);
+            body
         };
         fn number(node: &mut BuilderNode, next: &mut u64) {
             node.uid = *next;
