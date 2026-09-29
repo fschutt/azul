@@ -619,11 +619,35 @@ fn render_box_shadow(
         let mut tmp = AzulPixmap::new(sw, sh).ok_or("cannot create shadow pixmap")?;
         tmp.fill(0, 0, 0, 0); // transparent
 
-        // The shape origin within the temp buffer
-        let shape_x = padding + spread;
-        let shape_y = padding + spread;
-        let Some(shape_rect) = AzRect::from_xywh(shape_x, shape_y, rect.width, rect.height) else {
+        // The shadow SHAPE is the border box grown by the spread on every
+        // side (CSS Backgrounds 3 §7.1), placed after the blur padding. It
+        // used to be drawn at the spread OFFSET but at the border box's own
+        // size, so a spread never widened anything: the ring blit below cut
+        // the box out and left only its 1px anti-seam sliver - a `0 0 0 6px`
+        // ring painted as two hairlines.
+        let Some(shape_rect) = AzRect::from_xywh(
+            padding,
+            padding,
+            2.0f32.mul_add(spread, rect.width),
+            2.0f32.mul_add(spread, rect.height),
+        ) else {
             return Ok(());
+        };
+        // The shadow's corners follow the spread too: radius + spread, never
+        // below zero (a square corner stays square). `spread` is in device
+        // pixels, the radii in logical ones.
+        let grow = |r: f32| {
+            if r > 0.0 {
+                (r + spread / dpi_factor.max(f32::EPSILON)).max(0.0)
+            } else {
+                0.0
+            }
+        };
+        let border_radius = &BorderRadius {
+            top_left: grow(border_radius.top_left),
+            top_right: grow(border_radius.top_right),
+            bottom_left: grow(border_radius.bottom_left),
+            bottom_right: grow(border_radius.bottom_right),
         };
 
         let agg_color = Rgba8::new(
@@ -4807,14 +4831,19 @@ fn composite_rgba_row(pixmap: &mut AzulPixmap, di_base: usize, stage: &[u8]) {
             pixmap.data[di + 2] = q[2];
             pixmap.data[di + 3] = 255;
         } else if sa > 0 {
-            // Alpha blend: dst = src * sa + dst * (255 - sa)
+            // The source is PREMULTIPLIED: an `ImageRef` stores its pixels
+            // premultiplied (`RawImage` load premultiplies straight input,
+            // the GPU's convention), and the samples keep that. So
+            // dst = src + dst * (255 - sa) / 255 - the straight-alpha formula
+            // (src * sa) multiplied by alpha a second time and painted every
+            // translucent image too dark (white at 85% over white: 222).
             let da = 255 - sa;
             pixmap.data[di] =
-                ((u32::from(q[0]) * sa + u32::from(pixmap.data[di]) * da) / 255) as u8;
+                (u32::from(q[0]) + u32::from(pixmap.data[di]) * da / 255).min(255) as u8;
             pixmap.data[di + 1] =
-                ((u32::from(q[1]) * sa + u32::from(pixmap.data[di + 1]) * da) / 255) as u8;
+                (u32::from(q[1]) + u32::from(pixmap.data[di + 1]) * da / 255).min(255) as u8;
             pixmap.data[di + 2] =
-                ((u32::from(q[2]) * sa + u32::from(pixmap.data[di + 2]) * da) / 255) as u8;
+                (u32::from(q[2]) + u32::from(pixmap.data[di + 2]) * da / 255).min(255) as u8;
             pixmap.data[di + 3] = ((sa + u32::from(pixmap.data[di + 3]) * da / 255).min(255)) as u8;
         }
     }
@@ -8709,13 +8738,15 @@ mod autotest_generated {
                     pixmap.data[di + 2] = sb;
                     pixmap.data[di + 3] = 255;
                 } else if sa > 0 {
+                    // The samples are PREMULTIPLIED (an ImageRef's storage):
+                    // src + dst * (255 - sa) / 255.
                     let da = 255 - sa;
                     pixmap.data[di] =
-                        ((u32::from(sr) * sa + u32::from(pixmap.data[di]) * da) / 255) as u8;
+                        (u32::from(sr) + u32::from(pixmap.data[di]) * da / 255).min(255) as u8;
                     pixmap.data[di + 1] =
-                        ((u32::from(sg) * sa + u32::from(pixmap.data[di + 1]) * da) / 255) as u8;
+                        (u32::from(sg) + u32::from(pixmap.data[di + 1]) * da / 255).min(255) as u8;
                     pixmap.data[di + 2] =
-                        ((u32::from(sb) * sa + u32::from(pixmap.data[di + 2]) * da) / 255) as u8;
+                        (u32::from(sb) + u32::from(pixmap.data[di + 2]) * da / 255).min(255) as u8;
                     pixmap.data[di + 3] =
                         ((sa + u32::from(pixmap.data[di + 3]) * da / 255).min(255)) as u8;
                 }
