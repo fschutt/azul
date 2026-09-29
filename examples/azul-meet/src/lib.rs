@@ -1,3 +1,5 @@
+mod rooms;
+
 use azul::{
     app::RendererOptions,
     audio::{AudioConfig, AudioDeviceList, AudioDeviceListResult, AudioFrame},
