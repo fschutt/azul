@@ -1,4 +1,4 @@
-//! The form section.
+//! The two form sections.
 //!
 //! "Every input type" is ONE `Form` holding the widget for every HTML
 //! `<input type>` - text, password, search, email, tel, url, number, range,
@@ -9,9 +9,17 @@
 //! form's `FormData`, which the section prints; Reset puts every field back
 //! to the value the page started with.
 //!
+//! "Raw HTML inputs" writes controls as plain HTML elements instead - in Rust
+//! with `Dom::create_input(..)` and friends, and as an XML snippet mounted
+//! with `Dom::create_from_parsed_xml` - and the engine replaces each with the
+//! same widget before styling. They sit in a `Form` too, so its Submit shows
+//! what the replaced controls hand over.
+//!
 //! Every value of the first form is the APP's (`FormValues`): each control is
 //! built from it and reports every change back into it, so a rebuild - which
-//! any callback on the page may ask for - never loses an edit.
+//! any callback on the page may ask for - never loses an edit. The raw
+//! controls need none of that: the engine remembers what the user did to them
+//! across rebuilds.
 //!
 //! How the form reads a control: TextInput, TextArea, the date pickers and
 //! HiddenInput report their live value under their `name`; a widget that
@@ -21,7 +29,7 @@
 //! is checked: HTML leaves an unchecked checkbox out of the form data.
 
 use azul::{
-    dom::AttributeType,
+    dom::{AttributeType, SmallAriaInfo},
     image::{ImageRef, RawImage, RawImageData, RawImageFormat},
     option::OptionImageRef,
     prelude::*,
@@ -162,6 +170,9 @@ pub(crate) struct FormDemo {
     submitted: Vec<String>,
     /// One line on the last submit or reset.
     verdict: String,
+    /// The same two for the raw form.
+    raw_submitted: Vec<String>,
+    raw_verdict: String,
     /// The picture on the image submit button (`<input type=image>`), made
     /// once: a new image on every rebuild would be a new texture every frame.
     send_icon: OptionImageRef,
@@ -173,6 +184,8 @@ impl FormDemo {
             values: FormValues::initial(),
             submitted: Vec::new(),
             verdict: "Nothing submitted yet.".to_string(),
+            raw_submitted: Vec::new(),
+            raw_verdict: "Nothing submitted yet.".to_string(),
             send_icon: send_icon(),
         }
     }
@@ -651,6 +664,192 @@ pub(crate) fn every_input_section(data: &RefAny, demo: &FormDemo, theme: UiTheme
 }
 
 // ---------------------------------------------------------------------------
+// "Raw HTML inputs"
+// ---------------------------------------------------------------------------
+
+/// The XML half of the raw controls. Mounted with `Dom::create_from_parsed_xml`
+/// on every layout, so what it builds goes through the same replacement as
+/// the Rust half. Every control has an `id`: the engine remembers what the
+/// user did to a raw control under it.
+const RAW_XML: &str = "<div>\
+    <p style='font-size: 12px; margin: 0px 0px 6px 0px;'>type=month</p>\
+    <input id='raw-month' type='month' name='billing-month' value='2026-09' aria-label='Billing month'/>\
+    <p style='font-size: 12px; margin: 12px 0px 6px 0px;'>type=week</p>\
+    <input id='raw-week' type='week' name='sprint' value='2026-W40' aria-label='Sprint'/>\
+    <p style='font-size: 12px; margin: 12px 0px 6px 0px;'>type=time</p>\
+    <input id='raw-time' type='time' name='alarm' value='07:30' aria-label='Alarm'/>\
+    <p style='font-size: 12px; margin: 12px 0px 6px 0px;'>type=datetime-local</p>\
+    <input id='raw-departure' type='datetime-local' name='departure' value='2026-10-01T09:15' aria-label='Departure'/>\
+    <p style='font-size: 12px; margin: 12px 0px 6px 0px;'>type=number</p>\
+    <input id='raw-seats' type='number' name='seats' value='2' min='1' max='9' aria-label='Seats'/>\
+    <p style='font-size: 12px; margin: 12px 0px 6px 0px;'>type=search</p>\
+    <input id='raw-find' type='search' name='find' placeholder='Find' aria-label='Find'/>\
+    <p style='font-size: 12px; margin: 12px 0px 6px 0px;'>type=text with list= a datalist</p>\
+    <input id='raw-city' type='text' name='city' list='raw-cities' placeholder='Pick a city' aria-label='City'/>\
+    <datalist id='raw-cities'><option value='Berlin'/><option value='Paris'/><option value='Rome'/></datalist>\
+    <p style='font-size: 12px; margin: 12px 0px 6px 0px;'>textarea</p>\
+    <textarea id='raw-remarks' name='remarks' rows='2' aria-label='Remarks'></textarea>\
+    <p style='font-size: 12px; margin: 12px 0px 6px 0px;'>type=image (no src: the alt text is the label)</p>\
+    <input id='raw-image' type='image' alt='Send the raw form'/>\
+    <input id='raw-source' type='hidden' name='source' value='xml'/>\
+</div>";
+
+/// The Rust half of the raw controls: `Dom::create_input` and friends, with
+/// attributes, exactly as an HTML page would write them.
+fn rust_controls() -> Dom {
+    let input = |ty: &str, name: &str, label: &str| {
+        Dom::create_input(ty, name, label, SmallAriaInfo::label(label))
+    };
+    column(vec![
+        captioned(
+            "type=text",
+            input("text", "nickname", "Nickname")
+                .with_id("raw-nickname")
+                .with_attribute(AttributeType::placeholder("Ada")),
+        ),
+        captioned(
+            "type=email",
+            input("email", "contact", "Contact e-mail")
+                .with_id("raw-contact")
+                .with_attribute(AttributeType::placeholder("ada@example.org")),
+        ),
+        captioned(
+            "type=range, min 0, max 10, value 7",
+            input("range", "brightness", "Brightness")
+                .with_id("raw-brightness")
+                .with_attribute(AttributeType::min("0"))
+                .with_attribute(AttributeType::max("10"))
+                .with_attribute(AttributeType::value("7")),
+        ),
+        captioned(
+            "type=color",
+            input("color", "highlight", "Highlight")
+                .with_id("raw-highlight")
+                .with_attribute(AttributeType::value("#e0a526")),
+        ),
+        captioned(
+            "type=date",
+            input("date", "due", "Due date")
+                .with_id("raw-due")
+                .with_attribute(AttributeType::value("2026-12-24")),
+        ),
+        captioned(
+            "type=checkbox, checked",
+            beside(
+                input("checkbox", "terms", "Accept the terms")
+                    .with_id("raw-terms")
+                    .with_attribute(AttributeType::checked_true()),
+                "Accept the terms",
+            ),
+        ),
+        // One group: the engine keeps exactly one of them checked.
+        captioned(
+            "type=radio, one name",
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: column; gap: 4px;")
+                .with_child(beside(
+                    input("radio", "size", "Small")
+                        .with_id("raw-size-s")
+                        .with_attribute(AttributeType::value("s")),
+                    "Small",
+                ))
+                .with_child(beside(
+                    input("radio", "size", "Medium")
+                        .with_id("raw-size-m")
+                        .with_attribute(AttributeType::value("m"))
+                        .with_attribute(AttributeType::checked_true()),
+                    "Medium",
+                ))
+                .with_child(beside(
+                    input("radio", "size", "Large")
+                        .with_id("raw-size-l")
+                        .with_attribute(AttributeType::value("l")),
+                    "Large",
+                )),
+        ),
+        captioned(
+            "<select> with <optgroup>s",
+            Dom::create_select("pet", "Pet", SmallAriaInfo::label("Pet"))
+                .with_id("raw-pet")
+                .with_child(
+                    Dom::create_optgroup_no_a11y("Mammals")
+                        .with_child(Dom::create_option_no_a11y("cat", "Cat"))
+                        .with_child(Dom::create_option_no_a11y("dog", "Dog")),
+                )
+                .with_child(
+                    Dom::create_optgroup_no_a11y("Birds")
+                        .with_child(Dom::create_option_no_a11y("owl", "Owl"))
+                        .with_child(Dom::create_option_no_a11y("wren", "Wren")),
+                ),
+        ),
+        captioned(
+            "type=submit and type=reset",
+            Dom::create_div()
+                .with_css(ROW_CSS)
+                .with_child(
+                    input("submit", "", "Send the raw form")
+                        .with_id("raw-submit")
+                        .with_attribute(AttributeType::value("Send")),
+                )
+                .with_child(
+                    input("reset", "", "Reset the raw form")
+                        .with_id("raw-reset")
+                        .with_attribute(AttributeType::value("Reset")),
+                ),
+        ),
+    ])
+}
+
+/// The XML half, mounted: `create_from_parsed_xml` returns a whole document
+/// (`html > body > the snippet`), so the body's content is what goes in.
+fn xml_controls() -> Dom {
+    let xml = match Xml::from_str(RAW_XML).into_result() {
+        Ok(xml) => xml,
+        Err(_) => return note("(the XML snippet did not parse)"),
+    };
+    let document = Dom::create_from_parsed_xml(xml);
+    let body_content = document
+        .children
+        .as_slice()
+        .first()
+        .map(|body| body.children.clone());
+    match body_content {
+        Some(children) => Dom::create_div().with_css(COLUMN_CSS).with_children(children),
+        None => document,
+    }
+}
+
+/// `theme` is the page's widget theme; it reaches the Form and the page
+/// around the raw controls, not the controls themselves (see the note).
+pub(crate) fn raw_inputs_section(data: &RefAny, demo: &FormDemo, theme: UiTheme) -> Dom {
+    let form = Form::create(vec![Dom::create_div()
+        .with_css(COLUMNS_CSS)
+        .with_child(captioned("Built in Rust (Dom::create_input)", rust_controls()))
+        .with_child(captioned("Parsed from XML (Dom::create_from_parsed_xml)", xml_controls()))])
+    .with_on_submit(data.clone(), on_raw_submit)
+    .with_on_reset(data.clone(), on_raw_reset)
+    .with_accessibility_name("Raw HTML inputs")
+    .with_theme(theme)
+    .dom();
+
+    section(
+        "Raw HTML inputs",
+        vec![
+            note(
+                "The same controls written as plain HTML: <input type=..>, <select>, \
+                 <textarea>, <datalist>. Before styling, the engine replaces each with the \
+                 widget of its type, keeps what the user does to it across rebuilds, and \
+                 hands its value to the enclosing Form. A raw <form> becomes a Form the same \
+                 way. Opt a node out with data-azul-widget=\"none\". The replacement has no \
+                 theme input yet, so these are always built flat.",
+            ),
+            form,
+            output("Submitted FormData", &demo.raw_submitted, &demo.raw_verdict),
+        ],
+    )
+}
+
+// ---------------------------------------------------------------------------
 // Callbacks
 // ---------------------------------------------------------------------------
 
@@ -811,6 +1010,34 @@ extern "C" fn on_form_reset(mut data: RefAny, mut info: CallbackInfo, _initial: 
             s.form.submitted = Vec::new();
             s.form.verdict = "Reset: every field is back at the value the page started with."
                 .to_string();
+            s.interactions += 1;
+            Update::RefreshDom
+        }
+        None => Update::DoNothing,
+    }
+}
+
+extern "C" fn on_raw_submit(mut data: RefAny, _: CallbackInfo, form_data: FormData) -> Update {
+    let (lines, verdict) = describe(&form_data);
+    match data.downcast_mut::<Showcase>() {
+        Some(mut s) => {
+            s.form.raw_submitted = lines;
+            s.form.raw_verdict = verdict;
+            s.interactions += 1;
+            Update::RefreshDom
+        }
+        None => Update::DoNothing,
+    }
+}
+
+/// The engine resets the raw controls itself (it forgets what the user did
+/// to them and rebuilds them from their HTML defaults).
+extern "C" fn on_raw_reset(mut data: RefAny, mut info: CallbackInfo, _initial: FormData) -> Update {
+    ack_typed_text(&mut info);
+    match data.downcast_mut::<Showcase>() {
+        Some(mut s) => {
+            s.form.raw_submitted = Vec::new();
+            s.form.raw_verdict = "Reset: every raw control is back at its HTML default.".to_string();
             s.interactions += 1;
             Update::RefreshDom
         }

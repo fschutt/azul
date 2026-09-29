@@ -1066,8 +1066,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         ],
     );
 
-    // Last on the page: every HTML input type, as widgets in a Form.
+    // Last on the page: every HTML input type, as widgets in a Form and as
+    // raw HTML the engine turns into the same widgets.
     let every_input = forms::every_input_section(&data, &s.form, theme);
+    let raw_inputs = forms::raw_inputs_section(&data, &s.form, theme);
 
     let heading = Dom::create_h1_with_text("Azul Widget Showcase").with_css(
         "font-size: 26px; font-weight: bold; color: system:text; margin-top: 0px; \
@@ -1142,7 +1144,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 .with_child(navigation)
                 .with_child(overlays)
                 .with_child(datetime)
-                .with_child(every_input),
+                .with_child(every_input)
+                .with_child(raw_inputs),
         )
 }
 

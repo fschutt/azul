@@ -11,8 +11,12 @@ description = """
     Card, Badge, Slider, Segmented, RadioGroup, Tooltip, TextArea, Alert,
     Accordion, Avatar, Chip, Spinner, Dialog (modal, and as a popover),
     ComboBox,
-    Breadcrumb, Pagination, Stepper, SplitPane, DatePicker, TimePicker),
-    and a native OS notification in place of an in-window Toast.
+    Breadcrumb, Pagination, Stepper, SplitPane, DatePicker, TimePicker, Frame),
+    every HTML input type as its widget inside a Form (FormData on submit,
+    reset), the same controls written as raw HTML that the engine replaces
+    with those widgets, and a native OS notification in place of an
+    in-window Toast. A toolbar switches the colour scheme (System / Light /
+    Dark) and the widget theme (Flat / Flora) of the whole page.
     Replaces azul-spirit-level as the widgets demo on the release page.
 """
 publish = false
