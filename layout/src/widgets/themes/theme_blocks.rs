@@ -667,4 +667,204 @@ mod tests {
         }
         assert!(checks::live_rules(&dom.css.as_ref()[0], UiTheme::Flora).is_empty());
     }
+
+    // ---- U1: one merge for every widget that follows the app theme ----
+    //
+    // A property both looks declare ALIKE (the same declarations, conditions
+    // included, in the same order) is declared once, unconditionally,
+    // wherever it sits; every other declaration goes into its theme's block;
+    // and under either app theme the live declarations are EXACTLY that
+    // theme's own, in that theme's order.
+
+    use azul_css::{
+        css::{rule_priority, CssDeclaration, CssPath, CssRuleBlock},
+        props::{layout::LayoutPaddingTop, property::CssPropertyType},
+    };
+
+    use super::every_theme_css as follow_css;
+    use crate::widgets::themes::flat::follow_props;
+
+    fn pad(px: isize) -> P {
+        P::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(px)))
+    }
+
+    fn inked(v: u8) -> P {
+        P::simple(ink(ColorU::rgb(v, v, v)))
+    }
+
+    /// `part` as the rules of a node that carries it.
+    fn rules_of(part: &[P]) -> Vec<CssRuleBlock> {
+        css(part.to_vec()).rules.as_slice().to_vec()
+    }
+
+    /// The declarations of `merged` the app theme `theme` sees, as rules.
+    fn live_part(merged: &[P], theme: UiTheme) -> Vec<CssRuleBlock> {
+        checks::live_rules(&css(merged.to_vec()), theme)
+    }
+
+    /// How many of `merged`'s declarations of `ty` sit in no theme's block.
+    fn unconditional(merged: &[P], ty: CssPropertyType) -> usize {
+        merged
+            .iter()
+            .filter(|p| p.property.get_type() == ty && p.theme_names().is_empty())
+            .count()
+    }
+
+    fn assert_each_theme_sees_its_own(merged: &[P], flat: &[P], flora: &[P]) {
+        assert_eq!(
+            live_part(merged, UiTheme::Flat),
+            rules_of(flat),
+            "under flat: {merged:?}"
+        );
+        assert_eq!(
+            live_part(merged, UiTheme::Flora),
+            rules_of(flora),
+            "under flora: {merged:?}"
+        );
+    }
+
+    fn rule(declarations: Vec<CssProperty>) -> CssRuleBlock {
+        CssRuleBlock {
+            path: CssPath {
+                selectors: Vec::new().into(),
+            },
+            declarations: declarations
+                .into_iter()
+                .map(CssDeclaration::Static)
+                .collect::<Vec<CssDeclaration>>()
+                .into(),
+            conditions: Vec::new().into(),
+            priority: rule_priority::INLINE,
+        }
+    }
+
+    #[test]
+    fn a_followed_part_under_either_theme_is_exactly_that_themes_part_in_order() {
+        // The ink is alike in both parts, but flat declares it after the
+        // height and flora before it.
+        let flat = alloc::vec![display(), height(4), inked(9)];
+        let flora = alloc::vec![display(), inked(9), height(8)];
+        let merged = follow_props(&flat, &flora);
+        let merged = merged.as_slice();
+        assert_each_theme_sees_its_own(merged, &flat, &flora);
+        assert_eq!(unconditional(merged, CssPropertyType::Display), 1, "{merged:?}");
+        assert_eq!(unconditional(merged, CssPropertyType::TextColor), 1, "{merged:?}");
+        assert_eq!(
+            merged.len(),
+            4,
+            "display and the ink once, each height in its block: {merged:?}"
+        );
+    }
+
+    #[test]
+    fn a_property_both_looks_declare_alike_is_declared_once_even_after_a_difference() {
+        let flat = alloc::vec![height(4), display()];
+        let flora = alloc::vec![height(8), display()];
+        let merged = follow_css(UiTheme::Flat, css(flat.clone()), css(flora.clone()));
+        let rules = merged.rules.as_slice();
+        assert_eq!(
+            rules.len(),
+            3,
+            "each height in its block, then display once: {rules:?}"
+        );
+        assert!(rules[2].conditions.as_slice().is_empty(), "{rules:?}");
+        assert_eq!(checks::live_rules(&merged, UiTheme::Flat), rules_of(&flat));
+        assert_eq!(checks::live_rules(&merged, UiTheme::Flora), rules_of(&flora));
+    }
+
+    #[test]
+    fn where_the_two_orders_cross_the_property_out_of_place_gives_way() {
+        // Alike in every property, but display leads flat and trails flora:
+        // sharing all four would give one theme the other's order.
+        let flat = alloc::vec![display(), height(4), pad(2), inked(9)];
+        let flora = alloc::vec![height(4), pad(2), inked(9), display()];
+        let merged = follow_props(&flat, &flora);
+        let merged = merged.as_slice();
+        assert_each_theme_sees_its_own(merged, &flat, &flora);
+        for ty in [
+            CssPropertyType::Height,
+            CssPropertyType::PaddingTop,
+            CssPropertyType::TextColor,
+        ] {
+            assert_eq!(unconditional(merged, ty), 1, "{ty:?}: {merged:?}");
+        }
+        assert_eq!(
+            unconditional(merged, CssPropertyType::Display),
+            0,
+            "display gives way, written in each block: {merged:?}"
+        );
+        assert_eq!(merged.len(), 5, "{merged:?}");
+    }
+
+    #[test]
+    fn a_rule_is_never_split_and_one_differing_declaration_takes_it_into_each_block() {
+        let flex = CssProperty::const_display(LayoutDisplay::Flex);
+        let tall = |px: isize| CssProperty::const_height(LayoutHeight::const_px(px));
+        let dark_ink = ink(ColorU::rgb(9, 9, 9));
+        let flat = Css::from(alloc::vec![
+            rule(alloc::vec![flex.clone(), tall(4)]),
+            rule(alloc::vec![dark_ink.clone()]),
+        ]);
+        let flora = Css::from(alloc::vec![
+            rule(alloc::vec![flex, tall(8)]),
+            rule(alloc::vec![dark_ink]),
+        ]);
+        let merged = follow_css(UiTheme::Flat, flat.clone(), flora.clone());
+        let rules = merged.rules.as_slice();
+        assert_eq!(
+            rules
+                .iter()
+                .map(|r| r.declarations.as_slice().len())
+                .collect::<Vec<usize>>(),
+            alloc::vec![2, 2, 1],
+            "each two-declaration rule whole in its block, then the ink once: {rules:?}"
+        );
+        assert!(rules[2].conditions.as_slice().is_empty(), "{rules:?}");
+        assert_eq!(
+            checks::live_rules(&merged, UiTheme::Flat),
+            flat.rules.as_slice().to_vec()
+        );
+        assert_eq!(
+            checks::live_rules(&merged, UiTheme::Flora),
+            flora.rules.as_slice().to_vec()
+        );
+    }
+
+    #[test]
+    fn a_property_whose_dark_twin_is_alike_too_is_shared_light_half_and_twin_together() {
+        let white = ColorU::rgb(255, 255, 255);
+        let flat = alloc::vec![
+            P::simple(ink(white)),
+            P::dark_theme(ink(ColorU::rgb(1, 1, 1))),
+            height(4)
+        ];
+        let flora = alloc::vec![
+            P::simple(ink(white)),
+            P::dark_theme(ink(ColorU::rgb(1, 1, 1))),
+            height(8)
+        ];
+        let merged = follow_css(UiTheme::Flat, css(flat.clone()), css(flora.clone()));
+        let inks: Vec<&CssRuleBlock> = merged
+            .rules
+            .as_slice()
+            .iter()
+            .filter(|r| {
+                r.declarations
+                    .as_slice()
+                    .iter()
+                    .any(|d| d.get_type() == CssPropertyType::TextColor)
+            })
+            .collect();
+        assert_eq!(inks.len(), 2, "the light half and its twin, once: {inks:?}");
+        assert!(
+            inks.iter().all(|r| !r
+                .conditions
+                .as_slice()
+                .iter()
+                .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Custom(_))))),
+            "neither sits in a theme's block: {inks:?}"
+        );
+        assert_eq!(checks::live_rules(&merged, UiTheme::Flat), rules_of(&flat));
+        assert_eq!(checks::live_rules(&merged, UiTheme::Flora), rules_of(&flora));
+    }
 }
