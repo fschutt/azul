@@ -7,22 +7,30 @@ badge, breadcrumb, button, card, check_box, chip, color_input.
 - `1a501bee3` RED: one structure-lint test per widget (`assert_structure_is_shared`, `&[]`).
 - `cd89505ca` GREEN accordion: `ACCORDION_{CONTAINER,SECTION,HEADER,TITLE,CHEVRON}_BASE`, laid
   first by `accordion::build`; flat / flora skins only.
-
 - `692fff6ac` GREEN breadcrumb: `BREADCRUMB_ITEM_BASE`, `BREADCRUMB_LABEL_BASE`; two static-reading
   tests now read base + flat skin.
-
 - `501adb32b` GREEN color_input: `PICKER_{PANEL,PREVIEW,EYEDROPPER}_BASE_CSS` sheets before the
   skin sheets.
+- `08da0680c` alert / badge / card / chip: structure authored once in the widget file
+  (`ALERT_{CONTAINER,MESSAGE,CLOSE}_BASE`, `BADGE_BASE`, `CARD_BASE`, `CHIP_{CONTAINER,REMOVE}_BASE`
+  + `CHIP_LABEL_STYLE` as the label's base); 3 incidental tests updated.
+- `6060a3b59` `decl::on_base(base, skin)` replaces the four inline base-then-skin twins.
 
 ## IN PROGRESS
-- Refactor the guards (alert, badge, card, chip; avatar twin builders).
+- Report `scripts/R5A_BASE_AND_SKINS_2026_09_29.md`.
 
 ## NEXT
-1. GREEN accordion (container + header base), breadcrumb (crumb + label base), color_input (panel /
-   preview / eyedropper base sheets).
-2. GREEN the guards' refactor (structure authored once in the widget file): alert, badge, card,
-   chip; avatar builder twin; button / check_box / backstage already one base (no change).
-3. Report `scripts/R5A_BASE_AND_SKINS_2026_09_29.md`.
+- Nothing after the report.
+
+## Decisions
+- avatar: flat::avatar and flora::avatar are identical twins; NOT deduped (the structure is already
+  avatar.rs's `build_avatar_style`, and editing the middle of the shared theme files risks conflicts
+  with R5-B/C/D). Reported.
+- button, check_box, backstage: no code change (one base already; guards only).
+- color_input test prunes nested text inputs / labels (other agents' widgets).
+- Parent facts (after the power loss): `theme_blocks::stack_parts` exists in main only - not copied,
+  backstage's `merged_style` untouched; nothing here stacks merged parts (every base + skin is one
+  list before the merge). The lint prints CSS names in main (`flex-direction`), Debug names here.
 
 ## Audit notes
 - accordion: container OverflowX/OverflowY cross (flat declares them last, flora right after the
