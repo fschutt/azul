@@ -70,11 +70,12 @@ document instance), drag a component file onto the Document tree.
 
 | hash | what |
 |---|---|
-| (this commit) | docs(b4): audit |
+| `5e3ba363d` | docs(b4): audit |
+| `dd0ce93b0` | test(builder): project scenarios, RED (`layout/src/e2e/project_tests.rs`, 9 tests) |
 
 ## 4. IN PROGRESS
 
-- RED server tests (`layout/src/e2e/project_tests.rs`).
+- `layout/src/e2e/project.rs` + builder.rs stylesheet / load + full.rs arms + gene2e rows.
 
 ## 5. NEXT
 
