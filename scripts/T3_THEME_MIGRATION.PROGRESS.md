@@ -97,9 +97,14 @@ Recipe: scripts/T1_APP_THEME_2026_09_29.md §4. Nothing is compiled here (house 
   = field paper over a leaf (new `// ==== combobox ====` sections at the END of flat.rs /
   flora.rs); the wrapper now carries the theme marker; resolvers answer for the theme)
 
+- file_input: RED 82dc350f3, impl: see git log (NEW `theme: OptionUiTheme` LAST + `set_theme` /
+  `with_theme`; the looks are the Button's (flat / flora, light + dark): pinned = a Button pinned
+  to that theme; unpinned = DOM merge of the two pinned Buttons (so it follows even before T2
+  migrates Button); the resolvers ask a Button in the input's theme)
+
 ## IN PROGRESS
 
-- file_input (theme option + flora look + follow)
+- the six single-look widgets (ribbon, quick_access, statusbar, tabs, titlebar, tree_view)
 
 ## NEXT
 

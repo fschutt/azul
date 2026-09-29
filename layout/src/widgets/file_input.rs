@@ -22,7 +22,10 @@ use azul_css::{
 
 use crate::{
     callbacks::{Callback, CallbackInfo},
-    widgets::button::{Button, ButtonOnClick, ButtonOnClickCallback},
+    widgets::{
+        button::{Button, ButtonOnClick, ButtonOnClickCallback},
+        themes::{OptionUiTheme, UiTheme},
+    },
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +50,11 @@ pub struct FileInput {
     pub label_style: OptionCssPropertyWithConditionsVec,
     /// Style of the image, or `None` to let the Button decide.
     pub image_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme, or `None` to follow the app theme
+    /// (`AppConfig::with_theme`). A file input renders AS a [`Button`]: the
+    /// theme is the button's, a DOM-level choice, so switching it rebuilds
+    /// the input.
+    pub theme: OptionUiTheme,
 }
 
 impl Default for FileInput {
@@ -62,6 +70,8 @@ impl Default for FileInput {
             container_style: default_button.container_style,
             label_style: default_button.label_style,
             image_style: default_button.image_style,
+            // No opinion: the input follows the app theme (`dom`).
+            theme: OptionUiTheme::None,
         }
     }
 }
@@ -70,14 +80,15 @@ impl FileInput {
     /// The container CSS the Button this input renders as will use.
     ///
     /// A `FileInput` has no styling of its own: it builds a [`Button`] and forwards
-    /// these three fields to it. Each resolver therefore answers with the
-    /// Button's default, which is what the widget actually paints.
+    /// these three fields - and its theme - to it. Each resolver therefore
+    /// answers with the Button's default in that theme, which is what the
+    /// widget actually paints.
     #[must_use]
     pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
         self.container_style
             .clone()
             .into_option()
-            .unwrap_or_else(|| Self::style_donor().resolved_container_style())
+            .unwrap_or_else(|| self.style_donor().resolved_container_style())
     }
 
     /// The label CSS the Button this input renders as will use.
@@ -86,7 +97,7 @@ impl FileInput {
         self.label_style
             .clone()
             .into_option()
-            .unwrap_or_else(|| Self::style_donor().resolved_label_style())
+            .unwrap_or_else(|| self.style_donor().resolved_label_style())
     }
 
     /// The image CSS the Button this input renders as will use.
@@ -95,12 +106,32 @@ impl FileInput {
         self.image_style
             .clone()
             .into_option()
-            .unwrap_or_else(|| Self::style_donor().resolved_image_style())
+            .unwrap_or_else(|| self.style_donor().resolved_image_style())
     }
 
-    /// The unstyled Button the three resolvers above defer to.
-    fn style_donor() -> Button {
-        Button::create(AzString::from_const_str(""))
+    /// The unstyled Button, in this input's theme, the three resolvers above
+    /// defer to.
+    fn style_donor(&self) -> Button {
+        let donor = Button::create(AzString::from_const_str(""));
+        match self.theme.into_option() {
+            Some(theme) => donor.with_theme(theme),
+            None => donor,
+        }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the input follows the app
+    /// theme (`AppConfig::with_theme`, flat by default).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 }
 
@@ -220,9 +251,32 @@ impl FileInput {
         self
     }
 
+    /// Renders the input as a [`Button`] in its theme. Unpinned (`theme:
+    /// None`), it follows the APP theme: both themes' buttons are built and
+    /// merged (`themes::flat::follow_app_theme`) in the structure of the
+    /// theme its DOM is built for, carrying every theme's blocks.
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
+        use crate::widgets::themes::flat;
+        match self.theme.into_option() {
+            Some(theme) => self.dom_in(theme),
+            None => flat::follow_app_theme(self, Self::dom_flat, Self::dom_flora),
+        }
+    }
+
+    /// [`Self::dom_in`] the flat theme.
+    fn dom_flat(self) -> Dom {
+        self.dom_in(UiTheme::Flat)
+    }
+
+    /// [`Self::dom_in`] the flora theme.
+    fn dom_flora(self) -> Dom {
+        self.dom_in(UiTheme::Flora)
+    }
+
+    /// The input as a [`Button`] pinned to `theme`.
+    fn dom_in(self, theme: UiTheme) -> Dom {
         // either show the default text or the file name
         // including the extension as the button label
         let button_label = match self.file_input_state.inner.path.as_ref() {
@@ -238,7 +292,7 @@ impl FileInput {
 
         Button {
             label: button_label,
-            theme: None.into(),
+            theme: OptionUiTheme::Some(theme),
             image: self.image,
             icon: AzString::from_const_str(""),
             icon_dom: None.into(),
