@@ -25,13 +25,15 @@ Nothing is compiled here (house rule).
 ## DONE
 
 - 1 RED d08f7bfbf (theme_blocks tests: order-preserving per-property merge)
+- 1 GREEN 0233bf13a (one merge in theme_blocks.rs; T3 section out of flat.rs; every_theme_* gone;
+  all call sites switched; follow_tests moved)
 
 ## IN PROGRESS
 
-- 1 (RED tests)
+- 2 theme_checks: one evaluator
 
 ## NEXT
 
-- 1 GREEN, 2, 3, 4, 5, report
+- 3, 4, 5, report
 
 ## Open questions
