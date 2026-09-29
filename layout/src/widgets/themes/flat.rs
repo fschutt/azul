@@ -3833,4 +3833,78 @@ pub(crate) fn video_poster_style() -> CssPropertyWithConditionsVec {
 #[must_use]
 pub fn video(w: crate::widgets::video::VideoWidget) -> Dom {
     w.build(super::UiTheme::Flat)
+
+// ==== text input kinds (type=search) ====
+//
+// The search field's row and its clear button. `text_input.rs` builds the
+// field itself (the same `text_input()` above) and wires the button's click;
+// the look is the theme's.
+
+/// The clear button (`×`) of a `type=search` field, shown only while the field
+/// holds text (`visible`). The widget flips `display` live on the
+/// empty/non-empty transition; this is the state it is BUILT in.
+#[must_use]
+pub fn search_clear_button(visible: bool) -> Dom {
+    let mut style: Vec<CssPropertyWithConditions> = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(if visible {
+            LayoutDisplay::Block
+        } else {
+            LayoutDisplay::None
+        })),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
+            0,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+            LayoutPaddingLeft::const_px(6),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+            LayoutPaddingRight::const_px(6),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            14,
+        ))),
+    ];
+    // A quiet glyph that darkens under the pointer, in both modes.
+    style.extend(CssPropertyWithConditions::themed(
+        CssProperty::const_text_color(StyleTextColor { inner: LIGHT_ICON }),
+        CssProperty::const_text_color(StyleTextColor {
+            inner: system_palette::SECONDARY_TEXT,
+        }),
+    ));
+    style.extend(CssPropertyWithConditions::themed_on_hover(
+        CssProperty::const_text_color(StyleTextColor { inner: LIGHT_INK }),
+        CssProperty::const_text_color(StyleTextColor {
+            inner: system_palette::TEXT,
+        }),
+    ));
+
+    crate::widgets::widget_p_with_text(AzString::from_const_str("\u{00D7}"))
+        .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(AzString::from_const_str(
+            crate::widgets::text_input::SEARCH_CLEAR_CLASS,
+        ))]))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(style))
+}
+
+/// The row of a `type=search` field: the field (which grows) and its clear
+/// button after it.
+#[must_use]
+pub fn search_field(field: Dom, clear: Dom) -> Dom {
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(AzString::from_const_str(
+            crate::widgets::text_input::SEARCH_FIELD_CLASS,
+        ))]))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+            CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+            CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+                LayoutFlexDirection::Row,
+            )),
+            CssPropertyWithConditions::simple(CssProperty::const_align_items(
+                LayoutAlignItems::Center,
+            )),
+            CssPropertyWithConditions::simple(CssProperty::const_flex_grow(
+                LayoutFlexGrow::const_new(1),
+            )),
+        ]))
+        .with_children(vec![field, clear].into())
 }

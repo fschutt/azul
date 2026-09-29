@@ -1146,13 +1146,69 @@ impl TextInput {
         let kind = self.text_input_state.inner.kind;
         let name = self.name.clone();
         let a11y_name = self.accessibility_name.clone();
+        let has_text = !self.text_input_state.inner.text.is_empty();
         let container = match theme {
             crate::widgets::themes::UiTheme::Flat => crate::widgets::themes::flat::text_input(self),
             crate::widgets::themes::UiTheme::Flora => {
                 crate::widgets::themes::flora::text_input(self)
             }
         };
-        with_kind_semantics(container, kind, name, a11y_name)
+        let container = with_kind_semantics(container, kind, name, a11y_name);
+        if kind == TextInputKind::Search {
+            search_field(container, theme, has_text)
+        } else {
+            container
+        }
+    }
+}
+
+/// The class of the row a `type=search` field sits in.
+pub const SEARCH_FIELD_CLASS: &str = "__azul-native-search-field";
+/// The class of a `type=search` field's clear button.
+pub const SEARCH_CLEAR_CLASS: &str = "__azul-native-search-clear";
+
+/// `type=search`: the field, then its clear button, in one row.
+///
+/// The button is a SIBLING of the editable host, never a child: inside the host
+/// its glyph would be editable content, and a click on it would place a caret
+/// in the `×`. It is not a Tab stop (Escape clears from the keyboard, as in
+/// every browser), and it shares the field's state, so the click handler
+/// mirrors the clear exactly like an edit.
+fn search_field(
+    container: Dom,
+    theme: crate::widgets::themes::UiTheme,
+    has_text: bool,
+) -> Dom {
+    use azul_core::{
+        a11y::{AccessibilityInfo, AccessibilityRole},
+        dom::{EventFilter, HoverEventFilter},
+        refany::OptionRefAny,
+    };
+    use crate::widgets::themes::{flat, flora, UiTheme};
+
+    let mut clear = match theme {
+        UiTheme::Flat => flat::search_clear_button(has_text),
+        UiTheme::Flora => flora::search_clear_button(has_text),
+    };
+    if let Some(state) = container.root.get_dataset().cloned() {
+        clear.add_callback(
+            EventFilter::Hover(HoverEventFilter::Click),
+            state,
+            CoreCallback {
+                cb: default_on_search_clear_click as usize,
+                ctx: OptionRefAny::None,
+            },
+        );
+    }
+    let clear = clear.with_accessibility_info(AccessibilityInfo {
+        role: AccessibilityRole::PushButton,
+        accessibility_name: Some(AzString::from_const_str("Clear search")).into(),
+        ..Default::default()
+    });
+
+    match theme {
+        UiTheme::Flat => flat::search_field(container, clear),
+        UiTheme::Flora => flora::search_field(container, clear),
     }
 }
 
@@ -1367,6 +1423,125 @@ pub extern "C" fn default_on_clipboard_veto(_data: RefAny, mut info: CallbackInf
     Update::DoNothing
 }
 
+/// Click on a `type=search` field's clear button: empty the field.
+///
+/// The hit node is the button; the field is its previous sibling (see
+/// `search_field`). The payload is the FIELD's state, shared with the field's
+/// own handlers.
+#[must_use]
+pub extern "C" fn default_on_search_clear_click(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some(mut wrapper) = data.downcast_mut::<TextInputStateWrapper>() else {
+        return Update::DoNothing;
+    };
+    let Some(container) = info.get_previous_sibling(info.get_hit_node()) else {
+        return Update::DoNothing;
+    };
+    clear_field(&mut wrapper, info, container)
+}
+
+/// Empty the field whose host is `container`, the way an edit would: the
+/// `on_text_input` hook sees the empty value first and may veto it, then the
+/// mirror, the engine's line and the live looks follow.
+fn clear_field(
+    wrapper: &mut TextInputStateWrapper,
+    mut info: CallbackInfo,
+    container: DomNodeId,
+) -> Update {
+    if wrapper.inner.text.is_empty() {
+        return Update::DoNothing;
+    }
+    let mut preview = wrapper.inner.clone();
+    preview.text = Vec::new().into();
+    preview.cursor_pos = 0;
+    preview.selection = None.into();
+    preview.validity = validity_of(&preview);
+
+    let result = run_text_input_hook(wrapper, info, preview.clone());
+    if result.valid == TextInputValid::No {
+        return result.update;
+    }
+    wrapper.inner = preview;
+    replace_engine_line(&mut info, container, "");
+    sync_live_looks(&mut info, container, false, &wrapper.inner);
+    result.update
+}
+
+/// Replace what the engine shows on the line of the field hosted at
+/// `container` with `shown` (for a password: its mask).
+///
+/// Two copies of the line exist and both are written: the engine's EDIT buffer
+/// - the user's uncommitted typing, which wins over the DOM until the DOM
+/// catches up - is emptied through the edit pipeline (select all, delete; the
+/// same path Backspace takes, so the post-edit notification it raises finds a
+/// mirror that already agrees), and the DOM's text is set so the two converge.
+///
+/// KNOWN LIMIT: only emptying goes through the edit buffer. Inserting a new
+/// value there would raise an `Input` the handlers would mirror a second time;
+/// a non-empty replacement therefore reaches the screen through the DOM text
+/// alone, which the edit buffer outranks while it holds typing the app has not
+/// adopted (see the W1 report, engine follow-up).
+fn replace_engine_line(info: &mut CallbackInfo, container: DomNodeId, shown: &str) {
+    use azul_core::selection::{
+        CursorAffinity, GraphemeClusterId, Selection, SelectionRange, TextCursor,
+    };
+
+    if shown.is_empty() {
+        let old_len = info
+            .get_node_text_content(container)
+            .map_or(0, |t| t.len());
+        if old_len > 0 {
+            if let Some(node_id) = container.node.into_crate_internal() {
+                let at = |byte: usize| TextCursor {
+                    cluster_id: GraphemeClusterId {
+                        source_run: 0,
+                        start_byte_in_run: u32::try_from(byte).unwrap_or(u32::MAX),
+                    },
+                    affinity: CursorAffinity::Leading,
+                };
+                info.set_selection(
+                    container.dom,
+                    node_id,
+                    Selection::Range(SelectionRange {
+                        start: at(0),
+                        end: at(old_len),
+                    }),
+                );
+                info.delete_backward(container);
+            }
+        }
+    }
+    if let Some(line) = info.get_first_child(container) {
+        if let Some(leaf) = info.get_first_child(line) {
+            info.change_node_text(leaf, AzString::from(shown));
+        }
+    }
+}
+
+/// Bring the parts of the field that depend on its value up to date after an
+/// edit, WITHOUT a rebuild: the `type=search` clear button appears with the
+/// first character and hides with the last.
+///
+/// Writes only on a TRANSITION (`was_empty` vs now): a same-value `display`
+/// write costs a full relayout per keystroke.
+fn sync_live_looks(
+    info: &mut CallbackInfo,
+    container: DomNodeId,
+    was_empty: bool,
+    state: &TextInputState,
+) {
+    let is_empty = state.text.is_empty();
+    if state.kind == TextInputKind::Search && was_empty != is_empty {
+        if let Some(clear) = info.get_next_sibling(container) {
+            let display = if is_empty {
+                LayoutDisplay::None
+            } else {
+                LayoutDisplay::Block
+            };
+            info.set_css_property(clear, CssProperty::const_display(display));
+        }
+    }
+}
+
 /// The user's `on_text_input` hook, or "accept, nothing to redraw" without one.
 fn run_text_input_hook(
     wrapper: &mut TextInputStateWrapper,
@@ -1573,10 +1748,13 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
     let _value = value_node(&info)?;
     let container = info.get_hit_node();
     let is_password = text_input.inner.kind == TextInputKind::Password;
+    let was_empty = text_input.inner.text.is_empty();
 
     if inserted_text.is_empty() {
         if is_password {
-            return masked_notification(&mut text_input, info, container);
+            let update = masked_notification(&mut text_input, info, container);
+            sync_live_looks(&mut info, container, was_empty, &text_input.inner);
+            return update;
         }
         // Idempotent: a notification that changed nothing observable (a
         // spurious Input, an edit already mirrored) stays a strict no-op, so
@@ -1589,6 +1767,7 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
         let len = text_input.inner.get_text().len();
         text_input.inner.selection = engine_selection(&info, container, len).into();
         text_input.inner.validity = validity_of(&text_input.inner);
+        sync_live_looks(&mut info, container, was_empty, &text_input.inner);
         let result = {
             let text_input = &mut *text_input;
             let inner_clone = text_input.inner.clone();
@@ -1614,12 +1793,9 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
     }
 
     if is_password {
-        return Some(masked_insertion(
-            &mut text_input,
-            info,
-            container,
-            &inserted_text,
-        ));
+        let update = masked_insertion(&mut text_input, info, container, &inserted_text);
+        sync_live_looks(&mut info, container, was_empty, &text_input.inner);
+        return Some(update);
     }
 
     let caret = engine_caret(&info, container);
@@ -1689,6 +1865,7 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
         let len = text_input.inner.get_text().len();
         text_input.inner.selection = engine_selection(&info, container, len).into();
         text_input.inner.validity = validity_of(&text_input.inner);
+        sync_live_looks(&mut info, container, was_empty, &text_input.inner);
     } else {
         // The engine applies the recorded changeset once the callbacks return,
         // unless one of them vetoes it.
@@ -1739,6 +1916,20 @@ fn default_on_virtual_key_down_inner(
 
     if result.valid == TextInputValid::No {
         info.prevent_default();
+    }
+
+    // type=search: Escape clears a non-empty field (HTML's "cancel" action)
+    // and the field KEEPS focus - the default Escape would drop it. On an
+    // empty field Escape keeps its default. A hook that rejected the key
+    // rejected the clear with it.
+    if text_input.inner.kind == TextInputKind::Search
+        && keycode == azul_core::window::VirtualKeyCode::Escape
+        && result.valid == TextInputValid::Yes
+        && !text_input.inner.text.is_empty()
+    {
+        info.prevent_default();
+        let cleared = clear_field(&mut text_input, info, container);
+        return Some(core::cmp::max(result.update, cleared));
     }
 
     // Single-line field: Enter must never edit the value. The engine-side

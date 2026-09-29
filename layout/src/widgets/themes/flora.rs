@@ -3928,4 +3928,105 @@ pub(crate) fn video_poster_style() -> CssPropertyWithConditionsVec {
 #[must_use]
 pub fn video(w: crate::widgets::video::VideoWidget) -> Dom {
     w.build(super::UiTheme::Flora)
+
+// ==== text input kinds (type=search) ====
+//
+// The search field's row and its clear button. `text_input.rs` builds the
+// field itself (the same `text_input()` above) and wires the button's click;
+// the look is the theme's. Flora's button is the recessed round badge of a
+// native search field: a grey disc with a light cross.
+
+/// The clear button (`×`) of a `type=search` field, shown only while the field
+/// holds text (`visible`). The widget flips `display` live on the
+/// empty/non-empty transition; this is the state it is BUILT in.
+#[must_use]
+pub fn search_clear_button(visible: bool) -> Dom {
+    let mut style: Vec<CssPropertyWithConditions> = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(if visible {
+            LayoutDisplay::Flex
+        } else {
+            LayoutDisplay::None
+        })),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
+            0,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+        CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(14))),
+        CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(14))),
+        CssPropertyWithConditions::simple(CssProperty::const_margin_left(
+            LayoutMarginLeft::const_px(4),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_justify_content(
+            LayoutJustifyContent::Center,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_align_items(
+            LayoutAlignItems::Center,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            11,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
+            StyleBorderTopLeftRadius::const_px(7),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_right_radius(
+            StyleBorderTopRightRadius::const_px(7),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_left_radius(
+            StyleBorderBottomLeftRadius::const_px(7),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_right_radius(
+            StyleBorderBottomRightRadius::const_px(7),
+        )),
+    ];
+    // The disc: the icon grey, a shade deeper under the pointer; the cross
+    // is the page colour on it, in both modes.
+    style.extend(CssPropertyWithConditions::themed(
+        CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(&[
+            StyleBackgroundContent::Color(LIGHT_ICON),
+        ])),
+        CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(&[
+            StyleBackgroundContent::Color(DARK_ICON),
+        ])),
+    ));
+    style.extend(CssPropertyWithConditions::themed(
+        CssProperty::const_text_color(StyleTextColor { inner: LIGHT_PG }),
+        CssProperty::const_text_color(StyleTextColor { inner: DARK_PG }),
+    ));
+    style.extend(CssPropertyWithConditions::themed_on_hover(
+        CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(&[
+            StyleBackgroundContent::Color(LIGHT_INK),
+        ])),
+        CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(&[
+            StyleBackgroundContent::Color(DARK_INK),
+        ])),
+    ));
+
+    crate::widgets::widget_p_with_text(AzString::from_const_str("\u{00D7}"))
+        .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(AzString::from_const_str(
+            crate::widgets::text_input::SEARCH_CLEAR_CLASS,
+        ))]))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(style))
+}
+
+/// The row of a `type=search` field: the field (which grows) and its clear
+/// badge after it.
+#[must_use]
+pub fn search_field(field: Dom, clear: Dom) -> Dom {
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(AzString::from_const_str(
+            crate::widgets::text_input::SEARCH_FIELD_CLASS,
+        ))]))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+            CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+            CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+                LayoutFlexDirection::Row,
+            )),
+            CssPropertyWithConditions::simple(CssProperty::const_align_items(
+                LayoutAlignItems::Center,
+            )),
+            CssPropertyWithConditions::simple(CssProperty::const_flex_grow(
+                LayoutFlexGrow::const_new(1),
+            )),
+        ]))
+        .with_children(vec![field, clear].into())
 }
