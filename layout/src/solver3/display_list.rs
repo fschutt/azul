@@ -7643,21 +7643,46 @@ where
         // thumbs: real_ribbon_resize_sweep diverged by 6 px at 705, the first
         // width after the root was first published. The viewport's extent is
         // read off THIS layout, by the function registration publishes.
-        let content_size = if is_viewport {
-            self.positioned_tree
-                .tree
-                .scroll_extent(LayoutNodeId::new(node_index), true)
+        //
+        // Nor for any other box: the snapshot sized the thumb of the pass
+        // that GREW a box's content for the content before it, while the
+        // press router measured the new one right after this pass - the
+        // thumb was drawn one layout late. Every box's extent is read off
+        // this layout too, by the rule registration publishes
+        // (`LayoutTree::scroll_extent` and the caret gutter,
+        // `caret_scroll_extent`). Only a `VirtualView`'s extent is not
+        // layout's: its callback publishes it, and the snapshot is where it
+        // is (the builder re-runs when a callback changes it mid-pass).
+        let is_virtual_view = node_id.is_some_and(|nid| {
+            self.ctx
+                .styled_dom
+                .node_data
+                .as_container()
+                .get(nid)
+                .is_some_and(azul_core::dom::NodeData::is_virtual_view_node)
+        });
+        let virtual_size = node_id
+            .filter(|_| is_virtual_view)
+            .and_then(|nid| self.scroll_offsets.get(&nid))
+            .map(|pos| pos.children_rect.size);
+        let content_size = if let Some(size) = virtual_size {
+            size
         } else {
-            node_id
-                .and_then(|nid| self.scroll_offsets.get(&nid))
-                .map_or_else(
-                    || {
-                        self.positioned_tree
-                            .tree
-                            .get_content_size(LayoutNodeId::new(node_index))
-                    },
-                    |pos| pos.children_rect.size,
-                )
+            let extent = self
+                .positioned_tree
+                .tree
+                .scroll_extent(LayoutNodeId::new(node_index), is_viewport);
+            match node_id {
+                Some(nid) => crate::managers::scroll_registration::caret_scroll_extent(
+                    crate::managers::scroll_registration::caret_scroll_node(
+                        &self.ctx.cursor_locations,
+                    ),
+                    self.dom_id,
+                    nid,
+                    extent,
+                ),
+                None => extent,
+            }
         };
 
         // The HANDLE's own width, which is not the groove's: Breeze centres a

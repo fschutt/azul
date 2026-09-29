@@ -314,19 +314,28 @@ impl GpuStateManager {
                 size: inner_size,
             };
 
-            // `display_list::paint_scrollbars` sizes the thumb from
-            // `ScrollPosition::children_rect.size` — the `VirtualView` virtual size
-            // when the callback reported one, else the laid-out content size. This
-            // path OVERWRITES the transform key that path seeds, so it has to size
-            // from the same number: a `VirtualView` is a replaced element with no
-            // flow content, so `get_content_size` returns roughly the viewport and
-            // the thumb would snap to the full track on the first live scroll.
+            // The extent the scroll manager holds - what registration
+            // published for this layout (`LayoutTree::scroll_extent` plus the
+            // caret gutter, `caret_scroll_extent`), or a `VirtualView`'s
+            // virtual size (`effective_content_size`): the number
+            // `display_list::paint_scrollbars` sizes the thumb from and the
+            // press router measures it with, so the thumb moves where it is
+            // drawn and pressed. Re-derived from the bare layout extent, the
+            // box hosting the caret had its thumb moved along a track 6px
+            // shorter than the one it was pressed on. A box registration has
+            // not described (no state, or one a bare `set_scroll_position`
+            // made: no bar, no extent) falls back to this layout's extent.
             let content_size = scroll_manager
                 .get_scroll_state(dom_id, node_id)
-                .and_then(|s| s.virtual_scroll_size)
-                .unwrap_or_else(|| {
-                    layout_tree.scroll_extent(LayoutNodeId::new(node_idx), is_viewport)
-                });
+                .filter(|s| {
+                    s.virtual_scroll_size.is_some()
+                        || s.bar(ScrollbarOrientation::Vertical).is_present()
+                        || s.bar(ScrollbarOrientation::Horizontal).is_present()
+                })
+                .map_or_else(
+                    || layout_tree.scroll_extent(LayoutNodeId::new(node_idx), is_viewport),
+                    |s| s.effective_content_size(),
+                );
 
             // The bars `paint_scrollbars` drew, and only those: the one
             // per-axis answer layout resolved from the axis's overflow and the

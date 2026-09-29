@@ -61,17 +61,30 @@ pub fn caret_scroll_extent(
     content
 }
 
+/// The box the active caret sits on - the editing session's block
+/// container, the one box [`caret_scroll_extent`] widens - named from the
+/// carets a pass paints (`TextEditManager::build_cursor_locations`, which
+/// lists the session's carets before the other seats'). ONE answer for
+/// [`register_scroll_nodes`] and for `paint_scrollbars`, which sees only
+/// that list: a thumb is painted for the extent registration publishes.
+#[must_use]
+pub fn caret_scroll_node(
+    cursor_locations: &[crate::managers::text_edit::CursorLocation],
+) -> Option<DomNodeId> {
+    cursor_locations
+        .iter()
+        .find(|location| !location.owner.is_seat())
+        .map(|location| location.block.container_dom_node())
+}
+
 pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
     // Runs after every layout - every frame of a layout-property tween - and
     // the desktop shell's incremental relayout runs it a second time.
     let _p = crate::probe::Probe::span("register_scroll_nodes");
     // Which node owns the active caret. Snapshotted BEFORE the loop below takes
     // `layout_results` mutably.
-    let caret_node: Option<DomNodeId> = layout_window
-        .text_edit_manager
-        .multi_cursor
-        .as_ref()
-        .map(|mc| mc.block.container_dom_node());
+    let caret_node: Option<DomNodeId> =
+        caret_scroll_node(&layout_window.text_edit_manager.build_cursor_locations());
 
     for (dom_id, layout_result) in &mut layout_window.layout_results {
         // The viewport the ROOT scrolls against (see the root arm below): the

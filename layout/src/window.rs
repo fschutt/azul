@@ -2810,6 +2810,16 @@ impl LayoutWindow {
         if result.is_ok() {
             let now = (system_callbacks.get_system_time_fn.cb)();
             crate::managers::scroll_registration::register_scroll_nodes(self, &now);
+            // The thumbs' GPU positions, from what registration just
+            // published - this layout's extent, the clamped offsets. The
+            // update made while the list was built read the PREVIOUS
+            // registration, and a full rebuild's frame (WebRender's included)
+            // presents without another: the thumb sat one layout behind the
+            // content it scrolls.
+            #[cfg(feature = "std")]
+            if !self.skip_gpu_sync {
+                let _ = self.refresh_scrollbar_transforms();
+            }
         }
 
         // After layout, automatically scroll cursor into view if there's a focused text input.
@@ -19649,10 +19659,9 @@ impl LayoutWindow {
                 // hosts the caret - the same rule, so the fast path and a
                 // full registration publish the same extent.
                 let published_extent = crate::managers::scroll_registration::caret_scroll_extent(
-                    self.text_edit_manager
-                        .multi_cursor
-                        .as_ref()
-                        .map(|mc| mc.block.container_dom_node()),
+                    crate::managers::scroll_registration::caret_scroll_node(
+                        &self.text_edit_manager.build_cursor_locations(),
+                    ),
                     dom_id,
                     plan.host_dom,
                     plan.merged_extent,
