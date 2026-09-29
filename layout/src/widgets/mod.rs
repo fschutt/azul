@@ -612,25 +612,24 @@ fn building_a_style_twin() -> bool {
 /// restores the flag however `build` ends.
 pub(crate) fn style_only_build<T>(build: impl FnOnce() -> T) -> T {
     #[cfg(feature = "std")]
-    {
-        /// Puts the flag back as it was when dropped.
-        struct Restore(bool);
-        impl Drop for Restore {
-            fn drop(&mut self) {
-                let was = self.0;
-                let _ = BUILDING_A_STYLE_TWIN.try_with(|flag| flag.set(was));
-            }
-        }
-        let _restore = Restore(
-            BUILDING_A_STYLE_TWIN
-                .try_with(|flag| flag.replace(true))
-                .unwrap_or(false),
-        );
-        build()
-    }
-    #[cfg(not(feature = "std"))]
-    {
-        build()
+    let _restore = StyleTwinFlag(
+        BUILDING_A_STYLE_TWIN
+            .try_with(|flag| flag.replace(true))
+            .unwrap_or(false),
+    );
+    build()
+}
+
+/// Puts [`BUILDING_A_STYLE_TWIN`] back to what it was (the field) when
+/// dropped - the guard [`style_only_build`] holds.
+#[cfg(feature = "std")]
+struct StyleTwinFlag(bool);
+
+#[cfg(feature = "std")]
+impl Drop for StyleTwinFlag {
+    fn drop(&mut self) {
+        let was = self.0;
+        let _ = BUILDING_A_STYLE_TWIN.try_with(|flag| flag.set(was));
     }
 }
 
