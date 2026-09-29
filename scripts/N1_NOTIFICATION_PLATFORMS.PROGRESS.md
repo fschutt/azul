@@ -24,11 +24,14 @@ Branch `wt/n1-notification-platforms`, based on `0a326afe5`. House rules:
   via one cached advapi32 (`write_registry_value`, `read_registry_string`); dnd.rs
   `ensure_ole_initialized` made `pub(crate)`; Cargo feature `Win32_UI_Notifications`.
 
+- D. Android permission request on the UI thread (item 2): RED `2fb54ca99`, fix = the commit
+  after it. `AzulPermissions.request` (Java, `runOnUiThread`, a refused start reports a
+  denial), `permission/android.rs::request_permission` calls it via `find_app_class`. RED is a
+  source invariant: new `dll/src/desktop/notifications/platform_invariants.rs` (reuses
+  `loop_wakeup_invariants::top_level_fn_body`, made `pub(crate)`).
+
 ## IN PROGRESS
 
-- D. Android permission request on the UI thread (item 2): `AzulPermissions.request` (Java,
-  `runOnUiThread`), `permission/android.rs::request_permission` calls it through the activity's
-  class loader. RED = a source-invariant test (no headless observer exists).
 - E. Linux (item 6): async `Notify` (`dbus_connection_send_with_reply` + pending-call poll,
   `wire::FreedesktopPosts` bookkeeping), `NameOwnerChanged` watch (server restart ->
   Dismissed events), Flatpak portal transport over the same libdbus connection
