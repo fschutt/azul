@@ -3806,4 +3806,36 @@ mod autotest_generated {
             tc::a11y_outline(&poster_of(UiTheme::Flora))
         );
     }
+
+    /// R5: the widget's STRUCTURE (display, overflow, ...) is its base -
+    /// declared once, outside every `@theme(<name>)` block, so it holds under
+    /// flat, flora and any theme to come: the widget's own nodes, and the
+    /// poster an unpinned widget's render pass draws.
+    #[test]
+    fn a_video_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::{
+            theme_blocks::checks::{under, BOTH},
+            theme_checks::assert_structure_is_shared,
+        };
+        for t in BOTH {
+            let dom = under(t, || VideoWidget::create(VideoConfig::default()).dom());
+            assert_structure_is_shared(&format!("video, built for {}", t.name()), &dom, &[]);
+
+            let dataset = dom.root.get_dataset().cloned().expect("the widget state");
+            let ret = under(t, || {
+                with_virtual_view_info(320.0, 180.0, |info| {
+                    video_widget_render(dataset.clone(), info)
+                })
+            });
+            let poster = match ret.dom {
+                OptionDom::Some(d) => d,
+                OptionDom::None => panic!("no frame yet must still render the poster"),
+            };
+            assert_structure_is_shared(
+                &format!("video poster, built for {}", t.name()),
+                &poster,
+                &[],
+            );
+        }
+    }
 }

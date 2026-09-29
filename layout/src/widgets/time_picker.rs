@@ -3997,3 +3997,38 @@ mod theme_tests {
         assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora_dom));
     }
 }
+
+/// R5: a time picker's STRUCTURE (display, flex, align-self, cursor,
+/// user-select, ...) is its base - declared once, outside every
+/// `@theme(<name>)` block, so it holds under flat, flora and any theme to
+/// come. What a theme owns is its skin: paint and metrics.
+#[cfg(test)]
+mod structure_tests {
+    use super::TimePicker;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_time_picker_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            let pickers = [
+                ("24-hour", TimePicker::create(9, 30)),
+                ("12-hour, AM", TimePicker::create(9, 30).with_24h(false)),
+                (
+                    "12-hour, PM",
+                    TimePicker::create(9, 30).with_24h(false).with_pm(true),
+                ),
+            ];
+            for (what, picker) in pickers {
+                let dom = under(t, move || picker.dom());
+                assert_structure_is_shared(
+                    &format!("{what} time picker, built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
+}

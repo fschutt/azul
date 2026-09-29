@@ -2512,3 +2512,47 @@ mod theme_tests {
         }
     }
 }
+
+/// R5: a toast's STRUCTURE (display, flex, position, cursor, user-select,
+/// ...) is its base - declared once, outside every `@theme(<name>)` block,
+/// so it holds under flat, flora and any theme to come. What a theme owns
+/// is its skin: paint and metrics.
+#[cfg(test)]
+mod structure_tests {
+    use azul_css::AzString;
+
+    use super::{Toast, ToastKind};
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_toast_declares_its_structure_once_for_every_theme() {
+        let kinds = [
+            ToastKind::Info,
+            ToastKind::Success,
+            ToastKind::Warning,
+            ToastKind::Danger,
+        ];
+        for t in BOTH {
+            for kind in kinds {
+                for dismissible in [true, false] {
+                    let dom = under(t, || {
+                        Toast::with_kind(AzString::from("Saved"), kind)
+                            .with_dismissible(dismissible)
+                            .dom()
+                    });
+                    assert_structure_is_shared(
+                        &alloc::format!(
+                            "{kind:?} toast (dismissible: {dismissible}), built for {}",
+                            t.name()
+                        ),
+                        &dom,
+                        &[],
+                    );
+                }
+            }
+        }
+    }
+}

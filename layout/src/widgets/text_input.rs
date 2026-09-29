@@ -5041,3 +5041,49 @@ mod autotest_generated {
         }
     }
 }
+
+/// R5: a text field's STRUCTURE (display, flex, overflow, cursor, ...) is
+/// its base - declared once, outside every `@theme(<name>)` block, so it
+/// holds under flat, flora and any theme to come. What a theme owns is its
+/// skin: paint and metrics.
+#[cfg(test)]
+mod structure_tests {
+    use azul_css::AzString;
+
+    use super::{TextInput, TextInputKind};
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_text_input_declares_its_structure_once_for_every_theme() {
+        let kinds = [
+            TextInputKind::Text,
+            TextInputKind::Password,
+            TextInputKind::Search,
+            TextInputKind::Email,
+            TextInputKind::Tel,
+            TextInputKind::Url,
+        ];
+        for t in BOTH {
+            for kind in kinds {
+                // Empty and filled: a search field shows its clear button
+                // only while it holds text, an e-mail field is invalid with
+                // "abc".
+                for text in ["", "abc"] {
+                    let dom = under(t, || {
+                        TextInput::create_with_kind(kind)
+                            .with_text(AzString::from(text))
+                            .dom()
+                    });
+                    assert_structure_is_shared(
+                        &format!("{kind:?} field holding {text:?}, built for {}", t.name()),
+                        &dom,
+                        &[],
+                    );
+                }
+            }
+        }
+    }
+}

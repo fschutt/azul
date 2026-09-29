@@ -4337,3 +4337,41 @@ mod theme_tests {
         assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora_dom));
     }
 }
+
+/// R5: a stepper's STRUCTURE (display, flex, box-sizing, cursor,
+/// user-select, ...) is its base - declared once, outside every
+/// `@theme(<name>)` block, so it holds under flat, flora and any theme to
+/// come. What a theme owns is its skin: paint and metrics.
+#[cfg(test)]
+mod structure_tests {
+    use azul_css::{AzString, StringVec};
+
+    use super::Stepper;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_stepper_declares_its_structure_once_for_every_theme() {
+        let labels = || {
+            StringVec::from_vec(vec![
+                AzString::from("Cart"),
+                AzString::from("Address"),
+                AzString::from("Pay"),
+            ])
+        };
+        for t in BOTH {
+            // Each step current in turn: reached and upcoming circles and
+            // labels; accent, muted and hidden connectors.
+            for current in 0..3 {
+                let dom = under(t, || Stepper::create(labels()).with_current_step(current).dom());
+                assert_structure_is_shared(
+                    &format!("stepper at step {current}, built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
+}

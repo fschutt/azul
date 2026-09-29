@@ -4558,4 +4558,42 @@ mod theme_tests {
             }
         }
     }
+
+    /// R5: the bar's STRUCTURE (display, flex, box-sizing, cursor,
+    /// user-select, white-space, overflow) is its base - declared once,
+    /// outside every `@theme(<name>)` block, so it holds under flat, flora
+    /// and any theme to come. What a theme owns is its paint.
+    #[test]
+    fn a_titlebar_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::{
+            theme_blocks::checks::{under, BOTH},
+            theme_checks::assert_structure_is_shared,
+        };
+        for t in BOTH {
+            for (name, bar) in bars() {
+                // Every shape, built unpinned for the app theme `t`.
+                let built = under(t, || {
+                    let mut out = vec![(String::from("title-only"), bar.clone().dom())];
+                    for side in [TitlebarButtonSide::Left, TitlebarButtonSide::Right] {
+                        out.push((
+                            alloc::format!("csd {side:?}"),
+                            bar.clone().dom_with_buttons(&ALL, side),
+                        ));
+                        out.push((
+                            alloc::format!("controls-only {side:?}"),
+                            bar.clone().dom_controls_only(&ALL, side),
+                        ));
+                    }
+                    out
+                });
+                for (shape, dom) in &built {
+                    assert_structure_is_shared(
+                        &alloc::format!("{name} titlebar, {shape}, built for {}", t.name()),
+                        dom,
+                        &[],
+                    );
+                }
+            }
+        }
+    }
 }

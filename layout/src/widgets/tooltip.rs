@@ -1711,3 +1711,29 @@ mod theme_tests {
         );
     }
 }
+
+/// R5: a tooltip's STRUCTURE (display, position, white-space, ...) is its
+/// base - declared once, outside every `@theme(<name>)` block, so it holds
+/// under flat, flora and any theme to come. What a theme owns is its skin:
+/// paint and metrics.
+#[cfg(test)]
+mod structure_tests {
+    use azul_core::dom::Dom;
+    use azul_css::AzString;
+
+    use super::Tooltip;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_tooltip_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            let dom = under(t, || {
+                Tooltip::new(Dom::create_div(), AzString::from("Save the file")).dom()
+            });
+            assert_structure_is_shared(&format!("tooltip, built for {}", t.name()), &dom, &[]);
+        }
+    }
+}

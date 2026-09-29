@@ -3773,3 +3773,61 @@ mod theme_tests {
         );
     }
 }
+
+/// R5: the tab bar's and the panel's STRUCTURE (display, flex, box-sizing,
+/// cursor, ...) is their base - declared once, outside every
+/// `@theme(<name>)` block, so it holds under flat, flora and any theme to
+/// come. What a theme owns is its skin: paint and metrics.
+#[cfg(test)]
+mod structure_tests {
+    use azul_core::dom::Dom;
+    use azul_css::{AzString, StringVec};
+
+    use super::{TabContent, TabHeader};
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    fn labels() -> StringVec {
+        StringVec::from_vec(vec![
+            AzString::from("General"),
+            AzString::from("Colours"),
+            AzString::from("Fonts"),
+            AzString::from("Layout"),
+            AzString::from("About"),
+        ])
+    }
+
+    #[test]
+    fn a_tab_bar_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            // Each tab active in turn: the active tab, the two seam tabs
+            // beside it and the other inactive tabs.
+            for active in 0..5 {
+                let dom = under(t, || TabHeader::create(labels()).with_active_tab(active).dom());
+                assert_structure_is_shared(
+                    &format!("tab bar (tab {active} active), built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_tab_panel_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            for padding in [true, false] {
+                let dom = under(t, || {
+                    TabContent::new(Dom::create_div()).with_padding(padding).dom()
+                });
+                assert_structure_is_shared(
+                    &format!("tab panel (padded: {padding}), built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
+}

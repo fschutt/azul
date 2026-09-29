@@ -2799,3 +2799,43 @@ mod theme_tests {
         );
     }
 }
+
+/// R5: a tree's STRUCTURE (display, flex, overflow, cursor, ...) is its base
+/// - declared once, outside every `@theme(<name>)` block, so it holds under
+/// flat, flora and any theme to come. What a theme owns is its skin: paint
+/// and metrics.
+#[cfg(test)]
+mod structure_tests {
+    use super::{TreeView, TreeViewNode};
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    /// Every row a tree draws: an open parent (its children container), a
+    /// closed one, leaves, a selected leaf and a selected parent.
+    fn tree() -> TreeViewNode {
+        TreeViewNode::new("Library")
+            .with_expanded(true)
+            .with_child(
+                TreeViewNode::new("Books")
+                    .with_expanded(true)
+                    .with_child(TreeViewNode::new("Dune").with_selected(true))
+                    .with_child(TreeViewNode::new("Emma")),
+            )
+            .with_child(
+                TreeViewNode::new("Music")
+                    .with_selected(true)
+                    .with_child(TreeViewNode::new("Bach")),
+            )
+            .with_child(TreeViewNode::new("Notes"))
+    }
+
+    #[test]
+    fn a_tree_view_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            let dom = under(t, || TreeView::new(tree()).dom());
+            assert_structure_is_shared(&format!("tree view, built for {}", t.name()), &dom, &[]);
+        }
+    }
+}

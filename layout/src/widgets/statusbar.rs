@@ -2266,4 +2266,48 @@ mod flora_tests {
             assert!(blocks.is_empty(), "{theme:?}: theme blocks at {blocks:?}");
         }
     }
+
+    /// R5: the bar's STRUCTURE (display, flex, box-sizing, position,
+    /// overflow, cursor, user-select, white-space) is its base - declared
+    /// once, outside every `@theme(<name>)` block, so it holds under flat,
+    /// flora and any theme to come. What a theme owns is its paint.
+    #[test]
+    fn a_status_bar_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::{
+            theme_blocks::checks::{under, BOTH},
+            theme_checks::assert_structure_is_shared,
+        };
+        // Every part: an inert, a live (marked) and an icon segment, the
+        // view switcher with each view active in turn, the zoom cluster with
+        // and without its label.
+        let bar = |active_view: usize, show_label: bool| {
+            let mut zoom = StatusBarZoom::office_2013();
+            zoom.show_label = show_label;
+            StatusBar::new(StatusBarSegmentVec::from_vec(vec![
+                StatusBarSegment::new(AzString::from("PAGE 1 OF 1")),
+                StatusBarSegment::new(AzString::from("0 WORDS"))
+                    .with_marker(AzString::from("words")),
+                StatusBarSegment::new(AzString::from("ENGLISH"))
+                    .with_icon(AzString::from("spellcheck")),
+            ]))
+            .with_views(StatusBarViewSwitcher::office_2013().with_active_view(active_view))
+            .with_zoom(zoom)
+        };
+        for t in BOTH {
+            for active_view in 0..3 {
+                for show_label in [true, false] {
+                    let dom = under(t, || bar(active_view, show_label).dom());
+                    assert_structure_is_shared(
+                        &format!(
+                            "status bar (view {active_view} active, zoom label: {show_label}), \
+                             built for {}",
+                            t.name()
+                        ),
+                        &dom,
+                        &[],
+                    );
+                }
+            }
+        }
+    }
 }

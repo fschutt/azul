@@ -3033,3 +3033,39 @@ mod autotest_generated {
         }
     }
 }
+
+/// R5: a text area's STRUCTURE (display, flex, overflow, cursor, ...) is its
+/// base - declared once, outside every `@theme(<name>)` block, so it holds
+/// under flat, flora and any theme to come.
+#[cfg(test)]
+mod structure_tests {
+    use azul_css::AzString;
+
+    use super::TextArea;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_text_area_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            let areas = [
+                ("empty", TextArea::create()),
+                ("with text", TextArea::create().with_text(AzString::from("Dear diary"))),
+                (
+                    "with a placeholder",
+                    TextArea::create().with_placeholder(AzString::from("Notes")),
+                ),
+            ];
+            for (what, area) in areas {
+                let dom = under(t, move || area.dom());
+                assert_structure_is_shared(
+                    &format!("text area {what}, built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
+}

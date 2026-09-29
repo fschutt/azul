@@ -2186,3 +2186,35 @@ mod autotest_generated {
         );
     }
 }
+
+/// R5: a switch's STRUCTURE (display, flex, align-self, cursor, ...) is its
+/// base - declared once, outside every `@theme(<name>)` block, so it holds
+/// under flat, flora and any theme to come.
+#[cfg(test)]
+mod structure_tests {
+    use azul_css::AzString;
+
+    use super::Switch;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_switch_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            for checked in [false, true] {
+                let dom = under(t, || {
+                    Switch::create(checked)
+                        .with_accessibility_name(AzString::from("Wi-Fi"))
+                        .dom()
+                });
+                assert_structure_is_shared(
+                    &format!("switch (checked: {checked}), built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
+}
