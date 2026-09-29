@@ -1365,3 +1365,219 @@ mod autotest_generated {
         );
     }
 }
+
+/// The theme option: which look a breadcrumb renders in, and what each look
+/// is.
+#[cfg(test)]
+mod theme_tests {
+    use azul_css::{dynamic_selector::PseudoStateType, props::style::StyleTextDecoration};
+
+    use super::*;
+    use crate::widgets::{
+        theme_probe,
+        themes::{flora, OptionUiTheme, UiTheme},
+    };
+
+    fn trail(theme: UiTheme) -> Dom {
+        Breadcrumb::create(StringVec::from_vec(vec![
+            AzString::from_const_str("Home"),
+            AzString::from_const_str("Docs"),
+            AzString::from_const_str("Page"),
+        ]))
+        .with_theme(theme)
+        .dom()
+    }
+
+    fn declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, c)| CssPropertyWithConditions {
+                property: p.clone(),
+                apply_if: c.clone(),
+            })
+            .collect()
+    }
+
+    fn shadow_colour(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BoxShadowTop(v)
+            | CssProperty::BoxShadowRight(v)
+            | CssProperty::BoxShadowBottom(v)
+            | CssProperty::BoxShadowLeft(v) => v.get_property().map(|s| s.as_ref().color),
+            _ => None,
+        }
+    }
+
+    /// The `(light, dark)` value of the declarations `pick` finds in `state`.
+    fn in_state<T>(
+        node: &Dom,
+        state: PseudoStateType,
+        pick: impl Fn(&CssProperty) -> Option<T>,
+    ) -> (Option<T>, Option<T>) {
+        let mut light = None;
+        let mut dark = None;
+        for d in declarations(node) {
+            if d.pseudo_state_conditions() != [state] {
+                continue;
+            }
+            let Some(v) = pick(&d.property) else {
+                continue;
+            };
+            if d.is_dark_twin() {
+                dark = Some(v);
+            } else {
+                light = Some(v);
+            }
+        }
+        (light, dark)
+    }
+
+    fn ink(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn underline(p: &CssProperty) -> Option<StyleTextDecoration> {
+        match p {
+            CssProperty::TextDecoration(v) => v.get_property().copied(),
+            _ => None,
+        }
+    }
+
+    fn last<T>(props: &[CssProperty], f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
+        props.iter().rev().find_map(f)
+    }
+
+    fn with_class<'a>(dom: &'a Dom, name: &str) -> Vec<&'a Dom> {
+        dom.children
+            .as_ref()
+            .iter()
+            .filter(|c| {
+                c.root
+                    .get_ids_and_classes()
+                    .as_ref()
+                    .iter()
+                    .any(|k| matches!(k, Class(s) if s.as_str() == name))
+            })
+            .collect()
+    }
+
+    fn text_of(node: &Dom) -> Option<String> {
+        node.children.as_ref().iter().find_map(|c| match c.root.get_node_type() {
+            azul_core::dom::NodeType::Text(t) => Some(t.as_str().to_string()),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn a_breadcrumb_without_a_theme_renders_flat() {
+        let plain = Breadcrumb::create(StringVec::from_vec(vec![AzString::from_const_str("A")]));
+        assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+        assert_eq!(
+            theme_probe::unconditional(&plain.clone().dom()),
+            theme_probe::unconditional(&plain.with_theme(UiTheme::Flat).dom())
+        );
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let labels = || StringVec::from_vec(vec![AzString::from_const_str("A")]);
+        let mut set = Breadcrumb::create(labels());
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(Breadcrumb::create(labels()).with_theme(UiTheme::Flora), set);
+    }
+
+    #[test]
+    fn a_flat_crumb_shows_a_focus_ring_and_underlines_under_the_pointer() {
+        let dom = trail(UiTheme::Flat);
+        for crumb in with_class(&dom, "__azul-native-breadcrumb-item") {
+            let (light, dark) = in_state(crumb, PseudoStateType::Focus, shadow_colour);
+            assert!(light.is_some() && dark.is_some(), "a keyboard stop with no ring");
+            assert_eq!(
+                in_state(crumb, PseudoStateType::Hover, underline),
+                (
+                    Some(StyleTextDecoration::Underline),
+                    Some(StyleTextDecoration::Underline)
+                ),
+                "a link underlines under the pointer, by day and by night"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_crumb_is_written_in_brass_ink() {
+        let dom = trail(UiTheme::Flora);
+        let crumbs = with_class(&dom, "__azul-native-breadcrumb-item");
+        assert_eq!(crumbs.len(), 2);
+        for crumb in crumbs {
+            assert_eq!(
+                last(&theme_probe::unconditional(crumb), ink),
+                Some(flora::LIGHT_QT),
+                "flora.css: links are written in brass ink (--fl-qt)"
+            );
+            assert_eq!(last(&theme_probe::dark(crumb), ink), Some(flora::DARK_QT));
+            assert_eq!(
+                in_state(crumb, PseudoStateType::Hover, ink),
+                (Some(flora::LIGHT_QT2), Some(flora::DARK_QT2)),
+                "--color-accent-hover"
+            );
+            assert_eq!(
+                in_state(crumb, PseudoStateType::Focus, shadow_colour),
+                (Some(flora::LIGHT_ACC), Some(flora::DARK_GLOW)),
+                "flora's focus colour"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_trail_ends_on_the_page_in_ink_and_is_divided_by_a_quiet_chevron() {
+        let dom = trail(UiTheme::Flora);
+        let current = with_class(&dom, "__azul-native-breadcrumb-current");
+        assert_eq!(current.len(), 1);
+        assert_eq!(
+            last(&theme_probe::unconditional(current[0]), ink),
+            Some(flora::LIGHT_INK)
+        );
+        assert_eq!(last(&theme_probe::dark(current[0]), ink), Some(flora::DARK_INK));
+        for sep in with_class(&dom, "__azul-native-breadcrumb-separator") {
+            assert_eq!(text_of(sep).as_deref(), Some("\u{203A}"), "a chevron, not a slash");
+            assert_eq!(
+                last(&theme_probe::unconditional(sep), ink),
+                Some(flora::LIGHT_SOFT2)
+            );
+            assert_eq!(last(&theme_probe::dark(sep), ink), Some(flora::DARK_SOFT2));
+        }
+    }
+
+    #[test]
+    fn a_flora_trail_keeps_the_crumb_separator_alternation_the_click_handler_reads() {
+        let dom = trail(UiTheme::Flora);
+        let kinds: Vec<&str> = dom
+            .children
+            .as_ref()
+            .iter()
+            .map(|c| {
+                if c.root.get_callbacks().as_ref().is_empty() {
+                    "inert"
+                } else {
+                    "crumb"
+                }
+            })
+            .collect();
+        assert_eq!(kinds, ["crumb", "inert", "crumb", "inert", "inert"]);
+    }
+
+    #[test]
+    fn a_flora_breadcrumb_carries_the_flora_theme_marker() {
+        let dom = trail(UiTheme::Flora);
+        let classes = dom.root.get_ids_and_classes();
+        assert!(classes
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == "__azul-theme-flora")));
+    }
+}

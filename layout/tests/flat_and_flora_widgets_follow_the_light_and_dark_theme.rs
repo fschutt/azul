@@ -475,3 +475,25 @@ fn frames_hold_readable_text_in_both_themes_in_both_looks() {
         .collect();
     assert_follow_the_theme(widgets);
 }
+
+#[test]
+fn breadcrumbs_read_in_both_themes_in_both_looks() {
+    use azul_css::StringVec;
+    use azul_layout::widgets::breadcrumb::Breadcrumb;
+    let widgets = LOOKS
+        .iter()
+        .map(|(look, theme)| {
+            (
+                format!("{look} breadcrumb"),
+                Breadcrumb::create(StringVec::from_vec(vec![
+                    AzString::from("Home"),
+                    AzString::from("Docs"),
+                    AzString::from("Page"),
+                ]))
+                .with_theme(*theme)
+                .dom(),
+            )
+        })
+        .collect();
+    assert_follow_the_theme(widgets);
+}
