@@ -16,11 +16,16 @@ set them by field name (F1 pads every variant in the bindings).
 - fbb4abd56 feat(css): lisp, racket, powershell, smalltalk
 - bc23d95ba fix(css): perl, red, vb6, cobol, algol68 say why (precise dom_limitation)
 
+- 8538420dd test(css): drop the stale dom_app goldens
+- 248cd159e fix(css): Ada / FreeBASIC apps import AzWindowCreateOptions_create as exported
+- 1207452de fix(css): red / vb6 limitations accurate after F1
+- report: scripts/X1B_DOM_EXPORT_PRINTERS_2026_09_29.md
+
 ## IN PROGRESS
-- review pass (read every new format string once more), report
+(none)
 
 ## NEXT
-- report `scripts/X1B_DOM_EXPORT_PRINTERS_2026_09_29.md`
+- parent: compile, bless goldens (report section 8)
 
 ## Open questions
 - X1a adds the same `is_dom_item` / `one_line` / `registration_note` to dom.rs and the same
