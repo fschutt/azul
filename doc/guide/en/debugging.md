@@ -43,9 +43,8 @@ curl -s -X POST http://localhost:8765/ -d '{"op":"get_dom_tree"}'
 Every flag is read once at process start. Unset means off — **except `AZ_LOG`, which is ON by default** (see below). All are independent and can be combined.
 
 - `AZ_LOG=<level>`. Controls Azul's built-in stderr logger, **enabled by default**. Azul installs a logger automatically at `App::create` so the platform layer (windowing, event loop, layout, device backends) is never silent — if your app exits unexpectedly, the reason is on stderr. Levels: `off`/`0`/`false` silences it entirely; `error`, `warn`, `info`, `debug` (the default), `trace` (everything, including per-frame). It honors `NO_COLOR` and only colorizes a TTY. If your host already installs a logger (Python's `pyo3-log`, Android's `android_logger`, your own `env_logger`), Azul's logger steps aside and does not override it.
-- `AZ_DEBUG=<port>`. Binds the HTTP debug server on `127.0.0.1:<port>`. A bind failure exits the process.
+- `AZ_DEBUG=<port>`. Binds the HTTP debug server on `127.0.0.1:<port>`. A bind failure exits the process. A port the app sets itself (`AppConfig::remote_control.debug_port`) takes precedence over the variable.
 - `AZ_BACKEND=<mode>`. One of `auto`, `gpu`, `cpu`, or `headless`. Resolves the rendering backend. `headless` skips the OS window and is required by the E2E runner. Default `auto`.
-- `AZUL_HEADLESS=1`. Legacy alias for `AZ_BACKEND=headless`.
 - `AZ_WINDOW=<x11|wayland|auto>`. The windowing system, a separate axis from the renderer: on Linux it overrides the `WAYLAND_DISPLAY`/`DISPLAY` detection (`AZ_BACKEND=x11|wayland` is the older spelling). On macOS, `x11` opens X11 windows through XQuartz (the `x11-macos` feature, part of `build-dll`), see [Reproducing X11 bugs on macOS](#reproducing-x11-bugs-on-macos-xquartz).
 - `AZ_RECORD=<path>`. Appends every internal log message to `<path>` as plain text.
 - `AZ_E2E=<path>`. Reads JSON tests from `<path>`, runs them, exits `0` (all pass) or `1` (any fail). See [End-to-End Testing](debugging/e2e-testing.md).
@@ -55,7 +54,7 @@ Every flag is read once at process start. Unset means off — **except `AZ_LOG`,
 - `AZ_THEME=<theme>`. The app theme (`flat`, `flora`, a spin-off such as `xyz:pink`), outranking the app's own `AppConfig::with_theme` / `CallbackInfo::set_theme`. `AZ_THEME=light|dark` is the deprecated spelling of `AZ_MODE` and still pins the mode for one release, with a warning at startup.
 - `RUST_LOG=<filter>`. Standard `log` crate filter (env_logger syntax).
 
-`AZ_DEBUG` and `AZUL_HEADLESS` compose: a CI run with `AZUL_HEADLESS=1 AZ_DEBUG=8765 ./my_app` boots a windowless process you can drive over HTTP. This is the supported configuration for screenshot diffing in CI.
+`AZ_DEBUG` and `AZ_BACKEND=headless` compose: a CI run with `AZ_BACKEND=headless AZ_DEBUG=8765 ./my_app` boots a windowless process you can drive over HTTP. This is the supported configuration for screenshot diffing in CI.
 
 ## The HTTP debug server
 

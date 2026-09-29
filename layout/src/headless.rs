@@ -15,7 +15,7 @@
 //! `CpuHitTester` instead of WebRender's `AsyncHitTester`, and present/swap is a
 //! no-op.
 //!
-//! Activated with `AZUL_HEADLESS=1` (optionally `AZ_DEBUG=1` for the debug server).
+//! Activated with `AZ_BACKEND=headless` (optionally `AZ_DEBUG=<port>` for the debug server).
 
 use std::collections::BTreeMap;
 

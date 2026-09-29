@@ -281,7 +281,7 @@ Default request timeout is 30 s; tests that take longer must either pass `"timeo
 
 Some steps (`resize`, `set_node_text`, `delete_node`) require a relayout pass to complete before the next step can read the resulting state. The runner detects these and yields back to the timer; the test resumes on the next tick. From the test author's perspective this is invisible: write `resize` followed by `assert_layout` and the runner handles the suspension.
 
-This is why `AZ_E2E` requires the application to reach the event loop. The test cannot make progress while the timer is not running. With `AZ_BACKEND=headless` (or `AZUL_HEADLESS=1`) the event loop runs without an OS window, which is the standard CI configuration.
+This is why `AZ_E2E` requires the application to reach the event loop. The test cannot make progress while the timer is not running. With `AZ_BACKEND=headless` the event loop runs without an OS window, which is the standard CI configuration.
 
 ## CI integration
 

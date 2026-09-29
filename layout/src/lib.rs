@@ -498,7 +498,7 @@ pub mod request;
 
 /// Headless backend for CPU-only rendering without a display server.
 ///
-/// Used with `AZUL_HEADLESS=1` for E2E testing, CI, and screenshot capture.
+/// Used with `AZ_BACKEND=headless` for E2E testing, CI, and screenshot capture.
 #[cfg(feature = "text_layout")]
 pub mod headless;
 // Re-export allsorts types needed by printpdf
