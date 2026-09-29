@@ -745,6 +745,8 @@ fn compress_debugger_assets() {
     let debugger_dir = Path::new(&manifest_dir).join("src/desktop/shell2/common/debugger");
 
     let assets = &[
+        // AzBuilder's project tree + editor (B4).
+        ("debugger-project.js", "debugger-project.js.br"),
         ("debugger.css", "debugger.css.br"),
         ("debugger.js", "debugger.js.br"),
         ("debugger-dnd.js", "debugger-dnd.js.br"),

@@ -309,6 +309,20 @@ fn handle_http_connection(
         return;
     }
 
+    // ── Route: GET /debugger-project.js → AzBuilder's project tree + editor ──
+    if method == "GET" && path == "/debugger-project.js" {
+        static DEBUGGER_PROJECT_JS_BR: &[u8] =
+            include_bytes!(concat!(env!("OUT_DIR"), "/debugger-project.js.br"));
+        let header = format!(
+            "HTTP/1.0 200 OK\r\nContent-Type: application/javascript; \
+             charset=utf-8\r\nContent-Encoding: br\r\nContent-Length: {}\r\nConnection: \
+             close\r\n\r\n",
+            DEBUGGER_PROJECT_JS_BR.len()
+        );
+        serve_response(stream, &header, DEBUGGER_PROJECT_JS_BR);
+        return;
+    }
+
     // Compressed debugger assets (gzip, built by build.rs)
     // Browsers decompress transparently via Content-Encoding: br.
     static DEBUGGER_CSS_BR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/debugger.css.br"));

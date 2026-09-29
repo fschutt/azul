@@ -689,6 +689,12 @@ async function main() {
             await waitFor(cdp, `!!document.querySelector('.azp-tab.active[data-path="styles/app.css"]')`);
             fs.writeFileSync(shot, await cdp.screenshot());
             console.log('     screenshot: ' + shot);
+            // ...and the Inspector: Document tree, palette, the Project section.
+            await cdp.eval(`app.ui.switchView('inspector'); __t.row('components/user/card.json', '#azp-mini-tree').click(); true`);
+            await new Promise((res) => setTimeout(res, 300));
+            const shot2 = shot.replace(/(\.png)?$/, '-inspector.png');
+            fs.writeFileSync(shot2, await cdp.screenshot());
+            console.log('     screenshot: ' + shot2);
         }
 
         // 15. A reload keeps the project the server has open.

@@ -689,6 +689,9 @@
         }
         updateToolbar();
         showLiveDetail(uid);
+        // B4: the project viewer (debugger-project.js) follows the selection
+        // (an instance selects its component file).
+        document.dispatchEvent(new CustomEvent('azb:select', { detail: { uid: uid } }));
     }
 
     /**
@@ -1158,5 +1161,7 @@
         refresh: function () { return app.handlers.refreshSidebar(); },
         renderPalette: renderPalette,
         send: send,
+        // B4: the project viewer selects a component file's instance.
+        select: select,
     };
 })(typeof window !== 'undefined' ? window : globalThis);
