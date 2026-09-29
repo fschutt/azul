@@ -179,7 +179,7 @@ are an error, logged and dropped.
 A THEME and a MODE are two settings. The theme is the app's look (`flat`,
 `flora`, ...). The mode is light / dark / system: by default ("system") every
 window follows the desktop's light or dark, and
-`AppConfig::with_mode(OptionWindowTheme::Some(WindowTheme::DarkMode))` at
+`AppConfig::with_mode(OptionDarkLightMode::Some(DarkLightMode::Dark))` at
 startup or `CallbackInfo::set_mode(..)` at runtime pins every window of the
 app to one (`None` follows the desktop again). `CallbackInfo::get_mode` reads
 that choice back and `CallbackInfo::get_resolved_mode` the light or dark it

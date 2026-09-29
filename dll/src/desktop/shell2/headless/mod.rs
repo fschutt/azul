@@ -2059,7 +2059,7 @@ impl HeadlessWindow {
     /// happened to differ), or the app pins its mode
     /// (`CallbackInfo::set_mode`) - then the desktop's new light / dark is
     /// only remembered, for when the app follows the desktop again.
-    pub fn set_system_theme(&mut self, theme: azul_core::window::WindowTheme) -> bool {
+    pub fn set_system_theme(&mut self, theme: azul_core::window::DarkLightMode) -> bool {
         let Some(theme) = self.common.adopt_desktop_theme(theme) else {
             return false;
         };

@@ -2832,9 +2832,9 @@ pub enum IncrementalRelayout {
 /// is a creation seed that lasts until the desktop next changes, as before.
 #[must_use]
 pub fn initial_window_theme(
-    requested: azul_core::window::OptionWindowTheme,
-    probed: azul_css::system::Theme,
-) -> azul_core::window::WindowTheme {
+    requested: azul_core::window::OptionDarkLightMode,
+    probed: azul_css::system::DarkLightMode,
+) -> azul_core::window::DarkLightMode {
     initial_window_theme_for(azul_layout::window::app_mode(), requested, probed)
 }
 
@@ -2842,24 +2842,15 @@ pub fn initial_window_theme(
 /// from the app-global one.
 #[must_use]
 pub fn initial_window_theme_for(
-    app: azul_core::window::OptionWindowTheme,
-    requested: azul_core::window::OptionWindowTheme,
-    probed: azul_css::system::Theme,
-) -> azul_core::window::WindowTheme {
+    app: azul_core::window::OptionDarkLightMode,
+    requested: azul_core::window::OptionDarkLightMode,
+    probed: azul_css::system::DarkLightMode,
+) -> azul_core::window::DarkLightMode {
     let own = match requested {
-        azul_core::window::OptionWindowTheme::Some(theme) => theme,
-        azul_core::window::OptionWindowTheme::None => desktop_window_theme(probed),
+        azul_core::window::OptionDarkLightMode::Some(theme) => theme,
+        azul_core::window::OptionDarkLightMode::None => probed,
     };
     azul_layout::window::resolve_window_mode(app, own)
-}
-
-/// The desktop's `SystemStyle::theme` as a window theme.
-#[must_use]
-pub const fn desktop_window_theme(theme: azul_css::system::Theme) -> azul_core::window::WindowTheme {
-    match theme {
-        azul_css::system::Theme::Dark => azul_core::window::WindowTheme::DarkMode,
-        azul_css::system::Theme::Light => azul_core::window::WindowTheme::LightMode,
-    }
 }
 
 pub struct CommonWindowState {
@@ -2984,7 +2975,7 @@ pub struct CommonWindowState {
     /// `SystemStyle::theme`; written only through
     /// [`Self::adopt_desktop_theme`], which every shell's appearance probe
     /// reports through.
-    desktop_theme: azul_core::window::WindowTheme,
+    desktop_theme: azul_core::window::DarkLightMode,
     /// The clear colour WebRender was last told
     /// ([`Self::sync_renderer_clear_color`]); `None` before the first frame.
     renderer_clear_color: Option<azul_css::props::basic::ColorU>,
@@ -3251,7 +3242,7 @@ impl CommonWindowState {
     #[must_use]
     pub fn new(
         current_window_state: FullWindowState,
-        requested_theme: azul_core::window::OptionWindowTheme,
+        requested_theme: azul_core::window::OptionDarkLightMode,
         background_color_light: azul_css::props::basic::OptionColorU,
         background_color_dark: azul_css::props::basic::OptionColorU,
         fc_cache: Arc<FcFontCache>,
@@ -3277,7 +3268,7 @@ impl CommonWindowState {
         );
         let mut current_window_state = current_window_state;
         current_window_state.theme = initial_window_theme(requested_theme, system_style.theme);
-        let desktop_theme = desktop_window_theme(system_style.theme);
+        let desktop_theme = system_style.theme;
         Self {
             layout_window: None,
             current_window_state,
@@ -3311,7 +3302,7 @@ impl CommonWindowState {
     /// The desktop's light / dark as the platform last reported it (see the
     /// field). What the window SHOWS is `current_window_state().theme`.
     #[must_use]
-    pub const fn desktop_theme(&self) -> azul_core::window::WindowTheme {
+    pub const fn desktop_theme(&self) -> azul_core::window::DarkLightMode {
         self.desktop_theme
     }
 
@@ -3319,7 +3310,7 @@ impl CommonWindowState {
     /// `LayoutWindow` mirror, or - before it has one - the app-global
     /// choice.
     #[must_use]
-    pub fn app_mode(&self) -> azul_core::window::OptionWindowTheme {
+    pub fn app_mode(&self) -> azul_core::window::OptionDarkLightMode {
         self.layout_window
             .as_ref()
             .map_or_else(azul_layout::window::app_mode, |lw| lw.mode)
@@ -3329,7 +3320,7 @@ impl CommonWindowState {
     /// app's mode and the `AZ_MODE` pin
     /// (`azul_layout::window::resolve_window_mode`, THE decision).
     #[must_use]
-    pub fn resolved_window_mode(&self) -> azul_core::window::WindowTheme {
+    pub fn resolved_window_mode(&self) -> azul_core::window::DarkLightMode {
         azul_layout::window::resolve_window_mode(self.app_mode(), self.desktop_theme)
     }
 
@@ -3353,8 +3344,8 @@ impl CommonWindowState {
     /// re-discovered style).
     pub fn adopt_desktop_theme(
         &mut self,
-        desktop: azul_core::window::WindowTheme,
-    ) -> Option<azul_core::window::WindowTheme> {
+        desktop: azul_core::window::DarkLightMode,
+    ) -> Option<azul_core::window::DarkLightMode> {
         if desktop == self.desktop_theme {
             return None;
         }
@@ -3370,7 +3361,7 @@ impl CommonWindowState {
     /// app's colour-scheme switch and the device-appearance adopters that do
     /// not re-discover the style. The caller still owns the event baseline
     /// (snapshot before, pass after), exactly as for any other write.
-    pub fn write_shown_mode(&mut self, mode: azul_core::window::WindowTheme) {
+    pub fn write_shown_mode(&mut self, mode: azul_core::window::DarkLightMode) {
         self.update_unsynced_state(|ws| ws.theme = mode);
         let held = Arc::clone(&self.system_style);
         self.move_mode_background(&held);
@@ -3396,7 +3387,7 @@ impl CommonWindowState {
     /// a desktop style change moved the background, and only between the two
     /// desktop palettes: an app pin left the canvas in the desktop's colours.
     pub fn move_mode_background(&mut self, derived_from: &azul_css::system::SystemStyle) {
-        use azul_core::window::WindowTheme;
+        use azul_core::window::DarkLightMode;
         use azul_css::props::basic::OptionColorU;
 
         let Some(background) = self.current_window_state.background_color.into_option() else {
@@ -3404,8 +3395,8 @@ impl CommonWindowState {
         };
         let (light, dark) = (self.background_color_light, self.background_color_dark);
         let derived = |mode| super::mode_background(mode, derived_from, light, dark);
-        if background != derived(WindowTheme::LightMode)
-            && background != derived(WindowTheme::DarkMode)
+        if background != derived(DarkLightMode::Light)
+            && background != derived(DarkLightMode::Dark)
         {
             return;
         }
@@ -3473,14 +3464,14 @@ impl CommonWindowState {
     /// seed). Otherwise it inherits, and a desktop flip reaches the chrome
     /// with no work here.
     #[must_use]
-    pub fn native_chrome_mode(&self) -> Option<azul_core::window::WindowTheme> {
-        use azul_core::window::WindowTheme;
+    pub fn native_chrome_mode(&self) -> Option<azul_core::window::DarkLightMode> {
+        use azul_core::window::DarkLightMode;
 
         let app = self.app_mode();
         // THE decision (`resolve_window_mode`), asked for both desktops: an
         // answer that does not depend on the desktop is a pin.
-        let pinned = azul_layout::window::resolve_window_mode(app, WindowTheme::LightMode)
-            == azul_layout::window::resolve_window_mode(app, WindowTheme::DarkMode);
+        let pinned = azul_layout::window::resolve_window_mode(app, DarkLightMode::Light)
+            == azul_layout::window::resolve_window_mode(app, DarkLightMode::Dark);
         let shown = self.current_window_state.theme;
         (pinned || shown != self.desktop_theme).then_some(shown)
     }
@@ -10353,7 +10344,7 @@ pub trait PlatformWindow {
     /// differs from the one it shows (`None`: nothing to write). The decision
     /// is `CommonWindowState::resolved_window_mode` - the desktop's light /
     /// dark under the app's mode and `AZ_MODE`.
-    fn mirror_app_mode(&mut self) -> Option<azul_core::window::WindowTheme> {
+    fn mirror_app_mode(&mut self) -> Option<azul_core::window::DarkLightMode> {
         let mode = azul_layout::window::app_mode();
         let common = self.get_common_mut();
         if let Some(lw) = common.layout_window.as_mut() {
@@ -14107,7 +14098,7 @@ mod tests {
         geom::{LogicalSize, PhysicalPositionI32},
         icon::{IconProviderHandle, SharedIconProvider},
         resources::AppConfig,
-        window::{CursorPosition, VirtualKeyCode, WindowFrame, WindowPosition, WindowTheme},
+        window::{CursorPosition, VirtualKeyCode, WindowFrame, WindowPosition, DarkLightMode},
     };
     use azul_layout::window_state::WindowCreateOptions;
 
@@ -14207,8 +14198,8 @@ mod tests {
         require_validation_gate();
         let (previous, mut current) = state_pair();
         current.theme = match current.theme {
-            WindowTheme::DarkMode => WindowTheme::LightMode,
-            WindowTheme::LightMode => WindowTheme::DarkMode,
+            DarkLightMode::Dark => DarkLightMode::Light,
+            DarkLightMode::Light => DarkLightMode::Dark,
         };
         check_input_delta_consumed(Some(&previous), &current, "test.theme");
     }
@@ -15705,8 +15696,7 @@ fn redo_text_edit_on(
 mod initial_window_theme_tests {
     //! Item 5 of the theme-chain analysis (2026-09-12): the window's initial
     //! theme has ONE source of truth with a fixed precedence.
-    use azul_core::window::{OptionWindowTheme, WindowTheme};
-    use azul_css::system::Theme;
+    use azul_core::window::{DarkLightMode, OptionDarkLightMode};
 
     use super::initial_window_theme;
 
@@ -15720,13 +15710,13 @@ mod initial_window_theme_tests {
             return;
         }
         assert_eq!(
-            initial_window_theme(OptionWindowTheme::None, Theme::Dark),
-            WindowTheme::DarkMode,
+            initial_window_theme(OptionDarkLightMode::None, DarkLightMode::Dark),
+            DarkLightMode::Dark,
             "a dark desktop must not start a light window"
         );
         assert_eq!(
-            initial_window_theme(OptionWindowTheme::None, Theme::Light),
-            WindowTheme::LightMode
+            initial_window_theme(OptionDarkLightMode::None, DarkLightMode::Light),
+            DarkLightMode::Light
         );
     }
 
@@ -15736,12 +15726,12 @@ mod initial_window_theme_tests {
             return;
         }
         assert_eq!(
-            initial_window_theme(OptionWindowTheme::Some(WindowTheme::LightMode), Theme::Dark),
-            WindowTheme::LightMode
+            initial_window_theme(OptionDarkLightMode::Some(DarkLightMode::Light), DarkLightMode::Dark),
+            DarkLightMode::Light
         );
         assert_eq!(
-            initial_window_theme(OptionWindowTheme::Some(WindowTheme::DarkMode), Theme::Light),
-            WindowTheme::DarkMode
+            initial_window_theme(OptionDarkLightMode::Some(DarkLightMode::Dark), DarkLightMode::Light),
+            DarkLightMode::Dark
         );
     }
 
@@ -15751,15 +15741,15 @@ mod initial_window_theme_tests {
             return; // only meaningful under AZ_MODE
         };
         let expected = match pin {
-            azul_css::dynamic_selector::ThemeCondition::Dark => WindowTheme::DarkMode,
-            _ => WindowTheme::LightMode,
+            azul_css::dynamic_selector::ThemeCondition::Dark => DarkLightMode::Dark,
+            _ => DarkLightMode::Light,
         };
         for requested in [
-            OptionWindowTheme::None,
-            OptionWindowTheme::Some(WindowTheme::LightMode),
-            OptionWindowTheme::Some(WindowTheme::DarkMode),
+            OptionDarkLightMode::None,
+            OptionDarkLightMode::Some(DarkLightMode::Light),
+            OptionDarkLightMode::Some(DarkLightMode::Dark),
         ] {
-            for probed in [Theme::Light, Theme::Dark] {
+            for probed in [DarkLightMode::Light, DarkLightMode::Dark] {
                 assert_eq!(initial_window_theme(requested, probed), expected);
             }
         }
@@ -15775,14 +15765,14 @@ mod initial_window_theme_tests {
             return;
         }
         for requested in [
-            OptionWindowTheme::None,
-            OptionWindowTheme::Some(WindowTheme::LightMode),
-            OptionWindowTheme::Some(WindowTheme::DarkMode),
+            OptionDarkLightMode::None,
+            OptionDarkLightMode::Some(DarkLightMode::Light),
+            OptionDarkLightMode::Some(DarkLightMode::Dark),
         ] {
-            for probed in [Theme::Light, Theme::Dark] {
-                for pin in [WindowTheme::LightMode, WindowTheme::DarkMode] {
+            for probed in [DarkLightMode::Light, DarkLightMode::Dark] {
+                for pin in [DarkLightMode::Light, DarkLightMode::Dark] {
                     assert_eq!(
-                        initial_window_theme_for(OptionWindowTheme::Some(pin), requested, probed),
+                        initial_window_theme_for(OptionDarkLightMode::Some(pin), requested, probed),
                         pin,
                         "app pin {pin:?} vs request {requested:?} on a {probed:?} desktop"
                     );
@@ -15791,16 +15781,16 @@ mod initial_window_theme_tests {
         }
         assert_eq!(
             initial_window_theme_for(
-                OptionWindowTheme::None,
-                OptionWindowTheme::Some(WindowTheme::LightMode),
-                Theme::Dark
+                OptionDarkLightMode::None,
+                OptionDarkLightMode::Some(DarkLightMode::Light),
+                DarkLightMode::Dark
             ),
-            WindowTheme::LightMode,
+            DarkLightMode::Light,
             "following the desktop, the window's own request still seeds it"
         );
         assert_eq!(
-            initial_window_theme_for(OptionWindowTheme::None, OptionWindowTheme::None, Theme::Dark),
-            WindowTheme::DarkMode
+            initial_window_theme_for(OptionDarkLightMode::None, OptionDarkLightMode::None, DarkLightMode::Dark),
+            DarkLightMode::Dark
         );
     }
 }

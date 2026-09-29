@@ -20,7 +20,7 @@ use azul_core::{
     refany::RefAny,
     resources::RendererResources,
     styled_dom::{NodeHierarchyItemId, StyledNodeState},
-    window::{OptionWindowTheme, RawWindowHandle, WindowTheme},
+    window::{OptionDarkLightMode, RawWindowHandle, DarkLightMode},
 };
 use azul_css::{
     css::Css,
@@ -162,7 +162,7 @@ fn a_stylesheet_set_by_a_callback_resolves_its_hover_rule_and_its_dark_twin() {
     assert_eq!(background(&lw, false), Some(GREEN), "by day at rest: the new light face");
     assert_eq!(background(&lw, true), Some(PURPLE), "by day hovered: the new :hover rule");
 
-    switch_scheme(&mut lw, OptionWindowTheme::Some(WindowTheme::DarkMode));
+    switch_scheme(&mut lw, OptionDarkLightMode::Some(DarkLightMode::Dark));
     assert_eq!(background(&lw, false), Some(YELLOW), "by night at rest: the dark twin");
     assert_eq!(
         background(&lw, true),
@@ -170,7 +170,7 @@ fn a_stylesheet_set_by_a_callback_resolves_its_hover_rule_and_its_dark_twin() {
         "by night hovered: the dark :hover twin - no light colour pinned over it"
     );
 
-    switch_scheme(&mut lw, OptionWindowTheme::None);
+    switch_scheme(&mut lw, OptionDarkLightMode::None);
     assert_eq!(background(&lw, false), Some(GREEN), "and by day again the light face");
 }
 

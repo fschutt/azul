@@ -24,9 +24,9 @@
 - (parent) after merging the base's themed widgets: wire the demo list in report section 5
 
 ## Design decisions (so a resumed session does not re-derive them)
-- TYPE: reuse `OptionWindowTheme` (None = follow the desktop, Some = pin). A new 4-byte repr(C)
+- TYPE: reuse `OptionDarkLightMode` (None = follow the desktop, Some = pin). A new 4-byte repr(C)
   `ColorScheme` enum in AppConfig leaves 4 bytes of tail padding (the 4-aligned tail is 24 B;
-  +4 = 28 -> 32) and fails `app_config_has_no_padding_between_its_fields`; OptionWindowTheme is
+  +4 = 28 -> 32) and fails `app_config_has_no_padding_between_its_fields`; OptionDarkLightMode is
   8 B / align 4 and lands on 32 exactly. It is also the window-level request's type already
   (`WindowCreateOptions.theme`).
 - ONE decision fn: `azul_layout::window::resolve_window_theme(app, window)` = env AZ_THEME >

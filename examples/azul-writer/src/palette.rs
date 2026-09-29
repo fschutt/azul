@@ -1,6 +1,5 @@
 use azul::{
-    css::{ColorU, SystemStyle},
-    window::WindowTheme,
+    css::{ColorU, DarkLightMode, SystemStyle},
 };
 
 type Opt = azul::option::OptionColorU;
@@ -158,15 +157,15 @@ const fn lum(c: ColorU) -> u32 {
 
 impl Palette {
     #[must_use]
-    pub const fn fallback(theme: WindowTheme) -> Self {
+    pub const fn fallback(theme: DarkLightMode) -> Self {
         match theme {
-            WindowTheme::DarkMode => OFFICE_2013_DARK,
+            DarkLightMode::Dark => OFFICE_2013_DARK,
             _ => OFFICE_2013,
         }
     }
 
     #[must_use]
-    pub fn from_system(style: &SystemStyle, theme: WindowTheme) -> Self {
+    pub fn from_system(style: &SystemStyle, theme: DarkLightMode) -> Self {
         let d = Self::fallback(theme);
         let c = &style.colors;
 
@@ -336,11 +335,11 @@ mod tests {
     #[test]
     fn an_undetected_desktop_gets_the_office_palette_for_its_polarity() {
         assert_eq!(
-            Palette::from_system(&empty_style(), WindowTheme::LightMode),
+            Palette::from_system(&empty_style(), DarkLightMode::Light),
             OFFICE_2013
         );
         assert_eq!(
-            Palette::from_system(&empty_style(), WindowTheme::DarkMode),
+            Palette::from_system(&empty_style(), DarkLightMode::Dark),
             OFFICE_2013_DARK
         );
     }
@@ -368,7 +367,7 @@ mod tests {
         let mut s = empty_style();
         s.colors.text = Some(reported).into();
 
-        let p = Palette::from_system(&s, WindowTheme::LightMode);
+        let p = Palette::from_system(&s, DarkLightMode::Light);
         assert_eq!(parts_of(p.text), parts_of(reported));
         assert_eq!(
             parts_of(p.text_gray),
@@ -385,7 +384,7 @@ mod tests {
         s.colors.accent = Some(desktop_green).into();
         s.colors.accent_text = Some(rgb(0, 0, 0)).into();
 
-        for theme in [WindowTheme::LightMode, WindowTheme::DarkMode] {
+        for theme in [DarkLightMode::Light, DarkLightMode::Dark] {
             let p = Palette::from_system(&s, theme);
             assert_eq!(
                 parts_of(p.brand),
@@ -404,8 +403,8 @@ mod tests {
 
     #[test]
     fn the_brand_text_is_lifted_on_dark_but_the_fill_is_not() {
-        let light = Palette::fallback(WindowTheme::LightMode);
-        let dark = Palette::fallback(WindowTheme::DarkMode);
+        let light = Palette::fallback(DarkLightMode::Light);
+        let dark = Palette::fallback(DarkLightMode::Dark);
         assert_eq!(parts_of(light.brand_text), parts_of(OFFICE_BLUE));
         assert_eq!(parts_of(dark.brand), parts_of(light.brand), "same fill");
         assert!(
@@ -436,7 +435,7 @@ mod tests {
         dark.colors.background = Some(rgb(27, 30, 32)).into();
         dark.colors.under_page_background = Some(rgb(42, 46, 50)).into();
 
-        let p = Palette::from_system(&dark, WindowTheme::DarkMode);
+        let p = Palette::from_system(&dark, DarkLightMode::Dark);
         assert_eq!(
             parts_of(p.sheet),
             parts_of(OFFICE_2013_DARK.sheet),
@@ -460,7 +459,7 @@ mod tests {
         s.colors.window_background = Some(rgb(255, 255, 255)).into();
         s.colors.background = Some(rgb(255, 255, 255)).into();
 
-        let p = Palette::from_system(&s, WindowTheme::LightMode);
+        let p = Palette::from_system(&s, DarkLightMode::Light);
         assert_eq!(parts_of(p.canvas), parts_of(OFFICE_2013.canvas));
         assert!(lum(p.canvas) < lum(p.sheet));
     }

@@ -2,7 +2,7 @@
 //! dark.
 //!
 //! `AppConfig::mode` (startup) and `CallbackInfo::set_mode` (runtime) hold ONE
-//! app-wide choice, an `OptionWindowTheme`: `None` follows the desktop,
+//! app-wide choice, an `OptionDarkLightMode`: `None` follows the desktop,
 //! `Some(mode)` pins it. What a window shows is decided in ONE place,
 //! `azul_layout::window::resolve_window_mode` (theme-chain invariant I1), with
 //! the precedence
@@ -25,7 +25,7 @@ use azul_core::{
     geom::LogicalSize,
     resources::RendererResources,
     styled_dom::StyledDom,
-    window::{OptionWindowTheme, WindowTheme},
+    window::{OptionDarkLightMode, DarkLightMode},
 };
 use azul_css::{
     dynamic_selector::ThemeCondition,
@@ -40,9 +40,9 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
-const PIN_LIGHT: OptionWindowTheme = OptionWindowTheme::Some(WindowTheme::LightMode);
-const PIN_DARK: OptionWindowTheme = OptionWindowTheme::Some(WindowTheme::DarkMode);
-const FOLLOW: OptionWindowTheme = OptionWindowTheme::None;
+const PIN_LIGHT: OptionDarkLightMode = OptionDarkLightMode::Some(DarkLightMode::Light);
+const PIN_DARK: OptionDarkLightMode = OptionDarkLightMode::Some(DarkLightMode::Dark);
+const FOLLOW: OptionDarkLightMode = OptionDarkLightMode::None;
 
 /// `AZ_MODE` outranks everything these tests vary; under it they have
 /// nothing to compare (the env test below covers that case).
@@ -51,14 +51,14 @@ fn env_pinned() -> bool {
 }
 
 /// A window on `desktop`, with the app's choice `app` mirrored into it.
-fn window(desktop: SystemStyle, app: OptionWindowTheme) -> LayoutWindow {
+fn window(desktop: SystemStyle, app: OptionDarkLightMode) -> LayoutWindow {
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
     lw.set_system_style(Arc::new(desktop));
     lw.mode = app;
     lw
 }
 
-fn window_state(theme: WindowTheme) -> FullWindowState {
+fn window_state(theme: DarkLightMode) -> FullWindowState {
     let mut ws = FullWindowState::default();
     ws.theme = theme;
     ws.size.dimensions = LogicalSize::new(400.0, 300.0);
@@ -152,13 +152,13 @@ fn an_app_pinned_dark_renders_dark_on_a_light_desktop() {
 
     // The window follows its light desktop; only the app's pin says dark.
     assert_eq!(
-        lw.window_mode_for(WindowTheme::LightMode),
-        WindowTheme::DarkMode,
+        lw.window_mode_for(DarkLightMode::Light),
+        DarkLightMode::Dark,
         "the app's pin outranks the desktop"
     );
     // The ONE decision function applies the pin even when handed the
     // desktop-following theme, so no caller can bypass it (I1).
-    let ws = window_state(WindowTheme::LightMode);
+    let ws = window_state(DarkLightMode::Light);
     let ctx = lw.dynamic_selector_context(&ws);
     assert_eq!(
         ctx.theme,
@@ -178,7 +178,7 @@ fn an_app_pinned_dark_renders_dark_on_a_light_desktop() {
     );
 
     // ... and it is what gets painted.
-    let ws = window_state(lw.window_mode_for(WindowTheme::LightMode));
+    let ws = window_state(lw.window_mode_for(DarkLightMode::Light));
     lay_out(&mut lw, window_background_box(), &ws);
     assert_eq!(
         box_fill(&lw, 40.0, 20.0),
@@ -194,10 +194,10 @@ fn an_app_pinned_light_renders_light_on_a_dark_desktop() {
     }
     let mut lw = window(defaults::macos_modern_dark(), PIN_LIGHT);
     assert_eq!(
-        lw.window_mode_for(WindowTheme::DarkMode),
-        WindowTheme::LightMode
+        lw.window_mode_for(DarkLightMode::Dark),
+        DarkLightMode::Light
     );
-    let ws = window_state(lw.window_mode_for(WindowTheme::DarkMode));
+    let ws = window_state(lw.window_mode_for(DarkLightMode::Dark));
     assert_eq!(
         lw.dynamic_selector_context(&ws).theme,
         ThemeCondition::Light
@@ -219,13 +219,13 @@ fn switching_the_app_back_to_system_follows_the_desktop_again() {
     for (desktop, desktop_theme, want, pinned_before) in [
         (
             defaults::macos_modern_light(),
-            WindowTheme::LightMode,
+            DarkLightMode::Light,
             ThemeCondition::Light,
             PIN_DARK,
         ),
         (
             defaults::macos_modern_dark(),
-            WindowTheme::DarkMode,
+            DarkLightMode::Dark,
             ThemeCondition::Dark,
             PIN_LIGHT,
         ),
@@ -265,7 +265,7 @@ fn a_desktop_flip_while_pinned_light_keeps_the_app_light() {
         return;
     }
     let mut lw = window(defaults::macos_modern_light(), PIN_LIGHT);
-    let ws = window_state(lw.window_mode_for(WindowTheme::LightMode));
+    let ws = window_state(lw.window_mode_for(DarkLightMode::Light));
     lay_out(&mut lw, unstyled_text(), &ws);
     // The app's layout() read the mode (`get_mode`) and nothing else.
     lw.recorded_style_dependencies = declared(&[SystemStyleDependency::Theme]);
@@ -273,10 +273,10 @@ fn a_desktop_flip_while_pinned_light_keeps_the_app_light() {
     // The desktop goes dark.
     let old_style = lw.system_style.clone().expect("the light desktop style");
     let new_style = Arc::new(defaults::macos_modern_dark());
-    let window_theme = lw.window_mode_for(WindowTheme::DarkMode);
+    let window_theme = lw.window_mode_for(DarkLightMode::Dark);
     assert_eq!(
         window_theme,
-        WindowTheme::LightMode,
+        DarkLightMode::Light,
         "a desktop flip does not move a pinned app"
     );
     assert!(
@@ -314,7 +314,7 @@ fn a_desktop_flip_rebuilds_an_app_that_follows_it_and_read_the_mode() {
         return;
     }
     let mut lw = window(defaults::macos_modern_light(), FOLLOW);
-    let ws = window_state(WindowTheme::LightMode);
+    let ws = window_state(DarkLightMode::Light);
     lay_out(&mut lw, unstyled_text(), &ws);
     lw.recorded_style_dependencies = declared(&[SystemStyleDependency::Theme]);
     let old_style = lw.system_style.clone().expect("the light desktop style");
@@ -328,7 +328,7 @@ fn a_mode_switch_recolours_the_retained_dom_without_a_new_one() {
         return;
     }
     let mut lw = window(defaults::macos_modern_light(), FOLLOW);
-    let ws = window_state(WindowTheme::LightMode);
+    let ws = window_state(DarkLightMode::Light);
     lay_out(&mut lw, unstyled_text(), &ws);
     let before = painted_text(&lw);
     assert!(!before.is_empty() && before.iter().all(is_dark), "light first: {before:?}");
@@ -342,7 +342,7 @@ fn a_mode_switch_recolours_the_retained_dom_without_a_new_one() {
         "a layout() that never read the mode must not be re-run for a mode switch"
     );
 
-    let ws = window_state(lw.window_mode_for(WindowTheme::LightMode));
+    let ws = window_state(lw.window_mode_for(DarkLightMode::Light));
     let retained = lw
         .layout_results
         .remove(&DomId::ROOT_ID)
@@ -358,7 +358,7 @@ fn a_mode_switch_recolours_the_retained_dom_without_a_new_one() {
 
     // And back to System: light again, same DOM.
     lw.mode = FOLLOW;
-    let ws = window_state(lw.window_mode_for(WindowTheme::LightMode));
+    let ws = window_state(lw.window_mode_for(DarkLightMode::Light));
     let retained = lw
         .layout_results
         .remove(&DomId::ROOT_ID)
@@ -385,7 +385,7 @@ fn a_layout_that_read_the_mode_needs_a_new_dom_on_a_switch() {
     lay_out(
         &mut lw,
         unstyled_text(),
-        &window_state(WindowTheme::LightMode),
+        &window_state(DarkLightMode::Light),
     );
 
     for (deps, rebuild) in [
@@ -412,27 +412,27 @@ fn a_layout_that_read_the_mode_needs_a_new_dom_on_a_switch() {
 /// whatever `AZ_MODE` the test process runs under).
 #[test]
 fn the_env_pin_outranks_the_app_which_outranks_the_window() {
-    use WindowTheme::{DarkMode, LightMode};
+    use DarkLightMode::{Dark, Light};
 
     let env_light = Some(ThemeCondition::Light);
     let env_dark = Some(ThemeCondition::Dark);
     for app in [FOLLOW, PIN_LIGHT, PIN_DARK] {
-        for own in [LightMode, DarkMode] {
+        for own in [Light, Dark] {
             assert_eq!(
                 resolve_window_mode_with(env_light.clone(), app, own),
-                LightMode,
+                Light,
                 "AZ_MODE=light wins over app {app:?} and window {own:?}"
             );
             assert_eq!(
                 resolve_window_mode_with(env_dark.clone(), app, own),
-                DarkMode,
+                Dark,
                 "AZ_MODE=dark wins over app {app:?} and window {own:?}"
             );
         }
     }
-    for own in [LightMode, DarkMode] {
-        assert_eq!(resolve_window_mode_with(None, PIN_LIGHT, own), LightMode);
-        assert_eq!(resolve_window_mode_with(None, PIN_DARK, own), DarkMode);
+    for own in [Light, Dark] {
+        assert_eq!(resolve_window_mode_with(None, PIN_LIGHT, own), Light);
+        assert_eq!(resolve_window_mode_with(None, PIN_DARK, own), Dark);
         assert_eq!(
             resolve_window_mode_with(None, FOLLOW, own),
             own,
@@ -451,7 +451,7 @@ fn under_az_theme_the_env_pin_wins_over_the_apps_choice() {
     };
     for app in [FOLLOW, PIN_LIGHT, PIN_DARK] {
         let lw = window(defaults::macos_modern_light(), app);
-        for own in [WindowTheme::LightMode, WindowTheme::DarkMode] {
+        for own in [DarkLightMode::Light, DarkLightMode::Dark] {
             assert_eq!(
                 lw.dynamic_selector_context(&window_state(own)).theme,
                 pinned,

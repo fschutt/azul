@@ -4265,7 +4265,7 @@ pub struct MacOSWindow {
     /// [`MacOSWindow::sync_native_appearance`]: `Some(mode)` = forced into
     /// Aqua / DarkAqua, `None` = nil (inherits the app's, i.e. the desktop's).
     /// A fresh `NSWindow` inherits, so it starts `None`.
-    applied_chrome_mode: Option<azul_core::window::WindowTheme>,
+    applied_chrome_mode: Option<azul_core::window::DarkLightMode>,
 }
 
 // Implement PlatformWindow trait for cross-platform event processing
@@ -4727,7 +4727,7 @@ impl MacOSWindow {
     /// `NSAppearanceNameDarkAqua` constants are the strings of their own
     /// names, and a literal needs no dlsym of a data symbol.
     fn sync_native_appearance(&mut self) {
-        use azul_core::window::WindowTheme;
+        use azul_core::window::DarkLightMode;
 
         let wanted = self.common.native_chrome_mode();
         if wanted == self.applied_chrome_mode {
@@ -4738,8 +4738,8 @@ impl MacOSWindow {
                 None => core::ptr::null_mut(),
                 Some(mode) => {
                     let name = match mode {
-                        WindowTheme::DarkMode => ns_string!("NSAppearanceNameDarkAqua"),
-                        WindowTheme::LightMode => ns_string!("NSAppearanceNameAqua"),
+                        DarkLightMode::Dark => ns_string!("NSAppearanceNameDarkAqua"),
+                        DarkLightMode::Light => ns_string!("NSAppearanceNameAqua"),
                     };
                     let named: *mut NSObject =
                         msg_send![objc2::class!(NSAppearance), appearanceNamed: name];

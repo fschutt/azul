@@ -24,7 +24,7 @@ use azul_core::{
     gl::OptionGlContextPtr,
     resources::RendererResources,
     styled_dom::{NodeHierarchyItemId, StyledDom},
-    window::{OptionWindowTheme, RawWindowHandle, WindowTheme},
+    window::{OptionDarkLightMode, RawWindowHandle, DarkLightMode},
 };
 use azul_css::{
     props::property::{CssProperty, CssPropertyType},
@@ -47,7 +47,7 @@ fn env_pinned() -> bool {
     azul_css::dynamic_selector::mode_pinned_by_env().is_some()
 }
 
-fn window_state(theme: WindowTheme) -> FullWindowState {
+fn window_state(theme: DarkLightMode) -> FullWindowState {
     let mut ws = FullWindowState::default();
     ws.theme = theme;
     ws.size.dimensions = LogicalSize::new(640.0, 480.0);
@@ -70,21 +70,21 @@ fn lay_out(lw: &mut LayoutWindow, styled: StyledDom, ws: &FullWindowState) {
 fn window(widget: Dom) -> LayoutWindow {
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
     lw.set_system_style(Arc::new(defaults::macos_modern_light()));
-    lw.mode = OptionWindowTheme::None;
+    lw.mode = OptionDarkLightMode::None;
     let dom = Dom::create_body().with_css("margin: 0;").with_child(widget);
     lay_out(
         &mut lw,
         StyledDom::create_from_dom(dom),
-        &window_state(WindowTheme::LightMode),
+        &window_state(DarkLightMode::Light),
     );
     lw
 }
 
 /// `CallbackInfo::set_mode`'s restyle path: the RETAINED DOM
 /// re-styled under the new scheme, no new DOM.
-fn switch_scheme(lw: &mut LayoutWindow, scheme: OptionWindowTheme) {
+fn switch_scheme(lw: &mut LayoutWindow, scheme: OptionDarkLightMode) {
     lw.mode = scheme;
-    let ws = window_state(lw.window_mode_for(WindowTheme::LightMode));
+    let ws = window_state(lw.window_mode_for(DarkLightMode::Light));
     let retained = lw
         .layout_results
         .remove(&DomId::ROOT_ID)
@@ -234,8 +234,8 @@ fn assert_click_follows_the_mode(
         "{what}: by day, the clicked control looks like one built in its new state"
     );
 
-    switch_scheme(&mut clicked, OptionWindowTheme::Some(WindowTheme::DarkMode));
-    switch_scheme(&mut built, OptionWindowTheme::Some(WindowTheme::DarkMode));
+    switch_scheme(&mut clicked, OptionDarkLightMode::Some(DarkLightMode::Dark));
+    switch_scheme(&mut built, OptionDarkLightMode::Some(DarkLightMode::Dark));
     assert_eq!(
         looks(&clicked, parts),
         looks(&built, parts),
@@ -243,8 +243,8 @@ fn assert_click_follows_the_mode(
          baked for light mode must not outlive the switch"
     );
 
-    switch_scheme(&mut clicked, OptionWindowTheme::None);
-    switch_scheme(&mut built, OptionWindowTheme::None);
+    switch_scheme(&mut clicked, OptionDarkLightMode::None);
+    switch_scheme(&mut built, OptionDarkLightMode::None);
     assert_eq!(
         looks(&clicked, parts),
         looks(&built, parts),

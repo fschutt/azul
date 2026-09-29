@@ -27,7 +27,7 @@ Branch `wt/r0-theme-mode-naming` (from 0a326afe5). "Theme" = app theme (flat / f
 
 ## NEXT
 - (parent) api.json items 1-14 from the report, `codegen all`, then the test commands there.
-- (follow-up task) the TYPE sweep table in the report (WindowTheme -> WindowMode, ...).
+- (follow-up task) the TYPE sweep table in the report (DarkLightMode -> WindowMode, ...).
 
 ## Open questions
 - none

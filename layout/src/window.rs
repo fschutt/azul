@@ -97,6 +97,7 @@ use crate::{
     timer::Timer,
     window_state::{FullWindowState, WindowCreateOptions},
 };
+use azul_css::system::DarkLightMode;
 
 // Global atomic counters for generating unique IDs
 static DOCUMENT_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -358,24 +359,24 @@ pub fn system_natural_scroll() -> Option<bool> {
 static APP_MODE: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
 
 /// Publish the app's mode choice (`None` follows the desktop).
-pub fn set_app_mode(mode: azul_core::window::OptionWindowTheme) {
-    use azul_core::window::{OptionWindowTheme, WindowTheme};
+pub fn set_app_mode(mode: azul_core::window::OptionDarkLightMode) {
+    use azul_core::window::{OptionDarkLightMode, DarkLightMode};
     let v = match mode {
-        OptionWindowTheme::None => 0,
-        OptionWindowTheme::Some(WindowTheme::LightMode) => 1,
-        OptionWindowTheme::Some(WindowTheme::DarkMode) => 2,
+        OptionDarkLightMode::None => 0,
+        OptionDarkLightMode::Some(DarkLightMode::Light) => 1,
+        OptionDarkLightMode::Some(DarkLightMode::Dark) => 2,
     };
     APP_MODE.store(v, Ordering::Relaxed);
 }
 
 /// The app's mode choice: `None` follows the desktop.
 #[must_use]
-pub fn app_mode() -> azul_core::window::OptionWindowTheme {
-    use azul_core::window::{OptionWindowTheme, WindowTheme};
+pub fn app_mode() -> azul_core::window::OptionDarkLightMode {
+    use azul_core::window::{OptionDarkLightMode, DarkLightMode};
     match APP_MODE.load(Ordering::Relaxed) {
-        1 => OptionWindowTheme::Some(WindowTheme::LightMode),
-        2 => OptionWindowTheme::Some(WindowTheme::DarkMode),
-        _ => OptionWindowTheme::None,
+        1 => OptionDarkLightMode::Some(DarkLightMode::Light),
+        2 => OptionDarkLightMode::Some(DarkLightMode::Dark),
+        _ => OptionDarkLightMode::None,
     }
 }
 
@@ -401,9 +402,9 @@ pub fn app_mode() -> azul_core::window::OptionWindowTheme {
 /// sure whether its input was resolved yet may always resolve again.
 #[must_use]
 pub fn resolve_window_mode(
-    app: azul_core::window::OptionWindowTheme,
-    window: azul_core::window::WindowTheme,
-) -> azul_core::window::WindowTheme {
+    app: azul_core::window::OptionDarkLightMode,
+    window: azul_core::window::DarkLightMode,
+) -> azul_core::window::DarkLightMode {
     resolve_window_mode_with(
         azul_css::dynamic_selector::mode_pinned_by_env(),
         app,
@@ -416,19 +417,19 @@ pub fn resolve_window_mode(
 #[must_use]
 pub fn resolve_window_mode_with(
     env: Option<azul_css::dynamic_selector::ThemeCondition>,
-    app: azul_core::window::OptionWindowTheme,
-    window: azul_core::window::WindowTheme,
-) -> azul_core::window::WindowTheme {
-    use azul_core::window::{OptionWindowTheme, WindowTheme};
+    app: azul_core::window::OptionDarkLightMode,
+    window: azul_core::window::DarkLightMode,
+) -> azul_core::window::DarkLightMode {
+    use azul_core::window::{OptionDarkLightMode, DarkLightMode};
     use azul_css::dynamic_selector::ThemeCondition;
     match env {
-        Some(ThemeCondition::Dark) => return WindowTheme::DarkMode,
-        Some(ThemeCondition::Light) => return WindowTheme::LightMode,
+        Some(ThemeCondition::Dark) => return DarkLightMode::Dark,
+        Some(ThemeCondition::Light) => return DarkLightMode::Light,
         _ => {}
     }
     match app {
-        OptionWindowTheme::Some(pinned) => pinned,
-        OptionWindowTheme::None => window,
+        OptionDarkLightMode::Some(pinned) => pinned,
+        OptionDarkLightMode::None => window,
     }
 }
 
@@ -1452,7 +1453,7 @@ pub struct LayoutWindow {
     /// window is built and updated when the app switches; the cascade reads
     /// THIS through [`Self::window_mode_for`], never the global. See
     /// [`resolve_window_mode`] for where it sits in the precedence.
-    pub mode: azul_core::window::OptionWindowTheme,
+    pub mode: azul_core::window::OptionDarkLightMode,
     /// The APP THEME this window's DOM is built under (`"flat"`, `"flora"`,
     /// ...): what its cascade matches `@theme(<name>)` blocks against
     /// ([`Self::dynamic_selector_context`]) and what its DOM builds read
@@ -5640,8 +5641,8 @@ impl LayoutWindow {
         // writes `window_focused`, only Win32 `flags.has_focus`.
         ctx.window_focused = window_state.is_window_active();
         ctx.theme = match self.window_mode_for(window_state.theme) {
-            azul_core::window::WindowTheme::DarkMode => ThemeCondition::Dark,
-            azul_core::window::WindowTheme::LightMode => ThemeCondition::Light,
+            azul_core::window::DarkLightMode::Dark => ThemeCondition::Dark,
+            azul_core::window::DarkLightMode::Light => ThemeCondition::Light,
         };
         // The APP theme beside the mode: `@theme(<name>)` blocks match this
         // window's theme chain, `@theme(dark)` the mode above.
@@ -5651,9 +5652,9 @@ impl LayoutWindow {
         // resolve `system:window-background` to the dark desktop's colour.
         if let Some(style) = self.system_style.as_deref() {
             ctx.system_colors = style.colors_for_theme(if ctx.theme == ThemeCondition::Dark {
-                azul_css::system::Theme::Dark
+                DarkLightMode::Dark
             } else {
-                azul_css::system::Theme::Light
+                DarkLightMode::Light
             });
         }
         ctx
@@ -5666,8 +5667,8 @@ impl LayoutWindow {
     #[must_use]
     pub fn window_mode_for(
         &self,
-        window: azul_core::window::WindowTheme,
-    ) -> azul_core::window::WindowTheme {
+        window: azul_core::window::DarkLightMode,
+    ) -> azul_core::window::DarkLightMode {
         resolve_window_mode(self.mode, window)
     }
 
@@ -29057,7 +29058,7 @@ mod first_line_span_tests {
 mod window_theme_context {
     //! `LayoutWindow::dynamic_selector_context` takes the theme from the WINDOW,
     //! which is the only source that knows about an in-app switch.
-    use azul_core::window::WindowTheme;
+    use azul_core::window::DarkLightMode;
     use azul_css::dynamic_selector::ThemeCondition;
     use rust_fontconfig::FcFontCache;
 
@@ -29067,7 +29068,7 @@ mod window_theme_context {
     // `SystemStyle` implements `Drop`, so `..Default::default()` is not an
     // option: the theme has to be assigned after the fact.
     #[allow(clippy::field_reassign_with_default)]
-    fn window_with_system_theme(theme: azul_css::system::Theme) -> LayoutWindow {
+    fn window_with_system_theme(theme: azul_css::system::DarkLightMode) -> LayoutWindow {
         let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
         let mut style = azul_css::system::SystemStyle::default();
         style.theme = theme;
@@ -29080,9 +29081,9 @@ mod window_theme_context {
         if azul_css::dynamic_selector::mode_pinned_by_env().is_some() {
             return; // AZ_MODE outranks both; nothing to compare
         }
-        let lw = window_with_system_theme(azul_css::system::Theme::Light);
+        let lw = window_with_system_theme(DarkLightMode::Light);
         let mut ws = FullWindowState {
-            theme: WindowTheme::DarkMode,
+            theme: DarkLightMode::Dark,
             ..Default::default()
         };
         assert_eq!(
@@ -29090,7 +29091,7 @@ mod window_theme_context {
             ThemeCondition::Dark,
             "an app that switched its window to dark must get `@theme dark` rules"
         );
-        ws.theme = WindowTheme::LightMode;
+        ws.theme = DarkLightMode::Light;
         assert_eq!(
             lw.dynamic_selector_context(&ws).theme,
             ThemeCondition::Light
@@ -29099,7 +29100,7 @@ mod window_theme_context {
 
     #[test]
     fn the_context_still_carries_viewport_focus_and_the_system_os() {
-        let lw = window_with_system_theme(azul_css::system::Theme::Dark);
+        let lw = window_with_system_theme(DarkLightMode::Dark);
         let ws = FullWindowState {
             flags: azul_core::window::WindowFlags {
                 has_focus: false,
@@ -29119,7 +29120,7 @@ mod window_theme_context {
     /// `:backdrop` can only ever match on Windows.
     #[test]
     fn the_context_sees_a_deactivation_reported_through_window_focused() {
-        let lw = window_with_system_theme(azul_css::system::Theme::Light);
+        let lw = window_with_system_theme(DarkLightMode::Light);
         let ws = FullWindowState {
             window_focused: false,
             ..Default::default()
@@ -29138,12 +29139,12 @@ mod window_theme_context {
     /// UA's inherited default, and the UA's default depends on the theme —
     /// black on a light window, near-white on a dark one. This is the whole
     /// funnel, up to the painted glyph run's colour.
-    fn unstyled_text_colours(theme: WindowTheme) -> Vec<azul_css::props::basic::color::ColorU> {
+    fn unstyled_text_colours(theme: DarkLightMode) -> Vec<azul_css::props::basic::color::ColorU> {
         use crate::solver3::display_list::DisplayListItem;
 
         let mut lw = window_with_system_theme(match theme {
-            WindowTheme::DarkMode => azul_css::system::Theme::Dark,
-            WindowTheme::LightMode => azul_css::system::Theme::Light,
+            DarkLightMode::Dark => DarkLightMode::Dark,
+            DarkLightMode::Light => DarkLightMode::Light,
         });
         let mut ws = FullWindowState {
             theme,
@@ -29180,7 +29181,7 @@ mod window_theme_context {
 
     #[test]
     fn unstyled_text_is_black_on_a_light_window() {
-        let colours = unstyled_text_colours(WindowTheme::LightMode);
+        let colours = unstyled_text_colours(DarkLightMode::Light);
         assert!(!colours.is_empty(), "the text run must be painted");
         assert!(
             colours
@@ -29192,7 +29193,7 @@ mod window_theme_context {
 
     #[test]
     fn unstyled_text_is_light_on_a_dark_window() {
-        let colours = unstyled_text_colours(WindowTheme::DarkMode);
+        let colours = unstyled_text_colours(DarkLightMode::Dark);
         assert!(!colours.is_empty(), "the text run must be painted");
         assert!(
             colours.iter().all(is_light),
@@ -29207,9 +29208,9 @@ mod window_theme_context {
     fn a_theme_switch_recolours_the_retained_dom() {
         use crate::solver3::display_list::DisplayListItem;
 
-        let mut lw = window_with_system_theme(azul_css::system::Theme::Light);
+        let mut lw = window_with_system_theme(DarkLightMode::Light);
         let mut ws = FullWindowState {
-            theme: WindowTheme::LightMode,
+            theme: DarkLightMode::Light,
             ..Default::default()
         };
         ws.size.dimensions = LogicalSize::new(400.0, 300.0);
@@ -29229,9 +29230,9 @@ mod window_theme_context {
         // object is the one already laid out (what `incremental_relayout`
         // hands back in).
         let mut dark_style = azul_css::system::SystemStyle::default();
-        dark_style.theme = azul_css::system::Theme::Dark;
+        dark_style.theme = DarkLightMode::Dark;
         lw.set_system_style(std::sync::Arc::new(dark_style));
-        ws.theme = WindowTheme::DarkMode;
+        ws.theme = DarkLightMode::Dark;
         let retained = lw
             .layout_results
             .remove(&DomId::ROOT_ID)
@@ -29276,9 +29277,9 @@ mod window_theme_context {
             },
         };
 
-        let mut lw = window_with_system_theme(azul_css::system::Theme::Dark);
+        let mut lw = window_with_system_theme(DarkLightMode::Dark);
         let mut ws = FullWindowState {
-            theme: WindowTheme::DarkMode,
+            theme: DarkLightMode::Dark,
             ..Default::default()
         };
         ws.size.dimensions = LogicalSize::new(400.0, 300.0);
@@ -29321,10 +29322,10 @@ mod window_theme_context {
     fn the_theme_does_not_change_layout() {
         use crate::widgets::button::{Button, ButtonType};
 
-        fn rects(theme: WindowTheme) -> Vec<(usize, LogicalRect)> {
+        fn rects(theme: DarkLightMode) -> Vec<(usize, LogicalRect)> {
             let mut lw = window_with_system_theme(match theme {
-                WindowTheme::DarkMode => azul_css::system::Theme::Dark,
-                WindowTheme::LightMode => azul_css::system::Theme::Light,
+                DarkLightMode::Dark => DarkLightMode::Dark,
+                DarkLightMode::Light => DarkLightMode::Light,
             });
             let mut ws = FullWindowState {
                 theme,
@@ -29365,8 +29366,8 @@ mod window_theme_context {
                 .collect()
         }
 
-        let light = rects(WindowTheme::LightMode);
-        let dark = rects(WindowTheme::DarkMode);
+        let light = rects(DarkLightMode::Light);
+        let dark = rects(DarkLightMode::Dark);
         assert!(light.len() > 3, "the fixture must lay out: {light:?}");
         assert_eq!(light, dark, "light vs dark node rects differ");
     }
@@ -29411,9 +29412,9 @@ mod window_theme_context {
                 .collect()
         }
 
-        let mut lw = window_with_system_theme(azul_css::system::Theme::Light);
+        let mut lw = window_with_system_theme(DarkLightMode::Light);
         let mut ws = FullWindowState {
-            theme: WindowTheme::LightMode,
+            theme: DarkLightMode::Light,
             ..Default::default()
         };
         ws.size.dimensions = LogicalSize::new(800.0, 600.0);
@@ -29426,15 +29427,15 @@ mod window_theme_context {
         assert!(light.len() > 3, "the fixture must lay out: {light:?}");
 
         let mut dark_style = azul_css::system::SystemStyle::default();
-        dark_style.theme = azul_css::system::Theme::Dark;
+        dark_style.theme = DarkLightMode::Dark;
         lw.set_system_style(std::sync::Arc::new(dark_style));
-        ws.theme = WindowTheme::DarkMode;
+        ws.theme = DarkLightMode::Dark;
         lw.layout_and_generate_display_list(fixture(), &ws, &rr, &sc, &mut dbg)
             .expect("dark layout");
         assert_eq!(light, rects(&lw), "the switch moved node rects");
 
         // And back, on the retained DOM (the restyle path).
-        ws.theme = WindowTheme::LightMode;
+        ws.theme = DarkLightMode::Light;
         let retained = lw
             .layout_results
             .remove(&DomId::ROOT_ID)
@@ -29477,7 +29478,7 @@ mod window_theme_context {
             .expect("laid out")
         }
 
-        let mut lw = window_with_system_theme(azul_css::system::Theme::Light);
+        let mut lw = window_with_system_theme(DarkLightMode::Light);
         let mut ws = FullWindowState::default();
         ws.size.dimensions = LogicalSize::new(800.0, 600.0);
         let rr = RendererResources::default();

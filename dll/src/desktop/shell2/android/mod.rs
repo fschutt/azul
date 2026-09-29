@@ -1102,8 +1102,8 @@ fn drain_pending_theme(window: &mut AndroidWindow) {
         .pending_theme
         .swap(0, std::sync::atomic::Ordering::AcqRel);
     let desktop = match raw {
-        1 => azul_core::window::WindowTheme::LightMode,
-        2 => azul_core::window::WindowTheme::DarkMode,
+        1 => azul_core::window::DarkLightMode::Light,
+        2 => azul_core::window::DarkLightMode::Dark,
         _ => return,
     };
     // The DEVICE's night mode: the window takes it only while the app follows
@@ -3337,8 +3337,8 @@ mod jni_bridge {
         // window state that the next loop iteration reads, exactly as the
         // gesture bridge does.
         let theme = match night_mode {
-            1 => azul_core::window::WindowTheme::LightMode,
-            2 => azul_core::window::WindowTheme::DarkMode,
+            1 => azul_core::window::DarkLightMode::Light,
+            2 => azul_core::window::DarkLightMode::Dark,
             // Undefined: the device is not expressing a preference, so keep
             // whatever the window already carries.
             _ => return,

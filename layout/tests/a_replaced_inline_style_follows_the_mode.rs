@@ -19,7 +19,7 @@ use azul_core::{
     geom::LogicalSize,
     resources::RendererResources,
     styled_dom::StyledDom,
-    window::{OptionWindowTheme, WindowTheme},
+    window::{OptionDarkLightMode, DarkLightMode},
 };
 use azul_css::{
     css::Css,
@@ -70,7 +70,7 @@ fn box_style(width: isize, light: ColorU, dark: ColorU) -> Css {
     .into()
 }
 
-fn window_state(theme: WindowTheme) -> FullWindowState {
+fn window_state(theme: DarkLightMode) -> FullWindowState {
     let mut ws = FullWindowState::default();
     ws.theme = theme;
     ws.size.dimensions = LogicalSize::new(400.0, 300.0);
@@ -93,19 +93,19 @@ fn lay_out(lw: &mut LayoutWindow, styled: StyledDom, ws: &FullWindowState) {
 pub(crate) fn window() -> LayoutWindow {
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
     lw.set_system_style(Arc::new(defaults::macos_modern_light()));
-    lw.mode = OptionWindowTheme::None;
+    lw.mode = OptionDarkLightMode::None;
     let dom = Dom::create_body()
         .with_css("margin: 0;")
         .with_child(Dom::create_div().with_style(box_style(40, RED, BLUE)));
-    lay_out(&mut lw, StyledDom::create_from_dom(dom), &window_state(WindowTheme::LightMode));
+    lay_out(&mut lw, StyledDom::create_from_dom(dom), &window_state(DarkLightMode::Light));
     lw
 }
 
 /// The app switches its colour scheme; the RETAINED DOM is re-styled (no
 /// new DOM - the restyle path of `set_mode`).
-pub(crate) fn switch_scheme(lw: &mut LayoutWindow, scheme: OptionWindowTheme) {
+pub(crate) fn switch_scheme(lw: &mut LayoutWindow, scheme: OptionDarkLightMode) {
     lw.mode = scheme;
-    let ws = window_state(lw.window_mode_for(WindowTheme::LightMode));
+    let ws = window_state(lw.window_mode_for(DarkLightMode::Light));
     let retained = lw
         .layout_results
         .remove(&DomId::ROOT_ID)
@@ -167,13 +167,13 @@ fn a_replaced_inline_style_takes_its_own_dark_twin_after_a_scheme_switch() {
     }
     let mut lw = window();
     replace(&mut lw, box_style(40, GREEN, YELLOW));
-    switch_scheme(&mut lw, OptionWindowTheme::Some(WindowTheme::DarkMode));
+    switch_scheme(&mut lw, OptionDarkLightMode::Some(DarkLightMode::Dark));
     assert_eq!(
         box_fill(&lw, 40.0),
         Some(YELLOW),
         "dark mode shows the replaced style's dark twin"
     );
-    switch_scheme(&mut lw, OptionWindowTheme::None);
+    switch_scheme(&mut lw, OptionDarkLightMode::None);
     assert_eq!(box_fill(&lw, 40.0), Some(GREEN), "and light mode its light face again");
 }
 

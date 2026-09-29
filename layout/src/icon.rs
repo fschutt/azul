@@ -67,7 +67,7 @@ use azul_css::{
             text::StyleTextColor,
         },
     },
-    system::{SystemStyle, Theme},
+    system::{SystemStyle, DarkLightMode},
 };
 
 // ============================================================================
@@ -355,7 +355,7 @@ pub extern "C" fn default_icon_resolver(
 /// Reads `SystemStyle::theme`, the light / dark slot (renamed to a mode by
 /// the naming migration; this is the one place to follow it).
 fn is_dark(style: &SystemStyle) -> bool {
-    style.theme == Theme::Dark
+    style.theme == DarkLightMode::Dark
 }
 
 /// The `<icon>` redirected to the artwork for the current mode, when the
@@ -2053,7 +2053,7 @@ mod autotest_generated {
 
     fn dark_style() -> SystemStyle {
         let mut s = SystemStyle::default();
-        s.theme = azul_css::system::Theme::Dark;
+        s.theme = DarkLightMode::Dark;
         s
     }
 

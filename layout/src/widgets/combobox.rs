@@ -1384,7 +1384,7 @@ fn show_active_option(
     let theme = style_kit::theme_of_classes(info.get_node_classes(list).as_ref());
     // THE mode decision (`get_resolved_mode`: the AZ_MODE pin, the app's
     // mode, the window's own) - the widgets' `window_is_dark` twins are gone.
-    let mode = usize::from(info.get_resolved_mode() == azul_core::window::WindowTheme::DarkMode);
+    let mode = usize::from(info.get_resolved_mode() == azul_core::window::DarkLightMode::Dark);
     let fill = match theme {
         UiTheme::Flat => flat::COMBOBOX_ACTIVE_OPTION[mode],
         UiTheme::Flora => flora::COMBOBOX_ACTIVE_OPTION[mode],

@@ -1572,7 +1572,7 @@ mod autotest_generated {
             callbacks::{HidpiAdjustedBounds, VirtualViewCallbackReason},
             geom::LogicalSize,
             resources::{DpiScaleFactor, ImageCache},
-            window::WindowTheme,
+            window::DarkLightMode,
         };
         use rust_fontconfig::FcFontCache;
 
@@ -1583,7 +1583,7 @@ mod autotest_generated {
             VirtualViewCallbackReason::InitialRender,
             &fonts,
             &images,
-            WindowTheme::LightMode,
+            DarkLightMode::Light,
             azul_core::window::WindowFrame::Normal,
             HidpiAdjustedBounds {
                 logical_size: size,

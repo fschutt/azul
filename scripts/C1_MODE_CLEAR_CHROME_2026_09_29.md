@@ -54,7 +54,7 @@ transparent = material != Opaque).
 
 ### 1.3 Native chrome
 
-- `CommonWindowState::native_chrome_mode() -> Option<WindowTheme>` (platform-agnostic, tested
+- `CommonWindowState::native_chrome_mode() -> Option<DarkLightMode>` (platform-agnostic, tested
   headless): force the chrome into the shown mode while a pin is active, or while the window shows
   another mode than the desktop's (its own `WindowCreateOptions::theme` seed); `None` = inherit.
   "A pin" = `resolve_window_theme(app, Light) == resolve_window_theme(app, Dark)` - the one
@@ -188,9 +188,9 @@ check the title is `#4c4c4c` in a light window and `#e5e5e5` in a dark one whate
    empty in its OWN mode now seeds `(236,236,236)` / `(50,50,50)` instead of clearing white /
    `[42,46,50]` - every current probe fills it.
 4. Twins noticed (not merged): the Windows `WM_SETTINGCHANGE` arm maps `new_style.theme` to a
-   `WindowTheme` inline instead of calling `desktop_window_theme`; `mode_background` and
-   `LayoutWindow::dynamic_selector_context` each map `WindowTheme`/`ThemeCondition` -> `Theme`
-   inline (no shared `WindowTheme -> Theme` helper exists; `desktop_window_theme` is the inverse).
+   `DarkLightMode` inline instead of calling `desktop_window_theme`; `mode_background` and
+   `LayoutWindow::dynamic_selector_context` each map `DarkLightMode`/`ThemeCondition` -> `Theme`
+   inline (no shared `DarkLightMode -> Theme` helper exists; `desktop_window_theme` is the inverse).
 5. Transient popups: `popup_create_options` sets `options.theme = None`, so a popup of a window
    whose mode came from its own seed (no app pin) resolves to the desktop's mode (pre-existing;
    under a pin both agree).

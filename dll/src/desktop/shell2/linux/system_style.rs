@@ -28,7 +28,7 @@ use azul_css::{
     },
     system::{
         defaults, DesktopEnvironment, Platform, ScrollbarTrackClick, ScrollbarVisibility,
-        SubpixelType, SystemStyle, Theme, TitlebarButtonSide, TitlebarButtons, ToolbarStyle,
+        SubpixelType, SystemStyle, DarkLightMode, TitlebarButtonSide, TitlebarButtons, ToolbarStyle,
     },
 };
 
@@ -1701,7 +1701,7 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
     } else {
         defaults::kde_breeze_light()
     };
-    style.theme = if is_dark { Theme::Dark } else { Theme::Light };
+    style.theme = if is_dark { DarkLightMode::Dark } else { DarkLightMode::Light };
 
     // ── Fonts ───────────────────────────────────────────────────────
     // KDE font spec: "Noto Sans,10,-1,5,50,0,0,0,0,0" (family, point size, …).
@@ -2091,7 +2091,7 @@ fn parse_pywal_colors(json_str: &str, style: &mut SystemStyle) {
     if let Some(bg) = extract_json_value(json_str, "background") {
         if let Ok(c) = parse_css_color(bg) {
             style.colors.window_background = OptionColorU::Some(c);
-            style.theme = Theme::Dark; // pywal usually means dark
+            style.theme = DarkLightMode::Dark; // pywal usually means dark
         }
     }
 
@@ -2522,7 +2522,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
     // "prefer-dark" from a stale GTK flag must not repaint a light session.
     if let Some((color_scheme, accent_rgb)) = portal_result.filter(|_| !desktop_answered) {
         match color_scheme {
-            1 if style.theme != Theme::Dark => {
+            1 if style.theme != DarkLightMode::Dark => {
                 let fonts = style.fonts.clone();
                 let linux = style.linux.clone();
                 let metrics = style.metrics.clone();
@@ -2531,7 +2531,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
                 style.linux = linux;
                 style.metrics = metrics;
             }
-            2 if style.theme != Theme::Light => {
+            2 if style.theme != DarkLightMode::Light => {
                 let fonts = style.fonts.clone();
                 let linux = style.linux.clone();
                 let metrics = style.metrics.clone();
@@ -2609,8 +2609,8 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
     // See `effective_system_theme`.
     DISCOVERED_THEME.store(
         match style.theme {
-            Theme::Dark => 1,
-            Theme::Light => 2,
+            DarkLightMode::Dark => 1,
+            DarkLightMode::Light => 2,
         },
         core::sync::atomic::Ordering::Relaxed,
     );
@@ -2639,10 +2639,10 @@ static THEME_WATCHER: std::sync::OnceLock<()> = std::sync::OnceLock::new();
 static DISCOVERED_THEME: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
 
 /// The theme detection read from the desktop's own config at startup.
-fn discovered_startup_theme() -> Option<Theme> {
+fn discovered_startup_theme() -> Option<DarkLightMode> {
     match DISCOVERED_THEME.load(core::sync::atomic::Ordering::Relaxed) {
-        1 => Some(Theme::Dark),
-        2 => Some(Theme::Light),
+        1 => Some(DarkLightMode::Dark),
+        2 => Some(DarkLightMode::Light),
         _ => None,
     }
 }
@@ -2655,10 +2655,10 @@ fn discovered_startup_theme() -> Option<Theme> {
 /// a bare WM, a session where it simply does not answer - the startup read is
 /// the only thing that knows, and it is usually right: it came from kdeglobals,
 /// xfconf or the GTK theme name. Without this the window kept
-/// `WindowTheme::default()` (LightMode) on every portal-less desktop, so a
+/// `DarkLightMode::default()` (LightMode) on every portal-less desktop, so a
 /// Breeze Dark KDE session rendered a LIGHT application chrome while
-/// `SystemStyle` sitting right beside it correctly said `Theme::Dark`.
-fn effective_system_theme(observed: Option<Theme>, discovered: Option<Theme>) -> Option<Theme> {
+/// `SystemStyle` sitting right beside it correctly said `DarkLightMode::Dark`.
+fn effective_system_theme(observed: Option<DarkLightMode>, discovered: Option<DarkLightMode>) -> Option<DarkLightMode> {
     observed.or(discovered)
 }
 
@@ -2668,10 +2668,10 @@ fn effective_system_theme(observed: Option<Theme>, discovered: Option<Theme>) ->
 /// "No preference" deliberately yields `None` rather than defaulting to light —
 /// it means the desktop is not expressing one, so whatever full detection chose
 /// at startup (GTK theme name, kdeglobals, pywal, ...) remains the better answer.
-fn color_scheme_to_theme(scheme: u32) -> Option<Theme> {
+fn color_scheme_to_theme(scheme: u32) -> Option<DarkLightMode> {
     match scheme {
-        1 => Some(Theme::Dark),
-        2 => Some(Theme::Light),
+        1 => Some(DarkLightMode::Dark),
+        2 => Some(DarkLightMode::Light),
         _ => None,
     }
 }
@@ -2680,11 +2680,11 @@ fn color_scheme_to_theme(scheme: u32) -> Option<Theme> {
 ///
 /// Cheap: one relaxed atomic load. Safe to call every frame — the D-Bus round
 /// trip happens on the watcher thread, never on the caller's.
-pub(crate) fn observed_system_theme() -> Option<Theme> {
+pub(crate) fn observed_system_theme() -> Option<DarkLightMode> {
     ensure_theme_watcher();
     match OBSERVED_COLOR_SCHEME.load(core::sync::atomic::Ordering::Relaxed) {
-        1 => Some(Theme::Dark),
-        2 => Some(Theme::Light),
+        1 => Some(DarkLightMode::Dark),
+        2 => Some(DarkLightMode::Light),
         _ => None,
     }
 }
@@ -3168,12 +3168,12 @@ fn color_scheme_from_message(msg: &[u8], expect_reply_serial: Option<u32>) -> Op
 pub(crate) fn adopt_observed_theme(
     common: &mut crate::desktop::shell2::common::event::CommonWindowState,
 ) -> Option<alloc::sync::Arc<SystemStyle>> {
-    use azul_core::window::WindowTheme;
+    use azul_core::window::DarkLightMode;
 
     let theme = effective_system_theme(observed_system_theme(), discovered_startup_theme())?;
     let theme = match theme {
-        Theme::Dark => WindowTheme::DarkMode,
-        Theme::Light => WindowTheme::LightMode,
+        DarkLightMode::Dark => DarkLightMode::Dark,
+        DarkLightMode::Light => DarkLightMode::Light,
     };
     // The DESKTOP's light / dark, which is not necessarily the window's: an
     // app that pins its mode keeps its window where it is, but the desktop is
@@ -3221,14 +3221,14 @@ pub(crate) fn adopt_observed_theme(
 /// window's work and a switch BACK re-discovers rather than serving a stale
 /// entry.
 fn rediscovered_style_for(
-    theme: azul_core::window::WindowTheme,
+    theme: azul_core::window::DarkLightMode,
     known_languages: &[azul_css::system::SystemLanguage],
 ) -> alloc::sync::Arc<SystemStyle> {
     use std::sync::Mutex;
 
     static CACHE: Mutex<
         Option<(
-            azul_core::window::WindowTheme,
+            azul_core::window::DarkLightMode,
             alloc::sync::Arc<SystemStyle>,
         )>,
     > = Mutex::new(None);
@@ -3681,7 +3681,7 @@ mod kde_ini_tests {
     /// xdg-desktop-portal watcher. This session logs
     /// `xdg-desktop-portal unavailable`, so the watcher never stores anything,
     /// `adopt_observed_theme` returns `None`, and the window keeps
-    /// `WindowTheme::default()` - which is `LightMode` - forever.
+    /// `DarkLightMode::default()` - which is `LightMode` - forever.
     ///
     /// `observed_system_theme`'s own doc already states the rule this restores:
     /// when the portal expresses no preference, "whatever full detection chose
@@ -3691,24 +3691,24 @@ mod kde_ini_tests {
     fn a_silent_portal_falls_back_to_what_detection_read_at_startup() {
         // The portal answers: it wins, even against a different startup read.
         assert_eq!(
-            effective_system_theme(Some(Theme::Dark), Some(Theme::Light)),
-            Some(Theme::Dark)
+            effective_system_theme(Some(DarkLightMode::Dark), Some(DarkLightMode::Light)),
+            Some(DarkLightMode::Dark)
         );
         assert_eq!(
-            effective_system_theme(Some(Theme::Light), Some(Theme::Dark)),
-            Some(Theme::Light)
+            effective_system_theme(Some(DarkLightMode::Light), Some(DarkLightMode::Dark)),
+            Some(DarkLightMode::Light)
         );
 
         // THE DEFECT: no portal, but startup detection read a dark desktop out
         // of kdeglobals. Today this is `None` and the window stays LightMode.
         assert_eq!(
-            effective_system_theme(None, Some(Theme::Dark)),
-            Some(Theme::Dark),
+            effective_system_theme(None, Some(DarkLightMode::Dark)),
+            Some(DarkLightMode::Dark),
             "a dark desktop with no portal must still produce a dark window"
         );
         assert_eq!(
-            effective_system_theme(None, Some(Theme::Light)),
-            Some(Theme::Light)
+            effective_system_theme(None, Some(DarkLightMode::Light)),
+            Some(DarkLightMode::Light)
         );
 
         // Nothing known anywhere: stay quiet rather than guess.

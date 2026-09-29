@@ -1399,12 +1399,12 @@ fn style_in_window_mode(
     system_style: &SystemStyle,
     context: &DynamicSelectorContext,
 ) -> Option<SystemStyle> {
-    use azul_css::{dynamic_selector::ThemeCondition, system::Theme};
+    use azul_css::{dynamic_selector::ThemeCondition, system::DarkLightMode};
 
     let mode = if context.theme == ThemeCondition::Dark {
-        Theme::Dark
+        DarkLightMode::Dark
     } else {
-        Theme::Light
+        DarkLightMode::Light
     };
     if system_style.theme == mode
         && system_style.prefers_high_contrast == context.prefers_high_contrast

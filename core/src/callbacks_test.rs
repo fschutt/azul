@@ -105,13 +105,13 @@ mod autotest_generated {
                 ..Monitor::default()
             },
         ]));
-        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
         let max: Option<LayoutSize> = info.get_max_monitor_size().into();
         assert_eq!(max, Some(LayoutSize::new(2560, 1440)));
         assert_eq!(info.get_monitors().len(), 3);
 
         let rd2 = fixture.ref_data(); // empty snapshot
-        let info2 = LayoutCallbackInfo::new(&rd2, WindowSize::default(), WindowTheme::LightMode);
+        let info2 = LayoutCallbackInfo::new(&rd2, WindowSize::default(), DarkLightMode::Light);
         let none: Option<LayoutSize> = info2.get_max_monitor_size().into();
         assert_eq!(none, None);
     }
@@ -142,7 +142,7 @@ mod autotest_generated {
             VirtualViewCallbackReason::InitialRender,
             fonts,
             images,
-            WindowTheme::LightMode,
+            DarkLightMode::Light,
             crate::window::WindowFrame::Normal,
             bounds,
             // materialized: a window at y=2 covering 100x200 of the document
@@ -245,7 +245,7 @@ mod autotest_generated {
     fn default_layout_callback_returns_body_and_does_not_panic() {
         let fx = Fixture::new();
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, win(0.0, 0.0, 0), WindowTheme::DarkMode);
+        let info = LayoutCallbackInfo::new(&rd, win(0.0, 0.0, 0), DarkLightMode::Dark);
 
         // extreme arg: zero-sized window, zero DPI, empty caches
         let dom = default_layout_callback(RefAny::new(0u32), info);
@@ -274,7 +274,7 @@ mod autotest_generated {
         let fx = Fixture::new();
         let rd = fx.ref_data();
         let before = ALT_LAYOUT_CALLS.load(AtomicOrdering::SeqCst);
-        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
         let _ = (from_alt.cb)(RefAny::new(()), info);
         assert_eq!(ALT_LAYOUT_CALLS.load(AtomicOrdering::SeqCst), before + 1);
     }
@@ -316,7 +316,7 @@ mod autotest_generated {
         let info = vv_info(&fonts, &images, bounds);
 
         assert_eq!(info.reason, VirtualViewCallbackReason::InitialRender);
-        assert_eq!(info.window_theme, WindowTheme::LightMode);
+        assert_eq!(info.window_theme, DarkLightMode::Light);
         assert_eq!(
             info.get_bounds().get_logical_size(),
             LogicalSize::new(800.0, 600.0)
@@ -353,7 +353,7 @@ mod autotest_generated {
             VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom),
             &fonts,
             &images,
-            WindowTheme::DarkMode,
+            DarkLightMode::Dark,
             crate::window::WindowFrame::Normal,
             HidpiAdjustedBounds::from_bounds(
                 LayoutSize::new(isize::MAX, isize::MIN),
@@ -718,10 +718,10 @@ mod autotest_generated {
     fn layout_callback_info_new_defaults_to_initial_reason_and_holds_fields() {
         let fx = Fixture::new();
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, win(1280.0, 720.0, 192), WindowTheme::DarkMode);
+        let info = LayoutCallbackInfo::new(&rd, win(1280.0, 720.0, 192), DarkLightMode::Dark);
 
         assert_eq!(info.relayout_reason(), RelayoutReason::Initial);
-        assert_eq!(info.theme, WindowTheme::DarkMode);
+        assert_eq!(info.theme, DarkLightMode::Dark);
         assert_eq!(info.get_window_width(), 1280.0);
         assert_eq!(info.get_window_height(), 720.0);
         assert_eq!(info.get_dpi_factor(), 2.0);
@@ -751,7 +751,7 @@ mod autotest_generated {
             let info = LayoutCallbackInfo::new_with_reason(
                 &rd,
                 WindowSize::default(),
-                WindowTheme::LightMode,
+                DarkLightMode::Light,
                 reason,
             );
             assert_eq!(info.relayout_reason(), reason);
@@ -766,7 +766,7 @@ mod autotest_generated {
     fn layout_callback_info_get_system_style_shares_the_arc() {
         let fx = Fixture::new();
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
 
         let a = info.get_system_style();
         let b = info.get_system_style();
@@ -786,7 +786,7 @@ mod autotest_generated {
     fn layout_callback_info_get_ctx_is_none_until_set_then_clones_safely() {
         let fx = Fixture::new();
         let rd = fx.ref_data();
-        let mut info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let mut info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
 
         assert!(info.get_ctx().is_none(), "native path must have a null ctx");
 
@@ -813,7 +813,7 @@ mod autotest_generated {
     fn layout_callback_info_get_system_fonts_is_empty_for_an_empty_cache() {
         let fx = Fixture::new();
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
 
         // an empty FcFontCache must yield an empty list, not panic
         let fonts: Vec<AzStringPair> = info.get_system_fonts();
@@ -828,7 +828,7 @@ mod autotest_generated {
     fn get_image_returns_none_for_missing_empty_and_hostile_ids() {
         let fx = Fixture::new();
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
 
         assert!(info.get_image(&s("")).is_none());
         assert!(info.get_image(&s("   ")).is_none());
@@ -846,7 +846,7 @@ mod autotest_generated {
             ImageRef::null_image(2, 2, RawImageFormat::RGBA8, Vec::new()),
         );
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
 
         assert!(info.get_image(&s("logo")).is_some(), "positive control");
 
@@ -864,7 +864,7 @@ mod autotest_generated {
     fn get_route_param_returns_none_when_no_route_is_active() {
         let fx = Fixture::new();
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
 
         assert!(info.get_active_route().is_none());
 
@@ -878,7 +878,7 @@ mod autotest_generated {
     fn get_route_param_valid_minimal_and_unicode_positive_controls() {
         let fx = Fixture::with_route(user_route());
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
 
         let route = info.get_active_route().expect("route was configured");
         assert_eq!(route.pattern.as_str(), "/user/:id");
@@ -896,7 +896,7 @@ mod autotest_generated {
     fn get_route_param_rejects_malformed_keys_without_trimming_or_folding() {
         let fx = Fixture::with_route(user_route());
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
 
         // empty / whitespace-only
         assert!(info.get_route_param("").is_none());
@@ -945,7 +945,7 @@ mod autotest_generated {
     fn get_route_param_handles_pathological_key_sizes_and_nesting() {
         let fx = Fixture::with_route(user_route());
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
 
         // extremely long key: must return None quickly, not hang or overflow
         let huge = "x".repeat(1_000_000);
@@ -973,7 +973,7 @@ mod autotest_generated {
         };
         let fx = Fixture::with_route(route);
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
 
         let got = info.get_route_param("data").expect("param exists");
         assert_eq!(got.as_str().len(), 200_000);
@@ -1000,7 +1000,7 @@ mod autotest_generated {
         ];
 
         for &dim in &probes {
-            let info = LayoutCallbackInfo::new(&rd, win(dim, dim, 96), WindowTheme::LightMode);
+            let info = LayoutCallbackInfo::new(&rd, win(dim, dim, 96), DarkLightMode::Light);
 
             for &px in &probes {
                 let lt = info.window_width_less_than(px);
@@ -1038,7 +1038,7 @@ mod autotest_generated {
     fn window_predicates_with_inverted_and_degenerate_ranges() {
         let fx = Fixture::new();
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, win(640.0, 480.0, 96), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, win(640.0, 480.0, 96), DarkLightMode::Light);
 
         // inverted range is always empty
         assert!(!info.window_width_between(1000.0, 100.0));
@@ -1067,7 +1067,7 @@ mod autotest_generated {
     fn window_predicates_are_all_false_for_nan_probes() {
         let fx = Fixture::new();
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, win(640.0, 480.0, 96), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, win(640.0, 480.0, 96), DarkLightMode::Light);
 
         // every comparison against NaN is false - no panic, no accidental `true`
         assert!(!info.window_width_less_than(f32::NAN));
@@ -1088,7 +1088,7 @@ mod autotest_generated {
         let fx = Fixture::new();
         let rd = fx.ref_data();
         let info =
-            LayoutCallbackInfo::new(&rd, win(f32::NAN, f32::NAN, 96), WindowTheme::LightMode);
+            LayoutCallbackInfo::new(&rd, win(f32::NAN, f32::NAN, 96), DarkLightMode::Light);
 
         assert!(info.get_window_width().is_nan());
         assert!(info.get_window_height().is_nan());
@@ -1110,24 +1110,24 @@ mod autotest_generated {
         let rd = fx.ref_data();
 
         // 96 DPI is the 1.0 baseline
-        let base = LayoutCallbackInfo::new(&rd, win(1.0, 1.0, 96), WindowTheme::LightMode);
+        let base = LayoutCallbackInfo::new(&rd, win(1.0, 1.0, 96), DarkLightMode::Light);
         assert_eq!(base.get_dpi_factor(), 1.0);
 
-        let hidpi = LayoutCallbackInfo::new(&rd, win(1.0, 1.0, 192), WindowTheme::LightMode);
+        let hidpi = LayoutCallbackInfo::new(&rd, win(1.0, 1.0, 192), DarkLightMode::Light);
         assert_eq!(hidpi.get_dpi_factor(), 2.0);
 
         // dpi = 0 must not divide-by-zero-panic; it yields 0.0
-        let zero = LayoutCallbackInfo::new(&rd, win(1.0, 1.0, 0), WindowTheme::LightMode);
+        let zero = LayoutCallbackInfo::new(&rd, win(1.0, 1.0, 0), DarkLightMode::Light);
         assert_eq!(zero.get_dpi_factor(), 0.0);
 
         // u32::MAX must not overflow the f32 cast - it stays finite
-        let max = LayoutCallbackInfo::new(&rd, win(1.0, 1.0, u32::MAX), WindowTheme::LightMode);
+        let max = LayoutCallbackInfo::new(&rd, win(1.0, 1.0, u32::MAX), DarkLightMode::Light);
         let f = max.get_dpi_factor();
         assert!(f.is_finite() && f > 0.0, "dpi factor {f} is not finite");
         assert_eq!(f, (u32::MAX as f32) / 96.0);
 
         // dpi = 1 rounds to a tiny-but-positive factor rather than 0
-        let one = LayoutCallbackInfo::new(&rd, win(1.0, 1.0, 1), WindowTheme::LightMode);
+        let one = LayoutCallbackInfo::new(&rd, win(1.0, 1.0, 1), DarkLightMode::Light);
         assert!(one.get_dpi_factor() > 0.0);
     }
 
@@ -1347,7 +1347,7 @@ mod size_query_tests {
     }
 
     fn info_at(rd: &LayoutCallbackInfoRefData<'_>, w: f32, h: f32) -> LayoutCallbackInfo {
-        LayoutCallbackInfo::new(rd, win(w, h), WindowTheme::LightMode)
+        LayoutCallbackInfo::new(rd, win(w, h), DarkLightMode::Light)
     }
 
     fn drain() -> (alloc::vec::Vec<SizeQuery>, bool) {
@@ -1525,7 +1525,7 @@ mod size_query_tests {
 mod system_style_dependency_tests {
     use azul_css::{
         props::basic::color::ColorU,
-        system::{SystemStyle, Theme},
+        system::{SystemStyle, DarkLightMode},
     };
 
     use super::*;
@@ -1581,7 +1581,7 @@ mod system_style_dependency_tests {
                 dimensions: LogicalSize::new(800.0, 600.0),
                 ..WindowSize::default()
             },
-            WindowTheme::LightMode,
+            DarkLightMode::Light,
         )
     }
 
@@ -1605,7 +1605,7 @@ mod system_style_dependency_tests {
 
         // Polarity flip: rebuild.
         let mut dark = style();
-        dark.theme = Theme::Dark;
+        dark.theme = DarkLightMode::Dark;
         assert!(deps.dom_depends_on_change(&old, &dark));
     }
 
@@ -1709,7 +1709,7 @@ mod system_style_dependency_tests {
         let _ = info.theme;
         assert!(take_recorded_style_dependencies().is_empty());
 
-        assert_eq!(info.get_mode(), WindowTheme::LightMode);
+        assert_eq!(info.get_mode(), DarkLightMode::Light);
         let declared = take_recorded_style_dependencies();
         assert!(declared.contains(SystemStyleDependency::Theme));
         assert!(!declared.contains(SystemStyleDependency::Colors));
@@ -1801,7 +1801,7 @@ mod global_hotkey_recorder_tests {
                 dimensions: LogicalSize::new(800.0, 600.0),
                 ..WindowSize::default()
             },
-            WindowTheme::LightMode,
+            DarkLightMode::Light,
         )
     }
 
@@ -2087,7 +2087,7 @@ mod app_theme_tests {
                 dimensions: LogicalSize::new(800.0, 600.0),
                 ..WindowSize::default()
             },
-            WindowTheme::LightMode,
+            DarkLightMode::Light,
         )
     }
 
@@ -2154,7 +2154,7 @@ mod app_theme_tests {
         );
         assert_eq!(
             info.get_mode(),
-            WindowTheme::LightMode,
+            DarkLightMode::Light,
             "the light / dark mode, as before"
         );
     }
@@ -2166,7 +2166,7 @@ mod app_theme_tests {
         let info = LayoutCallbackInfo::new_with_reason(
             &rd,
             WindowSize::default(),
-            WindowTheme::LightMode,
+            DarkLightMode::Light,
             RelayoutReason::ThemeChange,
         );
         assert_eq!(info.relayout_reason(), RelayoutReason::ThemeChange);

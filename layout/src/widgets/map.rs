@@ -39,6 +39,7 @@ use azul_css::{
     dynamic_selector::{CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec},
     AzString,
 };
+use azul_css::system::DarkLightMode;
 
 // ────────── POD types (api.json + codegen surface) ─────────────────────
 
@@ -141,20 +142,20 @@ impl MapColorScheme {
     /// (`css/src/dynamic_selector.rs`). Reading it here means the map and the
     /// stylesheet cannot disagree about what "dark" means.
     #[must_use]
-    pub const fn from_system_theme(theme: azul_css::system::Theme) -> Self {
+    pub const fn from_system_theme(theme: azul_css::system::DarkLightMode) -> Self {
         match theme {
-            azul_css::system::Theme::Dark => Self::Dark,
-            azul_css::system::Theme::Light => Self::Light,
+            DarkLightMode::Dark => Self::Dark,
+            DarkLightMode::Light => Self::Light,
         }
     }
 
     /// The scheme of a WINDOW theme — what a `MapTheme::System` layer
     /// follows at render time (`VirtualViewCallbackInfo::window_theme`).
     #[must_use]
-    pub const fn from_window_theme(theme: azul_core::window::WindowTheme) -> Self {
+    pub const fn from_window_theme(theme: azul_core::window::DarkLightMode) -> Self {
         match theme {
-            azul_core::window::WindowTheme::DarkMode => Self::Dark,
-            azul_core::window::WindowTheme::LightMode => Self::Light,
+            azul_core::window::DarkLightMode::Dark => Self::Dark,
+            azul_core::window::DarkLightMode::Light => Self::Light,
         }
     }
 }
@@ -235,7 +236,7 @@ impl MapTheme {
     /// The `MapCSS` sheet this theme renders with under `window_theme`; empty
     /// for `Custom` (the layer's `style_css` is the sheet then).
     #[must_use]
-    pub fn stylesheet(self, window_theme: azul_core::window::WindowTheme) -> AzString {
+    pub fn stylesheet(self, window_theme: azul_core::window::DarkLightMode) -> AzString {
         AzString::from(
             self.look(MapColorScheme::from_window_theme(window_theme))
                 .sheet(),
@@ -247,7 +248,7 @@ impl MapTheme {
     /// sample); empty for the authored looks and `Custom`. Both halves are
     /// appended to the layer's attribution by [`MapTileLayer::with_theme`].
     #[must_use]
-    pub fn credit(self, window_theme: azul_core::window::WindowTheme) -> AzString {
+    pub fn credit(self, window_theme: azul_core::window::DarkLightMode) -> AzString {
         AzString::from(
             self.look(MapColorScheme::from_window_theme(window_theme))
                 .credit_str(),
@@ -327,7 +328,7 @@ impl MapTileLayer {
     /// non-empty `style_css` always wins; else the theme's sheet for that
     /// half; else the built-in palette (empty).
     #[must_use]
-    pub fn effective_style_css(&self, window_theme: azul_core::window::WindowTheme) -> AzString {
+    pub fn effective_style_css(&self, window_theme: azul_core::window::DarkLightMode) -> AzString {
         self.effective_style_css_for(
             self.theme
                 .look(MapColorScheme::from_window_theme(window_theme)),
@@ -3065,7 +3066,7 @@ mod camera_tests {
 
 #[cfg(test)]
 mod theme_tests {
-    use azul_core::window::WindowTheme;
+    use azul_core::window::DarkLightMode;
 
     use super::*;
 
@@ -3095,8 +3096,8 @@ mod theme_tests {
                 !l.sheet().is_empty() && !d.sheet().is_empty(),
                 "{theme:?} must have a sheet for both halves"
             );
-            assert_eq!(theme.stylesheet(WindowTheme::LightMode).as_str(), l.sheet());
-            assert_eq!(theme.stylesheet(WindowTheme::DarkMode).as_str(), d.sheet());
+            assert_eq!(theme.stylesheet(DarkLightMode::Light).as_str(), l.sheet());
+            assert_eq!(theme.stylesheet(DarkLightMode::Dark).as_str(), d.sheet());
         }
         // Apple is ONE theme: the dark window picks its dark palette, no
         // second variant needed.
@@ -3113,7 +3114,7 @@ mod theme_tests {
             assert_eq!(theme.look(MapColorScheme::Dark), MapLook::DarkMatter);
         }
         assert!(MapTheme::Custom
-            .stylesheet(WindowTheme::LightMode)
+            .stylesheet(DarkLightMode::Light)
             .as_str()
             .is_empty());
         assert_eq!(
@@ -3126,11 +3127,11 @@ mod theme_tests {
     fn a_custom_sheet_wins_over_a_preset_and_with_theme_credits_the_design() {
         let layer = MapTileLayer::default().with_theme(MapTheme::Positron);
         assert_eq!(
-            layer.effective_style_css(WindowTheme::LightMode).as_str(),
+            layer.effective_style_css(DarkLightMode::Light).as_str(),
             super::super::map_themes::POSITRON
         );
         assert_eq!(
-            layer.effective_style_css(WindowTheme::DarkMode).as_str(),
+            layer.effective_style_css(DarkLightMode::Dark).as_str(),
             super::super::map_themes::DARK,
             "the dark window gets the theme's dark half"
         );
@@ -3151,7 +3152,7 @@ mod theme_tests {
         let mut custom = MapTileLayer::default().with_theme(MapTheme::Apple);
         custom.style_css = AzString::from("water { fill: #123456; }");
         assert_eq!(
-            custom.effective_style_css(WindowTheme::DarkMode).as_str(),
+            custom.effective_style_css(DarkLightMode::Dark).as_str(),
             "water { fill: #123456; }"
         );
         // authored looks carry no third-party credit
@@ -3160,11 +3161,11 @@ mod theme_tests {
                 && MapLook::GoogleLight.credit_str().is_empty()
         );
         assert_eq!(
-            MapTheme::Positron.credit(WindowTheme::LightMode).as_str(),
+            MapTheme::Positron.credit(DarkLightMode::Light).as_str(),
             MapLook::Positron.credit_str()
         );
         assert_eq!(
-            MapTheme::Positron.credit(WindowTheme::DarkMode).as_str(),
+            MapTheme::Positron.credit(DarkLightMode::Dark).as_str(),
             MapLook::DarkMatter.credit_str()
         );
         // System credits BOTH halves' designs where they have one
@@ -3742,7 +3743,7 @@ mod autotest_generated {
         resources::{DpiScaleFactor, ImageCache, RendererResources},
         styled_dom::NodeHierarchyItemId,
         task::ThreadReceiver,
-        window::{MonitorVec, RawWindowHandle, WindowTheme},
+        window::{MonitorVec, RawWindowHandle, DarkLightMode},
     };
     use azul_css::system::SystemStyle;
     use rust_fontconfig::FcFontCache;
@@ -3899,7 +3900,7 @@ mod autotest_generated {
             VirtualViewCallbackReason::InitialRender,
             &fonts,
             &images,
-            WindowTheme::LightMode,
+            DarkLightMode::Light,
             azul_core::window::WindowFrame::Normal,
             HidpiAdjustedBounds {
                 logical_size: size,

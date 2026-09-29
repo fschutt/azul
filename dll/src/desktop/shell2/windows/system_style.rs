@@ -18,7 +18,7 @@ use azul_css::{
     dynamic_selector::{BoolCondition, OsVersion},
     props::basic::color::{ColorU, OptionColorU},
     system::{
-        defaults, windows_accent, InputMetrics, Platform, SubpixelType, TextRenderingHints, Theme,
+        defaults, windows_accent, InputMetrics, Platform, SubpixelType, TextRenderingHints, DarkLightMode,
     },
 };
 
@@ -240,7 +240,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
         if let Some(ref bg) = style.colors.window_background.as_option() {
             let luma = (bg.r as u16 + bg.g as u16 + bg.b as u16) / 3;
             if luma < 128 {
-                style.theme = azul_css::system::Theme::Dark;
+                style.theme = DarkLightMode::Dark;
             }
         }
 
@@ -398,9 +398,9 @@ fn discover_windows_cli_extras(style: &mut azul_css::system::SystemStyle) {
         2000,
     ) {
         if output.contains("0x0") {
-            style.theme = Theme::Dark;
+            style.theme = DarkLightMode::Dark;
         } else if output.contains("0x1") {
-            style.theme = Theme::Light;
+            style.theme = DarkLightMode::Light;
         }
     }
 

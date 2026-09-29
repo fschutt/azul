@@ -474,7 +474,7 @@ fn a_mount_callback_asking_for_refresh_gets_another_layout_pass() {
 /// toggle does nothing" could sit unnoticed on six of the seven backends.
 #[test]
 fn a_theme_switch_changes_the_theme_and_requests_a_frame() {
-    use azul_core::window::WindowTheme;
+    use azul_core::window::DarkLightMode;
 
     if azul_css::dynamic_selector::mode_pinned_by_env().is_some() {
         return; // AZ_MODE outranks the desktop: the window must NOT follow it
@@ -487,8 +487,8 @@ fn a_theme_switch_changes_the_theme_and_requests_a_frame() {
 
     let before = window.common.current_window_state().theme;
     let switch_to = match before {
-        WindowTheme::DarkMode => WindowTheme::LightMode,
-        WindowTheme::LightMode => WindowTheme::DarkMode,
+        DarkLightMode::Dark => DarkLightMode::Light,
+        DarkLightMode::Light => DarkLightMode::Dark,
     };
 
     assert!(
@@ -543,7 +543,7 @@ fn re_asserting_the_current_theme_costs_nothing() {
 /// at creation, in the one constructor every backend goes through.
 #[test]
 fn window_create_options_theme_seeds_the_initial_window_theme() {
-    use azul_core::window::{OptionWindowTheme, WindowTheme};
+    use azul_core::window::{OptionDarkLightMode, DarkLightMode};
 
     if azul_css::dynamic_selector::mode_pinned_by_env().is_some() {
         return; // AZ_MODE outranks the request; nothing to compare
@@ -560,7 +560,7 @@ fn window_create_options_theme_seeds_the_initial_window_theme() {
         ctx: azul_core::refany::OptionRefAny::None,
     };
     // The window state still says LightMode (its default) — the REQUEST wins.
-    options.theme = OptionWindowTheme::Some(WindowTheme::DarkMode);
+    options.theme = OptionDarkLightMode::Some(DarkLightMode::Dark);
 
     let window = HeadlessWindow::new(
         options,
@@ -575,7 +575,7 @@ fn window_create_options_theme_seeds_the_initial_window_theme() {
 
     assert_eq!(
         window.common.current_window_state().theme,
-        WindowTheme::DarkMode,
+        DarkLightMode::Dark,
         "the requested theme must seed the window at creation"
     );
 }

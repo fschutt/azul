@@ -10,7 +10,7 @@ dark / system.
 
 | old | new |
 |---|---|
-| `LayoutCallbackInfo::get_theme() -> WindowTheme` | `LayoutCallbackInfo::get_mode() -> WindowTheme` |
+| `LayoutCallbackInfo::get_theme() -> DarkLightMode` | `LayoutCallbackInfo::get_mode() -> DarkLightMode` |
 | `LayoutCallbackInfo::get_theme_name() -> AzString` | `LayoutCallbackInfo::get_theme() -> AzString` |
 | `CallbackInfo::set_color_scheme(scheme)` | `CallbackInfo::set_mode(mode)` |
 | `CallbackInfo::get_color_scheme()` | `CallbackInfo::get_mode()` |
@@ -111,7 +111,7 @@ Other changes:
 default features include `link-static`, which pulls in `cabi_export` and the generated
 `target/codegen` code. That generated C-ABI calls `object.get_theme_name()`,
 `object.get_color_scheme()` and the other old names, and it expects
-`LayoutCallbackInfo::get_theme` to return `WindowTheme`. Apply the items one method at a time
+`LayoutCallbackInfo::get_theme` to return `DarkLightMode`. Apply the items one method at a time
 (`autofix add` wipes the patch dir), then run `codegen all` (set `AZ_CODEGEN_DIR` in a worktree).
 Only then run the dll tests. azul-core and azul-layout compile without the api.json update.
 
@@ -120,25 +120,25 @@ the now-ASCII Rust source). Order matters for the `LayoutCallbackInfo` pair:
 
 1. `LayoutCallbackInfo.get_theme` -> `LayoutCallbackInfo.get_mode`
    - Remove the old `get_theme` FIRST.
-   - Returns `WindowTheme`, fn_body `object.get_mode()`.
+   - Returns `DarkLightMode`, fn_body `object.get_mode()`.
    - The old entry had `"priority": 70.0`; carry it over if wanted.
 2. `LayoutCallbackInfo.get_theme_name` -> `LayoutCallbackInfo.get_theme`
    - Returns `String`, fn_body `object.get_theme().into()`.
-3. `CallbackInfo.get_color_scheme` -> `CallbackInfo.get_mode` (returns `OptionWindowTheme`).
+3. `CallbackInfo.get_color_scheme` -> `CallbackInfo.get_mode` (returns `OptionDarkLightMode`).
 4. `CallbackInfo.get_resolved_color_scheme` -> `CallbackInfo.get_resolved_mode` (returns
-   `WindowTheme`).
+   `DarkLightMode`).
 5. `CallbackInfo.set_color_scheme` -> `CallbackInfo.set_mode`
-   - Arg `mode: OptionWindowTheme`, fn_body `object.set_mode(mode)`.
+   - Arg `mode: OptionDarkLightMode`, fn_body `object.set_mode(mode)`.
 6. `AppConfig.with_color_scheme` -> `AppConfig.with_mode`
-   - `self: value`, arg `mode: OptionWindowTheme`, returns `AppConfig`.
+   - `self: value`, arg `mode: OptionDarkLightMode`, returns `AppConfig`.
 7. `AppConfig.set_color_scheme` -> `AppConfig.set_mode`
-   - `self: refmut`, arg `mode: OptionWindowTheme`.
+   - `self: refmut`, arg `mode: OptionDarkLightMode`.
 
 Types (the plain `autofix` drift pass should find both; order preserved via
 `replace_struct_fields` / `replace_enum_variants`):
 
 8. `AppConfig.color_scheme` -> `AppConfig.mode`. Same position, between `theme` and
-   `log_level`, type `OptionWindowTheme`.
+   `log_level`, type `OptionDarkLightMode`.
 9. `RelayoutReason` variants, in order:
    `[Initial, RefreshDom, Resize, ModeChange, RouteChange, Other, ThemeChange]`.
    - Was `[..., ThemeChange, RouteChange, Other, AppThemeChange]`.
@@ -181,7 +181,7 @@ Doc-only refreshes. Plain sync does not refresh docs: re-add the method, or patc
    - fn-pointer coercions of methods, including the `const fn CallbackInfo::get_mode` and the
      `#[allow(clippy::unused_self)] LayoutCallbackInfo::get_theme`;
    - `matches!(change, CallbackChange::SetMode { mode } if mode == PIN_DARK)`;
-   - `*self.callback_seen.lock()` copying an `Option<(OptionWindowTheme, WindowTheme)>` (all
+   - `*self.callback_seen.lock()` copying an `Option<(OptionDarkLightMode, DarkLightMode)>` (all
      parts `Copy`).
 3. Behaviour risk in that test's headless run (not a compile risk). `set_mode` is called from an
    `AfterMount` callback. Its `SetMode` arm runs a nested `process_window_events(0)` from inside
@@ -236,9 +236,9 @@ Approximate use counts per crate (regex counts, tests and comments included):
 
 | name | core | css | layout | dll | examples | doc | api.json |
 |---|---|---|---|---|---|---|---|
-| `WindowTheme` (type) | 46 | 0 | 137 | 105 | 20 | 2 | 11 |
-| `OptionWindowTheme` | 6 | 0 | 39 | 45 | 6 | 2 | 8 |
-| `WindowTheme::LightMode/DarkMode` | 37 | 0 | 96 | 69 | 15 | 1 | 0 |
+| `DarkLightMode` (type) | 46 | 0 | 137 | 105 | 20 | 2 | 11 |
+| `OptionDarkLightMode` | 6 | 0 | 39 | 45 | 6 | 2 | 8 |
+| `DarkLightMode::Light/DarkMode` | 37 | 0 | 96 | 69 | 15 | 1 | 0 |
 | css `Theme::Light/Dark` (`azul_css::system::Theme`) | 1 | 34 | 63 | 49 | 0 | 0 | 0 |
 | `ThemeCondition::Light/Dark` | 75 | 74 | 59 | 1 | 0 | 1 | 0 |
 | `SystemStyleDependency::Theme` | 11 | 0 | 6 | 0 | 1 | 0 | 0 |
@@ -252,8 +252,8 @@ Approximate use counts per crate (regex counts, tests and comments included):
 
 Proposed names:
 
-- `WindowTheme { LightMode, DarkMode }` -> `WindowMode { Light, Dark }`, and
-  `OptionWindowTheme` -> `OptionWindowMode`.
+- `DarkLightMode { LightMode, DarkMode }` -> `WindowMode { Light, Dark }`, and
+  `OptionDarkLightMode` -> `OptionWindowMode`.
 - The fields `FullWindowState.theme`, `WindowCreateOptions.theme` and
   `LayoutCallbackInfo.theme` -> `.mode`.
 - css `system::Theme` -> `system::Mode`, and `SystemStyle.theme` -> `.mode`.
@@ -269,7 +269,7 @@ Proposed names:
 Other things left open:
 
 - **Twins**, for the type sweep to unify. `dll/.../event.rs::desktop_window_theme` maps
-  `azul_css::system::Theme` -> `WindowTheme`, and the same match is hand-rolled four more times:
+  `azul_css::system::Theme` -> `DarkLightMode`, and the same match is hand-rolled four more times:
   - `linux/system_style.rs:~3222`, `macos/system_style.rs:~964`, `windows/mod.rs:~6834`;
   - `layout/src/e2e/runner.rs:~3517`;
   - plus two layout tests.

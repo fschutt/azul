@@ -3277,7 +3277,7 @@ mod layout_callback_locale_tests {
         let info = LayoutCallbackInfo::new(
             &ref_data,
             azul_core::window::WindowSize::default(),
-            azul_core::window::WindowTheme::LightMode,
+            azul_core::window::DarkLightMode::Light,
         );
         let _ = take_recorded_style_dependencies();
 

@@ -30,7 +30,7 @@ use azul_core::{
     icon::{IconProviderHandle, SharedIconProvider},
     refany::{OptionRefAny, RefAny},
     resources::AppConfig,
-    window::{OptionWindowTheme, WindowTheme},
+    window::{OptionDarkLightMode, DarkLightMode},
 };
 use azul_css::props::basic::color::ColorU;
 use azul_layout::{
@@ -39,9 +39,9 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
-const PIN_LIGHT: OptionWindowTheme = OptionWindowTheme::Some(WindowTheme::LightMode);
-const PIN_DARK: OptionWindowTheme = OptionWindowTheme::Some(WindowTheme::DarkMode);
-const FOLLOW: OptionWindowTheme = OptionWindowTheme::None;
+const PIN_LIGHT: OptionDarkLightMode = OptionDarkLightMode::Some(DarkLightMode::Light);
+const PIN_DARK: OptionDarkLightMode = OptionDarkLightMode::Some(DarkLightMode::Dark);
+const FOLLOW: OptionDarkLightMode = OptionDarkLightMode::None;
 
 /// The mode is APP-wide (every window of the App shares it), so the tests
 /// of this binary take turns, and each starts from "follow the desktop".
@@ -101,15 +101,15 @@ extern "C" fn mode_reading_layout(mut data: RefAny, info: LayoutCallbackInfo) ->
         model.layout_calls.fetch_add(1, Ordering::SeqCst);
         model.seen.store(
             match mode {
-                WindowTheme::LightMode => 1,
-                WindowTheme::DarkMode => 2,
+                DarkLightMode::Light => 1,
+                DarkLightMode::Dark => 2,
             },
             Ordering::SeqCst,
         );
     }
     Dom::create_body().with_child(Dom::create_p_with_text(match mode {
-        WindowTheme::LightMode => "light",
-        WindowTheme::DarkMode => "dark",
+        DarkLightMode::Light => "light",
+        DarkLightMode::Dark => "dark",
     }))
 }
 
@@ -149,11 +149,11 @@ fn make_window_from(model: Model, options: WindowCreateOptions) -> HeadlessWindo
     .expect("HeadlessWindow construction must succeed")
 }
 
-fn mode_of(window: &HeadlessWindow) -> WindowTheme {
+fn mode_of(window: &HeadlessWindow) -> DarkLightMode {
     window.common.current_window_state().theme
 }
 
-fn set_mode(window: &mut HeadlessWindow, mode: OptionWindowTheme) -> ProcessEventResult {
+fn set_mode(window: &mut HeadlessWindow, mode: OptionDarkLightMode) -> ProcessEventResult {
     window.apply_user_change(&CallbackChange::SetMode { mode })
 }
 
@@ -202,13 +202,13 @@ fn a_mode_switch_restyles_without_running_layout_again() {
     let model = Model::new();
     let mut window = make_window(model.clone(), mode_blind_layout);
     window.regenerate_layout().expect("first layout");
-    assert_eq!(mode_of(&window), WindowTheme::LightMode, "premise: a light desktop");
+    assert_eq!(mode_of(&window), DarkLightMode::Light, "premise: a light desktop");
     let calls = model.calls();
 
     let result = set_mode(&mut window, PIN_DARK);
     assert_eq!(
         mode_of(&window),
-        WindowTheme::DarkMode,
+        DarkLightMode::Dark,
         "the window takes the app's dark pin at once"
     );
     assert_eq!(
@@ -272,10 +272,10 @@ fn a_desktop_flip_while_pinned_does_not_flip_the_window() {
     );
 
     assert!(
-        !window.set_system_theme(WindowTheme::DarkMode),
+        !window.set_system_theme(DarkLightMode::Dark),
         "the desktop went dark: the pinned-light window's mode must not move"
     );
-    assert_eq!(mode_of(&window), WindowTheme::LightMode);
+    assert_eq!(mode_of(&window), DarkLightMode::Light);
 }
 
 #[test]
@@ -290,13 +290,13 @@ fn switching_back_to_system_follows_the_desktop_immediately() {
 
     let _ = set_mode(&mut window, PIN_LIGHT);
     // The desktop goes dark while the app is pinned light: remembered, not shown.
-    let _ = window.set_system_theme(WindowTheme::DarkMode);
-    assert_eq!(mode_of(&window), WindowTheme::LightMode, "premise: still pinned");
+    let _ = window.set_system_theme(DarkLightMode::Dark);
+    assert_eq!(mode_of(&window), DarkLightMode::Light, "premise: still pinned");
 
     let result = set_mode(&mut window, FOLLOW);
     assert_eq!(
         mode_of(&window),
-        WindowTheme::DarkMode,
+        DarkLightMode::Dark,
         "back on System the window takes the desktop's CURRENT mode at once - no desktop \
          event is needed"
     );
@@ -316,7 +316,7 @@ fn a_window_opened_after_the_switch_starts_in_the_apps_mode() {
     let second = make_window(Model::new(), mode_blind_layout);
     assert_eq!(
         mode_of(&second),
-        WindowTheme::DarkMode,
+        DarkLightMode::Dark,
         "a window created after the app pinned dark starts dark on the light desktop"
     );
     assert_eq!(
@@ -343,14 +343,14 @@ fn modify_window_state_with_a_new_mode_switches_the_window() {
     let model = Model::new();
     let mut window = make_window(model.clone(), mode_reading_layout);
     window.regenerate_layout().expect("first layout");
-    assert_eq!(mode_of(&window), WindowTheme::LightMode, "premise: a light desktop");
+    assert_eq!(mode_of(&window), DarkLightMode::Light, "premise: a light desktop");
 
     let mut state = window.get_current_window_state().clone();
-    state.theme = WindowTheme::DarkMode;
+    state.theme = DarkLightMode::Dark;
     let result = window.apply_user_change(&CallbackChange::ModifyWindowState { state });
     assert_eq!(
         mode_of(&window),
-        WindowTheme::DarkMode,
+        DarkLightMode::Dark,
         "the pushed light / dark is the window's mode now"
     );
     honor(&mut window, result);
@@ -371,9 +371,9 @@ fn modify_window_state_does_not_override_the_apps_pin() {
     let _ = set_mode(&mut window, PIN_LIGHT);
 
     let mut state = window.get_current_window_state().clone();
-    state.theme = WindowTheme::DarkMode;
+    state.theme = DarkLightMode::Dark;
     let _ = window.apply_user_change(&CallbackChange::ModifyWindowState { state });
-    assert_eq!(mode_of(&window), WindowTheme::LightMode);
+    assert_eq!(mode_of(&window), DarkLightMode::Light);
 }
 
 // ---------------------------------------------------------------------------
@@ -591,7 +591,7 @@ fn modify_window_state_with_a_new_theme_moves_the_seeded_background() {
     assert!(!is_dark_rgba(paint_and_read_clear_color(&mut window)), "premise");
 
     let mut state = window.get_current_window_state().clone();
-    state.theme = WindowTheme::DarkMode;
+    state.theme = DarkLightMode::Dark;
     let result = window.apply_user_change(&CallbackChange::ModifyWindowState { state });
     honor(&mut window, result);
     let clear = paint_and_read_clear_color(&mut window);
@@ -624,7 +624,7 @@ fn the_native_chrome_is_forced_into_a_pinned_mode_and_inherits_otherwise() {
     honor(&mut window, result);
     assert_eq!(
         window.common.native_chrome_mode(),
-        Some(WindowTheme::DarkMode),
+        Some(DarkLightMode::Dark),
         "a dark pin on a light desktop forces a dark titlebar"
     );
 
@@ -651,14 +651,14 @@ fn a_pin_that_matches_the_desktop_still_holds_the_chrome_when_the_desktop_flips(
     let _ = set_mode(&mut window, PIN_LIGHT);
     assert_eq!(
         window.common.native_chrome_mode(),
-        Some(WindowTheme::LightMode),
+        Some(DarkLightMode::Light),
         "pinned: forced, even where the desktop agrees"
     );
 
-    let _ = window.set_system_theme(WindowTheme::DarkMode);
+    let _ = window.set_system_theme(DarkLightMode::Dark);
     assert_eq!(
         window.common.native_chrome_mode(),
-        Some(WindowTheme::LightMode),
+        Some(DarkLightMode::Light),
         "the desktop went dark under a light pin: the chrome stays light"
     );
 }

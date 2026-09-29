@@ -49,6 +49,7 @@ pub use dlopen::DynamicLibrary;
 pub use error::{CompositorError, DlError, WindowError};
 pub use event::{CommonWindowState, HitTestNode, PlatformWindow};
 pub use layout::{generate_frame, regenerate_layout};
+use azul_css::system::DarkLightMode;
 
 /// Seed the window's opaque canvas colour at CREATION time.
 ///
@@ -109,18 +110,18 @@ pub fn resolve_initial_background_color(
 /// background" (a material, an offscreen canvas), never "derive one".
 #[must_use]
 pub fn mode_background(
-    mode: azul_core::window::WindowTheme,
+    mode: azul_core::window::DarkLightMode,
     system_style: &azul_css::system::SystemStyle,
     light: azul_css::props::basic::OptionColorU,
     dark: azul_css::props::basic::OptionColorU,
 ) -> azul_css::props::basic::ColorU {
-    let is_dark = mode == azul_core::window::WindowTheme::DarkMode;
+    let is_dark = mode == azul_core::window::DarkLightMode::Dark;
     let own = if is_dark { dark } else { light };
     own.into_option().unwrap_or_else(|| {
         let theme = if is_dark {
-            azul_css::system::Theme::Dark
+            DarkLightMode::Dark
         } else {
-            azul_css::system::Theme::Light
+            DarkLightMode::Light
         };
         azul_css::props::basic::color::SystemColorRef::WindowBackground
             .resolve_for_theme(&system_style.colors_for_theme(theme), is_dark)
@@ -151,7 +152,7 @@ pub fn mode_background(
 #[must_use]
 pub fn window_clear_color(
     background_color: azul_css::props::basic::OptionColorU,
-    mode: azul_core::window::WindowTheme,
+    mode: azul_core::window::DarkLightMode,
     system_style: Option<&azul_css::system::SystemStyle>,
     follow_system_background: bool,
     transparent: bool,
@@ -171,7 +172,7 @@ pub fn window_clear_color(
         (None, Some(style)) if follow_system_background => {
             mode_background(mode, style, OptionColorU::None, OptionColorU::None)
         }
-        (None, _) if mode == azul_core::window::WindowTheme::DarkMode => ColorU {
+        (None, _) if mode == azul_core::window::DarkLightMode::Dark => ColorU {
             r: 42,
             g: 46,
             b: 50,

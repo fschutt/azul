@@ -11,7 +11,7 @@ use azul_core::{
     dom::DomId,
     window::{
         DebugState, ImePosition, KeyboardState, Monitor, MouseState, PlatformSpecificOptions,
-        RendererOptions, TouchState, WindowFlags, WindowPosition, WindowSize, WindowTheme,
+        RendererOptions, TouchState, WindowFlags, WindowPosition, WindowSize, DarkLightMode,
     },
 };
 use azul_css::{
@@ -47,7 +47,7 @@ pub struct WindowCreateOptions {
     /// an `AZ_THEME` pin), `None` follows the system. See
     /// `CommonWindowState::initial_window_theme`. The OS theme watchers keep
     /// following the system afterwards either way.
-    pub theme: azul_core::window::OptionWindowTheme,
+    pub theme: azul_core::window::OptionDarkLightMode,
     /// Explicitly defined background color for light theme. If set, overrides the system light
     /// window background.
     pub background_color_light: OptionColorU,
@@ -66,7 +66,7 @@ impl Default for WindowCreateOptions {
             window_state: FullWindowState::default(),
             create_callback: OptionCallback::None,
             renderer: azul_core::window::OptionRendererOptions::None,
-            theme: azul_core::window::OptionWindowTheme::None,
+            theme: azul_core::window::OptionDarkLightMode::None,
             size_to_content: false,
             hot_reload: false,
             parent_window_id: 0,
@@ -136,7 +136,7 @@ pub struct FullWindowState {
     /// Current mouse cursor state (position, buttons)
     pub mouse_state: MouseState,
     /// Active window theme (light/dark)
-    pub theme: WindowTheme,
+    pub theme: DarkLightMode,
     /// Position of the IME candidate window
     pub ime_position: ImePosition,
     /// GPU renderer options (`VSync`, SRGB, hardware acceleration)
@@ -390,7 +390,7 @@ impl Default for FullWindowState {
             mouse_state: MouseState::default(),
             pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
             keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
-            theme: WindowTheme::default(),
+            theme: DarkLightMode::default(),
             ime_position: ImePosition::default(),
             renderer_options: RendererOptions::default(),
             monitor_id: OptionU32::None,
@@ -410,7 +410,7 @@ mod autotest_generated {
         geom::{LogicalSize, PhysicalPositionI32},
         refany::RefAny,
         resources::{OptionRouteMatch, RouteMatch},
-        window::{AzStringPair, OptionWindowTheme, StringPairVec},
+        window::{AzStringPair, OptionDarkLightMode, StringPairVec},
     };
     use azul_css::props::basic::ColorU;
 
@@ -650,7 +650,7 @@ mod autotest_generated {
         assert!(s.background_color.is_none());
         assert!(s.active_route.is_none());
         assert_eq!(s.close_callback, OptionCallback::None);
-        assert_eq!(s.theme, WindowTheme::default());
+        assert_eq!(s.theme, DarkLightMode::default());
         assert_eq!(s.position, WindowPosition::default());
         assert_eq!(s.ime_position, ImePosition::default());
 
@@ -688,7 +688,7 @@ mod autotest_generated {
         assert_ne!(options_with(|o| o.size_to_content = true), base);
         assert_ne!(options_with(|o| o.hot_reload = true), base);
         assert_ne!(
-            options_with(|o| o.theme = OptionWindowTheme::Some(WindowTheme::DarkMode)),
+            options_with(|o| o.theme = OptionDarkLightMode::Some(DarkLightMode::Dark)),
             base
         );
         assert_ne!(

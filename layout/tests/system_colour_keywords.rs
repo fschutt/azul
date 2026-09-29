@@ -19,12 +19,12 @@ use azul_core::{
     geom::LogicalSize,
     resources::RendererResources,
     styled_dom::StyledDom,
-    window::WindowTheme,
+    window::DarkLightMode,
 };
 use azul_css::{
     dynamic_selector::DynamicSelectorContext,
     props::basic::{color::ColorU, PhysicalSize},
-    system::{defaults, SystemStyle, Theme},
+    system::{defaults, SystemStyle},
 };
 use azul_layout::{
     callbacks::ExternalSystemCallbacks, solver3::display_list::DisplayListItem,
@@ -32,31 +32,31 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
-const THEMES: [Theme; 2] = [Theme::Light, Theme::Dark];
+const THEMES: [DarkLightMode; 2] = [DarkLightMode::Light, DarkLightMode::Dark];
 
-fn preset(theme: Theme) -> SystemStyle {
+fn preset(theme: DarkLightMode) -> SystemStyle {
     match theme {
-        Theme::Light => defaults::macos_modern_light(),
-        Theme::Dark => defaults::macos_modern_dark(),
+        DarkLightMode::Light => defaults::macos_modern_light(),
+        DarkLightMode::Dark => defaults::macos_modern_dark(),
     }
 }
 
-fn window_theme(theme: Theme) -> WindowTheme {
+fn window_theme(theme: DarkLightMode) -> DarkLightMode {
     match theme {
-        Theme::Light => WindowTheme::LightMode,
-        Theme::Dark => WindowTheme::DarkMode,
+        DarkLightMode::Light => DarkLightMode::Light,
+        DarkLightMode::Dark => DarkLightMode::Dark,
     }
 }
 
 /// The preset's own value for a slot, so the expectation is read from the
 /// same palette the window is handed, never restated here.
-fn slot(theme: Theme, pick: fn(&SystemStyle) -> Option<ColorU>) -> ColorU {
+fn slot(theme: DarkLightMode, pick: fn(&SystemStyle) -> Option<ColorU>) -> ColorU {
     pick(&preset(theme)).expect("the macOS preset fills this slot")
 }
 
 /// Lay `body > div(css)` out in a real window under `theme` and return the
 /// size and fill of every rect the display list paints.
-fn painted_rects(css: &str, theme: Theme) -> Vec<(f32, f32, ColorU)> {
+fn painted_rects(css: &str, theme: DarkLightMode) -> Vec<(f32, f32, ColorU)> {
     let dom = Dom::create_body().with_child(Dom::create_div().with_css(css));
     let styled = StyledDom::create_from_dom(dom);
 
@@ -90,7 +90,7 @@ fn painted_rects(css: &str, theme: Theme) -> Vec<(f32, f32, ColorU)> {
 
 /// `body(0) > div(1, css) > text(2)`, cascaded under `theme`'s preset the
 /// way a layout pass installs it.
-fn styled_under(css: &str, theme: Theme) -> (StyledDom, Arc<SystemStyle>) {
+fn styled_under(css: &str, theme: DarkLightMode) -> (StyledDom, Arc<SystemStyle>) {
     let dom = Dom::create_body().with_child(
         Dom::create_div()
             .with_css(css)
@@ -103,7 +103,7 @@ fn styled_under(css: &str, theme: Theme) -> (StyledDom, Arc<SystemStyle>) {
     (sd, style)
 }
 
-fn text_color(css: &str, theme: Theme, node: usize) -> ColorU {
+fn text_color(css: &str, theme: DarkLightMode, node: usize) -> ColorU {
     let (sd, style) = styled_under(css, theme);
     azul_layout::solver3::getters::get_style_properties(
         &sd,
@@ -114,14 +114,14 @@ fn text_color(css: &str, theme: Theme, node: usize) -> ColorU {
     .color
 }
 
-fn background_color(css: &str, theme: Theme) -> ColorU {
+fn background_color(css: &str, theme: DarkLightMode) -> ColorU {
     let (sd, _style) = styled_under(css, theme);
     let div = NodeId::new(1);
     let state = sd.styled_nodes.as_container()[div].styled_node_state;
     azul_layout::solver3::getters::get_background_color(&sd, div, &state)
 }
 
-fn border_top_color(css: &str, theme: Theme) -> Option<ColorU> {
+fn border_top_color(css: &str, theme: DarkLightMode) -> Option<ColorU> {
     let (sd, _style) = styled_under(css, theme);
     let div = NodeId::new(1);
     let state = sd.styled_nodes.as_container()[div].styled_node_state;
@@ -253,7 +253,7 @@ fn every_colour_slot_has_a_system_keyword() {
 fn the_field_background_keyword_follows_the_theme() {
     let css = "width: 40px; height: 20px; background-color: system:control-background;";
     assert_eq!(
-        background_color(css, Theme::Light),
+        background_color(css, DarkLightMode::Light),
         ColorU {
             r: 255,
             g: 255,
@@ -263,7 +263,7 @@ fn the_field_background_keyword_follows_the_theme() {
         "light: the field default is white"
     );
     assert_eq!(
-        background_color(css, Theme::Dark),
+        background_color(css, DarkLightMode::Dark),
         ColorU {
             r: 30,
             g: 30,

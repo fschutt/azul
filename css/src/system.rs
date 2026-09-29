@@ -135,8 +135,8 @@ pub fn apply_env_mode_pin(
         return;
     };
     let wanted = match pin {
-        ThemeCondition::Dark => Theme::Dark,
-        _ => Theme::Light,
+        ThemeCondition::Dark => DarkLightMode::Dark,
+        _ => DarkLightMode::Light,
     };
     if style.theme == wanted {
         return;
@@ -147,13 +147,13 @@ pub fn apply_env_mode_pin(
 /// Gives `style` the palette of `wanted`, keeping non-polar fields and the accent, even if `style.theme` already matches.
 pub fn adopt_theme_palette(
     style: &mut SystemStyle,
-    wanted: Theme,
+    wanted: DarkLightMode,
     light: impl FnOnce() -> SystemStyle,
     dark: impl FnOnce() -> SystemStyle,
 ) {
     let mut replacement = match wanted {
-        Theme::Dark => dark(),
-        Theme::Light => light(),
+        DarkLightMode::Dark => dark(),
+        DarkLightMode::Light => light(),
     };
 
     // An EXPLICIT list of what has a polarity, not "replace the struct and put
@@ -246,14 +246,23 @@ pub enum DesktopEnvironment {
     Other(AzString),
 }
 
-/// The overall theme type.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+/// Dark or light: the MODE a window or the whole desktop is drawn in
+/// (`AppConfig::set_mode` pins it, `get_mode` reads it). A mode, not a
+/// theme: the THEME is the app's look (`flat`, `flora`, ...), and every
+/// theme comes in both modes.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub enum Theme {
+pub enum DarkLightMode {
     #[default]
     Light,
     Dark,
 }
+
+crate::impl_option!(
+    DarkLightMode,
+    OptionDarkLightMode,
+    [Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash]
+);
 
 /// A language as the OS (or the app) names it: a BCP 47 tag such as
 /// `"de-DE"`, and whether its script is written right-to-left.
@@ -368,7 +377,7 @@ pub struct SystemStyle {
     /// Platform-specific defaults are applied during system style discovery.
     /// Applications can override this to change the "feel" of scrolling globally.
     pub scroll_physics: ScrollPhysics,
-    pub theme: Theme,
+    pub theme: DarkLightMode,
     /// Detected OS version (e.g., Windows 11 22H2, macOS Sonoma, etc.)
     pub os_version: OsVersion,
     /// User prefers reduced motion (accessibility setting)
@@ -428,7 +437,7 @@ impl Default for SystemStyle {
             app_specific_stylesheet: None,
             scrollbar: None,
             scroll_physics: ScrollPhysics::default(),
-            theme: Theme::default(),
+            theme: DarkLightMode::default(),
             os_version: OsVersion::default(),
             prefers_reduced_motion: BoolCondition::default(),
             prefers_high_contrast: BoolCondition::default(),
@@ -2122,7 +2131,7 @@ impl SystemStyle {
     /// only known to the platform probe; nothing platform-specific is
     /// guessed here.
     #[must_use]
-    pub fn colors_for_theme(&self, theme: Theme) -> SystemColors {
+    pub fn colors_for_theme(&self, theme: DarkLightMode) -> SystemColors {
         if self.theme == theme {
             return self.colors;
         }
@@ -2220,8 +2229,8 @@ impl SystemStyle {
             .copied()
             .unwrap_or(ColorU::new_rgb(0, 120, 215));
         let border_color = match self.theme {
-            Theme::Dark => ColorU::new_rgb(60, 60, 60),
-            Theme::Light => ColorU::new_rgb(200, 200, 200),
+            DarkLightMode::Dark => ColorU::new_rgb(60, 60, 60),
+            DarkLightMode::Light => ColorU::new_rgb(200, 200, 200),
         };
 
         // Get system metrics with fallbacks
@@ -2338,8 +2347,8 @@ impl SystemStyle {
 
         // Button hover state
         let hover_color = match self.theme {
-            Theme::Dark => ColorU::new_rgb(60, 60, 60),
-            Theme::Light => ColorU::new_rgb(220, 220, 220),
+            DarkLightMode::Dark => ColorU::new_rgb(60, 60, 60),
+            DarkLightMode::Light => ColorU::new_rgb(220, 220, 220),
         };
         let _ = write!(
             css,
@@ -2550,7 +2559,7 @@ pub mod defaults {
         },
         system::{
             DesktopEnvironment, IconStyleOptions, Platform, SystemColors, SystemFonts,
-            SystemMetrics, SystemStyle, Theme, TitlebarMetrics,
+            SystemMetrics, SystemStyle, DarkLightMode, TitlebarMetrics,
         },
     };
 
@@ -2694,7 +2703,7 @@ pub mod defaults {
     #[must_use]
     pub fn windows_11_light() -> SystemStyle {
         SystemStyle {
-            theme: Theme::Light,
+            theme: DarkLightMode::Light,
             platform: Platform::Windows,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
@@ -2746,7 +2755,7 @@ pub mod defaults {
     #[must_use]
     pub fn windows_11_dark() -> SystemStyle {
         SystemStyle {
-            theme: Theme::Dark,
+            theme: DarkLightMode::Dark,
             platform: Platform::Windows,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
@@ -2798,7 +2807,7 @@ pub mod defaults {
     #[must_use]
     pub fn windows_7_aero() -> SystemStyle {
         SystemStyle {
-            theme: Theme::Light,
+            theme: DarkLightMode::Light,
             platform: Platform::Windows,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
@@ -2850,7 +2859,7 @@ pub mod defaults {
     #[must_use]
     pub fn windows_xp_luna() -> SystemStyle {
         SystemStyle {
-            theme: Theme::Light,
+            theme: DarkLightMode::Light,
             platform: Platform::Windows,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
@@ -2905,7 +2914,7 @@ pub mod defaults {
     pub fn macos_modern_light() -> SystemStyle {
         SystemStyle {
             platform: Platform::MacOs,
-            theme: Theme::Light,
+            theme: DarkLightMode::Light,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new(0, 0, 0, 221)),
                 background: OptionColorU::Some(ColorU::new_rgb(242, 242, 247)),
@@ -2960,7 +2969,7 @@ pub mod defaults {
     pub fn macos_modern_dark() -> SystemStyle {
         SystemStyle {
             platform: Platform::MacOs,
-            theme: Theme::Dark,
+            theme: DarkLightMode::Dark,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new(255, 255, 255, 221)),
                 background: OptionColorU::Some(ColorU::new_rgb(28, 28, 30)),
@@ -3022,7 +3031,7 @@ pub mod defaults {
     pub fn macos_aqua() -> SystemStyle {
         SystemStyle {
             platform: Platform::MacOs,
-            theme: Theme::Light,
+            theme: DarkLightMode::Light,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
                 background: OptionColorU::Some(ColorU::new_rgb(229, 229, 229)),
@@ -3073,7 +3082,7 @@ pub mod defaults {
     pub fn gnome_adwaita_light() -> SystemStyle {
         SystemStyle {
             platform: Platform::Linux(DesktopEnvironment::Gnome),
-            theme: Theme::Light,
+            theme: DarkLightMode::Light,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new_rgb(46, 52, 54)),
                 background: OptionColorU::Some(ColorU::new_rgb(249, 249, 249)),
@@ -3123,7 +3132,7 @@ pub mod defaults {
     pub fn gnome_adwaita_dark() -> SystemStyle {
         SystemStyle {
             platform: Platform::Linux(DesktopEnvironment::Gnome),
-            theme: Theme::Dark,
+            theme: DarkLightMode::Dark,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new_rgb(238, 238, 236)),
                 background: OptionColorU::Some(ColorU::new_rgb(36, 36, 36)),
@@ -3173,7 +3182,7 @@ pub mod defaults {
     pub fn gtk2_clearlooks() -> SystemStyle {
         SystemStyle {
             platform: Platform::Linux(DesktopEnvironment::Gnome),
-            theme: Theme::Light,
+            theme: DarkLightMode::Light,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
                 background: OptionColorU::Some(ColorU::new_rgb(239, 239, 239)),
@@ -3230,7 +3239,7 @@ pub mod defaults {
     pub fn kde_breeze_light() -> SystemStyle {
         SystemStyle {
             platform: Platform::Linux(DesktopEnvironment::Kde),
-            theme: Theme::Light,
+            theme: DarkLightMode::Light,
             colors: SystemColors {
                 // Colors:View — content surfaces (the text edit, the list).
                 text: OptionColorU::Some(ColorU::new_rgb(35, 38, 41)),
@@ -3306,7 +3315,7 @@ pub mod defaults {
     pub fn kde_breeze_dark() -> SystemStyle {
         SystemStyle {
             platform: Platform::Linux(DesktopEnvironment::Kde),
-            theme: Theme::Dark,
+            theme: DarkLightMode::Dark,
             colors: SystemColors {
                 // Colors:View.
                 text: OptionColorU::Some(ColorU::new_rgb(252, 252, 252)),
@@ -3380,7 +3389,7 @@ pub mod defaults {
     pub fn android_material_light() -> SystemStyle {
         SystemStyle {
             platform: Platform::Android,
-            theme: Theme::Light,
+            theme: DarkLightMode::Light,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
                 background: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
@@ -3429,7 +3438,7 @@ pub mod defaults {
     pub fn android_holo_dark() -> SystemStyle {
         SystemStyle {
             platform: Platform::Android,
-            theme: Theme::Dark,
+            theme: DarkLightMode::Dark,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
                 background: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
@@ -3478,7 +3487,7 @@ pub mod defaults {
     pub fn ios_light() -> SystemStyle {
         SystemStyle {
             platform: Platform::Ios,
-            theme: Theme::Light,
+            theme: DarkLightMode::Light,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
                 background: OptionColorU::Some(ColorU::new_rgb(242, 242, 247)),
@@ -4117,7 +4126,7 @@ mod autotest_generated {
     fn system_style_default_is_empty_but_valid() {
         let d = SystemStyle::default();
         assert_eq!(d.platform, Platform::Unknown);
-        assert_eq!(d.theme, Theme::Light);
+        assert_eq!(d.theme, DarkLightMode::Light);
         assert!(d.app_specific_stylesheet.is_none());
         assert!(d.scrollbar.is_none());
         // The language is the one field with a real default: en-US, left to right.
@@ -4205,10 +4214,10 @@ mod autotest_generated {
             defaults::android_holo_dark()
         );
 
-        assert_eq!(defaults::windows_11_dark().theme, Theme::Dark);
-        assert_eq!(defaults::macos_modern_dark().theme, Theme::Dark);
-        assert_eq!(defaults::gnome_adwaita_dark().theme, Theme::Dark);
-        assert_eq!(defaults::android_holo_dark().theme, Theme::Dark);
+        assert_eq!(defaults::windows_11_dark().theme, DarkLightMode::Dark);
+        assert_eq!(defaults::macos_modern_dark().theme, DarkLightMode::Dark);
+        assert_eq!(defaults::gnome_adwaita_dark().theme, DarkLightMode::Dark);
+        assert_eq!(defaults::android_holo_dark().theme, DarkLightMode::Dark);
 
         assert_eq!(
             defaults::kde_breeze_light().platform,

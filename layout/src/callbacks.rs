@@ -314,7 +314,7 @@ pub enum CallbackChange {
     /// opened later: `None` follows the desktop, `Some` pins light / dark
     /// (`CallbackInfo::set_mode`).
     SetMode {
-        mode: azul_core::window::OptionWindowTheme,
+        mode: azul_core::window::OptionDarkLightMode,
     },
     /// Switch the APP THEME (`"flat"`, `"flora"`, ...) - every window's DOM
     /// is RECREATED under it, and every window opened later starts in it
@@ -1812,7 +1812,7 @@ impl CallbackInfo {
     /// mode (`LayoutCallbackInfo::get_mode`), in which case that window's
     /// `layout()` runs again (`RelayoutReason::ModeChange`). The `AZ_THEME`
     /// environment pin still wins. The startup value is `AppConfig::mode`.
-    pub fn set_mode(&mut self, mode: azul_core::window::OptionWindowTheme) {
+    pub fn set_mode(&mut self, mode: azul_core::window::OptionDarkLightMode) {
         self.push_change(CallbackChange::SetMode { mode });
     }
 
@@ -1822,7 +1822,7 @@ impl CallbackInfo {
     /// both. A `set_mode` in the same callback is not visible here yet (it
     /// applies when the callback returns).
     #[must_use]
-    pub const fn get_mode(&self) -> azul_core::window::OptionWindowTheme {
+    pub const fn get_mode(&self) -> azul_core::window::OptionDarkLightMode {
         self.get_layout_window().mode
     }
 
@@ -1830,7 +1830,7 @@ impl CallbackInfo {
     /// against the window's own (desktop-following) mode and the `AZ_THEME`
     /// pin.
     #[must_use]
-    pub fn get_resolved_mode(&self) -> azul_core::window::WindowTheme {
+    pub fn get_resolved_mode(&self) -> azul_core::window::DarkLightMode {
         self.get_layout_window()
             .window_mode_for(self.get_current_window_state().theme)
     }
@@ -7903,10 +7903,10 @@ mod autotest_generated {
     /// pair an app needs to show "System (dark)".
     #[test]
     fn set_mode_queues_the_choice_and_the_getters_tell_choice_from_result() {
-        use azul_core::window::{OptionWindowTheme, WindowTheme};
+        use azul_core::window::{OptionDarkLightMode, DarkLightMode};
 
         let queued = with_info(node_none(), |info| {
-            info.set_mode(OptionWindowTheme::Some(WindowTheme::DarkMode));
+            info.set_mode(OptionDarkLightMode::Some(DarkLightMode::Dark));
             info.take_changes()
         });
         assert_eq!(queued.len(), 1, "expected exactly one queued change");
@@ -7914,7 +7914,7 @@ mod autotest_generated {
             matches!(
                 queued[0],
                 CallbackChange::SetMode {
-                    mode: OptionWindowTheme::Some(WindowTheme::DarkMode)
+                    mode: OptionDarkLightMode::Some(DarkLightMode::Dark)
                 }
             ),
             "queued the wrong CallbackChange: {:?}",
@@ -7926,22 +7926,22 @@ mod autotest_generated {
         }
         // A dark pin on a window whose own state is light (the desktop's).
         let mut lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
-        lw.mode = OptionWindowTheme::Some(WindowTheme::DarkMode);
+        lw.mode = OptionDarkLightMode::Some(DarkLightMode::Dark);
         let (choice, resolved) = with_info_on(lw, node0(), |info| {
             (info.get_mode(), info.get_resolved_mode())
         });
-        assert_eq!(choice, OptionWindowTheme::Some(WindowTheme::DarkMode));
-        assert_eq!(resolved, WindowTheme::DarkMode, "the pin outranks the window's light");
+        assert_eq!(choice, OptionDarkLightMode::Some(DarkLightMode::Dark));
+        assert_eq!(resolved, DarkLightMode::Dark, "the pin outranks the window's light");
 
         // Following the system: the choice says so, the result is the
         // window's own mode (`FullWindowState::default()` is light).
         let mut lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
-        lw.mode = OptionWindowTheme::None;
+        lw.mode = OptionDarkLightMode::None;
         let (choice, resolved) = with_info_on(lw, node0(), |info| {
             (info.get_mode(), info.get_resolved_mode())
         });
-        assert_eq!(choice, OptionWindowTheme::None);
-        assert_eq!(resolved, WindowTheme::LightMode);
+        assert_eq!(choice, OptionDarkLightMode::None);
+        assert_eq!(resolved, DarkLightMode::Light);
     }
 
     /// `set_theme` queues ONE app-wide change (every window's DOM is rebuilt

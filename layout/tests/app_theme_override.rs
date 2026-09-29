@@ -17,7 +17,7 @@ use azul_core::{
     geom::LogicalSize,
     resources::RendererResources,
     styled_dom::StyledDom,
-    window::WindowTheme,
+    window::DarkLightMode,
 };
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, DynamicSelector, ThemeCondition},
@@ -54,7 +54,7 @@ fn window(desktop: SystemStyle, app_theme: &str) -> LayoutWindow {
     lw
 }
 
-fn window_state(theme: WindowTheme) -> FullWindowState {
+fn window_state(theme: DarkLightMode) -> FullWindowState {
     let mut ws = FullWindowState::default();
     ws.theme = theme;
     ws.size.dimensions = LogicalSize::new(400.0, 300.0);
@@ -143,7 +143,7 @@ fn a_new_window_starts_in_the_default_theme_flat() {
     // Nothing in this test binary publishes an app theme, so a new window takes the default.
     let lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
     assert_eq!(lw.app_theme.as_str(), "flat");
-    let ctx = lw.dynamic_selector_context(&window_state(WindowTheme::LightMode));
+    let ctx = lw.dynamic_selector_context(&window_state(DarkLightMode::Light));
     assert_eq!(ctx.app_theme(), "flat");
 }
 
@@ -153,14 +153,14 @@ fn the_window_context_carries_the_app_theme_beside_the_colour_scheme() {
         return;
     }
     let lw = window(defaults::macos_modern_light(), "flora");
-    let ctx = lw.dynamic_selector_context(&window_state(WindowTheme::LightMode));
+    let ctx = lw.dynamic_selector_context(&window_state(DarkLightMode::Light));
     assert_eq!(ctx.app_theme(), "flora");
     assert_eq!(
         ctx.theme,
         ThemeCondition::Light,
         "the colour scheme is still the window's light"
     );
-    let ctx = lw.dynamic_selector_context(&window_state(WindowTheme::DarkMode));
+    let ctx = lw.dynamic_selector_context(&window_state(DarkLightMode::Dark));
     assert_eq!(ctx.app_theme(), "flora", "a dark window keeps its app theme");
     assert_eq!(ctx.theme, ThemeCondition::Dark);
 }
@@ -171,7 +171,7 @@ fn a_stylesheets_theme_blocks_paint_only_under_their_app_theme() {
     // §7.1), so an unknown theme looks like flat until someone writes its block.
     for (app_theme, want) in [("flat", FLAT), ("flora", FLORA), ("monokai", FLAT)] {
         let mut lw = window(defaults::macos_modern_light(), app_theme);
-        let ws = window_state(WindowTheme::LightMode);
+        let ws = window_state(DarkLightMode::Light);
         lay_out(&mut lw, stylesheet_document(), &ws);
         assert_eq!(
             box_fill(&lw, 40.0, 20.0),
@@ -187,7 +187,7 @@ fn a_stylesheets_theme_blocks_paint_only_under_their_app_theme() {
 #[test]
 fn a_spin_off_app_theme_gives_the_window_its_prefix_chain_over_the_default() {
     let lw = window(defaults::macos_modern_light(), "xyz:pink");
-    let ctx = lw.dynamic_selector_context(&window_state(WindowTheme::LightMode));
+    let ctx = lw.dynamic_selector_context(&window_state(DarkLightMode::Light));
     let chain: Vec<&str> = ctx.theme_chain.as_ref().iter().map(AzString::as_str).collect();
     assert_eq!(chain, ["xyz:pink", "xyz", "flat"]);
     assert_eq!(ctx.app_theme(), "xyz:pink");
@@ -198,7 +198,7 @@ fn a_spin_off_app_theme_gives_the_window_its_prefix_chain_over_the_default() {
 #[test]
 fn a_retained_dom_follows_the_windows_app_theme() {
     let mut lw = window(defaults::macos_modern_light(), "flat");
-    let ws = window_state(WindowTheme::LightMode);
+    let ws = window_state(DarkLightMode::Light);
     lay_out(&mut lw, stylesheet_document(), &ws);
     assert_eq!(box_fill(&lw, 40.0, 20.0), Some(FLAT));
 
@@ -221,16 +221,16 @@ fn a_widgets_inline_theme_blocks_paint_the_active_theme_in_both_colour_schemes()
         return;
     }
     for (app_theme, scheme, want) in [
-        ("flat", WindowTheme::LightMode, FLAT),
-        ("flat", WindowTheme::DarkMode, FLAT),
-        ("flora", WindowTheme::LightMode, FLORA),
-        ("flora", WindowTheme::DarkMode, FLORA_NIGHT),
+        ("flat", DarkLightMode::Light, FLAT),
+        ("flat", DarkLightMode::Dark, FLAT),
+        ("flora", DarkLightMode::Light, FLORA),
+        ("flora", DarkLightMode::Dark, FLORA_NIGHT),
         // No block of its own: the default theme's, the floor of every chain.
-        ("monokai", WindowTheme::LightMode, FLAT),
+        ("monokai", DarkLightMode::Light, FLAT),
     ] {
         let desktop = match scheme {
-            WindowTheme::LightMode => defaults::macos_modern_light(),
-            WindowTheme::DarkMode => defaults::macos_modern_dark(),
+            DarkLightMode::Light => defaults::macos_modern_light(),
+            DarkLightMode::Dark => defaults::macos_modern_dark(),
         };
         let mut lw = window(desktop, app_theme);
         lay_out(&mut lw, widget_document(), &window_state(scheme));

@@ -14,7 +14,7 @@ use azul_css::{
     props::basic::color::{ColorU, OptionColorU},
     system::{
         defaults, AccessibilitySettings, InputMetrics, Platform, ScrollbarPreferences,
-        ScrollbarTrackClick, ScrollbarVisibility, SystemStyle, TextRenderingHints, Theme,
+        ScrollbarTrackClick, ScrollbarVisibility, SystemStyle, TextRenderingHints, DarkLightMode,
     },
 };
 
@@ -624,7 +624,7 @@ fn discover_macos_cli_extras(style: &mut SystemStyle, known_languages: &[azul_cs
     let timeout = core::time::Duration::from_millis(500);
 
     // ── Dark mode detection ─────────────────────────────────────────────
-    if style.theme == Theme::Light {
+    if style.theme == DarkLightMode::Light {
         if let Ok(val) =
             run_command_with_timeout("defaults", &["read", "-g", "AppleInterfaceStyle"], timeout)
         {
@@ -806,7 +806,7 @@ fn detect_language_macos() -> AzString {
 /// to be pushed onto a watcher thread — this one must NOT be moved off the loop
 /// thread. It is affordable there: one `objc_msgSend` pair and a short string
 /// read, no IPC and no subprocess.
-pub(crate) fn probe_effective_appearance() -> Option<Theme> {
+pub(crate) fn probe_effective_appearance() -> Option<DarkLightMode> {
     // Loaded ONCE, not per poll. `ObjcLib::load()` dlopens libobjc + AppKit and
     // its Drop dlcloses them, so calling it from a 500 ms poll would open and
     // close AppKit twice a second on the main thread forever. The handles are
@@ -827,7 +827,7 @@ pub(crate) fn probe_effective_appearance() -> Option<Theme> {
 
 /// The appearance read itself, split out so the cached handle can be borrowed.
 #[allow(clippy::unnecessary_wraps)]
-fn probe_with(lib: &ObjcLib) -> Option<Theme> {
+fn probe_with(lib: &ObjcLib) -> Option<DarkLightMode> {
     unsafe {
         let app = lib.send_id(lib.cls(b"NSApplication\0"), lib.sel(b"sharedApplication\0"));
         if app.is_null() {
@@ -839,9 +839,9 @@ fn probe_with(lib: &ObjcLib) -> Option<Theme> {
         }
         let name = nsstring_to_string(lib, lib.send_id(appearance, lib.sel(b"name\0")))?;
         Some(if name.contains("Dark") {
-            Theme::Dark
+            DarkLightMode::Dark
         } else {
-            Theme::Light
+            DarkLightMode::Light
         })
     }
 }
@@ -921,12 +921,12 @@ pub(crate) fn adopt_announced_theme(
 fn adopt_probed_theme(
     common: &mut crate::desktop::shell2::common::event::CommonWindowState,
 ) -> Option<alloc::sync::Arc<SystemStyle>> {
-    use azul_core::window::WindowTheme;
+    use azul_core::window::DarkLightMode;
 
     let theme = probe_effective_appearance()?;
     let theme = match theme {
-        Theme::Dark => WindowTheme::DarkMode,
-        Theme::Light => WindowTheme::LightMode,
+        DarkLightMode::Dark => DarkLightMode::Dark,
+        DarkLightMode::Light => DarkLightMode::Light,
     };
     // The DESKTOP's light / dark, which is not necessarily the window's: an
     // app that pins its mode keeps its window where it is, but the desktop is
@@ -970,12 +970,12 @@ fn adopt_probed_theme(
 /// the window count for an identical answer. Cached against the theme it was
 /// discovered for, so a switch BACK re-discovers rather than serving a stale
 /// entry.
-fn rediscovered_style_for(theme: azul_core::window::WindowTheme, known_languages: &[azul_css::system::SystemLanguage]) -> alloc::sync::Arc<SystemStyle> {
+fn rediscovered_style_for(theme: azul_core::window::DarkLightMode, known_languages: &[azul_css::system::SystemLanguage]) -> alloc::sync::Arc<SystemStyle> {
     use std::sync::Mutex;
 
     static CACHE: Mutex<
         Option<(
-            azul_core::window::WindowTheme,
+            azul_core::window::DarkLightMode,
             alloc::sync::Arc<SystemStyle>,
         )>,
     > = Mutex::new(None);

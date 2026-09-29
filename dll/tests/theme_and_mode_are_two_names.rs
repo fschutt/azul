@@ -34,7 +34,7 @@ use azul_core::{
     icon::{IconProviderHandle, SharedIconProvider},
     refany::{OptionRefAny, RefAny},
     resources::AppConfig,
-    window::{OptionWindowTheme, WindowTheme},
+    window::{OptionDarkLightMode, DarkLightMode},
 };
 use azul_css::AzString;
 use azul_layout::{
@@ -43,8 +43,8 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
-const PIN_DARK: OptionWindowTheme = OptionWindowTheme::Some(WindowTheme::DarkMode);
-const FOLLOW: OptionWindowTheme = OptionWindowTheme::None;
+const PIN_DARK: OptionDarkLightMode = OptionDarkLightMode::Some(DarkLightMode::Dark);
+const FOLLOW: OptionDarkLightMode = OptionDarkLightMode::None;
 
 /// The mode and the theme are APP-wide (process globals), so the tests of this binary take
 /// turns, and each starts from "follow the desktop" in the default theme.
@@ -75,7 +75,7 @@ struct Model {
     theme_seen: Arc<Mutex<String>>,
     /// What the probe's callback read: `CallbackInfo::get_mode` (the choice) and
     /// `CallbackInfo::get_resolved_mode` (what the window shows).
-    callback_seen: Arc<Mutex<Option<(OptionWindowTheme, WindowTheme)>>>,
+    callback_seen: Arc<Mutex<Option<(OptionDarkLightMode, DarkLightMode)>>>,
 }
 
 impl Model {
@@ -96,15 +96,15 @@ impl Model {
         self.theme_seen.lock().expect("theme_seen").clone()
     }
 
-    fn callback_seen(&self) -> Option<(OptionWindowTheme, WindowTheme)> {
+    fn callback_seen(&self) -> Option<(OptionDarkLightMode, DarkLightMode)> {
         *self.callback_seen.lock().expect("callback_seen")
     }
 }
 
 /// A callback reads the mode (choice and result), then pins the app dark.
 extern "C" fn pin_dark_on_mount(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let choice: OptionWindowTheme = info.get_mode();
-    let shown: WindowTheme = info.get_resolved_mode();
+    let choice: OptionDarkLightMode = info.get_mode();
+    let shown: DarkLightMode = info.get_resolved_mode();
     if let Some(model) = data.downcast_ref::<Model>() {
         *model.callback_seen.lock().expect("callback_seen") = Some((choice, shown));
     }
@@ -112,9 +112,9 @@ extern "C" fn pin_dark_on_mount(mut data: RefAny, mut info: CallbackInfo) -> Upd
     Update::DoNothing
 }
 
-/// A `layout()` that reads both: the mode (a `WindowTheme`) and the app theme (a name).
+/// A `layout()` that reads both: the mode (a `DarkLightMode`) and the app theme (a name).
 extern "C" fn mode_and_theme_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
-    let mode: WindowTheme = info.get_mode();
+    let mode: DarkLightMode = info.get_mode();
     let theme: AzString = info.get_theme();
     let model = match data.downcast_ref::<Model>() {
         Some(m) => m.clone(),
@@ -122,8 +122,8 @@ extern "C" fn mode_and_theme_layout(mut data: RefAny, info: LayoutCallbackInfo) 
     };
     model.mode_seen.store(
         match mode {
-            WindowTheme::LightMode => 1,
-            WindowTheme::DarkMode => 2,
+            DarkLightMode::Light => 1,
+            DarkLightMode::Dark => 2,
         },
         Ordering::SeqCst,
     );
@@ -170,7 +170,7 @@ fn make_window(model: Model) -> HeadlessWindow {
     .expect("HeadlessWindow construction must succeed")
 }
 
-fn shown_mode(window: &HeadlessWindow) -> WindowTheme {
+fn shown_mode(window: &HeadlessWindow) -> DarkLightMode {
     window.common.current_window_state().theme
 }
 
@@ -178,17 +178,17 @@ fn shown_mode(window: &HeadlessWindow) -> WindowTheme {
 #[test]
 fn the_signatures_say_which_call_is_the_mode_and_which_the_theme() {
     // In `layout()`: the mode is a light / dark, the theme a name.
-    let _: fn(&LayoutCallbackInfo) -> WindowTheme = LayoutCallbackInfo::get_mode;
+    let _: fn(&LayoutCallbackInfo) -> DarkLightMode = LayoutCallbackInfo::get_mode;
     let _: fn(&LayoutCallbackInfo) -> AzString = LayoutCallbackInfo::get_theme;
     // In an event callback: the same split.
-    let _: fn(&mut CallbackInfo, OptionWindowTheme) = CallbackInfo::set_mode;
-    let _: fn(&CallbackInfo) -> OptionWindowTheme = CallbackInfo::get_mode;
-    let _: fn(&CallbackInfo) -> WindowTheme = CallbackInfo::get_resolved_mode;
+    let _: fn(&mut CallbackInfo, OptionDarkLightMode) = CallbackInfo::set_mode;
+    let _: fn(&CallbackInfo) -> OptionDarkLightMode = CallbackInfo::get_mode;
+    let _: fn(&CallbackInfo) -> DarkLightMode = CallbackInfo::get_resolved_mode;
     let _: fn(&mut CallbackInfo, AzString) = CallbackInfo::set_theme;
     let _: fn(&CallbackInfo) -> AzString = CallbackInfo::get_theme;
     // At startup.
-    let _: fn(AppConfig, OptionWindowTheme) -> AppConfig = AppConfig::with_mode;
-    let _: fn(&mut AppConfig, OptionWindowTheme) = AppConfig::set_mode;
+    let _: fn(AppConfig, OptionDarkLightMode) -> AppConfig = AppConfig::with_mode;
+    let _: fn(&mut AppConfig, OptionDarkLightMode) = AppConfig::set_mode;
     let _: fn(AppConfig, AzString) -> AppConfig = AppConfig::with_theme;
     // The queued change carries a mode.
     let change = CallbackChange::SetMode { mode: PIN_DARK };
@@ -250,13 +250,13 @@ fn layout_reads_the_mode_and_the_theme_and_a_callback_sets_the_mode() {
     window.regenerate_layout().expect("frame 1");
     assert_eq!(
         model.callback_seen(),
-        Some((FOLLOW, WindowTheme::LightMode)),
+        Some((FOLLOW, DarkLightMode::Light)),
         "the callback read the choice (get_mode: follow the desktop) and what it gives \
          (get_resolved_mode: light)"
     );
     assert_eq!(
         shown_mode(&window),
-        WindowTheme::DarkMode,
+        DarkLightMode::Dark,
         "set_mode pinned the window dark"
     );
     assert_eq!(

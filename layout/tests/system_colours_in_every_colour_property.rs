@@ -22,7 +22,7 @@ use azul_core::{
     geom::LogicalSize,
     resources::RendererResources,
     styled_dom::{StyledDom, StyledNodeState},
-    window::WindowTheme,
+    window::DarkLightMode,
 };
 use azul_css::{
     dynamic_selector::{resolve_system_color_token, DynamicSelectorContext},
@@ -33,7 +33,7 @@ use azul_css::{
         },
         style::{filter::StyleFilter, StyleBackgroundContent},
     },
-    system::{defaults, SystemStyle, Theme},
+    system::{defaults, SystemStyle},
 };
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,
@@ -43,15 +43,15 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
-const THEMES: [Theme; 2] = [Theme::Light, Theme::Dark];
+const THEMES: [DarkLightMode; 2] = [DarkLightMode::Light, DarkLightMode::Dark];
 
 /// The div every row styles: `body(0) > div(1) > text(2)`.
 const DIV: NodeId = NodeId::new(1);
 
-fn preset(theme: Theme) -> Arc<SystemStyle> {
+fn preset(theme: DarkLightMode) -> Arc<SystemStyle> {
     Arc::new(match theme {
-        Theme::Light => defaults::macos_modern_light(),
-        Theme::Dark => defaults::macos_modern_dark(),
+        DarkLightMode::Light => defaults::macos_modern_light(),
+        DarkLightMode::Dark => defaults::macos_modern_dark(),
     })
 }
 
@@ -62,7 +62,7 @@ fn context(style: &SystemStyle) -> DynamicSelectorContext {
 
 /// What `system:accent` must come out as under `theme`: the cascade's own
 /// context answers it, so the expectation is never restated here.
-fn accent(theme: Theme) -> ColorU {
+fn accent(theme: DarkLightMode) -> ColorU {
     context(&preset(theme)).system_color(SystemColorRef::Accent)
 }
 
@@ -73,7 +73,7 @@ struct Probe {
 }
 
 impl Probe {
-    fn new(css: &str, theme: Theme) -> Self {
+    fn new(css: &str, theme: DarkLightMode) -> Self {
         let style = preset(theme);
         let dom = Dom::create_body().with_child(
             Dom::create_div()
@@ -345,7 +345,7 @@ fn svg_fill_and_stroke_attributes_take_a_system_keyword() {
 
 /// Lay `body > div(css) > text` out in a real window under `theme` and hand
 /// back its display list: the shadows and filters the renderers are given.
-fn display_list(css: &str, theme: Theme) -> Vec<DisplayListItem> {
+fn display_list(css: &str, theme: DarkLightMode) -> Vec<DisplayListItem> {
     let dom = Dom::create_body().with_child(
         Dom::create_div()
             .with_css(css)
@@ -360,8 +360,8 @@ fn display_list(css: &str, theme: Theme) -> Vec<DisplayListItem> {
     let mut ws = FullWindowState::default();
     ws.size.dimensions = LogicalSize::new(200.0, 100.0);
     ws.theme = match theme {
-        Theme::Light => WindowTheme::LightMode,
-        Theme::Dark => WindowTheme::DarkMode,
+        DarkLightMode::Light => DarkLightMode::Light,
+        DarkLightMode::Dark => DarkLightMode::Dark,
     };
     lw.current_window_state = ws.clone();
     let rr = RendererResources::default();

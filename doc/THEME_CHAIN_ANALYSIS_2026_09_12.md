@@ -13,7 +13,7 @@ and `macos/system_style.rs:929` that must not ship. Every claim below is `file:l
 | Type | Lives in | Written by | Default |
 |---|---|---|---|
 | `css::system::Theme` (`css/src/system.rs:161`) | `SystemStyle.theme` (`system.rs:192`) | shell probes: macOS `macos/system_style.rs:276-287`, Windows `windows/system_style.rs:271`, Linux `linux/system_style.rs:1456,1840`; Android/iOS/headless never write it | `Light` (`system.rs:252`) |
-| `WindowTheme` (`core/src/window.rs:1277`) | `FullWindowState.theme` (`layout/src/window_state.rs:135`) | `adopt_probed_theme` (`macos/system_style.rs:928`), `linux/system_style.rs:2883`, `windows/mod.rs:6733-6736`, `android/mod.rs:1093`, `ios/mod.rs:1145`, `headless/mod.rs:1986`; app via `ModifyWindowState` (`event.rs:4701-4707`) | `LightMode` (`window_state.rs:371`) |
+| `DarkLightMode` (`core/src/window.rs:1277`) | `FullWindowState.theme` (`layout/src/window_state.rs:135`) | `adopt_probed_theme` (`macos/system_style.rs:928`), `linux/system_style.rs:2883`, `windows/mod.rs:6733-6736`, `android/mod.rs:1093`, `ios/mod.rs:1145`, `headless/mod.rs:1986`; app via `ModifyWindowState` (`event.rs:4701-4707`) | `LightMode` (`window_state.rs:371`) |
 | `ThemeCondition` (`css/src/dynamic_selector.rs:813`) | `DynamicSelectorContext.theme` (`dynamic_selector.rs:991`) | the builders in 1.3 | `Light` (`dynamic_selector.rs:1078`) |
 
 `AZ_THEME` is read once (`dynamic_selector.rs:846-857`) but applied twice: inside

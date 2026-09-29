@@ -405,7 +405,7 @@ fn default_selection_tween_pairs_rects_by_line_not_by_index() {
 
 /// body=0, then (div=1, text=2), (div=3, text=4), (div=5, text=6).
 fn build_three_paragraphs(animations: SystemAnimations) -> LayoutWindow {
-    build_three_paragraphs_themed(animations, None, azul_core::window::WindowTheme::LightMode)
+    build_three_paragraphs_themed(animations, None, azul_core::window::DarkLightMode::Light)
 }
 
 /// [`build_three_paragraphs`] under a desktop's system style and window theme,
@@ -413,7 +413,7 @@ fn build_three_paragraphs(animations: SystemAnimations) -> LayoutWindow {
 fn build_three_paragraphs_themed(
     animations: SystemAnimations,
     system_style: Option<azul_css::system::SystemStyle>,
-    theme: azul_core::window::WindowTheme,
+    theme: azul_core::window::DarkLightMode,
 ) -> LayoutWindow {
     const P_CSS: &str = r#"
         * { margin: 0; padding: 0; }
@@ -838,7 +838,7 @@ fn edge_splits(lw: &LayoutWindow) -> (usize, usize) {
 /// selection text and the themed text colour, in light and in dark.
 #[test]
 fn a_gliding_selection_paints_edge_glyphs_in_both_colours_split_at_the_band() {
-    use azul_core::window::WindowTheme;
+    use azul_core::window::DarkLightMode;
     use azul_css::system::defaults;
 
     let ops = |lw: &mut LayoutWindow| {
@@ -854,10 +854,10 @@ fn a_gliding_selection_paints_edge_glyphs_in_both_colours_split_at_the_band() {
     };
 
     for (name, style, theme, colours_differ) in [
-        ("light", defaults::windows_11_light(), WindowTheme::LightMode, true),
+        ("light", defaults::windows_11_light(), DarkLightMode::Light, true),
         // Dark text is already white, like the selection text: the split
         // must still happen, it just paints the same colour twice.
-        ("dark", defaults::windows_11_dark(), WindowTheme::DarkMode, false),
+        ("dark", defaults::windows_11_dark(), DarkLightMode::Dark, false),
     ] {
         let selection_text = style.colors.selection_text.as_option().copied();
         let mut lw = build_three_paragraphs_themed(gliding.clone(), Some(style.clone()), theme);

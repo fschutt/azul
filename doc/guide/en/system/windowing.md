@@ -73,7 +73,7 @@ win.size_to_content = false;
 - `window_state: FullWindowState` — initial state (size, title, flags, ...).
 - `create_callback: OptionCallback` — optional fn called once after window opens.
 - `renderer: OptionRendererOptions` — VSync, sRGB, hardware accel.
-- `theme: OptionWindowTheme` — light/dark override.
+- `theme: OptionDarkLightMode` — light/dark override.
 - `size_to_content: bool` — resize to fit first layout (default false).
 - `hot_reload: bool` — CSS hot-reload on file change.
 

@@ -22,6 +22,7 @@ use azul_css::{
         style::StyleBackgroundContent,
     },
 };
+use azul_css::system::DarkLightMode;
 
 /// `examples/azul-widgets/src/lib.rs`, verbatim, at compile time.
 const DEMO: &str = include_str!("../../examples/azul-widgets/src/lib.rs");
@@ -350,7 +351,7 @@ fn the_page_and_titlebar_titles_are_legible_in_both_themes() {
     };
     use azul_css::{
         dynamic_selector::DynamicSelectorContext,
-        system::{defaults, Theme},
+        system::{defaults, DarkLightMode},
     };
 
     let f = page_frame();
@@ -371,10 +372,10 @@ fn the_page_and_titlebar_titles_are_legible_in_both_themes() {
         );
 
     let mut bad = Vec::new();
-    for theme in [Theme::Light, Theme::Dark] {
+    for theme in [DarkLightMode::Light, DarkLightMode::Dark] {
         let style = std::sync::Arc::new(match theme {
-            Theme::Light => defaults::macos_modern_light(),
-            Theme::Dark => defaults::macos_modern_dark(),
+            DarkLightMode::Light => defaults::macos_modern_light(),
+            DarkLightMode::Dark => defaults::macos_modern_dark(),
         });
         let ctx = DynamicSelectorContext::from_system_style(&style).with_viewport(1024.0, 768.0);
         let sd = StyledDom::create_from_dom_with_context(dom.clone(), Some(ctx.clone()));

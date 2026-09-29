@@ -751,7 +751,7 @@ mod autotest_generated {
         let flora = AppConfig::create().with_theme(AzString::from_const_str("flora"));
         assert_eq!(flora.theme.as_str(), "flora");
         assert!(
-            matches!(flora.mode, crate::window::OptionWindowTheme::None),
+            matches!(flora.mode, crate::window::OptionDarkLightMode::None),
             "choosing a theme does not pin light / dark"
         );
 

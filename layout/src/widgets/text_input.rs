@@ -1676,7 +1676,7 @@ fn paint_invalid_ring(info: &mut CallbackInfo, container: DomNodeId, invalid: bo
         // The one light / dark decision (`resolve_window_theme`, I1), not a
         // widget's own re-implementation of it.
         let dark =
-            info.get_resolved_mode() == azul_core::window::WindowTheme::DarkMode;
+            info.get_resolved_mode() == azul_core::window::DarkLightMode::Dark;
         if flora {
             crate::widgets::themes::flora::text_input_invalid_ring(dark)
         } else {

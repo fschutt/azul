@@ -30,6 +30,7 @@ use azul_css::{
     system::{SystemFontType, SystemStyle, TitlebarButtonSide, TitlebarButtons, TitlebarMetrics},
     *,
 };
+use azul_css::system::DarkLightMode;
 
 // ── Compile-time defaults (used when no SystemStyle is available) ─────────
 
@@ -1370,7 +1371,7 @@ pub(crate) fn glyph_drawn_by_view(
         dom::{NodeType, OptionDom},
         geom::{LogicalPosition, LogicalRect, LogicalSize},
         resources::{DpiScaleFactor, ImageCache},
-        window::WindowTheme,
+        window::DarkLightMode,
     };
     use rust_fontconfig::FcFontCache;
 
@@ -1382,7 +1383,7 @@ pub(crate) fn glyph_drawn_by_view(
         VirtualViewCallbackReason::InitialRender,
         &fonts,
         &images,
-        WindowTheme::LightMode,
+        DarkLightMode::Light,
         frame,
         HidpiAdjustedBounds {
             logical_size: size,
@@ -2574,7 +2575,7 @@ mod autotest_generated {
             b: 7,
             a: 6,
         };
-        for theme in [system::Theme::Light, system::Theme::Dark] {
+        for theme in [DarkLightMode::Light, DarkLightMode::Dark] {
             let mut ss = blank_system_style();
             ss.theme = theme;
             ss.colors.text = OptionColorU::Some(detected);
@@ -2617,7 +2618,7 @@ mod autotest_generated {
     fn the_fallback_title_colour_follows_the_windows_mode_not_the_desktops() {
         use azul_css::dynamic_selector::ThemeCondition;
 
-        for desktop in [system::Theme::Light, system::Theme::Dark] {
+        for desktop in [DarkLightMode::Light, DarkLightMode::Dark] {
             let mut ss = blank_system_style();
             ss.theme = desktop;
             ss.colors.text = OptionColorU::None;
@@ -2662,7 +2663,7 @@ mod autotest_generated {
         let mut ss = blank_system_style();
         ss.metrics.titlebar.height = OptionPixelValue::Some(PixelValue::px(41.0));
         ss.metrics.titlebar.title_font_size = OptionF32::Some(17.5);
-        ss.theme = system::Theme::Dark;
+        ss.theme = DarkLightMode::Dark;
 
         let title_only = Titlebar::from_system_style(AzString::from("x"), &ss);
         let csd = Titlebar::from_system_style_csd(AzString::from("x"), &ss);

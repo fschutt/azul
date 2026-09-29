@@ -7201,28 +7201,6 @@
                         },
                         "repr": "C"
                     },
-                    "WindowTheme": {
-                        "priority": 51.0,
-                        "external": "azul_core::window::WindowTheme",
-                        "derive": [
-                            "PartialEq",
-                            "Eq",
-                            "Clone",
-                            "Hash",
-                            "Copy",
-                            "PartialOrd",
-                            "Ord",
-                            "Debug",
-                            "Default"
-                        ],
-                        "enum_fields": [
-                            {
-                                "DarkMode": {},
-                                "LightMode": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "DpiScaleFactor": {
                         "external": "azul_core::resources::DpiScaleFactor",
                         "derive": [
@@ -8079,44 +8057,28 @@
                             {
                                 "window_state": {
                                     "type": "FullWindowState"
-                                }
-                            },
-                            {
+                                },
                                 "create_callback": {
                                     "type": "OptionCallback"
-                                }
-                            },
-                            {
+                                },
                                 "parent_window_id": {
                                     "type": "u64"
-                                }
-                            },
-                            {
+                                },
                                 "renderer": {
                                     "type": "OptionRendererOptions"
-                                }
-                            },
-                            {
+                                },
                                 "theme": {
-                                    "type": "OptionWindowTheme"
-                                }
-                            },
-                            {
+                                    "type": "OptionDarkLightMode"
+                                },
                                 "background_color_light": {
                                     "type": "OptionColorU"
-                                }
-                            },
-                            {
+                                },
                                 "background_color_dark": {
                                     "type": "OptionColorU"
-                                }
-                            },
-                            {
+                                },
                                 "size_to_content": {
                                     "type": "bool"
-                                }
-                            },
-                            {
+                                },
                                 "hot_reload": {
                                     "type": "bool"
                                 }
@@ -8184,7 +8146,7 @@
                                     "type": "MouseState"
                                 },
                                 "theme": {
-                                    "type": "WindowTheme"
+                                    "type": "DarkLightMode"
                                 },
                                 "ime_position": {
                                     "type": "ImePosition"
@@ -8636,24 +8598,6 @@
                             }
                         ],
                         "repr": "C, u8"
-                    },
-                    "Theme": {
-                        "external": "azul_css::system::Theme",
-                        "derive": [
-                            "Debug",
-                            "Default",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Light": {},
-                                "Dark": {}
-                            }
-                        ],
-                        "repr": "C"
                     },
                     "IconProviderHandle": {
                         "priority": 25.0,
@@ -9610,7 +9554,7 @@
                                         "self": "value"
                                     },
                                     {
-                                        "window_theme": "WindowTheme"
+                                        "window_theme": "DarkLightMode"
                                     }
                                 ],
                                 "returns": {
@@ -9630,7 +9574,7 @@
                                         "self": "value"
                                     },
                                     {
-                                        "window_theme": "WindowTheme"
+                                        "window_theme": "DarkLightMode"
                                     }
                                 ],
                                 "returns": {
@@ -12309,20 +12253,10 @@
                                     "ref_kind": "constptr"
                                 },
                                 "window_theme": {
-                                    "type": "WindowTheme"
+                                    "type": "DarkLightMode"
                                 },
                                 "window_frame": {
-                                    "type": "WindowFrame",
-                                    "doc": [
-                                        "The window's CURRENT frame: normal, minimized, maximized, fullscreen.",
-                                        "",
-                                        "Here for the same reason window_theme is: a view whose content depends",
-                                        "on a window-level fact should READ that fact rather than be handed a",
-                                        "copy at build time and then kept in sync. The window control that has",
-                                        "to draw maximize-or-restore is the case - a seeded copy is wrong the",
-                                        "moment the window manager maximizes the window itself (super+up, edge",
-                                        "snap, a tiling rule), which never reaches the button's own callback."
-                                    ]
+                                    "type": "WindowFrame"
                                 },
                                 "bounds": {
                                     "type": "HidpiAdjustedBounds"
@@ -19950,7 +19884,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "OptionWindowTheme"
+                                    "type": "OptionDarkLightMode"
                                 },
                                 "fn_body": "object.get_mode()"
                             },
@@ -19966,7 +19900,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "WindowTheme"
+                                    "type": "DarkLightMode"
                                 },
                                 "fn_body": "object.get_resolved_mode()"
                             },
@@ -19989,7 +19923,7 @@
                                         "self": "refmut"
                                     },
                                     {
-                                        "mode": "OptionWindowTheme"
+                                        "mode": "OptionDarkLightMode"
                                     }
                                 ],
                                 "fn_body": "object.set_mode(mode)"
@@ -20186,7 +20120,7 @@
                                     "type": "WindowSize"
                                 },
                                 "theme": {
-                                    "type": "WindowTheme"
+                                    "type": "DarkLightMode"
                                 },
                                 "relayout_reason": {
                                     "type": "RelayoutReason"
@@ -20779,7 +20713,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "WindowTheme"
+                                    "type": "DarkLightMode"
                                 },
                                 "fn_body": "object.get_mode()"
                             },
@@ -49247,7 +49181,7 @@
                                     "type": "ScrollPhysics"
                                 },
                                 "theme": {
-                                    "type": "Theme"
+                                    "type": "DarkLightMode"
                                 },
                                 "os_version": {
                                     "type": "OsVersion"
@@ -56473,6 +56407,27 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "DarkLightMode": {
+                        "external": "azul_css::system::DarkLightMode",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Light": {},
+                                "Dark": {}
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -56979,7 +56934,7 @@
                                         "self": "ref"
                                     },
                                     {
-                                        "window_theme": "WindowTheme"
+                                        "window_theme": "DarkLightMode"
                                     }
                                 ],
                                 "returns": {
@@ -126604,28 +126559,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "OptionWindowTheme": {
-                        "external": "azul_core::window::OptionWindowTheme",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq",
-                            "Ord",
-                            "Eq",
-                            "Copy",
-                            "Hash",
-                            "PartialOrd"
-                        ],
-                        "enum_fields": [
-                            {
-                                "None": {},
-                                "Some": {
-                                    "type": "WindowTheme"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
                     "OptionInstant": {
                         "external": "azul_core::task::OptionInstant",
                         "derive": [
@@ -133007,6 +132940,28 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionDarkLightMode": {
+                        "external": "azul_css::system::OptionDarkLightMode",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd",
+                            "Ord",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "DarkLightMode"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -135789,7 +135744,7 @@
                                     "type": "String"
                                 },
                                 "mode": {
-                                    "type": "OptionWindowTheme"
+                                    "type": "OptionDarkLightMode"
                                 },
                                 "log_level": {
                                     "type": "AppLogLevel"
@@ -135990,7 +135945,7 @@
                                         "self": "value"
                                     },
                                     {
-                                        "mode": "OptionWindowTheme"
+                                        "mode": "OptionDarkLightMode"
                                     }
                                 ],
                                 "returns": {
@@ -136007,7 +135962,7 @@
                                         "self": "refmut"
                                     },
                                     {
-                                        "mode": "OptionWindowTheme"
+                                        "mode": "OptionDarkLightMode"
                                     }
                                 ],
                                 "fn_body": "object.set_mode(mode)"

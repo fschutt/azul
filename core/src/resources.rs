@@ -1065,7 +1065,7 @@ pub struct AppConfig {
     ///
     /// 8 bytes, 4-aligned: it sits with the 4-byte enums below (a 4-byte
     /// `repr(C)` enum here would leave 4 bytes of tail padding).
-    pub mode: crate::window::OptionWindowTheme,
+    pub mode: crate::window::OptionDarkLightMode,
     /// If enabled, logs error and info messages.
     ///
     /// Default is `LevelFilter::Error` to log all errors by default
@@ -1187,13 +1187,13 @@ impl AppConfig {
     /// dark, `None` (the default, "system") follows the desktop. See
     /// [`Self::mode`]; switch it later with `CallbackInfo::set_mode`.
     #[must_use]
-    pub fn with_mode(mut self, mode: crate::window::OptionWindowTheme) -> Self {
+    pub fn with_mode(mut self, mode: crate::window::OptionDarkLightMode) -> Self {
         self.set_mode(mode);
         self
     }
 
     /// In-place [`Self::with_mode`].
-    pub fn set_mode(&mut self, mode: crate::window::OptionWindowTheme) {
+    pub fn set_mode(&mut self, mode: crate::window::OptionDarkLightMode) {
         self.mode = mode;
     }
 
@@ -1271,7 +1271,7 @@ impl AppConfig {
             // Not declared: the platform's id, else the executable's.
             app_id: AzString::from_const_str(""),
             // Follow the desktop.
-            mode: crate::window::OptionWindowTheme::None,
+            mode: crate::window::OptionDarkLightMode::None,
         };
         // Dogfood: register the 52 built-in HTML elements via the
         // same `add_component_library` API that users call.

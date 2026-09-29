@@ -25,7 +25,7 @@ use azul_css::{
         property::CssProperty,
         style::text::StyleTextColor,
     },
-    system::{SystemStyle, Theme},
+    system::{SystemStyle, DarkLightMode},
 };
 use azul_layout::{
     cpurender::{render_dom_to_image, AzulPixmap},
@@ -153,7 +153,7 @@ fn a_palette_remap_to_a_system_colour_follows_the_mode() {
         }]),
     ));
     let mut dark = SystemStyle::default();
-    dark.theme = Theme::Dark;
+    dark.theme = DarkLightMode::Dark;
     let expected = SystemColorRef::Text.resolve_for_theme(&dark.colors, true);
     let pm = render(TWO_TONE, meta, RED, &dark);
     let left = px(&pm, 4, 8);

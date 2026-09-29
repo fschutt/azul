@@ -1301,21 +1301,8 @@ impl_vec_debug!(TouchPoint, TouchPointVec);
 impl_vec_clone!(TouchPoint, TouchPointVec, TouchPointVecDestructor);
 impl_vec_partialeq!(TouchPoint, TouchPointVec);
 
-/// State, size, etc of the window, for comparing to the last frame
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Ord, Eq)]
-#[repr(C)]
-#[derive(Default)]
-pub enum WindowTheme {
-    DarkMode,
-    #[default]
-    LightMode,
-}
-
-impl_option!(
-    WindowTheme,
-    OptionWindowTheme,
-    [Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash]
-);
+/// Dark or light (see [`DarkLightMode`]); was `DarkLightMode`.
+pub use azul_css::system::{DarkLightMode, OptionDarkLightMode};
 
 /// Identifies a specific monitor/display
 ///

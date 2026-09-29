@@ -251,7 +251,7 @@ is kept for ABI stability, but the declarative manager never produces it (see Op
 7. **`x11.rs`**:
    - `XConnectionNumber` and `XCloseDisplay` are now required symbols (both exist in libX11);
    - `u64::from(key.time)`.
-8. **Test modules** that rely on glob imports reaching `WindowSize` / `WindowTheme`:
+8. **Test modules** that rely on glob imports reaching `WindowSize` / `DarkLightMode`:
    `core/src/callbacks_test.rs::global_hotkey_recorder_tests` (the neighbouring modules do the same).
 9. **`layout/src/e2e/full.rs`**:
    - the new `DebugEvent` arms (patterns on a reference);

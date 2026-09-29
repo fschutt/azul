@@ -124,8 +124,8 @@ fn patched_resize_display_list_is_item_identical_to_a_full_rebuild() {
 /// StyledDom of the same structure (one paragraph edited), laid out with the
 /// window theme set to `second`. Returns the second pass's display list.
 fn run_theme_flip(
-    first: azul_core::window::WindowTheme,
-    second: azul_core::window::WindowTheme,
+    first: azul_core::window::DarkLightMode,
+    second: azul_core::window::DarkLightMode,
 ) -> std::sync::Arc<azul_layout::solver3::display_list::DisplayList> {
     let font_cache = FcFontCache::build();
     let mut lw = LayoutWindow::new(font_cache).unwrap();
@@ -176,12 +176,12 @@ fn item_strings(dl: &azul_layout::solver3::display_list::DisplayList) -> Vec<Str
 /// the full build's, item for item.
 #[test]
 fn a_theme_flip_rebuild_is_item_identical_to_a_full_rebuild() {
-    use azul_core::window::WindowTheme::{DarkMode, LightMode};
+    use azul_core::window::DarkLightMode::{Dark, Light};
 
     // The fixture must express the difference, or this gate proves nothing.
     set_dl_patching_enabled(false);
-    let full_light = run_theme_flip(LightMode, LightMode);
-    let full_dark = run_theme_flip(LightMode, DarkMode);
+    let full_light = run_theme_flip(Light, Light);
+    let full_dark = run_theme_flip(Light, Dark);
     assert_ne!(
         item_strings(&full_light),
         item_strings(&full_dark),
@@ -189,7 +189,7 @@ fn a_theme_flip_rebuild_is_item_identical_to_a_full_rebuild() {
     );
 
     set_dl_patching_enabled(true);
-    let patched_dark = run_theme_flip(LightMode, DarkMode);
+    let patched_dark = run_theme_flip(Light, Dark);
     set_dl_patching_enabled(true);
 
     assert_eq!(

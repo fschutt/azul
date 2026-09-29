@@ -1108,7 +1108,7 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
     }
 }
 
-/// The device's light/dark setting, as a [`WindowTheme`].
+/// The device's light/dark setting, as a [`DarkLightMode`].
 ///
 /// `UITraitCollection.currentTraitCollection.userInterfaceStyle`:
 /// 0 = unspecified, 1 = light, 2 = dark (`UIUserInterfaceStyle`). Unspecified
@@ -1120,15 +1120,15 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
 /// Linux backends: there the probe is a blocking D-Bus round trip and MUST be
 /// threaded, here it is one message send and must NOT be.
 #[cfg(target_os = "ios")]
-unsafe fn probe_user_interface_style() -> Option<azul_core::window::WindowTheme> {
+unsafe fn probe_user_interface_style() -> Option<azul_core::window::DarkLightMode> {
     let traits: *mut Object = msg_send![class!(UITraitCollection), currentTraitCollection];
     if traits.is_null() {
         return None;
     }
     let style: i64 = msg_send![traits, userInterfaceStyle];
     match style {
-        1 => Some(azul_core::window::WindowTheme::LightMode),
-        2 => Some(azul_core::window::WindowTheme::DarkMode),
+        1 => Some(azul_core::window::DarkLightMode::Light),
+        2 => Some(azul_core::window::DarkLightMode::Dark),
         _ => None,
     }
 }

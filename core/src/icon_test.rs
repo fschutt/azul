@@ -1,5 +1,6 @@
 #[allow(unused_imports)]
 pub use super::*;
+use azul_css::system::DarkLightMode;
 #[cfg(test)]
 #[allow(clippy::float_cmp, clippy::too_many_lines)]
 mod autotest_generated {
@@ -1684,7 +1685,7 @@ mod remap_rules_tests {
         _original: &NodeData,
         style: &SystemStyle,
     ) -> Dom {
-        if style.theme == azul_css::system::Theme::Dark {
+        if style.theme == DarkLightMode::Dark {
             SEEN_DARK.fetch_add(1, AtomicOrdering::SeqCst);
         }
         Dom::create_div()

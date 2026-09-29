@@ -1228,7 +1228,7 @@ mod autotest_generated {
             ThreadRecvCallback,
         },
         video::VideoSource,
-        window::{MonitorVec, RawWindowHandle, WindowTheme},
+        window::{MonitorVec, RawWindowHandle, DarkLightMode},
     };
     use azul_css::{system::SystemStyle, AzString};
     use rust_fontconfig::FcFontCache;
@@ -1611,7 +1611,7 @@ mod autotest_generated {
             VirtualViewCallbackReason::InitialRender,
             &fonts,
             &images,
-            WindowTheme::LightMode,
+            DarkLightMode::Light,
             azul_core::window::WindowFrame::Normal,
             HidpiAdjustedBounds {
                 logical_size: size,

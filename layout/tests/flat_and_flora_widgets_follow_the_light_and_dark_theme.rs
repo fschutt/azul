@@ -32,21 +32,21 @@ use azul_css::{
         layout::LayoutDisplay,
         style::StyleBackgroundContent,
     },
-    system::{defaults, SystemStyle, Theme},
+    system::{defaults, SystemStyle, DarkLightMode},
     AzString,
 };
 use azul_layout::{solver3::getters, widgets::themes::UiTheme};
 
 struct Probe {
-    theme: Theme,
+    theme: DarkLightMode,
     style: Arc<SystemStyle>,
     ctx: DynamicSelectorContext,
 }
 
-fn probe(theme: Theme) -> Probe {
+fn probe(theme: DarkLightMode) -> Probe {
     let style = Arc::new(match theme {
-        Theme::Light => defaults::macos_modern_light(),
-        Theme::Dark => defaults::macos_modern_dark(),
+        DarkLightMode::Light => defaults::macos_modern_light(),
+        DarkLightMode::Dark => defaults::macos_modern_dark(),
     });
     let ctx = DynamicSelectorContext::from_system_style(&style).with_viewport(800.0, 600.0);
     Probe { theme, style, ctx }
@@ -214,7 +214,7 @@ fn contrast_findings(name: &str, dom: Dom, p: &Probe) -> Vec<String> {
                 to_color(fg),
                 to_color(bg),
             ));
-        } else if p.theme == Theme::Dark && luminance(bg) > 0.45 && chroma(bg) < 0.25 {
+        } else if p.theme == DarkLightMode::Dark && luminance(bg) > 0.45 && chroma(bg) < 0.25 {
             out.push(format!(
                 "{name} (Dark): {label:?} sits on the light surface {:?} - a light island",
                 to_color(bg),
@@ -264,7 +264,7 @@ fn pair_findings(name: &str, dom: &Dom, path: &str, out: &mut Vec<String>) {
 /// with every finding at once.
 fn assert_follow_the_theme(widgets: Vec<(String, Dom)>) {
     assert!(!widgets.is_empty(), "premise: something to check");
-    let (light, dark) = (probe(Theme::Light), probe(Theme::Dark));
+    let (light, dark) = (probe(DarkLightMode::Light), probe(DarkLightMode::Dark));
     let mut bad = Vec::new();
     for (name, dom) in widgets {
         pair_findings(&name, &dom, "root", &mut bad);

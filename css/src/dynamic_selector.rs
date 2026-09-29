@@ -1344,13 +1344,13 @@ impl ResolveSystemColors for crate::props::property::CssProperty {
 }
 
 impl ThemeCondition {
-    /// Convert from `css::system::Theme`
+    /// Convert from `css::system::DarkLightMode`
     #[must_use]
-    pub const fn from_system_theme(theme: crate::system::Theme) -> Self {
-        use crate::system::Theme;
+    pub const fn from_system_theme(theme: crate::system::DarkLightMode) -> Self {
+        use crate::system::DarkLightMode;
         match theme {
-            Theme::Light => Self::Light,
-            Theme::Dark => Self::Dark,
+            DarkLightMode::Light => Self::Light,
+            DarkLightMode::Dark => Self::Dark,
         }
     }
 
@@ -1658,9 +1658,9 @@ impl DynamicSelectorContext {
         // The palette of the theme this context EVALUATES, which the pin can
         // make differ from the desktop's.
         let system_colors = system_style.colors_for_theme(if theme == ThemeCondition::Dark {
-            crate::system::Theme::Dark
+            crate::system::DarkLightMode::Dark
         } else {
-            crate::system::Theme::Light
+            crate::system::DarkLightMode::Light
         });
 
         Self {
@@ -4273,13 +4273,13 @@ mod autotest_generated {
 
     #[test]
     fn theme_condition_from_system_theme_is_total() {
-        use crate::system::Theme;
+        use crate::system::DarkLightMode;
         assert_eq!(
-            ThemeCondition::from_system_theme(Theme::Light),
+            ThemeCondition::from_system_theme(DarkLightMode::Light),
             ThemeCondition::Light
         );
         assert_eq!(
-            ThemeCondition::from_system_theme(Theme::Dark),
+            ThemeCondition::from_system_theme(DarkLightMode::Dark),
             ThemeCondition::Dark
         );
     }

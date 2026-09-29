@@ -1,5 +1,6 @@
 //! Built-in widgets for the Azul GUI system
 
+use azul_css::system::DarkLightMode;
 /// Implements `Display, Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Hash`
 /// for a Callback with a `.cb` field.
 ///
@@ -1843,7 +1844,7 @@ mod theme_contrast {
             layout::LayoutDisplay,
             style::StyleBackgroundContent,
         },
-        system::{defaults, SystemStyle, Theme},
+        system::{defaults, SystemStyle, DarkLightMode},
         AzString,
     };
 
@@ -1852,15 +1853,15 @@ mod theme_contrast {
     /// One theme to render under: its preset and the context a window
     /// builds from it.
     struct Probe {
-        theme: Theme,
+        theme: DarkLightMode,
         style: Arc<SystemStyle>,
         ctx: DynamicSelectorContext,
     }
 
-    fn probe(theme: Theme) -> Probe {
+    fn probe(theme: DarkLightMode) -> Probe {
         let style = Arc::new(match theme {
-            Theme::Light => defaults::macos_modern_light(),
-            Theme::Dark => defaults::macos_modern_dark(),
+            DarkLightMode::Light => defaults::macos_modern_light(),
+            DarkLightMode::Dark => defaults::macos_modern_dark(),
         });
         let ctx = DynamicSelectorContext::from_system_style(&style).with_viewport(800.0, 600.0);
         Probe { theme, style, ctx }
@@ -2036,7 +2037,7 @@ mod theme_contrast {
                     to_color(fg),
                     to_color(bg),
                 ));
-            } else if p.theme == Theme::Dark && luminance(bg) > 0.45 && chroma(bg) < 0.25 {
+            } else if p.theme == DarkLightMode::Dark && luminance(bg) > 0.45 && chroma(bg) < 0.25 {
                 out.push(format!(
                     "{name} (Dark): {label:?} sits on the light surface {:?} - a light island",
                     to_color(bg),
@@ -2047,7 +2048,7 @@ mod theme_contrast {
     }
 
     fn assert_follow_the_theme(widgets: Vec<(&'static str, Dom)>) {
-        let (light, dark) = (probe(Theme::Light), probe(Theme::Dark));
+        let (light, dark) = (probe(DarkLightMode::Light), probe(DarkLightMode::Dark));
         let mut bad = Vec::new();
         for (name, dom) in widgets {
             bad.extend(findings(name, dom.clone(), &light));
@@ -2289,7 +2290,7 @@ mod theme_contrast {
     fn the_flat_fields_take_the_system_palette_in_the_dark_theme() {
         use super::{number_input::NumberInput, text_area::TextArea, text_input::TextInput};
 
-        let p = probe(Theme::Dark);
+        let p = probe(DarkLightMode::Dark);
         let field = p.ctx.system_color(SystemColorRef::ControlBackground);
         let label = p.ctx.system_color(SystemColorRef::Text);
         for (name, dom) in [

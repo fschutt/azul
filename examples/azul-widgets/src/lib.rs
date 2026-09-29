@@ -9,12 +9,13 @@ use azul::dom::{
     TimePickerOnChangeCallback,
 };
 use azul::{
+    css::DarkLightMode,
     menu::{Menu, MenuItem, StringMenuItem},
     misc::{TransientDock, TransientTearoff},
-    option::OptionWindowTheme,
+    option::OptionDarkLightMode,
     prelude::*,
     widgets::*,
-    window::{TransientWindowConfig, UiTheme, WindowTheme},
+    window::{TransientWindowConfig, UiTheme},
 };
 
 mod forms;
@@ -522,10 +523,10 @@ const TOOLBAR_CAPTION_CSS: &str =
 /// it is what makes a mode switch - or a desktop flip while on System -
 /// re-run this `layout()`; an app whose `layout()` never reads it is only
 /// re-styled, its DOM kept.
-fn toolbar(data: &RefAny, mode_index: usize, widget_theme: UiTheme, shown: WindowTheme) -> Dom {
+fn toolbar(data: &RefAny, mode_index: usize, widget_theme: UiTheme, shown: DarkLightMode) -> Dom {
     let shown = match shown {
-        WindowTheme::DarkMode => "dark",
-        WindowTheme::LightMode => "light",
+        DarkLightMode::Dark => "dark",
+        DarkLightMode::Light => "light",
     };
     let mode_note = match mode_index {
         1 | 2 => format!("pinned {shown}"),
@@ -586,9 +587,9 @@ extern "C" fn on_mode(
     state: SegmentedState,
 ) -> Update {
     let mode = match state.selected_index {
-        1 => OptionWindowTheme::Some(WindowTheme::LightMode),
-        2 => OptionWindowTheme::Some(WindowTheme::DarkMode),
-        _ => OptionWindowTheme::None,
+        1 => OptionDarkLightMode::Some(DarkLightMode::Light),
+        2 => OptionDarkLightMode::Some(DarkLightMode::Dark),
+        _ => OptionDarkLightMode::None,
     };
     info.set_mode(mode);
     match data.downcast_mut::<Showcase>() {
@@ -1433,8 +1434,8 @@ pub fn start() {
         form: forms::FormDemo::create(),
     });
     // `None` follows the desktop - the default, spelled out: an app that
-    // starts pinned passes `OptionWindowTheme::Some(WindowTheme::DarkMode)`.
-    let config = AppConfig::create().with_mode(OptionWindowTheme::None);
+    // starts pinned passes `OptionDarkLightMode::Some(DarkLightMode::Dark)`.
+    let config = AppConfig::create().with_mode(OptionDarkLightMode::None);
     let app = App::create(data, config);
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.title = "Azul Widget Showcase".into();

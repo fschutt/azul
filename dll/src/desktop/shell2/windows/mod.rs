@@ -2721,7 +2721,7 @@ impl Win32Window {
         };
         let dark: i32 = i32::from(matches!(
             self.common.current_window_state().theme,
-            azul_core::window::WindowTheme::DarkMode
+            azul_core::window::DarkLightMode::Dark
         ));
         unsafe {
             let set = |attr: u32| {
@@ -6841,8 +6841,8 @@ unsafe extern "system" fn window_proc(
                 core::slice::from_ref(&held_language),
             ));
             let desktop_theme = match new_style.theme {
-                azul_css::system::Theme::Dark => azul_core::window::WindowTheme::DarkMode,
-                azul_css::system::Theme::Light => azul_core::window::WindowTheme::LightMode,
+                DarkLightMode::Dark => azul_core::window::DarkLightMode::Dark,
+                DarkLightMode::Light => azul_core::window::DarkLightMode::Light,
             };
             // The DESKTOP's light / dark: the window takes it only while the
             // app follows the desktop (an app that pins its mode stays put;

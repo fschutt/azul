@@ -9,13 +9,13 @@ Nothing was compiled (house rule); see "Least sure to compile" below.
 
 ```rust
 // startup (default: follow the desktop)
-let config = AppConfig::create().with_color_scheme(OptionWindowTheme::Some(WindowTheme::DarkMode));
+let config = AppConfig::create().with_color_scheme(OptionDarkLightMode::Some(DarkLightMode::Dark));
 // runtime, from any callback - every window of the app, and every window opened later
-info.set_color_scheme(OptionWindowTheme::None);          // back to "System"
-let choice   = info.get_color_scheme();                  // OptionWindowTheme: the CHOICE
-let resolved = info.get_resolved_color_scheme();         // WindowTheme: what the window SHOWS
+info.set_color_scheme(OptionDarkLightMode::None);          // back to "System"
+let choice   = info.get_color_scheme();                  // OptionDarkLightMode: the CHOICE
+let resolved = info.get_resolved_color_scheme();         // DarkLightMode: what the window SHOWS
 // in layout(): what the window shows, and reading it declares the dependency
-let dark = info.get_theme() == WindowTheme::DarkMode;
+let dark = info.get_theme() == DarkLightMode::Dark;
 ```
 
 A switch is a RESTYLE of the retained DOM (colours only; `layout()` does not run) unless the
@@ -27,7 +27,7 @@ at once (no desktop event needed). `AZ_THEME=light|dark` still outranks everythi
 
 ## 2. Design
 
-### 2.1 Type: reuse `OptionWindowTheme` (None = follow the desktop, Some = pin)
+### 2.1 Type: reuse `OptionDarkLightMode` (None = follow the desktop, Some = pin)
 
 Justification, in order of weight:
 
@@ -35,15 +35,15 @@ Justification, in order of weight:
    (`core/src/resources_test.rs::app_config_has_no_padding_between_its_fields`). Its 4-aligned
    tail is `log_level + natural_scroll + termination_behavior` (12 B) + `remote_control`
    (8 B, align 2) + 4 bools = 24 B. A new 4-byte `repr(C)` `ColorScheme` enum makes it 28 B
-   -> 4 bytes of TAIL padding, test red. `OptionWindowTheme` (`repr(C, u8)` tag + 4-aligned
-   `WindowTheme`) is 8 B / align 4 -> 32 B, zero padding. The alternatives were a reserved
+   -> 4 bytes of TAIL padding, test red. `OptionDarkLightMode` (`repr(C, u8)` tag + 4-aligned
+   `DarkLightMode`) is 8 B / align 4 -> 32 B, zero padding. The alternatives were a reserved
    field or an unrelated 4-byte setting (both worse).
 2. **One vocabulary.** It is already the type of the window-level request,
    `WindowCreateOptions::theme` ("`None` follows the system"), so the app-level and the
    window-level requests read the same.
 3. No new api.json class.
 
-Cost: `OptionWindowTheme::Some(WindowTheme::DarkMode)` is wordier than `ColorScheme::Dark` in
+Cost: `OptionDarkLightMode::Some(DarkLightMode::Dark)` is wordier than `ColorScheme::Dark` in
 the bindings. If the parent prefers a dedicated enum anyway, it has to come with a second
 4-byte AppConfig field or an explicit `_reserved: u32`.
 
@@ -166,12 +166,12 @@ BEFORE `log_level` in `AppConfig` (8 B, align 4).
 
 | module / class | item | signature |
 |---|---|---|
-| app / `AppConfig` | struct field | `color_scheme: OptionWindowTheme` |
-| app / `AppConfig` | fn `with_color_scheme` | `(self: value, scheme: OptionWindowTheme) -> AppConfig` |
-| app / `AppConfig` | fn `set_color_scheme` | `(self: refmut, scheme: OptionWindowTheme)` |
-| callbacks / `CallbackInfo` | fn `set_color_scheme` | `(self: refmut, scheme: OptionWindowTheme)` |
-| callbacks / `CallbackInfo` | fn `get_color_scheme` | `(self: ref) -> OptionWindowTheme` |
-| callbacks / `CallbackInfo` | fn `get_resolved_color_scheme` | `(self: ref) -> WindowTheme` |
+| app / `AppConfig` | struct field | `color_scheme: OptionDarkLightMode` |
+| app / `AppConfig` | fn `with_color_scheme` | `(self: value, scheme: OptionDarkLightMode) -> AppConfig` |
+| app / `AppConfig` | fn `set_color_scheme` | `(self: refmut, scheme: OptionDarkLightMode)` |
+| callbacks / `CallbackInfo` | fn `set_color_scheme` | `(self: refmut, scheme: OptionDarkLightMode)` |
+| callbacks / `CallbackInfo` | fn `get_color_scheme` | `(self: ref) -> OptionDarkLightMode` |
+| callbacks / `CallbackInfo` | fn `get_resolved_color_scheme` | `(self: ref) -> DarkLightMode` |
 
 Rust-only (not for api.json): `azul_layout::window::{set_app_color_scheme, app_color_scheme,
 resolve_window_theme, resolve_window_theme_with}`, `LayoutWindow::{color_scheme,
@@ -251,9 +251,9 @@ input types.
    uncompiled here.
 3. `layout/src/callbacks.rs`: `pub const fn get_color_scheme` reading a `Copy` field through the
    `const fn get_layout_window()` - should be fine; drop `const` if the compiler objects.
-4. `core/src/resources.rs`: `crate::window::OptionWindowTheme` in `AppConfig` - make sure the
+4. `core/src/resources.rs`: `crate::window::OptionDarkLightMode` in `AppConfig` - make sure the
    `window` module is compiled in every `core` feature set `resources` is.
-5. The demo: `azul::option::OptionWindowTheme`, `azul::window::{UiTheme, WindowTheme}` paths
+5. The demo: `azul::option::OptionDarkLightMode`, `azul::window::{UiTheme, DarkLightMode}` paths
    (from the current generated `reexports.rs`), and the new binding methods (regen required).
 6. Behavioural risk, not compile: the synchronous fan-out runs another window's event pass and
    restyle while the switching window's `&mut self` is on the stack (the same raw-pointer

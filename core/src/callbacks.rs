@@ -63,7 +63,7 @@ use crate::{
     },
     window::{
         AzStringPair, KeyboardState, MouseState, OptionChar, RawWindowHandle, UpdateFocusWarning,
-        WindowFlags, WindowFrame, WindowSize, WindowTheme,
+        WindowFlags, WindowFrame, WindowSize, DarkLightMode,
     },
     FastBTreeSet, OrderedMap,
 };
@@ -473,7 +473,7 @@ pub struct VirtualViewCallbackInfo {
     pub reason: VirtualViewCallbackReason,
     pub system_fonts: *const FcFontCache,
     pub image_cache: *const ImageCache,
-    pub window_theme: WindowTheme,
+    pub window_theme: DarkLightMode,
     /// The window's CURRENT frame: normal, minimized, maximized, fullscreen.
     ///
     /// Here for the same reason `window_theme` is: a view whose content
@@ -570,7 +570,7 @@ impl VirtualViewCallbackInfo {
         reason: VirtualViewCallbackReason,
         system_fonts: &'a FcFontCache,
         image_cache: &'a ImageCache,
-        window_theme: WindowTheme,
+        window_theme: DarkLightMode,
         window_frame: WindowFrame,
         bounds: HidpiAdjustedBounds,
         materialized: LogicalRect,
@@ -984,7 +984,7 @@ pub struct LayoutCallbackInfo {
     /// in favor of "resize" handlers and @media queries.
     pub window_size: WindowSize,
     /// Registers whether the UI is dependent on the window theme
-    pub theme: WindowTheme,
+    pub theme: DarkLightMode,
     /// What triggered this `layout()` call. Read via `relayout_reason()`.
     pub relayout_reason: RelayoutReason,
     /// Pointer to the callable (`OptionRefAny`) for FFI language bindings (Python, etc.)
@@ -1427,7 +1427,7 @@ impl LayoutCallbackInfo {
     pub const fn new<'a>(
         ref_data: &'a LayoutCallbackInfoRefData<'a>,
         window_size: WindowSize,
-        theme: WindowTheme,
+        theme: DarkLightMode,
     ) -> Self {
         Self::new_with_reason(ref_data, window_size, theme, RelayoutReason::Initial)
     }
@@ -1439,7 +1439,7 @@ impl LayoutCallbackInfo {
     pub const fn new_with_reason<'a>(
         ref_data: &'a LayoutCallbackInfoRefData<'a>,
         window_size: WindowSize,
-        theme: WindowTheme,
+        theme: DarkLightMode,
         relayout_reason: RelayoutReason,
     ) -> Self {
         Self {
@@ -1608,7 +1608,7 @@ impl LayoutCallbackInfo {
     /// // "I mirror light/dark and nothing else": switching between two
     /// // light palettes cannot change my DOM.
     /// info.depends_on_system_style(SystemStyleDependency::Theme);
-    /// let dark = info.get_mode() == WindowTheme::DarkMode;
+    /// let dark = info.get_mode() == DarkLightMode::Dark;
     ///
     /// // "I paint my own buttons from the OS palette": ANY palette move
     /// // invalidates my DOM, light-to-light included.
@@ -1643,7 +1643,7 @@ impl LayoutCallbackInfo {
     /// (`RelayoutReason::ModeChange`); a callback that never reads it is
     /// only re-styled. Not the app theme ([`Self::get_theme`]).
     #[must_use]
-    pub fn get_mode(&self) -> WindowTheme {
+    pub fn get_mode(&self) -> DarkLightMode {
         self.depends_on_system_style(SystemStyleDependency::Theme);
         self.theme
     }

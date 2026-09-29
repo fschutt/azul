@@ -60,6 +60,7 @@ use super::{
     },
 };
 use crate::solver3::layout_tree::LayoutNodeId;
+use azul_css::system::DarkLightMode;
 
 // ── Headless window scaffolding ──────────────────────────────────────────────
 
@@ -3563,8 +3564,8 @@ impl Runner {
                 // "desktop" is its system style.
                 let desktop = match self.layout_window.system_style.as_deref().map(|s| s.theme)
                 {
-                    Some(azul_css::system::Theme::Dark) => azul_core::window::WindowTheme::DarkMode,
-                    _ => azul_core::window::WindowTheme::LightMode,
+                    Some(DarkLightMode::Dark) => azul_core::window::DarkLightMode::Dark,
+                    _ => azul_core::window::DarkLightMode::Light,
                 };
                 self.layout_window.mode = *mode;
                 let target = self.layout_window.window_mode_for(desktop);
