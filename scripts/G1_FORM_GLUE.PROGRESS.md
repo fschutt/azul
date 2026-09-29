@@ -14,11 +14,14 @@ display:none. NEVER compile. Report: `scripts/G1_FORM_GLUE_2026_09_29.md`.
 - 5ca767bcb step 2: `<form>` row, form_for() trampolines, collect_form_data(), submit/reset
   take the callback out of the state before invoking
 
+- 8c6c62af7 RED step 3: `mod form_reset`
+- 4ccbd9a68 step 3: MEMORY_KEY_ATTRIBUTE on replaced roots, memory registry (`controls` map,
+  `register`, `reset_control`), reset_form forgets + RefreshDom
+
 ## IN PROGRESS
-- step 3 RED: form reset forgets the replaced controls' memory
+- step 4 RED: FormData collects replaced controls
 
 ## NEXT
-3. RED + impl: form reset forgets the replaced controls' memory (+ RefreshDom)
 4. RED + impl: FormData collects replaced checkbox/radio/range/colour/number/date/time/select/...
 5. RED + impl: `<datalist>` display:none
 6. report
