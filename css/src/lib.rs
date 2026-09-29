@@ -107,4 +107,15 @@ pub mod system;
 /// The theme chain (`xyz:pink -> xyz -> flat`): which app themes are live.
 pub mod theme_chain;
 
+/// The end user's stylesheets ("rice"): discovery over the theme chain's
+/// directories (`~/.azul/css/<theme>/*.css`), the header meta-comment,
+/// hardening and the status listing.
+#[cfg(feature = "parser")]
+pub mod rice;
+
+/// The azul release this build is: the version of the C API (`api.json`), what
+/// generated build files depend on and what a rice file's `azul:` key is
+/// matched against.
+pub const AZUL_VERSION: &str = "0.2.0";
+
 pub use self::corety::*;

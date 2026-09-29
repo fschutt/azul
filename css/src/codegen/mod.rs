@@ -36,7 +36,7 @@ pub mod lower;
 pub mod lower_types;
 
 /// The api.json version the generated build files depend on.
-pub const AZUL_VERSION: &str = "0.2.0";
+pub use crate::AZUL_VERSION;
 
 /// One emitted source artifact (e.g. `src/main.rs`, `Cargo.toml`).
 #[derive(Debug, Clone, PartialEq, Eq)]

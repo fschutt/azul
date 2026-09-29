@@ -4,21 +4,26 @@
 //! for its UI theme information. This is gated behind the **`io`** feature flag.
 //!
 //! **End-user customization (`AZ_RICING`):**
-//! By default (if the `io` feature is enabled), Azul looks for an
-//! application-specific stylesheet at `~/.config/azul/styles/<app_name>.css`
-//! (or `%APPDATA%\azul\styles\<app_name>.css` on Windows) and applies it as
-//! the last layer of the cascade, letting end-users "rice" any Azul app.
+//! The end user's stylesheets ("rice") are loaded by [`crate::rice`]: one
+//! directory per theme of the app's theme chain, `~/.azul/css/<theme>/*.css`
+//! (`xyz:pink` is `css/xyz/pink/`), plus the legacy per-app file
+//! `~/.config/azul/styles/<app_name>.css` (`%APPDATA%\azul\styles\` on
+//! Windows, `~/Library/Application Support/azul/styles/` on macOS), which keeps
+//! loading as a per-app file. Each file's header comment names its priority
+//! (`base` by default: it fills what nobody declared and cannot break the app).
 //!
-//! The `AZ_RICING` env var has three modes (case-insensitive):
+//! The `AZ_RICING` env var has four modes (case-insensitive):
 //!
-//! - unset (default): load the user CSS if present; on Linux, the detection chain is `KDE > GNOME >
+//! - unset (default): load the rice if present; on Linux, the detection chain is `KDE > GNOME >
 //!   riced > defaults`.
-//! - `AZ_RICING=off` (aliases: `disabled`, `none`, `0`): skip the user CSS file and the
-//!   riced-desktop sources (Hyprland config, pywal cache). Use for kiosk builds or CI runs that
-//!   mustn't pick up local customization.
+//! - `AZ_RICING=off` (aliases: `disabled`, `none`, `0`): skip every rice file and the
+//!   riced-desktop sources (Hyprland config, pywal cache). Use for kiosk builds, CI runs that
+//!   mustn't pick up local customization, and the "is it the rice?" check of a bug report.
 //! - `AZ_RICING=force` (aliases: `prefer`, `aggressive`, `1`): on Linux, reorder the detection
 //!   chain so riced-desktop sources win over GNOME/KDE — useful for tiling-WM users whose
-//!   `XDG_CURRENT_DESKTOP` still says `gnome`. The user CSS file still loads.
+//!   `XDG_CURRENT_DESKTOP` still says `gnome`. The rice still loads.
+//! - `AZ_RICING=watch` (aliases: `live`, `reload`): as the default, and a change to a rice file
+//!   rebuilds every window with the new rice (the app-theme rebuild path) - for writing a theme.
 
 #![cfg(feature = "parser")]
 
@@ -50,38 +55,49 @@ use crate::{
 /// User-customization mode controlled by the `AZ_RICING` env var.
 ///
 /// See the module-level documentation for the full description.
+#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RicingMode {
-    /// `AZ_RICING=off` (or `disabled` / `none` / `0`). Skip the user
-    /// CSS file *and* the riced-desktop sources. Vanilla detection.
+    /// `AZ_RICING=off` (or `disabled` / `none` / `0`). Skip every rice
+    /// file *and* the riced-desktop sources. Vanilla detection.
     Off,
-    /// Unset. Load the user CSS if present; standard detection chain
+    /// Unset. Load the rice if present; standard detection chain
     /// (`KDE > GNOME > riced > defaults` on Linux).
     #[default]
     Default,
     /// `AZ_RICING=force` (or `prefer` / `aggressive` / `1`). Reorder
     /// the Linux detection chain so riced-desktop sources win over
-    /// GNOME/KDE. The user CSS file still loads.
+    /// GNOME/KDE. The rice still loads.
     Force,
+    /// `AZ_RICING=watch` (or `live` / `reload`). As `Default`, and a
+    /// change to a rice file rebuilds every window with the new rice.
+    Watch,
 }
 
-/// Read the `AZ_RICING` env var and classify it. Case-insensitive.
+/// Classify an `AZ_RICING` value (`None`: unset). Case-insensitive.
 /// Anything we don't recognise falls through to `Default` so a typo
 /// degrades gracefully instead of disabling the feature silently.
 #[must_use]
-pub fn ricing_mode() -> RicingMode {
-    let Ok(raw) = std::env::var("AZ_RICING") else {
+pub fn ricing_mode_from(value: Option<&str>) -> RicingMode {
+    let Some(raw) = value else {
         return RicingMode::Default;
     };
     match raw.trim().to_ascii_lowercase().as_str() {
         "off" | "disabled" | "none" | "0" | "false" => RicingMode::Off,
         "force" | "prefer" | "aggressive" | "1" | "true" => RicingMode::Force,
+        "watch" | "live" | "reload" => RicingMode::Watch,
         _ => RicingMode::Default,
     }
 }
 
-/// True when the user CSS file at `~/.config/azul/styles/<app>.css`
-/// should be read. False only when `AZ_RICING=off` is set.
+/// Read the `AZ_RICING` env var and classify it ([`ricing_mode_from`]).
+#[must_use]
+pub fn ricing_mode() -> RicingMode {
+    ricing_mode_from(std::env::var("AZ_RICING").ok().as_deref())
+}
+
+/// True when the rice (`crate::rice`) should be read. False only when
+/// `AZ_RICING=off` is set.
 #[must_use]
 pub fn ricing_enabled() -> bool {
     !matches!(ricing_mode(), RicingMode::Off)
@@ -339,10 +355,12 @@ pub struct SystemStyle {
     /// System language/locale in BCP 47 format (e.g., "en-US", "de-DE")
     /// Detected from OS settings at startup
     pub language: SystemLanguage,
-    /// An optional, user-provided stylesheet loaded from a conventional
-    /// location (`~/.config/azul/styles/<app_name>.css`), allowing for
-    /// application-specific "ricing". Only loaded when the "io" feature
-    /// is enabled and `AZ_RICING` is not set to `off`.
+    /// Kept for ABI stability; discovery no longer fills it and nothing
+    /// reads it. The end user's stylesheets - the theme directories
+    /// `~/.azul/css/<theme>/` and the legacy per-app file
+    /// `~/.config/azul/styles/<app_name>.css` - are loaded by the rice
+    /// loader (`azul_css::rice`) and applied to every window's DOM; see
+    /// [`SystemStyle::get_rice_status`] for what it loaded.
     pub app_specific_stylesheet: Option<Box<Css>>,
     /// Scrollbar style information (boxed to ensure stable FFI size)
     pub scrollbar: Option<Box<ComputedScrollbarStyle>>,
@@ -4451,7 +4469,7 @@ mod autotest_generated {
         assert!(
             matches!(
                 mode,
-                RicingMode::Off | RicingMode::Default | RicingMode::Force
+                RicingMode::Off | RicingMode::Default | RicingMode::Force | RicingMode::Watch
             ),
             "{mode:?}"
         );

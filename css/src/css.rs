@@ -828,17 +828,38 @@ pub mod rule_priority {
     /// Stylesheets the host system reports (system fonts, theme CSS
     /// derived from `SystemStyle`). One step above UA so they win
     /// against framework defaults but lose against anything the app
-    /// author writes.
+    /// author writes. Also a rice file's `priority: base`, the default
+    /// (`crate::rice`): it fills what nobody declared and cannot break the
+    /// app.
     pub const SYSTEM: u8 = 10;
 
     /// Default for parser-produced rules: the app author's CSS.
     /// Everything coming out of `Css::from_string` lives here.
     pub const AUTHOR: u8 = 20;
 
+    /// A rice file's `priority: app` (`crate::rice`): re-skins the app's own
+    /// DOM. Above the app author's sheets, below inline declarations, so
+    /// the widgets keep their look.
+    pub const APP: u8 = 25;
+
     /// Inline `style="..."` / `NodeData::set_css(...)` rules — used
     /// once the inline-vs-component unification (separate plan) folds
     /// inline storage into the same Vec.
     pub const INLINE: u8 = 30;
+
+    /// A rice file's `priority: widgets`, and the priority a CSS base theme
+    /// is written at: a full theme. Above the widgets' inline declarations,
+    /// below the app's own runtime overrides ([`RUNTIME`]: a colour-picker
+    /// preview, a drag ghost).
+    pub const WIDGETS: u8 = 35;
+
+    /// A rice file of custom properties only (`priority: palette`, or a
+    /// header-less file whose every declaration is a `--name`). The SAME slot
+    /// as [`WIDGETS`]: a palette sets values, never geometry, and a
+    /// spin-off's `:root { --accent }` has to meet its base theme's
+    /// definitions in one slot so the theme chain's rank decides between
+    /// them.
+    pub const PALETTE: u8 = WIDGETS;
 
     /// Reserved for direct-rule runtime overrides.
     ///
@@ -849,6 +870,11 @@ pub mod rule_priority {
     /// inline. Used only when a callback writes a full rule, not a
     /// single property.
     pub const RUNTIME: u8 = 50;
+
+    /// A rice file's `priority: force`: above everything, the app's runtime
+    /// overrides included. The web's user `!important`, and explicitly
+    /// unsupported territory (the rice status says so).
+    pub const FORCE: u8 = 60;
 }
 
 /// One block of rules that applies a bunch of rules to a "path" in the style, i.e.
