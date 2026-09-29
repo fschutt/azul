@@ -116,6 +116,12 @@ least sure of, section 5 the exact commands.
 - `308e0893d` guide (also carries two tiny review fixes: a Copy field no longer `.clone()`d in
   `icon_rule_context`, `SVG_ICON_OVERSAMPLE` allowed dead without `cpurender`)
 - `e972f00af` fix: `Some(theme.as_str())` in the loader
+- `93f158913` this report
+- `5a1a0d688` fix(svg): an absent viewBox is `0 0 width height` when rasterising (an icon written
+  `width="16" height="16"` without a viewBox drew into a quarter of its 2x image)
+- `4e442414c` test fix: borrow the palette in a let-else instead of partially moving it
+- `d7cc63b35` fix: three `br#"..."#` SVG literals containing `fill="#..."` closed early; now
+  `br##"..."##` (one sat in a `cfg(test)` module but is still parsed, so it broke every layout build)
 - progress checkpoints: `af875194a`, `bdae4f114`, `577ff7b48`, `7c7e0234c`, `240b87e0a`, `99bc00405`
 
 ## 3. api.json (for the autofix; nothing edited by hand)
@@ -184,7 +190,9 @@ like the existing `register_image_icon`):
    (relies on it being Copy - it captures only `&&str`).
 8. Test pixel expectations: the E15 and SVG tests assume the CPU pixmap is straight RGBA when a
    group paints onto transparent (the ink is opaque, tolerances 8/12).
-A review agent was run over the diff for compile errors; its findings are in section 7.
+A read-only review agent went over the whole diff for compile errors, checking every item against
+its definition (macros, derives, AsRef ambiguity, borrows, cfg combinations, call sites outside the
+diff). It found the three broken raw strings, fixed in `d7cc63b35`; everything else checked out.
 
 ## 5. Test commands (parent)
 - `cargo test -p azul-core --lib icon` (autotest_generated, icon_cache_tests, remap_rules_tests)
@@ -211,7 +219,13 @@ A review agent was run over the diff for compile errors; its findings are in sec
 6. The resolver's `SystemStyle` is in the window's mode; `IconProviderInner` gained pub fields.
 
 ## 7. Left / open
-- Review-agent findings: see the follow-up commit(s) after this report, if any.
+- From the review (not errors): `FilterGroup` (CPU direct path) isolates by the scroll-adjusted
+  bounds only, so a tinted icon inside a TRANSFORMED element is isolated at the wrong place, and a
+  bare `flood()` without a composite ignores the active clip. `find_in_packs` sorts the pack list
+  per lookup (hidden by the resolution cache). With `AZ_THEME` set in the test environment,
+  `a_light_to_dark_switch_swaps_the_artwork_through_the_provider` (layout icon.rs) follows the pin
+  - run the suites without it. clippy may flag `let id = ..; id` (kept on purpose: it ends the
+  `downcast_ref` borrow before `data` drops).
 - Not done: section 8.2 "zip and directory packs read an optional remap.json next to the files";
   attribution in About (8 step 5); watching `~/.azul` for changes (pitfall 6).
 - A `recolor` on an `icon:` redirect rule is ignored (the target keeps its own metadata).

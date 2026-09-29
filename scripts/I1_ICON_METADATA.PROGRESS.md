@@ -31,8 +31,14 @@ Design: `scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md` section
 - `e972f00af` fix: Option<&str> in the loader
 - report `scripts/I1_ICON_METADATA_2026_09_29.md`
 
+- `5a1a0d688` fix: implied viewBox; `4e442414c` test borrow fix; `d7cc63b35` raw-string fixes (review)
+
 ## IN PROGRESS
-- applying the compile-review agent's findings (report section 7)
+- nothing
+
+## NEXT (parent)
+- compile + the suites in report section 5; api.json autofix from report section 3; R3/R4/R0
+  integration notes in report section 1.
 
 ## NEXT (in order)
 1. RED + impl: `IconMeta` (designed_for / variants / recolor / monochrome) on the registered data,
