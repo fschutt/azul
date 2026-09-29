@@ -1708,3 +1708,192 @@ mod autotest_generated {
         }
     }
 }
+
+/// The theme option: which look a frame renders in, and what each look is.
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+    use crate::widgets::{
+        theme_probe,
+        themes::{flora, system_palette, OptionUiTheme, UiTheme},
+    };
+
+    fn frame(theme: UiTheme) -> Dom {
+        Frame::create(
+            AzString::from_const_str("Group"),
+            Dom::create_p_with_text("Body text"),
+        )
+        .with_flex_grow(1.0)
+        .with_theme(theme)
+        .dom()
+    }
+
+    fn header(dom: &Dom) -> &Dom {
+        &dom.children.as_ref()[0]
+    }
+
+    fn before(dom: &Dom) -> &Dom {
+        &header(dom).children.as_ref()[0]
+    }
+
+    fn title(dom: &Dom) -> &Dom {
+        &header(dom).children.as_ref()[1]
+    }
+
+    fn after(dom: &Dom) -> &Dom {
+        &header(dom).children.as_ref()[2]
+    }
+
+    fn content(dom: &Dom) -> &Dom {
+        &dom.children.as_ref()[1]
+    }
+
+    fn last<T>(props: &[CssProperty], f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
+        props.iter().rev().find_map(f)
+    }
+
+    fn ink(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn top_edge(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn edges(props: &[CssProperty]) -> [Option<ColorU>; 4] {
+        [
+            last(props, top_edge),
+            last(props, |p| match p {
+                CssProperty::BorderRightColor(v) => v.get_property().map(|c| c.inner),
+                _ => None,
+            }),
+            last(props, |p| match p {
+                CssProperty::BorderBottomColor(v) => v.get_property().map(|c| c.inner),
+                _ => None,
+            }),
+            last(props, |p| match p {
+                CssProperty::BorderLeftColor(v) => v.get_property().map(|c| c.inner),
+                _ => None,
+            }),
+        ]
+    }
+
+    fn has_class(dom: &Dom, name: &str) -> bool {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
+    }
+
+    #[test]
+    fn a_frame_without_a_theme_renders_flat() {
+        let plain = Frame::create(AzString::from_const_str("G"), Dom::create_div());
+        assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+        let flat = plain.clone().with_theme(UiTheme::Flat).dom();
+        let unset = plain.dom();
+        assert_eq!(
+            theme_probe::unconditional(content(&unset)),
+            theme_probe::unconditional(content(&flat))
+        );
+        assert_eq!(
+            theme_probe::unconditional(title(&unset)),
+            theme_probe::unconditional(title(&flat))
+        );
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let mut set = Frame::create(AzString::from_const_str("G"), Dom::create_div());
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(
+            Frame::create(AzString::from_const_str("G"), Dom::create_div())
+                .with_theme(UiTheme::Flora)
+                .theme,
+            set.theme
+        );
+    }
+
+    #[test]
+    fn a_flat_frames_rules_are_the_desktop_separator_at_night() {
+        let dom = frame(UiTheme::Flat);
+        assert_eq!(
+            edges(&theme_probe::dark(content(&dom))),
+            [Some(system_palette::SEPARATOR); 4]
+        );
+        assert_eq!(
+            last(&theme_probe::dark(before(&dom)), top_edge),
+            Some(system_palette::SEPARATOR)
+        );
+    }
+
+    #[test]
+    fn a_flora_frame_titles_its_group_with_flora_s_small_caps_label() {
+        let dom = frame(UiTheme::Flora);
+        let t = title(&dom);
+        let rest = theme_probe::unconditional(t);
+        assert_eq!(last(&rest, ink), Some(flora::LIGHT_SOFT1), "`.fl-label`: --fl-soft1");
+        assert!(
+            rest.iter().any(|p| matches!(p, CssProperty::FontWeight(_))),
+            "`.fl-label`: font-weight 700"
+        );
+        assert!(
+            rest.iter().any(|p| matches!(p, CssProperty::LetterSpacing(_))),
+            "`.fl-label`: tracked out"
+        );
+        assert_eq!(last(&theme_probe::dark(t), ink), Some(flora::DARK_SOFT1));
+    }
+
+    #[test]
+    fn a_flora_frame_draws_its_rules_in_flora_s_rule_colour_day_and_night() {
+        let dom = frame(UiTheme::Flora);
+        assert_eq!(
+            edges(&theme_probe::unconditional(content(&dom))),
+            [Some(flora::LIGHT_BD); 4]
+        );
+        assert_eq!(
+            edges(&theme_probe::dark(content(&dom))),
+            [Some(flora::DARK_BD); 4]
+        );
+        for (name, rule) in [("before", before(&dom)), ("after", after(&dom))] {
+            assert_eq!(
+                last(&theme_probe::unconditional(rule), top_edge),
+                Some(flora::LIGHT_BD),
+                "{name}"
+            );
+            assert_eq!(
+                last(&theme_probe::dark(rule), top_edge),
+                Some(flora::DARK_BD),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_frame_keeps_its_content_and_flex_grow() {
+        let dom = frame(UiTheme::Flora);
+        assert_eq!(content(&dom).children.as_ref().len(), 1);
+        assert_eq!(
+            theme_probe::unconditional(content(&dom)).first(),
+            Some(&CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+                LayoutFlexGrow {
+                    inner: FloatValue::new(1.0)
+                }
+            )))
+        );
+    }
+
+    #[test]
+    fn a_flora_frame_carries_the_flora_theme_marker() {
+        let dom = frame(UiTheme::Flora);
+        assert!(has_class(&dom, "__azul-native-frame"));
+        assert!(has_class(&dom, "__azul-theme-flora"));
+    }
+}
