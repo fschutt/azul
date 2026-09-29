@@ -30,11 +30,14 @@ use azul_core::{
     task::{Duration, Instant},
 };
 
+use azul_core::spaces::Inclusivity;
+
 use crate::{
     managers::scroll_state::ScrollManager,
     solver3::{
         getters::{apply_viewport_overflow_rule, get_overflow_x, get_overflow_y},
         layout_tree::LayoutNodeId,
+        scroll_chain::ScrollChain,
     },
     window::DomLayoutResult,
 };
@@ -280,6 +283,15 @@ pub fn scroll_cursor_into_view(
 /// Find all scrollable ancestors from a node to the root
 ///
 /// Returns ancestors ordered from innermost (closest to target) to outermost (root).
+///
+/// The boxes of one dom are the target's `ScrollChain` - by CONTAINING
+/// BLOCK, the frames the display list paints the target in - not its DOM
+/// parents: a `fixed` box is moved by no frame, the page's included, and an
+/// `absolute` box not by a non-positioned scroll box between it and its
+/// containing block. The DOM walk scrolled those boxes to reveal a target
+/// they do not move (focusing a fixed toolbar threw a scrolled page back to
+/// its top). A target without a box (`display: none` / `contents`) has no
+/// chain in its own dom.
 fn find_scrollable_ancestors(
     dom_id: DomId,
     node_id: NodeId,
@@ -289,7 +301,7 @@ fn find_scrollable_ancestors(
 ) -> Vec<ScrollableAncestor> {
     let mut ancestors = Vec::new();
     let mut current_dom = dom_id;
-    let mut current = Some(node_id);
+    let mut current = node_id;
     // What to add to the target rect to express it in `current_dom`.
     let mut lift = LogicalPosition::zero();
     let mut crossings = 0usize;
@@ -299,30 +311,32 @@ fn find_scrollable_ancestors(
         let Some(layout_result) = layout_results.get(&current_dom) else {
             return ancestors;
         };
-        let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
 
         // In the target's OWN dom start above it: scrolling a container into
-        // its own scrollport is not a thing. After a crossing, start AT the
-        // host — the VirtualView clips the nested content, so it is a genuine
-        // scroll ancestor of everything inside it.
-        let mut node = if entered_by_crossing {
-            current
-        } else {
-            current
-                .and_then(|n| node_hierarchy.get(n))
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
-        };
+        // its own scrollport is not a thing (ancestors only). After a
+        // crossing, start AT the host - the VirtualView clips the nested
+        // content, so it is a genuine scroll ancestor of everything inside
+        // it - then the frames the host's box is painted in.
+        let chain = ScrollChain::of_node(
+            &layout_result.layout_tree,
+            &layout_result.styled_dom,
+            &layout_result.scroll_ids,
+            current,
+            Inclusivity::AncestorsOnly,
+        )
+        .unwrap_or_default();
+        let host = entered_by_crossing.then_some(current);
+        let innermost_first = host
+            .into_iter()
+            .chain(chain.links.iter().rev().map(|link| link.node));
 
-        while let Some(current_node_id) = node {
+        for candidate in innermost_first {
             if let Some(mut ancestor) =
-                check_if_scrollable(current_dom, current_node_id, layout_result, scroll_manager)
+                check_if_scrollable(current_dom, candidate, layout_result, scroll_manager)
             {
                 ancestor.target_lift = lift;
                 ancestors.push(ancestor);
             }
-            node = node_hierarchy
-                .get(current_node_id)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         }
 
         // Reached this dom's root. A nested dom is a WINDOW inside a
@@ -338,7 +352,7 @@ fn find_scrollable_ancestors(
                 lift.x += offset.x;
                 lift.y += offset.y;
                 current_dom = parent_dom;
-                current = Some(host_node);
+                current = host_node;
                 entered_by_crossing = true;
             }
             None => break 'walk,
@@ -633,16 +647,12 @@ mod autotest_generated {
     use std::collections::HashMap;
 
     use azul_core::{
-        dom::{Dom, FormattingContext, IdOrClass},
+        dom::{Dom, IdOrClass},
         styled_dom::{NodeHierarchyItemId, StyledDom},
     };
 
     use super::*;
-    use crate::solver3::{
-        display_list::DisplayList,
-        geometry::PackedBoxProps,
-        layout_tree::{LayoutNodeHot, LayoutTree},
-    };
+    use crate::solver3::{display_list::DisplayList, layout_tree::LayoutTree};
 
     // ------------------------------------------------------------------
     // Fixtures
@@ -732,25 +742,15 @@ mod autotest_generated {
         StyledDom::create(&mut dom, css)
     }
 
-    fn empty_layout_tree() -> LayoutTree {
-        LayoutTree {
-            nodes: Vec::new(),
-            warm: Vec::new(),
-            cold: Vec::new(),
-            root: 0,
-            dom_to_layout: BTreeMap::new(),
-            children_arena: Vec::new(),
-            children_offsets: Vec::new(),
-            subtree_needs_intrinsic: Vec::new(),
-        }
-    }
-
-    /// A `DomLayoutResult` with an *empty* layout tree. Everything except
-    /// `get_node_rect` reads only `styled_dom`, so no real layout is needed.
+    /// A `DomLayoutResult` whose layout tree MIRRORS the DOM
+    /// (`LayoutTree::mirroring_dom`): one unsized box per node, parented like
+    /// the DOM - the structure the scroll-ancestor walk reads (the target's
+    /// `ScrollChain`) - and no geometry, so `get_node_rect` finds nothing.
     fn layout_result(styled_dom: StyledDom) -> DomLayoutResult {
+        let layout_tree = LayoutTree::mirroring_dom(&styled_dom);
         DomLayoutResult {
             styled_dom,
-            layout_tree: empty_layout_tree(),
+            layout_tree,
             calculated_positions: Vec::new(),
             viewport: LogicalRect::zero(),
             display_list: std::sync::Arc::new(DisplayList::default()),
@@ -759,27 +759,21 @@ mod autotest_generated {
         }
     }
 
-    /// One layout box per entry, in order: DOM node `n` maps to layout index `i`,
-    /// laid out at `p` with used size `s`.
+    /// [`layout_result`] with the listed DOM nodes laid out: node `n` (layout
+    /// index `n`) at `p` with used size `s`. Every other box stays unsized.
     fn layout_result_with_boxes(
         styled_dom: StyledDom,
         boxes: &[(usize, LogicalPosition, Option<LogicalSize>)],
     ) -> DomLayoutResult {
         let mut lr = layout_result(styled_dom);
-        for (layout_index, (node_index, position, used_size)) in boxes.iter().enumerate() {
-            lr.layout_tree
-                .dom_to_layout
-                .insert(nid(*node_index), vec![LayoutNodeId::new(layout_index)]);
-            lr.layout_tree.nodes.push(LayoutNodeHot {
-                box_props: PackedBoxProps::default(),
-                dom_node_id: Some(nid(*node_index)),
-                used_size: *used_size,
-                formatting_context: FormattingContext::Block {
-                    establishes_new_context: false,
-                },
-                parent: None,
-            });
-            lr.calculated_positions.push(*position);
+        lr.calculated_positions = vec![LogicalPosition::zero(); lr.layout_tree.nodes.len()];
+        for &(node_index, position, used_size) in boxes {
+            if let Some(node) = lr.layout_tree.nodes.get_mut(node_index) {
+                node.used_size = used_size;
+            }
+            if let Some(slot) = lr.calculated_positions.get_mut(node_index) {
+                *slot = position;
+            }
         }
         lr
     }

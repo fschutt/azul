@@ -9690,14 +9690,13 @@ impl LayoutWindow {
     /// holding scroll STATE: the page's frame for a fixed box the page does
     /// not move, and any stray offset on a box that opens no frame.
     fn enclosing_scroll_id(layout_result: &DomLayoutResult, node: NodeId) -> Option<u64> {
-        let index = *layout_result.layout_tree.dom_to_layout.get(&node)?.first()?;
-        let chain = crate::solver3::scroll_chain::ScrollChain::of(
+        let chain = crate::solver3::scroll_chain::ScrollChain::of_node(
             &layout_result.layout_tree,
             &layout_result.styled_dom,
             &layout_result.scroll_ids,
-            index,
+            node,
             Inclusivity::AncestorsOnly,
-        );
+        )?;
         let innermost = chain.scrolling().last()?;
         layout_result.scroll_ids.get(&innermost.layout_index).copied()
     }

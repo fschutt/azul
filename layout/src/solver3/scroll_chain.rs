@@ -102,6 +102,22 @@ impl ScrollChain {
         Self { links }
     }
 
+    /// [`Self::of`] for DOM node `node`'s principal box (its first layout
+    /// box). `None` for a node without a box: a `display: none` subtree, a
+    /// `display: contents` element (it generates none), a node the tree does
+    /// not know.
+    #[must_use]
+    pub fn of_node(
+        tree: &LayoutTree,
+        styled_dom: &StyledDom,
+        scroll_ids: &HashMap<LayoutNodeId, u64>,
+        node: NodeId,
+        inclusivity: Inclusivity,
+    ) -> Option<Self> {
+        let index = *tree.dom_to_layout.get(&node)?.first()?;
+        Some(Self::of(tree, styled_dom, scroll_ids, index, inclusivity))
+    }
+
     /// The links whose offsets move painted content - the ones every
     /// "where is this on screen" answer adds back.
     pub fn scrolling(&self) -> impl Iterator<Item = &ScrollChainLink> + '_ {

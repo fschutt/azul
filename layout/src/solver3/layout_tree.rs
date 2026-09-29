@@ -1412,6 +1412,47 @@ impl Iterator for AncestorChain<'_> {
     }
 }
 
+#[cfg(test)]
+impl LayoutTree {
+    /// One unsized box per DOM node of `styled_dom` at layout index = node
+    /// index, parented like the DOM: the STRUCTURE a
+    /// `solver3::scroll_chain::ScrollChain` walks, for unit fixtures that
+    /// need no real layout (no font, no geometry - every `used_size` is
+    /// `None`, no warm or cold data).
+    pub(crate) fn mirroring_dom(styled_dom: &StyledDom) -> Self {
+        let hierarchy = styled_dom.node_hierarchy.as_container();
+        let count = styled_dom.node_data.as_container().len();
+        let mut dom_to_layout: BTreeMap<NodeId, Vec<LayoutNodeId>> = BTreeMap::new();
+        let mut nodes: Vec<LayoutNodeHot> = Vec::with_capacity(count);
+        for i in 0..count {
+            let node = NodeId::new(i);
+            dom_to_layout.insert(node, vec![LayoutNodeId::new(i)]);
+            nodes.push(LayoutNodeHot {
+                box_props: crate::solver3::geometry::PackedBoxProps::default(),
+                dom_node_id: Some(node),
+                used_size: None,
+                formatting_context: FormattingContext::Block {
+                    establishes_new_context: false,
+                },
+                parent: hierarchy
+                    .get(node)
+                    .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+                    .map(|p| p.index()),
+            });
+        }
+        Self {
+            nodes,
+            warm: Vec::new(),
+            cold: Vec::new(),
+            root: 0,
+            dom_to_layout,
+            children_arena: Vec::new(),
+            children_offsets: Vec::new(),
+            subtree_needs_intrinsic: Vec::new(),
+        }
+    }
+}
+
 impl LayoutTree {
     /// Approximate heap bytes retained by this `LayoutTree`.
     #[must_use]
