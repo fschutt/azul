@@ -57,11 +57,46 @@ every widget; the tests assert it where a Look could have touched it.
 | accordion | established panel + header hover grey (night hover face) + INSET focus ring (the rounded panel clips outer halos) | flora FAQ list: `--fl-sur` leaf, `--fl-bd` section rules, raised-paper headers that go brass on hover and press in, semibold titles, inset `--fl-acc` / `--fl-glow` ring | 3ce4acd09 | a48742efe | 7c69e9d8e |
 | menubar | established bar (via the new `Menubar` struct) | flora toolbar strip: `--fl-strip`, `--fl-ink`, 1px `--fl-bd` foot, 28px; items lift to the hover face, sink to the pressed face | bc1e6059e | a85f45fcc | 26d474db7 |
 | color_input | established swatch / picker + focus halo on the swatch and the plane / hue / alpha bars; preview frame and grip take the desktop separator at night | swatch framed like a sample (`--fl-bd2`, 3px, `--fl-bd3` hover, accent ring); picker is a leaf with a framed preview, raised-paper eyedropper, `--fl-bd` grip, bars ring in the accent | 0482f8bc2 | 8e4a9f7a4 | b5415b72f |
-| date_picker | established field + calendar; ring on the field's border, halos on the month buttons and the day grid | paper field (`--fl-fld`, `--fl-bd2`), leaf calendar, brass month buttons, `--fl-soft2` weekday names, chosen day as the accent stone; a click repaints with the same palette (carried in the day payload) | 88af3dad1 | 3f2ab820a | ac5b49d0f |
+| date_picker (REDONE on branch `wt/w3a-date-picker`, see below) | established field + calendar in every mode; ring on the field's border, halos on the header buttons and every grid cell (days, whole-week days, months) | paper field (`--fl-fld`, `--fl-bd2`), leaf calendar, brass header buttons, `--fl-soft2` weekday names, the pick (day / week / month) as the accent stone; a pick repaints with the same palette (carried in the day and month payloads) | a6d6310ba | 0b39967be | 7376e28b9 |
 
 Checkpoint commits sit between widgets. Cleanups after the pass: 18604cd4b
-(drop the unused `decl::border_top`), 4e6e9ea25 (ASCII-only doc in
-date_picker).
+(drop the unused `decl::border_top`). (Hashes in the table above are from
+`wt/w3a-widget-themes`; the integrated tree carries them re-applied.)
+
+### Follow-up branch `wt/w3a-date-picker` (from integrated b9cc36bee)
+
+The first date-picker commits (88af3dad1, 3f2ab820a, ac5b49d0f, 4e6e9ea25)
+conflicted with W1's new modes and were not integrated. Redone on W1's
+date_picker.rs:
+
+- a6d6310ba refactor: `theme` appended LAST (after W1's `name`, `mode`);
+  `DatePickerLook` threads through every builder - month header, weekday
+  row, day grid (Sunday-first), the week grid (Monday-first, whole row
+  lit), the year header and the month grid (month cells are the look's day
+  faces, three cells wide). `DayPalette` rides in `DayCellData` AND
+  `MonthCellData`; `restyle_days` / `restyle_week` / `restyle_grid` take
+  it. `flat::date_picker` / `flora::date_picker` appended at the ends of
+  flat.rs / flora.rs (closing braces intact). The day-grid header now
+  builds its buttons with W1's `header_nav_button` (same output as the
+  closure it had).
+- 0b39967be RED: `theme_tests` for all three modes in both looks, with
+  explicit per-state probes (`at_rest` / `on_hover` / `on_focus`), plus
+  the three modes in the both-looks integration test.
+- 7376e28b9 feat: flat rings; flora paper calendar (as before, now also on
+  the month and week grids).
+
+Fixes for the 4 tests that failed after integration (one commit each):
+
+| Test | Wrong side | Commit |
+|---|---|---|
+| accordion `a_flora_header_is_raised_paper_that_lifts_under_the_pointer` | TEST: `last(theme_probe::dark(h))` picked the `:active` night twin (`--fl-pT/--fl-pB` #1F1F1F/#262626); the impl's resting face is `--fl-rT/--fl-rB` #333333/#292929 per flora.css | de82e9746 |
+| breadcrumb `a_flora_crumb_is_written_in_brass_ink` | TEST: picked the `:hover` night twin `--fl-qt2` #DED3B4; the resting night ink is `--fl-qt` #C4B58E per flora.css | 87ec428d6 |
+| color_input `a_flora_swatch_is_framed_in_a_hairline_and_rings_in_the_accent` | TEST: picked the `:focus` night twin `--fl-glow` #7A93C6; the resting night rule is `--fl-bd2` #4A4A4A per flora.css | 49811cb9c |
+| spinner `the_ring_spins_clockwise_at_450_degrees_a_second` | ENGINE: `compile_keyframes_track` read rotate stops with `to_degrees()` (folds into [0, 360)), so `rotate(360deg)` compiled to 0 and the ring's track stood still; now `to_degrees_raw()`. The test now samples the engine's compiled `rotate_deg` channel | 7aaab07ec |
+
+Root cause of the three test bugs: `theme_probe::dark` returns dark twins of
+EVERY pseudo-state, and the state pairs are declared after the resting
+pair. New tests use per-state probes.
 
 ### Spinner makeover (scripts/NATIVE_WIDGET_LOOK_REFERENCE_2026_09_28.md)
 
@@ -132,7 +167,7 @@ and `with_theme(self, UiTheme) -> Self`, on:
 | Breadcrumb | `container_style` |
 | Accordion | `on_toggle` |
 | ColorInput | `accessibility_name` |
-| DatePicker | `accessibility_name` |
+| DatePicker | `mode` (W1's `name`, `mode` stay before it; `mode` is a 4-byte enum, so no padding) |
 
 Spinner (breaking):
 - NEW `#[repr(C)] enum SpinnerStyle { Auto, Spokes, Ring }` (default Auto).
@@ -167,10 +202,18 @@ api.json (neither was the function) - add it if the menubar should be public.
    style_item: impl Fn(Dom) -> Dom)` - closures passed by reference into the
    recursive `build_item` may need `&dyn Fn` if the recursion trips
    inference.
-5. `date_picker.rs`: partial moves out of `DatePickerLook` while building
-   (fields moved into different nodes), the `DayPalette` added to
-   `DayCellData` (Clone / PartialEq derives), and the `#[cfg(test)]`
-   wrappers that keep the old builder names.
+5. `date_picker.rs` (redo): `build` moves `picker.state` into the shared
+   data after cloning `container_style` / `accessibility_name` / `name`;
+   the `#[cfg(test)]` wrappers that keep the old builder names
+   (`build_header`, `build_weekday_row`, `build_grid`, `build_blank_cell`,
+   `build_day_cell`); the tests' `pair` probe compares
+   `Vec<PseudoStateType>` with `&[PseudoStateType]`, and `palette_of`
+   downcasts a cell payload twice (day, then month); `DayPalette` compared
+   with `assert_eq!` against `day_cell_colours` tuples (needs `PartialEq` /
+   `Debug` on `StyleBackgroundContentVec`).
+5b. spinner test: `crate::window::compile_keyframes_track` is only built
+   with the `text_layout` feature (as are the date picker's own harness
+   tests).
 6. The integration test's `azul_layout::solver3::getters` path and the
    `azul_css::system::{defaults, SystemStyle, Theme}` path.
 7. Each RED commit was written to compile against its plumbing commit; the
@@ -204,6 +247,11 @@ api.json (neither was the function) - add it if the menubar should be public.
 7. Flora fonts and small caps are approximated (bold + letter spacing; no
    font-variant support used).
 8. Accordion: the animated disclosure chevron is still the pre-existing TODO2.
+8b. `DateTimeLocalPicker` has its own `theme` but does not forward it to
+   the `DatePicker` / `TimePicker` it composes (`datetime_local.rs`
+   `dom()`), so a flora datetime-local row holds flat parts. A two-line
+   `.with_theme(theme)` on each part; left to W1 (the file is W1's and
+   was being edited elsewhere).
 9. Merge: W3b appends to the ends of `themes/flat.rs` and `themes/flora.rs`
    in parallel - expect end-of-file conflicts there; keep both sides. The
    only other shared-file touch is the one-line `pub(crate) mod decl;` in
