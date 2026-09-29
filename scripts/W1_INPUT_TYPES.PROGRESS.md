@@ -21,8 +21,11 @@
 
 - 6 hidden: RED e689fa68f, impl 4b7496f5a (HiddenInput in widgets/form.rs)
 
+- 7 select optgroup: RED 9f9ac0d1f, impl 17b706795 (DropDown.groups + DropDownOptGroup(Vec); with_optgroup;
+  build_menu_items: Disabled heading items without callback, indented options)
+
 ## IN PROGRESS
-- 7 select optgroup (drop_down)
+- 8 self-review pass (compile-by-reading), lint manifest entries for new widgets, final report
 
 ## NEXT (in order)
 2. search (wrapper div [container, clear x]; x hidden when empty; Escape + x clear)
