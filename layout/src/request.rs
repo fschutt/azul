@@ -261,7 +261,7 @@ pub mod mock {
     use azul_css::{props::basic::color::ColorU, AzString};
 
     /// A canned HTTP answer.
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct MockHttpResponse {
         pub status: u16,
         pub body: Vec<u8>,
@@ -269,7 +269,7 @@ pub mod mock {
     }
 
     /// What a mocked HTTP request resolves to.
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum MockHttp {
         Response(MockHttpResponse),
         /// The transport failed (an `HttpError::Other` with this message).
@@ -299,6 +299,10 @@ pub mod mock {
     struct MockState {
         /// `None` = decide from the environment on first use.
         armed: Option<bool>,
+        /// Whether a SCRIPT drives this run (`AZ_E2E` / `AZ_E2E_TEST`, or
+        /// [`arm`]) rather than a bare headless launch; `None` = decide from
+        /// the environment on first use.
+        scripted: Option<bool>,
         file_open: VecDeque<Option<AzString>>,
         file_open_multi: VecDeque<Vec<AzString>>,
         color_pick: VecDeque<Option<ColorU>>,
@@ -316,6 +320,7 @@ pub mod mock {
 
     static STATE: Mutex<MockState> = Mutex::new(MockState {
         armed: None,
+        scripted: None,
         file_open: VecDeque::new(),
         file_open_multi: VecDeque::new(),
         color_pick: VecDeque::new(),
@@ -505,20 +510,22 @@ pub mod mock {
 
     #[must_use]
     pub fn take_http(url: &str) -> Answer<MockHttp> {
-        with(|s| {
-            if !armed_in(s) {
-                return Answer::NotArmed;
-            }
-            let found = s.http.iter().find(|(pattern, _)| {
-                pattern == "*"
-                    || pattern == url
-                    || pattern
-                        .strip_suffix('*')
-                        .is_some_and(|prefix| url.starts_with(prefix))
-            });
-            let taken = found.map(|(_, canned)| canned.clone());
-            answer(s, taken, &alloc::format!("http {url}"))
-        })
+        with(|s| take_http_in(s, url))
+    }
+
+    fn take_http_in(s: &mut MockState, url: &str) -> Answer<MockHttp> {
+        if !armed_in(s) {
+            return Answer::NotArmed;
+        }
+        let found = s.http.iter().find(|(pattern, _)| {
+            pattern == "*"
+                || pattern == url
+                || pattern
+                    .strip_suffix('*')
+                    .is_some_and(|prefix| url.starts_with(prefix))
+        });
+        let taken = found.map(|(_, canned)| canned.clone());
+        answer(s, taken, &alloc::format!("http {url}"))
     }
 
     #[must_use]
@@ -568,6 +575,48 @@ pub mod mock {
     #[must_use]
     pub fn unmocked_requests() -> Vec<String> {
         with(|s| s.unmocked.clone())
+    }
+
+    #[cfg(test)]
+    mod network_tests {
+        use super::{take_http_in, Answer, MockHttp, MockState};
+
+        fn store(scripted: bool) -> MockState {
+            MockState {
+                armed: Some(true),
+                scripted: Some(scripted),
+                ..MockState::default()
+            }
+        }
+
+        /// A bare headless launch (`AZ_BACKEND=headless`, no script) arms the
+        /// store so a picker or a permission prompt can never block it. An
+        /// HTTP request is neither: it has its own timeout, and a headless
+        /// app (CI screenshots, two AzMeet clients meeting through a local
+        /// server) needs the network. Unmocked, it goes out.
+        #[test]
+        fn a_headless_run_without_a_script_sends_its_http_requests() {
+            let mut s = store(false);
+            assert_eq!(take_http_in(&mut s, "http://127.0.0.1:8787/rooms"), Answer::NotArmed);
+            assert!(s.unmocked.is_empty(), "nothing to report: the request went out");
+        }
+
+        /// A scripted run keeps its determinism: an unmocked request is
+        /// refused and recorded, and a canned answer is used in both runs.
+        #[test]
+        fn a_scripted_run_refuses_an_unmocked_http_request_and_both_take_canned_answers() {
+            let mut s = store(true);
+            assert_eq!(take_http_in(&mut s, "http://x/"), Answer::Unmocked);
+            assert_eq!(s.unmocked, ["http http://x/"]);
+            for scripted in [true, false] {
+                let mut s = store(scripted);
+                s.http.push(("http://x/*".into(), MockHttp::Error("canned".into())));
+                assert_eq!(
+                    take_http_in(&mut s, "http://x/rooms"),
+                    Answer::Mocked(MockHttp::Error("canned".into()))
+                );
+            }
+        }
     }
 }
 
