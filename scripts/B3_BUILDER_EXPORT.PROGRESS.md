@@ -52,13 +52,21 @@ WARNINGS.txt    "No user-defined component libraries to export. Generated minima
 4. UI `debugger-export.js`: three transient dialogs, fixed Export > Code download.
 
 ## DONE
-(none yet)
+- `f861cf64c` docs(b3): audit
+- `0d6318f46` test(xml): page exporters keep styles / free data / Python link; fragment goldens (RED)
+- `95afd6be5` fix(xml): `compile_xml_fragment(_app)` + page exporter fixes
 
 ## IN PROGRESS
-- audit (this file)
+- layout `e2e/export.rs` (languages, CSS rules + compile, subtree / component → code, template
+  compile_fn, zip) + server ops + tests.
 
 ## NEXT
-- RED tests: core fragment goldens, server op scenarios, JS logic + headless smoke.
+- UI `debugger-export.js` + node test + headless smoke.
+- report.
 
-## Open questions
-- (none yet)
+## Open questions / notes for the parent
+- target/codegen/azul.h (06:00 today, main checkout) does not compile as C on its own:
+  `AzString_fromConstStr` is both a macro (122644) and an inline fn (122786), `AzString_tr`
+  static-vs-extern (122799 vs 62135). Every C file fails on those 4 header errors; the goldens
+  have no errors of their own (`clang -fsyntax-only -ferror-limit=0`, filtered to the file).
+- This Mac's clang++ has no libc++ headers (`<cstdint>` not found): C++ goldens NOT checked.
