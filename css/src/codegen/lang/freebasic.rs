@@ -13,6 +13,13 @@
 //! Limitation: `azul.bi` declares no type for the `CssPropertyValue<T>`
 //! aliases (`AzLayoutWidthValue`, ...), so they - and hand-built
 //! `CssProperty` unions, whose union names them - cannot be written.
+//!
+//! DOM export: a builder chain updates one temporary (`t1 =
+//! AzDom_withChild(t1, ..)`); a parameter is a `ByRef .. As Const String`
+//! with the component's default as its default value, converted by
+//! `CssStr(title)` where it is used; a joined string is `CssStr("by " &
+//! author)`. The app's layout callback is a `Cdecl` function, as in
+//! `examples/freebasic`.
 
 use alloc::{
     format,
@@ -21,16 +28,45 @@ use alloc::{
     vec::Vec,
 };
 
+use core::fmt::Write;
+
 use super::linear::{item_blocker, linear_comments, lower_to_statements, LinearSyntax};
 use crate::codegen::{
-    ir::{snake_to_lower_camel, EnumShape, Expr, Item, Module, Prim},
-    lang::{module_any, variant_ctor_method},
+    ir::{snake_to_lower_camel, ComponentSpec, EnumShape, Expr, Ident, Item, LibrarySpec, Module, Prim},
+    lang::{dom::one_line, module_any, variant_ctor_method, ConcatPart},
     CodegenBackend, GeneratedFile,
 };
 
 /// The FreeBASIC printer.
 #[derive(Debug, Copy, Clone, Default)]
 pub struct FreeBasic;
+
+/// `is_freebasic_reserved` of `lang_freebasic/mod.rs`, plus the built-in
+/// statements and functions a parameter name would shadow.
+const RESERVED: &[&str] = &[
+    "any", "as", "asm", "byref", "byte", "byval", "call", "case", "cdecl", "common", "const",
+    "constructor", "continue", "data", "declare", "destructor", "dim", "do", "double", "else",
+    "elseif", "end", "enum", "exit", "export", "extends", "extern", "field", "for", "function",
+    "goto", "if", "imageof", "imp", "implements", "import", "include", "inherits", "input",
+    "integer", "is", "let", "lib", "long", "longint", "loop", "mod", "namespace", "new", "next",
+    "not", "object", "on", "open", "operator", "option", "or", "out", "pascal", "pointer",
+    "preserve", "print", "private", "property", "protected", "ptr", "public", "redim", "ref",
+    "return", "select", "shared", "short", "single", "static", "step", "stop", "string", "sub",
+    "then", "to", "type", "ubyte", "uinteger", "ulong", "ulongint", "ushort", "union", "until",
+    "var", "virtual", "wend", "while", "with", "xor", "zstring", "name", "len", "str", "val",
+    "left", "right", "mid", "color", "width", "line", "window", "screen", "draw", "time", "date",
+    "timer",
+];
+
+/// A parameter's FreeBASIC name (a reserved word gets a `_`).
+fn fb_param(name: &Ident) -> String {
+    let s = name.lower_camel();
+    if RESERVED.contains(&s.to_ascii_lowercase().as_str()) {
+        format!("{s}_")
+    } else {
+        s
+    }
+}
 
 fn apply(f: &str, args: &[String]) -> String {
     format!("{f}({})", args.join(", "))
@@ -171,6 +207,44 @@ impl LinearSyntax for FreeBasic {
     fn vec_empty_expr(&self, ty: &str) -> Option<String> {
         Some(format!("Az{ty}_create()"))
     }
+
+    fn dom_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    fn param_expr(&self, name: &Ident) -> Option<String> {
+        Some(format!("CssStr({})", fb_param(name)))
+    }
+
+    /// `CssStr("by " & author)`.
+    fn concat_expr(&self, parts: &[ConcatPart<'_>]) -> Option<String> {
+        let parts: Vec<String> = parts
+            .iter()
+            .map(|p| match p {
+                ConcatPart::Lit(s) => basic_string(s),
+                ConcatPart::Param(i) => fb_param(i),
+            })
+            .collect();
+        Some(format!("CssStr({})", parts.join(" & ")))
+    }
+}
+
+/// `ByRef title As Const String = "Hello", ..`.
+fn params_decl(item: &Item) -> String {
+    item.params
+        .iter()
+        .map(|p| {
+            let name = fb_param(&p.name);
+            if p.ty != "String" {
+                return format!("ByVal {name} As Az{}", p.ty);
+            }
+            match &p.default {
+                Some(Expr::Str(d)) => format!("ByRef {name} As Const String = {}", basic_string(d)),
+                _ => format!("ByRef {name} As Const String"),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn fn_name(item: &Item) -> String {
@@ -190,7 +264,7 @@ fn item_fn(item: &Item) -> (bool, String) {
     for line in linear_comments(item, &st) {
         out.push_str(&format!("' {line}\n"));
     }
-    out.push_str(&format!("Function {name}() As Az{}\n", item.ty));
+    out.push_str(&format!("Function {name}({}) As Az{}\n", params_decl(item), item.ty));
     for (n, t) in &st.decls {
         match t.strip_prefix("ARRAY ") {
             Some(rest) => {
@@ -205,6 +279,233 @@ fn item_fn(item: &Item) -> (bool, String) {
     }
     out.push_str(&format!("    Return {}\nEnd Function\n", st.result));
     (true, out)
+}
+
+/// What the registration calls (only when a component takes parameters).
+const REGISTRATION_HELPERS: &str = "
+' The bytes of an AzString as a FreeBASIC string.
+Function CssStrValue(ByRef s As Const AzString) As String
+    Dim r As String = Space(CInt(s.vec.len))
+    For j As Integer = 0 To CInt(s.vec.len) - 1
+        r[j] = s.vec.ptr_[j]
+    Next
+    Return r
+End Function
+
+' The String value of the data-model field `fieldName`, or `fallback`.
+Function ModelString(ByVal model As AzComponentDataModel Ptr, ByRef fieldName As Const String, ByRef fallback As Const String) As String
+    For i As Integer = 0 To CInt(model->fields.len) - 1
+        Dim f As AzComponentDataField Ptr = @(model->fields.ptr_[i])
+        If CssStrValue(f->name) = fieldName AndAlso f->default_value.tag = AzOptionComponentDefaultValueTag_Some AndAlso f->default_value.Some.tag = AzComponentDefaultValueTag_String_ Then
+            Return CssStrValue(f->default_value.Some.String_)
+        End If
+    Next
+    Return fallback
+End Function
+
+' A String field of a component's data model.
+Function StringField(ByRef fieldName As Const String, ByRef value As Const String, ByRef description As Const String) As AzComponentDataField
+    Dim f As AzComponentDataField
+    f.name = CssStr(fieldName)
+    f.field_type = AzComponentFieldType_string()
+    f.default_value = AzOptionComponentDefaultValue_some(AzComponentDefaultValue_string(CssStr(value)))
+    f.required = 0
+    f.description = CssStr(description)
+    Return f
+End Function
+";
+
+/// The registration of a component library (`m.library`), mirroring the C
+/// one: per component a default-arguments wrapper, a `Cdecl` render and
+/// compile function (their addresses are the `ComponentDef`'s function
+/// pointers) and its `ComponentDef`; then the `Cdecl` library function and
+/// `Add<Library>Library`, which registers it on an app config. azul.bi
+/// declares `AzAppConfig_addComponentLibrary` with the wrapper type where
+/// libazul takes the function pointer, so this declares it again as libazul
+/// exports it. Items the module does not have are skipped.
+fn freebasic_registration(m: &Module, lib: &LibrarySpec) -> String {
+    let lu = Ident::from_text(&lib.name).upper_camel();
+    let az = |s: &str| format!("CssStr({})", basic_string(s));
+    let components: Vec<(&ComponentSpec, &Item)> = lib
+        .components
+        .iter()
+        .filter_map(|c| m.item(&c.item).map(|i| (c, i)))
+        .collect();
+    let mut s = String::from("\n' -- registration --\n");
+    if components.iter().any(|(_, i)| !i.params.is_empty()) {
+        s.push_str(REGISTRATION_HELPERS);
+    }
+    let mut defs: Vec<String> = Vec::new();
+    for (c, item) in &components {
+        let item_fn = fn_name(item);
+        let cu = Ident::from_text(&c.name).upper_camel();
+        let defaults: Vec<String> = item.params.iter().map(|p| basic_string(p.default_text())).collect();
+        let _ = write!(
+            s,
+            "\n' `{}:{}` with its default arguments.\nFunction {item_fn}Default() As AzDom\n    \
+             Return {item_fn}({})\nEnd Function\n",
+            one_line(&lib.name),
+            one_line(&c.name),
+            defaults.join(", ")
+        );
+        let args: Vec<String> = item
+            .params
+            .iter()
+            .map(|p| {
+                format!(
+                    "ModelString(model, {}, {})",
+                    basic_string(&p.name.snake()),
+                    basic_string(p.default_text())
+                )
+            })
+            .collect();
+        let _ = write!(
+            s,
+            "\nFunction {cu}RenderFn Cdecl (ByVal def_ As AzComponentDef Ptr, ByVal model As \
+             AzComponentDataModel Ptr, ByVal componentMap As AzComponentMap Ptr) As \
+             AzResultStyledDomRenderDomError\n    Return \
+             AzResultStyledDomRenderDomError_ok(AzStyledDom_createFromDom({item_fn}({})))\nEnd \
+             Function\n",
+            args.join(", ")
+        );
+        let _ = write!(
+            s,
+            "\nFunction {cu}CompileFn Cdecl (ByVal def_ As AzComponentDef Ptr, ByVal target As \
+             AzCompileTarget Ptr, ByVal model As AzComponentDataModel Ptr, ByVal indent As UInteger) \
+             As AzResultStringCompileError\n    Return \
+             AzResultStringCompileError_ok({})\nEnd Function\n",
+            az(&format!("{item_fn}Default()"))
+        );
+        let _ = write!(s, "\nFunction {cu}Def() As AzComponentDef\n");
+        if !item.params.is_empty() {
+            let n = item.params.len();
+            let _ = writeln!(s, "    Dim fields(0 To {}) As AzComponentDataField", n - 1);
+            for (i, p) in item.params.iter().enumerate() {
+                let desc = c.field_descriptions.get(i).map_or("", String::as_str);
+                let _ = writeln!(
+                    s,
+                    "    fields({i}) = StringField({}, {}, {})",
+                    basic_string(&p.name.snake()),
+                    basic_string(p.default_text()),
+                    basic_string(desc)
+                );
+            }
+        }
+        let _ = write!(
+            s,
+            "    Dim d As AzComponentDef\n    d.id = AzComponentId_create({}, {})\n    \
+             d.display_name = {}\n    d.description = {}\n    ' The CSS is applied per node by \
+             {item_fn}.\n    d.css = {}\n    d.source = AzComponentSource_UserDefined\n    \
+             d.data_model.name = {}\n    d.data_model.description = {}\n",
+            az(&lib.name),
+            az(&c.name),
+            az(&c.display_name),
+            az(&c.description),
+            az(""),
+            az(&c.data_model),
+            az(&c.data_model_description),
+        );
+        if item.params.is_empty() {
+            s.push_str("    d.data_model.fields = AzComponentDataFieldVec_create()\n");
+        } else {
+            let n = item.params.len();
+            let _ = write!(
+                s,
+                "    d.data_model.fields = AzComponentDataFieldVec_copyFromPtr(@fields(0), {n})\n    \
+                 ' copyFromPtr cloned them.\n    For i As Integer = 0 To {}\n        \
+                 AzComponentDataField_delete(@fields(i))\n    Next\n",
+                n - 1
+            );
+        }
+        let _ = write!(
+            s,
+            "    d.render_fn = @{cu}RenderFn\n    d.compile_fn = @{cu}CompileFn\n    \
+             d.render_fn_source = AzOptionString_none()\n    d.compile_fn_source = \
+             AzOptionString_none()\n    Return d\nEnd Function\n"
+        );
+        defs.push(format!("{cu}Def()"));
+    }
+    let _ = write!(
+        s,
+        "\n' The component library `{}` (the function libazul calls).\nFunction \
+         Register{lu}Library Cdecl () As AzComponentLibrary\n",
+        one_line(&lib.name)
+    );
+    if !defs.is_empty() {
+        let _ = writeln!(s, "    Dim defs(0 To {}) As AzComponentDef", defs.len() - 1);
+        for (i, d) in defs.iter().enumerate() {
+            let _ = writeln!(s, "    defs({i}) = {d}");
+        }
+    }
+    let _ = write!(
+        s,
+        "    Dim library As AzComponentLibrary\n    library.name = {}\n    library.version = \
+         {}\n    library.description = {}\n",
+        az(&lib.name),
+        az(&lib.version),
+        az("Exported from AzBuilder"),
+    );
+    if defs.is_empty() {
+        s.push_str("    library.components = AzComponentDefVec_create()\n");
+    } else {
+        let _ = write!(
+            s,
+            "    library.components = AzComponentDefVec_copyFromPtr(@defs(0), {})\n    ' \
+             copyFromPtr cloned them.\n    For i As Integer = 0 To {}\n        \
+             AzComponentDef_delete(@defs(i))\n    Next\n",
+            defs.len(),
+            defs.len() - 1
+        );
+    }
+    let _ = write!(
+        s,
+        "    library.exportable = 1\n    library.modifiable = 0\n    library.data_models = \
+         AzComponentDataModelVec_create()\n    library.enum_models = \
+         AzComponentEnumModelVec_create()\n    Return library\nEnd Function\n\n' \
+         AzAppConfig_addComponentLibrary as libazul exports it: it takes the register \
+         function.\nDeclare Sub AzAppConfigAddComponentLibraryFn Cdecl Alias \
+         \"AzAppConfig_addComponentLibrary\" (ByVal appConfig As AzAppConfig Ptr, ByVal \
+         libraryName As AzString, ByVal registerFn As AzRegisterComponentLibraryFnType)\n\n' \
+         Registers the library `{}` on the app config at appConfig.\nSub Add{lu}Library(ByVal \
+         appConfig As AzAppConfig Ptr)\n    AzAppConfigAddComponentLibraryFn(appConfig, {}, \
+         @Register{lu}Library)\nEnd Sub\n",
+        one_line(&lib.name),
+        az(&lib.name),
+    );
+    s
+}
+
+/// The app around a DOM module (`m.app`), as in `examples/freebasic`: an
+/// empty app data type upcast to a `RefAny`, a `Cdecl` layout callback
+/// returning the root item (inside a `body` unless it builds the body
+/// itself), then the window. No variable is named `window` or `data`
+/// (FreeBASIC statements).
+fn freebasic_app_main(m: &Module) -> String {
+    let Some(app) = &m.app else {
+        return String::new();
+    };
+    let root = format!("{}()", app.root.upper_camel());
+    let body = if app.is_body {
+        root
+    } else {
+        format!("AzDom_withChild(AzDom_createBody(), {root})")
+    };
+    format!(
+        "' {title} - generated by AzBuilder (azul-css codegen, FreeBASIC).\n' Copy \
+         target/codegen/azul.bi and libazul here, then:\n'   fbc main.bas -p . -l azul && \
+         ./main\n#include \"ui.bas\"\n\nType AppData\n    unused As Long\nEnd Type\n\nSub \
+         AppData_destructor Cdecl (ByVal p As Any Ptr)\nEnd Sub\n\nFunction Layout Cdecl (ByVal \
+         appData As AzRefAny, ByVal info As AzLayoutCallbackInfo) As AzDom\n    Return \
+         {body}\nEnd Function\n\nDim model As AppData\nDim modelWrapper As AzGlVoidPtrConst\nDim \
+         windowOptions As AzWindowCreateOptions\nDim app As AzApp\n\nmodelWrapper.ptr_ = \
+         @model\nmodelWrapper.run_destructor = 0\n\nwindowOptions = \
+         AzWindowCreateOptions_create(@Layout)\nwindowOptions.window_state.title = \
+         CssStr({title_str})\napp = AzApp_create(AzRefAny_newC(modelWrapper, SizeOf(AppData), \
+         SizeOf(Long), 0, CssStr(\"AppData\"), @AppData_destructor, 0, 0), \
+         AzAppConfig_create())\nAzApp_run(@app, windowOptions)\nAzApp_delete(@app)\n",
+        title = one_line(&app.title),
+        title_str = basic_string(&app.title),
+    )
 }
 
 const CSS_STR: &str = "Function CssStr(ByRef s As Const String) As AzString
@@ -229,12 +530,19 @@ impl CodegenBackend for FreeBasic {
         "bas"
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn emit_module(&self, m: &Module) -> String {
         let mut out = String::from(
             "' Generated by azul-css codegen (FreeBASIC). Do not edit by hand.\n#include once \
              \"azul.bi\"\n",
         );
-        if module_any(m, &|e| matches!(e, Expr::Str(_))) {
+        if m.app.is_some()
+            || m.library.is_some()
+            || module_any(m, &|e| matches!(e, Expr::Str(_) | Expr::Param(_) | Expr::Concat(_)))
+        {
             out.push('\n');
             out.push_str(CSS_STR);
         }
@@ -242,16 +550,37 @@ impl CodegenBackend for FreeBasic {
             out.push('\n');
             out.push_str(&item_fn(item).1);
         }
+        if let Some(lib) = &m.library {
+            out.push_str(&freebasic_registration(m, lib));
+        }
         out
     }
 
     fn emit_project_files(&self, m: &Module) -> Vec<GeneratedFile> {
+        if m.app.is_some() {
+            return vec![
+                GeneratedFile {
+                    path: "ui.bas".to_string(),
+                    contents: self.emit_module(m),
+                },
+                GeneratedFile {
+                    path: "main.bas".to_string(),
+                    contents: freebasic_app_main(m),
+                },
+            ];
+        }
         let mut main = String::from(
             "' Copy target/codegen/azul.bi and libazul here, then:\n'   fbc main.bas -p . -l \
              azul && ./main\n#include \"styles.bas\"\n\n",
         );
         for item in m.items.iter().filter(|i| item_fn(i).0) {
             let name = fn_name(item);
+            if item.ty == "Dom" {
+                main.push_str(&format!(
+                    "Dim {name}Value As AzDom = {name}()\nPrint \"{name}: built\"\n"
+                ));
+                continue;
+            }
             main.push_str(&format!(
                 "Dim {name}Value As Az{} = {name}()\nPrint \"{name}: \"; {name}Value.len; \" \
                  properties\"\n",

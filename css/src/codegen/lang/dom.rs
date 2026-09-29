@@ -52,28 +52,6 @@ pub fn uses_params(m: &Module) -> bool {
     m.items.iter().any(|i| !i.params.is_empty())
 }
 
-/// `s` on one line (a window title or a library name in a line comment).
-#[must_use]
-pub fn one_line(s: &str) -> String {
-    s.replace(|c: char| c == '\n' || c == '\r', " ")
-}
-
-/// The comment lines a printer prints instead of the registration of `lib`
-/// when its bindings cannot build one (`reason`: why, without a final
-/// period). The render functions above it stay usable.
-#[must_use]
-pub fn unregistered_library_note(lib: &LibrarySpec, reason: &str) -> Vec<String> {
-    alloc::vec![
-        format!(
-            "The component library `{}` is not registered here: {reason}.",
-            one_line(&lib.name)
-        ),
-        "Register it from the Rust, C or C++ export; the render functions above build its \
-         components."
-            .into(),
-    ]
-}
-
 /// C: the helper an [`Expr::Concat`] calls (C has no string formatting in
 /// the azul API). Needs `<stdarg.h>`, `<stdlib.h>`, `<string.h>`. Guarded:
 /// an export writes several headers (the app, one per component library)

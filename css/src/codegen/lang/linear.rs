@@ -12,6 +12,13 @@
 //! calls and aggregates, only a Vec needs a declared array) returns them
 //! from the `*_expr` methods; those nodes then stay inline and only the
 //! rest gets a temporary.
+//!
+//! DOM construction: a builder method (`Dom.with_child`) is always a
+//! statement, and a chain updates ONE temporary (`t1 = AzDom_withChild(t1,
+//! child)`), so a tree reads top to bottom; a child that is a chain gets a
+//! temporary of its own first. A printer opts in by returning `None` from
+//! [`LinearSyntax::dom_limitation`] and spelling [`LinearSyntax::param`] and
+//! [`LinearSyntax::concat`] (or their `*_expr` forms).
 
 use alloc::{
     format,
@@ -19,9 +26,9 @@ use alloc::{
     vec::Vec,
 };
 
-use super::blocker_with;
+use super::{blocker_with, concat_parts, dom::is_dom_item, ConcatPart};
 use crate::codegen::{
-    ir::{is_droppable_vec, EnumShape, Expr, Item, Prim},
+    ir::{is_droppable_vec, EnumShape, Expr, Ident, Item, Prim},
     lower_types::union_tag,
 };
 
@@ -127,6 +134,48 @@ pub trait LinearSyntax {
     fn scalar_operand(&self, temp: &str) -> String {
         temp.to_string()
     }
+
+    // DOM construction (`Expr::Method` / `Param` / `Concat`, item parameters).
+
+    /// Why this language does not print the DOM node kinds and item
+    /// parameters, or `None` once its printer spells [`Self::param`] and
+    /// [`Self::concat`] (or their `*_expr` forms) and prints `Item::params`.
+    fn dom_limitation(&self) -> Option<&'static str> {
+        Some(LINEAR_DOM)
+    }
+
+    /// Statements that make `target` the value of the by-value `self` method
+    /// `class.method` on `recv` (`target` may be `recv` itself: a chain
+    /// updates one temporary). Default: the C-ABI call, receiver first
+    /// (`AzDom_withChild(recv, child)`), through [`Self::call`].
+    fn method(&self, target: &str, class: &str, method: &str, recv: &str, args: &[String]) -> Vec<String> {
+        let mut all = Vec::with_capacity(args.len() + 1);
+        all.push(recv.to_string());
+        all.extend_from_slice(args);
+        self.call(target, class, method, &all)
+    }
+
+    /// Item parameter `name` (a native string of the language) as the api
+    /// `String` a call takes, as an expression. `None`: [`Self::param`].
+    fn param_expr(&self, _name: &Ident) -> Option<String> {
+        None
+    }
+
+    /// Statements that make `target` the api `String` of parameter `name`.
+    fn param(&self, _target: &str, _name: &Ident) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// The api `String` joined from `parts`, as an expression. `None`:
+    /// [`Self::concat`].
+    fn concat_expr(&self, _parts: &[ConcatPart<'_>]) -> Option<String> {
+        None
+    }
+
+    /// Statements that make `target` the api `String` joined from `parts`.
+    fn concat(&self, _target: &str, _parts: &[ConcatPart<'_>]) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// A flattened value: temporaries (name, declared type), statements, and
@@ -152,6 +201,12 @@ impl Ctx<'_> {
         let name = format!("t{}", self.next);
         self.out.decls.push((name.clone(), ty));
         name
+    }
+
+    /// `true` if `operand` is one of this value's temporaries, declared
+    /// with type `ty`.
+    fn is_temp_of(&self, operand: &str, ty: &str) -> bool {
+        self.out.decls.iter().any(|(n, t)| n == operand && t == ty)
     }
 
     /// A CALL argument: a scalar the language cannot pass inline gets a
@@ -283,10 +338,43 @@ impl Ctx<'_> {
                 self.out.dropped.push(what.clone());
                 String::new()
             }
-            // Never reached: `item_blocker` rejects an item that has them.
-            Expr::Method { .. } | Expr::Param(_) | Expr::Concat(_) => {
-                self.out.dropped.push(LINEAR_DOM.to_string());
-                String::new()
+            Expr::Method {
+                recv,
+                class,
+                method,
+                args,
+            } => {
+                let r = self.emit(recv);
+                let args: Vec<String> = args.iter().map(|a| self.arg(a)).collect();
+                // A chain updates the receiver's temporary in place.
+                let ty = s.type_name(class);
+                let target = if self.is_temp_of(&r, &ty) {
+                    r.clone()
+                } else {
+                    self.temp(ty)
+                };
+                let st = s.method(&target, class, method, &r, &args);
+                self.out.body.extend(st);
+                target
+            }
+            Expr::Param(name) => {
+                if let Some(x) = s.param_expr(name) {
+                    return x;
+                }
+                let t = self.temp(s.type_name("String"));
+                let st = s.param(&t, name);
+                self.out.body.extend(st);
+                t
+            }
+            Expr::Concat(parts) => {
+                let parts = concat_parts(parts);
+                if let Some(x) = s.concat_expr(&parts) {
+                    return x;
+                }
+                let t = self.temp(s.type_name("String"));
+                let st = s.concat(&t, &parts);
+                self.out.body.extend(st);
+                t
             }
         }
     }
@@ -312,13 +400,20 @@ pub fn lower_to_statements(s: &dyn LinearSyntax, e: &Expr) -> Statements {
 /// Why this language cannot build the item at all (`None` if it can).
 #[must_use]
 pub fn item_blocker(s: &dyn LinearSyntax, item: &Item) -> Option<String> {
-    if !item.params.is_empty() {
-        return Some(LINEAR_DOM.to_string());
+    if is_dom_item(item) {
+        if let Some(reason) = s.dom_limitation() {
+            return Some(reason.to_string());
+        }
     }
     blocker_with(
         &|n| {
-            s.limitation(n)
-                .or_else(|| n.is_dom_node().then(|| LINEAR_DOM.to_string()))
+            s.limitation(n).or_else(|| {
+                if n.is_dom_node() {
+                    s.dom_limitation().map(ToString::to_string)
+                } else {
+                    None
+                }
+            })
         },
         &item.value,
     )

@@ -11,6 +11,15 @@
 //! Calls and literals nest; a Vec needs an addressable array
 //! ([`super::linear`]): `mut t1 := [n]azul.AzX{}`, filled element by
 //! element, then `C.AzXVec_copyFromPtr(unsafe { &t1[0] }, n)`.
+//!
+//! DOM export: a builder chain updates one temporary, declared by its first
+//! value (`mut t1 := C.AzDom_withCss(C.AzDom_createDiv(), ..)`, then
+//! `t1 = C.AzDom_withChild(t1, ..)`: V rejects a zero struct literal of a
+//! type with reference fields); a parameter is a V `string` converted by
+//! `azul.az_str(title)` where it is used, a joined string an interpolation
+//! (`azul.az_str('by ${author}')`). V functions are C functions, so the
+//! app's layout callback and the registration's render functions are plain
+//! V functions, as in `examples/v`.
 
 use alloc::{
     format,
@@ -19,10 +28,15 @@ use alloc::{
     vec::Vec,
 };
 
+use core::fmt::Write;
+
 use super::linear::{item_blocker, linear_comments, lower_to_statements, LinearSyntax};
 use crate::codegen::{
-    ir::{snake_to_lower_camel, Item, Module, Prim},
-    lang::{escape_quoted, unicode_u4, variant_ctor_method},
+    ir::{snake_to_lower_camel, ComponentSpec, Ident, Item, LibrarySpec, Module, Prim},
+    lang::{
+        dom::{is_dom_item, one_line},
+        escape_quoted, unicode_u4, variant_ctor_method, ConcatPart,
+    },
     CodegenBackend, GeneratedFile,
 };
 
@@ -53,9 +67,19 @@ fn apply(f: &str, args: &[String]) -> String {
 
 fn v_string(s: &str) -> String {
     let mut out = String::from("'");
-    out.push_str(&escape_quoted(s, &['\'', '$'], &unicode_u4).replace("\\\"", "\""));
+    out.push_str(&v_escaped(s));
     out.push('\'');
     out
+}
+
+/// The body of a single-quoted V string holding `s` (`'` and `$` escaped).
+fn v_escaped(s: &str) -> String {
+    escape_quoted(s, &['\'', '$'], &unicode_u4).replace("\\\"", "\"")
+}
+
+/// A parameter's V name (a keyword gets a `_`).
+fn v_param(name: &Ident) -> String {
+    ident(&name.snake())
 }
 
 impl LinearSyntax for V {
@@ -171,6 +195,47 @@ impl LinearSyntax for V {
     fn vec_empty_expr(&self, ty: &str) -> Option<String> {
         Some(format!("C.Az{ty}_create()"))
     }
+
+    fn dom_limitation(&self) -> Option<&'static str> {
+        None
+    }
+
+    fn param_expr(&self, name: &Ident) -> Option<String> {
+        Some(format!("azul.az_str({})", v_param(name)))
+    }
+
+    /// An interpolated V string.
+    fn concat_expr(&self, parts: &[ConcatPart<'_>]) -> Option<String> {
+        let mut s = String::from("'");
+        for p in parts {
+            match p {
+                ConcatPart::Lit(t) => s.push_str(&v_escaped(t)),
+                ConcatPart::Param(i) => {
+                    s.push_str("${");
+                    s.push_str(&v_param(i));
+                    s.push('}');
+                }
+            }
+        }
+        s.push('\'');
+        Some(format!("azul.az_str({s})"))
+    }
+}
+
+/// `title string, text string` (the api `String` parameters are V strings).
+fn v_params(item: &Item) -> String {
+    item.params
+        .iter()
+        .map(|p| {
+            let ty = if p.ty == "String" {
+                "string".to_string()
+            } else {
+                format!("azul.Az{}", p.ty)
+            };
+            format!("{} {ty}", v_param(&p.name))
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn item_fn(item: &Item) -> (bool, String) {
@@ -186,19 +251,227 @@ fn item_fn(item: &Item) -> (bool, String) {
     for line in linear_comments(item, &st) {
         out.push_str(&format!("// {line}\n"));
     }
-    out.push_str(&format!("fn {name}() azul.Az{} {{\n", item.ty));
+    out.push_str(&format!("fn {name}({}) azul.Az{} {{\n", v_params(item), item.ty));
+    // A DOM temporary is declared by its first value (V rejects a zero
+    // struct literal of a type with reference fields): `mut` only when a
+    // later statement assigns it again.
+    let mut body = st.body.clone();
     for (n, t) in &st.decls {
-        if t.starts_with('[') {
+        let first = format!("{n} = ");
+        let assigned: Vec<usize> = (0..body.len()).filter(|&i| body[i].starts_with(&first)).collect();
+        if !t.starts_with('[') && is_dom_item(item) && !assigned.is_empty() {
+            let keyword = if assigned.len() > 1 { "mut " } else { "" };
+            body[assigned[0]] = format!("{keyword}{n} := {}", &body[assigned[0]][first.len()..]);
+        } else if t.starts_with('[') {
             out.push_str(&format!("\tmut {n} := {t}\n"));
         } else {
             out.push_str(&format!("\tmut {n} := {t}{{}}\n"));
         }
     }
-    for s in &st.body {
+    for s in &body {
         out.push_str(&format!("\t{s}\n"));
     }
     out.push_str(&format!("\treturn {}\n}}\n", st.result));
     (true, out)
+}
+
+/// What the registration calls (only when a component takes parameters).
+/// The union tags are api.json's variant indices (`Option`: None = 0,
+/// Some = 1; `ComponentDefaultValue`: None = 0, String = 1): the V binding
+/// keeps a tag as a plain `u8`; reading a union field is `unsafe` in V.
+const REGISTRATION_HELPERS: &str = "
+// The String value of the data-model field `name` (borrowing the model's
+// bytes), or `fallback`.
+fn model_string(model &azul.AzComponentDataModel, name string, fallback string) string {
+\tfor i in 0 .. int(model.fields.len) {
+\t\tf := unsafe { &model.fields.ptr[i] }
+\t\tif unsafe { tos(f.name.vec.ptr, int(f.name.vec.len)) } != name {
+\t\t\tcontinue
+\t\t}
+\t\tunsafe {
+\t\t\tif f.default_value.Some.tag == 1 && f.default_value.Some.payload.String.tag == 1 {
+\t\t\t\tvalue := f.default_value.Some.payload.String.payload
+\t\t\t\treturn tos(value.vec.ptr, int(value.vec.len))
+\t\t\t}
+\t\t}
+\t}
+\treturn fallback
+}
+
+// A String field of a component's data model.
+fn string_field(name string, value string, description string) azul.AzComponentDataField {
+\treturn azul.AzComponentDataField{
+\t\tname:          azul.az_str(name)
+\t\tfield_type:    C.AzComponentFieldType_string()
+\t\tdefault_value: C.AzOptionComponentDefaultValue_some(C.AzComponentDefaultValue_string(azul.az_str(value)))
+\t\trequired:      false
+\t\tdescription:   azul.az_str(description)
+\t}
+}
+";
+
+/// The registration of a component library (`m.library`), mirroring the C
+/// one: per component a default-arguments wrapper, a render and a compile
+/// function (V functions are C functions) and its `ComponentDef`; then
+/// `register_<library>_library`, the `AzRegisterComponentLibraryFnType` that
+/// `C.AzAppConfig_addComponentLibrary` takes. Items the module does not have
+/// are skipped.
+fn v_registration(m: &Module, lib: &LibrarySpec) -> String {
+    let lsn = Ident::from_text(&lib.name).snake();
+    let az = |s: &str| format!("azul.az_str({})", v_string(s));
+    let components: Vec<(&ComponentSpec, &Item)> = lib
+        .components
+        .iter()
+        .filter_map(|c| m.item(&c.item).map(|i| (c, i)))
+        .collect();
+    let mut s = String::from("\n// -- registration --\n");
+    if components.iter().any(|(_, i)| !i.params.is_empty()) {
+        s.push_str(REGISTRATION_HELPERS);
+    }
+    let mut defs: Vec<String> = Vec::new();
+    for (c, item) in &components {
+        let item_fn = item.name.snake();
+        let sn = Ident::from_text(&c.name).snake();
+        let defaults: Vec<String> = item.params.iter().map(|p| v_string(p.default_text())).collect();
+        let _ = write!(
+            s,
+            "\n// `{}:{}` with its default arguments.\nfn {item_fn}_default() azul.AzDom \
+             {{\n\treturn {item_fn}({})\n}}\n",
+            one_line(&lib.name),
+            one_line(&c.name),
+            defaults.join(", ")
+        );
+        let args: Vec<String> = item
+            .params
+            .iter()
+            .map(|p| {
+                format!(
+                    "model_string(model, {}, {})",
+                    v_string(&p.name.snake()),
+                    v_string(p.default_text())
+                )
+            })
+            .collect();
+        let _ = write!(
+            s,
+            "\nfn {sn}_render_fn(def &azul.AzComponentDef, model &azul.AzComponentDataModel, \
+             component_map &azul.AzComponentMap) azul.AzResultStyledDomRenderDomError {{\n\tdom \
+             := {item_fn}({})\n\treturn \
+             C.AzResultStyledDomRenderDomError_ok(C.AzStyledDom_createFromDom(dom))\n}}\n",
+            args.join(", ")
+        );
+        let _ = write!(
+            s,
+            "\nfn {sn}_compile_fn(def &azul.AzComponentDef, target &azul.AzCompileTarget, model \
+             &azul.AzComponentDataModel, indent usize) azul.AzResultStringCompileError {{\n\treturn \
+             C.AzResultStringCompileError_ok({})\n}}\n",
+            az(&format!("{item_fn}_default()"))
+        );
+        let _ = write!(s, "\nfn {sn}_def() azul.AzComponentDef {{\n");
+        let fields = if item.params.is_empty() {
+            "C.AzComponentDataFieldVec_create()".to_string()
+        } else {
+            s.push_str("\tmut fields := [\n");
+            for (i, p) in item.params.iter().enumerate() {
+                let desc = c.field_descriptions.get(i).map_or("", String::as_str);
+                let _ = writeln!(
+                    s,
+                    "\t\tstring_field({}, {}, {}),",
+                    v_string(&p.name.snake()),
+                    v_string(p.default_text()),
+                    v_string(desc)
+                );
+            }
+            let _ = write!(
+                s,
+                "\t]!\n\tfield_vec := C.AzComponentDataFieldVec_copyFromPtr(unsafe {{ &fields[0] \
+                 }}, {})\n\t// copyFromPtr cloned them.\n\tfor i in 0 .. fields.len {{\n\t\t\
+                 C.AzComponentDataField_delete(unsafe {{ &fields[i] }})\n\t}}\n",
+                item.params.len()
+            );
+            "field_vec".to_string()
+        };
+        let _ = write!(
+            s,
+            "\treturn azul.AzComponentDef{{\n\t\tid: C.AzComponentId_create({}, {})\n\t\t\
+             display_name: {}\n\t\tdescription: {}\n\t\t// The CSS is applied per node by \
+             {item_fn}.\n\t\tcss: {}\n\t\tsource: azul.AzComponentSource.UserDefined\n\t\tdata_model: \
+             azul.AzComponentDataModel{{\n\t\t\tname: {}\n\t\t\tdescription: {}\n\t\t\tfields: \
+             {fields}\n\t\t}}\n\t\trender_fn: {sn}_render_fn\n\t\tcompile_fn: \
+             {sn}_compile_fn\n\t\trender_fn_source: C.AzOptionString_none()\n\t\t\
+             compile_fn_source: C.AzOptionString_none()\n\t}}\n}}\n",
+            az(&lib.name),
+            az(&c.name),
+            az(&c.display_name),
+            az(&c.description),
+            az(""),
+            az(&c.data_model),
+            az(&c.data_model_description),
+        );
+        defs.push(format!("{sn}_def()"));
+    }
+    let _ = write!(
+        s,
+        "\n// The component library `{}`:\n//     C.AzAppConfig_addComponentLibrary(&config, {}, \
+         register_{lsn}_library)\nfn register_{lsn}_library() azul.AzComponentLibrary {{\n",
+        one_line(&lib.name),
+        az(&lib.name)
+    );
+    let components = if defs.is_empty() {
+        "C.AzComponentDefVec_create()".to_string()
+    } else {
+        let _ = write!(
+            s,
+            "\tmut defs := [{}]!\n\tcomponents := C.AzComponentDefVec_copyFromPtr(unsafe {{ \
+             &defs[0] }}, {})\n\t// copyFromPtr cloned them.\n\tfor i in 0 .. defs.len {{\n\t\t\
+             C.AzComponentDef_delete(unsafe {{ &defs[i] }})\n\t}}\n",
+            defs.join(", "),
+            defs.len()
+        );
+        "components".to_string()
+    };
+    let _ = write!(
+        s,
+        "\treturn azul.AzComponentLibrary{{\n\t\tname: {}\n\t\tversion: {}\n\t\tdescription: \
+         {}\n\t\tcomponents: {components}\n\t\texportable: true\n\t\tmodifiable: \
+         false\n\t\tdata_models: C.AzComponentDataModelVec_create()\n\t\tenum_models: \
+         C.AzComponentEnumModelVec_create()\n\t}}\n}}\n",
+        az(&lib.name),
+        az(&lib.version),
+        az("Exported from AzBuilder"),
+    );
+    s
+}
+
+/// The app around a DOM module (`m.app`), as in `examples/v`: an empty app
+/// data type upcast to a `RefAny`, a layout callback that returns the root
+/// item (inside a `body` unless it builds the body itself), and `main`.
+fn v_app_main(m: &Module) -> String {
+    let Some(app) = &m.app else {
+        return String::new();
+    };
+    let root = format!("{}()", app.root.snake());
+    let body = if app.is_body {
+        root
+    } else {
+        format!("C.AzDom_withChild(C.AzDom_createBody(), {root})")
+    };
+    format!(
+        "// {title} - generated by AzBuilder (azul-css codegen, V).\n// Copy target/codegen/azul.v \
+         to ./azul/ and libazul here, then: v run .\nmodule main\n\nimport azul\n\nstruct AppData \
+         {{\n\tunused u8\n}}\n\nconst app_data_type_id = u64(0x617a756c5f617070)\n\nfn \
+         app_data_destructor(ptr voidptr) {{\n}}\n\nfn app_data_upcast(model AppData) \
+         azul.AzRefAny {{\n\tmut local := model\n\tblob := azul.AzGlVoidPtrConst{{\n\t\tptr:            \
+         voidptr(&local)\n\t\trun_destructor: false\n\t}}\n\treturn C.AzRefAny_newC(blob, \
+         usize(sizeof(AppData)), usize(1), app_data_type_id, azul.az_str('AppData'), \
+         app_data_destructor, usize(0), usize(0))\n}}\n\nfn layout(data azul.AzRefAny, info \
+         azul.AzLayoutCallbackInfo) azul.AzDom {{\n\treturn {body}\n}}\n\nfn main() {{\n\tmut \
+         window := C.AzWindowCreateOptions_create(layout)\n\twindow.window_state.title = \
+         azul.az_str({title_lit})\n\tmut app := C.AzApp_create(app_data_upcast(AppData{{}}), \
+         C.AzAppConfig_create())\n\tC.AzApp_run(&app, window)\n}}\n",
+        title = one_line(&app.title),
+        title_lit = v_string(&app.title),
+    )
 }
 
 fn uses_nonfinite(m: &Module) -> bool {
@@ -222,6 +495,10 @@ impl CodegenBackend for V {
         "v"
     }
 
+    fn exports_dom(&self) -> bool {
+        true
+    }
+
     fn emit_module(&self, m: &Module) -> String {
         let mut out = String::from(
             "// Generated by azul-css codegen (V). Do not edit by hand.\nmodule main\n\nimport \
@@ -234,16 +511,35 @@ impl CodegenBackend for V {
             out.push('\n');
             out.push_str(&item_fn(item).1);
         }
+        if let Some(lib) = &m.library {
+            out.push_str(&v_registration(m, lib));
+        }
         out
     }
 
     fn emit_project_files(&self, m: &Module) -> Vec<GeneratedFile> {
+        if m.app.is_some() {
+            return vec![
+                GeneratedFile {
+                    path: "ui.v".to_string(),
+                    contents: self.emit_module(m),
+                },
+                GeneratedFile {
+                    path: "main.v".to_string(),
+                    contents: v_app_main(m),
+                },
+            ];
+        }
         let mut main = String::from(
             "// Copy target/codegen/azul.v to ./azul/ and libazul here, then: v run .\nmodule \
              main\n\nfn main() {\n",
         );
         for item in m.items.iter().filter(|i| item_fn(i).0) {
             let name = item.name.snake();
+            if item.ty == "Dom" {
+                main.push_str(&format!("\t_ := {name}()\n\tprintln('{name}: built')\n"));
+                continue;
+            }
             main.push_str(&format!(
                 "\t{name}_value := {name}()\n\tprintln('{name}: ${{{name}_value.len}} \
                  properties')\n"
