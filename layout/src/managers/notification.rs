@@ -73,6 +73,12 @@ pub enum NotificationRequest {
 /// Bound on both queues. A target whose dll never drains the request queue
 /// (a web build) and an app that never runs its loop must not grow either
 /// without limit; 256 outstanding notifications is far past any real use.
+///
+/// POSTS stop at this bound (a post that does not fit is reported as
+/// `Failed`, [`reject_notification`]). A WITHDRAW has no event to report a
+/// refusal through, and a lost one leaves a notification on screen whose
+/// callback still fires - so withdraws may use as many slots again, room
+/// posts can never take.
 pub const MAX_QUEUED_REQUESTS: usize = 256;
 /// See [`MAX_QUEUED_REQUESTS`]; the tray's mailbox uses the same bound.
 pub const MAX_QUEUED_EVENTS: usize = 256;
@@ -92,10 +98,15 @@ pub fn push_notification_request(request: NotificationRequest) -> bool {
 pub fn try_push_notification_request(
     request: NotificationRequest,
 ) -> Result<(), NotificationRequest> {
+    let bound = match &request {
+        NotificationRequest::Post(_) => MAX_QUEUED_REQUESTS,
+        // See `MAX_QUEUED_REQUESTS`: the headroom posts cannot take.
+        NotificationRequest::Withdraw(_) => 2 * MAX_QUEUED_REQUESTS,
+    };
     let mut q = PENDING_REQUESTS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if q.len() >= MAX_QUEUED_REQUESTS {
+    if q.len() >= bound {
         return Err(request);
     }
     q.push(request);
@@ -234,18 +245,26 @@ pub fn has_queued_deliveries() -> bool {
 
 /// A post that never reached the backend - the request queue had no room -
 /// reported as a `Failed` event instead of dropped: to the notification's own
-/// callback as a waiting delivery, or, without one, through the mailbox,
-/// where routing hands an id it never admitted to the app-level handler.
-/// Returns `false` if even that queue was full.
+/// callback, or, without one, to the app-level handler, as a waiting
+/// delivery.
+///
+/// Never through the mailbox: routing would take the id for whatever an
+/// EARLIER post under it left - hand this failure to the notification still
+/// on screen (and end it, although the post that failed replaced nothing) or
+/// swallow it as the trailing close of one that ended. A callback-less post
+/// in an app without a handler ends silently, as routing ends its events.
+/// Returns `false` if the queue of waiting deliveries was full too.
 pub fn reject_notification(notification: Notification, reason: AzString) -> bool {
     let mut event = NotificationEvent::failed(notification.id.clone(), reason);
     event.payload = notification.payload.clone();
-    match notification.callback {
-        OptionNotificationCallback::Some(callback) => {
-            queue_notification_delivery(NotificationDelivery { callback, event })
-        }
-        OptionNotificationCallback::None => queue_notification_event(event),
-    }
+    let callback = match notification.callback {
+        OptionNotificationCallback::Some(callback) => callback,
+        OptionNotificationCallback::None => match app_notification_handler() {
+            OptionNotificationCallback::Some(handler) => handler,
+            OptionNotificationCallback::None => return true,
+        },
+    };
+    queue_notification_delivery(NotificationDelivery { callback, event })
 }
 
 // ────────── Routing ────────────────────────────────────────────────────

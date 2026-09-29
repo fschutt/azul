@@ -5553,7 +5553,9 @@ impl CallbackInfo {
     }
 
     /// Take the notification posted under `id` off the screen. Its callback
-    /// is forgotten: a withdrawn notification reports nothing more.
+    /// is forgotten: a withdrawn notification reports nothing more. A
+    /// withdraw still fits when posts filled the request queue (it has room
+    /// they cannot take).
     pub fn withdraw_notification(&mut self, id: AzString) {
         crate::managers::notification::push_notification_request(
             crate::managers::notification::NotificationRequest::Withdraw(id),

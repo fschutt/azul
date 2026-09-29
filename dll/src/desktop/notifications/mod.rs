@@ -270,7 +270,13 @@ impl NotificationService {
             let mut event =
                 NotificationEvent::failed(notification.id.clone(), AzString::from(reason));
             event.payload = notification.payload.clone();
-            queue::queue_notification_event(event);
+            if !queue::queue_notification_event(event) {
+                crate::plog_warn!(
+                    "[notifications] the failure of {:?} was not reported to the app: the \
+                     event mailbox is full",
+                    notification.id.as_str()
+                );
+            }
         }
     }
 
