@@ -2426,4 +2426,208 @@ mod autotest_generated {
             "an explicit page click always lands in range"
         );
     }
+
+    /// The click restyle writes the colours of the theme the bar was BUILT in
+    /// (read back from its marker class): a flora pager must not be repainted
+    /// in flat's white and blue on the first click.
+    #[test]
+    fn a_click_on_a_flora_pagination_restyles_in_flora_s_colours() {
+        use crate::widgets::themes::{flora, theme_checks as tc, UiTheme};
+
+        let (styled, state) = flatten(Pagination::create(1, 3).with_theme(UiTheme::Flora));
+        let (_, changes) = run_click(Some(styled), page_node(2), state);
+        let writes: Vec<(usize, CssProperty)> = changes
+            .iter()
+            .map(|c| match c {
+                CallbackChange::ChangeNodeCssProperties {
+                    node_id,
+                    properties,
+                    ..
+                } => (node_id.index(), properties.as_ref()[0].clone()),
+                other => panic!("unexpected change: {other:?}"),
+            })
+            .collect();
+        let bg_of = |node: usize| {
+            writes
+                .iter()
+                .find(|(n, p)| *n == node && matches!(p, CssProperty::BackgroundContent(_)))
+                .map(|(_, p)| tc::bg_layers(p))
+        };
+        let ink_of = |node: usize| {
+            writes.iter().find_map(|(n, p)| match p {
+                CssProperty::TextColor(v) if *n == node => v.get_property().map(|c| c.inner),
+                _ => None,
+            })
+        };
+
+        let page1 = bg_of(page_node(1)).expect("page 1 is restyled");
+        assert!(
+            page1 == vec![flora::RAISED_FACE_LIGHT] || page1 == vec![flora::RAISED_FACE_DARK],
+            "a page that is no longer current goes back to flora paper: {page1:?}"
+        );
+        let page2 = bg_of(page_node(2)).expect("page 2 is restyled");
+        assert!(
+            matches!(page2.first(), Some(StyleBackgroundContent::LinearGradient(_))),
+            "the new current page is the sunken stone: {page2:?}"
+        );
+        assert_eq!(ink_of(page_node(2)), Some(flora::LIGHT_ON_ACC));
+
+        // A flat pager still writes flat's plain accent.
+        let (styled, state) = flatten(Pagination::create(1, 3).with_theme(UiTheme::Flat));
+        let (_, changes) = run_click(Some(styled), page_node(2), state);
+        assert!(restyle(&changes)
+            .iter()
+            .any(|(n, bg, fg)| *n == page_node(2) && *bg == ACCENT_BG_COLOR && *fg == ACTIVE_TEXT));
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    //! Pagination's theme is a DOM-level choice: the buttons are built from
+    //! the skin of the theme the pager carries, flat by default, and the
+    //! click restyle writes that theme's colours (it reads the theme back
+    //! from the marker class on the bar).
+
+    use azul_core::dom::Dom;
+    use azul_css::{
+        dynamic_selector::PseudoStateType,
+        props::{basic::color::ColorU, style::StyleBackgroundContent},
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, system_palette, theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLAT: &str = "__azul-theme-flat";
+    const FLORA: &str = "__azul-theme-flora";
+
+    /// `[Prev, 1, 2, 3, Next]` with page 2 current.
+    fn bar(theme: Option<UiTheme>) -> Dom {
+        let p = Pagination::create(2, 3);
+        match theme {
+            Some(t) => p.with_theme(t).dom(),
+            None => p.dom(),
+        }
+    }
+
+    fn button(dom: &Dom, i: usize) -> &Dom {
+        &dom.children.as_ref()[i]
+    }
+
+    fn layers(node: &Dom, dark: bool) -> Vec<StyleBackgroundContent> {
+        tc::background(node, dark)
+            .map(|p| tc::bg_layers(&p))
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_pagination_without_a_theme_renders_flat() {
+        let p = Pagination::create(1, 3);
+        assert_eq!(p.theme, OptionUiTheme::None);
+        let dom = p.dom();
+        assert!(tc::has_class(&dom, FLAT));
+        assert!(tc::has_class(&dom, "__azul-native-pagination"));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_agree() {
+        let mut a = Pagination::create(1, 3);
+        a.set_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(a, Pagination::create(1, 3).with_theme(UiTheme::Flora));
+    }
+
+    #[test]
+    fn a_flat_pagination_keeps_its_look_and_takes_the_desktop_palette_in_the_dark() {
+        let dom = bar(Some(UiTheme::Flat));
+        let current = button(&dom, 2);
+        let other = button(&dom, 1);
+        assert_eq!(
+            tc::background(current, false).and_then(|p| tc::bg_color(&p)),
+            Some(ColorU::rgb(13, 110, 253)),
+            "the accent page"
+        );
+        assert_eq!(
+            tc::background(other, false).and_then(|p| tc::bg_color(&p)),
+            Some(ColorU::rgb(255, 255, 255))
+        );
+        assert_eq!(layers(other, true), system_palette::BUTTON_FACE.as_ref().to_vec());
+    }
+
+    #[test]
+    fn a_flora_pagination_is_raised_paper_with_the_current_page_a_sunken_stone() {
+        let dom = bar(Some(UiTheme::Flora));
+        assert!(tc::has_class(&dom, FLORA));
+        let other = button(&dom, 1);
+        assert_eq!(layers(other, false), vec![flora::RAISED_FACE_LIGHT]);
+        assert_eq!(layers(other, true), vec![flora::RAISED_FACE_DARK]);
+        assert_eq!(tc::text_color(other, false), Some(flora::LIGHT_INK));
+        assert_eq!(tc::text_color(other, true), Some(flora::DARK_INK));
+        assert_eq!(tc::border_top_color(other, false, None), Some(flora::LIGHT_BD2));
+        assert_eq!(tc::border_top_color(other, true, None), Some(flora::DARK_BD2));
+
+        let current = button(&dom, 2);
+        for dark in [false, true] {
+            let stone = layers(current, dark);
+            assert!(
+                matches!(stone.first(), Some(StyleBackgroundContent::LinearGradient(_))),
+                "dark={dark}: the current page is the sunken accent stone: {stone:?}"
+            );
+            assert!(stone.len() > 1, "dark={dark}: the stone carries its sunken rig");
+            assert_eq!(tc::text_color(current, dark), Some(flora::LIGHT_ON_ACC));
+        }
+    }
+
+    #[test]
+    fn a_flora_pagination_greys_out_the_end_it_cannot_go_past() {
+        let dom = Pagination::create(1, 3).with_theme(UiTheme::Flora).dom();
+        let prev = button(&dom, 0);
+        assert_eq!(
+            tc::background(prev, false).and_then(|p| tc::bg_color(&p)),
+            Some(flora::LIGHT_DISBG)
+        );
+        assert_eq!(
+            tc::background(prev, true).and_then(|p| tc::bg_color(&p)),
+            Some(flora::DARK_DISBG)
+        );
+        assert_eq!(tc::text_color(prev, false), Some(flora::LIGHT_DISTX));
+        assert_eq!(tc::text_color(prev, true), Some(flora::DARK_DISTX));
+    }
+
+    #[test]
+    fn a_flora_page_button_hovers_and_presses_like_flora_paper() {
+        let dom = bar(Some(UiTheme::Flora));
+        let other = button(&dom, 1);
+        for (state, light, dark) in [
+            (PseudoStateType::Hover, flora::HOVER_FACE_LIGHT, flora::HOVER_FACE_DARK),
+            (PseudoStateType::Active, flora::PRESSED_FACE_LIGHT, flora::PRESSED_FACE_DARK),
+        ] {
+            let at = |d: bool| {
+                tc::resolve(other, CssPropertyType::BackgroundContent, d, Some(state))
+                    .map(|p| tc::bg_layers(&p))
+            };
+            assert_eq!(at(false), Some(vec![light]), "{state:?}");
+            assert_eq!(at(true), Some(vec![dark]), "{state:?} dark");
+        }
+    }
+
+    #[test]
+    fn every_page_button_shows_a_focus_ring_in_every_theme_and_mode() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = bar(Some(theme));
+            assert_eq!(tc::focusable(&dom).len(), 5, "Prev, three pages, Next");
+            tc::assert_theme_invariants(&format!("pagination {theme:?}"), &dom);
+        }
+        let dom = bar(Some(UiTheme::Flora));
+        let other = button(&dom, 1);
+        assert_eq!(tc::focus_ring_color(other, false), Some(flora::LIGHT_ACC));
+        assert_eq!(tc::focus_ring_color(other, true), Some(flora::DARK_GLOW));
+    }
+
+    #[test]
+    fn the_theme_changes_the_look_not_the_accessibility_tree() {
+        let flat = bar(Some(UiTheme::Flat));
+        let flora_dom = bar(Some(UiTheme::Flora));
+        assert_eq!(tc::a11y_outline(&flat).len(), 5);
+        assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora_dom));
+    }
 }

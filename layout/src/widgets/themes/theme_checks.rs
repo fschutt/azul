@@ -133,10 +133,17 @@ pub(crate) fn border_top_color(
     }
 }
 
-/// Whether `node` shows a focus ring in the light or dark theme: all four
-/// border edges have a width, and focusing changes each edge's colour to an
-/// opaque one.
+/// Whether `node` shows a focus ring in the light or dark theme: either all
+/// four border edges have a width and focusing changes each edge's colour to
+/// an opaque one ([`has_border_ring`]), or focusing lays an opaque inset /
+/// outset shadow ring over the box ([`has_shadow_ring`] - the ring a joined
+/// button bar uses, whose inner items share their side borders).
 pub(crate) fn has_focus_ring(node: &Dom, dark: bool) -> bool {
+    has_border_ring(node, dark) || has_shadow_ring(node, dark)
+}
+
+/// The border form of [`has_focus_ring`].
+pub(crate) fn has_border_ring(node: &Dom, dark: bool) -> bool {
     use CssPropertyType as T;
     let edges = [
         (T::BorderTopWidth, T::BorderTopColor),
@@ -148,21 +155,70 @@ pub(crate) fn has_focus_ring(node: &Dom, dark: bool) -> bool {
         let has_width = resolve(node, *w, dark, Some(PseudoStateType::Focus)).is_some();
         let rest = resolve(node, *c, dark, None);
         let focus = resolve(node, *c, dark, Some(PseudoStateType::Focus));
-        let opaque = match &focus {
-            Some(CssProperty::BorderTopColor(v)) => v.get_property().is_some_and(|c| c.inner.a > 0),
-            Some(CssProperty::BorderRightColor(v)) => {
-                v.get_property().is_some_and(|c| c.inner.a > 0)
-            }
-            Some(CssProperty::BorderBottomColor(v)) => {
-                v.get_property().is_some_and(|c| c.inner.a > 0)
-            }
-            Some(CssProperty::BorderLeftColor(v)) => {
-                v.get_property().is_some_and(|c| c.inner.a > 0)
-            }
-            _ => false,
-        };
+        let opaque = focus.as_ref().and_then(border_color).is_some_and(|c| c.a > 0);
         has_width && opaque && focus != rest
     })
+}
+
+/// The colour of a border-colour declaration.
+pub(crate) fn border_color(p: &CssProperty) -> Option<ColorU> {
+    match p {
+        CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
+        CssProperty::BorderRightColor(v) => v.get_property().map(|c| c.inner),
+        CssProperty::BorderBottomColor(v) => v.get_property().map(|c| c.inner),
+        CssProperty::BorderLeftColor(v) => v.get_property().map(|c| c.inner),
+        _ => None,
+    }
+}
+
+/// The shadow form of [`has_focus_ring`]: a box-shadow declared for `:focus`
+/// in that mode, opaque, with a spread or blur, that the resting box does
+/// not have.
+pub(crate) fn has_shadow_ring(node: &Dom, dark: bool) -> bool {
+    use CssPropertyType as T;
+    [T::BoxShadowTop, T::BoxShadowRight, T::BoxShadowBottom, T::BoxShadowLeft]
+        .iter()
+        .any(|ty| {
+            let focus = resolve(node, *ty, dark, Some(PseudoStateType::Focus));
+            let rest = resolve(node, *ty, dark, None);
+            let ringed = focus.as_ref().and_then(shadow_color_and_reach).is_some_and(
+                |(c, reach)| c.a > 0 && reach,
+            );
+            ringed && focus != rest
+        })
+}
+
+/// The colour of a box-shadow declaration, and whether it reaches past a
+/// hairline (a spread or a blur).
+pub(crate) fn shadow_color_and_reach(p: &CssProperty) -> Option<(ColorU, bool)> {
+    let v = match p {
+        CssProperty::BoxShadowTop(v)
+        | CssProperty::BoxShadowRight(v)
+        | CssProperty::BoxShadowBottom(v)
+        | CssProperty::BoxShadowLeft(v) => v,
+        _ => return None,
+    };
+    let s = v.get_property()?.as_ref();
+    let reach = s.spread_radius.inner.number.get() > 0.0 || s.blur_radius.inner.number.get() > 0.0;
+    Some((s.color, reach))
+}
+
+/// The focus-ring colour of `node` in the light or dark theme: the top
+/// border's colour under `:focus`, or the focus shadow's.
+pub(crate) fn focus_ring_color(node: &Dom, dark: bool) -> Option<ColorU> {
+    use CssPropertyType as T;
+    let focus = Some(PseudoStateType::Focus);
+    if has_border_ring(node, dark) {
+        return resolve(node, T::BorderTopColor, dark, focus).as_ref().and_then(border_color);
+    }
+    [T::BoxShadowTop, T::BoxShadowRight, T::BoxShadowBottom, T::BoxShadowLeft]
+        .iter()
+        .find_map(|ty| {
+            let f = resolve(node, *ty, dark, focus)?;
+            (Some(&f) != resolve(node, *ty, dark, None).as_ref())
+                .then(|| shadow_color_and_reach(&f).map(|(c, _)| c))
+                .flatten()
+        })
 }
 
 /// Every node of `dom` a user can Tab to. A roving group's other items
