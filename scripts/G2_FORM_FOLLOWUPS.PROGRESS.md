@@ -64,11 +64,14 @@ Nothing is compiled by this agent (house rules); the parent compiles and runs th
 - item 9: RED `655aeb03a`, fix = next commit (`CallbackInfo::get_form_data(node) ->
   OptionFormData`, an inherent impl in `widgets/form.rs`; `OptionFormData` via `impl_option!`)
 
+- item 9 fix `dd50eb26b`; `f4dc1e7e2` (`FileInputState::create_with_paths`)
+- report `scripts/G2_FORM_FOLLOWUPS_2026_09_29.md` (this commit)
+
 ## IN PROGRESS
-- report `scripts/G2_FORM_FOLLOWUPS_2026_09_29.md`
+- nothing
 
 ## NEXT
-- report, final checkpoint
+- (parent) compile, run the suites in the report, api.json autofix (list in the report), RED pass
 
 ## Open questions
 - none yet
