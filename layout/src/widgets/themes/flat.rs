@@ -4359,22 +4359,34 @@ pub fn menubar(m: crate::widgets::menubar::Menubar) -> Dom {
 }
 
 // ==== color_input ====
+//
+// The flat colour input is the widget's established swatch and Chrome-style
+// picker: a white panel in a #c8c8c8 rule, the desktop's window surface and
+// separator at night. Two things were missing. The swatch and the picker's
+// plane, hue and alpha bars are keyboard stops (arrows drive the bars) that
+// showed no focus; each now gets flat's focus halo, which moves nothing. And
+// the preview's frame and the grip's handle kept their light grey at night;
+// they take the separator, as the panel's own border does (`PREVIEW_CSS`,
+// `GRIP_HANDLE_CSS`).
 
-/// The flat colour input.
+/// The flat colour input: the established swatch and picker, with focus
+/// rings on every keyboard stop.
 #[must_use]
 pub fn color_input(c: crate::widgets::color_input::ColorInput) -> Dom {
+    use super::decl;
     use crate::widgets::color_input::{
         ColorInputLook, EYEDROPPER_CSS, GRIP_HANDLE_CSS, PANEL_CSS, PREVIEW_CSS,
     };
+    let ring = decl::focus_halo(FIELD_RING, DARK_ACC).to_vec();
     crate::widgets::color_input::build(
         c,
         &ColorInputLook {
-            swatch: Vec::new(),
+            swatch: ring.clone(),
             panel_css: PANEL_CSS,
             preview_css: PREVIEW_CSS,
             eyedropper_css: EYEDROPPER_CSS,
             grip_handle_css: GRIP_HANDLE_CSS,
-            slider_focus: Vec::new(),
+            slider_focus: ring,
             marker: None,
         },
     )

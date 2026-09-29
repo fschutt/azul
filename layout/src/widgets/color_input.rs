@@ -90,19 +90,24 @@ pub(crate) const PANEL_CSS: &str =
      1px solid #c8c8c8; border-radius: 6px; box-shadow: 0px 4px 16px rgba(0, 0, 0, 0.25); \
      font-size: 12px; color: #202020; @media (prefers-color-scheme: dark) { background: \
      system:window-background; border-color: system:separator; color: system:text; }";
-/// The established preview frame CSS (the flat look).
+/// The established preview frame CSS (the flat look). The frame's grey had
+/// no night value; it takes the desktop's separator, as the panel's own
+/// border does.
 pub(crate) const PREVIEW_CSS: &str = "position: relative; width: 28px; height: 28px; \
                                       border-radius: 4px; border: 1px solid #c8c8c8; overflow: \
-                                      hidden;";
+                                      hidden; @media (prefers-color-scheme: dark) { \
+                                      border-color: system:separator; }";
 /// The established eyedropper CSS (the flat look).
 pub(crate) const EYEDROPPER_CSS: &str =
     "display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; \
      border: 1px solid #c8c8c8; border-radius: 4px; cursor: pointer; background: #f4f4f4; \
      color: #404040; font-size: 18px; @media (prefers-color-scheme: dark) { background: \
      system:button-face; color: system:button-text; border-color: system:separator; }";
-/// The established grip-handle CSS (the flat look).
+/// The established grip-handle CSS (the flat look), with the desktop's
+/// separator as its night value (it had none).
 pub(crate) const GRIP_HANDLE_CSS: &str =
-    "width: 36px; height: 4px; border-radius: 2px; background: #c8c8c8;";
+    "width: 36px; height: 4px; border-radius: 2px; background: #c8c8c8; @media \
+     (prefers-color-scheme: dark) { background: system:separator; }";
 
 /// Callback function type invoked when the color input value changes.
 pub type ColorInputOnValueChangeCallbackType =

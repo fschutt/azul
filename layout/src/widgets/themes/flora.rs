@@ -5024,9 +5024,70 @@ pub fn menubar(m: crate::widgets::menubar::Menubar) -> Dom {
 }
 
 // ==== color_input ====
+//
+// A flora colour swatch is a sample laid in a frame: its colour inside a
+// --fl-bd2 hairline at the house radius, the frame darkening to --fl-bd3
+// under the pointer and taking flora's focus colour on focus. The picker is a
+// leaf lifted off the page (--fl-sur in a --fl-bd rule, 5px radius, a warm
+// shadow); its preview is framed like the swatch, its eyedropper is raised
+// paper in --fl-icon ink, its grip handle a --fl-bd bar. The plane, hue and
+// alpha bars ring in the accent on focus. At night every surface, rule and
+// ink takes its night value.
+//
+// The picker's strings are CSS because the picker is (its live updates restyle
+// its parts through the same channel); `@media (prefers-color-scheme: dark)`
+// carries each night value. Its shadow is written at a quarter of the alpha it
+// should show: the `box-shadow` shorthand lays the same shadow on all four of
+// azul's per-side slots, and the painter draws every one.
 
-/// The flora colour input.
+/// The flora picker panel: a leaf lifted off the page.
+const FLORA_PICKER_PANEL_CSS: &str =
+    "display: flex; flex-direction: column; gap: 8px; padding: 10px; background: #F2F1ED; \
+     border: 1px solid #C6C3BB; border-radius: 5px; box-shadow: 0px 6px 14px rgba(48, 45, 38, \
+     0.06); font-size: 12px; color: #262521; @media (prefers-color-scheme: dark) { background: \
+     #232323; border-color: #3F3F3F; color: #E7E7E7; box-shadow: 0px 6px 14px rgba(0, 0, 0, \
+     0.18); }";
+
+/// The flora preview: framed like the swatch.
+const FLORA_PICKER_PREVIEW_CSS: &str =
+    "position: relative; width: 28px; height: 28px; border-radius: 3px; border: 1px solid \
+     #B4B1A9; overflow: hidden; @media (prefers-color-scheme: dark) { border-color: #4A4A4A; }";
+
+/// The flora eyedropper: raised paper, --fl-icon ink.
+const FLORA_PICKER_EYEDROPPER_CSS: &str =
+    "display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; \
+     border: 1px solid #B4B1A9; border-radius: 3px; cursor: pointer; background: \
+     linear-gradient(#FAF9F5, #ECEAE4); color: #56544C; font-size: 18px; @media \
+     (prefers-color-scheme: dark) { background: linear-gradient(#333333, #292929); color: \
+     #BEBEBE; border-color: #4A4A4A; }";
+
+/// The flora grip handle: a --fl-bd bar.
+const FLORA_PICKER_GRIP_HANDLE_CSS: &str =
+    "width: 36px; height: 4px; border-radius: 2px; background: #C6C3BB; @media \
+     (prefers-color-scheme: dark) { background: #3F3F3F; }";
+
+/// The flora colour input: a sample in a hairline frame, and a leaf picker.
 #[must_use]
 pub fn color_input(c: crate::widgets::color_input::ColorInput) -> Dom {
-    super::flat::color_input(c)
+    use super::decl;
+    use crate::widgets::color_input::ColorInputLook;
+
+    let mut swatch = decl::border(1).to_vec();
+    swatch.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
+    swatch.extend(decl::radius(3));
+    swatch.extend(decl::hover_border_color(LIGHT_BD3, DARK_BD3));
+    swatch.extend(decl::focus_ring(LIGHT_ACC, DARK_GLOW));
+
+    crate::widgets::color_input::build(
+        c,
+        &ColorInputLook {
+            swatch,
+            panel_css: FLORA_PICKER_PANEL_CSS,
+            preview_css: FLORA_PICKER_PREVIEW_CSS,
+            eyedropper_css: FLORA_PICKER_EYEDROPPER_CSS,
+            grip_handle_css: FLORA_PICKER_GRIP_HANDLE_CSS,
+            slider_focus: decl::focus_halo(LIGHT_ACC, DARK_GLOW).to_vec(),
+            marker: Some("__azul-theme-flora"),
+        },
+    )
 }
