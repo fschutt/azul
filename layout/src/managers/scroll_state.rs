@@ -55,7 +55,6 @@ use azul_core::{
     events::{EasingFunction, EventData, EventType, SyntheticEvent},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     hit_test::ScrollPosition,
-    spaces::Inclusivity,
     styled_dom::NodeHierarchyItemId,
     task::{Duration, Instant},
 };
@@ -1169,33 +1168,10 @@ impl ScrollManager {
         self.states.values().any(|s| s.animation.is_some())
     }
 
-    /// The closest node registered as a scroll container, walking up from
-    /// `node_id`.
-    ///
-    /// `inclusivity` decides whether `node_id` itself may be the answer, and
-    /// the two cases are genuinely different questions:
-    ///
-    /// * [`Inclusivity::SelfAndAncestors`] — "which scroll box does this node live in?" A caret
-    ///   sitting on a `TextInput`'s value `<p>` lives in THAT `<p>`: it is both the IFC root and
-    ///   the horizontal scroll box.
-    /// * [`Inclusivity::AncestorsOnly`] — "which OTHER container takes over?" Momentum hand-off
-    ///   must chain outwards, and the on-screen box of a container is moved only by its ancestors'
-    ///   scrolling, never its own.
-    ///
-    /// This used to be hardcoded to ancestors-only via a `nid != node_id`
-    /// guard inside the loop, which was a live bug for the first question —
-    /// see the note on `auto_scroll_timer_callback`.
-    #[must_use]
-    pub fn find_scroll_parent(
-        &self,
-        dom_id: DomId,
-        node_id: NodeId,
-        node_hierarchy: &[azul_core::styled_dom::NodeHierarchyItem],
-        inclusivity: Inclusivity,
-    ) -> Option<NodeId> {
-        azul_core::styled_dom::hierarchy_ancestors(node_hierarchy, node_id, inclusivity)
-            .find(|nid| self.states.contains_key(&(dom_id, *nid)))
-    }
+    // "Which scroll container does this node live in / chain to" is not the
+    // manager's to answer: it follows CONTAINING BLOCKS, which only the
+    // layout tree knows (`LayoutWindow::scroll_box_of_node`). The DOM walk
+    // that stood here answered the page for a fixed box.
 
     /// Check if a node is scrollable (has overflow:scroll/auto and overflowing content)
     ///
@@ -2544,7 +2520,6 @@ mod autotest_generated {
         events::EasingFunction,
         geom::{LogicalPosition, LogicalRect, LogicalSize},
         hit_test::{FullHitTest, HitTest, OverflowingScrollNode, ScrollHitTestItem},
-        styled_dom::NodeHierarchyItem,
         task::{Duration, Instant, SystemTick, SystemTickDiff, SystemTimeDiff},
     };
 
@@ -4553,117 +4528,6 @@ mod autotest_generated {
             map.get(&100),
             Some(&(0.0, 0.0)),
             "the unscrolled root still reports (0,0)"
-        );
-    }
-
-    // ====================================================== find_scroll_parent
-    // (other: no_panic_smoke)
-
-    #[test]
-    fn find_scroll_parent_walks_up_to_the_nearest_registered_ancestor() {
-        // hierarchy: 0 (root) <- 1 <- 2  (parent field is 1-based encoded)
-        let hierarchy = [
-            NodeHierarchyItem {
-                parent: 0,
-                previous_sibling: 0,
-                next_sibling: 0,
-                last_child: 2,
-            },
-            NodeHierarchyItem {
-                parent: 1,
-                previous_sibling: 0,
-                next_sibling: 0,
-                last_child: 3,
-            },
-            NodeHierarchyItem {
-                parent: 2,
-                previous_sibling: 0,
-                next_sibling: 0,
-                last_child: 0,
-            },
-        ];
-        let m = mgr(size(100.0, 100.0), size(100.0, 500.0)); // node 0 registered
-        for incl in [Inclusivity::AncestorsOnly, Inclusivity::SelfAndAncestors] {
-            assert_eq!(
-                m.find_scroll_parent(DOM, node(2), &hierarchy, incl),
-                Some(node(0)),
-                "must skip the unregistered node 1 and find the root scroll container"
-            );
-            // No scroll container anywhere in this DOM.
-            assert_eq!(m.find_scroll_parent(DOM1, node(2), &hierarchy, incl), None);
-        }
-    }
-
-    #[test]
-    fn find_scroll_parent_inclusivity_decides_whether_the_node_answers_itself() {
-        // REGRESSION: this was hardcoded to ancestors-only, so "which scroll
-        // box does this node live in?" could never answer "this one" — which
-        // is why drag-autoscroll inside an overflowing TextInput scrolled the
-        // PAGE instead of the field (the caret's node IS the scroll box).
-        let hierarchy = [
-            NodeHierarchyItem {
-                parent: 0,
-                previous_sibling: 0,
-                next_sibling: 0,
-                last_child: 2,
-            },
-            NodeHierarchyItem {
-                parent: 1,
-                previous_sibling: 0,
-                next_sibling: 0,
-                last_child: 0,
-            },
-        ];
-        let m = mgr(size(100.0, 100.0), size(100.0, 500.0)); // node 0 registered
-        assert_eq!(
-            m.find_scroll_parent(DOM, node(0), &hierarchy, Inclusivity::SelfAndAncestors),
-            Some(node(0)),
-            "a registered node IS its own scroll box"
-        );
-        assert_eq!(
-            m.find_scroll_parent(DOM, node(0), &hierarchy, Inclusivity::AncestorsOnly),
-            None,
-            "...but never the container to CHAIN to"
-        );
-    }
-
-    #[test]
-    fn find_scroll_parent_handles_empty_and_out_of_range_hierarchies() {
-        let m = mgr(size(100.0, 100.0), size(100.0, 500.0));
-        for incl in [Inclusivity::AncestorsOnly, Inclusivity::SelfAndAncestors] {
-            // Empty slice: the budget is 0 => None, no index panic.
-            assert_eq!(m.find_scroll_parent(DOM, node(0), &[], incl), None);
-            assert_eq!(m.find_scroll_parent(DOM, node(9999), &[], incl), None);
-            // Node id past the end of the hierarchy: still no panic.
-            let hierarchy = [NodeHierarchyItem::zeroed()];
-            assert_eq!(
-                m.find_scroll_parent(DOM, node(9999), &hierarchy, incl),
-                None
-            );
-        }
-    }
-
-    #[test]
-    fn find_scroll_parent_terminates_on_a_cyclic_hierarchy() {
-        // 0 -> 1 -> 0 (parent is 1-based encoded, so `parent: 2` means node 1).
-        let hierarchy = [
-            NodeHierarchyItem {
-                parent: 2,
-                previous_sibling: 0,
-                next_sibling: 0,
-                last_child: 0,
-            },
-            NodeHierarchyItem {
-                parent: 1,
-                previous_sibling: 0,
-                next_sibling: 0,
-                last_child: 0,
-            },
-        ];
-        let m = ScrollManager::new();
-        assert_eq!(
-            m.find_scroll_parent(DOM, node(0), &hierarchy, Inclusivity::AncestorsOnly),
-            None
         );
     }
 

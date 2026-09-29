@@ -14870,9 +14870,7 @@ impl LayoutWindow {
     }
 
     /// The scroll box the laid-out box `start` of `dom` lives in, ITSELF
-    /// INCLUDED: the nearest box on its layout ancestor chain that layout
-    /// made a scroll container (`scrollbar_info`) and that is registered with
-    /// the `ScrollManager` (it overflows).
+    /// INCLUDED - see [`Self::scroll_box_in_chain`].
     ///
     /// Keyed on a LAYOUT index, so an anonymous IFC root (which has no DOM
     /// node to look its box up by) is answered for the box it is, not for
@@ -14882,26 +14880,72 @@ impl LayoutWindow {
     /// [`TextTarget::scroll_box`]: crate::text_block::TextTarget::scroll_box
     #[must_use]
     pub fn scroll_box_of_layout_node(&self, dom: DomId, start: LayoutNodeId) -> Option<DomNodeId> {
-        let layout_tree = &self.layout_results.get(&dom)?.layout_tree;
         // SELF-inclusive: "which scroll box does this node live in?" — a
         // TextInput's value `<p>` is both the caret's IFC root and the
         // horizontal scroll box the caret reveal must move.
-        layout_tree
-            .ancestor_chain(start, Inclusivity::SelfAndAncestors)
-            .filter(|idx| {
-                // Has scrollbar info (i.e. layout thinks it can scroll)...
-                layout_tree
-                    .warm(*idx)
-                    .and_then(|w| w.scrollbar_info.as_ref())
-                    .is_some()
-            })
-            .filter_map(|idx| layout_tree.get(idx).and_then(|n| n.dom_node_id))
-            // ...and a registered scroll state (i.e. it actually overflows).
-            .find(|check| self.scroll_manager.get_scroll_state(dom, *check).is_some())
+        self.scroll_box_in_chain(dom, start, Inclusivity::SelfAndAncestors)
             .map(|check| DomNodeId {
                 dom,
                 node: NodeHierarchyItemId::from_crate_internal(Some(check)),
             })
+    }
+
+    /// The scroll box DOM node `node` of `dom` lives in (its principal box):
+    /// [`Self::scroll_box_in_chain`] by DOM node. `inclusivity` decides
+    /// whether `node` may answer itself - [`Inclusivity::AncestorsOnly`] is
+    /// "which OTHER box takes over" (momentum hand-off), and
+    /// [`Inclusivity::SelfAndAncestors`] "which box does this live in" (a
+    /// drag's autoscroll).
+    ///
+    /// THE answer behind `CallbackInfo::find_scroll_parent` /
+    /// `find_scroll_target` and [`Self::drag_autoscroll_box`]. `None` for a
+    /// node that was not laid out.
+    #[must_use]
+    pub fn scroll_box_of_node(
+        &self,
+        dom: DomId,
+        node: NodeId,
+        inclusivity: Inclusivity,
+    ) -> Option<NodeId> {
+        let start = *self
+            .layout_results
+            .get(&dom)?
+            .layout_tree
+            .dom_to_layout
+            .get(&node)?
+            .first()?;
+        self.scroll_box_in_chain(dom, start, inclusivity)
+    }
+
+    /// The innermost box of `start`'s `ScrollChain` that the `ScrollManager`
+    /// scrolls (it has a registered state): the box a gesture on `start`
+    /// scrolls, and the one whose scroll moves it.
+    ///
+    /// By CONTAINING BLOCK, the rule the display list paints by: an
+    /// `absolute` box is not scrolled by a non-positioned scroll box between
+    /// it and its containing block, and a `fixed` box by no frame at all -
+    /// the page's included. Walking DOM parents (`find_scroll_parent`'s old
+    /// rule) or layout parents (this function's) answered those boxes, so a
+    /// drag over a fixed header scrolled the page under it.
+    fn scroll_box_in_chain(
+        &self,
+        dom: DomId,
+        start: LayoutNodeId,
+        inclusivity: Inclusivity,
+    ) -> Option<NodeId> {
+        let layout_result = self.layout_results.get(&dom)?;
+        crate::solver3::scroll_chain::ScrollChain::of(
+            &layout_result.layout_tree,
+            &layout_result.styled_dom,
+            &layout_result.scroll_ids,
+            start,
+            inclusivity,
+        )
+        .links
+        .iter()
+        .rev()
+        .map(|link| link.node)
+        .find(|node| self.scroll_manager.get_scroll_state(dom, *node).is_some())
     }
 
     /// The scroll box a drag's autoscroll moves, for a drag anchored on
@@ -14917,8 +14961,8 @@ impl LayoutWindow {
     /// (or nothing) instead of the field.
     ///
     /// Any other drag (a node drag, an OS file hover) scrolls the box
-    /// `anchor` LIVES IN - itself included - among its DOM ancestors that
-    /// carry a scroll state.
+    /// `anchor` LIVES IN - itself included - by containing block
+    /// ([`Self::scroll_box_of_node`]).
     ///
     /// [`TextTarget::scroll_box`]: crate::text_block::TextTarget::scroll_box
     #[must_use]
@@ -14932,11 +14976,7 @@ impl LayoutWindow {
             }
         }
         let node = anchor.node.into_crate_internal()?;
-        let layout_result = self.layout_results.get(&anchor.dom)?;
-        let hierarchy: &[azul_core::styled_dom::NodeHierarchyItem] =
-            layout_result.styled_dom.node_hierarchy.as_ref();
-        self.scroll_manager
-            .find_scroll_parent(anchor.dom, node, hierarchy, Inclusivity::SelfAndAncestors)
+        self.scroll_box_of_node(anchor.dom, node, Inclusivity::SelfAndAncestors)
             .map(|found| DomNodeId {
                 dom: anchor.dom,
                 node: NodeHierarchyItemId::from_crate_internal(Some(found)),

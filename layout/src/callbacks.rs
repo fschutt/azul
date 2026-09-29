@@ -6688,19 +6688,17 @@ impl CallbackInfo {
             .into()
     }
 
+    /// By containing block, the rule the display list paints by
+    /// (`LayoutWindow::scroll_box_of_node`): a fixed box answers no
+    /// container, not the page under it.
     fn find_scroll_container(
         &self,
         dom_id: DomId,
         node_id: NodeId,
         inclusivity: Inclusivity,
     ) -> Option<NodeId> {
-        let layout_window = self.get_layout_window();
-        let layout_results = &layout_window.layout_results;
-        let lr = layout_results.get(&dom_id)?;
-        let node_hierarchy: &[azul_core::styled_dom::NodeHierarchyItem] =
-            lr.styled_dom.node_hierarchy.as_ref();
-        self.get_scroll_manager()
-            .find_scroll_parent(dom_id, node_id, node_hierarchy, inclusivity)
+        self.get_layout_window()
+            .scroll_box_of_node(dom_id, node_id, inclusivity)
     }
 
     /// Get a clone of the scroll input queue for consuming pending inputs.

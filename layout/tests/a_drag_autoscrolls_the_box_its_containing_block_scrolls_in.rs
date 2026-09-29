@@ -20,6 +20,7 @@ use azul_core::{
     dom::{Dom, DomId, DomNodeId, NodeId},
     geom::LogicalSize,
     resources::RendererResources,
+    spaces::Inclusivity,
     styled_dom::{NodeHierarchyItemId, StyledDom},
 };
 use azul_layout::{
@@ -84,6 +85,16 @@ fn a_drag_over_an_absolute_box_does_not_scroll_a_box_that_does_not_move_it() {
         "an in-flow child is scrolled by the scroller"
     );
     assert_eq!(lw.find_scrollable_ancestor(node(3)), Some(scroller));
+    // The two questions `inclusivity` tells apart: the scroller is the box
+    // it lives in itself, and chains to nothing (the page fits).
+    assert_eq!(
+        lw.scroll_box_of_node(DomId::ROOT_ID, NodeId::new(1), Inclusivity::SelfAndAncestors),
+        Some(NodeId::new(1))
+    );
+    assert_eq!(
+        lw.scroll_box_of_node(DomId::ROOT_ID, NodeId::new(1), Inclusivity::AncestorsOnly),
+        None
+    );
 
     assert_eq!(
         lw.drag_autoscroll_box(node(4)),
