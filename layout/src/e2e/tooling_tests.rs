@@ -257,3 +257,150 @@ fn a_summary_line_reads_back_into_the_verdict_that_wrote_it() {
     assert_eq!(E2eVerdict::parse_summary(line), Some(verdict), "{line}");
     assert_eq!(E2eVerdict::parse_summary("running 2 tests"), None);
 }
+
+// ==== the notification op and `assert_notification`'s payload ====
+
+/// The notification tests share the process-wide mailbox and recorder.
+static NOTIFICATION_GLOBALS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn notification_globals() -> std::sync::MutexGuard<'static, ()> {
+    NOTIFICATION_GLOBALS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// A scenario that runs every step, so each step's own verdict is visible.
+fn every_step(name: &str, steps: serde_json::Value) -> E2eTest {
+    serde_json::from_value(serde_json::json!({
+        "name": name,
+        "config": { "continue_on_failure": true },
+        "steps": steps,
+    }))
+    .expect("the scenario literal is a valid E2eTest")
+}
+
+fn step_errors(result: &E2eTestResult) -> Vec<String> {
+    result.steps.iter().filter_map(|s| s.error.clone()).collect()
+}
+
+/// A scenario could post a notification and assert it was shown, but never
+/// click it: no op put an event in front of the notification's callback.
+/// `notification_event` queues one into the mailbox the platform backends
+/// post to, so the dll's pump routes it to the callback (with the payload
+/// the post carried, when the event brings none) - the path a real click
+/// takes after the OS.
+#[test]
+fn the_notification_event_op_queues_a_click_an_action_and_a_dismissal_with_their_payload() {
+    use azul_core::notification::NotificationEventType;
+    use crate::managers::notification::drain_notification_events;
+
+    let _globals = notification_globals();
+    drop(drain_notification_events());
+
+    let result = run_e2e_test(&every_step(
+        "notification_events",
+        serde_json::json!([
+            { "op": "notification_event", "id": "e1-click", "kind": "click", "payload": "doc-1" },
+            { "op": "notification_event", "id": "e1-action", "kind": "action",
+              "action": "open", "payload": "doc-2" },
+            { "op": "notification_event", "id": "e1-dismiss", "kind": "dismiss",
+              "reason": "closed by the user" },
+            { "op": "notification_event", "id": "e1-fail", "kind": "failed",
+              "reason": "no notification server" },
+            { "op": "notification_event", "id": "e1-launch", "kind": "click",
+              "launched_app": true }
+        ]),
+    ));
+    let events = drain_notification_events();
+
+    assert_eq!(result.status, "pass", "{:#?}", step_errors(&result));
+    let event = |id: &str| {
+        events
+            .iter()
+            .find(|e| e.notification_id.as_str() == id)
+            .unwrap_or_else(|| panic!("{id} was queued: {events:#?}"))
+            .clone()
+    };
+    let click = event("e1-click");
+    assert_eq!(click.kind, NotificationEventType::Activated);
+    assert_eq!(click.payload.as_str(), "doc-1");
+    assert!(!click.launched_app);
+    let action = event("e1-action");
+    assert_eq!(action.kind, NotificationEventType::ActionInvoked);
+    assert_eq!(action.action_id.as_str(), "open");
+    assert_eq!(action.payload.as_str(), "doc-2");
+    let dismiss = event("e1-dismiss");
+    assert_eq!(dismiss.kind, NotificationEventType::Dismissed);
+    assert_eq!(dismiss.reason.as_str(), "closed by the user");
+    assert_eq!(dismiss.payload.as_str(), "", "no payload: routing fills the post's in");
+    let failed = event("e1-fail");
+    assert_eq!(failed.kind, NotificationEventType::Failed);
+    assert_eq!(failed.reason.as_str(), "no notification server");
+    assert!(event("e1-launch").launched_app);
+}
+
+/// A typo'd kind, an action without its button id and a missing id are
+/// refused by name, and nothing is queued for them.
+#[test]
+fn a_notification_event_needs_an_id_a_known_kind_and_an_action_for_a_button() {
+    use crate::managers::notification::drain_notification_events;
+
+    let _globals = notification_globals();
+    drop(drain_notification_events());
+
+    let result = run_e2e_test(&every_step(
+        "notification_event_refusals",
+        serde_json::json!([
+            { "op": "notification_event", "id": "e1-typo", "kind": "clicked" },
+            { "op": "notification_event", "id": "e1-no-button", "kind": "action" },
+            { "op": "notification_event", "id": "", "kind": "click" }
+        ]),
+    ));
+    let events = drain_notification_events();
+
+    let errors = step_errors(&result);
+    assert_eq!(errors.len(), 3, "every step is refused: {errors:#?}");
+    assert!(
+        errors[0].contains("clicked") && errors[0].contains("dismiss"),
+        "the unknown kind is named, with the known ones: {errors:#?}"
+    );
+    assert!(errors[1].contains("action"), "{errors:#?}");
+    assert!(events.is_empty(), "nothing was queued: {events:#?}");
+}
+
+/// `assert_notification` could check a post's id, title, body, buttons and
+/// withdrawn state, but not the `payload` the app attached - the one field
+/// an app-level handler in a relaunched process gets back.
+#[test]
+fn assert_notification_checks_the_payload_a_notification_was_posted_with() {
+    use azul_core::notification::Notification;
+    use azul_css::AzString;
+    use crate::managers::notification::record_posted_notification;
+
+    let _globals = notification_globals();
+    record_posted_notification(
+        &Notification::create(AzString::from("e1-payload"), AzString::from("E1"))
+            .with_payload(AzString::from("doc-42")),
+    );
+
+    let same = run_e2e_test(&every_step(
+        "payload_matches",
+        serde_json::json!([
+            { "op": "assert_notification", "id": "e1-payload", "payload": "doc-42" }
+        ]),
+    ));
+    let other = run_e2e_test(&every_step(
+        "payload_differs",
+        serde_json::json!([
+            { "op": "assert_notification", "id": "e1-payload", "payload": "doc-43" }
+        ]),
+    ));
+
+    assert_eq!(same.status, "pass", "{:#?}", step_errors(&same));
+    assert_eq!(other.status, "fail", "a different payload fails");
+    assert!(
+        step_errors(&other).iter().any(|e| e.contains("payload")),
+        "the failure says what differs: {:#?}",
+        step_errors(&other)
+    );
+}
