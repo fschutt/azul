@@ -212,6 +212,10 @@ pub mod divider;
 pub mod drop_down;
 /// File input widget
 pub mod file_input;
+/// `<form>`: a container whose submit collects its NAMED controls into a
+/// `FormData` for the app and whose reset restores their initial values;
+/// submit / reset / image buttons act on it. See `form.rs`.
+pub mod form;
 /// Frame container widget
 pub mod frame;
 /// Label widget (centered text)
