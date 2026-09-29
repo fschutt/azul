@@ -40,11 +40,15 @@ Nothing is compiled by this agent (house rules); the parent compiles and runs th
   `<button>` takes its `<input>` row; text content = label, rich content kept; Button widget roots
   (class `__azul-native-button`) never replaced)
 
+- item 3 fix `4d069898c`
+- item 4: RED `bb026df70`, fix = next commit (`widgets::form::form_state_of`: dataset, else the
+  node's own Submit handler payload; `form_for` puts the raw form's dataset back on the node)
+
 ## IN PROGRESS
-- item 4 (raw `<form>` dataset)
+- item 5 (ComboBox typed text)
 
 ## NEXT
-- items 4, 5, 8c, 7 (hand-built part), 9 (list + FFI-shaped method)
+- items 5, 8c, 7 (hand-built part), 9 (list + FFI-shaped method)
 
 ## Open questions
 - none yet

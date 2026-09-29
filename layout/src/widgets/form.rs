@@ -24,7 +24,9 @@
 //!   initial values (its HTML default) and for a submit (the user's value,
 //!   read from the window's `FormControlMemory`).
 //! * [`Form`] renders a `NodeType::Form` node (so the engine's defaults find
-//!   it) holding a [`FormStateWrapper`] as its dataset. At BUILD it records
+//!   it) holding a [`FormStateWrapper`] as its dataset (a raw `<form>` keeps
+//!   the APP's dataset there; the state is then found through the node's
+//!   `Submit` handler, [`form_state_of`]). At BUILD it records
 //!   each named control's value as the form's INITIAL [`FormData`] - HTML's
 //!   default values are the values the page was built with, and a widget is
 //!   built from the app's state.
@@ -708,19 +710,50 @@ fn current_form_data(info: &mut CallbackInfo, form: DomNodeId) -> (FormData, Vec
     )
 }
 
-/// The rendered form `node` belongs to: the nearest ancestor holding a
-/// [`FormStateWrapper`], `node` itself included.
+/// The rendered form `node` belongs to: the nearest [`Form`] node (see
+/// [`form_state_of`]), `node` itself included.
 fn enclosing_form(info: &mut CallbackInfo, node: DomNodeId) -> Option<DomNodeId> {
     let mut current = Some(node);
     while let Some(n) = current {
-        if let Some(mut dataset) = info.get_dataset(n) {
-            if dataset.downcast_ref::<FormStateWrapper>().is_some() {
-                return Some(n);
-            }
+        if form_state(info, n).is_some() {
+            return Some(n);
         }
         current = info.get_parent(n);
     }
     None
+}
+
+/// Whether `dataset` is a [`Form`]'s state.
+fn is_form_state(dataset: &RefAny) -> bool {
+    let mut dataset = dataset.clone();
+    let is_state = dataset.downcast_ref::<FormStateWrapper>().is_some();
+    is_state
+}
+
+/// The state of the form node `node`, if it is a [`Form`]'s: its dataset -
+/// or, when the APP's dataset sits there (a raw `<form>` keeps the one it
+/// carried, see `crate::form_controls`), the payload of the node's own
+/// `Submit` handler, which is the same state.
+pub(crate) fn form_state_of(node: &NodeData) -> Option<RefAny> {
+    if let Some(dataset) = node.get_dataset().filter(|ds| is_form_state(ds)) {
+        return Some(dataset.clone());
+    }
+    node.callbacks
+        .as_ref()
+        .iter()
+        .find(|c| {
+            c.callback.cb == default_on_form_submit_event as usize && is_form_state(&c.refany)
+        })
+        .map(|c| c.refany.clone())
+}
+
+/// [`form_state_of`] the rendered node `node`.
+fn form_state(info: &CallbackInfo, node: DomNodeId) -> Option<RefAny> {
+    let id = node.node.into_crate_internal()?;
+    let layout = info.get_layout_window().get_layout_result(&node.dom)?;
+    let node_data = layout.styled_dom.node_data.as_container();
+    let state = node_data.get(id).and_then(form_state_of);
+    state
 }
 
 // ---------------------------------------------------------------------------
@@ -732,12 +765,9 @@ fn enclosing_form(info: &mut CallbackInfo, node: DomNodeId) -> Option<DomNodeId>
 /// the values to the app's `on_submit`. Returns its `Update` (`DoNothing`
 /// without one, or when `form` is not a form).
 pub fn submit_form(info: &mut CallbackInfo, form: DomNodeId) -> Update {
-    let Some(mut dataset) = info.get_dataset(form) else {
+    let Some(mut dataset) = form_state(info, form) else {
         return Update::DoNothing;
     };
-    if dataset.downcast_ref::<FormStateWrapper>().is_none() {
-        return Update::DoNothing;
-    }
     let (data, invalid_nodes) = current_form_data(info, form);
 
     // A refused submit is the other moment `:user-invalid` starts to apply.
@@ -770,7 +800,7 @@ pub fn submit_form(info: &mut CallbackInfo, form: DomNodeId) -> Update {
 /// superseded), then the app's `on_reset` is handed the initial values to
 /// restore everything else from. Returns its `Update`.
 pub fn reset_form(info: &mut CallbackInfo, form: DomNodeId) -> Update {
-    let Some(mut dataset) = info.get_dataset(form) else {
+    let Some(mut dataset) = form_state(info, form) else {
         return Update::DoNothing;
     };
     let initial = match dataset.downcast_ref::<FormStateWrapper>() {

@@ -163,10 +163,7 @@ use crate::{
         },
         drop_down::{DropDown, DropDownOnChoiceChangeCallbackType},
         file_input::{FileInput, FileInputOnPathChangeCallbackType, FileInputState},
-        form::{
-            Form, FormData, FormOnResetCallbackType, FormOnSubmitCallbackType, FormStateWrapper,
-            HiddenInput,
-        },
+        form::{Form, FormData, FormOnResetCallbackType, FormOnSubmitCallbackType, HiddenInput},
         number_input::{NumberInput, NumberInputOnValueChangeCallbackType, NumberInputState},
         radio_group::{RadioGroup, RadioGroupOnChangeCallbackType, RadioGroupState},
         slider::{Slider, SliderOnValueChangeCallbackType, SliderState},
@@ -804,11 +801,7 @@ fn hide_datalist(node: &mut NodeData) {
 /// A form node that already IS a [`Form`] - the app built one, or this pass
 /// did on an earlier run - carries the Form's state.
 fn is_form_widget(node: &NodeData) -> bool {
-    node.get_dataset().is_some_and(|dataset| {
-        let mut dataset = dataset.clone();
-        let is_form = dataset.downcast_ref::<FormStateWrapper>().is_some();
-        is_form
-    })
+    crate::widgets::form::form_state_of(node).is_some()
 }
 
 /// The class every Button WIDGET's root wears (`themes::flat::button`,
@@ -1465,7 +1458,14 @@ fn form_for(raw: &Dom, label: Option<String>) -> Dom {
     if let Some(label) = label {
         form = form.with_accessibility_name(label);
     }
-    form.dom()
+    let mut dom = form.dom();
+    // The raw form's dataset is the APP's - what its handlers find with
+    // `get_dataset(form)`. It stays on the form node; the Form finds its own
+    // state through its `Submit` handler (`widgets::form::form_state_of`).
+    if let Some(dataset) = raw.root.get_dataset() {
+        dom.root.set_dataset(OptionRefAny::Some(dataset.clone()));
+    }
+    dom
 }
 
 // ── Building the widget ─────────────────────────────────────────────────────
