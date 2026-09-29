@@ -4941,23 +4941,24 @@ pub fn menubar(m: crate::widgets::menubar::Menubar) -> Dom {
 // should show: the `box-shadow` shorthand lays the same shadow on all four of
 // azul's per-side slots, and the painter draws every one.
 
-/// The flora picker panel: a leaf lifted off the page.
+/// The flora picker panel: a leaf lifted off the page (its skin; the column
+/// is the widget's base, `PICKER_PANEL_BASE_CSS`).
 const FLORA_PICKER_PANEL_CSS: &str =
-    "display: flex; flex-direction: column; gap: 8px; padding: 10px; background: #F2F1ED; \
-     border: 1px solid #C6C3BB; border-radius: 5px; box-shadow: 0px 6px 14px rgba(48, 45, 38, \
-     0.06); font-size: 12px; color: #262521; @media (prefers-color-scheme: dark) { background: \
-     #232323; border-color: #3F3F3F; color: #E7E7E7; box-shadow: 0px 6px 14px rgba(0, 0, 0, \
-     0.18); }";
+    "gap: 8px; padding: 10px; background: #F2F1ED; border: 1px solid #C6C3BB; border-radius: \
+     5px; box-shadow: 0px 6px 14px rgba(48, 45, 38, 0.06); font-size: 12px; color: #262521; \
+     @media (prefers-color-scheme: dark) { background: #232323; border-color: #3F3F3F; color: \
+     #E7E7E7; box-shadow: 0px 6px 14px rgba(0, 0, 0, 0.18); }";
 
-/// The flora preview: framed like the swatch.
+/// The flora preview: framed like the swatch (its positioned clip is the
+/// widget's base, `PICKER_PREVIEW_BASE_CSS`).
 const FLORA_PICKER_PREVIEW_CSS: &str =
-    "position: relative; width: 28px; height: 28px; border-radius: 3px; border: 1px solid \
-     #B4B1A9; overflow: hidden; @media (prefers-color-scheme: dark) { border-color: #4A4A4A; }";
+    "width: 28px; height: 28px; border-radius: 3px; border: 1px solid #B4B1A9; @media \
+     (prefers-color-scheme: dark) { border-color: #4A4A4A; }";
 
-/// The flora eyedropper: raised paper, --fl-icon ink.
+/// The flora eyedropper: raised paper, --fl-icon ink (its centred box and
+/// pointer are the widget's base, `PICKER_EYEDROPPER_BASE_CSS`).
 const FLORA_PICKER_EYEDROPPER_CSS: &str =
-    "display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; \
-     border: 1px solid #B4B1A9; border-radius: 3px; cursor: pointer; background: \
+    "width: 28px; height: 28px; border: 1px solid #B4B1A9; border-radius: 3px; background: \
      linear-gradient(#FAF9F5, #ECEAE4); color: #56544C; font-size: 18px; @media \
      (prefers-color-scheme: dark) { background: linear-gradient(#333333, #292929); color: \
      #BEBEBE; border-color: #4A4A4A; }";

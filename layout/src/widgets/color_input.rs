@@ -63,20 +63,25 @@ pub struct ColorInput {
 }
 
 /// What a theme decides about a colour input: the swatch's own additions and
-/// the picker panel's surfaces. [`build`] keeps the structure (the live
-/// updates find the panel's parts by position) and the behaviour; built by
+/// the picker panel's surfaces - SKINS, paint and metrics. [`build`] keeps
+/// the structure (the live updates find the panel's parts by position), each
+/// part's layout (`PICKER_*_BASE_CSS`, the same in every theme, a sheet of its
+/// own before the skin's) and the behaviour; built by
 /// `themes::flat::color_input` and `themes::flora::color_input`.
 pub(crate) struct ColorInputLook {
     /// Appended to the swatch's own style (after its colour), when the
     /// widget owns that style: its frame and its focus ring.
     pub swatch: Vec<CssPropertyWithConditions>,
-    /// The picker panel's CSS (layout included), light and dark.
+    /// The picker panel's skin CSS, light and dark (its layout is
+    /// [`PICKER_PANEL_BASE_CSS`]).
     pub panel_css: &'static str,
-    /// The preview swatch's frame CSS (layout included).
+    /// The preview swatch's frame CSS (its layout is
+    /// [`PICKER_PREVIEW_BASE_CSS`]).
     pub preview_css: &'static str,
-    /// The eyedropper button's CSS (layout included).
+    /// The eyedropper button's skin CSS (its layout is
+    /// [`PICKER_EYEDROPPER_BASE_CSS`]).
     pub eyedropper_css: &'static str,
-    /// The grip handle's CSS (layout included).
+    /// The grip handle's CSS (a bar: size, radius, paint).
     pub grip_handle_css: &'static str,
     /// Inline additions to the plane, hue and alpha bars - keyboard stops,
     /// so their focus ring.
@@ -85,24 +90,44 @@ pub(crate) struct ColorInputLook {
     pub marker: Option<&'static str>,
 }
 
-/// The established panel CSS (the flat look).
+// ---- the base: the picker's structure, in every theme ----
+//
+// What lays the picker out is the same whichever theme paints it, so it is
+// the widget's own: `picker_panel` gives each part its base sheet FIRST, then
+// the theme's skin sheet (`ColorInputLook`). A CSS string is one rule, and a
+// rule is never split between the themes: a layout written in the same
+// string as the paint went into each `@theme` block with it. Written apart,
+// it is declared once for every theme (R5).
+
+/// The picker panel: a column of its parts.
+pub(crate) const PICKER_PANEL_BASE_CSS: &str = "display: flex; flex-direction: column;";
+/// The preview: the containing block of its checkerboard and colour overlay
+/// (absolutely positioned), clipped to its frame.
+pub(crate) const PICKER_PREVIEW_BASE_CSS: &str = "position: relative; overflow: hidden;";
+/// The eyedropper: a button that centres its icon.
+pub(crate) const PICKER_EYEDROPPER_BASE_CSS: &str =
+    "display: flex; align-items: center; justify-content: center; cursor: pointer;";
+
+// ---- the flat skin ----
+
+/// The established panel CSS (the flat look; its layout is
+/// [`PICKER_PANEL_BASE_CSS`]).
 pub(crate) const PANEL_CSS: &str =
-    "display: flex; flex-direction: column; gap: 8px; padding: 8px; background: #ffffff; border: \
-     1px solid #c8c8c8; border-radius: 6px; box-shadow: 0px 4px 16px rgba(0, 0, 0, 0.25); \
-     font-size: 12px; color: #202020; @media (prefers-color-scheme: dark) { background: \
-     system:window-background; border-color: system:separator; color: system:text; }";
-/// The established preview frame CSS (the flat look). The frame's grey had
-/// no night value; it takes the desktop's separator, as the panel's own
-/// border does.
-pub(crate) const PREVIEW_CSS: &str = "position: relative; width: 28px; height: 28px; \
-                                      border-radius: 4px; border: 1px solid #c8c8c8; overflow: \
-                                      hidden; @media (prefers-color-scheme: dark) { \
+    "gap: 8px; padding: 8px; background: #ffffff; border: 1px solid #c8c8c8; border-radius: 6px; \
+     box-shadow: 0px 4px 16px rgba(0, 0, 0, 0.25); font-size: 12px; color: #202020; @media \
+     (prefers-color-scheme: dark) { background: system:window-background; border-color: \
+     system:separator; color: system:text; }";
+/// The established preview frame CSS (the flat look; its layout is
+/// [`PICKER_PREVIEW_BASE_CSS`]). The frame's grey had no night value; it
+/// takes the desktop's separator, as the panel's own border does.
+pub(crate) const PREVIEW_CSS: &str = "width: 28px; height: 28px; border-radius: 4px; border: 1px \
+                                      solid #c8c8c8; @media (prefers-color-scheme: dark) { \
                                       border-color: system:separator; }";
-/// The established eyedropper CSS (the flat look).
+/// The established eyedropper CSS (the flat look; its layout is
+/// [`PICKER_EYEDROPPER_BASE_CSS`]).
 pub(crate) const EYEDROPPER_CSS: &str =
-    "display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; \
-     border: 1px solid #c8c8c8; border-radius: 4px; cursor: pointer; background: #f4f4f4; \
-     color: #404040; font-size: 18px; @media (prefers-color-scheme: dark) { background: \
+    "width: 28px; height: 28px; border: 1px solid #c8c8c8; border-radius: 4px; background: \
+     #f4f4f4; color: #404040; font-size: 18px; @media (prefers-color-scheme: dark) { background: \
      system:button-face; color: system:button-text; border-color: system:separator; }";
 /// The established grip-handle CSS (the flat look), with the desktop's
 /// separator as its night value (it had none).
@@ -993,6 +1018,7 @@ fn picker_panel(
 
     // Preview + hex. A translucent colour shows the checkerboard through it.
     let mut preview = Dom::create_div()
+        .with_css(PICKER_PREVIEW_BASE_CSS)
         .with_css(look.preview_css)
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Graphic,
@@ -1024,6 +1050,7 @@ fn picker_panel(
     // very node so it reaches the picker's data.
     let eyedropper = Dom::create_div()
         .with_ids_and_classes(vec![Class(COLOR_PICKER_EYEDROPPER_CLASS.into())].into())
+        .with_css(PICKER_EYEDROPPER_BASE_CSS)
         .with_css(look.eyedropper_css)
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::PushButton,
@@ -1107,6 +1134,7 @@ fn picker_panel(
 
     Dom::create_div()
         .with_ids_and_classes(vec![Class(COLOR_PICKER_CLASS.into())].into())
+        .with_css(PICKER_PANEL_BASE_CSS)
         .with_css(look.panel_css)
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Dialog,
