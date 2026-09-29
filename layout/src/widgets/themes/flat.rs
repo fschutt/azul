@@ -4309,20 +4309,34 @@ pub fn breadcrumb(b: crate::widgets::breadcrumb::Breadcrumb) -> Dom {
 }
 
 // ==== accordion ====
+//
+// The flat accordion is the widget's established panel: a #DEE2E6 hairline,
+// a 6px radius, #F8F9FA header bars; the window surface, separator and label
+// ink at night. Each header is a keyboard stop and a click target that never
+// showed either: it now lights up under the pointer (the neutral hover grey
+// flat's buttons use, flat's night hover face at night) and rings on focus -
+// drawn inside the header, because the rounded panel clips its edges.
 
-/// The flat accordion.
+/// The flat accordion: the established panel, with a hover face and an inset
+/// focus ring on every header.
 #[must_use]
 pub fn accordion(a: crate::widgets::accordion::Accordion) -> Dom {
+    use super::decl;
     use crate::widgets::accordion::{
         AccordionLook, ACCORDION_CONTAINER_STYLE, ACCORDION_HEADER_STYLE, ACCORDION_SECTION_STYLE,
         ACCORDION_TITLE_STYLE,
     };
+
+    let mut header = ACCORDION_HEADER_STYLE.to_vec();
+    header.extend(decl::hover_fill(ColorU::rgb(233, 236, 239), DARK_HT));
+    header.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+
     crate::widgets::accordion::build(
         a,
         &AccordionLook {
             container: ACCORDION_CONTAINER_STYLE.to_vec(),
             section: ACCORDION_SECTION_STYLE.to_vec(),
-            header: ACCORDION_HEADER_STYLE.to_vec(),
+            header,
             title: ACCORDION_TITLE_STYLE.to_vec(),
             marker: None,
         },

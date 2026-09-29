@@ -4863,9 +4863,95 @@ pub fn breadcrumb(b: crate::widgets::breadcrumb::Breadcrumb) -> Dom {
 }
 
 // ==== accordion ====
+//
+// flora.css's own collapsible list is the FAQ: items ruled apart by a
+// --color-border hairline, questions set semibold that take the brass accent
+// under the pointer. A flora accordion is that list on a leaf: the panel is
+// --fl-sur in a --fl-bd hairline at the house radius, each header is raised
+// paper (the standard command's face) that lifts to the hover face and turns
+// brass under the pointer and presses in, the title is semibold. Focus is
+// flora's accent halo, inside the header (the panel clips). At night every
+// face, rule and ink takes its night value.
 
-/// The flora accordion.
+/// The flora accordion: a FAQ list on a leaf.
 #[must_use]
 pub fn accordion(a: crate::widgets::accordion::Accordion) -> Dom {
-    super::flat::accordion(a)
+    use super::decl;
+    use crate::widgets::accordion::{AccordionLook, ACCORDION_TITLE_STYLE};
+
+    let mut container = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+            LayoutFlexDirection::Column,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
+            0,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            14,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+        // Rounded corners that clip the per-section rules.
+        CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+        CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    ];
+    container.extend(decl::border(1));
+    container.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
+    container.extend(decl::radius(3));
+    container.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    container.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut section = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+            LayoutFlexDirection::Column,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
+            0,
+        ))),
+    ];
+    section.extend(decl::border_bottom(1));
+    section.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut header = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+            LayoutFlexDirection::Row,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
+            0,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+        CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+    ];
+    header.extend(decl::padding(10, 12, 10, 12));
+    header.extend(decl::themed_layers(
+        vec![RAISED_FACE_LIGHT],
+        vec![RAISED_FACE_DARK],
+    ));
+    header.extend(decl::hover_layers(
+        vec![HOVER_FACE_LIGHT],
+        vec![HOVER_FACE_DARK],
+    ));
+    header.extend(decl::active_layers(
+        vec![PRESSED_FACE_LIGHT],
+        vec![PRESSED_FACE_DARK],
+    ));
+    header.extend(decl::hover_ink(LIGHT_QT, DARK_QT));
+    header.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+
+    let mut title = ACCORDION_TITLE_STYLE.to_vec();
+    title.push(decl::semibold());
+
+    crate::widgets::accordion::build(
+        a,
+        &AccordionLook {
+            container,
+            section,
+            header,
+            title,
+            marker: Some("__azul-theme-flora"),
+        },
+    )
 }
