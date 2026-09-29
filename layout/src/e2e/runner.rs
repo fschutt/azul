@@ -827,9 +827,13 @@ impl Runner {
     /// its ring - is handed back at once, unless the user has moved it
     /// (the runner has no "next pass" hook to defer it to).
     ///
-    /// The widget's `Dismissed` handler does not run here (the runner fires no
-    /// transient lifecycle events), so its own `open` flag stays as it was.
-    fn dismiss_popups_on_escape(&mut self) {
+    /// Each dismissed node then gets `ComponentEventFilter::Dismissed`, the
+    /// lifecycle event `LayoutWindow::dismiss_transient_window` queues in the
+    /// dll (built by the same `create_dismiss_event`, anchored on the node's
+    /// parent like a placement), so a widget clears its own `open` flag here
+    /// too. Dispatched at once: the runner never drains
+    /// `pending_lifecycle_events`. Returns what that dispatch asks for.
+    fn dismiss_popups_on_escape(&mut self) -> ProcessEventResult {
         use azul_core::{dom::NodeType, transient::TransientDismiss, window::VirtualKeyCode};
 
         let esc = |s: &FullWindowState| {
@@ -839,14 +843,14 @@ impl Runner {
                 .contains(&VirtualKeyCode::Escape)
         };
         let Some(previous) = self.previous_window_state.as_ref() else {
-            return;
+            return ProcessEventResult::DoNothing;
         };
         if !(esc(&self.window_state) && !esc(previous)) {
-            return;
+            return ProcessEventResult::DoNothing;
         }
         let targets: Vec<NodeId> = {
             let Some(lr) = self.layout_window.layout_results.get(&DomId::ROOT_ID) else {
-                return;
+                return ProcessEventResult::DoNothing;
             };
             let nodes = lr.styled_dom.node_data.as_container();
             self.layout_window
@@ -864,8 +868,37 @@ impl Runner {
                 .collect()
         };
         if targets.is_empty() {
-            return;
+            return ProcessEventResult::DoNothing;
         }
+        // ==== E1: the `Dismissed` event ====
+        // Built before the nodes close, while each one's parent still has
+        // its rect: the anchor a placement would have had (the dll reports
+        // `placement.anchor_rect`).
+        let now = self.now();
+        let dismissed_events: Vec<azul_core::events::SyntheticEvent> = targets
+            .iter()
+            .map(|node| {
+                let anchor = self
+                    .layout_window
+                    .layout_results
+                    .get(&DomId::ROOT_ID)
+                    .and_then(|lr| {
+                        lr.styled_dom
+                            .node_hierarchy
+                            .as_container()
+                            .get(*node)
+                            .and_then(|item| item.parent_id())
+                    })
+                    .and_then(|parent| {
+                        self.layout_window.get_node_rect_in_viewport(DomNodeId {
+                            dom: DomId::ROOT_ID,
+                            node: NodeHierarchyItemId::from_crate_internal(Some(parent)),
+                        })
+                    })
+                    .unwrap_or_else(LogicalRect::zero);
+                azul_core::diff::create_dismiss_event(*node, DomId::ROOT_ID, &now, anchor)
+            })
+            .collect();
         for node in targets {
             // No window is open in the runner, so `dismiss` returns None - its
             // bookkeeping (forced-open released, focus owed, node held
@@ -888,6 +921,17 @@ impl Runner {
                     .focus_manager
                     .set_focused_node_with_visibility(Some(target), visible);
             }
+        }
+        // The widgets hear it (a `Dismissed` handler clears its `open` flag).
+        let (result, update, _, _) = self.dispatch_events_propagated(&dismissed_events);
+        if matches!(
+            update,
+            azul_core::callbacks::Update::RefreshDom
+                | azul_core::callbacks::Update::RefreshDomAllWindows
+        ) {
+            result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow)
+        } else {
+            result
         }
     }
 
@@ -931,9 +975,12 @@ impl Runner {
 
         // ── 0. ESCAPE DISMISSES POPUPS (port of the DLL's `dismiss_on_escape`
         // in `process_transient_dismissal`, which runs before determination).
-        if depth == 0 {
-            self.dismiss_popups_on_escape();
-        }
+        // What the popups' `Dismissed` handlers ask for is this pass's too.
+        let dismissal = if depth == 0 {
+            self.dismiss_popups_on_escape()
+        } else {
+            ProcessEventResult::DoNothing
+        };
 
         // ── 1. EVENT DETERMINATION ───────────────────────────────────────
         //
@@ -1038,10 +1085,10 @@ impl Runner {
         }
 
         if synthetic_events.is_empty() {
-            return ProcessEventResult::DoNothing;
+            return dismissal;
         }
 
-        let mut result = ProcessEventResult::DoNothing;
+        let mut result = dismissal;
 
         // ── 2. INCREMENTAL `:hover` RESTYLE ──────────────────────────────
         // Enter/leave targets of THIS pass, restyled now so pure-CSS `:hover`
