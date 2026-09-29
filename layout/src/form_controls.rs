@@ -652,7 +652,7 @@ impl FormControlMemory {
 pub fn resolve_form_controls_in_dom(dom: &mut Dom, memory: &FormControlMemory, scope: u64) -> usize {
     let mut pre = Prepass::default();
     prepass(dom, &mut pre);
-    if !pre.has_controls {
+    if !pre.has_controls && !pre.has_datalists {
         return 0;
     }
     let ctx = Ctx { memory, scope, pre };
@@ -671,6 +671,8 @@ pub fn resolve_form_controls_in_dom(dom: &mut Dom, memory: &FormControlMemory, s
 #[derive(Debug, Default)]
 struct Prepass {
     has_controls: bool,
+    /// A `<datalist>` anywhere: it gets HTML's `display: none`.
+    has_datalists: bool,
     /// `<datalist id=..>` -> its options, for `<input list=..>`.
     datalists: BTreeMap<String, Vec<Choice>>,
     /// Radio `name` -> the `value` of the radio checked by DEFAULT (the last
@@ -703,6 +705,7 @@ fn prepass(dom: &Dom, out: &mut Prepass) {
             }
         }
         NodeType::DataList => {
+            out.has_datalists = true;
             if let Some(id) = first_id(node) {
                 let mut choices = Vec::new();
                 collect_choices(dom, &mut choices, None);
@@ -717,6 +720,12 @@ fn prepass(dom: &Dom, out: &mut Prepass) {
 }
 
 fn resolve_inner(dom: &mut Dom, ctx: &Ctx<'_>, path: &mut Vec<u32>) -> usize {
+    if matches!(dom.root.get_node_type(), NodeType::DataList) {
+        // Left in place (the combobox reads it, an app may too), but not
+        // shown - and its options are not controls: nothing to replace.
+        hide_datalist(&mut dom.root);
+        return 0;
+    }
     if let Some((kind, replacement)) = replacement_for(dom, ctx, path) {
         *dom = replacement;
         if kind != FormWidget::Form {
@@ -753,6 +762,24 @@ fn replacement_for(raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) -> Option<(FormWidget
     let mut widget = build(kind, &spec, raw, ctx, path);
     graft(raw, &mut widget, kind, &spec);
     Some((kind, widget))
+}
+
+/// HTML's user-agent sheet: `datalist { display: none }` - a datalist is
+/// suggestions for an input, never content. The default goes BEFORE the
+/// node's own inline style, so an app that shows its datalist still can;
+/// a second pass finds it in place and adds nothing.
+fn hide_datalist(node: &mut NodeData) {
+    let user_agent: Css = CssPropertyWithConditionsVec::from_vec(alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::None)),
+    ])
+    .into();
+    let mut rules = user_agent.rules.into_library_owned_vec();
+    let own = node.style.rules.as_slice();
+    if own.starts_with(&rules) {
+        return;
+    }
+    rules.extend(own.iter().cloned());
+    node.style.rules = rules.into();
 }
 
 /// A form node that already IS a [`Form`] - the app built one, or this pass
