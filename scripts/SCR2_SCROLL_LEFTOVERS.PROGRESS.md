@@ -19,15 +19,19 @@ Restarted after a power loss (2026-09-29): the first run left no commits.
 
 ## DONE (commits)
 
-- none yet
+- d1584a0e7 chore: audit checkpoint
+- 1a: RED 1421775f7 (`layout/tests/a_reveal_scrolls_only_the_boxes_that_move_its_target.rs`, 3 tests),
+  FIX 22e922976 (`find_scrollable_ancestors` on `ScrollChain`; `ScrollChain::of_node`;
+  cfg(test) `LayoutTree::mirroring_dom`; scroll_into_view unit fixtures mirror the DOM)
 
 ## IN PROGRESS
 
-- 1a RED
+- 1b RED (spatial_navigation_action)
 
 ## NEXT
 
-- 1a fix, 1b, 1c, 1d, 2, 3, 4, (5), report
+- 1b fix, 1c (sticky, unit tests in positioning.rs), 1d (containers + is_visible; focus_cursor
+  unit fixture -> mirroring_dom), 2, 3, 4, (5), report
 
 ## Open questions
 
