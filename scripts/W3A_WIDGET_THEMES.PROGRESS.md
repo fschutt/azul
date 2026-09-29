@@ -95,10 +95,16 @@ is shared with other agents!). Append to files via Write-to-scratch + `cat >>`.
   API: `ColorInput.theme` appended after `accessibility_name`; set_theme /
   with_theme.
 
+- date_picker: 88af3dad1 (plumbing: DatePickerLook + DayPalette in the day
+  payload; established(); test-only wrappers), 3f2ab820a (RED), ac5b49d0f
+  (flat rings; flora paper calendar). API: `DatePicker.theme` appended after
+  `accessibility_name`; set_theme / with_theme.
+
 ## IN PROGRESS
+Self-review pass for compile risks, then the final report.
 
 ## NEXT
-date_picker, then final report
+final report scripts/W3A_WIDGET_THEMES_2026_09_29.md
 
 ## Open questions
 - ENGINE GAP (spinner): `-azul-animation-in` tracks are started only by
