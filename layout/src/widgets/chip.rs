@@ -249,14 +249,17 @@ pub struct Chip {
 /// `themes::flora::chip`.
 pub(crate) struct ChipLook {
     /// The pill's style for a kind, used when the chip has no
-    /// `container_style` of its own.
+    /// `container_style` of its own: [`CHIP_CONTAINER_BASE`] first, then the
+    /// theme's skin.
     pub container: fn(ChipKind) -> alloc::vec::Vec<CssPropertyWithConditions>,
-    /// The label's style.
+    /// The label's skin ([`build`] lays it over [`CHIP_LABEL_STYLE`], the
+    /// label's base).
     pub label: alloc::vec::Vec<CssPropertyWithConditions>,
     /// Appended to the label's style when the label is a button (the chip
     /// has an `on_click`): its focus ring.
     pub label_focus: alloc::vec::Vec<CssPropertyWithConditions>,
-    /// The remove button's style.
+    /// The remove button's skin ([`build`] lays it over
+    /// [`CHIP_REMOVE_BASE`]).
     pub remove: alloc::vec::Vec<CssPropertyWithConditions>,
     /// The theme's marker class on the pill, if it has one.
     pub marker: Option<&'static str>,
@@ -287,24 +290,35 @@ impl Default for ChipState {
     }
 }
 
-/// Builds the pill container style for a given [`ChipKind`]. The colours are the
+// ---- the base: the chip's structure, in every theme ----
+//
+// What lays a chip out is the same whichever theme paints it, so it is the
+// widget's own: every theme's pill starts with `CHIP_CONTAINER_BASE`, and
+// [`build`] declares the label's and the remove button's base FIRST, then the
+// theme's skin. No structure declaration then sits inside a `@theme` block,
+// and it holds under a theme no widget knows (R5).
+
+/// The pill: a row, its label and "x" centred on it, hugging its content
+/// rather than stretching across a flex parent's cross axis.
+pub(crate) static CHIP_CONTAINER_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    // Hug the content rather than stretch across a flex parent's cross axis.
+    CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+];
+
+/// Builds the pill container style for a given [`ChipKind`]: the flat pill,
+/// [`CHIP_CONTAINER_BASE`] then the flat skin. The colours are the
 /// only kind-dependent properties, so the style is built at runtime per the
 /// recipe's "runtime vec when param-dependent" path (see `badge::build_badge_style`).
 pub(crate) fn build_chip_style(kind: ChipKind) -> CssPropertyWithConditionsVec {
     let (bg, text) = kind.colors();
     let bg_vec =
         StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(bg)]);
-    CssPropertyWithConditionsVec::from_vec(alloc::vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Row,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        // Hug the content rather than stretch across a flex parent's cross axis.
-        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
+    let mut style = CHIP_CONTAINER_BASE.to_vec();
+    style.extend(alloc::vec![
         // padding: 4px 10px
         CssPropertyWithConditions::simple(CssProperty::const_padding_top(
             LayoutPaddingTop::const_px(4,)
@@ -340,7 +354,8 @@ pub(crate) fn build_chip_style(kind: ChipKind) -> CssPropertyWithConditionsVec {
             inner: text,
         })),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(bg_vec)),
-    ])
+    ]);
+    CssPropertyWithConditionsVec::from_vec(style)
 }
 
 /// The dark twins of the NEUTRAL tag: the desktop's quiet neutral highlight
@@ -352,19 +367,27 @@ pub(crate) static CHIP_DEFAULT_DARK_TWINS: &[CssPropertyWithConditions] = &[
     crate::widgets::themes::system_palette::DARK_SELECTION_BACKGROUND_INACTIVE,
 ];
 
-/// Label style: left-aligned, hugs its content.
+/// The label's base, in every theme: left-aligned, hugs its content, never
+/// selected by a drag. [`build`] declares it before the theme's label skin.
 pub(crate) static CHIP_LABEL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
     CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
 ];
 
-/// "x" remove-affordance style: a small pointer-cursor box on the right.
-pub(crate) static CHIP_REMOVE_STYLE: &[CssPropertyWithConditions] = &[
+/// The "x" remove affordance's base, in every theme: it hugs its glyph, takes
+/// the pointer, and a drag never selects the glyph. [`build`] declares it
+/// before the theme's skin.
+pub(crate) static CHIP_REMOVE_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// The flat "x" skin: a small glyph, 6px off the label (its pointer and hug
+/// are [`CHIP_REMOVE_BASE`]).
+pub(crate) static CHIP_REMOVE_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
     CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(
         6,
     ))),
@@ -556,7 +579,9 @@ pub(crate) fn build(chip: Chip, look: &ChipLook) -> Dom {
         // text moves into its `<p>`: "×" is a glyph, not a name.
         let remove_name = AzString::from(alloc::format!("Remove {}", chip.label.as_str()));
 
-        let mut label_style = look.label.clone();
+        // The label: its base first, then the theme's skin.
+        let mut label_style = CHIP_LABEL_STYLE.to_vec();
+        label_style.extend(look.label.iter().cloned());
         if has_on_click {
             label_style.extend(look.label_focus.iter().cloned());
         }
@@ -594,9 +619,12 @@ pub(crate) fn build(chip: Chip, look: &ChipLook) -> Dom {
         let mut children = alloc::vec![label];
 
         if chip.removable {
+            // The "x": its base first, then the theme's skin.
+            let mut remove_style = CHIP_REMOVE_BASE.to_vec();
+            remove_style.extend(look.remove.iter().cloned());
             let remove = crate::widgets::widget_p_with_text(AzString::from_const_str("\u{00D7}"))
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CHIP_REMOVE_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_vec(look.remove.clone()))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(remove_style))
                 .with_tab_index(TabIndex::Auto)
                 // The remove affordance is its own button, not part of the chip's
                 // label, named after the chip it removes ("Remove Rust").
@@ -1738,8 +1766,12 @@ mod autotest_generated {
 
     #[test]
     fn label_and_remove_static_styles_are_finite_unconditional_and_non_growing() {
-        for (name, style) in [("label", CHIP_LABEL_STYLE), ("remove", CHIP_REMOVE_STYLE)] {
-            let vec = CssPropertyWithConditionsVec::from_const_slice(style);
+        // The "x" as `build` lays it: its base, then the flat skin.
+        for (name, style) in [
+            ("label", CHIP_LABEL_STYLE.to_vec()),
+            ("remove", [CHIP_REMOVE_BASE, CHIP_REMOVE_STYLE].concat()),
+        ] {
+            let vec = CssPropertyWithConditionsVec::from_vec(style);
             for p in vec.as_ref() {
                 assert!(
                     p.apply_if.as_ref().is_empty(),
@@ -1768,7 +1800,9 @@ mod autotest_generated {
 
     #[test]
     fn the_remove_affordance_is_styled_as_a_clickable_target() {
-        let remove = CssPropertyWithConditionsVec::from_const_slice(CHIP_REMOVE_STYLE);
+        // The "x" as `build` lays it: its base, then the flat skin.
+        let remove =
+            CssPropertyWithConditionsVec::from_vec([CHIP_REMOVE_BASE, CHIP_REMOVE_STYLE].concat());
         let props = properties(&remove);
         assert!(
             props.contains(&CssProperty::const_cursor(StyleCursor::Pointer)),

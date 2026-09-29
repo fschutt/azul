@@ -267,11 +267,13 @@ pub struct Alert {
 /// `themes::flora::alert`.
 pub(crate) struct AlertLook {
     /// The banner's style for a kind (light face and dark twins), used when
-    /// the alert has no `container_style` of its own.
+    /// the alert has no `container_style` of its own: [`ALERT_CONTAINER_BASE`]
+    /// first, then the theme's skin.
     pub container: fn(AlertKind) -> alloc::vec::Vec<CssPropertyWithConditions>,
-    /// The message's style.
+    /// The message's skin ([`build`] lays it over [`ALERT_MESSAGE_BASE`]).
     pub message: alloc::vec::Vec<CssPropertyWithConditions>,
-    /// The close button's style, focus ring included.
+    /// The close button's skin, focus ring included ([`build`] lays it over
+    /// [`ALERT_CLOSE_BASE`]).
     pub close: alloc::vec::Vec<CssPropertyWithConditions>,
     /// The theme's marker class on the banner, if it has one.
     pub marker: Option<&'static str>,
@@ -300,24 +302,49 @@ impl Default for AlertState {
     }
 }
 
-/// Builds the container style for a given [`AlertKind`]. The colours are the
+// ---- the base: the alert's structure, in every theme ----
+//
+// What lays an alert out is the same whichever theme paints it, so it is the
+// widget's own: every theme's banner starts with `ALERT_CONTAINER_BASE`, and
+// [`build`] declares the message's and the close button's base FIRST, then
+// the theme's skin. No structure declaration then sits inside a `@theme`
+// block, and it holds under a theme no widget knows (R5).
+
+/// The banner: a row, its message and close button at the top, spanning the
+/// full width of a flex-column parent, never growing along it.
+pub(crate) static ALERT_CONTAINER_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Start)),
+    // Span the full width of a flex-column parent.
+    CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Stretch)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+];
+
+/// The message: the banner's remaining width, set from the left.
+pub(crate) static ALERT_MESSAGE_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
+];
+
+/// The close button: it hugs its glyph, takes the pointer, and a drag never
+/// selects the glyph.
+pub(crate) static ALERT_CLOSE_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// Builds the container style for a given [`AlertKind`]: the flat banner,
+/// [`ALERT_CONTAINER_BASE`] then the flat skin. The colours are the
 /// only kind-dependent properties, so the style is built at runtime per the
 /// recipe's "runtime vec when param-dependent" path (see `badge::build_badge_style`).
 pub(crate) fn build_alert_style(kind: AlertKind) -> CssPropertyWithConditionsVec {
     let (bg, border, text) = kind.colors();
     let bg_vec =
         StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(bg)]);
-    CssPropertyWithConditionsVec::from_vec(alloc::vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Row,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Start)),
-        // Span the full width of a flex-column parent.
-        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Stretch)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
+    let mut style = ALERT_CONTAINER_BASE.to_vec();
+    style.extend(alloc::vec![
         // padding: 12px
         CssPropertyWithConditions::simple(CssProperty::const_padding_top(
             LayoutPaddingTop::const_px(12,)
@@ -398,7 +425,8 @@ pub(crate) fn build_alert_style(kind: AlertKind) -> CssPropertyWithConditionsVec
             inner: text,
         })),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(bg_vec)),
-    ])
+    ]);
+    CssPropertyWithConditionsVec::from_vec(style)
 }
 
 /// The dark twins of [`build_alert_style`]'s kind colours - the four border
@@ -425,18 +453,10 @@ pub(crate) fn build_alert_dark_twins(kind: AlertKind) -> [CssPropertyWithConditi
     ]
 }
 
-/// Message-text style: takes the remaining horizontal space, left-aligned.
-pub(crate) static ALERT_MESSAGE_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
-];
-
-/// Close-button ("x") style: a small pointer-cursor box on the right.
+/// The flat close button's ("x") skin: a large glyph, 12px off the message
+/// (its pointer and hug are [`ALERT_CLOSE_BASE`]).
 pub(crate) static ALERT_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
-    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
     CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(
         12,
     ))),
@@ -600,16 +620,23 @@ pub(crate) fn build(alert: Alert, look: &AlertLook) -> Dom {
             None => CssPropertyWithConditionsVec::from_vec((look.container)(alert.kind)),
         };
 
+        // A part's declarations: its base first, then the theme's skin.
+        let part = |base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
+            let mut style = base.to_vec();
+            style.extend(skin.iter().cloned());
+            CssPropertyWithConditionsVec::from_vec(style)
+        };
+
         let message = crate::widgets::widget_p_with_text(alert.message)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(ALERT_MESSAGE_CLASS))
-            .with_css_props(CssPropertyWithConditionsVec::from_vec(look.message.clone()));
+            .with_css_props(part(ALERT_MESSAGE_BASE, look.message.as_slice()));
 
         let mut children = alloc::vec![message];
 
         if alert.dismissible {
             let close = crate::widgets::widget_p_with_text(AzString::from_const_str("\u{00D7}"))
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(ALERT_CLOSE_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_vec(look.close.clone()))
+                .with_css_props(part(ALERT_CLOSE_BASE, look.close.as_slice()))
                 .with_tab_index(TabIndex::Auto)
                 // This is the CLOSE BUTTON, not the alert — the tab stop is on
                 // the dismiss affordance. Its visible label is "\u{00D7}", a

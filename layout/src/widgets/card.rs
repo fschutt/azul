@@ -80,11 +80,19 @@ static CARD_SHADOW: StyleBoxShadow = StyleBoxShadow {
     color: CARD_SHADOW_COLOR,
 };
 
-pub(crate) const CARD_STYLE: &[CssPropertyWithConditions] = &[
+/// The card's structure, in every theme: a column of its content. [`build`]
+/// declares it right after the card's own `flex-grow`, before the theme's
+/// skin (R5: never inside a `@theme` block).
+pub(crate) const CARD_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,
     )),
+];
+
+/// The flat card's skin: white, a #DEE2E6 hairline, an 8px radius and a soft
+/// drop shadow, with their night twins.
+pub(crate) const CARD_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_background_content(CARD_BG)),
     // Dark theme: the card is a panel on the desktop's window surface, so the
     // application text inside it (which inherits the themed ink) stays legible.
@@ -329,8 +337,9 @@ impl Card {
     }
 }
 
-/// The card's DOM with `style` as its box (after the card's own
-/// `flex-grow`), `classes` on it, and the click callback if it has one.
+/// The card's DOM with `style` - a theme's skin - as its box (after the
+/// card's own `flex-grow` and [`CARD_BASE`]), `classes` on it, and the click
+/// callback if it has one.
 pub(crate) fn build(
     card: Card,
     style: &[CssPropertyWithConditions],
@@ -359,12 +368,14 @@ pub(crate) fn build(
             None => Vec::new(),
         };
 
-        // Prepend the (param-dependent) flex-grow, then the theme's card style.
+        // Prepend the (param-dependent) flex-grow and the card's base, then
+        // the theme's skin.
         let mut props = vec![CssPropertyWithConditions::simple(CssProperty::FlexGrow(
             LayoutFlexGrowValue::Exact(LayoutFlexGrow {
                 inner: FloatValue::new(card.flex_grow),
             }),
         ))];
+        props.extend_from_slice(CARD_BASE);
         props.extend_from_slice(style);
 
         Dom::create_div()
@@ -1118,8 +1129,9 @@ mod autotest_generated {
 
         assert_eq!(
             props.len(),
-            1 + CARD_STYLE.len(),
-            "the card's inline style must be exactly flex-grow + the static card style",
+            1 + CARD_BASE.len() + CARD_STYLE.len(),
+            "the card's inline style must be exactly flex-grow + the card's base + the static \
+             card style",
         );
         assert!(
             matches!(props[0], CssProperty::FlexGrow(_)),

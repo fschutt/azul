@@ -4191,8 +4191,10 @@ fn flat_chip_container(
 #[must_use]
 pub fn chip(c: crate::widgets::chip::Chip) -> Dom {
     use super::decl;
-    use crate::widgets::chip::{ChipLook, CHIP_LABEL_STYLE, CHIP_REMOVE_STYLE};
+    use crate::widgets::chip::{ChipLook, CHIP_REMOVE_STYLE};
 
+    // The skins: `chip::build` lays the label's and the "x"'s over their
+    // bases; the pill starts with its own (`build_chip_style`).
     let mut label_focus = decl::radius(3).to_vec();
     label_focus.extend(decl::focus_halo(FIELD_RING, DARK_ACC));
 
@@ -4204,7 +4206,7 @@ pub fn chip(c: crate::widgets::chip::Chip) -> Dom {
         c,
         &ChipLook {
             container: flat_chip_container,
-            label: CHIP_LABEL_STYLE.to_vec(),
+            label: Vec::new(),
             label_focus,
             remove,
             marker: None,
@@ -4234,8 +4236,11 @@ fn flat_alert_container(
 #[must_use]
 pub fn alert(a: crate::widgets::alert::Alert) -> Dom {
     use super::decl;
-    use crate::widgets::alert::{AlertLook, ALERT_CLOSE_STYLE, ALERT_MESSAGE_STYLE};
+    use crate::widgets::alert::{AlertLook, ALERT_CLOSE_STYLE};
 
+    // The skins: `alert::build` lays the message's and the close button's
+    // over their bases; the banner starts with its own
+    // (`build_alert_style`).
     let mut close = ALERT_CLOSE_STYLE.to_vec();
     close.extend(decl::radius(4));
     close.extend(decl::focus_halo(FIELD_RING, DARK_ACC));
@@ -4244,7 +4249,7 @@ pub fn alert(a: crate::widgets::alert::Alert) -> Dom {
         a,
         &AlertLook {
             container: flat_alert_container,
-            message: ALERT_MESSAGE_STYLE.to_vec(),
+            message: Vec::new(),
             close,
             marker: None,
         },

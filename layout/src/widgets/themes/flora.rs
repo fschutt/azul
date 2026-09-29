@@ -4252,20 +4252,9 @@ const fn badge_stone(kind: crate::widgets::badge::BadgeKind) -> Option<FloraSton
 fn flora_badge_style(kind: crate::widgets::badge::BadgeKind) -> Vec<CssPropertyWithConditions> {
     use super::decl;
 
-    let mut style = vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Row,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_justify_content(
-            LayoutJustifyContent::Center,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        // Hug the label inside a flex parent, as the flat pill does.
-        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
+    // The pill's base (its centred, hugging row), then flora's skin.
+    let mut style = crate::widgets::badge::BADGE_BASE.to_vec();
+    style.extend([
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             11,
         ))),
@@ -4274,7 +4263,7 @@ fn flora_badge_style(kind: crate::widgets::badge::BadgeKind) -> Vec<CssPropertyW
         // tracked a little tighter because the face here is the UI sans.
         decl::bold(),
         decl::letter_spacing_em(0.08),
-    ];
+    ]);
     style.extend(decl::padding(1, 8, 1, 8));
     style.extend(decl::radius(3));
     style.extend(decl::border(1));
@@ -4443,21 +4432,14 @@ const fn chip_stone(kind: crate::widgets::chip::ChipKind) -> Option<FloraStone> 
 fn flora_chip_container(kind: crate::widgets::chip::ChipKind) -> Vec<CssPropertyWithConditions> {
     use super::decl;
 
-    let mut style = vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Row,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
+    // The pill's base (its hugging row), then flora's skin.
+    let mut style = crate::widgets::chip::CHIP_CONTAINER_BASE.to_vec();
+    style.extend([
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             12,
         ))),
         CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
-    ];
+    ]);
     style.extend(decl::padding(3, 7, 3, 9));
     style.extend(decl::radius(3));
     style.extend(decl::border(1));
@@ -4487,20 +4469,17 @@ fn flora_chip_container(kind: crate::widgets::chip::ChipKind) -> Vec<CssProperty
 #[must_use]
 pub fn chip(c: crate::widgets::chip::Chip) -> Dom {
     use super::decl;
-    use crate::widgets::chip::{ChipLook, CHIP_LABEL_STYLE};
+    use crate::widgets::chip::ChipLook;
 
+    // The skins: `chip::build` lays the label's and the "x"'s over their
+    // bases (the label's hug; the "x"'s hug, pointer and unselectable glyph).
     let mut label_focus = decl::radius(3).to_vec();
     label_focus.extend(decl::focus_halo(LIGHT_ACC, DARK_GLOW));
 
     let mut remove = vec![
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             13,
         ))),
-        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-        CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
         CssPropertyWithConditions::simple(CssProperty::const_margin_left(
             LayoutMarginLeft::const_px(5),
         )),
@@ -4522,7 +4501,7 @@ pub fn chip(c: crate::widgets::chip::Chip) -> Dom {
         c,
         &ChipLook {
             container: flora_chip_container,
-            label: CHIP_LABEL_STYLE.to_vec(),
+            label: Vec::new(),
             label_focus,
             remove,
             marker: Some("__azul-theme-flora"),
@@ -4565,22 +4544,14 @@ fn flora_alert_container(
     use super::decl;
 
     let stone = alert_stone(kind);
-    let mut style = vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Row,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Start)),
-        // Span the full width of a flex-column parent.
-        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Stretch)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
+    // The banner's base (its row), then flora's skin.
+    let mut style = crate::widgets::alert::ALERT_CONTAINER_BASE.to_vec();
+    style.extend([
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             14,
         ))),
         CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
-    ];
+    ]);
     style.extend(decl::padding(12, 14, 12, 12));
     style.extend(decl::radius(3));
     style.extend(decl::border(1));
@@ -4599,17 +4570,15 @@ fn flora_alert_container(
 #[must_use]
 pub fn alert(a: crate::widgets::alert::Alert) -> Dom {
     use super::decl;
-    use crate::widgets::alert::{AlertLook, ALERT_MESSAGE_STYLE};
+    use crate::widgets::alert::AlertLook;
 
+    // The skins: `alert::build` lays the message's and the close button's
+    // over their bases (the message's growth; the button's hug, pointer and
+    // unselectable glyph).
     let mut close = vec![
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             16,
         ))),
-        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-        CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
         CssPropertyWithConditions::simple(CssProperty::const_margin_left(
             LayoutMarginLeft::const_px(12),
         )),
@@ -4628,7 +4597,7 @@ pub fn alert(a: crate::widgets::alert::Alert) -> Dom {
         a,
         &AlertLook {
             container: flora_alert_container,
-            message: ALERT_MESSAGE_STYLE.to_vec(),
+            message: Vec::new(),
             close,
             marker: Some("__azul-theme-flora"),
         },
@@ -4649,17 +4618,12 @@ pub fn alert(a: crate::widgets::alert::Alert) -> Dom {
 const CARD_LEAF_SHADOW_LIGHT: ColorU = ColorU::new(48, 45, 38, 41);
 const CARD_LEAF_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 128);
 
-/// The flora card's box, after the card's own flex-grow.
+/// The flora card's box, after the card's own flex-grow and its base (the
+/// column, `card::CARD_BASE`).
 fn flora_card_style() -> Vec<CssPropertyWithConditions> {
     use super::decl;
 
-    let mut style = vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Column,
-        )),
-    ];
-    style.extend(decl::padding(14, 14, 14, 14));
+    let mut style = decl::padding(14, 14, 14, 14).to_vec();
     style.extend(decl::radius(5));
     style.extend(decl::border(1));
     style.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));

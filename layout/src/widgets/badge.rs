@@ -167,27 +167,31 @@ pub struct Badge {
 pub(crate) static BADGE_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-badge"))];
 
-/// Builds the pill style for a given [`BadgeKind`]. The colours are the only
+/// The pill's structure, in every theme: a row that centres its label and
+/// hugs it rather than stretch across a flex parent's cross axis. Every
+/// theme's pill starts with it (R5: never inside a `@theme` block).
+pub(crate) static BADGE_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(
+        LayoutJustifyContent::Center,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    // Hug the content rather than stretch across a flex parent's cross axis.
+    CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+];
+
+/// Builds the pill style for a given [`BadgeKind`]: the flat pill,
+/// [`BADGE_BASE`] then the flat skin. The colours are the only
 /// kind-dependent properties, so the style is built at runtime per the recipe's
 /// "runtime vec when param-dependent" path (see `switch::build_track_style`).
 fn build_badge_style(kind: BadgeKind) -> CssPropertyWithConditionsVec {
     let (bg, text) = kind.colors();
     let bg_vec =
         StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(bg)]);
-    CssPropertyWithConditionsVec::from_vec(alloc::vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Row,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_justify_content(
-            LayoutJustifyContent::Center,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        // Hug the content rather than stretch across a flex parent's cross axis.
-        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
+    let mut style = BADGE_BASE.to_vec();
+    style.extend(alloc::vec![
         // padding: 2px 8px
         CssPropertyWithConditions::simple(CssProperty::const_padding_top(
             LayoutPaddingTop::const_px(2,)
@@ -222,7 +226,8 @@ fn build_badge_style(kind: BadgeKind) -> CssPropertyWithConditionsVec {
             inner: text,
         })),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(bg_vec)),
-    ])
+    ]);
+    CssPropertyWithConditionsVec::from_vec(style)
 }
 
 impl Badge {
