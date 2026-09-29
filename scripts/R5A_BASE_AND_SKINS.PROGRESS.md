@@ -16,11 +16,13 @@ badge, breadcrumb, button, card, check_box, chip, color_input.
   + `CHIP_LABEL_STYLE` as the label's base); 3 incidental tests updated.
 - `6060a3b59` `decl::on_base(base, skin)` replaces the four inline base-then-skin twins.
 
+- Report `scripts/R5A_BASE_AND_SKINS_2026_09_29.md` (committed with this checkpoint).
+
 ## IN PROGRESS
-- Report `scripts/R5A_BASE_AND_SKINS_2026_09_29.md`.
+- (none)
 
 ## NEXT
-- Nothing after the report.
+- Nothing: task complete; the parent compiles and runs the suites listed in the report.
 
 ## Decisions
 - avatar: flat::avatar and flora::avatar are identical twins; NOT deduped (the structure is already
