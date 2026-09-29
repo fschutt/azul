@@ -1107,8 +1107,8 @@ fn drain_pending_theme(window: &mut AndroidWindow) {
         _ => return,
     };
     // The DEVICE's night mode: the window takes it only while the app follows
-    // it (`AppConfig::color_scheme` / `CallbackInfo::set_color_scheme` pin it
-    // otherwise); either way the device's is remembered.
+    // it (`AppConfig::mode` / `CallbackInfo::set_mode` pin it otherwise);
+    // either way the device's is remembered.
     let Some(theme) = window.common.adopt_desktop_theme(desktop) else {
         return;
     };
@@ -1116,7 +1116,7 @@ fn drain_pending_theme(window: &mut AndroidWindow) {
     window.common.write_shown_mode(theme);
     window
         .common
-        .request_regeneration(RelayoutReason::ThemeChange);
+        .request_regeneration(RelayoutReason::ModeChange);
     let _ = window.process_window_events(0);
 }
 

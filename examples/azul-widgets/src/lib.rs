@@ -63,10 +63,10 @@ struct Showcase {
     /// The Video card's own state (see `video.rs`).
     video: RefAny,
     hotkey: hotkeys::HotkeyDemo,
-    /// The toolbar's colour-scheme segment: 0 System, 1 Light, 2 Dark. The
-    /// choice itself is the ENGINE's (`CallbackInfo::set_color_scheme`,
-    /// app-wide); this is only the controlled segment's selection.
-    color_scheme_index: usize,
+    /// The toolbar's mode segment: 0 System, 1 Light, 2 Dark. The choice
+    /// itself is the ENGINE's (`CallbackInfo::set_mode`, app-wide); this is
+    /// only the controlled segment's selection.
+    mode_index: usize,
     /// The widget theme every themed widget on the page is built in (the
     /// toolbar's Flat / Flora toggle). A switch rebuilds the DOM in the other
     /// theme: unlike light / dark, a theme may change a widget's DOM.
@@ -512,22 +512,22 @@ fn tabs_section(data: &RefAny, tabs: &[azul::str::String], active: usize) -> Dom
 const TOOLBAR_CAPTION_CSS: &str =
     "font-size: 12px; font-weight: bold; color: system:secondary-text; margin-right: 8px;";
 
-/// The bar under the titlebar: the app's COLOUR SCHEME (System / Light /
-/// Dark - the engine's `CallbackInfo::set_color_scheme`, for every window)
-/// and the WIDGET THEME every themed widget on the page is built in (Flat /
-/// Flora - the demo's own state, handed to each widget's `with_theme`).
+/// The bar under the titlebar: the app's MODE (System / Light / Dark - the
+/// engine's `CallbackInfo::set_mode`, for every window) and the WIDGET THEME
+/// every themed widget on the page is built in (Flat / Flora - the demo's
+/// own state, handed to each widget's `with_theme`).
 ///
 /// `shown` is the light / dark the window shows, read in `layout()` with
-/// `LayoutCallbackInfo::get_theme` so "System (dark)" can say which. Reading
-/// it is what makes a scheme switch - or a desktop flip while on System -
+/// `LayoutCallbackInfo::get_mode` so "System (dark)" can say which. Reading
+/// it is what makes a mode switch - or a desktop flip while on System -
 /// re-run this `layout()`; an app whose `layout()` never reads it is only
 /// re-styled, its DOM kept.
-fn toolbar(data: &RefAny, color_scheme_index: usize, widget_theme: UiTheme, shown: WindowTheme) -> Dom {
+fn toolbar(data: &RefAny, mode_index: usize, widget_theme: UiTheme, shown: WindowTheme) -> Dom {
     let shown = match shown {
         WindowTheme::DarkMode => "dark",
         WindowTheme::LightMode => "light",
     };
-    let scheme_note = match color_scheme_index {
+    let mode_note = match mode_index {
         1 | 2 => format!("pinned {shown}"),
         _ => format!("System ({shown})"),
     };
@@ -548,19 +548,19 @@ fn toolbar(data: &RefAny, color_scheme_index: usize, widget_theme: UiTheme, show
              background-color: system:window-background;",
         )
         .with_child(group(
-            "Colour scheme",
+            "Mode",
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row; align-items: center; gap: 8px;")
                 .with_child(
                     Segmented::create(strs(&["System", "Light", "Dark"]))
-                        .with_selected_index(color_scheme_index)
-                        .with_on_change(data.clone(), on_color_scheme)
+                        .with_selected_index(mode_index)
+                        .with_on_change(data.clone(), on_mode)
                         .with_theme(widget_theme)
                         .dom()
-                        .with_accessibility_name("Colour scheme"),
+                        .with_accessibility_name("Mode"),
                 )
                 .with_child(
-                    Dom::create_span_with_text(scheme_note.as_str())
+                    Dom::create_span_with_text(mode_note.as_str())
                         .with_css("font-size: 12px; color: system:tertiary-text;"),
                 ),
         ))
@@ -575,25 +575,25 @@ fn toolbar(data: &RefAny, color_scheme_index: usize, widget_theme: UiTheme, show
         ))
 }
 
-/// The colour-scheme segment: the APP-wide choice, applied by the engine to
-/// every window when this returns - a restyle (colours only) for a window
-/// whose `layout()` never read the scheme. This page reads it (the
+/// The mode segment: the APP-wide light / dark choice, applied by the engine
+/// to every window when this returns - a restyle (colours only) for a window
+/// whose `layout()` never read the mode. This page reads it (the
 /// "System (dark)" note), and the segment is a controlled widget, so the
 /// demo asks for its own rebuild as well.
-extern "C" fn on_color_scheme(
+extern "C" fn on_mode(
     mut data: RefAny,
     mut info: CallbackInfo,
     state: SegmentedState,
 ) -> Update {
-    let scheme = match state.selected_index {
+    let mode = match state.selected_index {
         1 => OptionWindowTheme::Some(WindowTheme::LightMode),
         2 => OptionWindowTheme::Some(WindowTheme::DarkMode),
         _ => OptionWindowTheme::None,
     };
-    info.set_color_scheme(scheme);
+    info.set_mode(mode);
     match data.downcast_mut::<Showcase>() {
         Some(mut s) => {
-            s.color_scheme_index = state.selected_index;
+            s.mode_index = state.selected_index;
             Update::RefreshDom
         }
         None => Update::DoNothing,
@@ -934,10 +934,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let hotkey = hotkeys::hotkey_section(&data, &s.hotkey, &info, theme);
     let files = files_section(&data, &s.dropped, s.file_hovering);
     let tabs = tabs_section(&data, &s.tabs, s.active_tab);
-    // `get_theme` DECLARES that this DOM depends on the light / dark the
-    // window shows (the "System (dark)" note): a scheme switch re-runs this
+    // `get_mode` DECLARES that this DOM depends on the light / dark the
+    // window shows (the "System (dark)" note): a mode switch re-runs this
     // `layout()` rather than only re-styling the page.
-    let bar = toolbar(&data, s.color_scheme_index, theme, info.get_theme());
+    let bar = toolbar(&data, s.mode_index, theme, info.get_mode());
 
     let navigation = section(
         "Navigation",
@@ -1428,13 +1428,13 @@ pub fn start() {
         video: video::new_state(),
         hotkey: hotkeys::HotkeyDemo::default(),
         // Follow the desktop's light / dark (the toolbar's "System").
-        color_scheme_index: 0,
+        mode_index: 0,
         widget_theme: UiTheme::Flat,
         form: forms::FormDemo::create(),
     });
     // `None` follows the desktop - the default, spelled out: an app that
     // starts pinned passes `OptionWindowTheme::Some(WindowTheme::DarkMode)`.
-    let config = AppConfig::create().with_color_scheme(OptionWindowTheme::None);
+    let config = AppConfig::create().with_mode(OptionWindowTheme::None);
     let app = App::create(data, config);
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.title = "Azul Widget Showcase".into();

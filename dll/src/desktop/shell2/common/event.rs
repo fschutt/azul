@@ -2815,12 +2815,12 @@ pub enum IncrementalRelayout {
 
 /// The theme a window starts in — the ONE place the theme sources meet at
 /// creation (theme-chain analysis 2026-09-12, item 5 / I7), in the order of
-/// `azul_layout::window::resolve_window_theme`, which makes the decision:
+/// `azul_layout::window::resolve_window_mode`, which makes the decision:
 ///
 /// 1. `AZ_MODE=light|dark` pins it (a screenshot run must not follow the machine), exactly as it
 ///    pins the cascade's context;
-/// 2. else the APP's colour-scheme choice (`AppConfig::color_scheme`, or the last
-///    `CallbackInfo::set_color_scheme`) when it pins one;
+/// 2. else the APP's mode (`AppConfig::mode`, or the last `CallbackInfo::set_mode`) when it
+///    pins one;
 /// 3. else this window's own request, `WindowCreateOptions::theme`;
 /// 4. else what the OS probe said (`SystemStyle::theme`, discovered at startup — on
 ///    macOS/Windows/Linux this IS the appearance probe; iOS and Android never write it, so they
@@ -2835,11 +2835,11 @@ pub fn initial_window_theme(
     requested: azul_core::window::OptionWindowTheme,
     probed: azul_css::system::Theme,
 ) -> azul_core::window::WindowTheme {
-    initial_window_theme_for(azul_layout::window::app_color_scheme(), requested, probed)
+    initial_window_theme_for(azul_layout::window::app_mode(), requested, probed)
 }
 
-/// [`initial_window_theme`] with the app's colour-scheme choice passed in
-/// rather than read from the app-global one.
+/// [`initial_window_theme`] with the app's mode passed in rather than read
+/// from the app-global one.
 #[must_use]
 pub fn initial_window_theme_for(
     app: azul_core::window::OptionWindowTheme,
@@ -2850,7 +2850,7 @@ pub fn initial_window_theme_for(
         azul_core::window::OptionWindowTheme::Some(theme) => theme,
         azul_core::window::OptionWindowTheme::None => desktop_window_theme(probed),
     };
-    azul_layout::window::resolve_window_theme(app, own)
+    azul_layout::window::resolve_window_mode(app, own)
 }
 
 /// The desktop's `SystemStyle::theme` as a window theme.
@@ -2976,7 +2976,7 @@ pub struct CommonWindowState {
     pub app_order: azul_layout::managers::app_target::WindowActivationOrder,
     /// The DESKTOP's light / dark, as the platform last reported it - not
     /// necessarily what the window shows (`current_window_state.theme`), which
-    /// is this resolved against the app's colour-scheme choice.
+    /// is this resolved against the app's mode.
     ///
     /// Kept because a pinned app must still know the desktop: switching back
     /// to "follow the system" has to land on the desktop's CURRENT theme at
@@ -3002,7 +3002,7 @@ impl CommonWindowState {
     ///
     /// `RefreshDom` is the IMPLICIT tag — "something changed, rebuild" — and the
     /// tag most call sites carry. It deliberately does NOT overwrite a more
-    /// specific reason (`Initial`, `Resize`, `ThemeChange`, `RouteChange`) that
+    /// specific reason (`Initial`, `Resize`, `ModeChange`, `RouteChange`) that
     /// another producer already queued for the same, not-yet-serviced
     /// regeneration. That is exactly what the old two-field code did by simply
     /// not touching `next_relayout_reason`, and losing it would mean a plain
@@ -3315,22 +3315,22 @@ impl CommonWindowState {
         self.desktop_theme
     }
 
-    /// The app's colour-scheme choice as this window applies it: the
-    /// window's `LayoutWindow` mirror, or - before it has one - the
-    /// app-global choice.
+    /// The app's mode as this window applies it: the window's
+    /// `LayoutWindow` mirror, or - before it has one - the app-global
+    /// choice.
     #[must_use]
-    pub fn app_color_scheme(&self) -> azul_core::window::OptionWindowTheme {
+    pub fn app_mode(&self) -> azul_core::window::OptionWindowTheme {
         self.layout_window
             .as_ref()
-            .map_or_else(azul_layout::window::app_color_scheme, |lw| lw.color_scheme)
+            .map_or_else(azul_layout::window::app_mode, |lw| lw.mode)
     }
 
     /// The light / dark this window must show now: the desktop's, under the
-    /// app's colour-scheme choice and the `AZ_MODE` pin
-    /// (`azul_layout::window::resolve_window_theme`, THE decision).
+    /// app's mode and the `AZ_MODE` pin
+    /// (`azul_layout::window::resolve_window_mode`, THE decision).
     #[must_use]
-    pub fn resolved_window_theme(&self) -> azul_core::window::WindowTheme {
-        azul_layout::window::resolve_window_theme(self.app_color_scheme(), self.desktop_theme)
+    pub fn resolved_window_mode(&self) -> azul_core::window::WindowTheme {
+        azul_layout::window::resolve_window_mode(self.app_mode(), self.desktop_theme)
     }
 
     /// THE seam every shell's appearance probe reports through (macOS
@@ -3344,8 +3344,8 @@ impl CommonWindowState {
     /// * the desktop did not move (a poll re-asserting it): nothing. This is also what keeps a
     ///   window's own `WindowCreateOptions::theme` until the desktop next changes, instead of
     ///   until the first poll;
-    /// * the app pins its colour scheme: the desktop is remembered (so "follow the system" can
-    ///   return to it at once) but the window does not move.
+    /// * the app pins its mode: the desktop is remembered (so "follow the system" can return to
+    ///   it at once) but the window does not move.
     ///
     /// The caller owns the write (snapshot, `ws.theme = ..`, the event pass),
     /// exactly as before; [`Self::desktop_theme`] read BEFORE this call says
@@ -3359,7 +3359,7 @@ impl CommonWindowState {
             return None;
         }
         self.desktop_theme = desktop;
-        let target = self.resolved_window_theme();
+        let target = self.resolved_window_mode();
         (target != self.current_window_state.theme).then_some(target)
     }
 
@@ -3467,7 +3467,7 @@ impl CommonWindowState {
     /// the desktop's.
     ///
     /// Forced whenever the window's mode does not simply follow the desktop:
-    /// an app or `AZ_THEME` pin is active - the desktop may flip under it
+    /// an app or `AZ_MODE` pin is active - the desktop may flip under it
     /// later and the chrome has to stay with the window - or the window shows
     /// another mode than the desktop's (its own `WindowCreateOptions::theme`
     /// seed). Otherwise it inherits, and a desktop flip reaches the chrome
@@ -5632,13 +5632,13 @@ pub trait PlatformWindow {
 
                 let mouse_state_changed = old_state.mouse_state != state.mouse_state;
 
-                // A pushed theme is the WINDOW's own choice: an AZ_MODE pin
-                // and the app's choice still outrank it (the one decision,
-                // `resolve_window_theme`). It used to be compared here and
-                // never written, so the `ThemeChange` rebuild it requested
-                // ran `layout()` under the OLD scheme.
-                let theme = azul_layout::window::resolve_window_theme(
-                    self.get_common_mut().app_color_scheme(),
+                // A pushed light / dark is the WINDOW's own choice: an
+                // AZ_MODE pin and the app's mode still outrank it (the one
+                // decision, `resolve_window_mode`). It used to be compared
+                // here and never written, so the `ModeChange` rebuild it
+                // requested ran `layout()` under the OLD mode.
+                let theme = azul_layout::window::resolve_window_mode(
+                    self.get_common_mut().app_mode(),
                     state.theme,
                 );
                 let theme_changed = old_state.theme != theme;
@@ -5795,7 +5795,7 @@ pub trait PlatformWindow {
                 // full pass a system theme change takes; without it an in-app
                 // switch flipped the window chrome and nothing else.
                 if theme_changed {
-                    result = result.max(self.color_scheme_change_tier());
+                    result = result.max(self.mode_change_tier());
                 }
                 // Mouse state changed → update hit test before the event pass
                 if mouse_state_changed {
@@ -7827,15 +7827,15 @@ pub trait PlatformWindow {
                     ProcessEventResult::DoNothing
                 }
             }
-            CallbackChange::SetColorScheme { scheme } => {
-                // The choice is the APP's: published first, so every window
+            CallbackChange::SetMode { mode } => {
+                // The mode is the APP's: published first, so every window
                 // built from now on starts in it (`LayoutWindow::new`,
                 // `initial_window_theme`), then every other open window
                 // adopts it through its own trigger, then this one.
-                azul_layout::window::set_app_color_scheme(*scheme);
-                self.adopt_app_color_scheme_in_other_windows();
+                azul_layout::window::set_app_mode(*mode);
+                self.adopt_app_mode_in_other_windows();
 
-                let Some(target) = self.mirror_app_color_scheme() else {
+                let Some(target) = self.mirror_app_mode() else {
                     // Pinned to what this window already shows: nothing to
                     // repaint here.
                     return ProcessEventResult::DoNothing;
@@ -7850,10 +7850,10 @@ pub trait PlatformWindow {
                 self.get_common_mut().write_shown_mode(target);
                 let nested = self.process_window_events(0);
 
-                self.color_scheme_change_tier().max(nested)
+                self.mode_change_tier().max(nested)
             }
             CallbackChange::SetTheme { theme } => {
-                // The APP theme, not the colour scheme: a theme may change a
+                // The APP theme, not the light / dark mode: a theme may change a
                 // widget's STRUCTURE (flora wraps nodes flat does not), so a
                 // switch is always a DOM REBUILD, never a restyle.
                 //
@@ -7863,7 +7863,7 @@ pub trait PlatformWindow {
                 // for a rebuild, and `common::layout::regenerate_layout` is
                 // where a window ADOPTS the new theme: it sees its DOM was
                 // built under another theme than the app's, takes the app's,
-                // and tags the pass `AppThemeChange` whatever tag its request
+                // and tags the pass `ThemeChange` whatever tag its request
                 // carried (the walk asks with a plain `RefreshDom`). One
                 // place, so a window the walk cannot reach (a backend without
                 // a registry) still adopts at its next rebuild.
@@ -10268,7 +10268,7 @@ pub trait PlatformWindow {
     /// `LayoutWindow::recorded_style_dependencies`.
     ///
     /// * The change touches a declared facet (or the callback declared nothing, which is every app
-    ///   written before that API existed) — `RelayoutReason::ThemeChange`, the full rebuild.
+    ///   written before that API existed) — `RelayoutReason::ModeChange`, the full rebuild.
     /// * It does not — RESTYLE: the existing `StyledDom` is re-solved against the new style, so
     ///   `system-*` colours, `@theme` conditions and the scrollbar's OS geometry all re-resolve,
     ///   while `layout()`, the cascade, icon resolution and CSD injection are all skipped. The
@@ -10302,16 +10302,16 @@ pub trait PlatformWindow {
         // Decided BEFORE the new style is installed — the question is about
         // the transition, and both ends of it have to still be readable.
         //
-        // A window-theme flip ALONE (the app's `set_color_scheme`, or the
-        // desktop's theme reaching a window whose style did not change) is
-        // paint-only (I6): it rebuilds the DOM only when the last `layout()`
-        // READ the scheme (`get_theme` / `get_system_style`) - the
-        // `depends_on_locale` rule. A system-style change is weighed by what
-        // `layout()` declared it reads, as before; a desktop light / dark flip
-        // is still a full rebuild there unless the app pins its scheme.
+        // A light / dark flip ALONE (the app's `set_mode`, or the desktop's
+        // mode reaching a window whose style did not change) is paint-only
+        // (I6): it rebuilds the DOM only when the last `layout()` READ the
+        // mode (`get_mode` / `get_system_style`) - the `depends_on_locale`
+        // rule. A system-style change is weighed by what `layout()` declared
+        // it reads, as before; a desktop light / dark flip is still a full
+        // rebuild there unless the app pins its mode.
         let style_changed = *old_style != *new_style;
         let needs_full = self.get_layout_window().is_none_or(|lw| {
-            (theme_delta && lw.color_scheme_change_needs_new_dom())
+            (theme_delta && lw.mode_change_needs_new_dom())
                 || (style_changed
                     && lw.system_style_change_needs_full_regeneration(&old_style, &new_style))
         });
@@ -10345,7 +10345,7 @@ pub trait PlatformWindow {
 
         if needs_full {
             self.get_common_mut()
-                .request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
+                .request_regeneration(azul_core::callbacks::RelayoutReason::ModeChange);
             return true;
         }
         // The OS language moved but the DOM does not depend on it (or this
@@ -10366,7 +10366,7 @@ pub trait PlatformWindow {
                 "[system_style] restyle failed: {e} — falling back to a full regeneration"
             );
             self.get_common_mut()
-                .request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
+                .request_regeneration(azul_core::callbacks::RelayoutReason::ModeChange);
         } else {
             // Layout is already up to date on the existing StyledDom: take the
             // established relayout-only path (skip regenerate_layout, still
@@ -10376,58 +10376,58 @@ pub trait PlatformWindow {
         true
     }
 
-    /// Mirror the app-global colour-scheme choice
-    /// (`azul_layout::window::app_color_scheme`) into this window and answer
-    /// the theme the window must now show, when that differs from the one it
-    /// shows (`None`: nothing to write). The decision is
-    /// `CommonWindowState::resolved_window_theme` - the desktop's theme under
-    /// the app's choice and `AZ_MODE`.
-    /// What a colour-scheme change of THIS window costs, once `ws.theme`
-    /// holds the new scheme - THE trigger's decision (I7), as in
+    /// What a mode change of THIS window costs, once `ws.theme` holds the
+    /// new light / dark - THE trigger's decision (I7), as in
     /// `adopt_system_style` for a theme delta with an unchanged style:
-    /// paint-only unless `layout()` read the scheme. The incremental caches
-    /// hold a display list and a solved tree painted in the OLD scheme; they
+    /// paint-only unless `layout()` read the mode. The incremental caches
+    /// hold a display list and a solved tree painted in the OLD mode; they
     /// are dropped either way. One decision for the app's switch
-    /// (`SetColorScheme`) and a pushed state (`ModifyWindowState`).
-    fn color_scheme_change_tier(&mut self) -> ProcessEventResult {
+    /// (`SetMode`) and a pushed state (`ModifyWindowState`).
+    fn mode_change_tier(&mut self) -> ProcessEventResult {
         let rebuild = self
             .get_layout_window()
-            .is_none_or(|lw| lw.color_scheme_change_needs_new_dom());
+            .is_none_or(|lw| lw.mode_change_needs_new_dom());
         if let Some(lw) = self.get_layout_window_mut() {
             lw.layout_cache.reset_incremental();
         }
         if rebuild {
-            self.request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
+            self.request_regeneration(azul_core::callbacks::RelayoutReason::ModeChange);
             ProcessEventResult::ShouldRegenerateDomCurrentWindow
         } else {
             ProcessEventResult::ShouldIncrementalRelayout
         }
     }
 
-    fn mirror_app_color_scheme(&mut self) -> Option<azul_core::window::WindowTheme> {
-        let scheme = azul_layout::window::app_color_scheme();
+    /// Mirror the app-global mode (`azul_layout::window::app_mode`) into this
+    /// window and answer the light / dark the window must now show, when that
+    /// differs from the one it shows (`None`: nothing to write). The decision
+    /// is `CommonWindowState::resolved_window_mode` - the desktop's light /
+    /// dark under the app's mode and `AZ_MODE`.
+    fn mirror_app_mode(&mut self) -> Option<azul_core::window::WindowTheme> {
+        let mode = azul_layout::window::app_mode();
         let common = self.get_common_mut();
         if let Some(lw) = common.layout_window.as_mut() {
-            lw.color_scheme = scheme;
+            lw.mode = mode;
         }
-        let target = common.resolved_window_theme();
+        let target = common.resolved_window_mode();
         (target != common.current_window_state().theme).then_some(target)
     }
 
-    /// This window adopts the app's colour-scheme choice - the path for a
-    /// window whose OWN event pass is not running (every window but the one
-    /// whose callback switched): snapshot, `ws.theme` write, the event pass
-    /// that dispatches `ThemeChanged`, then the ONE trigger (I7),
+    /// This window adopts the app's mode - the path for a window whose OWN
+    /// event pass is not running (every window but the one whose callback
+    /// switched): snapshot, `ws.theme` write, the event pass that dispatches
+    /// `ThemeChanged`, then the ONE trigger (I7),
     /// [`Self::adopt_system_style`], which re-styles the retained DOM or -
-    /// when `layout()` read the scheme - asks for a rebuild. The same three
+    /// when `layout()` read the mode - asks for a rebuild. The same three
     /// steps as the macOS appearance notification.
     ///
-    /// Returns whether the window's theme moved (the caller owes a redraw).
-    fn adopt_app_color_scheme(&mut self) -> bool {
-        let Some(target) = self.mirror_app_color_scheme() else {
+    /// Returns whether the window's light / dark moved (the caller owes a
+    /// redraw).
+    fn adopt_app_mode(&mut self) -> bool {
+        let Some(target) = self.mirror_app_mode() else {
             return false;
         };
-        self.snapshot_window_state_baseline("adopt_app_color_scheme");
+        self.snapshot_window_state_baseline("adopt_app_mode");
         self.get_common_mut().write_shown_mode(target);
         let _ = self.process_window_events(0);
         let held = Arc::clone(&self.get_common_mut().system_style);
@@ -10435,34 +10435,36 @@ pub trait PlatformWindow {
         true
     }
 
-    /// [`Self::adopt_app_color_scheme`] for a window that must not run a pass
-    /// NOW because it owns - or is owned by - the window whose callback is on
-    /// the stack (a Wayland `xdg_popup` and its parent): the theme is written
-    /// and the pass is only REQUESTED, as a rebuild tagged `ThemeChange` at
-    /// the window's next frame. No `ThemeChanged` event is dispatched there
-    /// (the delta is discarded: its pass cannot run from here).
+    /// [`Self::adopt_app_mode`] for a window that must not run a pass NOW
+    /// because it owns - or is owned by - the window whose callback is on
+    /// the stack (a Wayland `xdg_popup` and its parent): the light / dark is
+    /// written and the pass is only REQUESTED, as a rebuild tagged
+    /// `ModeChange` at the window's next frame. No `ThemeChanged` event is
+    /// dispatched there (the delta is discarded: its pass cannot run from
+    /// here).
     ///
-    /// Returns whether the window's theme moved (the caller owes a redraw).
-    fn adopt_app_color_scheme_deferred(&mut self) -> bool {
-        let Some(target) = self.mirror_app_color_scheme() else {
+    /// Returns whether the window's light / dark moved (the caller owes a
+    /// redraw).
+    fn adopt_app_mode_deferred(&mut self) -> bool {
+        let Some(target) = self.mirror_app_mode() else {
             return false;
         };
-        self.snapshot_window_state_baseline("adopt_app_color_scheme_deferred");
+        self.snapshot_window_state_baseline("adopt_app_mode_deferred");
         self.get_common_mut().write_shown_mode(target);
-        self.discard_input_delta("adopt_app_color_scheme_deferred");
+        self.discard_input_delta("adopt_app_mode_deferred");
         if let Some(lw) = self.get_layout_window_mut() {
             lw.layout_cache.reset_incremental();
         }
-        self.request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
+        self.request_regeneration(azul_core::callbacks::RelayoutReason::ModeChange);
         true
     }
 
-    /// Every OTHER open window of the app adopts its colour-scheme choice
-    /// ([`Self::adopt_app_color_scheme`] on each, plus a redraw). Backends
-    /// with several windows walk their registry, like
+    /// Every OTHER open window of the app adopts its mode
+    /// ([`Self::adopt_app_mode`] on each, plus a redraw). Backends with
+    /// several windows walk their registry, like
     /// [`Self::request_regeneration_all_windows`]; the default is nobody
     /// (headless, iOS and Android run one window).
-    fn adopt_app_color_scheme_in_other_windows(&mut self) {}
+    fn adopt_app_mode_in_other_windows(&mut self) {}
 
     /// Drain `LayoutWindow.pending_lifecycle_events` and dispatch each event.
     ///
@@ -15818,9 +15820,9 @@ mod initial_window_theme_tests {
         }
     }
 
-    /// The app's colour-scheme choice (`AppConfig::color_scheme` /
-    /// `CallbackInfo::set_color_scheme`) outranks the window's own request
-    /// and the probe; `None` leaves the old order alone.
+    /// The app's mode (`AppConfig::mode` / `CallbackInfo::set_mode`)
+    /// outranks the window's own request and the probe; `None` leaves the
+    /// old order alone.
     #[test]
     fn the_apps_pin_beats_the_windows_request_and_the_probe() {
         use super::initial_window_theme_for;

@@ -2046,7 +2046,7 @@ impl HeadlessWindow {
     /// The real backends' shape is `windows/mod.rs`'s `WM_SETTINGCHANGE |
     /// WM_THEMECHANGED` arm: re-read the system style, update the window state,
     /// pump the events that fall out, then request a regeneration tagged
-    /// [`RelayoutReason::ThemeChange`]. This does the same, minus the
+    /// [`RelayoutReason::ModeChange`]. This does the same, minus the
     /// re-discovery — the caller supplies the theme, since there is no system
     /// setting here to read.
     ///
@@ -2054,8 +2054,8 @@ impl HeadlessWindow {
     /// nothing is dispatched and no frame is requested: the desktop was
     /// already in `theme` (a no-op switch should not cost a relayout, and a
     /// test asserting "N relayouts" should not have to know whether the theme
-    /// happened to differ), or the app pins its colour scheme
-    /// (`CallbackInfo::set_color_scheme`) - then the desktop's new theme is
+    /// happened to differ), or the app pins its mode
+    /// (`CallbackInfo::set_mode`) - then the desktop's new light / dark is
     /// only remembered, for when the app follows the desktop again.
     pub fn set_system_theme(&mut self, theme: azul_core::window::WindowTheme) -> bool {
         let Some(theme) = self.common.adopt_desktop_theme(theme) else {
@@ -2074,7 +2074,7 @@ impl HeadlessWindow {
         let _ = self.process_window_events(0);
 
         self.common
-            .request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
+            .request_regeneration(azul_core::callbacks::RelayoutReason::ModeChange);
         self.wake();
         true
     }

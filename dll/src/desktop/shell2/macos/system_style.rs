@@ -928,10 +928,10 @@ fn adopt_probed_theme(
         Theme::Dark => WindowTheme::DarkMode,
         Theme::Light => WindowTheme::LightMode,
     };
-    // The DESKTOP's theme, which is not necessarily the window's: an app that
-    // pins its colour scheme keeps its window where it is, but the desktop is
+    // The DESKTOP's light / dark, which is not necessarily the window's: an
+    // app that pins its mode keeps its window where it is, but the desktop is
     // still recorded and its style re-discovered, so switching the app back
-    // to "follow the system" lands on the desktop's current theme at once.
+    // to "follow the system" lands on the desktop's current mode at once.
     if common.desktop_theme() == theme {
         return None;
     }

@@ -6836,9 +6836,9 @@ unsafe extern "system" fn window_proc(
                 azul_css::system::Theme::Dark => azul_core::window::WindowTheme::DarkMode,
                 azul_css::system::Theme::Light => azul_core::window::WindowTheme::LightMode,
             };
-            // The DESKTOP's theme: the window takes it only while the app
-            // follows the desktop (an app that pins its colour scheme stays
-            // put; the desktop is remembered for when it follows again).
+            // The DESKTOP's light / dark: the window takes it only while the
+            // app follows the desktop (an app that pins its mode stays put;
+            // the desktop is remembered for when it follows again).
             if let Some(new_theme) = window.common.adopt_desktop_theme(desktop_theme) {
                 // OS-reported (source = Os): the theme is the system's
                 // decision, so the OS-sync baseline advances with `current`
@@ -6853,7 +6853,7 @@ unsafe extern "system" fn window_proc(
             window.route_main_window_result(hwnd, r);
             // Full rebuild or restyle, decided from what the app's `layout()`
             // declared it reads — see `PlatformWindow::adopt_system_style`.
-            // The rebuild is tagged ThemeChange, not RefreshDom: the reason
+            // The rebuild is tagged ModeChange, not RefreshDom: the reason
             // reaches the user's layout callback via
             // LayoutCallbackInfo::relayout_reason(), and a theme switch is
             // exactly the case where a callback wants to know it may re-read
@@ -7469,10 +7469,10 @@ impl PlatformWindow for Win32Window {
         }
     }
 
-    fn adopt_app_color_scheme_in_other_windows(&mut self) {
+    fn adopt_app_mode_in_other_windows(&mut self) {
         // The same registry walk as above; each window adopts the app's
-        // colour scheme through its own trigger (restyle, or a rebuild where
-        // its `layout()` read the scheme), and its caption follows.
+        // mode through its own trigger (restyle, or a rebuild where its
+        // `layout()` read the mode), and its caption follows.
         let hwnd = self.hwnd;
         for other_hwnd in registry::get_all_window_handles() {
             if other_hwnd == hwnd {
@@ -7480,7 +7480,7 @@ impl PlatformWindow for Win32Window {
             }
             if let Some(wptr) = registry::get_window(other_hwnd) {
                 let w = unsafe { &mut *wptr };
-                if w.adopt_app_color_scheme() {
+                if w.adopt_app_mode() {
                     w.apply_titlebar_theme();
                     unsafe {
                         (w.win32.user32.InvalidateRect)(other_hwnd, ptr::null(), 0);

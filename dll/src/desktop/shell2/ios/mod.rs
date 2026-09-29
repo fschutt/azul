@@ -1100,7 +1100,7 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
             let _ = window.process_window_events(0);
             window
                 .common
-                .request_regeneration(RelayoutReason::ThemeChange);
+                .request_regeneration(RelayoutReason::ModeChange);
         }
         if window.common.regeneration_pending() {
             let _ = window.present();
@@ -1149,8 +1149,8 @@ unsafe fn adopt_device_appearance(
         return false;
     };
     // The DEVICE's appearance: the window takes it only while the app follows
-    // it (`AppConfig::color_scheme` / `CallbackInfo::set_color_scheme` pin it
-    // otherwise); either way the device's is remembered.
+    // it (`AppConfig::mode` / `CallbackInfo::set_mode` pin it otherwise);
+    // either way the device's is remembered.
     let Some(theme) = common.adopt_desktop_theme(desktop) else {
         return false;
     };
@@ -2458,7 +2458,7 @@ extern "C" fn ui_keyboard_frame_changed(this: &Object, _cmd: Sel, notification: 
     // The inset is layout input, so a change has to reach layout.
     window
         .common
-        .request_regeneration(RelayoutReason::ThemeChange);
+        .request_regeneration(RelayoutReason::ModeChange);
 }
 
 /// `canBecomeFirstResponder` — required, or UIKit never asks for text.

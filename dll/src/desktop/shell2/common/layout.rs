@@ -257,7 +257,7 @@ pub fn regenerate_layout(
     // ── The APP THEME (`CallbackInfo::set_theme`) ─────────────────────────
     // THE place a window adopts the app's theme: a window whose DOM was
     // built under another theme than the app's current one rebuilds under
-    // it NOW, and the pass says why (`AppThemeChange`) whatever tag its
+    // it NOW, and the pass says why (`ThemeChange`) whatever tag its
     // request carried - the switching window's fan-out asks the others with
     // a plain `RefreshDom`, and a backend that cannot reach a window at all
     // still has it adopt at its next rebuild. The theme is then entered for
@@ -278,18 +278,18 @@ pub fn regenerate_layout(
     } else {
         layout_window.app_theme = app_theme;
         layout_window.rice_generation = rice_generation;
-        azul_core::callbacks::RelayoutReason::AppThemeChange
+        azul_core::callbacks::RelayoutReason::ThemeChange
     };
     let _theme_scope = azul_core::app_theme::ThemeScope::enter(layout_window.app_theme.clone());
-    // A theme switch takes the FULL path, like a colour-scheme rebuild: the
+    // A theme switch takes the FULL path, like a mode rebuild: the
     // pre-cascade skip's unchanged exit and the layout-equivalence shortcut
     // below both keep the retained StyledDom without offering it the new
     // context, and a migrated widget's DOM is often IDENTICAL across themes
     // (it carries every theme's block; only the matcher differs).
     let theme_rebuild = matches!(
         relayout_reason,
-        azul_core::callbacks::RelayoutReason::ThemeChange
-            | azul_core::callbacks::RelayoutReason::AppThemeChange
+        azul_core::callbacks::RelayoutReason::ModeChange
+            | azul_core::callbacks::RelayoutReason::ThemeChange
     );
 
     // ── Platform backends, registered BEFORE the layout callback runs ──────
@@ -668,7 +668,7 @@ pub fn regenerate_layout(
     // unchanged exit below returns WITHOUT entering the layout funnel, and the
     // funnel is where the new context (and with it the themed UA defaults and
     // every `@theme` twin) reaches the DOM — so a theme write that arrived
-    // without `RelayoutReason::ThemeChange` (a shell poll whose rediscovered
+    // without `RelayoutReason::ModeChange` (a shell poll whose rediscovered
     // style equalled the held one) used to keep the retained DOM's old theme
     // for as long as the app's DOM stayed structurally identical.
     let theme_changed_precheck =
@@ -1066,7 +1066,7 @@ pub fn regenerate_layout(
         &mut styled_dom,
         azul_core::task::Instant::now(),
     );
-    // A resize, a colour-scheme or an app-theme rebuild is no state change:
+    // A resize, a mode or an app-theme rebuild is no state change:
     // what it moves reflows in place (`RelayoutReason::animates_moves`).
     pending.animate_moves = relayout_reason.animates_moves();
 

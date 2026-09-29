@@ -1,10 +1,10 @@
 //! The app theme (`CallbackInfo::set_theme`) through the real shell pipeline (`HeadlessWindow`).
 //!
-//! A theme is not a colour scheme. The colour scheme only repaints (`ThemeChange`, a restyle
-//! unless `layout()` read it); a THEME may change a widget's DOM STRUCTURE - flora wraps nodes
-//! flat does not - so a switch always RECREATES the DOM: `layout()` runs again, tagged
-//! `RelayoutReason::AppThemeChange`, and builds for the new theme (`get_theme_name` in
-//! `layout()`, `azul_core::app_theme::current_theme` in a widget's `dom()`).
+//! A theme is not a mode. The light / dark mode only repaints (`ModeChange`, a restyle unless
+//! `layout()` read it); a THEME may change a widget's DOM STRUCTURE - flora wraps nodes flat does
+//! not - so a switch always RECREATES the DOM: `layout()` runs again, tagged
+//! `RelayoutReason::ThemeChange`, and builds for the new theme (`get_theme` in `layout()`,
+//! `azul_core::app_theme::current_theme` in a widget's `dom()`).
 //!
 //! The choice is APP-wide: every window rebuilds under it, and a window opened later starts in
 //! it. Headless has no window registry, so the fan-out's rebuild REQUEST cannot reach the other
@@ -68,7 +68,7 @@ static BOX_STYLE: &[CssPropertyWithConditions] = &[
     ),
 ];
 
-/// The choice is APP-wide (a process-global, like the colour scheme's), so the tests of this
+/// The choice is APP-wide (a process-global, like the mode's), so the tests of this
 /// binary take turns, and each starts from the default theme.
 static SERIAL: Mutex<()> = Mutex::new(());
 
@@ -83,7 +83,7 @@ fn fresh_app() -> MutexGuard<'static, ()> {
 /// What one `layout()` call saw.
 #[derive(Debug, Clone, PartialEq)]
 struct Seen {
-    /// `LayoutCallbackInfo::get_theme_name`.
+    /// `LayoutCallbackInfo::get_theme`.
     theme: String,
     /// `azul_core::app_theme::current_theme` - what a widget's `dom()` reads.
     widget_theme: String,
@@ -124,7 +124,7 @@ impl Model {
 /// A `layout()` whose STRUCTURE depends on the theme, the way a flora widget wraps its face:
 /// under flora the box sits in one more div.
 extern "C" fn theme_structured_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
-    let theme = info.get_theme_name();
+    let theme = info.get_theme();
     if let Some(model) = data.downcast_ref::<Model>() {
         model.layout_calls.fetch_add(1, Ordering::SeqCst);
         model.seen.lock().expect("seen").push(Seen {
@@ -159,7 +159,7 @@ extern "C" fn theme_blind_layout(mut data: RefAny, _info: LayoutCallbackInfo) ->
 /// under flora a 20px row is inserted above the box - and the same row can come from app STATE
 /// (`extra_row`), so the same move can also be a state change.
 extern "C" fn theme_moving_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
-    let flora = info.get_theme_name().as_str() == "flora";
+    let flora = info.get_theme().as_str() == "flora";
     let extra_row = data.downcast_ref::<Model>().is_some_and(|model| {
         model.layout_calls.fetch_add(1, Ordering::SeqCst);
         model.extra_row.load(Ordering::SeqCst) != 0
@@ -291,7 +291,7 @@ fn set_theme_recreates_the_dom_under_the_new_theme() {
     );
     assert_eq!(
         window.pending_relayout_reason(),
-        RelayoutReason::AppThemeChange,
+        RelayoutReason::ThemeChange,
         "and the rebuild says why"
     );
     honor(&mut window, result);
@@ -303,7 +303,7 @@ fn set_theme_recreates_the_dom_under_the_new_theme() {
         Seen {
             theme: "flora".to_string(),
             widget_theme: "flora".to_string(),
-            reason: RelayoutReason::AppThemeChange,
+            reason: RelayoutReason::ThemeChange,
         }
     );
     assert_eq!(window_theme(&window), "flora");
@@ -359,7 +359,7 @@ fn every_window_rebuilds_under_the_apps_new_theme() {
         Seen {
             theme: "flora".to_string(),
             widget_theme: "flora".to_string(),
-            reason: RelayoutReason::AppThemeChange,
+            reason: RelayoutReason::ThemeChange,
         }
     );
     assert_eq!(window_theme(&other), "flora");
@@ -373,7 +373,7 @@ fn every_window_rebuilds_under_the_apps_new_theme() {
     assert_eq!(late_model.last().theme, "flora");
     assert_ne!(
         late_model.last().reason,
-        RelayoutReason::AppThemeChange,
+        RelayoutReason::ThemeChange,
         "its first layout is no switch"
     );
 }

@@ -3175,10 +3175,10 @@ pub(crate) fn adopt_observed_theme(
         Theme::Dark => WindowTheme::DarkMode,
         Theme::Light => WindowTheme::LightMode,
     };
-    // The DESKTOP's theme, which is not necessarily the window's: an app that
-    // pins its colour scheme keeps its window where it is, but the desktop is
+    // The DESKTOP's light / dark, which is not necessarily the window's: an
+    // app that pins its mode keeps its window where it is, but the desktop is
     // still recorded and its style re-discovered, so switching the app back
-    // to "follow the system" lands on the desktop's current theme at once.
+    // to "follow the system" lands on the desktop's current mode at once.
     if common.desktop_theme() == theme {
         return None;
     }
@@ -3676,8 +3676,8 @@ mod kde_ini_tests {
     /// window rendered its LIGHT chrome on a dark desktop. Detection was not
     /// the problem - `AZ_DUMP_SYSTEM_STYLE=1` correctly read `theme Dark` and
     /// the whole Breeze Dark palette out of kdeglobals. The problem is that
-    /// the WINDOW theme (`WindowState::theme`, which is what an app reads
-    /// through `CallbackInfo::get_theme()`) is fed by ONE source: the
+    /// the WINDOW's light / dark (`WindowState::theme`, which is what an app
+    /// reads through `LayoutCallbackInfo::get_mode()`) is fed by ONE source: the
     /// xdg-desktop-portal watcher. This session logs
     /// `xdg-desktop-portal unavailable`, so the watcher never stores anything,
     /// `adopt_observed_theme` returns `None`, and the window keeps

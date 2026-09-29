@@ -868,7 +868,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     info.depends_on_system_style(SystemStyleDependency::Theme);
     info.depends_on_system_style(SystemStyleDependency::Colors);
     let system_style = info.get_system_style_untracked();
-    let pal = palette::Palette::from_system(&system_style, info.get_theme());
+    let pal = palette::Palette::from_system(&system_style, info.get_mode());
 
     let compact = !info.viewport_bigger_than(MOBILE_BREAKPOINT_PX);
 

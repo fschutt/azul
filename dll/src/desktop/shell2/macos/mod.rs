@@ -4530,17 +4530,17 @@ impl PlatformWindow for MacOSWindow {
         }
     }
 
-    fn adopt_app_color_scheme_in_other_windows(&mut self) {
+    fn adopt_app_mode_in_other_windows(&mut self) {
         // The same registry walk as above; each window adopts the app's
-        // colour scheme through its own trigger (restyle, or a rebuild where
-        // its `layout()` read the scheme).
+        // mode through its own trigger (restyle, or a rebuild where its
+        // `layout()` read the mode).
         let me: *mut Self = self;
         for wptr in registry::get_all_window_ptrs() {
             if wptr.is_null() || core::ptr::eq(wptr, me) {
                 continue;
             }
             let w = unsafe { &mut *wptr };
-            if w.adopt_app_color_scheme() {
+            if w.adopt_app_mode() {
                 w.request_redraw();
             }
             // Even when its mode did not move: a pin forces the chrome.
