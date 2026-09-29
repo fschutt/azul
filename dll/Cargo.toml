@@ -929,8 +929,10 @@ crash-mail = ["telemetry", "azul-layout?/crash-mail"]
 # adds the TCP listener + `register_debug_timer`. It used to be a second, drifted
 # copy of the same 12k lines.
 # `azul-css?/codegen`: `POST /debug/compile?lang=` (common/debug_server/platform.rs)
-# runs `azul_css::codegen::backend_for`.
-debug-server = ["json", "azul-layout/e2e-server-http", "spmc", "azul-css?/codegen"]
+# runs `azul_css::codegen::backend_for`. `azul-layout/codegen` (the DOM half,
+# `azul_core::codegen`: AzBuilder's code export) comes with `e2e-server`; it is
+# named here so the gate is visible.
+debug-server = ["json", "azul-layout/e2e-server-http", "azul-layout/codegen", "spmc", "azul-css?/codegen"]
 # E2E SCRIPTING WITHOUT THE HTTP SERVER.
 #
 # `debug-server` above pulls `e2e-server-http`, which opens a listening
@@ -942,7 +944,7 @@ debug-server = ["json", "azul-layout/e2e-server-http", "spmc", "azul-css?/codege
 #
 # So this enables `e2e-server` (the op dispatch, despite the name) WITHOUT
 # `-http` and without `spmc`, which exists only for the HTTP transport.
-e2e-scripting = ["json", "azul-layout/e2e-server", "azul-css?/codegen"]
+e2e-scripting = ["json", "azul-layout/e2e-server", "azul-layout/codegen", "azul-css?/codegen"]
 
 # Memory allocator features — set the global allocator inside the azul DLL.
 # Since azul exposes a C API, the allocator only affects azul's internal

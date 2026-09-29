@@ -470,6 +470,11 @@ pub mod video;
 pub mod window;
 /// XML and XHTML parsing for declarative UI definitions.
 pub mod xml;
+/// Markup, a DOM and component libraries → source code in every binding
+/// language (the DOM half of the code generator; azul-css has the CSS half).
+/// Only with the `codegen` feature.
+#[cfg(feature = "codegen")]
+pub mod codegen;
 
 /// Ordered map alias used throughout `azul-core`.
 ///

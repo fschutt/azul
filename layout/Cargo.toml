@@ -55,7 +55,8 @@ autoexamples = true
 autotests = false
 
 [dependencies]
-# No `codegen`: layout's `GetHash` imports use the ungated `azul_css::hash`.
+# `codegen` only with this crate's `codegen` feature (below); layout's `GetHash`
+# imports use the ungated `azul_css::hash`.
 azul-css                = { version = "0.0.16", path = "../css", default-features = false, features = ["parser"] }
 azul-core              = { version = "0.0.16", path = "../core", default-features = false }
 # `pattern` form validation (11b-i-b). MINIMAL on purpose: only the string API,
@@ -292,6 +293,12 @@ pnm = ["image_decoding", "image/pnm"]
 # XML parsing support (for SVG and font configs)
 xml = ["dep:roxmltree", "dep:xmlwriter", "dep:xmlparser"]
 
+# Markup / component libraries -> source code in every binding language
+# (`azul_core::codegen` lowers, `azul_css::codegen` prints). Forwards to both
+# crates' `codegen` features; `e2e-server` turns it on for AzBuilder's code
+# export (src/e2e/export.rs).
+codegen = ["azul-core/codegen", "azul-css/codegen"]
+
 # SVG rendering support (lyon for tessellation, agg-rust for CPU render)
 svg = [
     "dep:lyon",
@@ -382,7 +389,7 @@ icons = ["std", "zip", "dep:material-icons", "dep:brotli-decompressor"]
 # path is host-agnostic (no networking, no OS coupling — those go through
 # `e2e::hooks`), so a headless library caller can run E2E JSON scenarios with
 # just this feature.
-e2e-server = ["std", "json", "cpurender", "zip", "widgets", "text_layout", "font_loading", "a11y", "xml", "dep:spmc"]
+e2e-server = ["std", "json", "cpurender", "zip", "widgets", "text_layout", "font_loading", "a11y", "xml", "codegen", "dep:spmc"]
 
 # Request transport for the debug server: the spmc channel, the debug timer and
 # `handle_event_request`. Opt-in ON TOP of `e2e-server`; the core op-dispatch and

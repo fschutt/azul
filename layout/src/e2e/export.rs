@@ -29,16 +29,23 @@
 
 use std::fmt::Write as _;
 
-use azul_core::xml::{
-    lower_xml_fragment, lower_xml_fragment_app, lower_xml_page_app, CompileTarget,
-    ComponentDataModel, ComponentDef, ComponentDefaultValue, ComponentFieldType, ComponentMap,
-    FragmentParam, OptionComponentDefaultValue, ResultStringCompileError, XmlNodeChild,
+use azul_core::{
+    codegen::{
+        backend,
+        dom::{lower_xml_fragment, lower_xml_fragment_app, lower_xml_page_app, FragmentParam},
+        dom_warning,
+    },
+    xml::{
+        CompileTarget, ComponentDataModel, ComponentDef, ComponentDefaultValue,
+        ComponentFieldType, ComponentMap, OptionComponentDefaultValue, ResultStringCompileError,
+        XmlNodeChild,
+    },
 };
 use azul_css::{
     codegen::{
-        all_backends, backend_for,
+        all_backends,
         ir::{ComponentSpec, Ident, LibrarySpec, Module},
-        supported_languages, CodegenBackend, GeneratedFile,
+        CodegenBackend, GeneratedFile,
     },
     css::{Css, CssDeclaration, CssPath, CssPathSelector, CssRuleBlock},
     AzString,
@@ -119,29 +126,6 @@ pub fn languages_json() -> serde_json::Value {
     })
 }
 
-/// The code generator for `lang` (an id or an alias).
-///
-/// # Errors
-/// An unknown language.
-pub fn backend(lang: &str) -> Result<Box<dyn CodegenBackend>, String> {
-    backend_for(lang).ok_or_else(|| {
-        format!(
-            "no code generator for {lang:?}; available: {}",
-            supported_languages()
-        )
-    })
-}
-
-/// The warning for a DOM export in a language whose printer does not do it.
-fn dom_warning(b: &dyn CodegenBackend) -> Option<String> {
-    (!b.exports_dom()).then(|| {
-        format!(
-            "the {} printer does not print DOM construction yet: the code says why instead of \
-             building the UI",
-            b.display_name()
-        )
-    })
-}
 
 // ===========================================================================
 // CSS: sources, rules, compile

@@ -31,8 +31,9 @@ parser = ["dep:azul-simplecss"]
 # CSS -> source code generation (`azul_css::codegen`): one language-neutral IR
 # lowered from the parsed model + one printer per binding language (Rust, C,
 # C++, Python, C#, Java, ...), and the legacy `FormatAsRustCode` impls. Off by
-# default; enabled explicitly by azul-core (xml.rs), azul-layout and the dll's
-# debug server. Its golden tests: `cargo test -p azul-css --features codegen`.
+# default; enabled by azul-core's own `codegen` feature (the DOM half,
+# `azul_core::codegen`), azul-layout's `codegen` feature and the dll's debug
+# server. Its golden tests: `cargo test -p azul-css --features codegen`.
 codegen = []
 
 # Opt-in: integration tests that perform live system/theme IO

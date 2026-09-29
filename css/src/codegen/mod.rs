@@ -22,7 +22,9 @@
 //! the exact `Css` value, `emit_project` = a buildable standalone project).
 //!
 //! [`format`] is the legacy Rust-only `FormatAsRustCode` formatter (kept for
-//! `azul-core`'s `xml.rs`; superseded by this pipeline).
+//! this crate's `FormatAsRustCode` impls; superseded by this pipeline). The
+//! DOM half of the code generator (markup / components -> this IR) is
+//! `azul_core::codegen`.
 
 use alloc::{boxed::Box, string::String, vec::Vec};
 
