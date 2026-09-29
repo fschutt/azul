@@ -4597,9 +4597,106 @@ pub fn chip(c: crate::widgets::chip::Chip) -> Dom {
 }
 
 // ==== alert ====
+//
+// A flora alert is a leaf laid on the page: "a pale, near-neutral ground with
+// only the faintest warmth in it" - here the faintest wash of the kind's stone
+// (its soft tint) - in a --fl-bd hairline, with a 3px thread of the stone
+// down the left edge the way flora.css threads a quotation with metal, and
+// the leaf's --fl-shadow-1 under it. At night the leaf is the night surface,
+// neutral, and only the thread keeps the kind, lifted to the stone's glow so
+// it still reads on the dark ground. The close button is quiet ink
+// (--fl-soft1) that comes up to --fl-ink under the pointer, and rings in
+// flora's focus colour.
 
-/// The flora alert.
+/// The alert kind's stone.
+const fn alert_stone(kind: crate::widgets::alert::AlertKind) -> FloraStone {
+    use crate::widgets::alert::AlertKind;
+    match kind {
+        AlertKind::Info => STONE_ACCENT,
+        AlertKind::Success => STONE_LEAF,
+        AlertKind::Warning => STONE_AMBER,
+        AlertKind::Danger => STONE_CLAY,
+    }
+}
+
+/// `--fl-shadow-1`: `0 1px 2px rgba(48, 45, 38, 0.14)`, and its night value
+/// `rgba(0, 0, 0, 0.55)`.
+const LEAF_SHADOW_LIGHT: ColorU = ColorU::new(48, 45, 38, 36);
+const LEAF_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 140);
+
+/// The flora banner for one alert kind.
+fn flora_alert_container(
+    kind: crate::widgets::alert::AlertKind,
+) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+
+    let stone = alert_stone(kind);
+    let mut style = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+            LayoutFlexDirection::Row,
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Start)),
+        // Span the full width of a flex-column parent.
+        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Stretch)),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
+            0,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            14,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    style.extend(decl::padding(12, 14, 12, 12));
+    style.extend(decl::radius(3));
+    style.extend(decl::border(1));
+    // The thread: heavier than the hairline, in the stone.
+    style.extend(decl::border_left(3));
+    style.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
+    style.extend(decl::themed_border_left_color(stone.stone, stone.glow));
+    style.extend(decl::themed_fill(stone.soft, DARK_SUR));
+    style.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    style.extend(decl::themed_shadow(1, 2, LEAF_SHADOW_LIGHT, LEAF_SHADOW_DARK));
+    style
+}
+
+/// The flora alert: the leaf banner with its stone thread, and a quiet close
+/// button.
 #[must_use]
 pub fn alert(a: crate::widgets::alert::Alert) -> Dom {
-    super::flat::alert(a)
+    use super::decl;
+    use crate::widgets::alert::{AlertLook, ALERT_MESSAGE_STYLE};
+
+    let mut close = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
+            0,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            16,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+        CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+        CssPropertyWithConditions::simple(CssProperty::const_margin_left(
+            LayoutMarginLeft::const_px(12),
+        )),
+    ];
+    close.extend(decl::padding(0, 4, 0, 4));
+    close.extend(decl::radius(3));
+    close.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    close.extend(decl::hover_ink(LIGHT_INK, DARK_INK));
+    close.extend(decl::hover_fill(
+        ColorU::new(38, 37, 33, 20),
+        ColorU::new(255, 255, 255, 28),
+    ));
+    close.extend(decl::focus_halo(LIGHT_ACC, DARK_GLOW));
+
+    crate::widgets::alert::build(
+        a,
+        &AlertLook {
+            container: flora_alert_container,
+            message: ALERT_MESSAGE_STYLE.to_vec(),
+            close,
+            marker: Some("__azul-theme-flora"),
+        },
+    )
 }

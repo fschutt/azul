@@ -4190,6 +4190,11 @@ pub fn chip(c: crate::widgets::chip::Chip) -> Dom {
 }
 
 // ==== alert ====
+//
+// The flat alert is the widget's established Bootstrap banner - a pastel face
+// in a 1px rule, a 6px radius - with Bootstrap's dark alert palette as its
+// night twins. Its close button takes the keyboard but had nothing to show
+// focus with; it gets flat's focus halo (#4286F4, the night accent at night).
 
 /// The flat banner for an alert kind: the widget's own pastel face, then its
 /// dark twins (Bootstrap's dark alert palette).
@@ -4201,16 +4206,23 @@ fn flat_alert_container(
     style
 }
 
-/// The flat alert.
+/// The flat alert: the established banner, with a focus halo on its close
+/// button.
 #[must_use]
 pub fn alert(a: crate::widgets::alert::Alert) -> Dom {
+    use super::decl;
     use crate::widgets::alert::{AlertLook, ALERT_CLOSE_STYLE, ALERT_MESSAGE_STYLE};
+
+    let mut close = ALERT_CLOSE_STYLE.to_vec();
+    close.extend(decl::radius(4));
+    close.extend(decl::focus_halo(FIELD_RING, DARK_ACC));
+
     crate::widgets::alert::build(
         a,
         &AlertLook {
             container: flat_alert_container,
             message: ALERT_MESSAGE_STYLE.to_vec(),
-            close: ALERT_CLOSE_STYLE.to_vec(),
+            close,
             marker: None,
         },
     )
