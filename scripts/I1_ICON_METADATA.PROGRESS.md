@@ -18,8 +18,11 @@ Design: `scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md` section
 - `0d61a4568` impl: SvgPaintContext, render_svg_to_imageref_painted, svg_natural_size,
   svg_uses_only_current_color; SvgIconData, register_svg_icon, default_svg_icon_meta
 
+- `b691e355f` RED: rank-ordered lookup (core icon_test.rs, layout icon.rs)
+- `29b5b631b` impl: pack_order / pack_ranks / set_pack_rank / insert_icon / remove_pack
+
 ## IN PROGRESS
-- step 4: pack rank, then registration order
+- step 5: remap rules (core matcher + context threading), then the loader (layout, feature json)
 
 ## NEXT (in order)
 1. RED + impl: `IconMeta` (designed_for / variants / recolor / monochrome) on the registered data,
