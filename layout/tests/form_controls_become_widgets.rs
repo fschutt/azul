@@ -2295,3 +2295,46 @@ mod raw_buttons {
         assert_eq!(actions[0].1, ButtonFormAction::Submit);
     }
 }
+
+// ── A raw <form>'s own dataset ──────────────────────────────────────────────
+
+/// A raw `<form>`'s dataset is the APP's - what its handlers find with
+/// `info.get_dataset(form)`. The Form it becomes keeps it on the form node,
+/// and finds its own state elsewhere.
+mod raw_form_dataset {
+    use azul_layout::widgets::form::submit_form;
+
+    use super::{
+        forms::{mount, named, owned, raw_form, submits, the_form, Calls},
+        *,
+    };
+
+    #[derive(Debug)]
+    struct AppData(u32);
+
+    #[test]
+    fn a_raw_forms_own_dataset_survives_its_replacement() {
+        let calls = RefAny::new(Calls::default());
+        let raw = raw_form(
+            &calls,
+            vec![named("text", "user").with_attribute(AttributeType::Value("ann".into()))],
+        )
+        .with_dataset(Some(RefAny::new(AppData(7))).into());
+        let mut lw = styling_window();
+        let styled = lw.style_user_dom(page(raw));
+        let form = the_form(&styled);
+        let mut dataset = node(&styled, form)
+            .get_dataset()
+            .cloned()
+            .expect("the form node keeps a dataset");
+        let seven = dataset.downcast_ref::<AppData>().map(|d| d.0);
+        assert_eq!(seven, Some(7), "the app's dataset, not the form's state");
+
+        // ... and the Form still works: its values, its app handler.
+        mount(&mut lw, styled);
+        let _ = with_info(&lw, dom_node(form), |mut info| {
+            submit_form(&mut info, dom_node(form))
+        });
+        assert_eq!(submits(&calls), vec![owned(&[("user", "ann")])]);
+    }
+}
