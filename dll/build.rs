@@ -747,6 +747,7 @@ fn compress_debugger_assets() {
     let assets = &[
         ("debugger.css", "debugger.css.br"),
         ("debugger.js", "debugger.js.br"),
+        ("debugger-dnd.js", "debugger-dnd.js.br"),
         ("debugger.html", "debugger.html.br"),
     ];
 

@@ -217,7 +217,13 @@ const app = {
                 if (s.previewLang !== undefined) this.state.previewLang = s.previewLang;
             } catch(e) { console.warn('[dbg] bad localStorage:', e); }
         }
-        if (!this.state.tests.length) this.handlers.newTest();
+        if (!this.state.tests.length) {
+            this.handlers.newTest();
+            // B1 fix: `newTest` switches to the Testing view (right for the
+            // "+ New Test" button); the default test of a FIRST launch must not
+            // hide the DOM explorer and palette from a new AzBuilder user.
+            this.ui.switchView('inspector');
+        }
 
         this._initMenubar();
         this.resizer.init();
@@ -2019,9 +2025,11 @@ const app = {
                 });
                 if (res.status === 'ok') {
                     app.log('Component "' + tagName + '" created in library "' + targetLibrary + '"', 'info');
-                    // Switch to components view and select it
-                    app.state.currentView = 'components';
-                    app.ui.showView('components');
+                    // Switch to components view and select it.
+                    // B1 fix: `app.ui.showView` never existed — the TypeError
+                    // turned every successful create into "Create component failed".
+                    app.state.selectedLibrary = targetLibrary;
+                    app.ui.switchView('components');
                     app.handlers.selectLibrary(targetLibrary);
                 } else {
                     app.log('Failed to create component: ' + (res.message || ''), 'error');
