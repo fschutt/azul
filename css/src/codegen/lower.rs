@@ -535,11 +535,14 @@ pub const fn pseudo_state(p: &CssPathPseudoSelector) -> Option<PseudoStateType> 
 // ------------------------------------------------------------ module builders
 
 /// One property of a flat style, lowered, plus the notes a reader needs.
-fn lower_declaration(decl: &CssDeclaration, conditions: &[DynamicSelector], notes: &mut Vec<String>) -> Expr {
-    let (prop, dynamic_id) = match decl {
-        CssDeclaration::Static(p) => (p, None),
-        CssDeclaration::Dynamic(d) => (&d.default_value, Some(d.dynamic_id.as_str())),
-    };
+/// `dynamic_id` names the runtime reference (an `env()`) whose fallback
+/// `prop` is.
+fn lower_declaration(
+    prop: &CssProperty,
+    dynamic_id: Option<&str>,
+    conditions: &[DynamicSelector],
+    notes: &mut Vec<String>,
+) -> Expr {
     if let Some(id) = dynamic_id {
         notes.push(format!(
             "`{}` is a runtime reference (`{id}`); a flat property list holds its fallback",
@@ -579,6 +582,24 @@ pub fn lower_styles(css: &Css) -> Module {
         notes: Vec<String>,
     }
     let mut groups: Vec<Group> = Vec::new();
+
+    // A flat property list has no cascade to carry a custom property: a
+    // `var()` in it takes the value the stylesheet's OWN definitions give it
+    // (all of them, in order, conditions ignored - what the parser used to
+    // substitute before variables moved into the cascade), else its
+    // fallback, and the definitions themselves are not properties.
+    let own_defs: Vec<(&str, &str)> = css
+        .rules
+        .as_slice()
+        .iter()
+        .flat_map(|r| r.declarations.as_slice().iter())
+        .filter_map(CssDeclaration::custom_property)
+        .map(|c| (c.name.as_str(), c.value.as_str()))
+        .collect();
+    let own_vars = crate::custom_properties::CustomPropertyMap::cascade(
+        &crate::custom_properties::CustomPropertyMap::default(),
+        &own_defs,
+    );
 
     for rule in css.rules.as_slice() {
         let sels = rule.path.selectors.as_slice();
@@ -630,7 +651,15 @@ pub fn lower_styles(css: &Css) -> Module {
             g.selectors.push(shown);
         }
         for decl in rule.declarations.as_slice() {
-            let e = lower_declaration(decl, &conditions, &mut g.notes);
+            let (prop, dynamic_id) = match decl {
+                CssDeclaration::Static(p) => (p.clone(), None),
+                CssDeclaration::Dynamic(d) => match decl.var_reference() {
+                    Some(r) => (crate::custom_properties::resolve_var(r, &own_vars), None),
+                    None => (d.default_value.clone(), Some(d.dynamic_id.as_str())),
+                },
+                CssDeclaration::CustomProperty(_) => continue,
+            };
+            let e = lower_declaration(&prop, dynamic_id, &conditions, &mut g.notes);
             g.props.push(e);
         }
     }

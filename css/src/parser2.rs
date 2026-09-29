@@ -75,7 +75,8 @@ pub use crate::props::property::CssParsingError;
 use crate::{
     corety::{AzString, OptionString},
     css::{
-        AttributeMatchOp, Css, CssAttributeSelector, CssDeclaration, CssNthChildSelector, CssPath,
+        AttributeMatchOp, Css, CssAttributeSelector, CssCustomProperty, CssDeclaration,
+        CssNthChildSelector, CssPath,
         CssPathPseudoSelector, CssPathSelector, CssRuleBlock, DynamicCssProperty, NodeTypeTag,
         NodeTypeTagParseError, NodeTypeTagParseErrorOwned,
     },
@@ -1061,6 +1062,10 @@ pub enum CssParseWarnMsgInner<'a> {
     },
     /// Malformed block structure (mismatched braces, etc.)
     MalformedStructure { message: &'a str },
+    /// A `var()` that declares no fallback (design gap 1: every `var()`
+    /// must). Kept - it resolves to the property's initial value wherever
+    /// its variable is undefined - but a mistyped name then fails silently.
+    VarWithoutFallback { key: &'a str, value: &'a str },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1081,6 +1086,10 @@ pub enum CssParseWarnMsgInnerOwned {
     },
     MalformedStructure {
         message: String,
+    },
+    VarWithoutFallback {
+        key: String,
+        value: String,
     },
 }
 
@@ -1109,6 +1118,12 @@ impl CssParseWarnMsgInner<'_> {
             Self::MalformedStructure { message } => CssParseWarnMsgInnerOwned::MalformedStructure {
                 message: (*message).to_string(),
             },
+            Self::VarWithoutFallback { key, value } => {
+                CssParseWarnMsgInnerOwned::VarWithoutFallback {
+                    key: (*key).to_string(),
+                    value: (*value).to_string(),
+                }
+            }
         }
     }
 }
@@ -1135,6 +1150,9 @@ impl CssParseWarnMsgInnerOwned {
             Self::MalformedStructure { message } => {
                 CssParseWarnMsgInner::MalformedStructure { message }
             }
+            Self::VarWithoutFallback { key, value } => {
+                CssParseWarnMsgInner::VarWithoutFallback { key, value }
+            }
         }
     }
 }
@@ -1148,6 +1166,7 @@ impl_display! { CssParseWarnMsgInner<'a>, {
     },
     SkippedDeclaration { key, value, error } => format!("Skipped declaration '{}:{}': {}", key, value, error),
     MalformedStructure { message } => format!("Malformed CSS structure: {}", message),
+    VarWithoutFallback { key, value } => format!("'{}: {}' reads a variable without a fallback: where it is undefined the property takes its initial value; write var(--name, <fallback>)", key, value),
 }}
 
 /// Parses @media conditions from the content following "@media"
@@ -2056,36 +2075,6 @@ fn new_from_str_inner<'a>(
     (stylesheet, warnings)
 }
 
-/// Resolves a parsed `var(--name)` reference (a `CssDeclaration::Dynamic`) against the
-/// document-wide custom-property map, producing a concrete `Static` declaration.
-///
-/// If the referenced custom property is defined, its raw value is parsed as the referenced
-/// property's type (taken from the `var()`'s parsed fallback). Otherwise — undefined `var()`
-/// or an unparseable value — the fallback (`default_value`) is used, matching the CSS
-/// behaviour of an invalid/guaranteed-invalid substitution falling back to the declared
-/// default. Non-`Dynamic` declarations pass through unchanged.
-fn resolve_var_reference(
-    decl: CssDeclaration,
-    custom_props: &BTreeMap<String, String>,
-) -> CssDeclaration {
-    let CssDeclaration::Dynamic(dyn_prop) = decl else {
-        return decl;
-    };
-    // An `env()` reference is resolved by the CASCADE against the window's
-    // live context, not here: it has to survive parsing as `Dynamic`.
-    if EnvVariable::from_dynamic_id(dyn_prop.dynamic_id.as_str()).is_some() {
-        return CssDeclaration::Dynamic(dyn_prop);
-    }
-    // `dynamic_id` is stored without the leading `--`; trim defensively either way.
-    let name = dyn_prop.dynamic_id.as_str().trim_start_matches("--");
-    if let Some(raw) = custom_props.get(name) {
-        if let Ok(parsed) = parse_css_property(dyn_prop.default_value.get_type(), raw) {
-            return CssDeclaration::Static(parsed);
-        }
-    }
-    CssDeclaration::Static(dyn_prop.default_value)
-}
-
 fn css_blocks_to_stylesheet<'a>(
     css_blocks: Vec<UnparsedCssRuleBlock<'a>>,
     css_string: &'a str,
@@ -2094,31 +2083,32 @@ fn css_blocks_to_stylesheet<'a>(
     let mut warnings = Vec::new();
     let mut parsed_css_blocks = Vec::new();
 
-    // CSS custom properties (`--name: value`) + `var()` references. The parser already turns
-    // `prop: var(--name, fallback)` into a `CssDeclaration::Dynamic`, but nothing consumed it
-    // and `--name` definitions were dropped as unknown keys. Resolve them here at parse time:
-    // collect every `--name` definition document-wide, then substitute each var() reference
-    // with the referenced value (parsed as the target property's type) or its fallback. This
-    // is a pragmatic subset of the full cascade — it covers the common `:root { --x: ... }`
-    // pattern; element-scoped custom properties (redefined per subtree) are not modelled, which
-    // would require cascade-level storage. Keys are stored without the leading `--`.
-    let mut custom_props: BTreeMap<String, String> = BTreeMap::new();
-    for block in &css_blocks {
-        for (key, (value, _)) in &block.declarations {
-            if let Some(name) = key.strip_prefix("--") {
-                custom_props.insert(name.to_string(), value.trim().to_string());
-            }
-        }
-    }
-
     for unparsed_css_block in css_blocks {
         let mut declarations = Vec::<CssDeclaration>::new();
 
         for (unparsed_css_key, unparsed_css_value, location) in unparsed_css_block.in_source_order()
         {
-            // Custom-property DEFINITIONS were collected above; they emit no declaration
-            // themselves (and must not warn as unknown keys).
-            if unparsed_css_key.starts_with("--") {
+            // A custom-property DEFINITION is a declaration of its own: the
+            // cascade stores it on the nodes the rule matches, under the
+            // rule's conditions, and resolves every `var()` against the
+            // nearest live one (design §7.3). It used to be collected into
+            // one flat map per stylesheet STRING and substituted here, blind
+            // to conditions and to every other stylesheet.
+            if let Some(name) = unparsed_css_key.strip_prefix("--") {
+                if crate::custom_properties::is_custom_property_name(name) {
+                    declarations.push(CssDeclaration::CustomProperty(CssCustomProperty {
+                        name: name.into(),
+                        value: unparsed_css_value.trim().into(),
+                    }));
+                } else {
+                    warnings.push(CssParseWarnMsg {
+                        warning: CssParseWarnMsgInner::UnsupportedKeyValuePair {
+                            key: unparsed_css_key,
+                            value: unparsed_css_value,
+                        },
+                        location,
+                    });
+                }
                 continue;
             }
             match parse_declaration_resilient(
@@ -2128,11 +2118,16 @@ fn css_blocks_to_stylesheet<'a>(
                 &css_key_map,
             ) {
                 Ok(decls) => {
-                    declarations.extend(
-                        decls
-                            .into_iter()
-                            .map(|d| resolve_var_reference(d, &custom_props)),
-                    );
+                    if matches!(parse_var_chain(unparsed_css_value), Some(Ok((_, None)))) {
+                        warnings.push(CssParseWarnMsg {
+                            warning: CssParseWarnMsgInner::VarWithoutFallback {
+                                key: unparsed_css_key,
+                                value: unparsed_css_value,
+                            },
+                            location,
+                        });
+                    }
+                    declarations.extend(decls);
                 }
                 Err(e) => {
                     warnings.push(CssParseWarnMsg {
@@ -2184,11 +2179,32 @@ fn parse_declaration_resilient<'a>(
             }
             return Ok(declarations);
         }
-        if check_if_value_is_css_var(unparsed_css_value).is_some() {
-            return Err(CssParseErrorInner::VarOnShorthandProperty {
+        // A `var()` on a shorthand is ambiguous (which longhand gets which
+        // part of the value?) - unless the shorthand expands to ONE longhand:
+        // `background` / `background-color` set `background-content` and
+        // nothing else, so the variable's value simply IS that longhand's.
+        if let Some(chain) = parse_var_chain(unparsed_css_value) {
+            let (names, fallback) = chain?;
+            let refused = CssParseErrorInner::VarOnShorthandProperty {
                 key: combined_key,
                 value: unparsed_css_value,
-            });
+            };
+            let Ok(mut initial) = parse_combined_css_property(combined_key, "initial") else {
+                return Err(refused);
+            };
+            if initial.len() != 1 {
+                return Err(refused);
+            }
+            let default_value = match fallback {
+                None => initial.remove(0),
+                Some(f) => match parse_combined_css_property(combined_key, f) {
+                    Ok(mut props) if props.len() == 1 => props.remove(0),
+                    Ok(_) => return Err(refused),
+                    Err(e) => return Err(CssParseErrorInner::DynamicCssParseError(e.into())),
+                },
+            };
+            declarations.push(var_declaration(&names, default_value));
+            return Ok(declarations);
         }
 
         // Attempt to parse combined properties, continue with what succeeds
@@ -2205,17 +2221,19 @@ fn parse_declaration_resilient<'a>(
                 Ok(parsed_fallback) => declarations.push(env_declaration(env_var, parsed_fallback)),
                 Err(e) => return Err(CssParseErrorInner::DynamicCssParseError(e.into())),
             }
-        } else if let Some(css_var) = check_if_value_is_css_var(unparsed_css_value) {
-            let (css_var_id, css_var_default) = css_var?;
-            match parse_css_property(normal_key, css_var_default) {
-                Ok(parsed_default) => {
-                    declarations.push(CssDeclaration::Dynamic(DynamicCssProperty {
-                        dynamic_id: css_var_id.to_string().into(),
-                        default_value: parsed_default,
-                    }));
-                }
-                Err(e) => return Err(CssParseErrorInner::DynamicCssParseError(e.into())),
-            }
+        } else if let Some(chain) = parse_var_chain(unparsed_css_value) {
+            // Left unresolved: the cascade resolves it per node, under the
+            // live context. No fallback = the property's initial value (the
+            // caller warns).
+            let (names, fallback) = chain?;
+            let default_value = match fallback {
+                None => CssProperty::initial(normal_key),
+                Some(f) => match parse_css_property(normal_key, f) {
+                    Ok(parsed) => parsed,
+                    Err(e) => return Err(CssParseErrorInner::DynamicCssParseError(e.into())),
+                },
+            };
+            declarations.push(var_declaration(&names, default_value));
         } else {
             match parse_css_property(normal_key, unparsed_css_value) {
                 Ok(parsed_value) => {
@@ -2232,6 +2250,41 @@ fn parse_declaration_resilient<'a>(
     }
 
     Ok(declarations)
+}
+
+/// The declaration a `var()` becomes: a `Dynamic` naming the variables of
+/// its fallback chain in order (`"a,b"`), with the innermost literal as the
+/// fallback. Resolved per node by the cascade.
+fn var_declaration(names: &[&str], default_value: CssProperty) -> CssDeclaration {
+    CssDeclaration::Dynamic(DynamicCssProperty {
+        dynamic_id: names.join(",").into(),
+        default_value,
+    })
+}
+
+/// A value that IS a `var()` call, peeled through fallbacks that are
+/// themselves `var()` calls: `var(--a, var(--b, 1px))` ->
+/// `(["a", "b"], Some("1px"))`, `var(--a)` -> `(["a"], None)`. `None` when
+/// the value is not a `var()` call; an error for a malformed one.
+fn parse_var_chain(
+    unparsed_css_value: &str,
+) -> Option<Result<(Vec<&str>, Option<&str>), CssParseErrorInner<'_>>> {
+    let (first, mut fallback) = match check_if_value_is_css_var(unparsed_css_value)? {
+        Ok(found) => found,
+        Err(e) => return Some(Err(e)),
+    };
+    let mut names = vec![first];
+    while let Some(f) = fallback {
+        match check_if_value_is_css_var(f) {
+            Some(Ok((name, next))) => {
+                names.push(name);
+                fallback = next;
+            }
+            Some(Err(e)) => return Some(Err(e)),
+            None => break,
+        }
+    }
+    Some(Ok((names, fallback.map(str::trim))))
 }
 
 /// Parses a single CSS key-value declaration, appending results to `declarations`.
@@ -2315,19 +2368,26 @@ fn check_if_value_is_css_env(
     })
 }
 
+/// Recognises `var(--<name> [, <fallback>])`, returning the name (without
+/// `--`) and the fallback text, untrimmed; `None` for the fallback when the
+/// call declares none.
+///
+/// Only a value that IS the `var()` call is recognised - `parse_parentheses`
+/// cuts at the LAST `)`, so trailing tokens (`var(--a) 1px`) would otherwise
+/// be dropped silently. A `var()` inside `calc()` or among other tokens falls
+/// through to the property's own parser.
 fn check_if_value_is_css_var(
     unparsed_css_value: &str,
-) -> Option<Result<(&str, &str), CssParseErrorInner<'_>>> {
-    const DEFAULT_VARIABLE_DEFAULT: &str = "none";
-
-    let (_, brace_contents) = parse_parentheses(unparsed_css_value, &["var"]).ok()?;
+) -> Option<Result<(&str, Option<&str>), CssParseErrorInner<'_>>> {
+    let trimmed = unparsed_css_value.trim();
+    let (_, brace_contents) = parse_parentheses(trimmed, &["var"]).ok()?;
+    if !trimmed.ends_with(')') {
+        return None;
+    }
 
     // value is a CSS variable, i.e. var(--main-bg-color)
     Some(match parse_css_variable_brace_contents(brace_contents) {
-        Some((variable_id, default_value)) => Ok((
-            variable_id,
-            default_value.unwrap_or(DEFAULT_VARIABLE_DEFAULT),
-        )),
+        Some(found) => Ok(found),
         None => Err(DynamicCssParseError::InvalidBraceContents(brace_contents).into()),
     })
 }
@@ -2339,17 +2399,9 @@ fn check_if_value_is_css_var(
 /// "--main-bg-col"       => (Some("main-bg-col"), None)
 /// ```
 fn parse_css_variable_brace_contents(input: &str) -> Option<(&str, Option<&str>)> {
-    let input = input.trim();
-
-    let mut split_comma_iter = input.splitn(2, ',');
-    let var_name = split_comma_iter.next()?;
-    let var_name = var_name.trim();
-
-    if !var_name.starts_with("--") {
-        return None; // no proper CSS variable name
-    }
-
-    Some((&var_name[2..], split_comma_iter.next()))
+    // The one splitter the cascade's substitution uses too (first TOP-LEVEL
+    // comma, the name must be a custom-property ident).
+    crate::custom_properties::split_var_arguments(input)
 }
 
 #[cfg(test)]
@@ -4756,7 +4808,7 @@ mod env_tests {
     fn env_with_fallback_parses_to_a_dynamic_env_declaration() {
         let d = only_declaration("div { padding-bottom: env(safe-area-inset-bottom, 7px); }");
         assert_eq!(d.env_variable(), Some(EnvVariable::SafeAreaInsetBottom));
-        assert_eq!(d.get_type(), CssPropertyType::PaddingBottom);
+        assert_eq!(d.get_type(), Some(CssPropertyType::PaddingBottom));
         assert!(d.is_cascade_resolvable());
         assert!(d.depends_on_dynamic_context());
         // Without a context the fallback is the value.
@@ -4815,7 +4867,7 @@ mod env_tests {
         for d in decls {
             assert_eq!(d.env_variable(), Some(EnvVariable::SafeAreaInsetTop));
         }
-        let types: Vec<_> = decls.iter().map(CssDeclaration::get_type).collect();
+        let types: Vec<_> = decls.iter().filter_map(CssDeclaration::get_type).collect();
         assert!(types.contains(&CssPropertyType::PaddingLeft));
         assert!(types.contains(&CssPropertyType::PaddingBottom));
     }

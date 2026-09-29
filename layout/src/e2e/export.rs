@@ -309,15 +309,9 @@ fn rule_matches(path: &CssPath, tag: &str, classes: &[&str], ids: &[&str]) -> bo
 }
 
 fn declaration_text(d: &CssDeclaration) -> String {
-    match d {
-        CssDeclaration::Static(p) => format!("{}: {};", p.key(), p.value()),
-        CssDeclaration::Dynamic(dy) => format!(
-            "{}: var(--{}, {});",
-            dy.default_value.key(),
-            dy.dynamic_id.as_str(),
-            dy.default_value.value()
-        ),
-    }
+    // `key: value;`, a `var()` / `env()` with its fallback, a custom-property
+    // definition as `--name: value;` - the one formatter the css crate has.
+    d.format_css()
 }
 
 fn rule_text(rule: &CssRuleBlock) -> String {

@@ -309,14 +309,19 @@ impl From<crate::dynamic_selector::CssPropertyWithConditionsVec> for Css {
     }
 }
 
-/// Contains one parsed `key: value` pair, static or dynamic
+/// Contains one parsed `key: value` pair: a property (static or a runtime
+/// reference) or a custom-property definition
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C, u8)]
 pub enum CssDeclaration {
     /// Static key-value pair, such as `width: 500px`
     Static(CssProperty),
-    /// Dynamic key-value pair with default value, such as `width: [[ my_id | 500px ]]`
+    /// Runtime reference with a fallback, resolved by the cascade: `var(--name, 500px)` or
+    /// `env(safe-area-inset-top, 0px)`
     Dynamic(DynamicCssProperty),
+    /// Custom-property definition, such as `--accent: #ff6600`: inherited down the tree like
+    /// any inheritable property, read by `var(--accent, <fallback>)`
+    CustomProperty(CssCustomProperty),
 }
 
 impl_option!(
@@ -325,6 +330,25 @@ impl_option!(
     copy = false,
     [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
+
+/// A custom-property definition, `--name: value`.
+///
+/// Stored on nodes like any declaration - in a stylesheet rule or in a
+/// node's own style - and carrying that rule's conditions (`@theme`,
+/// `@media`, `@os`, pseudo-states). The cascade gives every node the nearest
+/// live definition of each name (standard CSS inheritance) and resolves
+/// `var()` references against it under the window's context, so
+/// `@theme(dark) { :root { --bg: #272822 } }` next to a light definition
+/// follows the mode at runtime. The value is kept as written: it is only
+/// typed where a `var()` reads it, as the reading property's type.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
+pub struct CssCustomProperty {
+    /// The name without its leading `--` (`accent` for `--accent: #ff6600`).
+    pub name: AzString,
+    /// The value as written, trimmed; may itself contain `var()` references.
+    pub value: AzString,
+}
 
 impl CssDeclaration {
     #[must_use]
@@ -337,47 +361,65 @@ impl CssDeclaration {
         Self::Dynamic(prop)
     }
 
-    /// Returns the type of the property (i.e. the CSS key as a typed enum)
+    /// Returns the type of the property (i.e. the CSS key as a typed enum),
+    /// `None` for a custom-property definition, which sets no property.
     #[must_use]
-    pub const fn get_type(&self) -> CssPropertyType {
-        use self::CssDeclaration::{Dynamic, Static};
+    pub const fn get_type(&self) -> Option<CssPropertyType> {
+        use self::CssDeclaration::{CustomProperty, Dynamic, Static};
         match self {
-            Static(s) => s.get_type(),
-            Dynamic(d) => d.default_value.get_type(),
+            Static(s) => Some(s.get_type()),
+            Dynamic(d) => Some(d.default_value.get_type()),
+            CustomProperty(_) => None,
         }
     }
 
     /// Determines if the property will be inherited (applied to the children)
-    /// during the recursive application of the style on the DOM tree
+    /// during the recursive application of the style on the DOM tree.
+    /// Custom properties always inherit.
     #[must_use]
     pub const fn is_inheritable(&self) -> bool {
-        use self::CssDeclaration::{Dynamic, Static};
+        use self::CssDeclaration::{CustomProperty, Dynamic, Static};
         match self {
             Static(s) => s.get_type().is_inheritable(),
             Dynamic(d) => d.is_inheritable(),
+            CustomProperty(_) => true,
         }
     }
 
     /// Returns whether this rule affects only styling properties or layout
-    /// properties (that could trigger a re-layout)
+    /// properties (that could trigger a re-layout). A custom-property
+    /// definition can feed any property below it, layout ones included.
     #[must_use]
     pub const fn can_trigger_relayout(&self) -> bool {
-        use self::CssDeclaration::{Dynamic, Static};
+        use self::CssDeclaration::{CustomProperty, Dynamic, Static};
         match self {
             Static(s) => s.get_type().can_trigger_relayout(),
             Dynamic(d) => d.can_trigger_relayout(),
+            CustomProperty(_) => true,
         }
     }
 
     #[must_use]
     pub fn to_str(&self) -> String {
-        use self::CssDeclaration::{Dynamic, Static};
+        use self::CssDeclaration::{CustomProperty, Dynamic, Static};
         match self {
             Static(s) => format!("{s:?}"),
             Dynamic(d) => self.env_variable().map_or_else(
                 || format!("var(--{}, {:?})", d.dynamic_id, d.default_value),
                 |v| format!("env({}, {:?})", v.as_css_name(), d.default_value),
             ),
+            CustomProperty(c) => format!("--{}: {}", c.name, c.value),
+        }
+    }
+
+    /// The declaration as CSS text, `key: value;`: a `var()` / `env()`
+    /// reference spelled with its fallback, a definition as `--name: value;`.
+    #[must_use]
+    pub fn format_css(&self) -> String {
+        match self {
+            Self::Static(p) => p.format_css(),
+            Self::Dynamic(d) => format!("{}: {};", d.default_value.key(), d.format_css_value()),
+            Self::CustomProperty(c) => format!("--{}: {};", c.name.as_str(), c.value.as_str()),
         }
     }
 
@@ -385,54 +427,117 @@ impl CssDeclaration {
     ///
     /// An `env()` declaration is a `Dynamic` whose `dynamic_id` carries the
     /// [`ENV_DYNAMIC_ID_PREFIX`](crate::dynamic_selector::ENV_DYNAMIC_ID_PREFIX);
-    /// its `default_value` is the parsed fallback. `None` for `Static` and
-    /// for a plain `var()` reference.
+    /// its `default_value` is the parsed fallback. `None` for `Static`, for
+    /// a plain `var()` reference and for a custom-property definition.
     #[must_use]
     pub fn env_variable(&self) -> Option<crate::dynamic_selector::EnvVariable> {
         match self {
-            Self::Static(_) => None,
+            Self::Static(_) | Self::CustomProperty(_) => None,
             Self::Dynamic(d) => {
                 crate::dynamic_selector::EnvVariable::from_dynamic_id(d.dynamic_id.as_str())
             }
         }
     }
 
-    /// Whether the cascade can turn this declaration into a concrete property:
-    /// every `Static`, plus `env()` references. A `var()` `Dynamic` is not
-    /// (it is substituted at parse time and never reaches the cascade).
+    /// The `var()` reference this declaration is, if it is one (a `Dynamic`
+    /// that is not an `env()`).
+    #[must_use]
+    pub fn var_reference(&self) -> Option<&DynamicCssProperty> {
+        match self {
+            Self::Dynamic(d) if self.env_variable().is_none() => Some(d),
+            _ => None,
+        }
+    }
+
+    /// The custom-property definition this declaration is, if it is one.
+    #[must_use]
+    pub const fn custom_property(&self) -> Option<&CssCustomProperty> {
+        match self {
+            Self::CustomProperty(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    /// Whether this declaration takes part in the custom-property machinery
+    /// (a definition or a `var()` reference) - what makes a stylesheet or a
+    /// node's style need the variable pass of the cascade.
+    #[must_use]
+    pub fn uses_custom_properties(&self) -> bool {
+        matches!(self, Self::CustomProperty(_)) || self.var_reference().is_some()
+    }
+
+    /// The first variable name of a `var()` reference that declares NO
+    /// fallback (design gap 1: every `var()` must declare one). The parser
+    /// gives such a reference the property's initial value as its fallback
+    /// and warns; the widget lint rejects it.
+    #[must_use]
+    pub fn var_without_fallback(&self) -> Option<&str> {
+        let d = self.var_reference()?;
+        if d.default_value.is_initial() {
+            d.var_names().next()
+        } else {
+            None
+        }
+    }
+
+    /// Whether the cascade turns this declaration into a concrete property:
+    /// every `Static`, `env()` and `var()` reference. A custom-property
+    /// definition is not a property; the cascade reads it for the variable
+    /// environment instead.
     #[must_use]
     pub fn is_cascade_resolvable(&self) -> bool {
-        matches!(self, Self::Static(_)) || self.env_variable().is_some()
+        !matches!(self, Self::CustomProperty(_))
     }
 
     /// Whether this declaration's value depends on the window's
     /// [`DynamicSelectorContext`](crate::dynamic_selector::DynamicSelectorContext)
     /// - i.e. it is an `env()` - so a context change must re-run the cascade for it, exactly as it
-    ///   must for a rule with `@media`-style conditions.
+    ///   must for a rule with `@media`-style conditions. (A `var()` depends on the context through
+    ///   the conditions of the DEFINITIONS it reads; those rules are conditional themselves.)
     #[must_use]
     pub fn depends_on_dynamic_context(&self) -> bool {
         self.env_variable().is_some()
     }
 
     /// The concrete property this declaration contributes to the cascade
-    /// under `ctx`.
+    /// under `ctx`, with no custom properties known (a `var()` takes its
+    /// fallback). See [`Self::resolve_with_variables`].
+    #[must_use]
+    pub fn resolve_in_cascade(
+        &self,
+        ctx: Option<&crate::dynamic_selector::DynamicSelectorContext>,
+    ) -> Option<CssProperty> {
+        self.resolve_with_variables(ctx, None)
+    }
+
+    /// The concrete property this declaration contributes to the cascade
+    /// under `ctx`, for a node that sees the custom properties `vars`.
     ///
     /// - `Static` - the property itself.
     /// - `env()` - the variable's live value (an absolute length parsed as the declared property's
     ///   own type, so `padding-bottom` gets a padding and `top` gets an inset), or the parsed
     ///   fallback when the platform reports none for it, or when there is no context yet (a
     ///   `StyledDom` no window has adopted - the same rule conditional rule blocks follow).
-    /// - a `var()` `Dynamic` - `None`, matching the previous behaviour of every cascade site (they
-    ///   filtered on `Static`).
+    /// - `var()` - the first variable of its fallback chain that `vars` defines with a value that
+    ///   parses as the property ([`crate::custom_properties::resolve_var`]), else the fallback.
+    ///   `vars: None` (no environment known) is the fallback.
+    /// - a custom-property definition - `None`: it sets no property.
     #[must_use]
-    pub fn resolve_in_cascade(
+    pub fn resolve_with_variables(
         &self,
         ctx: Option<&crate::dynamic_selector::DynamicSelectorContext>,
+        vars: Option<&crate::custom_properties::CustomPropertyMap>,
     ) -> Option<CssProperty> {
         match self {
             Self::Static(s) => Some(s.clone()),
+            Self::CustomProperty(_) => None,
             Self::Dynamic(d) => {
-                let var = self.env_variable()?;
+                let Some(var) = self.env_variable() else {
+                    return Some(vars.map_or_else(
+                        || d.default_value.clone(),
+                        |v| crate::custom_properties::resolve_var(d, v),
+                    ));
+                };
                 let Some(px) = ctx.and_then(|c| var.resolve(c)) else {
                     return Some(d.default_value.clone());
                 };
@@ -460,32 +565,27 @@ impl CssDeclaration {
     }
 }
 
-/// A `DynamicCssProperty` is a type of css property that can be changed on possibly
-/// every frame by the Rust code - for example to implement an `On::Hover` behaviour.
-///
-/// The syntax for such a property looks like this:
+/// A runtime reference with a fallback, resolved by the cascade: a `var()`
+/// or an `env()` on a longhand property.
 ///
 /// ```no_run,ignore
-/// #my_div {
-///    padding: var(--my_dynamic_property_id, 400px);
-/// }
+/// .button { background: var(--azul-button-face, system:button-face); }
+/// .footer { padding-bottom: env(safe-area-inset-bottom, 0px); }
 /// ```
 ///
-/// Azul will register a dynamic property with the key "`my_dynamic_property_id`"
-/// and the default value of 400px. If the property gets overridden during one frame,
-/// the overridden property takes precedence.
-///
-/// At runtime the style is immutable (which is a performance optimization - if we
-/// can assume that the property never changes at runtime), we can do some optimizations on it.
-/// Dynamic style properties can also be used for animations and conditional styles
-/// (i.e. `hover`, `focus`, etc.), thereby leading to cleaner code, since all of these
-/// special cases now use one single API.
+/// The declared value stays unresolved: every restyle resolves it for each
+/// node under the window's live context - a `var()` against the custom
+/// properties that node sees (the nearest live `--name` definition, from
+/// any stylesheet or the node's own style), an `env()` against the
+/// context's insets. A missing or unusable variable takes the fallback.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub struct DynamicCssProperty {
-    /// The stringified ID of this property, i.e. the `"my_id"` in `width: var(--my_id, 500px)`.
+    /// What is referenced. A `var()`: the variable names without `--`, comma-separated in the
+    /// order they are tried (`"a,b"` for `var(--a, var(--b, 1px))`). An `env()`: `"env:<name>"`.
     pub dynamic_id: AzString,
-    /// Default values for this properties - one single value can control multiple properties!
+    /// The fallback, parsed as the property; the property's initial value for a `var()` written
+    /// without one.
     pub default_value: CssProperty,
 }
 
@@ -809,6 +909,43 @@ impl DynamicCssProperty {
     #[must_use]
     pub const fn can_trigger_relayout(&self) -> bool {
         self.default_value.get_type().can_trigger_relayout()
+    }
+
+    /// The variable names a `var()` reference tries, in order (`a`, `b` for
+    /// `var(--a, var(--b, 1px))`).
+    pub fn var_names(&self) -> impl Iterator<Item = &str> + '_ {
+        self.dynamic_id
+            .as_str()
+            .split(',')
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+    }
+
+    /// The reference as CSS value text: `env(<name>, <fallback>)`, or the
+    /// nested `var(--a, var(--b, <fallback>))` it was parsed from (no
+    /// innermost fallback when it had none).
+    #[must_use]
+    pub fn format_css_value(&self) -> String {
+        if let Some(env) =
+            crate::dynamic_selector::EnvVariable::from_dynamic_id(self.dynamic_id.as_str())
+        {
+            return format!("env({}, {})", env.as_css_name(), self.default_value.value());
+        }
+        let names: Vec<&str> = self.var_names().collect();
+        let mut out = if self.default_value.is_initial() {
+            String::new()
+        } else {
+            self.default_value.value()
+        };
+        for (i, name) in names.iter().enumerate().rev() {
+            let innermost = i + 1 == names.len();
+            out = if innermost && out.is_empty() {
+                format!("var(--{name})")
+            } else {
+                format!("var(--{name}, {out})")
+            };
+        }
+        out
     }
 }
 
@@ -2285,10 +2422,13 @@ impl Css {
 
     /// Iterate `(property, conditions)` pairs as if this were a flat list of
     /// `CssPropertyWithConditions`. Each `Static` declaration yields one item,
-    /// sharing the conditions of its enclosing rule. `Dynamic` declarations
-    /// are skipped (matching the previous inline-CSS behaviour).
+    /// sharing the conditions of its enclosing rule. `var()` / `env()`
+    /// references and custom-property definitions are skipped: this is the
+    /// DECLARED static style. The cascade's readers go through
+    /// `CssPropertyCache::inline_properties` instead, which yields the
+    /// references as the cascade resolved them.
     ///
-    /// Used by cascade and diff code that walks per-property to keep the
+    /// Used by diff and widget code that walks per-property to keep the
     /// flat-iteration shape after the inline-vs-component unification.
     pub fn iter_inline_properties(
         &self,
@@ -2296,8 +2436,20 @@ impl Css {
         self.rules.as_ref().iter().flat_map(|r| {
             r.declarations.as_ref().iter().filter_map(move |d| match d {
                 CssDeclaration::Static(p) => Some((p, &r.conditions)),
-                CssDeclaration::Dynamic(_) => None,
+                CssDeclaration::Dynamic(_) | CssDeclaration::CustomProperty(_) => None,
             })
+        })
+    }
+
+    /// Whether any rule of this stylesheet defines a custom property or
+    /// reads one with `var()` - what makes the cascade run its variable pass.
+    #[must_use]
+    pub fn uses_custom_properties(&self) -> bool {
+        self.rules.as_ref().iter().any(|r| {
+            r.declarations
+                .as_ref()
+                .iter()
+                .any(CssDeclaration::uses_custom_properties)
         })
     }
 }
@@ -2817,8 +2969,8 @@ mod autotest_generated {
         let p = prop_width(42.0);
         let d = CssDeclaration::new_static(p.clone());
         assert_eq!(d, CssDeclaration::Static(p.clone()));
-        assert_eq!(d.get_type(), p.get_type());
-        assert_eq!(d.get_type(), CssPropertyType::Width);
+        assert_eq!(d.get_type(), Some(p.get_type()));
+        assert_eq!(d.get_type(), Some(CssPropertyType::Width));
     }
 
     #[test]
@@ -2828,8 +2980,40 @@ mod autotest_generated {
         assert_eq!(d, CssDeclaration::Dynamic(dp));
         assert_eq!(
             d.get_type(),
-            CssPropertyType::TextColor,
+            Some(CssPropertyType::TextColor),
             "a Dynamic declaration's type is its default value's type"
+        );
+    }
+
+    #[test]
+    fn a_custom_property_definition_has_no_property_type_and_always_inherits() {
+        let d = CssDeclaration::CustomProperty(CssCustomProperty {
+            name: "accent".into(),
+            value: "#ff6600".into(),
+        });
+        assert_eq!(d.get_type(), None);
+        assert!(d.is_inheritable());
+        assert!(!d.is_cascade_resolvable(), "a definition sets no property");
+        assert_eq!(d.resolve_in_cascade(None), None);
+        assert_eq!(d.format_css(), "--accent: #ff6600;");
+    }
+
+    #[test]
+    fn a_var_reference_prints_its_fallback_chain() {
+        let with_fallback = DynamicCssProperty {
+            dynamic_id: "a,b".into(),
+            default_value: prop_width(1.0),
+        };
+        let v = with_fallback.format_css_value();
+        assert!(v.starts_with("var(--a, var(--b, "), "{v}");
+        let without = DynamicCssProperty {
+            dynamic_id: "a".into(),
+            default_value: CssProperty::initial(CssPropertyType::Width),
+        };
+        assert_eq!(without.format_css_value(), "var(--a)");
+        assert_eq!(
+            CssDeclaration::Dynamic(without).var_without_fallback(),
+            Some("a")
         );
     }
 

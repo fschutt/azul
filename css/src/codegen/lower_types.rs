@@ -275,6 +275,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("CounterResetValue", "css"),
     ("Css", "css"),
     ("CssAttributeSelector", "dom"),
+    ("CssCustomProperty", "css"),
     ("CssDeclaration", "css"),
     ("CssDeclarationVec", "vec"),
     ("CssDuration", "time"),
@@ -1648,11 +1649,24 @@ impl Lower for crate::css::CssAttributeSelector {
     }
 }
 
+impl Lower for crate::css::CssCustomProperty {
+    fn lower(&self) -> Expr {
+        Expr::strukt(
+            "CssCustomProperty",
+            vec![
+                ("name", self.name.lower()),
+                ("value", self.value.lower()),
+            ],
+        )
+    }
+}
+
 impl Lower for crate::css::CssDeclaration {
     fn lower(&self) -> Expr {
         match self {
             Self::Static(v) => Expr::variant("CssDeclaration", EnumShape::Tagged, "Static", vec![v.lower()]),
             Self::Dynamic(v) => Expr::variant("CssDeclaration", EnumShape::Tagged, "Dynamic", vec![v.lower()]),
+            Self::CustomProperty(v) => Expr::variant("CssDeclaration", EnumShape::Tagged, "CustomProperty", vec![v.lower()]),
         }
     }
 }

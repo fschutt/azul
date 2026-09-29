@@ -22,7 +22,7 @@ fn declarations(css: &str) -> Vec<(CssPropertyType, String)> {
         .flat_map(|rule| rule.declarations.as_ref().iter())
         .filter_map(|decl| match decl {
             CssDeclaration::Static(prop) => Some((prop.get_type(), prop.value())),
-            CssDeclaration::Dynamic(_) => None,
+            CssDeclaration::Dynamic(_) | CssDeclaration::CustomProperty(_) => None,
         })
         .collect()
 }

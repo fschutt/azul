@@ -534,7 +534,8 @@ fn parse_xml_to_fast_dom_with_css(
                                     CssDeclaration::Static(s) => {
                                         Some(CssPropertyWithConditions::simple(s))
                                     }
-                                    CssDeclaration::Dynamic(_) => None,
+                                    CssDeclaration::Dynamic(_)
+                                    | CssDeclaration::CustomProperty(_) => None,
                                 }
                             })
                             .collect::<Vec<_>>();

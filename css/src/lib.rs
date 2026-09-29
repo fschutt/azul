@@ -89,6 +89,9 @@ pub mod hash;
 pub mod corety;
 /// Stylesheet types: rules, selectors, declarations, and specificity.
 pub mod css;
+/// Custom properties (`--name`) and `var()`: the per-node variable map and
+/// the resolver both cascades consult.
+pub mod custom_properties;
 /// Typed default values for CSS properties (font size, font id, text color).
 pub mod defaults;
 /// Runtime CSS selector matching (`:hover`, `@os`, `@media`, etc.).

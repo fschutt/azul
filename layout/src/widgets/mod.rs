@@ -748,7 +748,7 @@ mod ua_paragraph_margin {
                 global
                     && rule.declarations.as_ref().iter().any(|d| match d {
                         CssDeclaration::Static(p) => p.get_type() == ty,
-                        CssDeclaration::Dynamic(_) => false,
+                        CssDeclaration::Dynamic(_) | CssDeclaration::CustomProperty(_) => false,
                     })
             })
         })
@@ -1681,7 +1681,7 @@ mod chrome_text_is_not_selectable {
                 global
                     && rule.declarations.as_ref().iter().any(|d| match d {
                         CssDeclaration::Static(p) => p.get_type() == ty,
-                        CssDeclaration::Dynamic(_) => false,
+                        CssDeclaration::Dynamic(_) | CssDeclaration::CustomProperty(_) => false,
                     })
             })
         })

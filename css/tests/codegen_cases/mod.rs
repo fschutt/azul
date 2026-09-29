@@ -345,6 +345,9 @@ pub fn keyword_list() -> Vec<azul_css::dynamic_selector::CssPropertyWithConditio
         match &css.rules.as_slice()[0].declarations.as_slice()[0] {
             azul_css::css::CssDeclaration::Static(p) => p.clone(),
             azul_css::css::CssDeclaration::Dynamic(d) => d.default_value.clone(),
+            azul_css::css::CssDeclaration::CustomProperty(_) => {
+                unreachable!("text-shadow is not a custom property")
+            }
         }
     };
     vec![

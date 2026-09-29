@@ -31,6 +31,7 @@ fn property_types(css: &Css) -> BTreeSet<CssPropertyType> {
             match decl {
                 CssDeclaration::Static(p) => out.insert(p.get_type()),
                 CssDeclaration::Dynamic(d) => out.insert(d.default_value.get_type()),
+                CssDeclaration::CustomProperty(_) => false,
             };
         }
     }

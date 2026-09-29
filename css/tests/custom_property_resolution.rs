@@ -94,7 +94,10 @@ fn an_exponential_definition_is_cut_off_instead_of_hanging() {
     // Each level doubles the text: 2^40 bytes if nothing stops it.
     let mut own: Vec<(String, String)> = vec![("l0".into(), "xxxxxxxx".into())];
     for i in 1..40 {
-        own.push((format!("l{i}"), format!("var(--l{}) var(--l{})", i - 1, i - 1)));
+        own.push((
+            format!("l{i}"),
+            format!("var(--l{}) var(--l{})", i - 1, i - 1),
+        ));
     }
     let own_ref: Vec<(&str, &str)> = own.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
     let m = map(&own_ref);
@@ -109,17 +112,32 @@ fn a_reference_parses_its_variable_as_the_property_type() {
     let m = map(&[("w", "150px"), ("fg", "#0000ff")]);
     let w = CssPropertyType::Width;
     let c = CssPropertyType::TextColor;
-    assert_eq!(resolve_var(&reference("w", w, "10px"), &m), parsed(w, "150px"));
-    assert_eq!(resolve_var(&reference("fg", c, "#ff0000"), &m), parsed(c, "#0000ff"));
+    assert_eq!(
+        resolve_var(&reference("w", w, "10px"), &m),
+        parsed(w, "150px")
+    );
+    assert_eq!(
+        resolve_var(&reference("fg", c, "#ff0000"), &m),
+        parsed(c, "#0000ff")
+    );
 }
 
 #[test]
 fn a_missing_or_unparseable_variable_falls_through_the_chain_to_the_fallback() {
     let w = CssPropertyType::Width;
     let m = map(&[("b", "20px"), ("junk", "not-a-length")]);
-    assert_eq!(resolve_var(&reference("a,b", w, "10px"), &m), parsed(w, "20px"));
-    assert_eq!(resolve_var(&reference("junk,b", w, "10px"), &m), parsed(w, "20px"));
-    assert_eq!(resolve_var(&reference("a,c", w, "10px"), &m), parsed(w, "10px"));
+    assert_eq!(
+        resolve_var(&reference("a,b", w, "10px"), &m),
+        parsed(w, "20px")
+    );
+    assert_eq!(
+        resolve_var(&reference("junk,b", w, "10px"), &m),
+        parsed(w, "20px")
+    );
+    assert_eq!(
+        resolve_var(&reference("a,c", w, "10px"), &m),
+        parsed(w, "10px")
+    );
     assert_eq!(
         resolve_var(&reference("a", w, "10px"), &CustomPropertyMap::default()),
         parsed(w, "10px")

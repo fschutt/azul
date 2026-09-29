@@ -4035,7 +4035,7 @@ mod theme_tests {
             .flat_map(|r| r.declarations.as_ref().iter())
             .filter_map(|d| match d {
                 CssDeclaration::Static(p) => Some(p.clone()),
-                CssDeclaration::Dynamic(_) => None,
+                CssDeclaration::Dynamic(_) | CssDeclaration::CustomProperty(_) => None,
             })
             .collect()
     }

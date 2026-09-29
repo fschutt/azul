@@ -3444,7 +3444,7 @@ impl NodeData {
             let mut decls = mem::take(&mut rule.declarations).into_library_owned_vec();
             decls.retain(|d| match d {
                 CssDeclaration::Static(p) => p.get_type() != ty,
-                CssDeclaration::Dynamic(_) => true,
+                CssDeclaration::Dynamic(_) | CssDeclaration::CustomProperty(_) => true,
             });
             rule.declarations = decls.into();
         }

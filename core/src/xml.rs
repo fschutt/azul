@@ -6147,7 +6147,7 @@ fn apply_xml_node_attributes(
             }
             props.extend(attributes.into_iter().filter_map(|s| match s {
                 CssDeclaration::Static(s) => Some(CssPropertyWithConditions::simple(s)),
-                CssDeclaration::Dynamic(_) => None,
+                CssDeclaration::Dynamic(_) | CssDeclaration::CustomProperty(_) => None,
             }));
         }
         if !props.is_empty() {
@@ -7517,6 +7517,7 @@ pub fn compile_body_node_to_rust_code<'a>(
             let prop = match declaration {
                 CssDeclaration::Static(s) => s,
                 CssDeclaration::Dynamic(d) => &d.default_value,
+                CssDeclaration::CustomProperty(_) => continue,
             };
             extra_blocks.insert_from_css_property(prop);
         }
@@ -7590,12 +7591,17 @@ fn css_blocks_to_inline_string(blocks: &[CssBlock]) -> String {
             .declarations
             .as_ref()
             .iter()
-            .map(|d| {
-                let prop = match d {
-                    CssDeclaration::Static(s) => s,
-                    CssDeclaration::Dynamic(dy) => &dy.default_value,
-                };
-                format!("{}: {};", prop.key(), prop.value())
+            .map(|d| match d {
+                CssDeclaration::Static(s) => format!("{}: {};", s.key(), s.value()),
+                // A `var()` keeps its reference and a definition stays a
+                // definition: the cascade resolves them where the exported
+                // `with_css` string is loaded. An `env()` keeps its fallback,
+                // as it always did.
+                CssDeclaration::Dynamic(_) if d.var_reference().is_some() => d.format_css(),
+                CssDeclaration::Dynamic(dy) => {
+                    format!("{}: {};", dy.default_value.key(), dy.default_value.value())
+                }
+                CssDeclaration::CustomProperty(_) => d.format_css(),
             })
             .collect()
     }
@@ -7795,6 +7801,7 @@ fn compile_node_to_rust_code_inner(
             let prop = match declaration {
                 CssDeclaration::Static(s) => s,
                 CssDeclaration::Dynamic(d) => &d.default_value,
+                CssDeclaration::CustomProperty(_) => continue,
             };
             extra_blocks.insert_from_css_property(prop);
         }
