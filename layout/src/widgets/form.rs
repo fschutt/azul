@@ -675,6 +675,87 @@ pub extern "C" fn default_on_form_reset_event(_data: RefAny, mut info: CallbackI
     reset_form(&mut info, form)
 }
 
+// ---------------------------------------------------------------------------
+// <input type=hidden>
+// ---------------------------------------------------------------------------
+
+/// `<input type=hidden>`: renders nothing (`display: none`, no tab stop, out
+/// of the accessibility tree) and contributes `name=value` to the
+/// [`FormData`] of the [`Form`] it sits in. A reset leaves it alone.
+///
+/// Both themes render it identically - there is nothing to paint; the theme
+/// field exists so it builds like every other widget.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C)]
+pub struct HiddenInput {
+    pub name: AzString,
+    pub value: AzString,
+    pub theme: crate::widgets::themes::OptionUiTheme,
+}
+
+impl HiddenInput {
+    /// A hidden `name=value` pair.
+    #[must_use]
+    pub const fn create(name: AzString, value: AzString) -> Self {
+        Self {
+            name,
+            value,
+            theme: crate::widgets::themes::OptionUiTheme::None,
+        }
+    }
+
+    /// Replace the submitted value.
+    pub fn set_value(&mut self, value: AzString) {
+        self.value = value;
+    }
+
+    /// [`Self::set_value`] for the builder chain.
+    #[must_use]
+    pub fn with_value(mut self, value: AzString) -> Self {
+        self.set_value(value);
+        self
+    }
+
+    /// Pick the widget theme (see the type docs: both render the same).
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// The node: an empty, undisplayed `div` carrying `name`, `value`,
+    /// `type=hidden` and `hidden`, which is all a form needs to read it.
+    #[must_use]
+    pub fn dom(self) -> Dom {
+        use azul_css::{
+            dynamic_selector::CssPropertyWithConditions,
+            props::{layout::LayoutDisplay, property::CssProperty},
+        };
+
+        Dom::create_div()
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(alloc::vec![
+                CssPropertyWithConditions::simple(CssProperty::const_display(
+                    LayoutDisplay::None
+                )),
+            ]))
+            .with_attribute(AttributeType::InputType(AzString::from_const_str("hidden")))
+            .with_attribute(AttributeType::Name(self.name))
+            .with_attribute(AttributeType::Value(self.value))
+            .with_attribute(AttributeType::Hidden)
+    }
+}
+
+impl From<HiddenInput> for Dom {
+    fn from(h: HiddenInput) -> Self {
+        h.dom()
+    }
+}
+
 /// Click on a submit / reset / image button: act on the form it sits in.
 /// Outside a form it does nothing (the button's own `on_click` still runs).
 #[must_use]
