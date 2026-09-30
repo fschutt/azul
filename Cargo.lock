@@ -1000,6 +1000,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "343e24eeae9f09f61afeafcc7112e8d62f965bf0c6b30cedb5f89cc0b200380f"
 
 [[package]]
+name = "azul-storage"
+version = "0.1.0"
+dependencies = [
+ "azul-dll",
+ "hmac 0.12.1",
+ "roxmltree 0.21.1",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "backon"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

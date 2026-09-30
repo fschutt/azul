@@ -1,0 +1,38 @@
+[package]
+name = "azul-storage"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    The storage layer the azul apps share: AzDrive browses with it, AzMail exports
+    with it. One blocking `Drive` trait (list / get / get_range / put / delete /
+    head) with two backends, a folder on disk (`LocalDrive`) and an S3-compatible
+    bucket (`S3Drive`: AWS S3, Cloudflare R2, MinIO; SigV4-signed). The apps call
+    it from an azul `Thread`, never from a callback. Durable data is files, one
+    bucket per user; see the azlin cloud storage split.
+"""
+publish = false
+
+[dependencies]
+# No new crates in the tree: sha2 0.10 and hmac 0.12 already come in through
+# rustls-rustcrypto (the TLS stack of azul's `http` feature) and azul-layout,
+# roxmltree 0.21 through azul-layout's `xml` feature, serde / serde_json
+# through azul-layout and AzCalendar. See scripts/DRIVE1_AZDRIVE_2026_09_30.md.
+sha2 = "0.10"
+hmac = "0.12"
+roxmltree = { version = "0.21.1", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Only for `AzulTransport` (feature `azul`), which sends the requests through
+# azul's `HttpRequestConfig`. The apps turn it on; the unit tests need no
+# libazul.
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"], optional = true }
+
+[features]
+default = []
+azul = ["dep:azul"]
+
+[lib]
+name = "azul_storage"
+path = "src/lib.rs"
