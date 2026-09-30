@@ -30,9 +30,21 @@
 //   node examples/azul-meet/scripts/two-clients.mjs
 //     [--bin target/release/AzMeet] [--worker-dir ../azul-apps/cf-workers/meet]
 //     [--port 8787] [--debug-a 8765] [--debug-b 8766] [--timeout 90] [--require-h264]
+//     [--cpu] [--cpu-seconds 15] [--windowed] [--camera]
+//
+// --cpu: once both sides decode each other's video (step 6), sample both clients' `ps -o %cpu=`
+// once a second for --cpu-seconds (15) with cpu_sample.py (next to this script) and print the
+// mean and the max per client (100 % = one core); the run then goes on. --windowed opens real
+// windows (GPU where the machine has one) instead of AZ_BACKEND=headless, and --camera uses the
+// real camera instead of the test pattern (a windowed run; macOS asks for camera access once), so
+// the number is the one a user sees in a call. The steps that only hold for a headless run (no
+// audio device, no camera opened) are skipped then.
 //
 // Also read from the environment: AZMEET_BIN, AZMEET_WORKER_DIR. Logs go to a temporary
 // directory that is printed at the end (kept on failure, or always with --keep-logs).
+import { spawnSync } from 'node:child_process';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import {
@@ -66,12 +78,56 @@ const { values: opts } = parseArgs({
     timeout: { type: 'string', default: '90' },
     'keep-logs': { type: 'boolean', default: false },
     'require-h264': { type: 'boolean', default: false },
+    cpu: { type: 'boolean', default: false },
+    'cpu-seconds': { type: 'string', default: '15' },
+    windowed: { type: 'boolean', default: false },
+    camera: { type: 'boolean', default: false },
   },
 });
 
 const debugA = Number(opts['debug-a']);
 const debugB = Number(opts['debug-b']);
-const run = createRun({ name: 'two-clients', timeoutSecs: Number(opts.timeout) });
+const cpuSeconds = Number(opts['cpu-seconds']);
+const windowed = opts.windowed || opts.camera;
+const run = createRun({
+  name: 'two-clients',
+  // The CPU sampling runs inside the deadline.
+  timeoutSecs: Number(opts.timeout) + (opts.cpu ? cpuSeconds + 10 : 0),
+});
+
+/** The environment of one client: `appEnv`, minus the headless backend with --windowed and the
+ *  test pattern with --camera. */
+function clientEnv(worker, name, port, extra) {
+  const env = appEnv(worker, name, port, extra);
+  if (windowed) delete env.AZ_BACKEND;
+  if (opts.camera) delete env.AZMEET_TEST_PATTERN;
+  return env;
+}
+
+/** Samples both clients' CPU for --cpu-seconds and logs the mean and the max of each. */
+function sampleCpu(clients) {
+  const script = join(dirname(fileURLToPath(import.meta.url)), 'cpu_sample.py');
+  const args = [script, '--seconds', String(cpuSeconds), '--json'];
+  for (const entry of clients) args.push('--pid', `${entry.name}=${entry.child.pid}`);
+  log(`sampling CPU for ${cpuSeconds} s: ${clients.map((c) => `${c.name} pid ${c.child.pid}`).join(', ')}`);
+  const res = spawnSync('python3', args, { encoding: 'utf8', timeout: (cpuSeconds + 10) * 1000 });
+  if (res.error) throw new Error(`cpu_sample.py did not run: ${res.error.message}`);
+  const lines = (res.stdout || '').trim().split('\n');
+  for (const line of lines.slice(0, -1)) log(`CPU ${line}`);
+  let summary = null;
+  try {
+    summary = JSON.parse(lines[lines.length - 1]);
+  } catch {
+    log(`cpu_sample.py said: ${res.stdout} ${res.stderr}`);
+  }
+  if (summary) {
+    const mode = `${windowed ? 'windowed' : 'headless'}, ${opts.camera ? 'camera' : 'test pattern'}`;
+    log(`CPU (${mode}): ` + Object.entries(summary)
+      .map(([name, r]) => `${name} mean ${r.mean} % max ${r.max} %`)
+      .join(' · '));
+  }
+  return summary;
+}
 const { log, until, within } = run;
 
 let passed = false;
@@ -83,11 +139,11 @@ try {
 
   const worker = await startWorker(run, workerDir, Number(opts.port));
 
-  const ada = run.start('ada', bin, [], appEnv(worker, 'Ada', debugA, { AZMEET_AUTOCREATE: '1' }));
+  const ada = run.start('ada', bin, [], clientEnv(worker, 'Ada', debugA, { AZMEET_AUTOCREATE: '1' }));
   const { link, room } = await meetingOf(run, ada);
   log(`Ada created ${link}`);
 
-  const ben = run.start('ben', bin, [], appEnv(worker, 'Ben', debugB, { AZMEET_JOIN: link }));
+  const ben = run.start('ben', bin, [], clientEnv(worker, 'Ben', debugB, { AZMEET_JOIN: link }));
 
   await until('the dev server to list Ada and Ben in the room', async () => {
     const names = await listedNames(worker, room);
@@ -120,12 +176,14 @@ try {
     });
     log(`${listener}: ${heard.line}`);
   }
-  for (const entry of [ada, ben]) {
-    if (!stderrOf(entry).includes('no audio device is opened')) {
-      throw new Error(`${entry.name} did not say it runs without audio devices (see its stderr)`);
+  if (!windowed) {
+    for (const entry of [ada, ben]) {
+      if (!stderrOf(entry).includes('no audio device is opened')) {
+        throw new Error(`${entry.name} did not say it runs without audio devices (see its stderr)`);
+      }
     }
+    log('both apps run without audio devices: the tone replaces the mic, playback is counted');
   }
-  log('both apps run without audio devices: the tone replaces the mic, playback is counted');
 
   // Video: the test pattern goes out as H.264 where an encoder works, else as JPEG.
   const codecs = [];
@@ -147,12 +205,17 @@ try {
     if (seen.via !== null) throw new Error(`in the full mesh ${listener} gets ${sender}'s video via ${seen.via}`);
     log(`${listener}: ${seen.line}`);
   }
-  for (const entry of [ada, ben]) {
-    if (!stderrOf(entry).includes('no camera or screen is opened')) {
-      throw new Error(`${entry.name} did not say it runs without a camera or screen (see its stderr)`);
+  if (!windowed) {
+    for (const entry of [ada, ben]) {
+      if (!stderrOf(entry).includes('no camera or screen is opened')) {
+        throw new Error(`${entry.name} did not say it runs without a camera or screen (see its stderr)`);
+      }
     }
+    log('both apps send the test pattern: no camera or screen is opened');
   }
-  log('both apps send the test pattern: no camera or screen is opened');
+
+  // CPU in the call: both sides encode, send, receive, decode and show each other's video now.
+  if (opts.cpu) sampleCpu([ada, ben]);
 
   // Loss: Ben drops one video packet before it leaves.
   let recovered = null;
