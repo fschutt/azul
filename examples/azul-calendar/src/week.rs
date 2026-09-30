@@ -12,33 +12,42 @@ pub const END_HOUR: u32 = 20;
 
 /// The Monday on or before `day`.
 pub fn week_start(day: NaiveDate) -> NaiveDate {
-    let _ = (day, Duration::days(0), day.weekday());
-    todo!("week_start")
+    day - Duration::days(i64::from(day.weekday().num_days_from_monday()))
 }
 
 /// The Monday `weeks` weeks after (or, negative, before) the week of `day`.
 pub fn shift_weeks(day: NaiveDate, weeks: i64) -> NaiveDate {
-    let _ = (day, weeks);
-    todo!("shift_weeks")
+    week_start(day) + Duration::days(7 * weeks)
 }
 
 /// The seven days of the week of `day`, Monday first.
 pub fn week_days(day: NaiveDate) -> [NaiveDate; 7] {
-    let _ = day;
-    todo!("week_days")
+    let monday = week_start(day);
+    std::array::from_fn(|i| monday + Duration::days(i as i64))
 }
 
 /// The events of the week of `day`, one list per day (Monday first), each in order of start,
 /// end and title.
 pub fn events_in_week(events: &[Event], day: NaiveDate) -> [Vec<&Event>; 7] {
-    let _ = (events, day);
-    todo!("events_in_week")
+    let monday = week_start(day);
+    let mut days: [Vec<&Event>; 7] = Default::default();
+    for event in events {
+        let offset = (event.date - monday).num_days();
+        if (0..7).contains(&offset) {
+            days[offset as usize].push(event);
+        }
+    }
+    for list in &mut days {
+        list.sort_by(|a, b| {
+            (a.start, a.end, &a.title, &a.id).cmp(&(b.start, b.end, &b.title, &b.id))
+        });
+    }
+    days
 }
 
 /// Minutes since midnight.
 pub fn minute_of_day(t: NaiveTime) -> u32 {
-    let _ = t.hour();
-    todo!("minute_of_day")
+    t.hour() * 60 + t.minute()
 }
 
 /// Where an event sits in its day's column.
@@ -69,40 +78,109 @@ pub struct DayLayout {
 /// event in the leftmost lane that is free at its start. An event that ends as another starts
 /// does not overlap it. Events are clipped to 08:00 - 20:00.
 pub fn lay_out_day(events: &[&Event]) -> DayLayout {
-    let _ = events;
-    todo!("lay_out_day")
+    let view_start = FIRST_HOUR * 60;
+    let view_end = END_HOUR * 60;
+    let mut layout = DayLayout::default();
+    let mut order: Vec<usize> = (0..events.len()).collect();
+    order.sort_by_key(|&i| (minute_of_day(events[i].start), minute_of_day(events[i].end)));
+    // The group being built: where its placements begin, when its last event ends, and when
+    // each of its lanes is free again.
+    let mut group_from = 0;
+    let mut group_end = 0;
+    let mut lane_free_at: Vec<u32> = Vec::new();
+    for index in order {
+        let start = minute_of_day(events[index].start);
+        let end = minute_of_day(events[index].end);
+        if end <= view_start {
+            layout.earlier += 1;
+            continue;
+        }
+        if start >= view_end {
+            layout.later += 1;
+            continue;
+        }
+        if !lane_free_at.is_empty() && start >= group_end {
+            set_lanes(&mut layout.placements[group_from..], lane_free_at.len());
+            group_from = layout.placements.len();
+            lane_free_at.clear();
+        }
+        group_end = if lane_free_at.is_empty() {
+            end
+        } else {
+            group_end.max(end)
+        };
+        let lane = match lane_free_at.iter().position(|&free| free <= start) {
+            Some(lane) => {
+                lane_free_at[lane] = end;
+                lane
+            }
+            None => {
+                lane_free_at.push(end);
+                lane_free_at.len() - 1
+            }
+        };
+        let top = start.max(view_start) - view_start;
+        let bottom = end.min(view_end) - view_start;
+        layout.placements.push(Placement {
+            index,
+            top,
+            height: bottom - top,
+            lane: lane as u32,
+            lanes: 0,
+        });
+    }
+    set_lanes(&mut layout.placements[group_from..], lane_free_at.len());
+    layout
+}
+
+fn set_lanes(group: &mut [Placement], lanes: usize) {
+    for placement in group {
+        placement.lanes = lanes as u32;
+    }
 }
 
 /// "Wed 30"
 pub fn day_label(day: NaiveDate) -> String {
-    let _ = day;
-    todo!("day_label")
+    day.format("%a %-d").to_string()
 }
 
 /// "28 September - 4 October 2026", "5 - 11 October 2026" or "28 December 2026 - 3 January 2027".
 pub fn week_title(day: NaiveDate) -> String {
-    let _ = day;
-    todo!("week_title")
+    let monday = week_start(day);
+    let sunday = monday + Duration::days(6);
+    let first = if monday.year() != sunday.year() {
+        "%-d %B %Y"
+    } else if monday.month() != sunday.month() {
+        "%-d %B"
+    } else {
+        "%-d"
+    };
+    format!("{} - {}", monday.format(first), sunday.format("%-d %B %Y"))
 }
 
 /// "09:00 - 10:00"
 pub fn time_range(start: NaiveTime, end: NaiveTime) -> String {
-    let _ = (start, end);
-    todo!("time_range")
+    format!("{} - {}", start.format("%H:%M"), end.format("%H:%M"))
 }
 
 /// The day a new event starts on: today when today is in the shown week, else the shown week's
 /// Monday.
 pub fn default_day(today: NaiveDate, shown: NaiveDate) -> NaiveDate {
-    let _ = (today, shown);
-    todo!("default_day")
+    let monday = week_start(shown);
+    if week_start(today) == monday {
+        today
+    } else {
+        monday
+    }
 }
 
 /// The date a date picker shows, with the day cut to the month's length (the picker keeps its
 /// day when it turns the month); `None` for a month that does not exist.
 pub fn picked_date(year: i32, month: u32, day: u32) -> Option<NaiveDate> {
-    let _ = (year, month, day);
-    todo!("picked_date")
+    (28..=day.clamp(1, 31))
+        .rev()
+        .chain(std::iter::once(day.clamp(1, 28)))
+        .find_map(|d| NaiveDate::from_ymd_opt(year, month, d))
 }
 
 #[cfg(test)]

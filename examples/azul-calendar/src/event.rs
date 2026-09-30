@@ -29,7 +29,7 @@
 
 use std::path::{Path, PathBuf};
 
-use chrono::{NaiveDate, NaiveTime};
+use chrono::{NaiveDate, NaiveTime, Timelike};
 use serde::{Deserialize, Serialize};
 
 use crate::meet_rooms::{self, RoomKey};
@@ -138,18 +138,35 @@ impl Event {
         end: NaiveTime,
         meeting: Option<Meeting>,
     ) -> Result<Event, EventError> {
-        let _ = (
-            id,
-            title,
+        if !is_event_id(id) {
+            return Err(EventError::BadId(id.to_string()));
+        }
+        let title = title.trim();
+        if title.is_empty() {
+            return Err(EventError::EmptyTitle);
+        }
+        let (start, end) = (to_the_minute(start), to_the_minute(end));
+        if end <= start {
+            return Err(EventError::EndNotAfterStart);
+        }
+        if let Some(m) = &meeting {
+            if !matches!(meet_rooms::parse_room_link(&m.link), Some(RoomKey::Id(_))) {
+                return Err(EventError::BadMeetingLink(m.link.clone()));
+            }
+        }
+        Ok(Event {
+            id: id.to_string(),
+            title: title.to_string(),
             date,
             start,
             end,
             meeting,
-            meet_rooms::APP_LINK_PREFIX,
-        );
-        let _: Option<RoomKey> = None;
-        todo!("Event::create")
+        })
     }
+}
+
+fn to_the_minute(t: NaiveTime) -> NaiveTime {
+    NaiveTime::from_hms_opt(t.hour(), t.minute(), 0).unwrap_or(t)
 }
 
 /// The file on disk, version 1.
@@ -168,59 +185,118 @@ struct FileV1 {
 
 /// The event's file contents (pretty JSON, ending in a newline).
 pub fn to_json(event: &Event) -> String {
-    let _ = (event, DATE_FORMAT, TIME_FORMAT);
-    todo!("to_json")
+    let file = FileV1 {
+        format: FORMAT.to_string(),
+        version: VERSION,
+        id: event.id.clone(),
+        title: event.title.clone(),
+        date: event.date.format(DATE_FORMAT).to_string(),
+        start: event.start.format(TIME_FORMAT).to_string(),
+        end: event.end.format(TIME_FORMAT).to_string(),
+        meeting: event.meeting.clone(),
+    };
+    // Strings and numbers only: serializing cannot fail.
+    let mut text = serde_json::to_string_pretty(&file).unwrap_or_default();
+    text.push('\n');
+    text
 }
 
 /// Reads an event file.
 pub fn from_json(text: &str) -> Result<Event, EventError> {
-    let _ = text;
-    todo!("from_json")
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| EventError::NotJson(e.to_string()))?;
+    if value.get("format").and_then(|f| f.as_str()) != Some(FORMAT) {
+        return Err(EventError::NotAnEvent);
+    }
+    let version = value.get("version");
+    match version.and_then(|v| v.as_u64()) {
+        Some(VERSION) => {}
+        Some(newer) if newer > VERSION => return Err(EventError::NewerVersion(newer)),
+        _ => {
+            return Err(EventError::BadField {
+                field: "version",
+                value: version.map(|v| v.to_string()).unwrap_or_default(),
+            })
+        }
+    }
+    let file: FileV1 =
+        serde_json::from_value(value).map_err(|e| EventError::Malformed(e.to_string()))?;
+    let date =
+        NaiveDate::parse_from_str(&file.date, DATE_FORMAT).map_err(|_| EventError::BadField {
+            field: "date",
+            value: file.date.clone(),
+        })?;
+    let time = |field: &'static str, value: &str| {
+        NaiveTime::parse_from_str(value, TIME_FORMAT).map_err(|_| EventError::BadField {
+            field,
+            value: value.to_string(),
+        })
+    };
+    let start = time("start", &file.start)?;
+    let end = time("end", &file.end)?;
+    Event::create(&file.id, &file.title, date, start, end, file.meeting)
 }
 
 /// Whether `s` is a UUID in its canonical lower-case form (8-4-4-4-12 hex digits), which is
 /// what an event id must be: it names a file, so nothing else may reach the file system.
 pub fn is_event_id(s: &str) -> bool {
-    let _ = s;
-    todo!("is_event_id")
+    let groups: Vec<&str> = s.split('-').collect();
+    groups.len() == 5
+        && groups
+            .iter()
+            .zip([8usize, 4, 4, 4, 12])
+            .all(|(group, len)| {
+                group.len() == len
+                    && group
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            })
 }
 
 /// `<id>.json`
 pub fn file_name(id: &str) -> String {
-    let _ = id;
-    todo!("file_name")
+    format!("{id}.json")
 }
 
 /// `events/<id>.json`: the event's path under the data folder, and its key in a bucket.
 pub fn object_key(id: &str) -> String {
-    let _ = id;
-    todo!("object_key")
+    format!("{EVENTS_DIR}/{}", file_name(id))
 }
 
 /// The event id a file in the events folder is named by, if it is an event file.
 pub fn id_of_file_name(name: &str) -> Option<&str> {
-    let _ = name;
-    todo!("id_of_file_name")
+    let id = name.strip_suffix(".json")?;
+    is_event_id(id).then_some(id)
 }
 
 /// Where the event with `id` is stored under `data_dir`.
 pub fn event_path(data_dir: &Path, id: &str) -> PathBuf {
-    let _ = (data_dir, id);
-    todo!("event_path")
+    data_dir.join(EVENTS_DIR).join(file_name(id))
 }
 
 /// The data folder: `setting` (`AZCAL_DATA`), else `AzCalendar` in the user's data folder, else
 /// `AzCalendar` in the current folder.
 pub fn data_dir(setting: Option<&str>, user_data: Option<PathBuf>) -> PathBuf {
-    let _ = (setting, user_data, APP_DIR);
-    todo!("data_dir")
+    match setting.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(dir) => PathBuf::from(dir),
+        None => user_data.unwrap_or_default().join(APP_DIR),
+    }
 }
 
 /// Writes `event` to its file, atomically (a temporary file next to it, then a rename), and
 /// returns the file's path.
 pub fn save(data_dir: &Path, event: &Event) -> std::io::Result<PathBuf> {
-    let _ = (data_dir, event);
-    todo!("save")
+    let path = event_path(data_dir, &event.id);
+    let dir = data_dir.join(EVENTS_DIR);
+    std::fs::create_dir_all(&dir)?;
+    // A dot name that `id_of_file_name` never reads as an event.
+    let temp = dir.join(format!(".{}.tmp", file_name(&event.id)));
+    std::fs::write(&temp, to_json(event))?;
+    if let Err(e) = std::fs::rename(&temp, &path) {
+        let _ = std::fs::remove_file(&temp);
+        return Err(e);
+    }
+    Ok(path)
 }
 
 /// A file in the events folder that is named like an event but was not read.
@@ -234,8 +310,33 @@ pub struct Skipped {
 /// that could not be read, with why. Files not named `<uuid>.json` are not events and are left
 /// out silently; a missing folder is an empty calendar.
 pub fn load_all(data_dir: &Path) -> (Vec<Event>, Vec<Skipped>) {
-    let _ = data_dir;
-    todo!("load_all")
+    let mut events = Vec::new();
+    let mut skipped = Vec::new();
+    let Ok(entries) = std::fs::read_dir(data_dir.join(EVENTS_DIR)) else {
+        return (events, skipped);
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(id) = name.to_str().and_then(id_of_file_name) else {
+            continue;
+        };
+        let path = entry.path();
+        let read = std::fs::read_to_string(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|text| from_json(&text).map_err(|e| e.to_string()));
+        match read {
+            Ok(event) if event.id == id => events.push(event),
+            Ok(event) => skipped.push(Skipped {
+                path,
+                reason: format!("it holds the event {}, not {id}", event.id),
+            }),
+            Err(reason) => skipped.push(Skipped { path, reason }),
+        }
+    }
+    events.sort_by(|a, b| {
+        (a.date, a.start, a.end, &a.title, &a.id).cmp(&(b.date, b.start, b.end, &b.title, &b.id))
+    });
+    (events, skipped)
 }
 
 #[cfg(test)]

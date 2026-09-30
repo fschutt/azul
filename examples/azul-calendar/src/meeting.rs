@@ -31,8 +31,11 @@ pub const BUILT_IN_WORKER: &str = match option_env!("AZMEET_DEFAULT_WORKER") {
 /// The meeting server: `setting` (`AZMEET_WORKER`), else the built-in one, without a trailing
 /// slash; `None` when neither is set.
 pub fn worker(setting: Option<&str>, built_in: &str) -> Option<String> {
-    let _ = (setting, built_in);
-    todo!("worker")
+    [setting.unwrap_or_default(), built_in]
+        .into_iter()
+        .map(|url| url.trim().trim_end_matches('/'))
+        .find(|url| !url.is_empty())
+        .map(str::to_string)
 }
 
 /// What `POST /rooms` answers: `{room, code, link, url, expires}`.
@@ -47,30 +50,63 @@ struct RoomAnswer {
 /// The meeting `server` minted, read from its answer to `POST /rooms`. The link must name the
 /// room the server minted, by its id; it is kept as `azlin://meet/<room id>`.
 pub fn minted_meeting(server: &str, body: &str) -> Result<Meeting, String> {
-    let _ = (server, body, meet_rooms::APP_LINK_PREFIX);
-    let _: Option<RoomKey> = None;
-    let _: Option<RoomAnswer> = None;
-    todo!("minted_meeting")
+    let answer: RoomAnswer = serde_json::from_str(body)
+        .map_err(|e| format!("The meeting server sent an answer AzCalendar cannot read ({e})."))?;
+    let link = answer
+        .link
+        .filter(|link| !link.trim().is_empty())
+        .unwrap_or_else(|| format!("{}{}", meet_rooms::APP_LINK_PREFIX, answer.room));
+    let minted = meet_rooms::parse_room_key(&answer.room);
+    match meet_rooms::parse_room_link(&link) {
+        Some(RoomKey::Id(id)) if minted == Some(RoomKey::Id(id.clone())) => Ok(Meeting {
+            link: format!("{}{id}", meet_rooms::APP_LINK_PREFIX),
+            server: server.to_string(),
+            code: answer.code.unwrap_or_default(),
+            expires: answer.expires.unwrap_or_default(),
+        }),
+        _ => Err(format!(
+            "The meeting server sent a link that is not the AzMeet room it made: {link}"
+        )),
+    }
 }
 
 /// What the user reads when `POST /rooms` failed: `status` and `body` of the server's answer, or
 /// (`status` is `None`) why the server could not be reached.
 pub fn mint_failure(server: &str, status: Option<u16>, body: &str) -> String {
-    let _ = (server, status, body);
-    todo!("mint_failure")
+    let Some(status) = status else {
+        return format!("The meeting server at {server} is unreachable: {body}");
+    };
+    if status == 429 {
+        return String::from(
+            "Too many new meetings from this network; try again in a few minutes.",
+        );
+    }
+    let message = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|json| Some(json.get("message")?.as_str()?.trim().to_string()))
+        .filter(|message| !message.is_empty());
+    match message {
+        Some(message) => format!("The meeting server answered {status}: {message}"),
+        None => format!("The meeting server answered {status}."),
+    }
 }
 
 /// The AzMeet program: `setting` (`AZMEET_BIN`), else `AzMeet` next to `this_program`.
 pub fn azmeet_program(setting: Option<&str>, this_program: Option<&Path>) -> Option<PathBuf> {
-    let _ = (setting, this_program);
-    todo!("azmeet_program")
+    if let Some(path) = setting.map(str::trim).filter(|s| !s.is_empty()) {
+        return Some(PathBuf::from(path));
+    }
+    let dir = this_program?.parent()?;
+    Some(dir.join(format!("{AZMEET_PROGRAM}{}", std::env::consts::EXE_SUFFIX)))
 }
 
 /// The environment AzMeet is started with to join `meeting`: the link, and the server that
 /// minted it (a link is only known to its own server).
 pub fn join_env(meeting: &Meeting) -> Vec<(&'static str, String)> {
-    let _ = meeting;
-    todo!("join_env")
+    vec![
+        (JOIN_VAR, meeting.link.clone()),
+        (WORKER_VAR, meeting.server.clone()),
+    ]
 }
 
 #[cfg(test)]
