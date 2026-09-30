@@ -373,8 +373,42 @@ pub(crate) mod test_support {
         key: VirtualKeyCode,
         held: &[VirtualKeyCode],
     ) -> Option<(Update, Vec<CallbackChange>)> {
+        let mut current_window_state = FullWindowState::default();
+        current_window_state.keyboard_state.current_virtual_keycode = Some(key).into();
+        let mut pressed: Vec<VirtualKeyCode> = held.to_vec();
+        pressed.push(key);
+        current_window_state.keyboard_state.pressed_virtual_keycodes = pressed.into();
+        run(
+            styled,
+            focused,
+            EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+            current_window_state,
+        )
+    }
+
+    /// Fires `event` on `target`: runs the handler the widget registered ON
+    /// THAT NODE for exactly that event, with the payload it registered - a
+    /// click on a node, as the engine dispatches it to the node it hit.
+    ///
+    /// `None` when the node carries no handler for `event`.
+    pub(crate) fn fire(
+        styled: &StyledDom,
+        target: DomNodeId,
+        event: EventFilter,
+    ) -> Option<(Update, Vec<CallbackChange>)> {
+        run(styled, target, event, FullWindowState::default())
+    }
+
+    /// `press` and `fire`: the handler for `event` on `target`, run in a
+    /// window whose state is `current_window_state`.
+    fn run(
+        styled: &StyledDom,
+        target: DomNodeId,
+        event: EventFilter,
+        current_window_state: FullWindowState,
+    ) -> Option<(Update, Vec<CallbackChange>)> {
+        let focused = target;
         let node_id = focused.node.into_crate_internal()?;
-        let key_down = EventFilter::Focus(FocusEventFilter::VirtualKeyDown);
         let (core_cb, data) = styled
             .node_data
             .as_container()
@@ -382,7 +416,7 @@ pub(crate) mod test_support {
             .get_callbacks()
             .as_ref()
             .iter()
-            .find(|cb| cb.event == key_down)
+            .find(|cb| cb.event == event)
             .map(|cb| (cb.callback.clone(), cb.refany.clone()))?;
 
         let mut layout_window =
@@ -393,11 +427,6 @@ pub(crate) mod test_support {
 
         let renderer_resources = RendererResources::default();
         let previous_window_state: Option<FullWindowState> = None;
-        let mut current_window_state = FullWindowState::default();
-        current_window_state.keyboard_state.current_virtual_keycode = Some(key).into();
-        let mut pressed: Vec<VirtualKeyCode> = held.to_vec();
-        pressed.push(key);
-        current_window_state.keyboard_state.pressed_virtual_keycodes = pressed.into();
         let gl_context = OptionGlContextPtr::None;
         let scroll_states: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> =
             BTreeMap::new();

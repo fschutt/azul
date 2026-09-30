@@ -96,6 +96,8 @@ azul_core::impl_managed_callback! {
 /// handler finds the tree it is in and tells rows from children containers.
 const TREE_CLASS_NAME: &str = "__azul-native-tree-view";
 const TREE_ROW_CLASS_NAME: &str = "__azul-native-tree-view-row";
+/// The class of a parent row's disclosure box: the arrow's own click target.
+const TREE_TOGGLE_CLASS_NAME: &str = "__azul-native-tree-view-toggle";
 const TREE_ROW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(TREE_ROW_CLASS_NAME))];
 
 // -- Font --
@@ -349,10 +351,20 @@ pub struct TreeViewNode {
     pub label: AzString,
     /// Child nodes nested under this node.
     pub children: TreeViewNodeVec,
-    /// Whether children are visible (only meaningful when `children` is non-empty).
+    /// An icon shown between the disclosure arrow and the label (a
+    /// `Dom::create_icon` name: "home", "folder", "cloud"), or empty for none.
+    pub icon: AzString,
+    /// Whether children are visible (only meaningful when the node has
+    /// children, loaded or not).
     pub is_expanded: bool,
     /// Whether this node is visually selected.
     pub is_selected: bool,
+    /// The node HAS children the app has not loaded yet (a folder that was
+    /// never listed): it shows the disclosure arrow like a parent, and opening
+    /// it - a click on the arrow, a double-click on the row, Right on the
+    /// focused row - asks the app through `on_node_toggle`, which loads the
+    /// children and rebuilds the tree with them (and this flag cleared).
+    pub has_unloaded_children: bool,
 }
 
 impl TreeViewNode {
@@ -361,9 +373,43 @@ impl TreeViewNode {
         Self {
             label: label.into(),
             children: TreeViewNodeVec::from_const_slice(&[]),
+            icon: AzString::from_const_str(""),
             is_expanded: false,
             is_selected: false,
+            has_unloaded_children: false,
         }
+    }
+
+    /// Show `icon` (a `Dom::create_icon` name) between the disclosure arrow
+    /// and the label.
+    pub fn set_icon(&mut self, icon: AzString) {
+        self.icon = icon;
+    }
+
+    /// [`Self::set_icon`] for the builder chain.
+    #[must_use]
+    pub fn with_icon(mut self, icon: AzString) -> Self {
+        self.set_icon(icon);
+        self
+    }
+
+    /// Mark the node as having children that are not loaded yet (see
+    /// [`Self::has_unloaded_children`]).
+    pub const fn set_unloaded_children(&mut self, unloaded: bool) {
+        self.has_unloaded_children = unloaded;
+    }
+
+    /// [`Self::set_unloaded_children`] for the builder chain.
+    #[must_use]
+    pub const fn with_unloaded_children(mut self, unloaded: bool) -> Self {
+        self.set_unloaded_children(unloaded);
+        self
+    }
+
+    /// Whether the node is a parent: it has children, or children to load.
+    #[must_use]
+    pub fn has_children(&self) -> bool {
+        self.has_unloaded_children || !self.children.as_slice().is_empty()
     }
 
     /// Appends a child node.
@@ -1190,11 +1236,28 @@ mod autotest_generated {
         base.iter().chain(skin.iter()).cloned().collect()
     }
 
-    /// The `(icon-or-spacer, label)` pair of a rendered row.
+    /// The `(icon-or-spacer, label)` pair of a rendered row. A parent's
+    /// disclosure icon sits in its click target (the toggle box); the pair
+    /// names the icon itself.
     fn row_parts(row: &Dom) -> (&Dom, &Dom) {
         let ch = row.children.as_ref();
         assert_eq!(ch.len(), 2, "every row is [icon|spacer, label]");
-        (&ch[0], &ch[1])
+        (disclosure_icon(&ch[0]), &ch[1])
+    }
+
+    /// The disclosure icon inside a toggle box, or the node itself (a leaf's
+    /// spacer, or an icon rendered without its box).
+    fn disclosure_icon(first: &Dom) -> &Dom {
+        let is_toggle = first
+            .root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == TREE_TOGGLE_CLASS_NAME));
+        match first.children.as_ref() {
+            [icon] if is_toggle => icon,
+            _ => first,
+        }
     }
 
     /// Every rendered row in `nodes`, in visual order. Rows are the only nodes
@@ -1605,8 +1668,10 @@ mod autotest_generated {
         let from_vec = TreeViewNode {
             label: AzString::from("root"),
             children: TreeViewNodeVec::from_vec(vec![leaf("a"), leaf("b")]),
+            icon: AzString::from(""),
             is_expanded: false,
             is_selected: false,
+            has_unloaded_children: false,
         };
         assert_eq!(
             pushed, from_vec,
@@ -2650,6 +2715,172 @@ mod autotest_generated {
                 "row {label}",
             );
         }
+    }
+
+    // ------------------------------------------------------------------
+    // A navigation tree: lazy children, node icons, the arrow as its own
+    // click target, a double-click that opens (AzDrive's drives and folders)
+    // ------------------------------------------------------------------
+
+    /// This PC > Home (never listed) > ..., and Cloud (listed, one folder).
+    /// Depth-first: "This PC" 0, "Home" 1, "Cloud" 2, "mail" 3.
+    fn drives_tree() -> TreeViewNode {
+        leaf("This PC")
+            .with_expanded(true)
+            .with_icon(AzString::from("computer"))
+            .with_child(
+                leaf("Home")
+                    .with_icon(AzString::from("home"))
+                    .with_unloaded_children(true),
+            )
+            .with_child(
+                leaf("Cloud")
+                    .with_icon(AzString::from("cloud"))
+                    .with_child(leaf("mail")),
+            )
+    }
+
+    fn row_named<'a>(dom: &'a Dom, label: &str) -> &'a Dom {
+        rows_of(dom.children.as_ref())
+            .into_iter()
+            .find(|row| {
+                row.children
+                    .as_ref()
+                    .last()
+                    .and_then(|l| text_of(l))
+                    == Some(label)
+            })
+            .unwrap_or_else(|| panic!("no row is labelled {label:?}"))
+    }
+
+    fn has_event(node: &Dom, event: EventFilter) -> bool {
+        node.root
+            .get_callbacks()
+            .as_ref()
+            .iter()
+            .any(|cb| cb.event == event)
+    }
+
+    #[test]
+    fn a_node_whose_children_are_not_loaded_yet_shows_a_closed_disclosure_arrow() {
+        let dom = flat_dom(TreeView::new(drives_tree()));
+        let home = row_named(&dom, "Home");
+        let parts = home.children.as_ref();
+        assert_eq!(
+            icon_of(disclosure_icon(&parts[0])),
+            Some("chevron_right"),
+            "a folder that was never listed can still be opened"
+        );
+        let states = home
+            .root
+            .get_accessibility_info()
+            .map(|i| i.states.as_ref().to_vec())
+            .unwrap_or_default();
+        assert!(
+            states.contains(&azul_core::a11y::AccessibilityState::Collapsed),
+            "and says it is closed: {states:?}"
+        );
+    }
+
+    #[test]
+    fn an_open_node_without_loaded_children_points_down_and_draws_no_children() {
+        let tree = leaf("Home")
+            .with_unloaded_children(true)
+            .with_expanded(true);
+        let dom = flat_dom(TreeView::new(tree));
+        assert_eq!(dom.children.as_ref().len(), 1, "nothing loaded to draw");
+        let icon = disclosure_icon(&dom.children.as_ref()[0].children.as_ref()[0]);
+        assert_eq!(icon_of(icon), Some("expand_more"));
+    }
+
+    #[test]
+    fn a_node_icon_sits_between_the_disclosure_and_the_label() {
+        let dom = flat_dom(TreeView::new(drives_tree()));
+        for (label, icon) in [("This PC", "computer"), ("Home", "home"), ("Cloud", "cloud")] {
+            let parts = row_named(&dom, label).children.as_ref();
+            assert_eq!(parts.len(), 3, "{label}: arrow, icon, label");
+            assert_eq!(icon_of(&parts[1]), Some(icon), "{label}");
+            assert_eq!(text_of(&parts[2]), Some(label));
+        }
+        // A node without an icon keeps the two-part row.
+        let plain = flat_dom(TreeView::new(leaf("plain")));
+        assert_eq!(plain.children.as_ref()[0].children.as_ref().len(), 2);
+    }
+
+    #[test]
+    fn with_a_toggle_hook_the_arrow_is_its_own_click_target_and_a_double_click_opens() {
+        let log: ToggleLog = Arc::new(Mutex::new(Vec::new()));
+        let dom = flat_dom(
+            TreeView::new(drives_tree())
+                .with_on_node_toggle(RefAny::new(log.clone()), toggle_cb(record_toggle)),
+        );
+        let click = EventFilter::Hover(HoverEventFilter::Click);
+        let double = EventFilter::Hover(HoverEventFilter::DoubleClick);
+        for label in ["This PC", "Home", "Cloud"] {
+            let row = row_named(&dom, label);
+            let arrow = &row.children.as_ref()[0];
+            assert!(
+                has_event(arrow, click),
+                "{label}: a click on the arrow opens or closes, it does not select"
+            );
+            assert!(has_event(row, double), "{label}: a double-click opens");
+        }
+        let leaf_row = row_named(&dom, "mail");
+        assert!(!has_event(leaf_row, double), "a leaf has nothing to open");
+
+        // Without the hook the arrow is part of the row (a click selects).
+        let bare = flat_dom(TreeView::new(drives_tree()));
+        let arrow = &row_named(&bare, "Home").children.as_ref()[0];
+        assert!(!has_event(arrow, click));
+    }
+
+    #[test]
+    fn a_click_on_the_arrow_asks_to_open_the_node_and_stops_there() {
+        let log: ToggleLog = Arc::new(Mutex::new(Vec::new()));
+        let styled = tree_page(
+            TreeView::new(drives_tree())
+                .with_on_node_toggle(RefAny::new(log.clone()), toggle_cb(record_toggle)),
+        );
+        let home = row_labelled(&styled, "Home");
+        let arrow = page_node(home.node.into_crate_internal().expect("a row").index() + 1);
+        let (update, changes) = rv::fire(&styled, arrow, EventFilter::Hover(HoverEventFilter::Click))
+            .expect("the arrow carries its click handler");
+        assert_eq!(toggles(&log), vec![(1, true)], "open node 1 (Home)");
+        assert_eq!(update, Update::RefreshDom, "the app's verdict is forwarded");
+        assert!(
+            changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::StopPropagation)),
+            "the row's own click (select) does not run too"
+        );
+    }
+
+    #[test]
+    fn a_double_click_on_an_open_row_asks_to_close_it() {
+        let log: ToggleLog = Arc::new(Mutex::new(Vec::new()));
+        let styled = tree_page(
+            TreeView::new(drives_tree())
+                .with_on_node_toggle(RefAny::new(log.clone()), toggle_cb(record_toggle)),
+        );
+        let _ = rv::fire(
+            &styled,
+            row_labelled(&styled, "This PC"),
+            EventFilter::Hover(HoverEventFilter::DoubleClick),
+        )
+        .expect("a parent row carries a double-click handler");
+        assert_eq!(toggles(&log), vec![(0, false)], "close node 0 (This PC)");
+    }
+
+    #[test]
+    fn right_on_a_closed_node_with_unloaded_children_asks_to_open_it() {
+        let log: ToggleLog = Arc::new(Mutex::new(Vec::new()));
+        let styled = tree_page(
+            TreeView::new(drives_tree())
+                .with_on_node_toggle(RefAny::new(log.clone()), toggle_cb(record_toggle)),
+        );
+        let (_, changes) = press_row(&styled, "Home", VirtualKeyCode::Right, &[]);
+        assert_eq!(toggles(&log), vec![(1, true)], "open node 1 (Home) to load it");
+        assert!(rv::prevented(&changes));
     }
 }
 
