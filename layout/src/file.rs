@@ -1304,6 +1304,57 @@ impl FilePath {
     }
 }
 
+// ============================================================================
+// Disk space
+// ============================================================================
+
+/// How big the volume that holds a path is, and how much of it a program may
+/// still write - what a file manager shows as "324 GB free of 456 GB".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(C)]
+pub struct DiskSpace {
+    /// The volume's size, in bytes.
+    pub total: u64,
+    /// The bytes this program may still write: the space available to an
+    /// unprivileged caller (statvfs `f_bavail`, `FreeBytesAvailableToCaller`),
+    /// which can be less than the volume's raw free space.
+    pub free: u64,
+}
+
+impl_option!(
+    DiskSpace,
+    OptionDiskSpace,
+    copy = false,
+    [Debug, Clone, Copy, PartialEq, Eq]
+);
+
+impl DiskSpace {
+    /// The bytes in use: `total - free`.
+    #[must_use]
+    pub const fn used(&self) -> u64 {
+        self.total.saturating_sub(self.free)
+    }
+}
+
+/// The size and free space of the volume that holds `path` (a file or a
+/// folder), or `None` when the path does not exist or the platform cannot
+/// tell. One system call; call it from a thread for a network mount, which
+/// can take a while to answer.
+#[must_use]
+pub fn disk_space(path: &str) -> Option<DiskSpace> {
+    let _ = path;
+    None
+}
+
+impl FilePath {
+    /// The size and free space of the volume this path is on; `None` when the
+    /// path does not exist or the platform cannot tell. See [`disk_space`].
+    #[must_use]
+    pub fn disk_space(&self) -> Option<DiskSpace> {
+        disk_space(self.inner.as_str())
+    }
+}
+
 impl From<String> for FilePath {
     fn from(s: String) -> Self {
         Self {
@@ -1342,6 +1393,30 @@ mod tests {
     fn test_path_join() {
         let joined = path_join("/home/user", "file.txt");
         assert!(joined.as_str().contains("file.txt"));
+    }
+
+    #[test]
+    #[cfg(all(feature = "std", any(unix, windows)))]
+    fn the_temp_folder_s_volume_reports_its_size_and_its_free_space() {
+        let space = disk_space(temp_dir().as_str())
+            .expect("the volume of the temp folder has a size the system can tell");
+        assert!(space.total > 0, "a volume of 0 bytes: {space:?}");
+        assert!(
+            space.free <= space.total,
+            "more free space than the volume holds: {space:?}"
+        );
+        assert_eq!(space.used(), space.total - space.free);
+        // A file on the volume answers for the volume, like its folder.
+        let file = FilePath::get_temp_dir().disk_space();
+        assert_eq!(file.map(|s| s.total), Some(space.total));
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn a_path_that_does_not_exist_has_no_disk_space() {
+        let missing = path_join(temp_dir().as_str(), "azul-fb2-no-such-folder/deeper/still");
+        assert_eq!(disk_space(missing.as_str()), None);
+        assert_eq!(disk_space(""), None);
     }
 }
 
