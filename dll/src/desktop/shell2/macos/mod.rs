@@ -5754,9 +5754,12 @@ impl MacOSWindow {
 
             let notifier = Notifier {
                 new_frame_ready: new_frame_ready.clone(),
-                // drawRect cycle + drain_loop_work + CVDisplayLink consume the
-                // flag on macOS; no extra wake needed.
-                wake: None,
+                // `drain_loop_work` consumes the flag and asks for the frame.
+                // It used to be enough that the CVDisplayLink woke the main
+                // thread every vsync; the link now stops when idle, so a
+                // frame WebRender finishes after it stopped must wake the loop
+                // itself (an app-defined NSEvent, safe from this thread).
+                wake: Some(Arc::new(crate::desktop::loop_waker::wake)),
             };
 
             let (mut renderer, sender) = match webrender::create_webrender_instance(
