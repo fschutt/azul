@@ -320,6 +320,12 @@ a11y = ["dep:accesskit"]
 # macOS CoreText rendering comparison tests
 coretext_tests = ["dep:core-foundation", "dep:core-graphics", "dep:core-text", "cpurender"]
 
+# The web-platform-tests runner (tests/wpt/main.rs, `--test wpt`): reftests and
+# editing cases from tests/wpt/, gated by their known-failure lists. A feature so
+# that `cargo test --tests` does not run it on the dev profile; the `wpt_reference`
+# CI job and scripts/REFCI_2026_09_30.md name it explicitly.
+wpt_tests = ["std", "cpurender", "text_layout", "font_loading"]
+
 # ICU4X internationalization support (number/date/list formatting, pluralization)
 icu = ["dep:icu", "dep:icu_provider_blob", "dep:writeable", "std"]
 
@@ -564,3 +570,13 @@ harness = false
 [[test]]
 name = "xml_equivalence"
 path = "tests/xml_equivalence.rs"
+
+# Web-platform-tests reference comparisons (reftests + editing), a runner of its
+# own (`harness = false`: one compact summary, exit 1 only on a regression or an
+# unexpected pass). `required-features` keeps it out of plain `cargo test --tests`.
+# cargo test --release -p azul-layout --features wpt_tests --test wpt [-- reftest|editing] [filter]
+[[test]]
+name = "wpt"
+path = "tests/wpt/main.rs"
+harness = false
+required-features = ["wpt_tests"]
