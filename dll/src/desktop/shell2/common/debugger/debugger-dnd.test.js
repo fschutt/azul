@@ -327,5 +327,14 @@ test('a thumbnail answer is a picture, or no picture with the reason the builtin
     assert.deepStrictEqual(L.thumbOf(null), { empty: true, noVisual: null });
 });
 
+// ── idle CPU: a hidden page asks the app for no pictures ──
+
+test('a hidden builder page defers its picture refresh until it is shown', () => {
+    assert.strictEqual(L.pictureRefresh('hidden'), 'defer');
+    assert.strictEqual(L.pictureRefresh('visible'), 'now');
+    // An engine without the Page Visibility API is treated as visible.
+    assert.strictEqual(L.pictureRefresh(undefined), 'now');
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

@@ -20293,6 +20293,112 @@ pub fn process_debug_event(
     needs_update
 }
 
+/// Which screenshot a cached capture answers: the window, the DOM, the
+/// shadow option.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ScreenshotKey {
+    pub window_id: String,
+    pub dom: usize,
+    pub render_shadow: Option<bool>,
+}
+
+/// The last NATIVE screenshot served per [`ScreenshotKey`], with the
+/// presented-frame generation (`LayoutWindow::presented_frame_generation`)
+/// it was captured at.
+///
+/// A native screenshot is an OS capture plus a PNG encode (miniz deflate)
+/// on the UI thread. The builder page asks for one whenever it refreshes,
+/// and an idle AzBuilder spent its CPU re-capturing and re-encoding a
+/// window that had not presented a single frame since the last request.
+/// While the generation is unchanged the screen is too (bar the OS-drawn
+/// title bar), so the cached bytes are the answer.
+#[derive(Debug, Default)]
+pub struct ScreenshotCache {
+    entries: BTreeMap<ScreenshotKey, (u64, String)>,
+}
+
+impl ScreenshotCache {
+    /// An empty cache.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            entries: BTreeMap::new(),
+        }
+    }
+
+    /// The screenshot for `key` at `generation`: the cached one when it was
+    /// taken at this generation, else a fresh `capture()` (cached on
+    /// success).
+    pub fn get_or_capture(
+        &mut self,
+        key: ScreenshotKey,
+        generation: u64,
+        capture: impl FnOnce() -> Result<String, String>,
+    ) -> Result<String, String> {
+        let _ = generation;
+        let shot = capture()?;
+        self.entries.insert(key, (generation, shot.clone()));
+        Ok(shot)
+    }
+}
+
+#[cfg(test)]
+mod screenshot_cache_tests {
+    use super::*;
+
+    fn key(window: &str) -> ScreenshotKey {
+        ScreenshotKey {
+            window_id: window.to_string(),
+            dom: 0,
+            render_shadow: None,
+        }
+    }
+
+    #[test]
+    fn a_window_that_presented_nothing_is_not_captured_again() {
+        let mut cache = ScreenshotCache::new();
+        let mut captures = 0;
+        let mut shoot = |cache: &mut ScreenshotCache, generation: u64| {
+            cache
+                .get_or_capture(key("main"), generation, || {
+                    captures += 1;
+                    Ok(format!("png-{generation}"))
+                })
+                .expect("capture")
+        };
+        assert_eq!(shoot(&mut cache, 7), "png-7");
+        assert_eq!(shoot(&mut cache, 7), "png-7", "same generation, same bytes");
+        assert_eq!(shoot(&mut cache, 7), "png-7");
+        assert_eq!(shoot(&mut cache, 8), "png-8", "a presented frame captures again");
+        drop(shoot);
+        assert_eq!(captures, 2, "three requests at one generation capture once");
+    }
+
+    #[test]
+    fn windows_and_options_are_cached_apart_and_failures_not_at_all() {
+        let mut cache = ScreenshotCache::new();
+        let a = cache.get_or_capture(key("a"), 1, || Ok("a".into()));
+        let b = cache.get_or_capture(key("b"), 1, || Ok("b".into()));
+        assert_eq!((a.as_deref(), b.as_deref()), (Ok("a"), Ok("b")));
+        let shadow = ScreenshotKey {
+            render_shadow: Some(true),
+            ..key("a")
+        };
+        assert_eq!(
+            cache.get_or_capture(shadow, 1, || Ok("a+shadow".into())).as_deref(),
+            Ok("a+shadow")
+        );
+        let failed = cache.get_or_capture(key("c"), 1, || Err("no window".into()));
+        assert!(failed.is_err());
+        let mut retried = false;
+        let _ = cache.get_or_capture(key("c"), 1, || {
+            retried = true;
+            Ok("c".into())
+        });
+        assert!(retried, "a failed capture is not cached");
+    }
+}
+
 /// The E2E harness's deterministic animation step, in µs: one 60 Hz frame.
 ///
 /// A TEST default, not the engine's frame rate. A headless scenario must not

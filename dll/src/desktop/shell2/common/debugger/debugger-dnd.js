@@ -508,6 +508,17 @@
     }
 
     /**
+     * Refresh the window's picture now, or once the page is shown again?
+     *
+     * Every picture is a capture and a PNG encode on the app's UI thread. A
+     * builder page nobody can see (a background tab, a minimized browser)
+     * asks for none: the refresh waits for `visibilitychange`, and runs once.
+     */
+    function pictureRefresh(visibilityState) {
+        return 'now';
+    }
+
+    /**
      * The drop indicator over the picture (px in the picture's box, shown at
      * `shown` {width, height}): the node's box for INTO, a 2px line on its top
      * / bottom edge for BEFORE / AFTER, the whole window for <body> (no rect).
@@ -540,6 +551,7 @@
         attrString: attrString, typedValue: typedValue, editableType: editableType,
         stylesheetMessage: stylesheetMessage, sheetText: sheetText,
         canvasPoint: canvasPoint, canvasDrop: canvasDrop, canvasIndicator: canvasIndicator,
+        pictureRefresh: pictureRefresh,
         liveNodeOf: liveNodeOf, duplicateMessage: duplicateMessage, documentLoadMessage: documentLoadMessage,
     };
 
