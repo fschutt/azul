@@ -1655,14 +1655,17 @@ pub fn translate_displaylist_to_wr(
 
                 // Convert gradient stops (a clamped gradient only samples the
                 // line itself, so its stops are cut to 0..=1 there).
-                let stops: Vec<(f32, azul_css::props::basic::color::ColorU)> = resolved
+                use azul_css::props::basic::color::ColorU as CssColorU;
+                let stops: Vec<(f32, CssColorU)> = resolved
                     .stops
                     .iter()
                     .map(|(t, color)| (*t, color.to_color_u_default()))
                     .collect();
                 let stops = match gradient.extend_mode {
                     ExtendMode::Clamp => {
-                        color_stops_on_the_line(&stops, |from, to, t| from.interpolate(&to, t))
+                        color_stops_on_the_line(&stops, |from: CssColorU, to: CssColorU, t: f32| {
+                            from.interpolate(&to, t)
+                        })
                     }
                     ExtendMode::Repeat => stops,
                 };
