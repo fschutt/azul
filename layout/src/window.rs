@@ -1100,6 +1100,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         laid_out_safe_area_insets: _,
         currently_dragging_thumb: _,
         pending_caret_restore: _,
+        pending_editor_reset: _,
         structural_history_suppression: _,
         pagination_dirty_from: _,
         font_stacks_hash: _,
@@ -1209,6 +1210,16 @@ pub struct LandedTextEdit {
     /// edit, a caret op earlier in the same pass), so a pass that typed and
     /// moved nothing reveals nothing.
     pub revealed: bool,
+}
+
+/// An editor reset waiting for the app's new content
+/// ([`LayoutWindow::reset_editor_content`]): the host by its
+/// generation-stable key, and where the caret goes once the content is laid
+/// out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct EditorReset {
+    host_key: u64,
+    caret_at_end: bool,
 }
 
 /// What [`LayoutWindow::paste_clipboard_content`] did.
@@ -1619,7 +1630,7 @@ pub struct LayoutWindow {
     /// applied through its model, a rewrite), and every caret is shifted
     /// across it. Engine edits refresh it at their chokepoint
     /// (`update_text_cache_after_edit`), so they never register as a change.
-    pub caret_text_snapshot: Option<(u64, Vec<InlineContent>)>,
+    pub caret_text_snapshot: Option<(u64, NodeId, Vec<InlineContent>)>,
     /// Cached layout results for all DOMs (root + virtualized views)
     pub layout_results: BTreeMap<DomId, DomLayoutResult>,
     /// Scroll state manager for all nodes across all DOMs
@@ -1848,6 +1859,10 @@ pub struct LayoutWindow {
     /// generation (resolved + cleared at the tail of
     /// `layout_and_generate_display_list`).
     pending_caret_restore: Option<crate::managers::changeset::EditResumePoint>,
+    /// An editor whose content the app replaced from code
+    /// ([`Self::reset_editor_content`]), waiting for the generation that
+    /// carries the new content to put the caret at its end or start.
+    pending_editor_reset: Option<EditorReset>,
     /// Set by `undo_structural_edit`/`redo_structural_edit` so the ack of
     /// their re-recorded changeset routes history correctly instead of
     /// pushing a fresh undo entry (which would loop).
@@ -2450,6 +2465,7 @@ impl LayoutWindow {
             document_text_revision: 0,
             acked_text_revision: 0,
             pending_caret_restore: None,
+            pending_editor_reset: None,
             structural_history_suppression: None,
             pagination_dirty_from: None,
             undo_redo_manager: crate::managers::undo_redo::UndoRedoManager::new(),
@@ -2808,14 +2824,12 @@ impl LayoutWindow {
         // of a fully synced paragraph: no overlay entry survives the GC).
         let mut restored_dom: Option<DomId> = None;
         if result.is_ok() {
-            if let Some(resume) = self.pending_caret_restore.take() {
-                restored_dom = self.restore_caret_from_resume_point(&resume);
-                // The caret a structural edit (Enter split, merge, their
-                // undo) resumes at is that edit's caret: show it, after this
-                // very layout.
-                if restored_dom.is_some() {
-                    self.request_session_reveal();
-                }
+            restored_dom = self.place_pending_caret();
+            // The caret a structural edit (Enter split, merge, their undo)
+            // resumes at - or a reset editor's - is that edit's caret: show
+            // it, after this very layout.
+            if restored_dom.is_some() {
+                self.request_session_reveal();
             }
         }
 
@@ -5177,8 +5191,13 @@ impl LayoutWindow {
             return;
         };
         let (now, _) = self.element_content(dom_id, node_id).into_parts();
-        if let Some((snapshot_key, before)) = self.caret_text_snapshot.as_ref() {
-            if *snapshot_key == key {
+        // The snapshot is the text of ONE block: a session that moved to
+        // another block of the same host (an arrow across paragraphs, a
+        // click into the next one, a reset editor's caret) starts a new
+        // snapshot there - diffed against the old block's text, the two
+        // paragraphs' difference shifted a caret nothing had edited.
+        if let Some((snapshot_key, snapshot_node, before)) = self.caret_text_snapshot.as_ref() {
+            if *snapshot_key == key && *snapshot_node == node_id {
                 let changes = crate::text3::edit::run_text_diff(before, &now);
                 if !changes.is_empty() {
                     if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
@@ -5188,7 +5207,46 @@ impl LayoutWindow {
                 }
             }
         }
-        self.caret_text_snapshot = Some((key, now));
+        self.caret_text_snapshot = Some((key, node_id, now));
+    }
+
+    /// Place the caret an earlier pass left for the generation just laid
+    /// out: an acked structural edit's resume point
+    /// ([`Self::restore_caret_from_resume_point`]), or a reset editor's
+    /// ([`Self::reset_editor_content`]) - at the end of its host's last
+    /// block, or at the start of its first, opened as a click opens a
+    /// session. Returns the DOM the caret landed in: its display list was
+    /// emitted with the old caret and has to be rebuilt. A request whose
+    /// host the new generation does not have is dropped.
+    fn place_pending_caret(&mut self) -> Option<DomId> {
+        if let Some(resume) = self.pending_caret_restore.take() {
+            if let Some(dom_id) = self.restore_caret_from_resume_point(&resume) {
+                return Some(dom_id);
+            }
+        }
+        let reset = self.pending_editor_reset.take()?;
+        let (dom_id, host) = self.find_host_by_contenteditable_key(reset.host_key)?;
+        let host_node = DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(host)),
+        };
+        let blocks = self.text_blocks_within(host_node);
+        let block = if reset.caret_at_end {
+            blocks.last()
+        } else {
+            blocks.first()
+        }
+        .copied()?;
+        let caret = self.block_edge_caret(block, reset.caret_at_end)?;
+        let caret = self.caret_past_markers(block, caret);
+        self.open_session(
+            block,
+            SelectionRange {
+                start: caret,
+                end: caret,
+            },
+        );
+        Some(dom_id)
     }
 
     fn restore_caret_from_resume_point(
@@ -12295,12 +12353,113 @@ impl LayoutWindow {
     }
 
     /// The app replaces the content of the editing host `host` from code
-    /// (`CallbackInfo::reset_editor_content`): the DOM it renders next is
-    /// the truth. Returns whether `host` is an editing host of a laid-out
-    /// DOM.
+    /// (`CallbackInfo::reset_editor_content`, HTML's `innerHTML = ..` on a
+    /// contenteditable): the DOM it renders next is the truth. Returns
+    /// whether `host` is an editing host of a laid-out DOM.
+    ///
+    /// Everything of the OLD content that would otherwise outlive the app's
+    /// re-render goes now: the content overlay's entries inside the host
+    /// (the typing the app never synced, which would paint over the new DOM
+    /// until it happened to equal it), the queued edits of this pass, the
+    /// undo history of the host's nodes and the document's structural
+    /// history, a pending structural edit inside the host (with its preview)
+    /// and an acked edit's caret restore, the seats' carets in the host, the
+    /// document selection, the typing style. The caret is placed against
+    /// the NEW content when that is laid out ([`Self::place_pending_caret`]):
+    /// at the end of the host's last block, or at the start of its first.
     pub fn reset_editor_content(&mut self, host: DomNodeId, caret_at_end: bool) -> bool {
-        let _ = (host, caret_at_end);
-        false
+        let dom_id = host.dom;
+        let Some(host_node) = host.node.into_crate_internal() else {
+            return false;
+        };
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return false;
+        };
+        if host_node.index() >= lr.styled_dom.node_data.as_container().len()
+            || !crate::solver3::getters::is_node_contenteditable_inherited(
+                &lr.styled_dom,
+                host_node,
+            )
+        {
+            return false;
+        }
+
+        // What the old content holds, read first: the walk borrows the
+        // layout results the stores below are then changed beside.
+        let inside = |n: NodeId| self.node_is_self_or_descendant(dom_id, n, host_node);
+        let stale_overlay: Vec<NodeId> = self
+            .content_overlay
+            .iter_text()
+            .filter(|(&(d, n), _)| d == dom_id && inside(n))
+            .map(|(&(_, n), _)| n)
+            .collect();
+        let stale_stacks: Vec<NodeId> = self
+            .undo_redo_manager
+            .node_stacks
+            .iter()
+            .map(|stack| stack.node_id)
+            .filter(|&n| inside(n))
+            .collect();
+        let pending_inside = self.pending_document_edit.as_ref().is_some_and(|edit| {
+            edit.target.dom == dom_id
+                && edit
+                    .target
+                    .node
+                    .into_crate_internal()
+                    .is_some_and(inside)
+        });
+        let stale_queued: Vec<usize> = self
+            .text_input_manager
+            .pending_changesets
+            .iter()
+            .enumerate()
+            .filter(|(_, queued)| {
+                queued.edit.node.dom == dom_id
+                    && queued.edit.node.node.into_crate_internal().is_some_and(inside)
+            })
+            .map(|(i, _)| i)
+            .collect();
+        let stale_seats: Vec<u64> = self
+            .text_edit_manager
+            .seat_carets
+            .iter()
+            .filter(|(_, caret)| {
+                caret.node.dom == dom_id && caret.node.node.into_crate_internal().is_some_and(inside)
+            })
+            .map(|(&seat, _)| seat)
+            .collect();
+        let key = self.contenteditable_session_key(dom_id, host_node);
+
+        for node in stale_overlay {
+            self.content_overlay.remove_text(dom_id, node);
+        }
+        let mut index = 0usize;
+        self.text_input_manager.pending_changesets.retain_mut(|_| {
+            let keep = !stale_queued.contains(&index);
+            index += 1;
+            keep
+        });
+        self.undo_redo_manager
+            .node_stacks
+            .retain(|stack| !stale_stacks.contains(&stack.node_id));
+        self.undo_redo_manager.structural_undo.clear();
+        self.undo_redo_manager.structural_redo.clear();
+        self.structural_history_suppression = None;
+        if pending_inside {
+            self.pending_document_edit = None;
+            self.document_edit_notified = None;
+            self.end_structural_previews();
+        }
+        self.pending_caret_restore = None;
+        for seat in stale_seats {
+            self.text_edit_manager.seat_carets.remove(&seat);
+        }
+        self.text_edit_manager.clear_cross_block_selection();
+        self.text_edit_manager.typing_style = None;
+        self.text_edit_manager.vertical_goal = None;
+        self.text_edit_manager.mark_dirty();
+        self.pending_editor_reset = Some(EditorReset { host_key: key, caret_at_end });
+        true
     }
 
     /// Toggle `format` for the editing session in `target`'s host
@@ -20520,7 +20679,7 @@ impl LayoutWindow {
             .map(|mc| mc.contenteditable_key);
         if let Some(key) = snapshot_key {
             let (numbered, _) = self.element_content(dom_id, node_id).into_parts();
-            self.caret_text_snapshot = Some((key, numbered));
+            self.caret_text_snapshot = Some((key, node_id, numbered));
         }
 
         self.reshape_text_node(dom_id, node_id, new_inline_content);
@@ -24053,13 +24212,11 @@ impl LayoutWindow {
         // sat remapped in the OLD block, and the next unrelated full layout
         // teleported it — "Enter does not move the cursor", second half.
         if !updated.is_empty() {
-            if let Some(resume) = self.pending_caret_restore.take() {
-                // The child DOM's list was just built with the pre-restore
-                // caret; rebuild it so the caret is painted where it landed.
-                if let Some(dom_id) = self.restore_caret_from_resume_point(&resume) {
-                    self.regenerate_display_list_for_dom(dom_id);
-                    self.request_session_reveal();
-                }
+            // The child DOM's list was just built with the pre-restore
+            // caret; rebuild it so the caret is painted where it landed.
+            if let Some(dom_id) = self.place_pending_caret() {
+                self.regenerate_display_list_for_dom(dom_id);
+                self.request_session_reveal();
             }
         }
 
@@ -24430,6 +24587,7 @@ impl LayoutWindow {
             // that is its whole point; resolved against the new tree at the
             // layout tail, nothing to remap here.
             pending_caret_restore: _,
+        pending_editor_reset: _,
             // A plain routing flag, no NodeIds.
             structural_history_suppression: _,
             // A document-space Y, no NodeIds.
