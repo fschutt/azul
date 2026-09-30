@@ -32,8 +32,12 @@
   (debug poll 16 ms -> 250 ms when quiet; RunForever 33 ms drain timer ->
   CFRunLoop BeforeWaiting observer)
 
+- b5dcc070b test(pacing): a window paces at its monitor's refresh rate (RED)
+- 90340799f fix(pacing): every frame-paced driver runs at the window's monitor rate
+  (API: RendererOptions.max_frame_rate: OptionU32 appended LAST)
+
 ## IN PROGRESS
-4. B: per-window frame interval from the monitor refresh rate + cap
+5. display-list reuse for transform/opacity-only ticks + shared animated-values source
 
 ## NEXT
 see order
