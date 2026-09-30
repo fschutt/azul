@@ -132,7 +132,9 @@ class Document:
         if self.title:
             out.append("<title>" + escape_text(self.title) + "</title>\n")
         for name, content in self.metas:
-            if name in ("assert", "flags"):
+            # assert/flags for the reftest report; fuzzy so a pixel comparison
+            # can read the page's own allowance (WPT's maxDifference;totalPixels).
+            if name in ("assert", "flags", "fuzzy"):
                 out.append('<meta name="%s" content="%s"/>\n' % (name, escape_attr(content)))
         if css:
             out.append("<style>\n")
