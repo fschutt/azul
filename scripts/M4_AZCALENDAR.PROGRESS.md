@@ -8,13 +8,14 @@ Branch `wt/m4-azcalendar` (base `8e9a0a683`). Report: `scripts/M4_AZCALENDAR_202
   AzMeet's `rooms.rs` compiled in as `meet_rooms` (`#[path]`).
 - `960137a1d` feat: event.rs / week.rs / meeting.rs implemented (type-checked lib + tests with rustc
   --emit=metadata, scratchpad `m4/check_pure.sh`; not run).
+- `8d8292e42` RED: `examples/azul-calendar/scripts/mint-and-join.mjs` (headless e2e).
+- `4bc9ec077` feat: lib.rs UI (week view, New event form, Save -> mint -> file, Join meeting); the whole lib
+  type-checks (lib + tests) against target/release's link-dynamic azul rmeta (scratchpad `m4/check_lib.sh`).
 
 ## IN PROGRESS
-- e2e script.
+- dry run of mint-and-join.mjs against Node stand-ins for AzCalendar / AzMeet (scratchpad `m4/fake-*.mjs`).
 
 ## NEXT
-2. RED: `examples/azul-calendar/scripts/mint-and-join.mjs` (headless e2e).
-3. feat: lib.rs UI (week view, New event form, Save -> mint -> file, Join meeting).
 4. report.
 
 ## Open questions
