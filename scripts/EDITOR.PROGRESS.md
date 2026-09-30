@@ -19,6 +19,11 @@ UNCOMPILED (house rule): every RED is derived from reading the code.
 - E-NESTED: RED 92ec5e88a, fix c69a33770: `structural_edit_node` = the caret's block element.
 - Refactor: one `element_shell` clone for the block replacements.
 - Report `scripts/EDITOR_2026_09_30.md` written and committed.
+- Integration feedback (parent, on fix/input-bugs-2026-09-19): five EDITOR tests green;
+  `the_undo_history_of_the_old_content_is_gone` failed at its premise - it asked the PARAGRAPH's
+  undo stack, but a text edit's undo entry is keyed to the focused HOST (`record_operation_for_seat`
+  keys by `changeset.target`). Test fixed to ask the host's stack (commit after this checkpoint's
+  predecessor: see `git log`).
 
 ## IN PROGRESS
 
