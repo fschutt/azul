@@ -243,13 +243,15 @@ pub struct Accordion {
     pub sections: AccordionSectionVec,
     /// Optional callback fired when any section header is toggled.
     pub on_toggle: OptionAccordionOnToggle,
+    /// How the sections are drawn: one bordered panel (the default) or
+    /// borderless groups with a rule after each title. Before `theme` (a
+    /// one-byte option): a `repr(C)` enum is int-sized, so this order pads
+    /// nothing.
+    pub variant: AccordionVariant,
     /// The widget theme this widget is PINNED to (`with_theme`), or `None`
     /// to follow the app theme (`AppConfig::with_theme`,
     /// `CallbackInfo::set_theme`; flat unless the app chose another).
     pub theme: crate::widgets::themes::OptionUiTheme,
-    /// How the sections are drawn: one bordered panel (the default) or
-    /// borderless groups with a rule after each title.
-    pub variant: AccordionVariant,
 }
 
 /// What a theme decides about an accordion: the SKIN of each part (its paint
