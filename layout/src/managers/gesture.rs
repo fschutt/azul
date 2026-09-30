@@ -382,16 +382,19 @@ impl_option!(
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct DetectedPinch {
-    /// Scale since the gesture began (< 1.0 pinched in, > 1.0 spread out)
-    pub scale: f32,
+    // Fields by decreasing alignment (repr(C), no padding): the u64 first,
+    // the 4-byte ones, the bool last. `autofix` flagged the old order (the
+    // u64 after four f32s) as wasting 8 bytes per instance.
+    /// Duration of pinch (milliseconds)
+    pub duration_ms: u64,
     /// Center point of the pinch gesture
     pub center: LogicalPosition,
+    /// Scale since the gesture began (< 1.0 pinched in, > 1.0 spread out)
+    pub scale: f32,
     /// Initial distance between touch points
     pub initial_distance: f32,
     /// Current distance between touch points
     pub current_distance: f32,
-    /// Duration of pinch (milliseconds)
-    pub duration_ms: u64,
     /// This is the first update of its gesture (once per gesture): `scale` is
     /// measured from 1.0 here, and a new gesture starts no matter what the
     /// last one ended at.
