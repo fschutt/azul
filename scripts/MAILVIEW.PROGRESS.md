@@ -15,15 +15,19 @@ Never compiled (house rule): the parent compiles and runs the suites.
 
 - 8. E-MODE DROPPED from the engine by ruling (RED f0b198335 removed in e062843b8). Replacement per corrected ruling: AzMail paper that follows the mail's dark rules: RED `1473e3954`, feat `93e756fb5`
 
+- 9. R1's open table items (mixed cell, min-content cells, colspan in intrinsic sizes): RED `44d2b60be`, fix `d12ef9fa6`, closure fix `4962371a7`
+- Report written: `scripts/MAILVIEW_2026_09_30.md`
+
 ## IN PROGRESS
+(none - task complete, awaiting the parent's compile and test run)
 
 ## NEXT
-- 9. R1's open table items
+(none)
 
 ## Open questions
 (none)
 
 ## Found on the way (not fixed yet)
-- first text line of a mounted doc smeared/displaced when the E2E window is smaller than the app default (exploration 1.3 harness caveat) - reproduces in probes at 600x300
+- first text line of a mounted doc not painted in AzWidgets headless when the window is < ~700px tall (DL has it, damage full, not the pretile path); AzMail at 760x400 fine - likely AzWidgets per-NodeId state surviving `mount`
 - `list-style-position: inside` on <ol> not honoured (markers stay outside)
 - CPU raster: pretile LCD path clips per pixel to the text item clip, sweep/grayscale paths do not
