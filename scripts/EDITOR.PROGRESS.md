@@ -7,17 +7,17 @@ UNCOMPILED (house rule): every RED is derived from reading the code.
 
 - E-TYPESTYLE: RED e243b7267, fix e3e6b93a5. Shared WPT-format fixture
   `layout/tests/common/editing_harness.rs` (registered once in all.rs).
+- E-ARROW: RED 177ae7a16, fix 17037cacf.
 
 ## IN PROGRESS
 
-- E-ARROW: plain arrows cross blocks inside one host, Up/Down keep a goal column.
+- E-XBLOCK: a document selection's delete / replace keeps the surviving runs and styles.
 
 ## NEXT
 
-1. E-XBLOCK: a document selection's delete / replace keeps the surviving runs and styles.
-2. E-PASTE: `ClipboardContent.html`, platform read / write of the HTML flavour, rich default paste.
-3. E-SET: `reset_editor_content` - replace a live editor's content from code.
-4. E-NESTED: Enter / Backspace act on the caret's innermost block.
+1. E-PASTE: `ClipboardContent.html`, platform read / write of the HTML flavour, rich default paste.
+2. E-SET: `reset_editor_content` - replace a live editor's content from code.
+3. E-NESTED: Enter / Backspace act on the caret's innermost block.
 
 ## api.json so far
 
