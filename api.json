@@ -9266,20 +9266,20 @@
                         ],
                         "struct_fields": [
                             {
-                                "scale": {
-                                    "type": "f32"
+                                "duration_ms": {
+                                    "type": "u64"
                                 },
                                 "center": {
                                     "type": "LogicalPosition"
+                                },
+                                "scale": {
+                                    "type": "f32"
                                 },
                                 "initial_distance": {
                                     "type": "f32"
                                 },
                                 "current_distance": {
                                     "type": "f32"
-                                },
-                                "duration_ms": {
-                                    "type": "u64"
                                 },
                                 "began": {
                                     "type": "bool"
