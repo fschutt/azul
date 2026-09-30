@@ -267,6 +267,7 @@ mod tests {
     use chrono::FixedOffset;
 
     use super::*;
+    use crate::{settings, test_dir::TempDir};
 
     const ROOM: &str = "a2h859hyqkfaa11nhzxfh3gd7f";
     const SERVER: &str = "http://127.0.0.1:8787";
@@ -312,35 +313,10 @@ mod tests {
         assert_eq!(server_setting(None, None, ""), meet_rooms::LOCAL_WORKER);
     }
 
-    /// A folder of its own under the system's temporary folder, removed when dropped.
-    struct TempDir(PathBuf);
-
-    impl TempDir {
-        fn new() -> Self {
-            use std::sync::atomic::{AtomicU32, Ordering};
-            static NEXT: AtomicU32 = AtomicU32::new(0);
-            let path = std::env::temp_dir().join(format!(
-                "azcalendar-meeting-test-{}-{}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed)
-            ));
-            let _ = std::fs::remove_dir_all(&path);
-            std::fs::create_dir_all(&path).unwrap();
-            TempDir(path)
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-
     #[test]
     fn the_meeting_server_is_saved_and_read_back_and_a_broken_file_is_ignored() {
-        let dir = TempDir::new();
-        let path = settings_path(&dir.0);
-        assert_eq!(path, dir.0.join("settings.txt"));
+        let dir = TempDir::create();
+        let path = settings::path(&dir.0);
         assert_eq!(read_saved_server(&path), None, "no file yet");
         save_server(&path, "https://meet.example.com").unwrap();
         assert_eq!(

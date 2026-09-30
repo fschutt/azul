@@ -40,6 +40,9 @@
 
 pub mod event;
 pub mod meeting;
+pub mod settings;
+#[cfg(test)]
+mod test_dir;
 pub mod week;
 
 /// AzMeet's meeting links and room keys: AzMeet's own `rooms.rs`, compiled into AzCalendar too,

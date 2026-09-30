@@ -409,9 +409,8 @@ pub(crate) fn random_seed() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicU32, Ordering};
-
     use super::*;
+    use crate::test_dir::TempDir;
 
     const ID: &str = "0b0f6f2e-5b8e-4c43-9a57-3f1f0d6f4b1a";
     const ID2: &str = "9d4c1f3a-2b7e-4d10-8f6a-51c2e7b9a0d3";
@@ -461,29 +460,6 @@ mod tests {
             meeting,
         )
         .unwrap()
-    }
-
-    /// A folder of its own under the system's temporary folder, removed when dropped.
-    struct TempDir(PathBuf);
-
-    impl TempDir {
-        fn new() -> Self {
-            static NEXT: AtomicU32 = AtomicU32::new(0);
-            let path = std::env::temp_dir().join(format!(
-                "azcalendar-test-{}-{}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed)
-            ));
-            let _ = std::fs::remove_dir_all(&path);
-            std::fs::create_dir_all(&path).unwrap();
-            TempDir(path)
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
     }
 
     #[test]
@@ -797,7 +773,7 @@ mod tests {
 
     #[test]
     fn a_saved_event_is_one_file_that_reads_back() {
-        let dir = TempDir::new();
+        let dir = TempDir::create();
         let event = sync(Some(meeting()));
         let path = save(&dir.0, &event).unwrap();
         assert_eq!(path, event_path(&dir.0, ID));
@@ -818,7 +794,7 @@ mod tests {
 
     #[test]
     fn saving_again_replaces_the_file() {
-        let dir = TempDir::new();
+        let dir = TempDir::create();
         save(&dir.0, &sync(None)).unwrap();
         let later = sync(Some(meeting()));
         save(&dir.0, &later).unwrap();
@@ -827,7 +803,7 @@ mod tests {
 
     #[test]
     fn events_are_read_in_order_and_other_files_are_left_out() {
-        let dir = TempDir::new();
+        let dir = TempDir::create();
         let d = day(2026, 9, 30);
         let late = Event::create(ID, "Late", d, at(15, 0), at(16, 0), None).unwrap();
         let early = Event::create(ID2, "Early", d, at(8, 0), at(9, 0), None).unwrap();
@@ -852,7 +828,7 @@ mod tests {
 
     #[test]
     fn a_missing_data_folder_is_an_empty_calendar() {
-        let dir = TempDir::new();
+        let dir = TempDir::create();
         let (events, skipped) = load_all(&dir.0.join("nothing here"));
         assert!(events.is_empty());
         assert!(skipped.is_empty());

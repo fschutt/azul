@@ -5,8 +5,9 @@ Through AzCalendar's debug server (AZ_BACKEND=headless, AZ_DEBUG=<port>), with a
 folder (AZCAL_DATA):
 
   1. zoom: puts 08:00 at the top of the week (#week-scroll), pinches (scale 1.5, a trackpad's
-     magnify step) with the pointer over Wednesday, and checks the hour is 1.5 times taller and
-     the time under the pointer is still under it;
+     magnify step) with the pointer over Wednesday, and checks the hour is 1.5 times taller,
+     the time under the pointer is still under it, and the zoom is saved in settings.txt
+     (week_hour_px=) for the next start;
   2. scroll: a plain wheel over the week scrolls it and does not zoom;
   3. click: clicks Wednesday 10:36; the week shows the draft "(No title)" and its popover says
      "<Wednesday> ..., 10:30 - 11:30"; types "Standup" into the popover's title (#draft-title) and
@@ -234,6 +235,16 @@ def this_week(weekday):
     return today - datetime.timedelta(days=today.weekday()) + datetime.timedelta(days=weekday)
 
 
+def saved_hour_px(data):
+    """The week's zoom saved in <data>/settings.txt (the last week_hour_px= line), if any."""
+    try:
+        with open(os.path.join(data, "settings.txt"), encoding="utf-8") as f:
+            found = re.findall(r"^\s*week_hour_px=([0-9.]+)\s*$", f.read(), re.M)
+    except OSError:
+        return None
+    return float(found[-1]) if found else None
+
+
 def event_files(data):
     folder = os.path.join(data, "events")
     try:
@@ -328,9 +339,15 @@ def stage_zoom(dbg, week, data, ctx):
             f"after the pinch the pointer is over minute {minute_after:.1f}, "
             f"not {minute_before:.1f}"
         )
+
+    def saved():
+        px = saved_hour_px(data)
+        return px is not None and abs(px - week.hour_px) < 0.1 or None
+
+    dbg.until(f"settings.txt to keep the zoom (week_hour_px={week.hour_px:.1f})", saved)
     return (
         f"{before_px:.1f} -> {week.hour_px:.1f} px an hour, minute {minute_before:.1f} stayed "
-        f"under the pointer ({minute_after:.1f})"
+        f"under the pointer ({minute_after:.1f}); saved as week_hour_px={saved_hour_px(data)}"
     )
 
 
