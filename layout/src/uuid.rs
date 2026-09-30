@@ -136,6 +136,21 @@ impl Uuid {
         }
         String::from_utf8_lossy(&buf).into_owned().into()
     }
+
+    /// The version-4-shaped UUID that is a pure function of `seed`, in
+    /// canonical hyphenated lowercase form (36 characters).
+    #[must_use]
+    pub fn from_seed(seed: u64) -> AzString {
+        let _ = seed;
+        todo!("RED: a UUID that is a pure function of its seed")
+    }
+
+    /// [`Uuid::from_seed`] as a 22-character flickrBase58 string.
+    #[must_use]
+    pub fn short_from_seed(seed: u64) -> AzString {
+        let _ = seed;
+        todo!("RED: a short UUID that is a pure function of its seed")
+    }
 }
 
 #[cfg(test)]
@@ -195,5 +210,136 @@ mod uuid_tests {
     fn the_namespace_handle_is_inert() {
         assert_eq!(Uuid::new(), Uuid::default());
         assert_eq!(Uuid::new()._reserved, 0);
+    }
+
+    /// splitmix64's increment; `from_seed`'s high word is `mix64(seed + GAMMA)`.
+    const GAMMA: u64 = 0x9E37_79B9_7F4A_7C15;
+
+    /// The 128 bits a canonical hyphenated id spells.
+    fn bits_of(id: &AzString) -> u128 {
+        u128::from_str_radix(&id.as_str().replace('-', ""), 16).unwrap()
+    }
+
+    /// The 128 bits a flickrBase58 id spells.
+    fn bits_of_short(id: &AzString) -> u128 {
+        id.as_str().bytes().fold(0_u128, |n, c| {
+            let digit = BASE58.iter().position(|&b| b == c).unwrap();
+            n * 58 + digit as u128
+        })
+    }
+
+    /// The 122 payload bits of a v4 id: what is left once the version nibble
+    /// (bits 79..76) and the variant (bits 63..62) are taken out.
+    fn payload_of(id: &AzString) -> u128 {
+        let u = bits_of(id);
+        ((u >> 80) << 74) | (((u >> 64) & 0xFFF) << 62) | (u & ((1_u128 << 62) - 1))
+    }
+
+    /// A seeded id is a pure function of its seed: the same seed spells the
+    /// same id in this process, in the next one and on every platform (the
+    /// pinned values are what every build prints).
+    #[test]
+    fn the_same_seed_always_gives_the_same_id() {
+        for seed in [0_u64, 1, 42, u64::MAX, 1 << 63] {
+            assert_eq!(Uuid::from_seed(seed), Uuid::from_seed(seed));
+            assert_eq!(Uuid::short_from_seed(seed), Uuid::short_from_seed(seed));
+        }
+        assert_eq!(
+            Uuid::from_seed(0).as_str(),
+            "e220a839-7b1d-4cda-bdb9-e279aa86e597"
+        );
+        assert_eq!(
+            Uuid::from_seed(42).as_str(),
+            "bdd73226-2feb-46e9-94a3-bf8ccec99bc4"
+        );
+        assert_eq!(
+            Uuid::from_seed(u64::MAX).as_str(),
+            "e4d97177-1b65-42c2-83a6-7fe19f6fda0b"
+        );
+        assert_eq!(Uuid::short_from_seed(0).as_str(), "tVxCBMjsUGkwmgYozpBkrZ");
+        assert_eq!(Uuid::short_from_seed(42).as_str(), "prDZrYC9pfRKYNvRdZi5JY");
+    }
+
+    /// Distinct seeds give distinct ids - exactly, not probably: the id
+    /// carries all 64 bits of `mix64(seed + GAMMA)`, a bijection of the seed.
+    /// Seeds that differ only in the top bit are in the list on purpose.
+    #[test]
+    fn distinct_seeds_give_distinct_ids() {
+        let edges = [u64::MAX, 1 << 63, (1 << 63) + 1, (1 << 63) - 1];
+        let mut hex = HashSet::new();
+        let mut short = HashSet::new();
+        for seed in (0..10_000_u64).chain(edges) {
+            assert!(
+                hex.insert(Uuid::from_seed(seed).as_str().to_string()),
+                "{seed}"
+            );
+            assert!(
+                short.insert(Uuid::short_from_seed(seed).as_str().to_string()),
+                "{seed}"
+            );
+        }
+        for seed in [0, 1, 42, u64::MAX, 1 << 63, 0x0123_4567_89AB_CDEF] {
+            let payload = payload_of(&Uuid::from_seed(seed));
+            assert_eq!(
+                (payload >> 58) as u64,
+                mix64(seed.wrapping_add(GAMMA)),
+                "the high payload word is mix64 of seed {seed}",
+            );
+        }
+    }
+
+    /// A seeded id has the RFC 4122 shape: canonical hyphenated lowercase,
+    /// version 4, variant 0b10; the short spelling is the same 128 bits.
+    #[test]
+    fn a_seeded_id_carries_the_v4_version_and_variant_bits() {
+        for seed in [0_u64, 1, 42, 7_777, u64::MAX, 1 << 63] {
+            let id = Uuid::from_seed(seed);
+            let s = id.as_str();
+            assert_eq!(s.len(), 36, "{s}");
+            for (i, c) in s.char_indices() {
+                if matches!(i, 8 | 13 | 18 | 23) {
+                    assert_eq!(c, '-', "hyphen expected at {i}: {s}");
+                } else {
+                    assert!(
+                        c.is_ascii_hexdigit() && !c.is_ascii_uppercase(),
+                        "lowercase hex expected at {i}: {s}",
+                    );
+                }
+            }
+            assert_eq!(&s[14..15], "4", "version nibble must say v4: {s}");
+            assert!(
+                matches!(&s[19..20], "8" | "9" | "a" | "b"),
+                "variant must be 0b10: {s}",
+            );
+            let bits = bits_of(&id);
+            assert_eq!((bits >> 76) & 0xF, 4, "{s}");
+            assert_eq!((bits >> 62) & 0b11, 0b10, "{s}");
+
+            let short = Uuid::short_from_seed(seed);
+            assert_eq!(short.as_str().len(), 22, "{}", short.as_str());
+            assert_eq!(bits_of_short(&short), bits, "{s} vs {}", short.as_str());
+        }
+    }
+
+    /// A seeded id never touches the process-wide mint: after any number of
+    /// `from_seed` calls, `v4()` / `short()` return what they would have
+    /// returned anyway (they are pure functions of the tick).
+    #[test]
+    fn from_seed_never_advances_the_mint_tick() {
+        use core::sync::atomic::Ordering;
+        // Other tests mint on other threads, so look for one quiet window; a
+        // from_seed that advanced the tick would never find one.
+        let quiet = (0..1_000).any(|_| {
+            let before = TICK.load(Ordering::SeqCst);
+            for seed in 0..16 {
+                let _ = Uuid::from_seed(seed);
+                let _ = Uuid::short_from_seed(seed);
+            }
+            TICK.load(Ordering::SeqCst) == before
+        });
+        assert!(
+            quiet,
+            "from_seed / short_from_seed advanced the process tick"
+        );
     }
 }
