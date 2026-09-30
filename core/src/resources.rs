@@ -1575,6 +1575,235 @@ pub enum RawImageFormat {
     BGRA8,
     RGBF32,
     RGBAF32,
+    /// NV12 (4:2:0 YCbCr in two planes): a full-size 8-bit Y (luma) plane,
+    /// then a plane of interleaved Cb,Cr byte pairs, one pair per 2x2 block
+    /// (`ceil(w / 2) x ceil(h / 2)` pairs). Rec.601 matrix, video range
+    /// (Y 16..235, Cb/Cr 16..240). The format cameras and hardware video
+    /// decoders produce: the GPU converts it in its shader, the CPU
+    /// rasterizer converts only the rows it paints.
+    NV12Rec601Video,
+    /// NV12 with the Rec.601 matrix and the full 0..255 range.
+    NV12Rec601Full,
+    /// NV12 with the Rec.709 (HD) matrix and video range.
+    NV12Rec709Video,
+    /// NV12 with the Rec.709 (HD) matrix and the full 0..255 range.
+    NV12Rec709Full,
+}
+
+impl RawImageFormat {
+    /// Whether this is one of the two-plane NV12 formats.
+    #[must_use]
+    pub const fn is_nv12(self) -> bool {
+        matches!(
+            self,
+            Self::NV12Rec601Video | Self::NV12Rec601Full | Self::NV12Rec709Video | Self::NV12Rec709Full
+        )
+    }
+
+    /// For an NV12 format: its samples use the full 0..255 range (else the
+    /// video range, Y 16..235). `false` for every other format.
+    #[must_use]
+    pub const fn is_full_range(self) -> bool {
+        matches!(self, Self::NV12Rec601Full | Self::NV12Rec709Full)
+    }
+
+    /// For an NV12 format: it uses the Rec.709 matrix (else Rec.601).
+    /// `false` for every other format.
+    #[must_use]
+    pub const fn is_rec709(self) -> bool {
+        matches!(self, Self::NV12Rec709Video | Self::NV12Rec709Full)
+    }
+
+    /// The NV12 format with this matrix and range.
+    #[must_use]
+    pub const fn nv12(rec709: bool, full_range: bool) -> Self {
+        match (rec709, full_range) {
+            (false, false) => Self::NV12Rec601Video,
+            (false, true) => Self::NV12Rec601Full,
+            (true, false) => Self::NV12Rec709Video,
+            (true, true) => Self::NV12Rec709Full,
+        }
+    }
+}
+
+/// Byte layout of a tightly packed NV12 image: the `width x height` Y plane,
+/// immediately followed by `chroma_width x chroma_height` interleaved Cb,Cr
+/// pairs (two bytes each). The chroma size rounds UP, so an odd last column
+/// or row still has a chroma sample.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct Nv12Layout {
+    /// Luma width in pixels.
+    pub width: usize,
+    /// Luma height in pixels.
+    pub height: usize,
+    /// Cb,Cr pairs per chroma row: `ceil(width / 2)`.
+    pub chroma_width: usize,
+    /// Chroma rows: `ceil(height / 2)`.
+    pub chroma_height: usize,
+}
+
+impl Nv12Layout {
+    /// The layout of a `width x height` NV12 image.
+    #[must_use]
+    pub const fn new(width: usize, height: usize) -> Self {
+        Self {
+            width,
+            height,
+            // `w / 2 + w % 2`, not `(w + 1) / 2`: no overflow at usize::MAX.
+            chroma_width: width / 2 + width % 2,
+            chroma_height: height / 2 + height % 2,
+        }
+    }
+
+    /// Bytes of the Y plane (`width * height`, saturating).
+    #[must_use]
+    pub const fn y_len(&self) -> usize {
+        self.width.saturating_mul(self.height)
+    }
+
+    /// Bytes of the Cb,Cr plane (two per pair, saturating). It starts at
+    /// byte [`Self::y_len`].
+    #[must_use]
+    pub const fn uv_len(&self) -> usize {
+        self.chroma_width
+            .saturating_mul(self.chroma_height)
+            .saturating_mul(2)
+    }
+
+    /// Total bytes of both planes, `None` if that overflows `usize`.
+    #[must_use]
+    pub fn checked_total_len(&self) -> Option<usize> {
+        let y = self.width.checked_mul(self.height)?;
+        let uv = self
+            .chroma_width
+            .checked_mul(self.chroma_height)?
+            .checked_mul(2)?;
+        y.checked_add(uv)
+    }
+}
+
+/// Fixed-point (16.16) YCbCr -> RGB coefficients of one NV12 format: the
+/// luma scale and offset of its range and the four chroma weights of its
+/// matrix. One table for every consumer (the CPU rasterizer, the frame
+/// scaler, JPEG and PDF export), so a frame converts the same everywhere.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct YuvCoefficients {
+    y_mul: i32,
+    y_off: i32,
+    r_cr: i32,
+    g_cb: i32,
+    g_cr: i32,
+    b_cb: i32,
+}
+
+impl YuvCoefficients {
+    /// The coefficients of `format`, `None` for a format that is not NV12.
+    #[must_use]
+    pub const fn of(format: RawImageFormat) -> Option<Self> {
+        // (Kr, Kb) = (0.299, 0.114) for Rec.601, (0.2126, 0.0722) for
+        // Rec.709; video range scales luma by 255/219 and chroma by
+        // 255/224. Values are round(coefficient * 65536).
+        let (y_mul, y_off, r_cr, g_cb, g_cr, b_cb) = match format {
+            RawImageFormat::NV12Rec601Video => (76309, 16, 104_597, 25675, 53279, 132_201),
+            RawImageFormat::NV12Rec601Full => (65536, 0, 91881, 22553, 46802, 116_130),
+            RawImageFormat::NV12Rec709Video => (76309, 16, 117_489, 13975, 34925, 138_438),
+            RawImageFormat::NV12Rec709Full => (65536, 0, 103_206, 12276, 30679, 121_609),
+            _ => return None,
+        };
+        Some(Self {
+            y_mul,
+            y_off,
+            r_cr,
+            g_cb,
+            g_cr,
+            b_cb,
+        })
+    }
+
+    /// Straight RGB of one Y, Cb, Cr sample, clamped to 0..255.
+    #[inline]
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to 0..=255
+    pub const fn to_rgb(&self, y: u8, cb: u8, cr: u8) -> [u8; 3] {
+        let yy = (y as i32 - self.y_off) * self.y_mul + 32768;
+        let u = cb as i32 - 128;
+        let v = cr as i32 - 128;
+        let r = (yy + self.r_cr * v) >> 16;
+        let g = (yy - self.g_cb * u - self.g_cr * v) >> 16;
+        let b = (yy + self.b_cb * u) >> 16;
+        [clamp_u8(r), clamp_u8(g), clamp_u8(b)]
+    }
+
+    /// Row `row` of an NV12 image as straight RGBA8 (alpha 255) into `out`
+    /// (`layout.width * 4` bytes). `bytes` must hold both planes
+    /// (`layout.checked_total_len()`); a short buffer or row leaves `out`
+    /// untouched past what could be read.
+    pub fn row_to_rgba(&self, bytes: &[u8], layout: &Nv12Layout, row: usize, out: &mut [u8]) {
+        let w = layout.width;
+        let y_start = row.saturating_mul(w);
+        let uv_start = layout
+            .y_len()
+            .saturating_add((row / 2).saturating_mul(layout.chroma_width * 2));
+        let (Some(y_row), Some(uv_row)) = (
+            bytes.get(y_start..y_start.saturating_add(w)),
+            bytes.get(uv_start..uv_start.saturating_add(layout.chroma_width * 2)),
+        ) else {
+            return;
+        };
+        for (x, (px, &y)) in out.chunks_exact_mut(4).zip(y_row.iter()).enumerate() {
+            let c = (x / 2) * 2;
+            let rgb = self.to_rgb(y, uv_row[c], uv_row[c + 1]);
+            px[0] = rgb[0];
+            px[1] = rgb[1];
+            px[2] = rgb[2];
+            px[3] = 255;
+        }
+    }
+}
+
+#[inline]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to 0..=255
+const fn clamp_u8(v: i32) -> u8 {
+    if v < 0 {
+        0
+    } else if v > 255 {
+        255
+    } else {
+        v as u8
+    }
+}
+
+/// Straight RGB of one Y, Cb, Cr sample of NV12 `format` (black for a format
+/// that is not NV12).
+#[must_use]
+pub fn yuv_to_rgb(format: RawImageFormat, y: u8, cb: u8, cr: u8) -> [u8; 3] {
+    YuvCoefficients::of(format).map_or([0, 0, 0], |c| c.to_rgb(y, cb, cr))
+}
+
+/// A whole tightly packed NV12 image as straight RGBA8 (alpha 255). `None`
+/// when `format` is not NV12 or `bytes` is not exactly both planes. The
+/// fallback for consumers that need RGB pixels (JPEG / PDF export); the
+/// display path never calls it (it converts only the rows it paints).
+#[must_use]
+pub fn nv12_to_rgba(
+    bytes: &[u8],
+    width: usize,
+    height: usize,
+    format: RawImageFormat,
+) -> Option<Vec<u8>> {
+    let coeffs = YuvCoefficients::of(format)?;
+    let layout = Nv12Layout::new(width, height);
+    if bytes.len() != layout.checked_total_len()? {
+        return None;
+    }
+    let mut out = vec![0u8; width.checked_mul(height)?.checked_mul(4)?];
+    if width == 0 {
+        return Some(out);
+    }
+    for (row, dst) in out.chunks_exact_mut(width * 4).enumerate() {
+        coeffs.row_to_rgba(bytes, &layout, row, dst);
+    }
+    Some(out)
 }
 
 // NOTE: starts at 1 (0 = DUMMY)
@@ -2825,6 +3054,15 @@ impl RawImage {
                     Self::load_rgbaf32(pixels, expected_len, premultiplied_alpha)?;
                 (bytes, RawImageFormat::BGRA8, is_opaque)
             }
+            // Kept as it is: both planes, no conversion, no copy. YCbCr has
+            // no alpha, so it is always opaque.
+            RawImageFormat::NV12Rec601Video
+            | RawImageFormat::NV12Rec601Full
+            | RawImageFormat::NV12Rec709Video
+            | RawImageFormat::NV12Rec709Full => {
+                let bytes = Self::load_nv12(pixels, width, height)?;
+                (bytes, data_format, true)
+            }
         };
 
         let image_data = ImageData::Raw(SharedRawImageData::new(bytes));
@@ -2836,11 +3074,23 @@ impl RawImage {
             stride: None.into(),
             flags: ImageDescriptorFlags {
                 is_opaque,
-                allow_mipmaps: true,
+                // A video frame is shown at (about) its own size: mipmaps
+                // would be generated per frame for nothing.
+                allow_mipmaps: !data_format.is_nv12(),
             },
         };
 
         Some((image_data, image_descriptor))
+    }
+
+    /// Keep NV12 data as-is: both planes, tightly packed
+    /// ([`Nv12Layout`]). The length must be exactly the two planes.
+    fn load_nv12(pixels: RawImageData, width: usize, height: usize) -> Option<U8Vec> {
+        let pixels = pixels.get_u8_vec()?;
+        if pixels.len() != Nv12Layout::new(width, height).checked_total_len()? {
+            return None;
+        }
+        Some(pixels)
     }
 
     /// Keep R8 data as-is — `WebRender` supports R8 natively. This is important for

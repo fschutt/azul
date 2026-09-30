@@ -1067,6 +1067,14 @@ fn translate_image_format(
         RawImageFormat::RGBA16 => ImageFormat::RGBA8, // Convert to 8-bit
         RawImageFormat::BGR8 => ImageFormat::BGRA8, // Add alpha channel
         RawImageFormat::RGBF32 => ImageFormat::RGBAF32, // Add alpha channel
+
+        // NV12 is TWO WebRender images (the R8 Y plane and the RG8 Cb,Cr
+        // plane, see `nv12_image_updates`); a single image of it is its Y
+        // plane.
+        RawImageFormat::NV12Rec601Video
+        | RawImageFormat::NV12Rec601Full
+        | RawImageFormat::NV12Rec709Video
+        | RawImageFormat::NV12Rec709Full => ImageFormat::R8,
     }
 }
 
