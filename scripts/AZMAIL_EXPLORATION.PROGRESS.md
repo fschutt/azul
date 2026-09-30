@@ -1,25 +1,29 @@
 # AZMAIL_EXPLORATION progress
 
 Branch `wt/x-mail-explore`, base `34a8fe46f`. Exploration only: report + RED tests that prove bugs.
-Scratch (probes, samples, screenshots): `$SCRATCH/xmail/` (session scratchpad, not committed).
+Scratch (probes, samples, screenshots): session scratchpad `xmail/` (not committed; the report
+lists what each probe showed).
 
 ## DONE
 - `100923856` progress checkpoint.
-- `a40976f60` RED `layout/tests/a_full_width_rule_in_a_spanning_table_cell_renders.rs`: `<td colspan=2><hr>` +
-  a two-cell row panics the CPU renderer (reproduced headless on the release dylib via the E2E `mount` op).
-- Q1 measured: 8 mail samples x 3 passes (raw / html5-normalized / legacy-rewritten) through
-  AzWidgets headless `AZ_E2E` + `mount`; screenshots in scratch.
-- Q5 editing stack surveyed (Explore agent; key lines to spot-check before the report).
+- `a40976f60` RED `layout/tests/a_full_width_rule_in_a_spanning_table_cell_renders.rs`.
+- `42d4a0885` progress.
+- `c818942d2` RED `layout/src/telemetry/crash_mail.rs` `smtp_sink_tests` (4 tests: plaintext after
+  STARTTLS, no MIME-Version, no dot-stuffing, bare LF).
+- `a001cde2a` RED `layout/tests/a_linear_gradient_puts_its_colours_where_css_says.rs` (3 tests).
+- Q1 measured (8 samples x 3 passes, headless AZ_E2E mount on the release dylib), Q2 crate facts
+  (crates.io API), Q3 R2 / Email Service facts (Cloudflare docs), Q4 wire proof (Python STARTTLS
+  replay + port reachability), Q5 editing stack survey.
 
 ## IN PROGRESS
-- Q4 crash mail RED tests (local SMTP sink in the test; STARTTLS without the `tls` feature,
-  no MIME-Version, no dot-stuffing).
+- Writing `scripts/ideas/AZMAIL_EXPLORATION_2026_09_30.md`.
 
 ## NEXT
-- Q2 crates (versions, licenses, maintenance, supply-chain rules).
-- Q3 mailbox worker + S3 auth design.
-- Report `scripts/ideas/AZMAIL_EXPLORATION_2026_09_30.md`, final report `scripts/AZMAIL_EXPLORATION_2026_09_29.md`.
+- Final report `scripts/AZMAIL_EXPLORATION_2026_09_29.md` (house-rule name).
 
 ## Open questions
 - Headless screenshots paint text in the SYSTEM mode colour on a white canvas (dark Mac -> light
-  grey text on white): screenshots are not reproducible across machines. Note in the report.
+  grey text on white): not reproducible across machines.
+- Headless runs whose `setup` shrinks the window below the app's size draw the first text line
+  displaced to the right and smeared (seen at 360/420/500 px wide, not at 640/760). Harness or
+  engine: not root-caused.
