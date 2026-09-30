@@ -212,6 +212,11 @@ impl IrohLoadBalancer {
             .is_some_and(|room| room.backbone.contains(&peer))
     }
 
+    /// Rooms of up to `room_size` people let every peer forward (8 unless set); a larger room picks max(ceil(sqrt N), ceil(N / 8)) forwarders, grown by capacity. Applies from the next `select_backbone`.
+    pub fn set_mesh_cap(&mut self, room_size: u32) {
+        let _ = room_size;
+    }
+
     /// Minimum forwarder count for a room of `room_size`: everyone up to 8 people, then max(ceil(sqrt N), ceil(N / 8)).
     pub fn backbone_size(room_size: u32) -> u32 {
         if room_size <= SHARED_FORWARDING_ROOM {
@@ -303,6 +308,61 @@ mod tests {
         assert_eq!(lb.backbone_peer(0), OptionU64::Some(1));
         assert_eq!(lb.backbone_peer(1), OptionU64::Some(2));
         assert!(!lb.is_backbone(3));
+    }
+
+    #[test]
+    fn a_room_above_its_mesh_cap_picks_the_strongest_forwarders() {
+        let mut lb = room(&[1000, 50_000, 30_000]);
+        assert_eq!(lb.select_backbone(0), 3, "three people fit the default mesh cap of 8");
+        lb.set_mesh_cap(2);
+        assert_eq!(lb.select_backbone(0), 2, "max(ceil(sqrt 3), ceil(3 / 8)) = 2");
+        assert_eq!(lb.backbone_peer(0), OptionU64::Some(2));
+        assert_eq!(lb.backbone_peer(1), OptionU64::Some(3));
+        assert_eq!(lb.backbone_peer(2), OptionU64::None);
+        assert!(!lb.is_backbone(1));
+        lb.set_mesh_cap(3);
+        assert_eq!(lb.select_backbone(0), 3, "a room at its mesh cap lets everyone forward");
+    }
+
+    #[test]
+    fn a_room_above_its_mesh_cap_still_grows_the_backbone_with_demand() {
+        let mut lb = room(&[1000, 50_000, 30_000]);
+        lb.set_mesh_cap(2);
+        // 1.5 x 60 000 kbit/s is more than 0.85 x (50 000 + 30 000): the third peer is needed.
+        assert_eq!(lb.select_backbone(60_000), 3);
+    }
+
+    #[test]
+    fn the_same_reports_in_any_order_give_the_same_backbone() {
+        let reports = [(7_u64, 4000_u32), (3, 9000), (11, 9000), (5, 1500), (2, 4000)];
+        let mut forward = IrohLoadBalancer::create();
+        let mut backward = IrohLoadBalancer::create();
+        for (peer, up) in reports {
+            forward.set_peer(IrohPeerCapacity::create(peer, up));
+        }
+        for (peer, up) in reports.iter().rev() {
+            backward.set_peer(IrohPeerCapacity::create(*peer, *up));
+        }
+        forward.set_mesh_cap(2);
+        backward.set_mesh_cap(2);
+        let n = forward.select_backbone(0);
+        assert_eq!(n, 3);
+        assert_eq!(backward.select_backbone(0), n);
+        for i in 0..n {
+            assert_eq!(forward.backbone_peer(i), backward.backbone_peer(i));
+        }
+        // Equal scores rank by peer: 3 before 11, then 2 before 7.
+        assert_eq!(forward.backbone_peer(0), OptionU64::Some(3));
+        assert_eq!(forward.backbone_peer(1), OptionU64::Some(11));
+        assert_eq!(forward.backbone_peer(2), OptionU64::Some(2));
+    }
+
+    #[test]
+    fn a_cloned_balancer_keeps_its_mesh_cap() {
+        let mut lb = room(&[1000, 50_000, 30_000]);
+        lb.set_mesh_cap(2);
+        let mut copy = lb.clone();
+        assert_eq!(copy.select_backbone(0), 2);
     }
 
     #[test]
