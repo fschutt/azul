@@ -873,8 +873,10 @@ fn render_rows(node: &TreeViewNode, rows: &RowContext, index: &mut usize, out: &
 
     out.push(row);
 
-    // Render children if expanded
-    if has_children && node.is_expanded {
+    // Render the children if expanded - the LOADED ones: an open node whose
+    // children the app has not listed yet draws no container at all (an
+    // empty one would sit under the row while the listing runs).
+    if children_loaded && node.is_expanded {
         let mut child_doms = Vec::new();
         for child in node.children.as_slice() {
             render_rows(child, rows, index, &mut child_doms);
@@ -885,7 +887,7 @@ fn render_rows(node: &TreeViewNode, rows: &RowContext, index: &mut usize, out: &
             .with_children(DomVec::from_vec(child_doms));
 
         out.push(children_container);
-    } else if has_children {
+    } else if children_loaded {
         // Still count collapsed children for correct depth-first indexing
         count_descendants(node.children.as_slice(), index);
     }
@@ -2831,7 +2833,8 @@ mod autotest_generated {
     // click target, a double-click that opens (AzDrive's drives and folders)
     // ------------------------------------------------------------------
 
-    /// This PC > Home (never listed) > ..., and Cloud (listed, one folder).
+    /// This PC > Home (never listed) > ..., and Cloud (listed and OPEN, one
+    /// folder - so its leaf "mail" is a rendered row).
     /// Depth-first: "This PC" 0, "Home" 1, "Cloud" 2, "mail" 3.
     fn drives_tree() -> TreeViewNode {
         leaf("This PC")
@@ -2845,6 +2848,7 @@ mod autotest_generated {
             .with_child(
                 leaf("Cloud")
                     .with_icon(AzString::from("cloud"))
+                    .with_expanded(true)
                     .with_child(leaf("mail")),
             )
     }
