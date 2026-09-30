@@ -1475,6 +1475,9 @@ fn new_from_str_inner<'a>(
         paths: Vec<Vec<CssPathSelector>>,
         declarations: BTreeMap<&'a str, (&'a str, ErrorLocationRange)>,
         depth: usize,
+        /// The rule's selector list contained an invalid selector (or an ancestor
+        /// rule's did): its declarations and every nested rule are dropped.
+        invalid: bool,
     }
 
     // Helper: get parent paths from nesting stack (if any)
@@ -1548,6 +1551,11 @@ fn new_from_str_inner<'a>(
     let mut current_paths: Vec<Vec<CssPathSelector>> = Vec::new();
     // Current declarations at current level
     let mut current_declarations: BTreeMap<&str, (&str, ErrorLocationRange)> = BTreeMap::new();
+    // Set when a selector in the pending selector list cannot be parsed (unknown type,
+    // pseudo-class/-element or malformed attribute selector). Per Selectors 4 §3.7 an
+    // invalid selector invalidates the whole rule: dropping only the unparseable part
+    // would widen the selector (`.word::selection` would match every `.word`).
+    let mut selector_invalid = false;
 
     // Safety: limit maximum iterations to prevent infinite loops
     // A reasonable limit is 10x the input length (each char could produce at most a few tokens)
@@ -1778,6 +1786,21 @@ fn new_from_str_inner<'a>(
 
                 block_nesting += 1;
 
+                let parent_invalid = nesting_stack.last().is_some_and(|l| l.invalid);
+                if selector_invalid || parent_invalid {
+                    last_path.clear();
+                    current_paths.clear();
+                    selector_invalid = false;
+                    nesting_stack.push(NestingLevel {
+                        paths: Vec::new(),
+                        declarations: std::mem::take(&mut current_declarations),
+                        depth: block_nesting,
+                        invalid: true,
+                    });
+                    last_error_location = get_error_location(tokenizer);
+                    continue;
+                }
+
                 // If we have a selector, push current state onto nesting stack
                 if !current_paths.is_empty() || !last_path.is_empty() {
                     // Finalize current_paths with last_path
@@ -1822,6 +1845,7 @@ fn new_from_str_inner<'a>(
                         paths: combined_paths,
                         declarations: std::mem::take(&mut current_declarations),
                         depth: block_nesting,
+                        invalid: false,
                     });
                     current_paths.clear();
                 }
@@ -1860,7 +1884,8 @@ fn new_from_str_inner<'a>(
                 // Pop from nesting stack if we have one
                 if let Some(level) = nesting_stack.pop() {
                     // Emit CSS blocks for all paths at this level
-                    if !level.paths.is_empty() && !current_declarations.is_empty() {
+                    if !level.invalid && !level.paths.is_empty() && !current_declarations.is_empty()
+                    {
                         css_blocks.extend(level.paths.iter().map(|path| UnparsedCssRuleBlock {
                             path: CssPath {
                                 selectors: path.clone().into(),
@@ -1875,6 +1900,7 @@ fn new_from_str_inner<'a>(
 
                 last_path.clear();
                 current_paths.clear();
+                selector_invalid = false;
             }
             Token::UniversalSelector => {
                 last_path.push(CssPathSelector::Global);
@@ -1882,6 +1908,7 @@ fn new_from_str_inner<'a>(
             Token::TypeSelector(div_type) => match NodeTypeTag::from_str(div_type) {
                 Ok(nt) => last_path.push(CssPathSelector::Type(nt)),
                 Err(e) => {
+                    selector_invalid = true;
                     warn_and_continue!(CssParseWarnMsgInner::SkippedRule {
                         selector: Some(div_type),
                         error: e.into(),
@@ -1911,6 +1938,7 @@ fn new_from_str_inner<'a>(
                 match pseudo_selector_from_str(selector, value) {
                     Ok(ps) => last_path.push(CssPathSelector::PseudoSelector(ps)),
                     Err(e) => {
+                        selector_invalid = true;
                         warn_and_continue!(CssParseWarnMsgInner::SkippedRule {
                             selector: Some(selector),
                             error: e.into(),
@@ -1922,6 +1950,7 @@ fn new_from_str_inner<'a>(
                 if let Some(sel) = parse_attribute_selector(attr) {
                     last_path.push(CssPathSelector::Attribute(sel));
                 } else {
+                    selector_invalid = true;
                     warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
                         message: "Malformed attribute selector, rule skipped",
                     })
@@ -4590,5 +4619,86 @@ mod env_tests {
         // Not recognised (the value is not the env() call itself) - falls
         // through to the ordinary parser, exactly as before this landed.
         assert!(check_if_value_is_css_env("calc(20px + env(safe-area-inset-bottom))").is_none());
+    }
+}
+
+/// An invalid selector invalidates its whole rule (Selectors 4 §3.7). The parser used to
+/// drop only the unparseable part and keep the rest of the selector, which widened it:
+/// `.word::selection { color: #000 }` became `.word { color: #000 }` and turned text meant
+/// to be `color: transparent` black.
+#[cfg(test)]
+mod invalid_selector_tests {
+    use super::*;
+    use crate::css::CssRuleBlock;
+
+    fn parse(css: &str) -> (Vec<CssRuleBlock>, usize) {
+        let mut tokenizer = Tokenizer::new(css);
+        let mut keyframes = Vec::new();
+        let (rules, warnings) = new_from_str_inner(css, &mut tokenizer, &mut keyframes);
+        (rules, warnings.len())
+    }
+
+    fn paths(rules: &[CssRuleBlock]) -> Vec<String> {
+        rules.iter().map(|r| r.path.to_string()).collect()
+    }
+
+    #[test]
+    fn unknown_pseudo_element_drops_the_rule() {
+        let (rules, warnings) =
+            parse(".word { color: transparent; } .word::selection { color: #000; }");
+        assert_eq!(paths(&rules), [".word"]);
+        assert_eq!(rules[0].declarations.len(), 1);
+        assert_eq!(warnings, 1);
+    }
+
+    #[test]
+    fn unknown_pseudo_class_drops_the_rule() {
+        let (rules, _) = parse("p:definitelynotapseudo { width: 1px; } div { width: 2px; }");
+        assert_eq!(paths(&rules), ["div"]);
+    }
+
+    #[test]
+    fn selector_that_is_only_an_unknown_pseudo_drops_the_rule() {
+        // No parseable part at all: the block must still be consumed as a (dropped)
+        // rule, not have its declarations leak into the next one.
+        let (rules, _) = parse("::selection { color: #000; } div { width: 2px; }");
+        assert_eq!(paths(&rules), ["div"]);
+        assert_eq!(rules[0].declarations.len(), 1);
+    }
+
+    #[test]
+    fn one_invalid_selector_invalidates_the_whole_list() {
+        let (rules, _) = parse(".a, .b::definitelynotapseudo { width: 1px; } .c { width: 2px; }");
+        assert_eq!(paths(&rules), [".c"]);
+    }
+
+    #[test]
+    fn unknown_type_selector_drops_the_rule() {
+        let (rules, _) = parse("div definitelynotatag { width: 1px; } span { width: 2px; }");
+        assert_eq!(paths(&rules), ["span"]);
+    }
+
+    #[test]
+    fn malformed_attribute_selector_drops_the_rule() {
+        let (rules, _) = parse("div[ { width: 1px; } span { width: 2px; }");
+        assert!(
+            !paths(&rules).contains(&"div".to_string()),
+            "{:?}",
+            paths(&rules)
+        );
+    }
+
+    #[test]
+    fn rules_nested_in_an_invalid_rule_are_dropped() {
+        let (rules, _) =
+            parse(".x::definitelynotapseudo { .y { width: 1px; } width: 3px; } .z { width: 2px; }");
+        assert_eq!(paths(&rules), [".z"]);
+    }
+
+    #[test]
+    fn valid_rules_around_an_invalid_one_are_unaffected() {
+        let (rules, warnings) = parse(".a { width: 1px; } .b:hover { width: 2px; } .c::nope { width: 3px; } .d .e { width: 4px; }");
+        assert_eq!(paths(&rules), [".a", ".b:hover", ".d .e"]);
+        assert_eq!(warnings, 1);
     }
 }
