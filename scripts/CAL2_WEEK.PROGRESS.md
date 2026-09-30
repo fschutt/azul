@@ -10,28 +10,27 @@ E2E may be run against the parent's build (coordinator, 2026-09-30).
 - `24a0218e8` report `scripts/CAL2_WEEK_2026_09_30.md` (round 1).
 
 ## DONE (round 2: the parent ran the E2E, 7/7 failed)
-- `de3b31ef6` RED / `5feb67d2b` fix(engine):
-  1. `is_layout_equivalent` ignored `Dom::with_css` sheets (they live in the cascade's
-     `retained_author_css`, not `NodeData::style`): a with_css-only rebuild (the zoom) kept the
-     old layout. The pinch DID reach the app (its scroll_to was in the log).
-  2. `dispatch_accessibility_events` skipped the Default action's `Click` filter: a screen
-     reader's press (and the E2E `accessibility_action default` on Save / Cancel) ran nothing.
-- `58680e715` E2E: `wait_frame` while waiting, wheel from the middle with the right sign, settle
-  after the wheel, pointer before `pinch`, --only / --skip. Against the parent's current build:
-  wheel + outside PASS; drag reaches the right draft; saves need the engine fix above.
+- `de3b31ef6` RED / `5feb67d2b` fix(engine): `is_layout_equivalent` compares `with_css` sheets
+  (`retained_author_css`); `dispatch_accessibility_events` runs the Default action's Click.
+- `58680e715` E2E timing / direction / pinch pointer fixes. Against the parent's current build:
+  wheel + outside PASS; the rest need `5feb67d2b`.
 - `260701fb4` RED / `aa9eabfdc` fix(gesture): DetectedPinch is CUMULATIVE since the gesture began,
-  new last field `began` (api.json!); macOS accumulates magnify deltas over the NSEvent phase
-  (`trackpad_magnify`), touch `began` edge (`note_pinch_dispatched`), iOS / Android / Wayland /
-  X11 / Windows fixed; map + AzCalendar zoom by successive cumulative ratios.
+  new last field `began` (api.json!); every shell; map + AzCalendar zoom by successive ratios.
+- `f51225208` RED / `638cf212e` feat: offline-first AzMeet links (made in the app, `pending` in the
+  file, registered by POST /rooms {room, ...} when the server answers, retried every
+  AZCAL_SYNC_SECONDS); Settings > Meeting server / Sync now in the menu bar; no "No meeting server"
+  line; clipped titles. Worker patches `scripts/cal2/meet-0001` (RED) / `meet-0002` (GREEN) for
+  azul-apps (node --test 69/69).
+- `1fdb476d1` RED / `f3beb39f2` feat: settings.rs owns settings.txt (merging key=value lines);
+  the week's zoom is saved there and read at start; shared test_dir::TempDir.
+- Report round 2 in `scripts/CAL2_WEEK_2026_09_30.md` (commit list for the parent at the top).
 
 ## IN PROGRESS
-- User requests (mid-turn): clip event titles; drop "No meeting server is set"; default meeting
-  server + Settings menu; offline-first links (client-generated room ids, synced when the server
-  is reachable). The Worker lives in `../azul-apps` (a patch file, since this agent cannot commit
-  there).
+- none
 
 ## NEXT
-- Report round 2 in `scripts/CAL2_WEEK_2026_09_30.md`.
+- Parent: regenerate bindings (DetectedPinch.began), apply the meet patches to azul-apps, build,
+  run week_interactions.py, offline_links.py, mint-and-join.mjs.
 
 ## Open questions
 - none
