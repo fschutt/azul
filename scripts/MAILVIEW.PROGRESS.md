@@ -9,13 +9,14 @@ Never compiled (house rule): the parent compiles and runs the suites.
 - 6. E-CSS-1 CDO/CDC: RED `e667598a2`, fix `dab0ffad1`
 - 3. E-UA: RED `d879dc38e`, fix `3e400235d` (also: UA beats inherited on elements + hand-down)
 - 4. E-BR: RED `3479422c8`, fix `0074a100d` (IFC height = line boxes)
+- E-RUN (found): run extent misses its last glyph (underline/background/hit area): RED `6f9e20da0`, fix `370ee7177`
+- 2. E10: RED `eb8c3036f`, fix `13add42a7` (inline fragments from DL text-run cursor areas)
 - 5. E-OL: RED `8db89d933`, fix `ce06c2aca` (marker outside its text clip; CPU LCD tile path clips, sweep does not)
 
 ## IN PROGRESS
-- 2. E10 inline hit areas
+- 8. E-MODE: RED `f0b198335`; fix = new CSS property color-scheme (StyleColorScheme, mirror TextOrientation registrations) + per-node mode in the cascade (node_modes on CssPropertyCache)
 
 ## NEXT
-- 8. E-MODE per-subtree `color-scheme`
 - 9. R1's open table items
 
 ## Open questions
