@@ -24,6 +24,9 @@ Branch `wt/fb3-scroll-damage` from `5bab5dfa2`. Never compiles; runs prebuilt ap
 - 2af1e228d FIX item 3(b), second half (parent's suite: the tile path's pass-2a sweep got the stack
   clip alone; now the combined `run_clip`). VirtualView scroll and anim-map tests passed on the
   parent's run.
+- 2a67fabb8 + 3e52b54aa item 3(a) headless test premise (parent's suite): the seeding pass
+  builds its list before the movers' keys exist; the premise rebuilds the list first and asserts
+  `> 0` reference frames (text children are seeded too and open none).
 - Item 2 (viewport leftovers): all five are S1's, integrated in the base (their tests are registered
   in all.rs, none ignored). Verified by reading; nothing to change. See the report.
 
