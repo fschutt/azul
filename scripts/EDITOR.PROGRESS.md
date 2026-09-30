@@ -13,17 +13,18 @@ UNCOMPILED (house rule): every RED is derived from reading the code.
   dll clipboard reads / writes the HTML flavour; `LayoutWindow::paste_clipboard_content`).
 - (2026-09-30 18:15 the Mac panicked mid E-PASTE; the worktree survived, resumed 21:00.)
 
-- E-SET: RED 5111e1865, fix (next commit): `LayoutWindow::reset_editor_content`,
+- E-SET: RED 5111e1865, fix 30cd5f1ab: `LayoutWindow::reset_editor_content`,
   `CallbackInfo::reset_editor_content`, `place_pending_caret`; the caret text snapshot is keyed by
   block element too (a latent shift after any session move between blocks of one host).
+- E-NESTED: RED 92ec5e88a, fix (next commit): `structural_edit_node` = the caret's block element.
 
 ## IN PROGRESS
 
-- E-NESTED: Enter / Backspace act on the caret's innermost block.
+- Report `scripts/EDITOR_2026_09_30.md`.
 
 ## NEXT
 
-1. Report `scripts/EDITOR_2026_09_30.md`.
+- (nothing after the report; item 7's deferred selection items were not needed to unblock 1-6)
 
 ## api.json so far
 
