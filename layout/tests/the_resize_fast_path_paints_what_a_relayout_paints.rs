@@ -14,8 +14,9 @@
 //! (debug-server probes, scripts/fb1/azmeet_resize_probe.py). Two windows here
 //! live the SAME history, one resizing like a desktop shell and one like the
 //! restyle relayout; after every step their display lists must be the same
-//! items (geometry rounded to 0.01 px, which only absorbs the float noise of
-//! translating a spliced item by its node's delta).
+//! items, attributed to the same DOM nodes. Numbers may differ by 0.02 px (the
+//! float noise of translating a spliced item by its node's delta) and GPU keys
+//! by their allocation id (the fast path keeps its keys); nothing else.
 
 use azul_core::{
     dom::{Dom, DomId},
@@ -94,9 +95,8 @@ impl Side {
         self.lay_out(dom, size, false);
     }
 
-    /// The display list the window paints, one line per item, geometry
-    /// rounded to 0.01 px.
-    fn painted(&self) -> Vec<String> {
+    /// The display list the window paints, item by item.
+    fn painted(&self) -> Vec<Painted> {
         let dl = self
             .lw
             .layout_cache
@@ -107,15 +107,66 @@ impl Side {
         dl.items
             .iter()
             .zip(dl.node_mapping.iter())
-            .map(|(item, node)| format!("{} @ {node:?}", rounded_numbers(&format!("{item:?}"))))
+            .map(|(item, node)| {
+                let text = format!("{item:?}");
+                let (words, numbers) = split_numbers(&text);
+                Painted {
+                    words,
+                    numbers,
+                    owner: format!("{node:?}"),
+                    text,
+                }
+            })
             .collect()
     }
 }
 
-/// `s` with every number rounded to two decimals (`-0.00` as `0.00`).
-fn rounded_numbers(s: &str) -> String {
+/// How far a number may drift between the two sides: the float noise a
+/// spliced item picks up when it is translated by its node's position delta
+/// (a glyph at 53.29 vs 53.28). Everything else must match exactly.
+const GEOMETRY_TOLERANCE: f64 = 0.02;
+
+/// One painted display-list item.
+struct Painted {
+    /// Its Debug text with every number replaced by `#` and every GPU key's
+    /// id by `_`: the kind of item, its fields, whether a key is there -
+    /// compared exactly.
+    words: String,
+    /// Its numbers in order - geometry, glyphs, colours, font sizes - equal
+    /// within [`GEOMETRY_TOLERANCE`].
+    numbers: Vec<f64>,
+    /// The DOM node the item is attributed to - compared exactly.
+    owner: String,
+    /// The Debug text, for the failure message.
+    text: String,
+}
+
+impl Painted {
+    fn same_as(&self, other: &Self) -> bool {
+        self.words == other.words
+            && self.owner == other.owner
+            && self.numbers.len() == other.numbers.len()
+            && self
+                .numbers
+                .iter()
+                .zip(&other.numbers)
+                .all(|(a, b)| (a - b).abs() <= GEOMETRY_TOLERANCE)
+    }
+
+    fn describe(&self) -> String {
+        format!("{} @ {}", self.text, self.owner)
+    }
+}
+
+/// `s` split into its words and its numbers (see [`Painted`]). A GPU key's id
+/// (`OpacityKey { id: 3 }`, `TransformKey { id: 1 }`) is where the
+/// process-wide allocator happened to be, not what is painted: the fast path
+/// keeps a node's keys and their ids, a relayout mints new ones. That a key
+/// is there stays in the words.
+fn split_numbers(s: &str) -> (String, Vec<f64>) {
     let chars: Vec<char> = s.chars().collect();
-    let mut out = String::with_capacity(s.len());
+    let mut words = String::with_capacity(s.len());
+    let mut numbers = Vec::new();
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
@@ -124,7 +175,7 @@ fn rounded_numbers(s: &str) -> String {
             && (c.is_ascii_digit()
                 || (c == '-' && chars.get(i + 1).is_some_and(|d| d.is_ascii_digit())));
         if !starts {
-            out.push(c);
+            words.push(c);
             i += 1;
             continue;
         }
@@ -138,36 +189,39 @@ fn rounded_numbers(s: &str) -> String {
         {
             i += 1;
         }
+        if words.ends_with("Key { id: ") {
+            words.push('_');
+            continue;
+        }
         let token: String = chars[start..i].iter().collect();
         match token.parse::<f64>() {
             Ok(v) => {
-                let r = format!("{v:.2}");
-                out.push_str(if r == "-0.00" { "0.00" } else { &r });
+                words.push('#');
+                numbers.push(v);
             }
-            Err(_) => out.push_str(&token),
+            Err(_) => words.push_str(&token),
         }
     }
-    out
+    (words, numbers)
 }
 
 /// The first difference between the two sides' pictures, if any.
 fn first_difference(fast: &Side, restyle: &Side) -> Option<String> {
     let a = fast.painted();
     let b = restyle.painted();
-    if a == b {
+    let first = a.iter().zip(b.iter()).position(|(x, y)| !x.same_as(y));
+    if first.is_none() && a.len() == b.len() {
         return None;
     }
-    let i = a
-        .iter()
-        .zip(b.iter())
-        .position(|(x, y)| x != y)
-        .unwrap_or(a.len().min(b.len()));
+    let i = first.unwrap_or(a.len().min(b.len()));
     Some(format!(
         "{} vs {} items; first difference at item {i}:\n  fast path: {}\n  relayout:  {}",
         a.len(),
         b.len(),
-        a.get(i).map_or("<none>", String::as_str),
-        b.get(i).map_or("<none>", String::as_str),
+        a.get(i)
+            .map_or_else(|| "<none>".to_string(), Painted::describe),
+        b.get(i)
+            .map_or_else(|| "<none>".to_string(), Painted::describe),
     ))
 }
 
