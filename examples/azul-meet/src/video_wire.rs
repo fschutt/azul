@@ -59,9 +59,9 @@ pub const KIND_RECEIVED: u8 = 4;
 /// Kind byte of the "what I decode" message.
 pub const KIND_CAPS: u8 = 5;
 /// Version byte of a video packet.
-pub const WIRE_VERSION: u8 = 1;
+pub const WIRE_VERSION: u8 = 2;
 /// Bytes before a packet's payload.
-pub const HEADER_BYTES: usize = 16;
+pub const HEADER_BYTES: usize = 20;
 /// A keyframe at least this often (ms), whether or not anyone asked.
 pub const PERIODIC_KEYFRAME_MS: u64 = 3000;
 /// Forced keyframes at most this often (ms): requests from several peers, or repeated ones, are
@@ -156,6 +156,8 @@ pub fn encode_packet(header: &Header, payload: &[u8]) -> Vec<u8> {
     out.extend_from_slice(&header.track.to_le_bytes());
     out.extend_from_slice(&header.seq.to_le_bytes());
     out.extend_from_slice(&header.frame_no.to_le_bytes());
+    out.extend_from_slice(&header.height.to_le_bytes());
+    out.extend_from_slice(&[0, 0]);
     out.extend_from_slice(payload);
     out
 }
@@ -165,6 +167,10 @@ fn le_u32(bytes: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
 }
 
+fn le_u16(bytes: &[u8], at: usize) -> Option<u16> {
+    let b = bytes.get(at..at + 2)?;
+    Some(u16::from_le_bytes([b[0], b[1]]))
+}
 
 /// Reads a packet: its header and payload. `None` for another kind, version or codec, a short
 /// header, or no payload. Flag bits other than the keyframe bit are ignored.
@@ -184,7 +190,7 @@ pub fn decode_packet(bytes: &[u8]) -> Option<(Header, &[u8])> {
         track: le_u32(head, 4)?,
         seq: le_u32(head, 8)?,
         frame_no: le_u32(head, 12)?,
-        height: 0,
+        height: le_u16(head, 16)?,
     };
     Some((header, payload))
 }
@@ -201,12 +207,13 @@ pub enum Control {
 }
 
 const CAPS_H264: u8 = 1;
+const CAPS_ENCODES: u8 = 2;
 
 /// The request for a keyframe on the `height` rendition of `track`.
 pub fn encode_keyframe_request(track: u32, height: u16) -> Vec<u8> {
     let mut out = vec![KIND_KEYFRAME_REQUEST];
     out.extend_from_slice(&track.to_le_bytes());
-    let _ = height;
+    out.extend_from_slice(&height.to_le_bytes());
     out
 }
 
@@ -215,7 +222,7 @@ pub fn encode_received(track: u32, seq: u32, height: u16) -> Vec<u8> {
     let mut out = vec![KIND_RECEIVED];
     out.extend_from_slice(&track.to_le_bytes());
     out.extend_from_slice(&seq.to_le_bytes());
-    let _ = height;
+    out.extend_from_slice(&height.to_le_bytes());
     out
 }
 
@@ -225,7 +232,9 @@ pub fn encode_caps(h264: bool, encodes: bool) -> Vec<u8> {
     if h264 {
         flags |= CAPS_H264;
     }
-    let _ = encodes;
+    if encodes {
+        flags |= CAPS_ENCODES;
+    }
     vec![KIND_CAPS, flags]
 }
 
@@ -235,18 +244,18 @@ pub fn decode_control(bytes: &[u8]) -> Option<Control> {
     match *bytes.first()? {
         KIND_KEYFRAME_REQUEST => Some(Control::KeyframeRequest {
             track: le_u32(bytes, 1)?,
-            height: 0,
+            height: le_u16(bytes, 5).unwrap_or(0),
         }),
         KIND_RECEIVED => Some(Control::Received {
             track: le_u32(bytes, 1)?,
             seq: le_u32(bytes, 5)?,
-            height: 0,
+            height: le_u16(bytes, 9).unwrap_or(0),
         }),
         KIND_CAPS => {
             let flags = *bytes.get(1)?;
             Some(Control::Caps {
                 h264: flags & CAPS_H264 != 0,
-                encodes: false,
+                encodes: flags & CAPS_ENCODES != 0,
             })
         }
         _ => None,

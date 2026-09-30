@@ -85,7 +85,12 @@ pub const RTT_JUMP_US: u64 = 20_000;
 /// A participant's key in the plan: FNV-1a of its endpoint id, trimmed and lower-cased, so every
 /// side computes the same key.
 pub fn peer_key(node_id: &str) -> u64 {
-    todo!()
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in node_id.trim().bytes() {
+        hash ^= u64::from(byte.to_ascii_lowercase());
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
 }
 
 // ---- ConnectionSync ----
@@ -121,7 +126,10 @@ pub struct Sync {
 impl Sync {
     /// The height this participant shows `origin`'s `track` at; 0 when it does not show it.
     pub fn want(&self, origin: u64, track: u32) -> u16 {
-        todo!()
+        self.wants
+            .iter()
+            .find(|w| w.origin == origin && w.track == track)
+            .map_or(0, |w| w.height)
     }
 }
 
@@ -130,12 +138,60 @@ const WANT_BYTES: usize = 11;
 
 /// The message carrying `sync`. More than 255 tiles keep the first 255.
 pub fn encode_sync(sync: &Sync) -> Vec<u8> {
-    todo!()
+    let wants = &sync.wants[..sync.wants.len().min(usize::from(u8::MAX))];
+    let flags = [
+        sync.on_battery,
+        sync.relay_only,
+        sync.opted_out,
+        sync.sends_audio,
+        sync.sends_camera,
+        sync.sends_screen,
+    ]
+    .into_iter()
+    .enumerate()
+    .fold(0u8, |acc, (bit, on)| if on { acc | 1 << bit } else { acc });
+    let mut out = Vec::with_capacity(SYNC_HEADER_BYTES + WANT_BYTES * wants.len());
+    out.extend_from_slice(&[KIND_SYNC, SYNC_VERSION, flags, wants.len() as u8]);
+    out.extend_from_slice(&sync.uplink_kbps.to_le_bytes());
+    out.extend_from_slice(&sync.stability_permille.min(1000).to_le_bytes());
+    for w in wants {
+        out.extend_from_slice(&w.origin.to_le_bytes());
+        out.push(w.track.min(u32::from(u8::MAX)) as u8);
+        out.extend_from_slice(&w.height.to_le_bytes());
+    }
+    out
 }
 
 /// Reads a `ConnectionSync`; `None` for another kind or version, or too few bytes for its tiles.
 pub fn decode_sync(bytes: &[u8]) -> Option<Sync> {
-    todo!()
+    let head = bytes.get(..SYNC_HEADER_BYTES)?;
+    if head[0] != KIND_SYNC || head[1] != SYNC_VERSION {
+        return None;
+    }
+    let flags = head[2];
+    let count = usize::from(head[3]);
+    let mut wants = Vec::with_capacity(count);
+    for i in 0..count {
+        let at = SYNC_HEADER_BYTES + i * WANT_BYTES;
+        let w = bytes.get(at..at + WANT_BYTES)?;
+        wants.push(Want {
+            origin: u64::from_le_bytes(<[u8; 8]>::try_from(&w[..8]).ok()?),
+            track: u32::from(w[8]),
+            height: u16::from_le_bytes([w[9], w[10]]),
+        });
+    }
+    let bit = |n: u8| flags & (1 << n) != 0;
+    Some(Sync {
+        uplink_kbps: u32::from_le_bytes([head[4], head[5], head[6], head[7]]),
+        stability_permille: u16::from_le_bytes([head[8], head[9]]).min(1000),
+        on_battery: bit(0),
+        relay_only: bit(1),
+        opted_out: bit(2),
+        sends_audio: bit(3),
+        sends_camera: bit(4),
+        sends_screen: bit(5),
+        wants,
+    })
 }
 
 // ---- Relayed items ----
@@ -155,12 +211,31 @@ pub struct Relayed<'a> {
 
 /// `inner` wrapped for passing on.
 pub fn encode_relay(track: u32, origin: u64, from: u64, inner: &[u8]) -> Vec<u8> {
-    todo!()
+    let mut out = Vec::with_capacity(RELAY_HEADER_BYTES + inner.len());
+    out.extend_from_slice(&[KIND_RELAY, RELAY_VERSION]);
+    out.extend_from_slice(&track.to_le_bytes());
+    out.extend_from_slice(&origin.to_le_bytes());
+    out.extend_from_slice(&from.to_le_bytes());
+    out.extend_from_slice(inner);
+    out
 }
 
 /// Reads a relayed item; `None` for another kind or version, a short header, or nothing inside.
 pub fn decode_relay(bytes: &[u8]) -> Option<Relayed<'_>> {
-    todo!()
+    let head = bytes.get(..RELAY_HEADER_BYTES)?;
+    if head[0] != KIND_RELAY || head[1] != RELAY_VERSION {
+        return None;
+    }
+    let inner = &bytes[RELAY_HEADER_BYTES..];
+    if inner.is_empty() {
+        return None;
+    }
+    Some(Relayed {
+        track: u32::from_le_bytes(<[u8; 4]>::try_from(&head[2..6]).ok()?),
+        origin: u64::from_le_bytes(<[u8; 8]>::try_from(&head[6..14]).ok()?),
+        from: u64::from_le_bytes(<[u8; 8]>::try_from(&head[14..22]).ok()?),
+        inner,
+    })
 }
 
 /// The iroh frame track the `height` rendition of `track` rides: lane 0 for this side's own
@@ -168,31 +243,48 @@ pub fn decode_relay(bytes: &[u8]) -> Option<Relayed<'_>> {
 /// per frame track, so no rendition or origin may share one. This side's own audio (height 0) keeps
 /// its track number.
 pub fn frame_track(lane: u32, track: u32, height: u16) -> u32 {
-    todo!()
+    lane.wrapping_mul(0x1000)
+        .wrapping_add(rung(height) * 0x10)
+        .wrapping_add(track & 0xf)
 }
 
 /// 0 for no rendition, else 1 to 4 up the ladder.
 fn rung(height: u16) -> u32 {
-    todo!()
+    match height {
+        0 => 0,
+        1..=90 => 1,
+        91..=180 => 2,
+        181..=360 => 3,
+        _ => 4,
+    }
 }
 
 // ---- Renditions ----
 
 /// Width of the 16:9 rendition `height` pixels tall, rounded to even (160, 320, 640, 1280).
 pub fn rendition_width(height: u16) -> u32 {
-    todo!()
+    (u32::from(height) * 16 / 9 + 1) & !1
 }
 
 /// The heights to encode for the heights viewers asked for (0: hidden): none, or the smallest and
 /// the largest.
 pub fn encode_set(asked: &[u16]) -> Vec<u16> {
-    todo!()
+    let shown = || asked.iter().copied().filter(|h| *h > 0);
+    match (shown().min(), shown().max()) {
+        (Some(low), Some(high)) if low == high => vec![low],
+        (Some(low), Some(high)) => vec![low, high],
+        _ => Vec::new(),
+    }
 }
 
 /// The encoded height a viewer needing `need` gets: the smallest at least as tall, else the
 /// tallest; `None` for a hidden tile or nothing encoded.
 pub fn pick(encoded: &[u16], need: u16) -> Option<u16> {
-    todo!()
+    if need == 0 {
+        return None;
+    }
+    let taller = encoded.iter().copied().filter(|h| *h >= need).min();
+    taller.or_else(|| encoded.iter().copied().max())
 }
 
 /// One stream of a sender's track: a rendition in one codec.
@@ -217,17 +309,33 @@ pub struct Viewer {
 /// when the sender encodes it (`sender_h264`) and the viewer decodes it. Viewers that do not show
 /// the track get nothing.
 pub fn assign(viewers: &[Viewer], sender_h264: bool) -> BTreeMap<u64, Stream> {
-    todo!()
+    let asked: Vec<u16> = viewers.iter().map(|v| v.need).collect();
+    let encoded = encode_set(&asked);
+    viewers
+        .iter()
+        .filter_map(|v| {
+            let height = pick(&encoded, v.need)?;
+            Some((
+                v.key,
+                Stream {
+                    height,
+                    h264: sender_h264 && v.h264,
+                },
+            ))
+        })
+        .collect()
 }
 
 /// The distinct streams of an assignment, in order.
 pub fn streams(assigned: &BTreeMap<u64, Stream>) -> Vec<Stream> {
-    todo!()
+    let set: BTreeSet<Stream> = assigned.values().copied().collect();
+    set.into_iter().collect()
 }
 
 /// The distinct heights of an assignment, smallest first: the renditions to produce.
 pub fn heights(assigned: &BTreeMap<u64, Stream>) -> Vec<u16> {
-    todo!()
+    let set: BTreeSet<u16> = assigned.values().map(|s| s.height).collect();
+    set.into_iter().collect()
 }
 
 // ---- Plan ----
@@ -249,52 +357,120 @@ impl Plan {
     /// `IrohLoadBalancer::backbone_peer` lists them). Backbone entries that are no participant are
     /// ignored; with no forwarder at all everyone sends directly (the full mesh).
     pub fn new(peers: &[u64], backbone: &[u64]) -> Plan {
-        todo!()
+        let set: BTreeSet<u64> = peers.iter().copied().collect();
+        let peers: Vec<u64> = set.iter().copied().collect();
+        let mut chosen: Vec<u64> = Vec::new();
+        for p in backbone {
+            if set.contains(p) && !chosen.contains(p) {
+                chosen.push(*p);
+            }
+        }
+        if chosen.is_empty() {
+            chosen = peers.clone();
+        }
+        let attach = peers
+            .iter()
+            .filter(|p| !chosen.contains(p))
+            .enumerate()
+            .map(|(i, leaf)| (*leaf, chosen[i % chosen.len()]))
+            .collect();
+        Plan {
+            peers,
+            backbone: chosen,
+            attach,
+        }
     }
 
     /// Every participant, by key.
     pub fn peers(&self) -> &[u64] {
-        todo!()
+        &self.peers
     }
 
     /// The forwarders, best first.
     pub fn backbone(&self) -> &[u64] {
-        todo!()
+        &self.backbone
     }
 
     pub fn contains(&self, peer: u64) -> bool {
-        todo!()
+        self.peers.binary_search(&peer).is_ok()
     }
 
     pub fn is_backbone(&self, peer: u64) -> bool {
-        todo!()
+        self.backbone.contains(&peer)
     }
 
     /// Everyone forwards: every stream goes directly from its origin to every viewer.
     pub fn is_mesh(&self) -> bool {
-        todo!()
+        self.attach.is_empty()
     }
 
     /// The backbone peer a leaf uploads to and receives from; `None` for a backbone peer.
     pub fn parent_of_leaf(&self, leaf: u64) -> Option<u64> {
-        todo!()
+        self.attach.get(&leaf).copied()
+    }
+
+    fn leaves_of(&self, parent: u64) -> impl Iterator<Item = u64> + '_ {
+        self.attach
+            .iter()
+            .filter(move |(_, p)| **p == parent)
+            .map(|(leaf, _)| *leaf)
     }
 
     /// Whom `at` sends `origin`'s media to: its own media when `at` is the origin, else what it
     /// passes on. Sorted.
     pub fn children(&self, at: u64, origin: u64) -> Vec<u64> {
-        todo!()
+        if !self.contains(at) || !self.contains(origin) {
+            return Vec::new();
+        }
+        let others = |me: u64| self.backbone.iter().copied().filter(move |b| *b != me);
+        let mut out: Vec<u64> = if at == origin {
+            match self.attach.get(&origin) {
+                Some(parent) => vec![*parent],
+                None => others(origin).chain(self.leaves_of(origin)).collect(),
+            }
+        } else if !self.is_backbone(at) {
+            Vec::new()
+        } else if self.attach.get(&origin) == Some(&at) {
+            others(at)
+                .chain(self.leaves_of(at).filter(|leaf| *leaf != origin))
+                .collect()
+        } else {
+            self.leaves_of(at).collect()
+        };
+        out.sort_unstable();
+        out
     }
 
     /// Whom `viewer` gets `origin`'s media from: the origin, or the peer passing it on. `None` for
     /// the origin itself or someone not in the plan.
     pub fn parent(&self, viewer: u64, origin: u64) -> Option<u64> {
-        todo!()
+        if viewer == origin || !self.contains(viewer) || !self.contains(origin) {
+            return None;
+        }
+        if let Some(own) = self.attach.get(&viewer) {
+            // A leaf gets everything from its parent.
+            return Some(*own);
+        }
+        match self.attach.get(&origin) {
+            // A backbone peer gets a leaf's media from the leaf's parent.
+            Some(parent) if *parent != viewer => Some(*parent),
+            _ => Some(origin),
+        }
     }
 
     /// Whether `origin`'s media reaches `viewer` through `at` (or `at` is the viewer).
     pub fn reaches(&self, at: u64, origin: u64, viewer: u64) -> bool {
-        todo!()
+        let mut hop = viewer;
+        for _ in 0..=self.peers.len() {
+            if hop == at {
+                return true;
+            }
+            match self.parent(hop, origin) {
+                Some(up) => hop = up,
+                None => return false,
+            }
+        }
+        false
     }
 
     /// Whom `at` sends `stream` of `origin` to: its children with a viewer of that stream at or
@@ -306,12 +482,25 @@ impl Plan {
         stream: Stream,
         assigned: &BTreeMap<u64, Stream>,
     ) -> Vec<u64> {
-        todo!()
+        self.children(at, origin)
+            .into_iter()
+            .filter(|child| {
+                assigned
+                    .iter()
+                    .any(|(viewer, got)| *got == stream && self.reaches(*child, origin, *viewer))
+            })
+            .collect()
     }
 
     /// Every hop of `origin`'s tree as (from, to), sorted.
     pub fn edges(&self, origin: u64) -> Vec<(u64, u64)> {
-        todo!()
+        let mut out = Vec::new();
+        for at in &self.peers {
+            for child in self.children(*at, origin) {
+                out.push((*at, child));
+            }
+        }
+        out
     }
 }
 
@@ -348,43 +537,115 @@ pub struct CapacityEstimator {
 
 /// The largest step at or below `kbps`, at least the smallest.
 fn uplink_step(kbps: u64) -> u32 {
-    todo!()
+    UPLINK_STEPS
+        .iter()
+        .rev()
+        .copied()
+        .find(|step| kbps >= u64::from(*step))
+        .unwrap_or(UPLINK_STEPS[0])
 }
 
 impl CapacityEstimator {
     pub fn new(pinned: Option<u32>) -> Self {
-        todo!()
+        CapacityEstimator {
+            pinned,
+            ..CapacityEstimator::default()
+        }
     }
 
     /// One interval: every connection's path (by connection handle) at `now_ms`.
     pub fn sample(&mut self, now_ms: u64, paths: &[(u64, PathSample)]) {
-        todo!()
+        self.relay_only = !paths.is_empty() && paths.iter().all(|(_, p)| !p.direct);
+        let elapsed = self.last_ms.map(|at| now_ms.saturating_sub(at));
+        let mut sent_kbps = 0u64;
+        let mut window_kbps = 0u64;
+        let mut stable = true;
+        let mut compared = false;
+        for (conn, now) in paths {
+            if now.rtt_us > 0 {
+                window_kbps = window_kbps.max(now.cwnd_bytes.saturating_mul(8000) / now.rtt_us);
+                let lowest = self.lowest_rtt.entry(*conn).or_insert(now.rtt_us);
+                *lowest = (*lowest).min(now.rtt_us);
+                let jump = (*lowest)
+                    .saturating_mul(2)
+                    .max(lowest.saturating_add(RTT_JUMP_US));
+                if now.rtt_us > jump {
+                    stable = false;
+                }
+            }
+            if let (Some(before), Some(ms)) = (self.last.get(conn), elapsed) {
+                compared = true;
+                if ms > 0 {
+                    // Bits per millisecond are kbit/s.
+                    sent_kbps += now.bytes_sent.saturating_sub(before.bytes_sent) * 8 / ms;
+                }
+                if now.lost_packets.saturating_sub(before.lost_packets) >= LOSS_SPIKE {
+                    stable = false;
+                }
+            }
+        }
+        self.last = paths.iter().copied().collect();
+        let live: BTreeSet<u64> = self.last.keys().copied().collect();
+        self.lowest_rtt.retain(|conn, _| live.contains(conn));
+        self.last_ms = Some(now_ms);
+        if paths.is_empty() {
+            return;
+        }
+        if compared {
+            if self.history.len() == STABILITY_WINDOW {
+                self.history.pop_front();
+            }
+            self.history.push_back(stable);
+        }
+        let step = uplink_step(sent_kbps.max(window_kbps));
+        self.measured = Some(step);
+        match self.reported {
+            None => self.reported = Some(step),
+            Some(current) if current == step => self.candidate = None,
+            Some(_) => {
+                let seen = match self.candidate {
+                    Some((pending, times)) if pending == step => times + 1,
+                    _ => 1,
+                };
+                if seen >= STICKY_INTERVALS {
+                    self.reported = Some(step);
+                    self.candidate = None;
+                } else {
+                    self.candidate = Some((step, seen));
+                }
+            }
+        }
     }
 
     /// The uplink to report (kbit/s): the pinned value, else the estimate, else
     /// [`DEFAULT_UPLINK_KBPS`].
     pub fn uplink_kbps(&self) -> u32 {
-        todo!()
+        self.pinned.or(self.reported).unwrap_or(DEFAULT_UPLINK_KBPS)
     }
 
     /// The step measured in the last interval, whatever is reported.
     pub fn measured_kbps(&self) -> Option<u32> {
-        todo!()
+        self.measured
     }
 
     pub fn is_pinned(&self) -> bool {
-        todo!()
+        self.pinned.is_some()
     }
 
     /// Share of the last [`STABILITY_WINDOW`] intervals without a loss spike or an RTT jump, in
     /// tenths (as thousandths); 1000 before any interval.
     pub fn stability_permille(&self) -> u16 {
-        todo!()
+        let total = self.history.len();
+        if total == 0 {
+            return 1000;
+        }
+        let stable = self.history.iter().filter(|s| **s).count();
+        (((stable * 10 + total / 2) / total) * 100) as u16
     }
 
     /// Every connection goes through a relay.
     pub fn relay_only(&self) -> bool {
-        todo!()
+        self.relay_only
     }
 }
 
@@ -392,30 +653,87 @@ impl CapacityEstimator {
 
 /// "50 Mbps", "1.5 Mbps", "500 kbps".
 pub fn kbps_label(kbps: u32) -> String {
-    todo!()
+    if kbps < 1000 {
+        format!("{kbps} kbps")
+    } else if kbps % 1000 == 0 {
+        format!("{} Mbps", kbps / 1000)
+    } else {
+        format!("{:.1} Mbps", f64::from(kbps) / 1000.0)
+    }
 }
 
 /// "camera 360p H.264", "screen 90p JPEG".
 pub fn stream_label(source: &str, stream: Stream) -> String {
-    todo!()
+    let codec = if stream.h264 { "H.264" } else { "JPEG" };
+    format!("{source} {}p {codec}", stream.height)
 }
 
 /// The panel's summary: "Network: 3 people, mesh cap 2: backbone Ben, Cleo; Ada uploads to Ben",
 /// or "Network: 2 people, full mesh (mesh cap 4)".
 pub fn plan_line(plan: &Plan, mesh_cap: u32, name: &dyn Fn(u64) -> String) -> String {
-    todo!()
+    let people = match plan.peers.len() {
+        1 => String::from("1 person"),
+        n => format!("{n} people"),
+    };
+    if plan.is_mesh() {
+        return format!("Network: {people}, full mesh (mesh cap {mesh_cap})");
+    }
+    let backbone: Vec<String> = plan.backbone.iter().map(|p| name(*p)).collect();
+    let mut leaves: Vec<String> = plan
+        .attach
+        .iter()
+        .map(|(leaf, parent)| format!("{} uploads to {}", name(*leaf), name(*parent)))
+        .collect();
+    leaves.sort();
+    format!(
+        "Network: {people}, mesh cap {mesh_cap}: backbone {}; {}",
+        backbone.join(", "),
+        leaves.join(", ")
+    )
 }
 
 /// Every origin's tree by name, sorted: "Routes: Ada: Ada>Ben, Ben>Cleo | Ben: Ben>Ada, Ben>Cleo |
 /// Cleo: Ben>Ada, Cleo>Ben". Every side that agrees on the plan shows the same line.
 pub fn routes_line(plan: &Plan, name: &dyn Fn(u64) -> String) -> String {
-    todo!()
+    let mut trees: Vec<(String, String)> = plan
+        .peers
+        .iter()
+        .map(|origin| {
+            let mut hops: Vec<String> = plan
+                .edges(*origin)
+                .into_iter()
+                .map(|(from, to)| format!("{}>{}", name(from), name(to)))
+                .collect();
+            hops.sort();
+            let hops = if hops.is_empty() {
+                String::from("-")
+            } else {
+                hops.join(", ")
+            };
+            (name(*origin), hops)
+        })
+        .collect();
+    trees.sort();
+    let parts: Vec<String> = trees
+        .into_iter()
+        .map(|(origin, hops)| format!("{origin}: {hops}"))
+        .collect();
+    format!("Routes: {}", parts.join(" | "))
 }
 
 /// This participant's part: "You: leaf, uploading once to Ben", "You: backbone, forwarding for
 /// others", "You: full mesh, sending to everyone directly".
 pub fn role_line(plan: &Plan, me: u64, name: &dyn Fn(u64) -> String) -> String {
-    todo!()
+    if !plan.contains(me) {
+        String::from("You: not planned yet")
+    } else if plan.is_mesh() {
+        String::from("You: full mesh, sending to everyone directly")
+    } else {
+        match plan.parent_of_leaf(me) {
+            Some(parent) => format!("You: leaf, uploading once to {}", name(parent)),
+            None => String::from("You: backbone, forwarding for others"),
+        }
+    }
 }
 
 /// One peer of the network panel.
@@ -437,7 +755,30 @@ pub struct PeerRow {
 /// "Ben · direct 0.4 ms · backbone · up 50 Mbps · to Ben: camera 360p H.264, audio · from Ben:
 /// Ben camera 360p H.264, Ben audio".
 pub fn peer_line(row: &PeerRow) -> String {
-    todo!()
+    let mut parts = vec![row.name.clone()];
+    parts.push(match row.path {
+        Some((true, rtt)) => format!("direct {rtt:.1} ms"),
+        Some((false, rtt)) => format!("relayed {rtt:.1} ms"),
+        None => String::from("no path yet"),
+    });
+    parts.push(String::from(match row.backbone {
+        Some(true) => "backbone",
+        Some(false) => "leaf",
+        None => "no report yet",
+    }));
+    if let Some(up) = row.uplink_kbps {
+        parts.push(format!("up {}", kbps_label(up)));
+    }
+    let list = |items: &[String]| {
+        if items.is_empty() {
+            String::from("nothing")
+        } else {
+            items.join(", ")
+        }
+    };
+    parts.push(format!("to {}: {}", row.name, list(&row.to)));
+    parts.push(format!("from {}: {}", row.name, list(&row.from)));
+    parts.join(" · ")
 }
 
 #[cfg(test)]
