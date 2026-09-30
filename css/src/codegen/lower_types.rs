@@ -2572,6 +2572,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("TextBoxEdgeUnder", "css"),
     ("TextChangeset", "callbacks"),
     ("TextCursor", "window"),
+    ("TextFormat", "dom"),
     ("TextInput", "widgets"),
     ("TextInputKind", "widgets"),
     ("TextInputOnFocusLost", "widgets"),
