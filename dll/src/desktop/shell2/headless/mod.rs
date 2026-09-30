@@ -11243,6 +11243,281 @@ mod tests {
     // Idle-CPU laws: animation culling, frame requests, idle timers
     // (`tests/idle_cpu.rs`).
     mod idle_cpu;
+
+    // --- Video tiles: a new frame is an image CONTENT update ---------------
+    //
+    // A camera / decoder frame reaches its tile as `ChangeNodeImage` (the
+    // capture writeback, AzMeet's `show_picture`). The tile's box does not
+    // move and its display-list item only swaps its `ImageRef`, patched in
+    // place: nothing may re-run layout or rebuild the display list, and the
+    // damage is the tile's rect. A tile nobody can see asks for no frame.
+
+    /// A 120x80 frame of one colour, the tile's own size.
+    fn tile_frame(rgba: [u8; 4]) -> azul_core::resources::ImageRef {
+        use azul_core::resources::{ImageRef, RawImage, RawImageData, RawImageFormat};
+        ImageRef::new_rawimage(RawImage {
+            pixels: RawImageData::U8(rgba.repeat(120 * 80).into()),
+            width: 120,
+            height: 80,
+            premultiplied_alpha: true,
+            data_format: RawImageFormat::RGBA8,
+            tag: Vec::new().into(),
+        })
+        .expect("a well-formed frame")
+    }
+
+    /// A 120x80 image tile with class `class`.
+    fn video_tile(class: &str) -> Dom {
+        Dom::create_image(tile_frame([10, 20, 30, 255]))
+            .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class(class.into())].into())
+            .with_css("display: block; width: 120px; height: 80px; margin-bottom: 40px;")
+    }
+
+    /// Two tiles, `tile-a` above `tile-b`, 40 px apart; `tile-far` 1000 px
+    /// further down, below the bottom of any window the tests open.
+    extern "C" fn video_tiles_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        Dom::create_body()
+            .with_css("margin: 0;")
+            .with_child(video_tile("tile-a"))
+            .with_child(video_tile("tile-b"))
+            .with_child(Dom::create_div().with_css("height: 1000px;"))
+            .with_child(video_tile("tile-far"))
+    }
+
+    /// A 200x100 scroll box holding a 300 px spacer and then `tile-scrolled`:
+    /// the tile is inside the window but scrolled out of its box.
+    extern "C" fn scrolled_tile_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        Dom::create_body().with_css("margin: 0;").with_child(
+            Dom::create_div()
+                .with_css("width: 200px; height: 100px; overflow-y: scroll;")
+                .with_child(Dom::create_div().with_css("height: 300px;"))
+                .with_child(video_tile("tile-scrolled")),
+        )
+    }
+
+    /// The DOM node carrying `class` in the root DOM.
+    fn node_of_class(window: &HeadlessWindow, class: &str) -> azul_core::dom::NodeId {
+        use azul_core::dom::{DomId, IdOrClass};
+        let lw = window.common.layout_window.as_ref().expect("layout window");
+        let dom = lw
+            .layout_results
+            .get(&DomId { inner: 0 })
+            .expect("root dom");
+        let index = dom
+            .styled_dom
+            .node_data
+            .as_container()
+            .internal
+            .iter()
+            .position(|d| {
+                d.get_ids_and_classes()
+                    .iter()
+                    .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == class))
+            })
+            .expect("a node with the class");
+        azul_core::dom::NodeId::new(index)
+    }
+
+    /// What a capture writeback does with a new frame: `change_node_image`
+    /// on the tile. Returns the tier the pass reports.
+    fn push_tile_frame(
+        window: &mut HeadlessWindow,
+        class: &str,
+        rgba: [u8; 4],
+    ) -> azul_core::events::ProcessEventResult {
+        use azul_layout::callbacks::CallbackChange;
+
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let node_id = node_of_class(window, class);
+        PlatformWindow::apply_user_change(
+            window,
+            &CallbackChange::ChangeNodeImage {
+                dom_id: azul_core::dom::DomId { inner: 0 },
+                node_id,
+                image: tile_frame(rgba),
+                update_type: azul_core::resources::UpdateImageType::Content,
+            },
+        )
+    }
+
+    /// A settled window over `layout`, with its frame counters zeroed.
+    fn settled_tile_window(
+        layout: azul_core::callbacks::LayoutCallbackType,
+    ) -> HeadlessWindow {
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, layout, 400.0, 300.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .expect("layout window")
+            .frame_report
+            .reset_counters();
+        window
+    }
+
+    fn frame_report(window: &HeadlessWindow) -> azul_layout::window::FrameReport {
+        window
+            .common
+            .layout_window
+            .as_ref()
+            .expect("layout window")
+            .frame_report
+            .clone()
+    }
+
+    /// The bounding box of a frame's damage rects (`None` for no damage or a
+    /// full repaint).
+    fn damage_bounds(d: &FrameDamage) -> Option<azul_core::geom::LogicalRect> {
+        let FrameDamage::Rects(rects) = d else {
+            return None;
+        };
+        let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+        for r in rects {
+            x0 = x0.min(r.origin.x);
+            y0 = y0.min(r.origin.y);
+            x1 = x1.max(r.origin.x + r.size.width);
+            y1 = y1.max(r.origin.y + r.size.height);
+        }
+        (x1 > x0 && y1 > y0).then(|| {
+            azul_core::geom::LogicalRect::new(
+                azul_core::geom::LogicalPosition::new(x0, y0),
+                azul_core::geom::LogicalSize::new(x1 - x0, y1 - y0),
+            )
+        })
+    }
+
+    fn assert_rect_close(
+        got: azul_core::geom::LogicalRect,
+        want: azul_core::geom::LogicalRect,
+        what: &str,
+    ) {
+        let close = |a: f32, b: f32| (a - b).abs() <= 1.0;
+        assert!(
+            close(got.origin.x, want.origin.x)
+                && close(got.origin.y, want.origin.y)
+                && close(got.size.width, want.size.width)
+                && close(got.size.height, want.size.height),
+            "{what}: damage {got:?}, tile {want:?}"
+        );
+    }
+
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn a_video_frame_on_a_tile_runs_no_layout_and_rebuilds_no_display_list() {
+        use azul_core::events::ProcessEventResult;
+
+        let mut window = settled_tile_window(video_tiles_layout);
+        let tier = push_tile_frame(&mut window, "tile-a", [200, 40, 40, 255]);
+        assert_eq!(
+            tier,
+            ProcessEventResult::ShouldReRenderCurrentWindow,
+            "a same-size frame is a repaint, nothing more"
+        );
+        assert!(
+            !window.common.display_list_dirty,
+            "the display list was patched in place: a dirty flag makes the next frame rebuild \
+             it from the layout tree (and send webrender a full transaction)"
+        );
+        window.service_frame(tier);
+        let report = frame_report(&window);
+        assert_eq!(report.layout_passes, 0, "a video frame re-ran layout");
+        assert_eq!(report.dl_rebuilds, 0, "a video frame rebuilt the display list");
+        assert_eq!(report.frames_since_reset, 1, "and one frame was painted");
+    }
+
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn a_video_frame_damages_exactly_its_tile() {
+        let mut window = settled_tile_window(video_tiles_layout);
+        let tile = rects_by_class(&window, "tile-a")[0];
+        let tier = push_tile_frame(&mut window, "tile-a", [200, 40, 40, 255]);
+        window.service_frame(tier);
+        let damage = window.cpu_backend.last_frame_damage.clone();
+        let bounds = damage_bounds(&damage)
+            .unwrap_or_else(|| panic!("a tile frame damages a rect, not {damage:?}"));
+        assert_rect_close(bounds, tile, "one tile's frame");
+    }
+
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn two_tiles_updating_in_one_tick_damage_two_rects_not_the_window() {
+        let mut window = settled_tile_window(video_tiles_layout);
+        let a = rects_by_class(&window, "tile-a")[0];
+        let b = rects_by_class(&window, "tile-b")[0];
+        let tier = push_tile_frame(&mut window, "tile-a", [200, 40, 40, 255])
+            .max(push_tile_frame(&mut window, "tile-b", [40, 200, 40, 255]));
+        window.service_frame(tier);
+        let FrameDamage::Rects(rects) = window.cpu_backend.last_frame_damage.clone() else {
+            panic!("two tiles damage two rects, not the whole window");
+        };
+        assert_eq!(rects.len(), 2, "one rect per tile: {rects:?}");
+        let mut got: Vec<azul_core::geom::LogicalRect> = rects.clone();
+        got.sort_by(|p, q| p.origin.y.total_cmp(&q.origin.y));
+        assert_rect_close(got[0], a, "the upper tile");
+        assert_rect_close(got[1], b, "the lower tile");
+        let report = frame_report(&window);
+        assert_eq!(report.layout_passes, 0);
+        assert_eq!(report.dl_rebuilds, 0);
+    }
+
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn a_video_frame_on_a_tile_below_the_window_requests_no_frame() {
+        use azul_core::events::ProcessEventResult;
+
+        let mut window = settled_tile_window(video_tiles_layout);
+        let tier = push_tile_frame(&mut window, "tile-far", [200, 40, 40, 255]);
+        assert_eq!(
+            tier,
+            ProcessEventResult::DoNothing,
+            "a tile 1000 px below a 300 px window shows nothing: no frame"
+        );
+        // The frame is kept: scrolled into view, the tile shows it.
+        let node = node_of_class(&window, "tile-far");
+        let lw = window.common.layout_window.as_ref().expect("layout window");
+        assert!(
+            lw.content_overlay
+                .image_for_node(azul_core::dom::DomId { inner: 0 }, node)
+                .is_some(),
+            "the hidden tile still holds its newest frame"
+        );
+    }
+
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn a_video_frame_on_a_tile_scrolled_out_of_its_box_requests_no_frame() {
+        use azul_core::events::ProcessEventResult;
+
+        let mut window = settled_tile_window(scrolled_tile_layout);
+        let tier = push_tile_frame(&mut window, "tile-scrolled", [200, 40, 40, 255]);
+        assert_eq!(
+            tier,
+            ProcessEventResult::DoNothing,
+            "a tile below the fold of its 100 px scroll box shows nothing: no frame"
+        );
+    }
+
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn a_video_frame_on_a_minimized_window_requests_no_frame() {
+        use azul_core::events::ProcessEventResult;
+
+        let mut window = settled_tile_window(video_tiles_layout);
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .expect("layout window")
+            .current_window_state
+            .flags
+            .frame = azul_core::window::WindowFrame::Minimized;
+        let tier = push_tile_frame(&mut window, "tile-a", [200, 40, 40, 255]);
+        assert_eq!(tier, ProcessEventResult::DoNothing);
+    }
 }
 
 #[cfg(test)]
