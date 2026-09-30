@@ -169,8 +169,15 @@ audio bound to a node. `AudioSink` follows the same C-ABI handle convention as
 let sink = AudioSink::open(AudioConfig { sample_rate: 48_000, channels: 1 });
 // ... later, for each frame you want to hear:
 sink.play(frame);            // queues the samples to the output
-// sink.is_open(), sink.frames_played(), sink.close()
+// sink.is_open(), sink.error_message(), sink.frames_played(), sink.close()
 ```
+
+The sink is open only if an output device opened. With no device, no audio
+backend in this build, or a device that refuses the format, `open` returns a
+closed handle: `is_open()` is `false`, `play` does nothing and
+`error_message()` says why, in words you can show the user. `frames_played`
+counts only the frames a device took, so a frame dropped because the device
+queue was full is not counted.
 
 `play` queues the samples, and how it waits depends on the backend: an ALSA write
 blocks while the device buffer is full, AVAudioEngine keeps at most 8 buffers in
@@ -399,8 +406,8 @@ hardware backends are platform-specific:
 - **Microphone**: ALSA on Linux, cpal (WASAPI) on Windows, AVAudioEngine on macOS
   and iOS, AAudio on Android.
 - **Audio output** (`AudioSink`): ALSA on Linux, cpal on Windows, AVAudioEngine on
-  macOS and iOS, AAudio on Android. A sink whose device does not open still counts
-  frames, and says so once.
+  macOS and iOS, AAudio on Android. A sink whose device does not open is closed,
+  and `error_message()` says why.
 - **Camera**: V4L2 on Linux, Media Foundation on Windows, AVFoundation on macOS
   and iOS, Camera2 on Android. **Screen**: the ScreenCast portal and PipeWire on
   Linux, DXGI desktop duplication on Windows, ScreenCaptureKit on macOS.
