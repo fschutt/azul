@@ -916,6 +916,30 @@ mod tests {
         );
     }
 
+    /// A 1x1 or hidden image is a tracking pixel: blocked, and not even a placeholder shows.
+    #[test]
+    fn a_tracking_pixel_leaves_no_placeholder() {
+        let pixels = "a<img src=\"https://t.example/o.gif\" width=\"1\" height=\"1px\">b\
+                      <img src=x style=\"display: none\">c<img src=y width=0 height=0>d";
+        assert_eq!(sanitize(pixels).blocked_images, 3);
+        assert_eq!(inner(pixels), "abcd");
+        // A divider line is an image, not a pixel.
+        assert_eq!(
+            inner("<img src=x width=600 height=1>"),
+            "<span style=\"color: #6b7385\">[image]</span>"
+        );
+    }
+
+    /// Negative margins pull content over other content (and over the reading pane's own
+    /// header): they go.
+    #[test]
+    fn negative_margins_are_dropped() {
+        assert_eq!(
+            inner("<div style=\"margin-top: -40px; margin: 0 -10px; padding: 4px; margin-left: 2px\">x</div>"),
+            "<div style=\"padding: 4px; margin-left: 2px\">x</div>"
+        );
+    }
+
     #[test]
     fn nesting_is_bounded() {
         let deep = "<div>".repeat(1000) + "x";
