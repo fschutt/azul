@@ -4,13 +4,12 @@ Branch `wt/mailview-engine` from `d8be2016d`. Report: `scripts/MAILVIEW_2026_09_
 Never compiled (house rule): the parent compiles and runs the suites.
 
 ## DONE
-(none yet)
+- 1. E-XML-2 href: RED `2b9071aa0`, fix `589f75168`
 
 ## IN PROGRESS
-- 1. E-XML-2 `href` in the XML attribute table
+- 7. E-XML-4 named entities
 
 ## NEXT
-- 7. E-XML-4 named entities (one table in azul-core, both decoders)
 - 6. E-CSS-1 CDO/CDC at the top level of a stylesheet
 - 3. E-UA defaults (+ UA beats an inherited value on elements, slow path)
 - 4. E-BR a block holding only `<br>` is one line tall
