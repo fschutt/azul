@@ -538,7 +538,7 @@ extern "C" fn on_new_event(mut data: RefAny, _info: CallbackInfo) -> Update {
     s.forms_opened += 1;
     s.form = Some(Form {
         serial: s.forms_opened,
-        id: Uuid::v4().as_str().to_string(),
+        id: event::new_event_id(),
         title: String::new(),
         date: week::default_day(s.today, s.week),
         start: at(9, 0),

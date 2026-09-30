@@ -339,6 +339,12 @@ pub fn load_all(data_dir: &Path) -> (Vec<Event>, Vec<Skipped>) {
     (events, skipped)
 }
 
+/// A new event's id: a random version-4 UUID (lower case, hyphenated).
+#[must_use]
+pub fn new_event_id() -> String {
+    azul::uuid::Uuid::v4().as_str().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -546,6 +552,26 @@ mod tests {
             from_json(&text),
             Err(EventError::BadMeetingLink(_))
         ));
+    }
+
+    /// An event id names a FILE that other devices (and an S3 bucket) share,
+    /// so it must not depend on how many ids this process minted before:
+    /// azul's `Uuid::v4` is a deterministic marker mint (its first id in
+    /// every process is `00000000-0000-4000-...`), and two runs overwrote
+    /// each other's first event.
+    #[test]
+    fn a_new_event_id_is_random_not_the_process_local_marker_sequence() {
+        let ids: Vec<String> = (0..256).map(|_| new_event_id()).collect();
+        for id in &ids {
+            assert!(is_event_id(id), "{id}");
+            assert!(!id.starts_with("00000000-0000"), "{id}");
+        }
+        let mut unique = ids.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), ids.len(), "256 ids, all distinct");
+        // Independently seeded mints (what two processes are) disagree.
+        assert_ne!(new_event_id(), new_event_id());
     }
 
     #[test]
