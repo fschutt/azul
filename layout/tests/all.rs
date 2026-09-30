@@ -666,3 +666,5 @@ mod a_format_toggle_at_a_caret_styles_what_is_typed_next;
 mod a_plain_arrow_crosses_the_blocks_of_its_editing_host;
 #[path = "a_delete_across_blocks_keeps_the_surviving_runs.rs"]
 mod a_delete_across_blocks_keeps_the_surviving_runs;
+#[path = "a_rich_paste_inserts_formatting_and_blocks.rs"]
+mod a_rich_paste_inserts_formatting_and_blocks;

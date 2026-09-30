@@ -2034,6 +2034,7 @@ extern "C" fn on_join_meeting(mut data: RefAny, mut info: CallbackInfo) -> Updat
             info.set_clipboard_content(ClipboardContent {
                 plain_text: AzString::from(meet.link.as_str()),
                 styled_runs: StyledTextRunVec::create(),
+                html: azul::option::OptionString::None,
             });
             eprintln!("[azcalendar] AzMeet not started ({e}); link copied");
             s.notice = format!(

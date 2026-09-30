@@ -4175,6 +4175,7 @@ extern "C" fn on_copy_link(mut data: RefAny, mut info: CallbackInfo) -> Update {
     info.set_clipboard_content(ClipboardContent {
         plain_text: AzString::from(link.as_str()),
         styled_runs: StyledTextRunVec::create(),
+        html: OptionString::None,
     });
     Update::RefreshDom
 }

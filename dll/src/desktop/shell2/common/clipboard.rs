@@ -260,6 +260,7 @@ pub fn payload_to_clipboard_content(payload: &ClipboardPayload) -> Option<Clipbo
         item => item.plain_text().map(|plain| ClipboardContent {
             plain_text: plain.into(),
             styled_runs: StyledTextRunVec::from_const_slice(&[]),
+            html: azul_css::OptionString::None,
         }),
     }
 }
@@ -299,6 +300,7 @@ fn rich_text_to_content(rich: &RichText) -> ClipboardContent {
     ClipboardContent {
         plain_text: rich.as_str().into(),
         styled_runs: runs.into(),
+        html: azul_css::OptionString::None,
     }
 }
 
@@ -330,6 +332,7 @@ mod tests {
         let content = ClipboardContent {
             plain_text: "boldplain".into(),
             styled_runs: vec![styled("bold", true, 16.0), styled("plain", false, 16.0)].into(),
+            html: azul_css::OptionString::None,
         };
         let payload = clipboard_content_to_payload(&content).expect("encodes");
         let back = payload_to_clipboard_content(&payload).expect("decodes");
@@ -357,6 +360,7 @@ mod tests {
         let content = ClipboardContent {
             plain_text: "the real text".into(),
             styled_runs: vec![styled("other", false, 0.0)].into(),
+            html: azul_css::OptionString::None,
         };
         match content_to_rich_item(&content) {
             RichItem::Text(t) => assert_eq!(t, "the real text"),
@@ -385,10 +389,46 @@ mod tests {
         let content = ClipboardContent {
             plain_text: "just text".into(),
             styled_runs: StyledTextRunVec::from_const_slice(&[]),
+            html: azul_css::OptionString::None,
         };
         match content_to_rich_item(&content) {
             RichItem::Text(t) => assert_eq!(t, "just text"),
             other => panic!("expected plain text, got {other:?}"),
         }
+    }
+
+    /// E-PASTE: a paste keeps the HTML flavour NEXT to the plain text - the
+    /// markup as the source put it, which the styled runs cannot hold
+    /// (paragraphs, lists, links). What the default paste inserts, and what
+    /// an app's `Paste` callback (a mail app's sanitizer) reads.
+    #[test]
+    fn a_paste_keeps_the_html_flavour_next_to_the_plain_text() {
+        let payload = ClipboardPayload::new(Platform::MacOs)
+            .with("public.utf8-plain-text", &b"a\nb"[..])
+            .with("public.html", &b"<p>a</p><p><b>b</b></p>"[..]);
+        let content = payload_to_clipboard_content(&payload).expect("decodes");
+        assert_eq!(content.plain_text.as_str(), "a\nb");
+        assert_eq!(
+            content.html.as_ref().map(|h| h.as_str()),
+            Some("<p>a</p><p><b>b</b></p>")
+        );
+    }
+
+    /// A copy whose content carries HTML publishes THAT as the HTML flavour
+    /// (next to the plain text), and it reads back as it was written.
+    #[test]
+    fn a_copy_with_html_publishes_it_as_the_html_flavour() {
+        let content = ClipboardContent {
+            plain_text: "a\nb".into(),
+            styled_runs: StyledTextRunVec::from_const_slice(&[]),
+            html: azul_css::OptionString::Some("<p>a</p><p>b</p>".into()),
+        };
+        let payload = clipboard_content_to_payload(&content).expect("encodes");
+        let back = payload_to_clipboard_content(&payload).expect("decodes");
+        assert_eq!(back.plain_text.as_str(), "a\nb");
+        assert_eq!(
+            back.html.as_ref().map(|h| h.as_str()),
+            Some("<p>a</p><p>b</p>")
+        );
     }
 }

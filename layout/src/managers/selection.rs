@@ -71,6 +71,14 @@ pub struct ClipboardContent {
     pub plain_text: AzString,
     /// Rich text runs with styling information
     pub styled_runs: StyledTextRunVec,
+    /// The HTML flavour, as markup (`text/html`, `public.html`, the fragment
+    /// of Windows' `CF_HTML`): what the source put on the clipboard for a
+    /// reader that keeps structure - paragraphs, lists, quotes, links - which
+    /// the styled runs have nowhere to put. A paste gets it next to the plain
+    /// text (an app's `Paste` callback reads both, `get_clipboard_content`);
+    /// a copy that sets it publishes it as the HTML flavour. `None` when the
+    /// source offered no HTML.
+    pub html: OptionString,
 }
 
 impl_option!(
@@ -221,6 +229,7 @@ impl ClipboardExtract {
         Some(ClipboardContent {
             plain_text: self.plain.into(),
             styled_runs: runs.into(),
+            html: OptionString::None,
         })
     }
 }
@@ -319,6 +328,7 @@ mod autotest_generated {
         ClipboardContent {
             plain_text: AzString::from(""),
             styled_runs: runs.into(),
+            html: OptionString::None,
         }
     }
 
@@ -401,6 +411,7 @@ mod autotest_generated {
         let c = ClipboardContent {
             plain_text: AzString::from("SHOULD-NOT-APPEAR"),
             styled_runs: Vec::<StyledTextRun>::new().into(),
+            html: OptionString::None,
         };
         assert_eq!(c.to_html(), "<div></div>");
     }

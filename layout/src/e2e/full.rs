@@ -21167,6 +21167,7 @@ mod non_interference_can_fail {
                     styled_runs: azul_layout::managers::selection::StyledTextRunVec::from_vec(
                         Vec::new(),
                     ),
+                    html: azul_css::OptionString::None,
                 });
             },
             super::fp_clipboard

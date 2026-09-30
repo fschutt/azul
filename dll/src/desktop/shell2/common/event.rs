@@ -8082,40 +8082,20 @@ pub trait PlatformWindow {
                     .and_then(payload_to_clipboard_content);
                 if let Some(layout_window) = self.get_layout_window_mut() {
                     if let Some(clipboard_content) = pasted {
-                        let clipboard_text = clipboard_content.plain_text.as_str().to_string();
-                        // Paste over a cross-block selection: one atomic
-                        // replace-merge changeset with the pasted text at the
-                        // join (caret resumes after it).
-                        if layout_window
-                            .text_edit_manager
-                            .get_cross_block_selection()
-                            .is_some()
-                        {
-                            if layout_window
-                                .replace_cross_block_selection(&clipboard_text)
-                                .is_some()
-                            {
-                                return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+                        // The default paste - over a document selection, the
+                        // smart paste, the text at every caret - is the
+                        // layout window's, shared with the headless tests
+                        // (`LayoutWindow::paste_clipboard_content`).
+                        use azul_layout::window::PasteOutcome;
+                        return match layout_window.paste_clipboard_content(&clipboard_content) {
+                            PasteOutcome::Nothing => ProcessEventResult::DoNothing,
+                            PasteOutcome::Text => {
+                                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                             }
-                        }
-                        // `styled_runs` is populated whenever the OS payload
-                        // carried a rich flavor (RTF/HTML) the decode policy
-                        // could read; the text-editing pipeline below pastes
-                        // the plain text.
-                        layout_window
-                            .clipboard_manager
-                            .set_paste_content(clipboard_content);
-                        // Smart paste: N lines onto N carets, one line each
-                        // (`LayoutWindow::paste_one_line_per_caret`).
-                        if layout_window.paste_one_line_per_caret(&clipboard_text) {
-                            return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
-                        }
-
-                        // Default: broadcast paste text to all cursors
-                        let affected = layout_window.process_text_input(&clipboard_text);
-                        if !affected.is_empty() {
-                            return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
-                        }
+                            PasteOutcome::Structural => {
+                                ProcessEventResult::ShouldIncrementalRelayout
+                            }
+                        };
                     }
                 }
                 ProcessEventResult::DoNothing

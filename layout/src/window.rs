@@ -1211,6 +1211,20 @@ pub struct LandedTextEdit {
     pub revealed: bool,
 }
 
+/// What [`LayoutWindow::paste_clipboard_content`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PasteOutcome {
+    /// Nothing: no editing focus, or nothing to paste.
+    Nothing,
+    /// Text at the caret(s): applied, or recorded to land with the pass's
+    /// text changeset.
+    Text,
+    /// A structural edit recorded for the app (a document selection
+    /// replaced, pasted blocks or links); its preview paints on the next
+    /// relayout.
+    Structural,
+}
+
 impl LandedTextEdit {
     /// Whether any edit landed.
     #[must_use]
@@ -22964,6 +22978,40 @@ impl LayoutWindow {
         );
     }
 
+    /// The DEFAULT PASTE of `content` at the focus (`SystemChange::
+    /// PasteFromClipboard` once the `Paste` callbacks let it through): the
+    /// one implementation the shells call, so the headless tests paste what
+    /// a user pastes.
+    ///
+    /// Over a document selection, one atomic replace of it; with one line
+    /// per caret, the smart paste ([`Self::paste_one_line_per_caret`]);
+    /// else the text at every caret, recorded for the pass's changeset.
+    pub fn paste_clipboard_content(
+        &mut self,
+        content: &crate::managers::selection::ClipboardContent,
+    ) -> PasteOutcome {
+        let text = content.plain_text.as_str().to_string();
+        // Paste over a cross-block selection: one atomic replace-merge
+        // changeset with the pasted text at the join (caret resumes after
+        // it).
+        if self.text_edit_manager.get_cross_block_selection().is_some()
+            && self.replace_cross_block_selection(&text).is_some()
+        {
+            return PasteOutcome::Structural;
+        }
+        self.clipboard_manager.set_paste_content(content.clone());
+        // Smart paste: N lines onto N carets, one line each.
+        if self.paste_one_line_per_caret(&text) {
+            return PasteOutcome::Text;
+        }
+        // Default: the text at every caret.
+        if self.process_text_input(&text).is_empty() {
+            PasteOutcome::Nothing
+        } else {
+            PasteOutcome::Text
+        }
+    }
+
     /// The smart paste: `text` has exactly one line per LOCAL caret of the
     /// session (a peer's caret gets none), and each caret receives its own
     /// line (`text3::edit::edit_text_multi`). `false` - nothing done - when
@@ -23066,6 +23114,7 @@ impl LayoutWindow {
                 content: ClipboardContent {
                     plain_text: pasted.into(),
                     styled_runs: StyledTextRunVec::from_const_slice(&[]),
+                    html: azul_css::OptionString::None,
                 },
                 position: CursorPosition::Uninitialized,
                 new_cursor: CursorPosition::Uninitialized,
