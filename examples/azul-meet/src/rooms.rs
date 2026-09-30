@@ -217,6 +217,63 @@ pub fn relay_choice(setting: Option<&str>, worker_host: &str) -> Relay {
     }
 }
 
+/// The meeting server when none was saved, `AZMEET_WORKER` is not set and none is built in: the
+/// local mock (`cf-workers/meet/dev-server.mjs`).
+pub const LOCAL_WORKER: &str = "http://127.0.0.1:8787";
+/// A settings file longer than this is not read.
+pub const MAX_SETTINGS_BYTES: usize = 4096;
+/// The longest meeting server address taken.
+const MAX_SERVER_CHARS: usize = 2048;
+/// The settings file's line naming the meeting server.
+const SETTINGS_KEY: &str = "meeting_server=";
+
+/// Where the meeting server's address at start came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServerSource {
+    /// Saved the last time it answered (the start screen's field).
+    Saved,
+    /// `AZMEET_WORKER`.
+    Environment,
+    /// Built in: `PRODUCTION_WORKER`, else [`LOCAL_WORKER`].
+    BuiltIn,
+}
+
+/// A meeting server address as typed: trimmed, without trailing slashes. `None` unless it is an
+/// http or https address with a host, printable ASCII without spaces, a query or a fragment, and at
+/// most 2048 characters.
+pub fn normalize_server(input: &str) -> Option<String> {
+    todo!()
+}
+
+/// The meeting server the start screen's field shows at start, and where it came from: the one
+/// saved last time, else `AZMEET_WORKER`, else `built_in` (else [`LOCAL_WORKER`]). A candidate that
+/// is no meeting server address is passed over.
+pub fn server_prefill(
+    saved: Option<&str>,
+    env: Option<&str>,
+    built_in: &str,
+) -> (String, ServerSource) {
+    todo!()
+}
+
+/// Whether AzMeet opens its in-process demo instead of the start screen: only when nothing was
+/// configured (the built-in default) and nothing answers there. A saved or configured server that
+/// does not answer gets the start screen, which says so next to the field.
+pub fn opens_demo(source: ServerSource, answers: bool) -> bool {
+    todo!()
+}
+
+/// The settings file's text remembering `server`.
+pub fn encode_settings(server: &str) -> String {
+    todo!()
+}
+
+/// The meeting server a settings file's text remembers; `None` for a file that is too long, has no
+/// such line, or names no meeting server address. Other lines are ignored.
+pub fn decode_settings(text: &str) -> Option<String> {
+    todo!()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -456,5 +513,108 @@ mod tests {
             relay_choice(Some("https://relay.example.com"), "127.0.0.1"),
             Relay::Custom("https://relay.example.com".to_string())
         );
+    }
+
+    #[test]
+    fn the_meeting_server_is_the_saved_one_else_azmeet_worker_else_the_built_in_default() {
+        let saved = Some("https://meet.example.com/");
+        let env = Some("http://127.0.0.1:9999");
+        assert_eq!(
+            server_prefill(saved, env, "https://built.in"),
+            (
+                String::from("https://meet.example.com"),
+                ServerSource::Saved
+            )
+        );
+        assert_eq!(
+            server_prefill(None, env, "https://built.in"),
+            (
+                String::from("http://127.0.0.1:9999"),
+                ServerSource::Environment
+            )
+        );
+        assert_eq!(
+            server_prefill(None, None, "https://built.in"),
+            (String::from("https://built.in"), ServerSource::BuiltIn)
+        );
+        assert_eq!(
+            server_prefill(None, None, ""),
+            (String::from(LOCAL_WORKER), ServerSource::BuiltIn)
+        );
+    }
+
+    #[test]
+    fn a_saved_or_configured_server_that_is_no_address_is_passed_over() {
+        assert_eq!(
+            server_prefill(
+                Some("  "),
+                Some("ftp://meet.example.com"),
+                "https://built.in"
+            ),
+            (String::from("https://built.in"), ServerSource::BuiltIn)
+        );
+        assert_eq!(
+            server_prefill(Some("not an address"), Some(" http://localhost:8787/ "), ""),
+            (
+                String::from("http://localhost:8787"),
+                ServerSource::Environment
+            )
+        );
+    }
+
+    #[test]
+    fn a_meeting_server_address_is_trimmed_and_needs_http_or_https_and_a_host() {
+        assert_eq!(
+            normalize_server(" https://meet.example.com// "),
+            Some(String::from("https://meet.example.com"))
+        );
+        assert_eq!(
+            normalize_server("HTTP://127.0.0.1:8787/base/"),
+            Some(String::from("HTTP://127.0.0.1:8787/base"))
+        );
+        let long = format!("https://{}.com", "a".repeat(3000));
+        for bad in [
+            "",
+            "meet.example.com",
+            "ftp://meet.example.com",
+            "https://",
+            "http:///rooms",
+            "https://:8787",
+            "https://meet example.com",
+            "https://meet.example.com/?room=1",
+            "https://meet.example.com/#x",
+            long.as_str(),
+        ] {
+            assert_eq!(normalize_server(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn only_a_built_in_server_that_does_not_answer_opens_the_demo() {
+        assert!(opens_demo(ServerSource::BuiltIn, false));
+        assert!(!opens_demo(ServerSource::BuiltIn, true));
+        assert!(!opens_demo(ServerSource::Saved, false));
+        assert!(!opens_demo(ServerSource::Environment, false));
+    }
+
+    #[test]
+    fn the_settings_file_keeps_the_meeting_server_and_refuses_what_it_cannot_trust() {
+        let text = encode_settings("https://meet.example.com");
+        assert_eq!(text, "meeting_server=https://meet.example.com\n");
+        assert_eq!(
+            decode_settings(&text),
+            Some(String::from("https://meet.example.com"))
+        );
+        assert_eq!(
+            decode_settings("# AzMeet\nother=1\n  meeting_server=http://a.b  \n"),
+            Some(String::from("http://a.b"))
+        );
+        assert_eq!(decode_settings(""), None);
+        assert_eq!(decode_settings("meeting_server=javascript:alert(1)"), None);
+        let padded = format!(
+            "meeting_server=https://a.b\n{}",
+            "x".repeat(MAX_SETTINGS_BYTES)
+        );
+        assert_eq!(decode_settings(&padded), None, "a file that is too long");
     }
 }
