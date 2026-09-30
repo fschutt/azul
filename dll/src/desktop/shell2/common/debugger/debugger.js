@@ -3,6 +3,7 @@
  *
  * Architecture:
  *   app.config   — connection, mock mode
+ *   app.mode     — the page's light / dark mode (Auto / Light / Dark toggle)
  *   app.state    — all runtime state (selection, tests, overrides, etc.)
  *   app.schema   — command definitions with params, desc, example
  *   app.api      — HTTP communication (+ mock fallbacks)
@@ -187,6 +188,97 @@ const app = {
             'assert_layout':     { desc: 'Assert layout property value',           examples: ['/assert_layout selector .box property width expected 100 tolerance 1'], params: [{ name: 'selector', type: 'text', placeholder: '.box' }, { name: 'property', type: 'text', placeholder: 'width' }, { name: 'expected', type: 'number', value: 100 }, { name: 'tolerance', type: 'number', value: 1 }] },
             'assert_app_state':  { desc: 'Assert app state path value',            examples: ['/assert_app_state path counter expected 42'],   params: [{ name: 'path', type: 'text', placeholder: 'counter' }, { name: 'expected', type: 'text', placeholder: '42' }] },
         }
+    },
+
+    /* ================================================================
+     * MODE — the page's light / dark mode
+     * ================================================================
+     * Auto follows the desktop (`prefers-color-scheme`); Light and Dark pin
+     * the page. The palette is CSS tokens on :root (debugger.css): light by
+     * default, dark under ONE `@media (prefers-color-scheme: dark)` block.
+     * Pinning rewrites that block's media condition ("all" / "not all"),
+     * Auto puts the query back - so there is no second copy of the dark
+     * palette. The choice is remembered in localStorage.
+     */
+    mode: {
+        KEY: 'azul_debugger_mode',
+        QUERY: '(prefers-color-scheme: dark)',
+        CHOICES: ['auto', 'light', 'dark'],
+        choice: 'auto',
+        _blocks: null,      // the dark palette's @media rules, found once
+        _dark: null,        // the mode last applied: true = dark
+        _listeners: [],
+
+        /** Restore the remembered choice and apply it; follow the desktop while on Auto. */
+        init: function() {
+            var saved = null;
+            try { saved = localStorage.getItem(this.KEY); } catch (e) { /* private mode */ }
+            this.choice = this.CHOICES.indexOf(saved) >= 0 ? saved : 'auto';
+            var self = this;
+            if (window.matchMedia) {
+                var desktop = window.matchMedia(this.QUERY);
+                var follow = function() { if (self.choice === 'auto') self.apply(); };
+                if (desktop.addEventListener) desktop.addEventListener('change', follow);
+                else if (desktop.addListener) desktop.addListener(follow);
+            }
+            this.apply();
+        },
+
+        /** Pin 'light' or 'dark', or follow the desktop ('auto'); remembered. */
+        set: function(choice) {
+            if (this.CHOICES.indexOf(choice) < 0) return;
+            this.choice = choice;
+            try { localStorage.setItem(this.KEY, choice); } catch (e) { /* private mode */ }
+            this.apply();
+        },
+
+        /** Whether the page shows its dark palette. */
+        isDark: function() {
+            if (this.choice !== 'auto') return this.choice === 'dark';
+            return !!(window.matchMedia && window.matchMedia(this.QUERY).matches);
+        },
+
+        /** `fn(dark)` after every change of the mode the page shows. */
+        onChange: function(fn) { this._listeners.push(fn); },
+
+        /** The `@media (prefers-color-scheme: dark)` rules of the page's sheets. */
+        _darkBlocks: function() {
+            if (this._blocks) return this._blocks;
+            var want = this.QUERY.replace(/\s+/g, '').toLowerCase();
+            var found = [];
+            Array.prototype.forEach.call(document.styleSheets, function(sheet) {
+                var rules;
+                try { rules = sheet.cssRules; } catch (e) { return; } // another origin: not ours
+                Array.prototype.forEach.call(rules || [], function(rule) {
+                    if (rule.media && rule.media.mediaText.replace(/\s+/g, '').toLowerCase() === want) {
+                        found.push(rule);
+                    }
+                });
+            });
+            // Found once: pinned, their text no longer names the query.
+            this._blocks = found;
+            return found;
+        },
+
+        apply: function() {
+            var condition = this.choice === 'auto' ? this.QUERY : (this.choice === 'dark' ? 'all' : 'not all');
+            this._darkBlocks().forEach(function(rule) {
+                if (rule.media.mediaText !== condition) rule.media.mediaText = condition;
+            });
+            document.documentElement.setAttribute('data-mode', this.choice);
+            var choice = this.choice;
+            document.querySelectorAll('[data-mode-choice]').forEach(function(b) {
+                b.setAttribute('aria-checked', b.getAttribute('data-mode-choice') === choice ? 'true' : 'false');
+            });
+            var dark = this.isDark();
+            if (dark === this._dark) return;
+            var first = this._dark === null;
+            this._dark = dark;
+            if (first) return;
+            this._listeners.forEach(function(fn) {
+                try { fn(dark); } catch (e) { console.error('[dbg] mode listener failed:', e); }
+            });
+        },
     },
 
     /* ================================================================
@@ -4785,4 +4877,7 @@ function _parseSlashCommand(input) {
     return payload;
 }
 
+// The mode first, before the page is shown: a pinned mode must not flash
+// the desktop's.
+app.mode.init();
 window.onload = function() { app.init(); };

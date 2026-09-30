@@ -48,6 +48,12 @@
             </div>
         </div>
         <div style="flex:1"></div>
+        <!-- The page's light / dark mode (debugger.js `app.mode`): Auto follows the desktop. -->
+        <div class="mode-toggle" id="mode-toggle" role="radiogroup" aria-label="Light or dark mode">
+            <button type="button" role="radio" data-mode-choice="auto" aria-checked="true" onclick="app.mode.set('auto')" title="Follow the desktop's light / dark mode">Auto</button>
+            <button type="button" role="radio" data-mode-choice="light" aria-checked="false" onclick="app.mode.set('light')" title="Light mode">Light</button>
+            <button type="button" role="radio" data-mode-choice="dark" aria-checked="false" onclick="app.mode.set('dark')" title="Dark mode">Dark</button>
+        </div>
         <div id="connection-status" style="padding:4px 8px; color: var(--warning); cursor:default; font-size:12px;">Disconnected</div>
     </div>
 

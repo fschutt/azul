@@ -569,6 +569,7 @@
         thumbs: {},              // 'lib:name' -> 'pending' | thumbOf(answer)
         thumbQueue: [],
         thumbBusy: 0,
+        thumbGen: 0,             // bumped when the page's mode changes: older answers are dropped
         palette: [],
         paletteFilter: '',
         observer: null,
@@ -1492,20 +1493,43 @@
         }
     }
 
+    /** Whether the page shows its dark palette (`app.mode`, debugger.js). */
+    function pageIsDark() {
+        return !!(app.mode && app.mode.isDark());
+    }
+
     function loadThumb(entry) {
         var k = entryKey(entry);
+        var gen = S.thumbGen;
         S.thumbBusy++;
+        // In the page's mode: a dark page shows the components as they look
+        // in dark mode, on a dark background (builder.rs `thumbnail`).
         call({ op: 'get_component_thumbnail', library: entry.library, name: entry.component,
-               width: THUMB_WIDTH, dpi: THUMB_DPI })
-            .then(function (t) { S.thumbs[k] = thumbOf(t); })
-            .catch(function () { S.thumbs[k] = thumbOf(null); })
+               width: THUMB_WIDTH, dpi: THUMB_DPI, dark: pageIsDark() })
+            .then(function (t) { if (gen === S.thumbGen) S.thumbs[k] = thumbOf(t); })
+            .catch(function () { if (gen === S.thumbGen) S.thumbs[k] = thumbOf(null); })
             .then(function () {
                 S.thumbBusy--;
-                document.querySelectorAll('.azb-card').forEach(function (card) {
-                    if (card.dataset.key === k) fillThumb(card.querySelector('.azb-thumb'), entry);
-                });
+                if (gen === S.thumbGen) {
+                    document.querySelectorAll('.azb-card').forEach(function (card) {
+                        if (card.dataset.key === k) fillThumb(card.querySelector('.azb-thumb'), entry);
+                    });
+                }
                 pumpThumbs();
             });
+    }
+
+    /**
+     * The page switched between light and dark: every card asks for its
+     * picture again, in the new mode. An answer still on its way for the old
+     * mode is dropped (`thumbGen`).
+     */
+    function repaintThumbs() {
+        S.thumbGen++;
+        S.thumbs = {};
+        S.thumbQueue = [];
+        var container = document.getElementById('palette-component-list');
+        if (container && S.palette.length) drawPalette(container);
     }
 
     // ── B5: the Inspector's builder panels ──
@@ -2033,7 +2057,7 @@
             '.azb-toolbar{display:flex;align-items:center;gap:2px;padding:4px 6px;border-bottom:1px solid var(--border);flex-shrink:0}',
             '.azb-seg{display:inline-flex;border:1px solid var(--border);border-radius:4px;overflow:hidden}',
             '.azb-seg button{background:transparent;color:var(--text-muted);border:0;padding:2px 8px;font-size:11px;cursor:pointer}',
-            '.azb-seg button.active{background:var(--accent);color:#fff}',
+            '.azb-seg button.active{background:var(--accent);color:var(--on-accent)}',
             '.azb-spacer{flex:1}',
             '.azb-icon{background:transparent;border:0;color:var(--text-main);cursor:pointer;padding:2px;border-radius:3px;display:inline-flex;align-items:center}',
             '.azb-icon:hover:not(:disabled){background:var(--bg-hover)}',
@@ -2054,10 +2078,10 @@
             '.azb-card{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:4px;background:var(--bg-panel);cursor:grab;overflow:hidden;user-select:none}',
             '.azb-card:hover{border-color:var(--accent)}',
             '.azb-card:active{cursor:grabbing}',
-            '.azb-thumb{height:48px;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden}',
+            '.azb-thumb{height:48px;background:var(--thumb-bg);display:flex;align-items:center;justify-content:center;overflow:hidden}',
             '.azb-thumb img{max-width:100%;max-height:100%;object-fit:contain;display:block}',
-            '.azb-thumb.azb-loading{background:#f3f3f3}',
-            '.azb-thumb-letter{color:#9a9a9a;font:600 18px/1 sans-serif}',
+            '.azb-thumb.azb-loading{background:var(--thumb-loading)}',
+            '.azb-thumb-letter{color:var(--text-muted);font:600 18px/1 sans-serif}',
             '.azb-thumb-letter.azb-thumb-tag{font:11px/1 monospace}',
             '.azb-thumb.azb-novisual{background:var(--bg-panel)}',
             '.azb-thumb-novisual{font:10px/1.3 sans-serif;color:var(--text-muted);border:1px dashed var(--border);border-radius:3px;padding:1px 6px;white-space:nowrap}',
@@ -2086,7 +2110,7 @@
             '.azb-canvas{flex:0 0 auto;display:flex;flex-direction:column;background:var(--bg-sidebar);border-bottom:1px solid var(--border)}',
             '.azb-canvas-title{font-size:11px;font-weight:bold;text-transform:uppercase;padding:0 6px 0 4px}',
             '.azb-canvas-info{font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}',
-            '.azb-canvas-stage{padding:10px;overflow:auto;max-height:42vh;text-align:center;background:repeating-conic-gradient(#2a2a2a 0 25%,#333 0 50%) 0 0/16px 16px}',
+            '.azb-canvas-stage{padding:10px;overflow:auto;max-height:42vh;text-align:center;background:repeating-conic-gradient(var(--checker-a) 0 25%,var(--checker-b) 0 50%) 0 0/16px 16px}',
             '.azb-canvas-frame{position:relative;display:inline-block;max-width:100%;line-height:0;box-shadow:0 1px 6px rgba(0,0,0,.5)}',
             '.azb-canvas-frame img{display:block;max-width:100%;max-height:calc(42vh - 20px);width:auto;height:auto;cursor:crosshair}',
             '.azb-canvas-mark{position:absolute;pointer-events:none;box-sizing:border-box}',
@@ -2129,6 +2153,7 @@
             return origRenderDomTree.apply(this, arguments);
         };
         app.handlers._loadPaletteComponents = function () { return renderPalette(); };
+        if (app.mode && app.mode.onChange) app.mode.onChange(repaintThumbs);
         document.addEventListener('keydown', onKeyDown);
         // Every drag starts clean: a row re-rendered mid-drag never gets its
         // `dragend`, and a drag from outside this module sets no payload.
