@@ -13,8 +13,9 @@ Never compiled (house rule): the parent compiles and runs the suites.
 - 2. E10: RED `eb8c3036f`, fix `13add42a7` (inline fragments from DL text-run cursor areas)
 - 5. E-OL: RED `8db89d933`, fix `ce06c2aca` (marker outside its text clip; CPU LCD tile path clips, sweep does not)
 
+- 8. E-MODE DROPPED from the engine by ruling (RED f0b198335 removed in e062843b8). Replacement per corrected ruling: AzMail paper that follows the mail's dark rules: RED `1473e3954`, feat `93e756fb5`
+
 ## IN PROGRESS
-- 8. E-MODE DROPPED from the engine by ruling (RED f0b198335 removed in e062843b8; unfinished color-scheme property patch saved in the scratchpad, not committed). Replacement: AzMail sanitizer wraps HTML mail in a light paper container + strips prefers-color-scheme dark rules.
 
 ## NEXT
 - 9. R1's open table items
