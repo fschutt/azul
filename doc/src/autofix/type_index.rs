@@ -3444,6 +3444,50 @@ fn clean_type_string(s: &str) -> String {
 mod tests {
     use super::*;
 
+    /// The console summaries (`autofix add`, `discover`, `debug api`) printed
+    /// a method as `(&self) -> ()` whatever its arguments, which read as "the
+    /// tool dropped the arguments" and had them written by hand (2026-09-30).
+    /// One formatter shows every argument with its reference kind.
+    #[test]
+    fn a_methods_summary_shows_every_argument_with_its_ref_kind() {
+        let m = MethodDef {
+            name: "toggle_text_format".to_string(),
+            self_kind: Some(SelfKind::RefMut),
+            args: vec![
+                MethodArg {
+                    name: "host".to_string(),
+                    ty: "DomNodeId".to_string(),
+                    ref_kind: RefKind::Value,
+                },
+                MethodArg {
+                    name: "format".to_string(),
+                    ty: "TextFormat".to_string(),
+                    ref_kind: RefKind::Ref,
+                },
+            ],
+            return_type: None,
+            return_ref_kind: RefKind::Value,
+            is_constructor: false,
+            doc: Vec::new(),
+            is_public: true,
+        };
+        assert_eq!(
+            m.signature(),
+            "(&mut self, host: DomNodeId, format: &TextFormat) -> ()"
+        );
+        let ctor = MethodDef {
+            name: "create".to_string(),
+            self_kind: None,
+            args: Vec::new(),
+            return_type: Some("Tile".to_string()),
+            return_ref_kind: RefKind::Value,
+            is_constructor: true,
+            doc: Vec::new(),
+            is_public: true,
+        };
+        assert_eq!(ctor.signature(), "() -> Tile");
+    }
+
     fn extract_types_from_source(source: &str) -> Vec<TypeDefinition> {
         let syntax_tree: File = syn::parse_file(source).expect("Failed to parse");
         let mut types = Vec::new();
