@@ -168,6 +168,103 @@ const ZOOM_LABEL_W: isize = 42;
 
 // -- Theme --
 
+// -- Sync status --
+
+/// How the account's mailbox (or any synced store) is doing right now - what
+/// Outlook's status bar shows at its right edge: "Connected", "Send/Receive
+/// error", "Sending/Receiving...", "Working Offline".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum StatusBarSyncKind {
+    /// Up to date and connected.
+    #[default]
+    Connected,
+    /// A sync is running.
+    Syncing,
+    /// The last sync failed; the label says what (a click opens the error).
+    Error,
+    /// Working offline: nothing is synced.
+    Offline,
+}
+
+impl StatusBarSyncKind {
+    /// The glyph for this state (a `Dom::create_icon` name).
+    #[must_use]
+    pub const fn icon(self) -> &'static str {
+        match self {
+            Self::Connected => "cloud_done",
+            Self::Syncing => "sync",
+            Self::Error => "error",
+            Self::Offline => "cloud_off",
+        }
+    }
+}
+
+/// The sync-status indicator: a glyph for the state beside its label, a
+/// click to open the details (the send/receive errors, the offline toggle).
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct StatusBarSync {
+    /// What the indicator says ("Connected", "Send/Receive error").
+    pub label: AzString,
+    /// Opens the details; without it the indicator is inert text.
+    pub on_click: OptionButtonOnClick,
+    /// The state, which picks the glyph and its colour.
+    pub kind: StatusBarSyncKind,
+}
+
+impl StatusBarSync {
+    /// An indicator saying `label` in state `kind`, with no click.
+    #[must_use]
+    pub fn create(label: AzString, kind: StatusBarSyncKind) -> Self {
+        Self {
+            label,
+            on_click: None.into(),
+            kind,
+        }
+    }
+
+    /// The click that opens the details.
+    pub fn set_on_click<C: Into<super::button::ButtonOnClickCallback>>(
+        &mut self,
+        data: RefAny,
+        on_click: C,
+    ) {
+        self.on_click = Some(super::button::ButtonOnClick {
+            refany: data,
+            callback: on_click.into(),
+        })
+        .into();
+    }
+
+    /// [`Self::set_on_click`] for the builder chain.
+    #[must_use]
+    pub fn with_on_click<C: Into<super::button::ButtonOnClickCallback>>(
+        mut self,
+        data: RefAny,
+        on_click: C,
+    ) -> Self {
+        self.set_on_click(data, on_click);
+        self
+    }
+}
+
+impl_option!(
+    StatusBarSync,
+    OptionStatusBarSync,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+
+/// The Office bar's glyph for a sync error: a warm red that reads on the
+/// accent blue (the white glyphs around it are the bar's text).
+const W13_SYNC_ERROR: ColorU = ColorU {
+    r: 255,
+    g: 180,
+    b: 169,
+    a: 255,
+};
+
 /// Color palette from which a full [`StatusBarStyle`] is derived via
 /// [`StatusBarStyle::from_theme`]. All fields are plain colors, so themes
 /// are trivially constructible over FFI. Preset: [`StatusBarTheme::office_2013`]
@@ -191,6 +288,9 @@ pub struct StatusBarTheme {
     pub thumb: ColorU,
     /// Zoom slider thumb border.
     pub thumb_border: ColorU,
+    /// The sync indicator's glyph when the last sync failed
+    /// ([`StatusBarSyncKind::Error`]); every other state's glyph is `text`.
+    pub sync_error: ColorU,
 }
 
 impl StatusBarTheme {
@@ -206,6 +306,7 @@ impl StatusBarTheme {
             rail: W13_RAIL,
             thumb: WHITE,
             thumb_border: W13_THUMB_BORDER,
+            sync_error: W13_SYNC_ERROR,
         }
     }
 
@@ -236,6 +337,8 @@ impl StatusBarTheme {
             rail: separator.unwrap_or(d.rail),
             thumb: on_accent.unwrap_or(d.thumb),
             thumb_border: separator.unwrap_or(d.thumb_border),
+            // No platform reports an "error on accent" colour: the Office one.
+            sync_error: d.sync_error,
         }
     }
 }
@@ -405,6 +508,15 @@ fn theme_segment_label(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from_vec(vec![
         Cond::simple(P::const_font_size(StyleFontSize::const_px(TEXT_PX))),
         cond_text_color(t.text),
+    ])
+}
+
+/// The sync indicator's glyph when the sync failed: the segment glyph in the
+/// palette's error colour.
+fn theme_sync_icon_error(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(vec![
+        Cond::simple(P::const_font_size(StyleFontSize::const_px(ICON_PX - 1))),
+        cond_text_color(t.sync_error),
     ])
 }
 
@@ -766,6 +878,13 @@ pub struct StatusBarStyle {
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub zoom_label_style: OptionCssPropertyWithConditionsVec,
+    /// The sync indicator's glyph in the ERROR state (its other states take
+    /// `segment_icon_style`; the indicator itself is a segment).
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer, "no properties at all".
+    pub sync_icon_error_style: OptionCssPropertyWithConditionsVec,
 }
 
 impl StatusBarStyle {
@@ -806,6 +925,7 @@ impl StatusBarStyle {
             slider_track_style: OptionCssPropertyWithConditionsVec::None,
             slider_thumb_style: OptionCssPropertyWithConditionsVec::None,
             zoom_label_style: OptionCssPropertyWithConditionsVec::None,
+            sync_icon_error_style: OptionCssPropertyWithConditionsVec::None,
         }
     }
 
@@ -987,6 +1107,16 @@ impl StatusBarStyle {
             .clone()
             .into_option()
             .unwrap_or_else(|| theme_zoom_label(&self.theme))
+    }
+
+    /// The `sync_icon_error_style` this bundle renders with: the caller's
+    /// override if there is one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_sync_icon_error_style(&self) -> CssPropertyWithConditionsVec {
+        self.sync_icon_error_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_sync_icon_error(&self.theme))
     }
 }
 
@@ -1290,6 +1420,9 @@ pub struct StatusBar {
     pub zoom: OptionStatusBarZoom,
     /// All part styles (defaults to the the Office-2013-era look look).
     pub style: StatusBarStyle,
+    /// Optional sync-status indicator, right of the filler and left of the
+    /// view switcher (Outlook's "Connected" / "Send/Receive error").
+    pub sync: OptionStatusBarSync,
     /// The widget theme, or `None` to follow the app theme
     /// (`AppConfig::with_theme`). Flat is the Office look [`Self::style`]
     /// describes; flora lays flora's toolbar strip and paper keys on the same
@@ -1337,6 +1470,7 @@ impl StatusBar {
             views: None.into(),
             zoom: None.into(),
             style: StatusBarStyle::office_2013(),
+            sync: None.into(),
             theme: OptionUiTheme::None,
         }
     }
@@ -1377,6 +1511,18 @@ impl StatusBar {
     #[must_use]
     pub fn with_zoom(mut self, zoom: StatusBarZoom) -> Self {
         self.set_zoom(zoom);
+        self
+    }
+
+    /// Sets the sync-status indicator.
+    pub fn set_sync(&mut self, sync: StatusBarSync) {
+        self.sync = Some(sync).into();
+    }
+
+    /// Builder method: sets the sync-status indicator and returns `self`.
+    #[must_use]
+    pub fn with_sync(mut self, sync: StatusBarSync) -> Self {
+        self.set_sync(sync);
         self
     }
 
@@ -1472,6 +1618,7 @@ impl StatusBar {
             views,
             zoom,
             style,
+            sync: _,
             // The look to build is `theme`: the field is the caller's pin,
             // already resolved by `dom`.
             theme: _,
@@ -2308,6 +2455,200 @@ mod flora_tests {
                     );
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod sync_tests {
+    //! The sync-status indicator: Outlook's "Connected" / "Send/Receive
+    //! error" at the right edge of the bar.
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeId, NodeType},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+
+    use super::*;
+    use crate::widgets::{
+        button::ButtonOnClickCallbackType,
+        roving::test_support as rv,
+        themes::{theme_blocks::checks, theme_checks},
+    };
+
+    fn segs() -> StatusBarSegmentVec {
+        StatusBarSegmentVec::from_vec(vec![StatusBarSegment::new(AzString::from(
+            "Filter applied",
+        ))])
+    }
+
+    fn bar(kind: StatusBarSyncKind) -> StatusBar {
+        StatusBar::new(segs()).with_sync(StatusBarSync::create(
+            AzString::from("Send/Receive error"),
+            kind,
+        ))
+    }
+
+    /// The first icon node of the tree, printed.
+    fn glyph(dom: &Dom) -> String {
+        theme_checks::nodes(dom)
+            .into_iter()
+            .find_map(|(_, n)| match n.root.get_node_type() {
+                NodeType::Icon(_) => Some(format!("{:?}", n.root.get_node_type())),
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+
+    /// The first icon node's style, printed.
+    fn glyph_style(dom: &Dom) -> String {
+        theme_checks::nodes(dom)
+            .into_iter()
+            .find_map(|(_, n)| match n.root.get_node_type() {
+                NodeType::Icon(_) => Some(format!("{:?}", n.root.get_style())),
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+
+    /// Whether any node of the tree is named `name` for assistive technology.
+    fn named(dom: &Dom, name: &str) -> bool {
+        theme_checks::nodes(dom).into_iter().any(|(_, n)| {
+            n.root
+                .get_accessibility_info()
+                .and_then(|i| i.accessibility_name.as_ref().map(|s| s.as_str() == name))
+                .unwrap_or(false)
+        })
+    }
+
+    fn id(n: NodeId) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+        }
+    }
+
+    /// The bar's third part (segment, filler, sync) in `styled`.
+    fn sync_node(styled: &StyledDom) -> NodeId {
+        let hierarchy = styled.node_hierarchy.as_ref();
+        let segment = hierarchy[0]
+            .first_child_id(NodeId::new(0))
+            .expect("the segment");
+        let filler = hierarchy[segment.index()]
+            .next_sibling_id()
+            .expect("the filler");
+        hierarchy[filler.index()]
+            .next_sibling_id()
+            .expect("the sync indicator")
+    }
+
+    #[test]
+    fn the_sync_indicator_sits_between_the_filler_and_the_views() {
+        let dom = bar(StatusBarSyncKind::Connected)
+            .with_views(StatusBarViewSwitcher::office_2013())
+            .with_zoom(StatusBarZoom::office_2013())
+            .dom();
+        let parts = dom.children.as_ref();
+        assert_eq!(parts.len(), 5, "segment, filler, sync, views, zoom");
+        assert!(theme_checks::has_class(
+            &parts[1],
+            "__azul-native-statusbar-filler"
+        ));
+        assert!(theme_checks::has_class(
+            &parts[2],
+            "__azul-native-statusbar-sync"
+        ));
+        assert!(theme_checks::has_class(
+            &parts[3],
+            "__azul-native-statusbar-views"
+        ));
+        assert!(
+            named(&parts[2], "Send/Receive error"),
+            "the indicator is named by its label"
+        );
+    }
+
+    #[test]
+    fn every_sync_state_has_its_own_glyph_and_the_error_its_own_colour() {
+        let kinds = [
+            StatusBarSyncKind::Connected,
+            StatusBarSyncKind::Syncing,
+            StatusBarSyncKind::Error,
+            StatusBarSyncKind::Offline,
+        ];
+        let glyphs: Vec<String> = kinds.iter().map(|k| glyph(&bar(*k).dom())).collect();
+        for (i, a) in glyphs.iter().enumerate() {
+            assert!(!a.is_empty(), "{:?} shows a glyph", kinds[i]);
+            for b in &glyphs[i + 1..] {
+                assert_ne!(a, b, "two states share a glyph: {glyphs:?}");
+            }
+        }
+        assert_ne!(
+            glyph_style(&bar(StatusBarSyncKind::Error).dom()),
+            glyph_style(&bar(StatusBarSyncKind::Connected).dom()),
+            "the error glyph is not painted in the bar's text colour"
+        );
+        assert_eq!(
+            glyph_style(&bar(StatusBarSyncKind::Syncing).dom()),
+            glyph_style(&bar(StatusBarSyncKind::Connected).dom()),
+            "every other state's glyph is the bar's text colour"
+        );
+    }
+
+    type Log = Arc<Mutex<usize>>;
+
+    extern "C" fn record(mut data: RefAny, _: CallbackInfo) -> Update {
+        if let Some(log) = data.downcast_ref::<Log>() {
+            *log.lock().expect("log") += 1;
+        }
+        Update::RefreshDom
+    }
+
+    #[test]
+    fn a_sync_indicator_reports_its_click_and_is_inert_without_one() {
+        let log: Log = Arc::new(Mutex::new(0));
+        let sync = StatusBarSync::create(
+            AzString::from("Send/Receive error"),
+            StatusBarSyncKind::Error,
+        )
+        .with_on_click(RefAny::new(log.clone()), record as ButtonOnClickCallbackType);
+        let styled = StyledDom::create_from_dom(StatusBar::new(segs()).with_sync(sync).dom());
+        let (update, _) = rv::fire(
+            &styled,
+            id(sync_node(&styled)),
+            EventFilter::Hover(HoverEventFilter::Click),
+        )
+        .expect("the indicator takes the click");
+        assert_eq!(update, Update::RefreshDom, "the app's verdict is forwarded");
+        assert_eq!(*log.lock().expect("log"), 1);
+
+        let inert = StyledDom::create_from_dom(bar(StatusBarSyncKind::Connected).dom());
+        assert!(
+            rv::fire(
+                &inert,
+                id(sync_node(&inert)),
+                EventFilter::Hover(HoverEventFilter::Click)
+            )
+            .is_none(),
+            "no click hook, no click"
+        );
+    }
+
+    #[test]
+    fn a_bar_with_a_sync_indicator_follows_the_app_theme_and_declares_its_structure_once() {
+        checks::assert_follows_the_app_theme(
+            "statusbar (sync)",
+            || bar(StatusBarSyncKind::Error).dom(),
+            |t: UiTheme| bar(StatusBarSyncKind::Error).with_theme(t).dom(),
+        );
+        for t in checks::BOTH {
+            let dom = checks::under(t, || bar(StatusBarSyncKind::Error).dom());
+            theme_checks::assert_structure_is_shared(
+                &format!("statusbar (sync) built for {}", t.name()),
+                &dom,
+                &[],
+            );
         }
     }
 }

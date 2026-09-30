@@ -1031,6 +1031,34 @@ impl ListView {
         .into();
     }
 
+    /// Builder form of [`Self::set_on_lazy_load_scroll`].
+    #[must_use]
+    pub fn with_on_lazy_load_scroll<C: Into<ListViewOnLazyLoadScrollCallback>>(
+        mut self,
+        refany: RefAny,
+        on_lazy_load_scroll: C,
+    ) -> Self {
+        self.set_on_lazy_load_scroll(refany, on_lazy_load_scroll);
+        self
+    }
+
+    /// The lazy-load hook: hears every SETTLED scroll of the row box (the
+    /// `ListViewState` it gets carries the live scroll position and the
+    /// box's size, so `visible_row_range` tells which rows came into view
+    /// and the app loads them and rebuilds). A settled gesture, not the
+    /// wheel: the list never takes the wheel from the page.
+    pub fn set_on_lazy_load_scroll<C: Into<ListViewOnLazyLoadScrollCallback>>(
+        &mut self,
+        refany: RefAny,
+        on_lazy_load_scroll: C,
+    ) {
+        self.on_lazy_load_scroll = Some(ListViewOnLazyLoadScroll {
+            refany,
+            callback: on_lazy_load_scroll.into(),
+        })
+        .into();
+    }
+
     #[must_use]
     pub fn dom(self) -> Dom {
         // Snapshot the state handed to row/column click callbacks. Runtime-only
@@ -1384,6 +1412,99 @@ mod list_view_click_tests {
         assert_eq!(rows2.len(), 1);
         assert_eq!(clicks(&rows2[0]), 0, "no click callback when on_row_click is unset");
         assert_eq!(rows2[0].root.callbacks.as_ref().len(), 1, "only the key handler");
+    }
+}
+
+#[cfg(test)]
+mod lazy_load_tests {
+    //! The lazy-load hook: a list that loads rows as the user scrolls must
+    //! HEAR the scroll. The hook sat on the struct but `dom()` never wired
+    //! it, so no app could ever be told to load more.
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        dom::{DomId, DomNodeId, NodeId},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+
+    use super::*;
+    use crate::widgets::roving::test_support as rv;
+
+    type Log = Arc<Mutex<Vec<usize>>>;
+
+    extern "C" fn record(mut data: RefAny, _: CallbackInfo, state: ListViewState) -> Update {
+        if let Some(log) = data.downcast_ref::<Log>() {
+            log.lock().expect("log").push(state.current_row_count);
+        }
+        Update::RefreshDom
+    }
+
+    fn rows(n: usize) -> ListViewRowVec {
+        ListViewRowVec::from_vec(
+            (0..n)
+                .map(|_| ListViewRow {
+                    cells: DomVec::from_const_slice(&[]),
+                    height: None.into(),
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn a_lazily_loaded_list_hears_a_settled_scroll_and_a_plain_one_does_not() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let dom = ListView::default()
+            .with_rows(rows(3))
+            .with_on_lazy_load_scroll(
+                RefAny::new(log.clone()),
+                record as ListViewOnLazyLoadScrollCallbackType,
+            )
+            .dom();
+        let row_box = &dom.children.as_ref()[1];
+        let events: Vec<EventFilter> = row_box
+            .root
+            .get_callbacks()
+            .as_ref()
+            .iter()
+            .map(|cb| cb.event)
+            .collect();
+        assert_eq!(
+            events,
+            vec![EventFilter::Hover(HoverEventFilter::ScrollEnd)],
+            "the row box reports a scroll once it settles - never the wheel itself, which the \
+             page keeps"
+        );
+        let plain = ListView::default().with_rows(rows(3)).dom();
+        assert!(
+            plain.children.as_ref()[1]
+                .root
+                .get_callbacks()
+                .as_ref()
+                .is_empty(),
+            "no hook, no listener"
+        );
+
+        // root (0) > header (no columns: no children) > row box.
+        let styled = StyledDom::create_from_dom(dom);
+        let hierarchy = styled.node_hierarchy.as_ref();
+        let header = hierarchy[0]
+            .first_child_id(NodeId::new(0))
+            .expect("the header");
+        let row_box = hierarchy[header.index()]
+            .next_sibling_id()
+            .expect("the row box");
+        let target = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(row_box)),
+        };
+        let (update, _) = rv::fire(&styled, target, EventFilter::Hover(HoverEventFilter::ScrollEnd))
+            .expect("the hook runs");
+        assert_eq!(update, Update::RefreshDom, "the app's verdict is forwarded");
+        assert_eq!(
+            *log.lock().expect("log"),
+            vec![3],
+            "the app hears how many rows are loaded"
+        );
     }
 }
 

@@ -191,12 +191,23 @@ pub struct DatePicker {
     /// The HTML `name` the value is submitted under in a
     /// [`crate::widgets::form::Form`]; `None` keeps it out of the form data.
     pub name: OptionString,
+    /// Today's date, marked in the grid with a ring when its month is the
+    /// one displayed (a to-do bar's mini calendar, a booking calendar); `None`
+    /// marks nothing. The picker cannot ask the clock itself: the app knows
+    /// the time zone.
+    pub today: OptionDatePickerState,
     /// What the picker picks: a day, a month or an ISO week.
     pub mode: DatePickerMode,
     /// The widget theme this widget is PINNED to (`with_theme`), or `None`
     /// to follow the app theme (`AppConfig::with_theme`,
     /// `CallbackInfo::set_theme`; flat unless the app chose another).
     pub theme: crate::widgets::themes::OptionUiTheme,
+    /// Show the calendar itself, always open, instead of a field with a
+    /// popup: the mini calendar of a to-do bar. The calendar is then the
+    /// widget's root (a group named by its accessibility name), a pick
+    /// repaints it and reports through `on_change` and there is no field to
+    /// fill and nothing to close.
+    pub inline: bool,
 }
 
 /// What a theme decides about a date picker: the style of every part, the two
@@ -350,6 +361,12 @@ impl Default for DatePickerState {
         }
     }
 }
+
+azul_css::impl_option!(
+    DatePickerState,
+    OptionDatePickerState,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
 // ---------------------------------------------------------------------------
 // Pure calendar math (standard, well-known formulas — not faked behaviour).
@@ -985,8 +1002,10 @@ impl DatePicker {
             container_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
             name: OptionString::None,
+            today: OptionDatePickerState::None,
             mode: DatePickerMode::Date,
             theme: crate::widgets::themes::OptionUiTheme::None,
+            inline: false,
         }
     }
 
@@ -1042,6 +1061,32 @@ impl DatePicker {
     #[must_use]
     pub fn with_name(mut self, name: AzString) -> Self {
         self.set_name(name);
+        self
+    }
+
+    /// Show the calendar itself, always open, in place of the field and its
+    /// popup (see [`Self::inline`]).
+    pub const fn set_inline(&mut self, inline: bool) {
+        self.inline = inline;
+    }
+
+    /// [`Self::set_inline`] for the builder chain.
+    #[must_use]
+    pub const fn with_inline(mut self, inline: bool) -> Self {
+        self.set_inline(inline);
+        self
+    }
+
+    /// Today's date, ringed in the grid when its month is displayed (see
+    /// [`Self::today`]).
+    pub const fn set_today(&mut self, year: u32, month: u32, day: u32) {
+        self.today = OptionDatePickerState::Some(DatePickerState { year, month, day });
+    }
+
+    /// [`Self::set_today`] for the builder chain.
+    #[must_use]
+    pub const fn with_today(mut self, year: u32, month: u32, day: u32) -> Self {
+        self.set_today(year, month, day);
         self
     }
 
@@ -6085,6 +6130,209 @@ mod app_theme_tests {
                     &[],
                 );
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod inline_and_today_tests {
+    //! The inline calendar (a to-do bar's mini calendar) and the ring
+    //! around today.
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeType},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+
+    use super::*;
+    use crate::{
+        callbacks::CallbackChange,
+        widgets::{
+            roving::test_support as rv,
+            themes::{theme_blocks::checks, theme_checks, UiTheme},
+        },
+    };
+
+    const INLINE: &str = "__azul-native-date-picker-inline";
+    const TODAY: &str = "__azul-native-date-picker-today";
+
+    /// September 2026 with the 12th picked, the 30th being today.
+    fn september() -> DatePicker {
+        DatePicker::create(2026, 9, 12)
+            .with_inline(true)
+            .with_today(2026, 9, 30)
+            .with_accessibility_name("Calendar")
+    }
+
+    fn has_transient(node: &Dom) -> bool {
+        matches!(node.root.get_node_type(), NodeType::TransientWindow(_))
+            || node.children.as_ref().iter().any(has_transient)
+    }
+
+    /// The text of a `p > text` cell.
+    fn text_of(node: &Dom) -> Option<&str> {
+        match node.children.as_ref() {
+            [only] => match only.root.get_node_type() {
+                NodeType::Text(s) => Some(s.as_ref().as_str()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// The cell whose number reads `label`.
+    fn cell_labelled(styled: &StyledDom, label: &str) -> DomNodeId {
+        let hierarchy = styled.node_hierarchy.as_ref();
+        for (i, nd) in styled.node_data.as_ref().iter().enumerate() {
+            if let NodeType::Text(s) = nd.get_node_type() {
+                if s.as_ref().as_str() == label {
+                    let p = hierarchy[i].parent_id().expect("a number sits in its cell");
+                    return DomNodeId {
+                        dom: DomId::ROOT_ID,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(p)),
+                    };
+                }
+            }
+        }
+        panic!("no cell reads {label:?}");
+    }
+
+    #[test]
+    fn an_inline_picker_is_the_calendar_itself_with_no_field_and_no_popup() {
+        for theme in checks::BOTH {
+            let dom = september().with_theme(theme).dom();
+            assert!(theme_checks::has_class(&dom, INLINE), "{}", theme.name());
+            assert!(!has_transient(&dom), "{}: no popup", theme.name());
+            assert_eq!(
+                dom.children.as_ref().len(),
+                3,
+                "{}: header, weekday row, grid",
+                theme.name()
+            );
+            let info = dom.root.get_accessibility_info().expect("a role");
+            assert_eq!(info.role, azul_core::a11y::AccessibilityRole::Grouping);
+            assert_eq!(
+                info.accessibility_name.as_ref().map(|n| n.as_str()),
+                Some("Calendar")
+            );
+            assert!(
+                dom.root.get_callbacks().as_ref().is_empty(),
+                "{}: no field click to open anything",
+                theme.name()
+            );
+        }
+        let field = DatePicker::create(2026, 9, 12)
+            .with_theme(UiTheme::Flat)
+            .dom();
+        assert!(!theme_checks::has_class(&field, INLINE));
+        assert!(has_transient(&field), "a field picker keeps its popup");
+    }
+
+    #[test]
+    fn today_is_ringed_in_its_month_and_named_as_today() {
+        let dom = september().with_theme(UiTheme::Flat).dom();
+        let today = theme_checks::find_all(&dom, TODAY);
+        assert_eq!(today.len(), 1, "one cell is today");
+        assert_eq!(text_of(today[0]), Some("30"));
+        let name = today[0]
+            .root
+            .get_accessibility_info()
+            .and_then(|i| i.accessibility_name.as_ref().map(|n| n.as_str().to_string()))
+            .unwrap_or_default();
+        assert!(name.ends_with("today"), "{name}");
+        let plain = theme_checks::nodes(&dom)
+            .into_iter()
+            .map(|(_, n)| n)
+            .find(|n| text_of(n) == Some("29"))
+            .expect("the 29th");
+        assert_ne!(
+            today[0].root.get_style(),
+            plain.root.get_style(),
+            "today wears a ring the other days do not"
+        );
+
+        let october = DatePicker::create(2026, 10, 3)
+            .with_inline(true)
+            .with_today(2026, 9, 30)
+            .with_theme(UiTheme::Flat)
+            .dom();
+        assert!(
+            theme_checks::find_all(&october, TODAY).is_empty(),
+            "today is not in October"
+        );
+        let unset = DatePicker::create(2026, 9, 3).with_theme(UiTheme::Flat).dom();
+        assert!(
+            theme_checks::find_all(&unset, TODAY).is_empty(),
+            "no today, no ring"
+        );
+    }
+
+    type Log = Arc<Mutex<Vec<u32>>>;
+
+    extern "C" fn record(mut data: RefAny, _: CallbackInfo, state: DatePickerState) -> Update {
+        if let Some(log) = data.downcast_ref::<Log>() {
+            log.lock().expect("log").push(state.day);
+        }
+        Update::DoNothing
+    }
+
+    #[test]
+    fn a_pick_in_an_inline_calendar_reports_the_day_and_keeps_todays_ring() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let picker = september()
+            .with_on_change(
+                RefAny::new(log.clone()),
+                record as DatePickerOnChangeCallbackType,
+            )
+            .with_theme(UiTheme::Flat);
+        let styled = StyledDom::create_from_dom(picker.dom());
+        let seven = cell_labelled(&styled, "7");
+        let (_, changes) = rv::fire(&styled, seven, EventFilter::Hover(HoverEventFilter::Click))
+            .expect("a day takes the click");
+        assert_eq!(*log.lock().expect("log"), vec![7]);
+        assert!(
+            !changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::SetTransientWindowOpen { .. })),
+            "an inline calendar has nothing to close"
+        );
+        assert!(
+            !changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::ChangeNodeText { .. })),
+            "an inline calendar has no field to fill"
+        );
+        // The repaint gives today its ring back: its new face is not a plain
+        // day's.
+        let style_of = |node: DomNodeId| {
+            let wanted = node.node.into_crate_internal();
+            changes.iter().find_map(|c| match c {
+                CallbackChange::SetNodeStyle { node_id, style, .. } if Some(*node_id) == wanted => {
+                    Some(format!("{style:?}"))
+                }
+                _ => None,
+            })
+        };
+        let today = style_of(cell_labelled(&styled, "30")).expect("today repainted");
+        let plain = style_of(cell_labelled(&styled, "29")).expect("a plain day repainted");
+        assert_ne!(today, plain, "the ring survives the repaint");
+    }
+
+    #[test]
+    fn an_inline_picker_follows_the_app_theme_and_declares_its_structure_once() {
+        checks::assert_follows_the_app_theme(
+            "date_picker (inline)",
+            || september().dom(),
+            |t: UiTheme| september().with_theme(t).dom(),
+        );
+        for theme in checks::BOTH {
+            let dom = checks::under(theme, || september().dom());
+            theme_checks::assert_structure_is_shared(
+                &format!("date_picker (inline) built for {}", theme.name()),
+                &dom,
+                &[],
+            );
         }
     }
 }

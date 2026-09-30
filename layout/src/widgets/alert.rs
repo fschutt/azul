@@ -108,7 +108,7 @@ impl AlertKind {
     #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
                                                  // pixel/coord path or to avoid churning call sites
                                                  // for a perf-neutral change)
-    const fn colors(&self) -> (ColorU, ColorU, ColorU) {
+    pub(crate) const fn colors(&self) -> (ColorU, ColorU, ColorU) {
         match self {
             Self::Info => (
                 ColorU {
@@ -199,7 +199,7 @@ impl AlertKind {
     /// instead of a pastel island. A semantic tint has no desktop slot to
     /// borrow - these are the widget's own colours, like the light ones.
     #[allow(clippy::trivially_copy_pass_by_ref)] // same shape as `colors`
-    const fn dark_colors(&self) -> (ColorU, ColorU, ColorU) {
+    pub(crate) const fn dark_colors(&self) -> (ColorU, ColorU, ColorU) {
         match self {
             Self::Info => (
                 ColorU::rgb(3, 40, 48),     // #032830

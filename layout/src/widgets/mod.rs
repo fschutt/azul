@@ -229,6 +229,11 @@ pub mod file_input;
 pub mod form;
 /// Frame container widget
 pub mod frame;
+/// Info bar widget.
+///
+/// The notice strip across the top of a mail's reading pane: a glyph, a line
+/// of text and an action link (Outlook's blue "i" bar); see `info_bar.rs`.
+pub mod info_bar;
 /// Label widget (centered text)
 pub mod label;
 /// List view widget
@@ -1323,6 +1328,36 @@ mod label_convention {
                     .with_selected(true)
                     .dom(),
             ),
+            (
+                "info_bar",
+                super::info_bar::InfoBar::create(AzString::from(
+                    "Click here to download pictures.",
+                ))
+                .with_icon(AzString::from("info"))
+                .with_action(AzString::from("Download pictures"))
+                .dom(),
+            ),
+            (
+                "date_picker (inline)",
+                DatePicker::create(2026, 9, 12)
+                    .with_inline(true)
+                    .with_today(2026, 9, 30)
+                    .with_accessibility_name("Calendar")
+                    .dom(),
+            ),
+            (
+                "statusbar (sync)",
+                super::statusbar::StatusBar::new(
+                    super::statusbar::StatusBarSegmentVec::from_vec(vec![
+                        super::statusbar::StatusBarSegment::new(AzString::from("Filter applied")),
+                    ]),
+                )
+                .with_sync(super::statusbar::StatusBarSync::create(
+                    AzString::from("Send/Receive error"),
+                    super::statusbar::StatusBarSyncKind::Error,
+                ))
+                .dom(),
+            ),
         ];
         // The app shells, each with placeholder content (`shells::fixtures`).
         all.extend(super::shells::fixtures::every_shell());
@@ -2135,7 +2170,7 @@ mod theme_contrast {
     }
 
     /// Feedback and tags: the widgets with a semantic colour per kind.
-    const STATUS: &[&str] = &["alert", "badge", "chip", "toast", "spinner"];
+    const STATUS: &[&str] = &["alert", "badge", "chip", "toast", "spinner", "info_bar"];
     /// Surfaces that hold the application's own content.
     const CONTAINERS: &[&str] = &[
         "accordion",
@@ -2184,6 +2219,7 @@ mod theme_contrast {
         "button (submit)",
         "drop_down (optgroup)",
         "hidden_input",
+        "date_picker (inline)",
     ];
     /// Navigation and application chrome.
     const CHROME: &[&str] = &[
@@ -2199,6 +2235,7 @@ mod theme_contrast {
         "quick_access",
         "ribbon",
         "statusbar",
+        "statusbar (sync)",
         "stepper",
         "tabs (header)",
         "titlebar",
