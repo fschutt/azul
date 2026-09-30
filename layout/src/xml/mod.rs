@@ -799,6 +799,18 @@ fn parse_xml_to_fast_dom_with_css(
                     }
                 }
             }
+            // `<style>` is a RAW-TEXT element in HTML: a `<!-- .. -->` or a
+            // CDATA section inside it is part of the sheet (the CSS parser
+            // ignores the top-level CDO / CDC markers), not a comment to drop.
+            // Outlook wraps every stylesheet this way.
+            xmlparser::Token::Comment { text, .. } if inside_style_tag => {
+                style_text.push_str("<!--");
+                style_text.push_str(text.as_str());
+                style_text.push_str("-->");
+            }
+            xmlparser::Token::Cdata { text, .. } if inside_style_tag => {
+                style_text.push_str(text.as_str());
+            }
             _ => {}
         }
     }
@@ -1130,6 +1142,42 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
                         current_parent
                             .children
                             .push(XmlNodeChild::Text(AzString::from(&*decoded_text)));
+                    }
+                }
+            }
+            // `<style>` is a RAW-TEXT element in HTML: a `<!-- .. -->` or a
+            // CDATA section inside it is part of the sheet (the CSS parser
+            // ignores the top-level CDO / CDC markers), not a comment to drop.
+            // Outlook wraps every stylesheet this way. Elsewhere a comment
+            // stays dropped.
+            xmlparser::Token::Comment { text, .. } => {
+                if let Some(&current_parent_ptr) = node_stack.last() {
+                    // SAFETY: Last element in stack is valid (as for `Text`)
+                    let current_parent = unsafe { &mut *current_parent_ptr };
+                    if current_parent
+                        .node_type
+                        .as_str()
+                        .eq_ignore_ascii_case("style")
+                    {
+                        let raw = format!("<!--{}-->", text.as_str());
+                        current_parent
+                            .children
+                            .push(XmlNodeChild::Text(AzString::from(raw.as_str())));
+                    }
+                }
+            }
+            xmlparser::Token::Cdata { text, .. } => {
+                if let Some(&current_parent_ptr) = node_stack.last() {
+                    // SAFETY: Last element in stack is valid (as for `Text`)
+                    let current_parent = unsafe { &mut *current_parent_ptr };
+                    if current_parent
+                        .node_type
+                        .as_str()
+                        .eq_ignore_ascii_case("style")
+                    {
+                        current_parent
+                            .children
+                            .push(XmlNodeChild::Text(AzString::from(text.as_str())));
                     }
                 }
             }

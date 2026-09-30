@@ -733,9 +733,35 @@ pub fn new_from_str(css_string: &str) -> (Css, Vec<CssParseWarnMsg<'_>>) {
     // PARSES (its keyframes join the flat list; the enclosing conditions do
     // not gate keyframes yet) and a commented-out `@keyframes` is no longer
     // seen at all.
-    let mut tokenizer = Tokenizer::new(css_string);
     let mut keyframes: Vec<crate::css::Keyframes> = Vec::new();
-    let (rules, warnings) = new_from_str_inner(css_string, &mut tokenizer, &mut keyframes);
+    let segments = top_level_rule_segments(css_string);
+    if segments.len() == 1 && segments[0] == (0, css_string.len()) {
+        // No CDO / CDC: the whole sheet in one pass, exactly as before.
+        let mut tokenizer = Tokenizer::new(css_string);
+        let (rules, warnings) = new_from_str_inner(css_string, &mut tokenizer, &mut keyframes);
+        return (
+            Css {
+                rules: rules.into(),
+                keyframes: keyframes.into(),
+            },
+            warnings,
+        );
+    }
+    // The sheet between its top-level CDO / CDC tokens, one run of rules at a
+    // time. A bounded tokenizer keeps every position (and so every warning)
+    // absolute in `css_string`.
+    let mut rules = Vec::new();
+    let mut warnings = Vec::new();
+    for (start, end) in segments {
+        // `Tokenizer::new_bound` asserts a non-empty range.
+        if start >= end || css_string[start..end].trim().is_empty() {
+            continue;
+        }
+        let mut tokenizer = Tokenizer::new_bound(css_string, start, end);
+        let (r, w) = new_from_str_inner(css_string, &mut tokenizer, &mut keyframes);
+        rules.extend(r);
+        warnings.extend(w);
+    }
     (
         Css {
             rules: rules.into(),
@@ -743,6 +769,66 @@ pub fn new_from_str(css_string: &str) -> (Css, Vec<CssParseWarnMsg<'_>>) {
         },
         warnings,
     )
+}
+
+/// The byte ranges of `css` between its TOP-LEVEL CDO (`<!--`) and CDC
+/// (`-->`) tokens, in order: the whole sheet, `[(0, len)]`, when it has none.
+///
+/// CSS Syntax 3, 5.4.1 "consume a list of rules" with the top-level flag set
+/// (the stylesheet itself): a CDO or CDC token is ignored. They exist so that
+/// `<style><!-- ... --></style>` hid a sheet from browsers that did not know
+/// `<style>`, and mail still writes them (Outlook wraps every stylesheet).
+/// Only the top level: inside a block (depth > 0), inside a comment and inside
+/// a string they are not tokens of their own, and stay where they are.
+fn top_level_rule_segments(css: &str) -> Vec<(usize, usize)> {
+    let bytes = css.as_bytes();
+    let mut segments = Vec::new();
+    let mut segment_start = 0;
+    let mut depth = 0_usize;
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'/' if bytes.get(i + 1) == Some(&b'*') => {
+                // A comment runs to the next `*/` (or the end of the sheet).
+                i = css[i + 2..]
+                    .find("*/")
+                    .map_or(bytes.len(), |p| i + 2 + p + 2);
+                continue;
+            }
+            quote @ (b'"' | b'\'') => {
+                // A string runs to its closing quote, a backslash escaping
+                // the next byte, or to the end of the line (an unclosed
+                // string ends there, CSS Syntax 3 4.3.5).
+                i += 1;
+                while i < bytes.len() && bytes[i] != quote && bytes[i] != b'\n' {
+                    if bytes[i] == b'\\' {
+                        i += 1;
+                    }
+                    i += 1;
+                }
+                i += 1;
+                continue;
+            }
+            b'{' => depth += 1,
+            b'}' => depth = depth.saturating_sub(1),
+            b'<' if depth == 0 && css[i..].starts_with("<!--") => {
+                segments.push((segment_start, i));
+                i += 4;
+                segment_start = i;
+                continue;
+            }
+            b'-' if depth == 0 && css[i..].starts_with("-->") => {
+                segments.push((segment_start, i));
+                i += 3;
+                segment_start = i;
+                continue;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    segments.push((segment_start.min(bytes.len()), bytes.len()));
+    segments
 }
 
 /// Map a keyframe stop selector to permille: `from` = 0, `to` = 1000,
