@@ -5044,20 +5044,27 @@ impl CssPropertyCache {
     }
 
     /// The inheritance walk of [`Self::restyle`] runs BEFORE the UA pass: it
-    /// handed every node its parent's value as the parent stood then. Where
-    /// an element's UA default has since overridden that value (a link's
-    /// `color`, `<code>`'s `font-family`), everything below it that declares
-    /// nothing of its own must inherit the default instead - the text of the
-    /// link painted the wrapper's grey without this.
+    /// handed every node a COPY of its parent's value as the parent stood
+    /// then. Where an element's UA default has since shadowed that value on
+    /// the element (a link's `color` under `<td style="color:#333">`,
+    /// `<code>`'s `font-family` under `font-family: serif`), the copies below
+    /// it are STALE: the text of the link painted the wrapper's grey.
     ///
-    /// One pre-order pass per inheritable UA type: a node that declares the
-    /// type (author css, an unconditional inline declaration, the `*` bucket
-    /// on an element) keeps it, and so do the children of a node that
-    /// declares it (the walk copied that declaration, which is right); an
-    /// element keeps its own UA default; every other node takes its parent's
-    /// Normal-state cascaded value - which this pass already settled, the
-    /// parent coming first. Rewritten entries are `ua_origin`, so a
-    /// re-application strips and re-derives them under the new context.
+    /// The stale copies are REMOVED, nothing is added: a node without a
+    /// cascaded entry inherits its parent's computed value
+    /// ([`Self::compute_inherited_values`], the compact builder alike), which
+    /// is the element's UA default - so the child INHERITS the colour and
+    /// never owns it (a UA `color` is on the root and inherited below; a
+    /// child that owned one would block an author colour above it). Only a
+    /// copy EQUAL to the shadowed value goes: a copy of something else (the
+    /// parent's live conditional inline declaration, which the walk resolves
+    /// and the bitset of declared types cannot see) is right and stays.
+    ///
+    /// One pre-order pass per inheritable UA type, the parent settled before
+    /// the child: `stale[p]` is the value the copies under `p` are stale
+    /// copies of, set where a UA push shadows the walk copy on `p` and
+    /// carried down through every node whose copy was removed; a node that
+    /// declares the type ends it (its children copied the declaration).
     fn hand_ua_defaults_down(
         &mut self,
         node_data: &[NodeData],
@@ -5075,49 +5082,57 @@ impl CssPropertyCache {
             .filter(|t| t.is_inheritable() && !is_resolved_parent_inherited(*t))
             .collect();
         let declared = self.declared_normal_props(node_data);
-        for node_index in 1..node_count {
-            let Some(parent) = node_hierarchy[node_index].parent_id() else {
-                continue;
-            };
-            let parent_index = parent.index();
-            // Pre-order arena: the parent is settled before the child.
-            if parent_index >= node_index {
-                continue;
+        let mut stale: Vec<Option<CssProperty>> = vec![None; node_count];
+        for &ty in &types {
+            for s in &mut stale {
+                *s = None;
             }
-            let is_text = node_data[node_index].is_text_node();
-            for &ty in &types {
-                if prop_type_bit_test(&declared[parent_index], ty)
-                    || prop_type_bit_test(&declared[node_index], ty)
-                {
+            for node_index in 0..node_count {
+                if prop_type_bit_test(&declared[node_index], ty) {
                     continue;
                 }
                 let is_normal_of = |e: &StatefulCssProperty| {
                     e.state == PseudoStateType::Normal && e.prop_type == ty
                 };
-                let Some(value) = self
-                    .cascaded_props
-                    .build_get(parent_index)
-                    .and_then(|v| v.iter().rev().find(|e| is_normal_of(*e)))
-                    .map(|e| clone_inheritable_property(&e.property))
-                else {
+                // The walk's copy (never `ua_origin`) and the UA pass's push.
+                let (copy, ua) =
+                    self.cascaded_props
+                        .build_get(node_index)
+                        .map_or((None, None), |v| {
+                            let copy = v
+                                .iter()
+                                .rev()
+                                .find(|e| is_normal_of(*e) && !e.ua_origin)
+                                .map(|e| clone_inheritable_property(&e.property));
+                            let ua = v
+                                .iter()
+                                .rev()
+                                .find(|e| is_normal_of(*e) && e.ua_origin)
+                                .map(|e| clone_inheritable_property(&e.property));
+                            (copy, ua)
+                        });
+                // Pre-order arena: the parent is settled before the child.
+                let inherited_stale = node_hierarchy[node_index]
+                    .parent_id()
+                    .map(|p| p.index())
+                    .filter(|p| *p < node_index)
+                    .and_then(|p| stale[p].clone());
+                let Some(copy) = copy else {
                     continue;
                 };
-                let keep = self
-                    .cascaded_props
-                    .build_get(node_index)
-                    .and_then(|v| v.iter().rev().find(|e| is_normal_of(*e)))
-                    .is_some_and(|own| (own.ua_origin && !is_text) || own.property == value);
-                if keep {
-                    continue;
+                if inherited_stale.as_ref() == Some(&copy) {
+                    // A stale copy: out, so this node inherits. Its children
+                    // copied the same value.
+                    self.cascaded_props
+                        .build_mut(node_index)
+                        .retain(|e| !(is_normal_of(e) && !e.ua_origin));
+                    stale[node_index] = Some(copy);
+                } else if ua.is_some_and(|u| u != copy) {
+                    // The UA push shadows the copy on this element (pushed
+                    // last, it is the one the sort keeps); the children hold
+                    // the copy's value.
+                    stale[node_index] = Some(copy);
                 }
-                let own = self.cascaded_props.build_mut(node_index);
-                own.retain(|e| !is_normal_of(e));
-                own.push(StatefulCssProperty {
-                    state: PseudoStateType::Normal,
-                    prop_type: ty,
-                    property: value,
-                    ua_origin: true,
-                });
             }
         }
     }

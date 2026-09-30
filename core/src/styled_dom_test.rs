@@ -2455,6 +2455,64 @@ mod theme_flip_is_a_restyle {
         );
     }
 
+    /// A UA default an ELEMENT gets - a link's `color` under a wrapper that
+    /// declares one - is inherited by the text inside it, and owned by nobody
+    /// below. The inheritance walk runs before the UA pass and had copied the
+    /// wrapper's colour onto the text; that stale copy is REMOVED, not
+    /// rewritten into a UA entry of the text's own: a child never owns a UA
+    /// colour (one that did would block an author colour above it).
+    #[test]
+    fn the_text_of_a_link_inherits_the_links_ua_colour_and_owns_none() {
+        use crate::{
+            dom::{AttributeType, NodeType},
+            prop_cache::CssPropertyOrigin,
+        };
+        let mut wrapper = Dom::create_div();
+        wrapper.root.set_css("color: rgb(51, 51, 51);");
+        let link = Dom::create_node(NodeType::A)
+            .with_attribute(AttributeType::Href("https://a.b/".into()))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                "link",
+            ));
+        let mut dom = Dom::create_body().with_child(wrapper.with_child(link));
+        let sd = StyledDom::create(&mut dom, Css::empty());
+        // body(0) > div(1) > a(2) > "link"(3)
+        let (link, text) = (NodeId::new(2), NodeId::new(3));
+        const LINK_BLUE: (u8, u8, u8) = (0x00, 0x00, 0xee);
+        assert_eq!(
+            slow_text_color(&sd, link),
+            Some(LINK_BLUE),
+            "the link: its UA colour beats the wrapper's"
+        );
+        assert_eq!(
+            slow_text_color(&sd, text),
+            Some(LINK_BLUE),
+            "the text: slow path"
+        );
+        assert_eq!(
+            compact_text_color(&sd, text),
+            Some(LINK_BLUE),
+            "the text: compact tier"
+        );
+        let cv = &sd.get_css_property_cache().computed_values;
+        let own = cv
+            .get(link.index(), CssPropertyType::TextColor)
+            .expect("the link resolves `color`");
+        assert_eq!(
+            own.origin,
+            CssPropertyOrigin::Own,
+            "the link owns its UA colour"
+        );
+        let inherited = cv
+            .get(text.index(), CssPropertyType::TextColor)
+            .expect("the text resolves `color`");
+        assert_eq!(
+            inherited.origin,
+            CssPropertyOrigin::Inherited,
+            "the text INHERITS it: the wrapper's stale copy is gone and no entry took its place"
+        );
+    }
+
     #[test]
     fn get_text_color_or_default_never_needs_its_default_on_a_cascaded_dom() {
         let mut dom = body_p_text();
