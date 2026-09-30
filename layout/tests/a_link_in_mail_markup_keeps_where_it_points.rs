@@ -1,13 +1,19 @@
 //! A link in mail markup keeps where it points.
 //!
 //! AzMail exploration (scripts/ideas/AZMAIL_EXPLORATION_2026_09_30.md, 1.2
-//! and gap E-XML-2): every XML attribute goes through ONE table
-//! (`azul_core::xml::attributes`), and `href` was not in it. `<a href="..">`
-//! parsed into an `A` node that did not know where it points, so a mail
-//! client could not open a link the user clicked. `AttributeType::Href`
-//! existed all along (`Dom::create_a` sets it); the table never produced it.
+//! and gap E-XML-2): `<a href="..">` parsed into an `A` node that did not
+//! know where it points, so a mail client could not open a link the user
+//! clicked. `AttributeType::Href` existed all along (`Dom::create_a` sets
+//! it); nothing in the loaders produced it.
 //!
-//! Both loaders read the table: the tree loader AzMail uses (`parse_xml` +
+//! By the user's ruling `href` is an ARGUMENT of the `a` component (its data
+//! model declares `href`, `target`, `rel`), filled from the element's
+//! attributes like every component's declared fields
+//! (`azul_core::xml::data_model_with_attributes`) and landed on the node by
+//! the element's render side (`apply_builtin_element_args`) - see
+//! `a_components_declared_arguments_reach_its_render_fn.rs`.
+//!
+//! Both loaders take that path: the tree loader AzMail uses (`parse_xml` +
 //! `dom_from_parsed_xml`, i.e. `Dom::create_from_parsed_xml`) and the fast
 //! path (`parse_xml_to_styled_dom`).
 //!

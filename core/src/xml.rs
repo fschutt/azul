@@ -3980,57 +3980,146 @@ impl ComponentMap {
     }
 }
 
-/// Convert XML attributes to a `ComponentDataModel` by cloning the component's
-/// base data model and overriding field defaults with values from the XML attributes.
+/// A component's ARGUMENTS from an element's attributes: `dm` with every
+/// field it declares set from the attribute of the same name, parsed to the
+/// field's type; every other field keeps its default, and an attribute no
+/// field declares adds nothing.
 ///
-/// This is the bridge between the XML parsing layer (key-value string pairs)
-/// and the typed component data model. For each field in the base model,
-/// if a matching XML attribute exists, its string value is set as the new default.
+/// THE one path from markup attributes to component arguments, for every
+/// component - builtin and user alike: the XML loaders fill a builtin
+/// element's arguments with it ([`apply_builtin_args_from_attributes`]), the
+/// builder fills a user component instance's (`e2e::builder`), and the
+/// render fn reads the result.
 ///
-/// # Arguments
-/// * `base_model` - The component's data model template (from `ComponentDef::data_model`)
-/// * `xml_attributes` - The XML node's attribute map
-/// * `text_content` - Optional text content from child text nodes
-///
-/// # Returns
-/// A cloned `ComponentDataModel` with overridden defaults
-fn xml_attrs_to_data_model(
-    base_model: &ComponentDataModel,
-    xml_attributes: &XmlAttributeMap,
-    text_content: Option<&str>,
+/// Names match case-insensitively, as HTML attribute names do. A `Bool`
+/// follows HTML's boolean attributes: present means `true` (`disabled=""`),
+/// unless it says `false` / `0` / `no` / `off`. A number that does not parse
+/// keeps the field's default. Field types an attribute string cannot carry
+/// (a `StyledDom`, a callback, a struct) keep their defaults.
+#[must_use]
+pub fn data_model_with_attributes<'a>(
+    dm: &ComponentDataModel,
+    attributes: impl IntoIterator<Item = (&'a str, &'a str)>,
 ) -> ComponentDataModel {
-    let mut model = base_model.clone();
-
-    // Override defaults from XML attributes
+    let attributes: Vec<(&str, &str)> = attributes.into_iter().collect();
+    let mut model = dm.clone();
     let mut fields_vec = core::mem::replace(
         &mut model.fields,
         ComponentDataFieldVec::from_const_slice(&[]),
     )
     .into_library_owned_vec();
-
     for field in &mut fields_vec {
-        if let Some(attr_value) = xml_attributes.get_key(field.name.as_str()) {
-            // Override the default_value with the XML attribute's string value
-            field.default_value = OptionComponentDefaultValue::Some(ComponentDefaultValue::String(
-                attr_value.clone(),
-            ));
+        let Some((_, raw)) = attributes
+            .iter()
+            .rev()
+            .find(|(k, _)| k.trim().eq_ignore_ascii_case(field.name.as_str()))
+        else {
+            continue;
+        };
+        let t = raw.trim();
+        let parsed = match field.field_type {
+            ComponentFieldType::String => Some(ComponentDefaultValue::String(AzString::from(*raw))),
+            ComponentFieldType::Bool => Some(ComponentDefaultValue::Bool(
+                !(t.eq_ignore_ascii_case("false")
+                    || t == "0"
+                    || t.eq_ignore_ascii_case("no")
+                    || t.eq_ignore_ascii_case("off")),
+            )),
+            ComponentFieldType::I32 => t.parse::<i32>().ok().map(ComponentDefaultValue::I32),
+            ComponentFieldType::I64 => t.parse::<i64>().ok().map(ComponentDefaultValue::I64),
+            ComponentFieldType::U32 => t.parse::<u32>().ok().map(ComponentDefaultValue::U32),
+            ComponentFieldType::U64 => t.parse::<u64>().ok().map(ComponentDefaultValue::U64),
+            ComponentFieldType::Usize => t.parse::<usize>().ok().map(ComponentDefaultValue::Usize),
+            ComponentFieldType::F32 => t.parse::<f32>().ok().map(ComponentDefaultValue::F32),
+            ComponentFieldType::F64 => t.parse::<f64>().ok().map(ComponentDefaultValue::F64),
+            _ => None,
+        };
+        if let Some(value) = parsed {
+            field.default_value = OptionComponentDefaultValue::Some(value);
         }
     }
-
     model.fields = ComponentDataFieldVec::from_vec(fields_vec);
+    model
+}
 
-    // Handle text content — set the "text" field if present
-    if let Some(text) = text_content {
-        let prepared = prepare_string(text);
-        if !prepared.is_empty() {
-            model = model.with_default(
-                "text",
-                ComponentDefaultValue::String(AzString::from(prepared.as_str())),
-            );
+/// The builtin elements whose component arguments
+/// [`apply_builtin_element_args`] lands on the node (the others' declared
+/// fields are read by the element's own path - `img` `width`/`height`, the
+/// form controls, `td` `colspan` - or not yet at all; see
+/// `scripts/MAILVIEW_2026_09_30.md`).
+const BUILTIN_ARGUMENT_ELEMENTS: &[&str] = &["a", "area", "link", "base", "img"];
+
+/// The render side of a builtin element's ARGUMENTS (its component's
+/// declared fields, filled by [`data_model_with_attributes`]): what they set
+/// on its node.
+///
+/// - `a`, `area`, `link`, `base`: `href` - where a click on the link goes; an app reads it
+///   with `CallbackInfo::get_node_attribute(node, "href")` - plus `target` and `rel` (not on
+///   `base`, which has no `rel`).
+/// - `img`: `src` and `alt`, as attributes an app can read (the image itself stays the
+///   loader's `NullImage` placeholder carrying `src`) - what a mail client needs to show "[image:
+///   alt]" and to load the picture on request.
+///
+/// An empty value sets nothing; a value already on the node is not
+/// duplicated.
+pub fn apply_builtin_element_args(tag: &str, args: &ComponentDataModel, node: &mut NodeData) {
+    use crate::dom::AttributeType as A;
+
+    let value = |name: &str| {
+        args.get_default_string(name)
+            .filter(|v| !v.as_str().trim().is_empty())
+            .cloned()
+    };
+    let mut add: Vec<A> = Vec::new();
+    match tag {
+        "a" | "area" | "link" => {
+            add.extend(value("href").map(A::Href));
+            add.extend(value("target").map(A::Target));
+            add.extend(value("rel").map(A::Rel));
+        }
+        "base" => {
+            add.extend(value("href").map(A::Href));
+            add.extend(value("target").map(A::Target));
+        }
+        "img" | "image" => {
+            add.extend(value("src").map(A::Src));
+            add.extend(value("alt").map(A::Alt));
+        }
+        _ => {}
+    }
+    if add.is_empty() {
+        return;
+    }
+    let mut all = node.attributes().clone().into_library_owned_vec();
+    for a in add {
+        if !all.contains(&a) {
+            all.push(a);
         }
     }
+    node.set_attributes(all.into());
+}
 
-    model
+/// For the XML loaders: a builtin element's component arguments from its
+/// attributes - its builtin data model filled by [`data_model_with_attributes`]
+/// and landed by [`apply_builtin_element_args`]. Only the elements whose
+/// arguments land on the node ([`BUILTIN_ARGUMENT_ELEMENTS`]) build a model,
+/// so the thousands of `div`s of a large document cost one slice lookup.
+/// `tag` is lowercase.
+pub fn apply_builtin_args_from_attributes<'a>(
+    tag: &str,
+    attributes: impl IntoIterator<Item = (&'a str, &'a str)>,
+    node: &mut NodeData,
+) {
+    if !BUILTIN_ARGUMENT_ELEMENTS.contains(&tag) {
+        return;
+    }
+    let model = ComponentDataModel {
+        name: AzString::from_const_str(""),
+        description: AzString::from_const_str(""),
+        fields: builtin_data_model(tag).into(),
+    };
+    let args = data_model_with_attributes(&model, attributes);
+    apply_builtin_element_args(tag, &args, node);
 }
 
 // ============================================================================
@@ -4621,7 +4710,17 @@ fn builtin_dom(tag: &str, data: &ComponentDataModel, example: bool) -> Dom {
     } else {
         own
     };
-    let node = preview_xml(tag, attrs, &text, children);
+    // The component's ARGUMENTS become the element's attributes, so the
+    // loader's own path lands them exactly as it lands markup's
+    // (`apply_builtin_args_from_attributes`, the attribute table, the
+    // element's own reading): the example's first, the arguments over them.
+    let arg_strings = argument_attributes(data, &builtin_data_model(tag));
+    let mut all_attrs: Vec<(&str, &str)> = attrs.to_vec();
+    for (k, v) in &arg_strings {
+        all_attrs.retain(|(ek, _)| !ek.eq_ignore_ascii_case(k));
+        all_attrs.push((k.as_str(), v.as_str()));
+    }
+    let node = preview_xml(tag, &all_attrs, &text, children);
     xml_node_to_dom_fast(&node, &ComponentMap::default(), false, 0).unwrap_or_else(|_| {
         let bare = Dom::create_node(tag_to_node_type(tag));
         if text.is_empty() {
@@ -4635,6 +4734,47 @@ fn builtin_dom(tag: &str, data: &ComponentDataModel, example: bool) -> Dom {
             )
         }
     })
+}
+
+/// A component's arguments as attribute strings, for the render fn of a
+/// builtin element: every field but `text` that the caller SET (its value
+/// differs from the element's declared default in `defaults`) to a string, a
+/// bool or a number - a bool as HTML does: present when `true`, absent when
+/// `false`. Empty strings and unset fields are left out.
+fn argument_attributes(
+    data: &ComponentDataModel,
+    defaults: &[ComponentDataField],
+) -> Vec<(String, String)> {
+    data.fields
+        .as_ref()
+        .iter()
+        .filter(|f| f.name.as_str() != "text")
+        .filter(|f| {
+            !defaults
+                .iter()
+                .any(|d| d.name.as_str() == f.name.as_str() && d.default_value == f.default_value)
+        })
+        .filter_map(|f| {
+            let OptionComponentDefaultValue::Some(v) = &f.default_value else {
+                return None;
+            };
+            let value = match v {
+                ComponentDefaultValue::String(s) if !s.as_str().is_empty() => {
+                    s.as_str().to_string()
+                }
+                ComponentDefaultValue::Bool(true) => String::new(),
+                ComponentDefaultValue::I32(n) => n.to_string(),
+                ComponentDefaultValue::I64(n) => n.to_string(),
+                ComponentDefaultValue::U32(n) => n.to_string(),
+                ComponentDefaultValue::U64(n) => n.to_string(),
+                ComponentDefaultValue::Usize(n) => n.to_string(),
+                ComponentDefaultValue::F32(n) => n.to_string(),
+                ComponentDefaultValue::F64(n) => n.to_string(),
+                _ => return None,
+            };
+            Some((f.name.as_str().to_string(), value))
+        })
+        .collect()
 }
 
 /// Register the built-in components: one per HTML element of the
@@ -5865,6 +6005,20 @@ fn apply_xml_node_attributes(
     attributes::apply_settings(node, settings, intrinsic_props, None, &mut |s: &str| {
         AzString::from(s)
     });
+
+    // The element's COMPONENT arguments (`<a href target rel>`, `<img src
+    // alt>`): the fields its builtin component declares, filled from these
+    // attributes by the filler every component uses, landed by the
+    // element's render side.
+    apply_builtin_args_from_attributes(
+        component_name,
+        xml_node
+            .attributes
+            .as_slice()
+            .iter()
+            .map(|pair| (pair.key.as_str(), pair.value.as_str())),
+        node,
+    );
 
     // Handle SVG shape elements when inside an <svg> context
     let tag = component_name;

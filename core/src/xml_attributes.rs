@@ -216,15 +216,6 @@ fn style(_: &str, value: &str) -> Option<NodeSetting> {
     Some(NodeSetting::Style(value.into()))
 }
 
-/// `href` (`<a>`, `<area>`, `<link>`, `<base>`): where the element points,
-/// as `AttributeType::Href` - what `Dom::create_a` sets. A mail client reads
-/// it back (`CallbackInfo::get_node_attribute(node, "href")`) to open the
-/// link the user clicked. Kept verbatim (entities are already decoded by the
-/// loader); which schemes are safe to open is the app's decision.
-fn href(_: &str, value: &str) -> Option<NodeSetting> {
-    Some(NodeSetting::Attribute(AttributeType::Href(value.into())))
-}
-
 /// A form control's HTML attribute as its typed `AttributeType`; one with no
 /// typed variant as `Custom`. Boolean attributes follow HTML - PRESENT means
 /// on, whatever the value - except that an explicit `"false"` means off.
@@ -351,7 +342,6 @@ static BUILTIN: &[XmlAttribute] = &[
     entry("inputmode", FormControls, 5, form_control),
     entry("dirname", FormControls, 5, form_control),
     entry("capture", FormControls, 5, form_control),
-    entry("href", AnyElement, 5, href),
     entry("tabindex", AnyElement, 6, tabindex),
     entry("colspan", AnyElement, 7, span),
     entry("rowspan", AnyElement, 8, span),

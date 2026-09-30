@@ -2707,41 +2707,17 @@ fn default_to_string(v: &OptionComponentDefaultValue) -> Option<String> {
 }
 
 /// The data model with an instance's attributes as the current values (for a
-/// component rendered through its own `render_fn`).
+/// component rendered through its own `render_fn`): core's one filler of a
+/// component's declared arguments (`azul_core::xml::data_model_with_attributes`),
+/// which the XML loaders use for the builtin elements too.
 fn data_model_with_args(
     dm: &ComponentDataModel,
     attrs: &BTreeMap<String, String>,
 ) -> ComponentDataModel {
-    let mut out = dm.clone();
-    let mut fields: Vec<ComponentDataField> = dm.fields.as_ref().to_vec();
-    for f in &mut fields {
-        let Some(v) = attrs.get(f.name.as_str()) else {
-            continue;
-        };
-        let t = v.trim();
-        let parsed = match f.field_type {
-            ComponentFieldType::String => {
-                Some(ComponentDefaultValue::String(AzString::from(v.as_str())))
-            }
-            ComponentFieldType::Bool => Some(ComponentDefaultValue::Bool(matches!(
-                t,
-                "true" | "1" | "yes" | "on"
-            ))),
-            ComponentFieldType::I32 => t.parse::<i32>().ok().map(ComponentDefaultValue::I32),
-            ComponentFieldType::I64 => t.parse::<i64>().ok().map(ComponentDefaultValue::I64),
-            ComponentFieldType::U32 => t.parse::<u32>().ok().map(ComponentDefaultValue::U32),
-            ComponentFieldType::U64 => t.parse::<u64>().ok().map(ComponentDefaultValue::U64),
-            ComponentFieldType::Usize => t.parse::<usize>().ok().map(ComponentDefaultValue::Usize),
-            ComponentFieldType::F32 => t.parse::<f32>().ok().map(ComponentDefaultValue::F32),
-            ComponentFieldType::F64 => t.parse::<f64>().ok().map(ComponentDefaultValue::F64),
-            _ => None,
-        };
-        if let Some(p) = parsed {
-            f.default_value = OptionComponentDefaultValue::Some(p);
-        }
-    }
-    out.fields = ComponentDataFieldVec::from_vec(fields);
-    out
+    azul_core::xml::data_model_with_attributes(
+        dm,
+        attrs.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+    )
 }
 
 // ===========================================================================

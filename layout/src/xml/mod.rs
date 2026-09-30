@@ -538,6 +538,16 @@ fn parse_xml_to_fast_dom_with_css(
                 &mut |s: &str| str_arena.intern(s),
             );
 
+            // The element's COMPONENT arguments (`<a href target rel>`,
+            // `<img src alt>`): the fields its builtin component declares,
+            // filled from the attributes and landed on the node by the same
+            // functions core's loader and the builtin render fn use.
+            azul_core::xml::apply_builtin_args_from_attributes(
+                tag,
+                attrs.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+                &mut nd,
+            );
+
             // ---- Fluent / l10n handling ----
             // `<p data-l10n="greeting_key" data-l10n-name="Alice">` stays a
             // `<p>`: its `data-l10n-*` arguments go on the element, and the key
