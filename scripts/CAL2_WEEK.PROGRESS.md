@@ -8,8 +8,11 @@ Branch `wt/cal2-week-interactions`, base `8812e832c`. Nothing is compiled here (
   `layout/tests/a_scroll_area_under_a_fixed_header_reaches_its_whole_content.rs` (+ all.rs),
   E2E `examples/azul-calendar/scripts/week_interactions.py`.
 
+- `1d4736f8b` feat: week.rs math, lib.rs scroll area / zoom / click + drag drafts with a
+  `<transient-window>` popover.
+
 ## IN PROGRESS
-- week.rs implementation, lib.rs: scroll area, zoom, draft + `<transient-window>` popover.
+- Review pass over lib.rs against the generated Rust API (target/codegen/dll_api_external.rs).
 
 ## NEXT
 - Report `scripts/CAL2_WEEK_2026_09_30.md`.
