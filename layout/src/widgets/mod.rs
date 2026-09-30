@@ -137,6 +137,11 @@ macro_rules! impl_widget_callback {
 ///
 /// One or more collapsible titled sections; see `accordion.rs`.
 pub mod accordion;
+/// Address bar widget.
+///
+/// A file manager's Back / Forward / Up, path trail, Refresh and search box;
+/// see `address_bar.rs`.
+pub mod address_bar;
 /// Alert / banner widget.
 ///
 /// A coloured inline message box with an optional dismissible close button; see `alert.rs`.
@@ -200,6 +205,11 @@ pub mod date_picker;
 /// `<input type=datetime-local>`: a `DatePicker` and a `TimePicker` composed
 /// into one control with one combined state; see `datetime_local.rs`.
 pub mod datetime_local;
+/// Details pane widget.
+///
+/// A file manager's description of the selected item: icon, name, kind and
+/// key / value rows; see `details_pane.rs`.
+pub mod details_pane;
 /// Dialog widget: HTML `<dialog>` semantics (`show` / `show_modal` / `close`,
 /// `returnValue`, a cancelable `cancel`, `closedby`, focus in and back, a
 /// modal `::backdrop` in the top layer) on a `<transient-window>`. Popover
@@ -322,6 +332,11 @@ pub mod tabs;
 pub mod text_area;
 /// Single line text input widget
 pub mod text_input;
+/// Tile widget.
+///
+/// One item of a file manager's tile view: icon, title, capacity bar,
+/// detail; see `tile.rs`.
+pub mod tile;
 /// Time picker widget.
 ///
 /// Two clamped numeric up/down spinners (hour + minute) side by side with an optional AM/PM toggle
@@ -1268,6 +1283,41 @@ mod label_convention {
                 .with_variant(super::accordion::AccordionVariant::Groups)
                 .dom(),
             ),
+            (
+                "address_bar",
+                super::address_bar::AddressBar::create(labels(&["This PC", "Home"]))
+                    .with_can_go(true, true, true)
+                    .dom(),
+            ),
+            (
+                "address_bar (editing)",
+                super::address_bar::AddressBar::create(labels(&["This PC"]))
+                    .with_path(AzString::from("/home"))
+                    .with_editing(true)
+                    .dom(),
+            ),
+            (
+                "details_pane",
+                super::details_pane::DetailsPane::create(AzString::from("Home"))
+                    .with_icon(AzString::from("home"))
+                    .with_subtitle(AzString::from("Local Disk"))
+                    .with_property(AzString::from("Total size"), AzString::from("456 GB"))
+                    .dom(),
+            ),
+            (
+                "tile",
+                super::tile::Tile::create(AzString::from("Home"))
+                    .with_icon(AzString::from("home"))
+                    .with_capacity(super::tile::TileCapacity::create(456, 324))
+                    .dom(),
+            ),
+            (
+                "tile (detail)",
+                super::tile::Tile::create(AzString::from("S3 Drive"))
+                    .with_detail(AzString::from("S3 bucket"))
+                    .with_selected(true)
+                    .dom(),
+            ),
         ]
     }
 
@@ -2088,6 +2138,9 @@ mod theme_contrast {
         "accordion",
         "accordion (groups)",
         "card",
+        "details_pane",
+        "tile",
+        "tile (detail)",
         "dialog",
         "divider",
         "frame",
@@ -2131,6 +2184,8 @@ mod theme_contrast {
     ];
     /// Navigation and application chrome.
     const CHROME: &[&str] = &[
+        "address_bar",
+        "address_bar (editing)",
         "backstage",
         "breadcrumb",
         "list_view",

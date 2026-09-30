@@ -132,6 +132,11 @@ pub struct BreadcrumbStateWrapper {
     pub inner: BreadcrumbState,
     /// Optional: function to call when a crumb is clicked.
     pub on_navigate: OptionBreadcrumbOnNavigate,
+    /// Optional: with it every crumb - the current page too - is followed
+    /// by a CHEVRON that is a button, reporting the crumb's index in
+    /// `selected_index`: a file manager opens that folder's entries beside
+    /// it (`CallbackInfo::open_menu_for_hit_node`).
+    pub on_segment_menu: OptionBreadcrumbOnNavigate,
 }
 
 /// State of a [`Breadcrumb`]: the index of the most recently clicked crumb.
@@ -306,6 +311,34 @@ impl Breadcrumb {
         on_navigate: C,
     ) -> Self {
         self.set_on_navigate(data, on_navigate);
+        self
+    }
+
+    /// The segment menus: every crumb, the current page too, is followed by
+    /// a chevron that reports the crumb's index (see
+    /// [`BreadcrumbStateWrapper::on_segment_menu`]).
+    #[inline]
+    pub fn set_on_segment_menu<C: Into<BreadcrumbOnNavigateCallback>>(
+        &mut self,
+        data: RefAny,
+        on_segment_menu: C,
+    ) {
+        self.breadcrumb_state.on_segment_menu = Some(BreadcrumbOnNavigate {
+            callback: on_segment_menu.into(),
+            refany: data,
+        })
+        .into();
+    }
+
+    /// [`Self::set_on_segment_menu`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub fn with_on_segment_menu<C: Into<BreadcrumbOnNavigateCallback>>(
+        mut self,
+        data: RefAny,
+        on_segment_menu: C,
+    ) -> Self {
+        self.set_on_segment_menu(data, on_segment_menu);
         self
     }
 
@@ -1707,5 +1740,132 @@ mod app_theme_tests {
         };
         assert_eq!(texts(&flat), texts(&pinned_flat));
         assert_eq!(texts(&flora), texts(&pinned_flora));
+    }
+}
+
+/// Segment menus: with `on_segment_menu` every crumb - the current page too
+/// - is followed by a chevron that is a button reporting the crumb's index,
+/// so a file manager can open that folder's entries beside it.
+#[cfg(test)]
+mod segment_menu_tests {
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        callbacks::Update,
+        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeId},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+
+    use super::*;
+    use crate::widgets::{
+        roving::test_support as rv,
+        themes::{theme_blocks::checks, UiTheme},
+    };
+
+    type Log = Arc<Mutex<Vec<usize>>>;
+
+    extern "C" fn record(mut data: RefAny, _info: CallbackInfo, state: BreadcrumbState) -> Update {
+        if let Some(log) = data.downcast_ref::<Log>() {
+            log.lock().expect("log").push(state.selected_index);
+        }
+        Update::DoNothing
+    }
+
+    fn labels(items: &[&str]) -> StringVec {
+        StringVec::from_vec(items.iter().map(|s| AzString::from(*s)).collect::<Vec<_>>())
+    }
+
+    fn trail(log: &Log) -> Breadcrumb {
+        Breadcrumb::create(labels(&["This PC", "Home", "Docs"])).with_on_segment_menu(
+            RefAny::new(log.clone()),
+            record as BreadcrumbOnNavigateCallbackType,
+        )
+    }
+
+    fn children(styled: &StyledDom, parent: NodeId) -> Vec<NodeId> {
+        let hierarchy = styled.node_hierarchy.as_ref();
+        let mut out = Vec::new();
+        let mut cur = hierarchy[parent.index()].first_child_id(parent);
+        while let Some(n) = cur {
+            out.push(n);
+            cur = hierarchy[n.index()].next_sibling_id();
+        }
+        out
+    }
+
+    fn id(n: NodeId) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+        }
+    }
+
+    #[test]
+    fn with_a_menu_hook_every_crumb_and_the_current_page_are_followed_by_a_chevron_that_reports_them(
+    ) {
+        for theme in checks::BOTH {
+            let log: Log = Arc::new(Mutex::new(Vec::new()));
+            let dom = trail(&log).with_theme(theme).dom();
+            let parts = dom.children.as_ref();
+            assert_eq!(
+                parts.len(),
+                6,
+                "{}: crumb, chevron, crumb, chevron, current, chevron",
+                theme.name()
+            );
+            for i in [1, 3, 5] {
+                let chevron = &parts[i];
+                assert!(
+                    chevron.root.get_tab_index().is_some(),
+                    "{}: chevron {i} is a keyboard stop",
+                    theme.name()
+                );
+                assert_eq!(
+                    chevron.root.get_accessibility_info().map(|a| a.role),
+                    Some(azul_core::a11y::AccessibilityRole::PushButton),
+                    "{}: chevron {i} is a button",
+                    theme.name()
+                );
+            }
+            let styled = StyledDom::create_from_dom(dom);
+            let kids = children(&styled, NodeId::new(0));
+            for i in [1, 3, 5] {
+                rv::fire(
+                    &styled,
+                    id(kids[i]),
+                    EventFilter::Hover(HoverEventFilter::Click),
+                )
+                .unwrap_or_else(|| panic!("{}: chevron {i} takes the click", theme.name()));
+            }
+            assert_eq!(
+                *log.lock().expect("log"),
+                vec![0, 1, 2],
+                "{}: each chevron names its crumb",
+                theme.name()
+            );
+        }
+    }
+
+    #[test]
+    fn without_the_hook_the_trail_ends_in_the_current_page_and_its_separators_are_inert() {
+        let dom = Breadcrumb::create(labels(&["This PC", "Home", "Docs"]))
+            .with_theme(UiTheme::Flat)
+            .dom();
+        let parts = dom.children.as_ref();
+        assert_eq!(parts.len(), 5, "crumb, separator, crumb, separator, current");
+        for i in [1, 3] {
+            assert!(parts[i].root.get_callbacks().as_ref().is_empty());
+            assert!(parts[i].root.get_tab_index().is_none());
+        }
+    }
+
+    #[test]
+    fn a_trail_with_menus_follows_the_app_theme() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        checks::assert_follows_the_app_theme(
+            "breadcrumb (segment menus)",
+            || trail(&log).dom(),
+            |t: UiTheme| trail(&log).with_theme(t).dom(),
+        );
     }
 }
