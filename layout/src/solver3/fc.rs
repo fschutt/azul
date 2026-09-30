@@ -7157,6 +7157,34 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
     // inlines (`<td><span><a>text</a></span></td>`) need recursion; a fixed
     // 2-level walk left the `<a>` at level 3 with a stale cached 0-width.
     clear_subtree_cache(tree, &mut ctx.cache_map, cell_index);
+    // Same for the cell's own size: a table cell's `used_size` is never
+    // overwritten by its own layout once set, and `layout_bfc` lays the
+    // cell's children out inside it - so without this, a re-layout measured
+    // the content inside the column width of the PREVIOUS layout.
+    if let Some(cell) = tree.get_mut(LayoutNodeId::new(cell_index)) {
+        cell.used_size = None;
+    }
+
+    // The measurement is a CONSTRAINT, not a length. The flattened
+    // `f32::MAX / 2` above is only the legacy cache key: handed to
+    // `from_flattened_with_width_type` it is FINITE, so it came back as a
+    // DEFINITE 1.7e38 px containing block. A cell without text (`<td
+    // colspan="2"><hr></td>`, a `width: 100%` rule) filled it, both spanned
+    // columns came out ~0.85e38 wide and the next column's text was placed
+    // ~0.85e38 px to the right: the AzMail receipt lost its price column and
+    // the CPU rasterizer panicked on it. Typed, the cell's auto width is its
+    // measured contribution and a percentage inside it behaves as auto
+    // (css-sizing-3 section 5.2.1).
+    let cell_cb = match width_type {
+        Text3AvailableSpace::Definite(_) => {
+            CBTY::from_flattened_with_width_type(cell_constraints.available_size, width_type)
+        }
+        indefinite => CBTY::from_axes(
+            indefinite,
+            Text3AvailableSpace::MaxContent,
+            cell_constraints.available_size,
+        ),
+    };
 
     crate::solver3::cache::calculate_layout_for_subtree(
         ctx,
@@ -7164,10 +7192,7 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
         text_cache,
         cell_index,
         LogicalPosition::zero(),
-        &CBTY::from_flattened_with_width_type(
-            cell_constraints.available_size,
-            cell_constraints.available_width_type,
-        ),
+        &cell_cb,
         &mut temp_positions,
         &mut temp_scrollbar_reflow,
         &mut temp_float_cache,
@@ -7547,12 +7572,35 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
     // Check if cell has text content directly in DOM (not in LayoutTree)
     // Text nodes are intentionally not included in LayoutTree per CSS spec,
     // but we need to measure them for table cell height calculation.
-    let has_text_children = cell_dom_id
-        .az_children(&ctx.styled_dom.node_hierarchy.as_container())
+    //
+    // The text branch below lays the CELL out as one inline formatting
+    // context, then clears its children's own inline layouts. That is right
+    // for loose text and for a cell whose children are all inline-level (CSS
+    // 2.2 section 9.4.2) - but mail HTML is indented, so a cell holding an
+    // `<h1>` and a `<p>` also has whitespace text children, and taking the
+    // text branch for it lost both: `layout_ifc` does not lay the blocks out
+    // and the clearing wiped their text (AzMail sample 01, an empty newsletter
+    // body). Collapsible whitespace between blocks is no text at all (CSS 2.2
+    // section 9.2.2.1), so such a cell takes the block branch.
+    let styled_dom = ctx.styled_dom;
+    let is_text = |child_id: NodeId| {
+        matches!(
+            styled_dom.node_data.as_container()[child_id].get_node_type(),
+            NodeType::Text(_)
+        )
+    };
+    let any_text = cell_dom_id
+        .az_children(&styled_dom.node_hierarchy.as_container())
+        .any(|child_id| is_text(child_id));
+    let loose_text = cell_dom_id
+        .az_children(&styled_dom.node_hierarchy.as_container())
         .any(|child_id| {
-            let node_data = &ctx.styled_dom.node_data.as_container()[child_id];
-            matches!(node_data.get_node_type(), NodeType::Text(_))
+            is_text(child_id)
+                && !crate::solver3::layout_tree::is_whitespace_only_text(styled_dom, child_id)
         });
+    let has_text_children = any_text
+        && (loose_text
+            || crate::solver3::layout_tree::has_only_inline_children(styled_dom, cell_dom_id));
 
     debug_table_layout!(
         ctx,
@@ -7647,6 +7695,21 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
         let mut temp_scrollbar_reflow = false;
         let mut temp_float_cache = HashMap::new();
 
+        // The table decides a cell's width. `layout_bfc` lays a cell's
+        // children out inside the cell's `used_size`, and a table cell's
+        // own layout never overwrites that once set - so it still held the
+        // min/max-content MEASUREMENT's width, and a `width: 100%` rule or
+        // an auto-width block came out as wide as the measurement instead
+        // of the column(s) (a spanning `<hr>` 0 px or 1.7e38 px wide). This
+        // is the cell's final layout: give it its column width first. The
+        // block size stays what the measurement left (it carries an explicit
+        // `height`, see the read below).
+        if let Some(cell) = tree.get_mut(LayoutNodeId::new(cell_index)) {
+            if let Some(size) = cell.used_size {
+                cell.used_size = Some(size.with_cross(writing_mode, cell_width));
+            }
+        }
+
         crate::solver3::cache::calculate_layout_for_subtree(
             ctx,
             tree,
@@ -7664,10 +7727,27 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
             crate::solver3::cache::ComputeMode::PerformLayout,
         )?;
 
+        // The CONTENT box's height, like the text branch's: the sum below
+        // adds the padding and border. The layout just done at the column
+        // width reports its content extent (wrapped at the column, not at the
+        // measurement width); `used_size` is the measurement's BORDER box,
+        // which carries an explicit `height`, so it counts only after its own
+        // padding and border come off. Reading `used_size` whole counted them
+        // twice: every block-level cell's row came out 2 x (padding + border)
+        // too tall, its content pushed down by `vertical-align: middle`.
         let cell_node = tree
             .get(LayoutNodeId::new(cell_index))
             .ok_or(LayoutError::InvalidTree)?;
-        cell_node.used_size.unwrap_or_default().height
+        let laid_out = tree
+            .warm(LayoutNodeId::new(cell_index))
+            .and_then(|w| w.overflow_content_size)
+            .map_or(0.0, |s| s.height);
+        let measured = cell_node.used_size.unwrap_or_default().height
+            - padding.main_start(writing_mode)
+            - padding.main_end(writing_mode)
+            - border.main_start(writing_mode)
+            - border.main_end(writing_mode);
+        laid_out.max(measured).max(0.0)
     };
 
     // Add padding and border to get the total height
