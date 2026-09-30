@@ -10370,9 +10370,18 @@ mod tests {
             !moving.is_empty(),
             "premise: the moved paragraphs animate (a FLIP is in flight)"
         );
+        // The pass that seeds a FLIP builds its display list BEFORE
+        // `finish_reconciliation` mints the movers' keys (the "Last" rects
+        // must be solved first), so the reference frames show up on the
+        // NEXT list build - the one every following frame paints from.
+        if let Some(lw) = window.common.layout_window.as_mut() {
+            lw.regenerate_display_list_for_dom(azul_core::dom::DomId::ROOT_ID);
+        }
         assert!(
             dl_reference_frames(&window) >= moving.len(),
-            "premise: each mover is painted through its reference frame"
+            "premise: each mover is painted through its reference frame once the list is \
+             rebuilt with its key ({} frames for movers {moving:?})",
+            dl_reference_frames(&window)
         );
 
         // The paragraphs go; boxes take their ids. Nothing on this page
