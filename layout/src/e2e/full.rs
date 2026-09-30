@@ -2445,7 +2445,7 @@ pub enum DebugEvent {
     /// any mid-flight assertion would be flaky. Stepping by a fixed `dt` makes
     /// the trajectory a pure function of how many steps ran.
     TickAnimations {
-        /// Microseconds per step. Defaults to one 60 Hz frame (16_666).
+        /// Microseconds per step. Defaults to [`E2E_TEST_FRAME_STEP_MICROS`].
         #[serde(default)]
         dt_micros: Option<u32>,
         /// Steps to take, so an animation can be run to completion in one op.
@@ -14868,8 +14868,13 @@ pub fn process_debug_event(
             // semi-implicit Euler — one 2000 ms step is outside its stable
             // region, and a real shell never hands it more than a frame.
             callback_info.push_change(azul_layout::callbacks::CallbackChange::TickAnimations {
-                dt_micros: 16_666,
-                steps: u32::try_from((*ms).div_ceil(16).max(1)).unwrap_or(u32::MAX),
+                dt_micros: E2E_TEST_FRAME_STEP_MICROS,
+                steps: u32::try_from(
+                    (u64::from(*ms) * 1000)
+                        .div_ceil(u64::from(E2E_TEST_FRAME_STEP_MICROS))
+                        .max(1),
+                )
+                .unwrap_or(u32::MAX),
             });
             // Force a frame so that time-driven state (fade / momentum / blink /
             // animation) actually advances and re-renders; an idle engine then
@@ -15611,7 +15616,7 @@ pub fn process_debug_event(
         }
 
         DebugEvent::TickAnimations { dt_micros, steps } => {
-            let dt_micros = dt_micros.unwrap_or(16_666);
+            let dt_micros = dt_micros.unwrap_or(E2E_TEST_FRAME_STEP_MICROS);
             let steps = steps.unwrap_or(1).max(1);
             // Mutation goes through the sanctioned channel: CallbackInfo hands
             // out `&LayoutWindow` only, and `apply_system_change` is where the
@@ -20287,6 +20292,15 @@ pub fn process_debug_event(
 
     needs_update
 }
+
+/// The E2E harness's deterministic animation step, in µs: one 60 Hz frame.
+///
+/// A TEST default, not the engine's frame rate. A headless scenario must not
+/// sample real time (the same test would land on a different point of an
+/// animation curve on a fast machine than on a slow one), so `wait` and
+/// `tick_animations` step the clock by this fixed amount. A real window paces
+/// at the refresh rate of its monitor (`LayoutWindow::frame_interval_nanos`).
+pub const E2E_TEST_FRAME_STEP_MICROS: u32 = 16_666;
 
 /// Timer id of the debug server's poll timer, per window. One constant for
 /// every registration site (window creation and `StartHttpServer`).

@@ -1700,23 +1700,6 @@ const X11_WINDOW_EVENT_MASK: c_long = ExposureMask
 /// dropped its XIC and ran a full pass plus restyle every time a context menu
 /// opened. `detail == NotifyPointer` is likewise not a window focus change (the
 /// focus merely follows the pointer). Same rule winit and GTK apply.
-/// The primary monitor's refresh interval for frame pacing (fallback 60Hz,
-/// clamped to 30..=240 so a bogus XRandR reading cannot stall or spin the
-/// pacer). Read once at window creation; a mid-session mode switch keeps the
-/// old cadence until the next window (acceptable - pacing is a ceiling, not
-/// a sync).
-fn detect_frame_interval() -> std::time::Duration {
-    let monitors = crate::desktop::display::get_monitors();
-    let hz = monitors
-        .as_ref()
-        .iter()
-        .find(|m| m.is_primary_monitor)
-        .or_else(|| monitors.as_ref().first())
-        .and_then(|m| m.video_modes.as_ref().first())
-        .map_or(60_u64, |v| u64::from(v.refresh_rate));
-    std::time::Duration::from_nanos(1_000_000_000 / hz.clamp(30, 240))
-}
-
 fn is_grab_focus_change(ev: &defines::XFocusChangeEvent) -> bool {
     ev.mode == defines::NotifyGrab
         || ev.mode == defines::NotifyUngrab
@@ -3019,7 +3002,6 @@ pub struct X11Window {
     net_wm_state_atoms: Option<[Atom; 5]>,
     last_present_at: Option<std::time::Instant>,
     pace_fd: i32,
-    frame_interval: std::time::Duration,
 
     // Multi-window support
     /// Pending window creation requests (for popup menus, dialogs, etc.)
@@ -4359,7 +4341,6 @@ impl X11Window {
             net_wm_state_atoms: None,
             last_present_at: None,
             pace_fd: -1,
-            frame_interval: detect_frame_interval(),
             pending_window_creates: Vec::new(),
             gnome_menu: None, // New dlopen-based implementation
             resources: resources.clone(),
@@ -6732,10 +6713,14 @@ impl X11Window {
             return true;
         };
         let since = last.elapsed();
-        if since >= self.frame_interval {
+        // THIS window's frame: the refresh rate of the monitor it is on,
+        // capped by `RendererOptions::max_frame_rate` - read per frame, so a
+        // window dragged to another monitor paces at that monitor's rate.
+        let frame_interval = self.common.frame_interval();
+        if since >= frame_interval {
             return true;
         }
-        let remaining = self.frame_interval - since;
+        let remaining = frame_interval - since;
         if super::timer::arm_oneshot_timer(&mut self.pace_fd, remaining) {
             return false;
         }

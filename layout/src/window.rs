@@ -501,10 +501,6 @@ pub extern "C" fn css_animation_timer_callback(
     }
 }
 
-/// Period of the CSS animation driver
-/// ([`LayoutWindow::create_css_animation_timer`]), in milliseconds.
-pub const CSS_ANIMATION_FRAME_MS: u64 = 16;
-
 // ============================================================================
 // Tooltip Delay Timer Callback
 // ============================================================================
@@ -9673,7 +9669,8 @@ impl LayoutWindow {
             run_count: 0,
             last_run: azul_core::task::OptionInstant::None,
             delay: azul_core::task::OptionDuration::None,
-            interval: azul_core::task::OptionDuration::Some(Duration::from_millis(16)),
+            // One step per frame of THIS window (8.33 ms on a 120 Hz panel).
+            interval: azul_core::task::OptionDuration::Some(self.frame_interval()),
             timeout: azul_core::task::OptionDuration::None,
             callback: TimerCallback::create(caret_tween_timer_callback),
         }
@@ -9684,7 +9681,17 @@ impl LayoutWindow {
     /// primary one, else the first.
     #[must_use]
     pub fn monitor_refresh_rate_hz(&self) -> Option<u32> {
-        None
+        let monitors = self.monitors.lock().ok()?;
+        let monitors = monitors.as_ref();
+        let on = self.current_window_state.monitor_id.into_option();
+        on.and_then(|index| {
+            monitors
+                .iter()
+                .find(|m| m.monitor_id.index == index as usize)
+        })
+        .or_else(|| monitors.iter().find(|m| m.is_primary_monitor))
+        .or_else(|| monitors.first())
+        .and_then(azul_core::window::Monitor::refresh_rate_hz)
     }
 
     /// THIS WINDOW'S frame interval, in ns - the one source of truth every
@@ -9694,7 +9701,9 @@ impl LayoutWindow {
     /// `RendererOptions::max_frame_rate` when that is lower.
     #[must_use]
     pub fn frame_interval_nanos(&self) -> u64 {
-        16_666_666
+        self.current_window_state
+            .renderer_options
+            .frame_interval_nanos(self.monitor_refresh_rate_hz())
     }
 
     /// [`Self::frame_interval_nanos`] as an engine [`Duration`].
@@ -9712,7 +9721,8 @@ impl LayoutWindow {
         (self.frame_interval_nanos() as f64 / 1e9) as f32
     }
 
-    /// The CSS animation frame driver: a 16ms interval timer whose callback is
+    /// The CSS animation frame driver: a timer firing once per frame of this
+    /// window ([`Self::frame_interval`]) whose callback is
     /// an inert marker ([`azul_core::task::CSS_ANIMATION_TIMER_ID`]). The
     /// shared dispatcher does the ticking when it expires, because a timer
     /// callback only holds an immutable `CallbackInfo`.
@@ -9729,9 +9739,7 @@ impl LayoutWindow {
             run_count: 0,
             last_run: azul_core::task::OptionInstant::None,
             delay: azul_core::task::OptionDuration::None,
-            interval: azul_core::task::OptionDuration::Some(Duration::from_millis(
-                CSS_ANIMATION_FRAME_MS,
-            )),
+            interval: azul_core::task::OptionDuration::Some(self.frame_interval()),
             timeout: azul_core::task::OptionDuration::None,
             callback: TimerCallback::create(css_animation_timer_callback),
         }
@@ -13273,8 +13281,8 @@ impl LayoutWindow {
 
     /// The step, in seconds, [`Self::tick_animations_now`] takes at `now`:
     /// the real time since the previous tick at the clock's full resolution,
-    /// or one 60 Hz frame when there is no previous tick (the first tick after
-    /// an idle period).
+    /// or one frame of this window ([`Self::frame_step_s`]) when there is no
+    /// previous tick (the first tick after an idle period).
     ///
     /// Whole milliseconds are not a frame clock. The step used to be
     /// truncated to them while the stamp still moved to `now`, so a pass
@@ -13284,7 +13292,7 @@ impl LayoutWindow {
     /// too, so the keyframe tracks it samples step by the same amount.
     #[must_use]
     pub fn animation_step_at(&self, now: &Instant) -> f32 {
-        self.last_anim_tick.as_ref().map_or(1.0 / 60.0, |prev| {
+        self.last_anim_tick.as_ref().map_or(self.frame_step_s(), |prev| {
             (now.duration_since(prev).as_nanos() as f64 / 1e9) as f32
         })
     }
@@ -13342,7 +13350,7 @@ impl LayoutWindow {
         let Some(prev) = self.last_anim_tick.as_ref() else {
             return true;
         };
-        let period_ns = u128::from(CSS_ANIMATION_FRAME_MS) * 1_000_000;
+        let period_ns = u128::from(self.frame_interval_nanos());
         if now.duration_since(prev).as_nanos() * 2 >= period_ns {
             return true;
         }

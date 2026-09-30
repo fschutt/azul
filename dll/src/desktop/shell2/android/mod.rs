@@ -12,7 +12,7 @@
 //! Soft-keyboard / IME support (Phase 5) needs a ~50-line Java JNI bridge that
 //! is compiled with plain `javac` + `d8` — still no Gradle.
 
-use std::{cell::RefCell, ffi::c_void, sync::Arc, time::Duration};
+use std::{cell::RefCell, ffi::c_void, sync::Arc};
 
 use azul_core::{
     callbacks::RelayoutReason,
@@ -769,14 +769,14 @@ pub fn android_main(app: AndroidApp) {
             #[cfg(feature = "ndk")]
             {
                 if window.native_window.is_some() {
-                    Some(Duration::from_millis(16))
+                    Some(window.common.frame_interval())
                 } else {
                     None
                 }
             }
             #[cfg(not(feature = "ndk"))]
             {
-                Some(Duration::from_millis(16))
+                Some(window.common.frame_interval())
             }
         };
 

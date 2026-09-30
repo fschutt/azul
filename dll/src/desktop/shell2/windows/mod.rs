@@ -1077,31 +1077,38 @@ impl Win32Window {
         }
     }
 
-    /// Win32 timer ID reserved for thread-polling (~60 FPS tick).
+    /// Win32 timer ID reserved for thread-polling (one tick per frame).
     const THREAD_POLL_TIMER_ID: usize = 0xFFFF;
-    /// Interval in milliseconds for the thread-polling timer (~60 FPS).
-    const THREAD_POLL_INTERVAL_MS: u32 = 16;
 
-    /// Win32 timer ID reserved for the modal size/move pump (~60 FPS tick).
+    /// One frame of this window in whole ms (at least 1) - the interval of
+    /// the thread poll and the modal size/move pump. From the one source,
+    /// `LayoutWindow::frame_interval_nanos`: the refresh rate of the monitor
+    /// the window is on, capped by `RendererOptions::max_frame_rate`.
+    fn frame_interval_ms(&self) -> u32 {
+        u32::try_from(self.common.frame_interval().as_millis())
+            .unwrap_or(16)
+            .max(1)
+    }
+
+    /// Win32 timer ID reserved for the modal size/move pump (one tick per frame).
     ///
     /// Distinct from [`Self::THREAD_POLL_TIMER_ID`] on purpose: `SetTimer` with
     /// an id that is already in use REPLACES that timer, so sharing one would
     /// silently kill background-thread polling for the rest of the run and the
     /// `KillTimer` at `WM_EXITSIZEMOVE` would never bring it back.
     pub(crate) const MODAL_LOOP_TIMER_ID: usize = 0xFFFE;
-    /// Interval in milliseconds for the modal size/move pump (~60 FPS).
-    const MODAL_LOOP_INTERVAL_MS: u32 = 16;
 
     /// Arm the stand-in for the outer event loop, for the duration of a modal
     /// size/move loop (`WM_ENTERSIZEMOVE` … `WM_EXITSIZEMOVE`).
     ///
     /// See [`pump_modal_loop_work`] for what stalls without it.
     pub(crate) fn start_modal_loop_pump(&mut self) {
+        let interval_ms = self.frame_interval_ms();
         unsafe {
             (self.win32.user32.SetTimer)(
                 self.hwnd,
                 Self::MODAL_LOOP_TIMER_ID,
-                Self::MODAL_LOOP_INTERVAL_MS,
+                interval_ms,
                 ptr::null(),
             );
         }
@@ -5620,33 +5627,12 @@ unsafe extern "system" fn window_proc(
                 // Start the scroll momentum timer if this is the first input
                 if should_start_timer {
                     if let Some(queue) = input_queue_clone {
-                        use azul_core::{
-                            refany::RefAny,
-                            task::{Duration, SCROLL_MOMENTUM_TIMER_ID},
-                        };
-                        use azul_layout::{
-                            scroll_timer::{scroll_physics_timer_callback, ScrollPhysicsState},
-                            timer::{Timer, TimerCallbackType},
-                        };
-
-                        let physics_state = ScrollPhysicsState::new(
+                        let timer = azul_layout::scroll_timer::create_scroll_physics_timer(
                             queue,
                             window.common.system_style.scroll_physics.clone(),
+                            window.common.frame_interval_nanos(),
                         );
-                        let interval_ms =
-                            window.common.system_style.scroll_physics.timer_interval_ms;
-                        let data = RefAny::new(physics_state);
-                        let timer = Timer::create(
-                            data,
-                            scroll_physics_timer_callback as TimerCallbackType,
-                            azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
-                                .get_system_time_fn,
-                        )
-                        .with_interval(Duration::System(
-                            azul_core::task::SystemTimeDiff::from_millis(interval_ms as u64),
-                        ));
-
-                        window.start_timer(SCROLL_MOMENTUM_TIMER_ID.id, timer);
+                        window.start_timer(azul_core::task::SCROLL_MOMENTUM_TIMER_ID.id, timer);
                     }
                 }
             }
@@ -7439,11 +7425,12 @@ impl PlatformWindow for Win32Window {
 
     fn start_thread_poll_timer(&mut self) {
         if self.thread_timer_running.is_none() {
+            let interval_ms = self.frame_interval_ms();
             let timer_id = unsafe {
                 (self.win32.user32.SetTimer)(
                     self.hwnd,
                     Self::THREAD_POLL_TIMER_ID,
-                    Self::THREAD_POLL_INTERVAL_MS,
+                    interval_ms,
                     ptr::null(),
                 )
             };

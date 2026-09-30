@@ -398,8 +398,8 @@ extern "C" fn auto_scroll_timer_callback(
             elapsed
         }
         // A timer created before this state existed: fall back to one frame
-        // at the rate the timer was scheduled with rather than not scrolling.
-        None => 1.0 / 60.0,
+        // of this window rather than not scrolling.
+        None => timer_info.callback_info.get_layout_window().frame_step_s(),
     };
 
     // Access window state through callback_info
@@ -3565,6 +3565,24 @@ impl CommonWindowState {
         }
     }
 
+    /// This window's frame interval in ns: `LayoutWindow::frame_interval_nanos`
+    /// (the refresh rate of the monitor the window is on, capped by
+    /// `RendererOptions::max_frame_rate`), or the fallback rate before the
+    /// layout window exists. What every shell's own frame pump reads.
+    #[must_use]
+    pub fn frame_interval_nanos(&self) -> u64 {
+        self.layout_window.as_ref().map_or_else(
+            || azul_core::window::frame_interval_nanos(None, None),
+            LayoutWindow::frame_interval_nanos,
+        )
+    }
+
+    /// [`Self::frame_interval_nanos`] as a `std` duration.
+    #[must_use]
+    pub fn frame_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(self.frame_interval_nanos())
+    }
+
     /// Rebuild the CPU hit-tester from the current layout results.
     ///
     /// CPU backend only: under WebRender the field is `None` and the
@@ -4225,26 +4243,16 @@ pub trait PlatformWindow {
             return;
         }
         let timer = self.get_layout_window().map(|lw| {
-            use azul_core::refany::RefAny;
-            use azul_layout::{
-                scroll_timer::{scroll_physics_timer_callback, ScrollPhysicsState},
-                timer::{Timer, TimerCallbackType},
-            };
             let physics = lw
                 .system_style
                 .as_ref()
                 .map(|s| s.scroll_physics.clone())
                 .unwrap_or_default();
-            let interval_ms = physics.timer_interval_ms.max(1);
-            let state = ScrollPhysicsState::new(lw.scroll_manager.get_input_queue(), physics);
-            Timer::create(
-                RefAny::new(state),
-                scroll_physics_timer_callback as TimerCallbackType,
-                ExternalSystemCallbacks::rust_internal().get_system_time_fn,
+            azul_layout::scroll_timer::create_scroll_physics_timer(
+                lw.scroll_manager.get_input_queue(),
+                physics,
+                lw.frame_interval_nanos(),
             )
-            .with_interval(azul_core::task::Duration::System(
-                azul_core::task::SystemTimeDiff::from_millis(u64::from(interval_ms)),
-            ))
         });
         if let Some(timer) = timer {
             if let Some(lw) = self.get_layout_window_mut() {

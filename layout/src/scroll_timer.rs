@@ -214,6 +214,37 @@ pub struct NodeScrollPhysics {
     pub is_rubber_banding: bool,
 }
 
+/// THE scroll-physics timer (`SCROLL_MOMENTUM_TIMER_ID`): drains
+/// `input_queue` with `scroll_physics`, once per frame of the window that
+/// arms it (`frame_interval_nanos`, from `LayoutWindow::frame_interval_nanos`
+/// - the refresh rate of the monitor the window is on).
+///
+/// Every shell arms it through here. There were six copies (macOS, X11,
+/// Wayland, Win32, headless, the pass-end driver), all ticking at the
+/// preset's fixed `timer_interval_ms` (16 ms): half the frames on a 120 Hz
+/// panel. The physics integrates the time that really passed, so the
+/// interval only sets the cadence; `timer_interval_ms` is set to one frame of
+/// the window too, because the FIRST tick has no measured time and steps by
+/// it.
+#[must_use]
+pub fn create_scroll_physics_timer(
+    input_queue: ScrollInputQueue,
+    mut scroll_physics: ScrollPhysics,
+    frame_interval_nanos: u64,
+) -> crate::timer::Timer {
+    scroll_physics.timer_interval_ms = u32::try_from(frame_interval_nanos.saturating_add(500_000) / 1_000_000)
+        .unwrap_or(u32::MAX)
+        .max(1);
+    crate::timer::Timer::create(
+        RefAny::new(ScrollPhysicsState::new(input_queue, scroll_physics)),
+        scroll_physics_timer_callback as crate::timer::TimerCallbackType,
+        crate::callbacks::ExternalSystemCallbacks::rust_internal().get_system_time_fn,
+    )
+    .with_interval(azul_core::task::Duration::System(
+        azul_core::task::SystemTimeDiff::from_nanos(frame_interval_nanos),
+    ))
+}
+
 impl ScrollPhysicsState {
     /// Create a new physics state with the shared input queue and global config
     #[must_use]

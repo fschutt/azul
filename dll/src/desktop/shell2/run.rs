@@ -2760,15 +2760,22 @@ fn wait_for_linux_window_activity() -> Result<(), WindowError> {
     // Each window may own its own connection, so all of them must be polled —
     // otherwise events on a second window's connection don't wake the loop.
     let mut pollfds: Vec<libc::pollfd> = Vec::new();
+    // The poll cap below: the shortest frame of any window (each paces at
+    // its own monitor's refresh rate).
+    let mut frame_ms: Option<u128> = None;
     for wid in registry::get_all_window_ids() {
         let Some(wptr) = (unsafe { registry::get_window(wid) }) else {
             continue;
         };
-        let fd = match unsafe { &*wptr } {
-            LinuxWindow::X11(w) => unsafe { (w.xlib.XConnectionNumber)(w.display) },
+        let (fd, frame) = match unsafe { &*wptr } {
+            LinuxWindow::X11(w) => (
+                unsafe { (w.xlib.XConnectionNumber)(w.display) },
+                w.common.frame_interval(),
+            ),
             #[cfg(target_os = "linux")]
-            LinuxWindow::Wayland(w) => w.display_fd(),
+            LinuxWindow::Wayland(w) => (w.display_fd(), w.common.frame_interval()),
         };
+        frame_ms = Some(frame_ms.map_or(frame.as_millis(), |m| m.min(frame.as_millis())));
         if fd >= 0 {
             pollfds.push(libc::pollfd {
                 fd,
@@ -2795,10 +2802,13 @@ fn wait_for_linux_window_activity() -> Result<(), WindowError> {
         });
     }
 
+    // STILL A PERIODIC WAKE: the windows' timer fds are not in this poll set
+    // (the single-window loops poll them and park indefinitely), so a cap
+    // keeps timers firing - one frame of the fastest window, not a fixed
+    // 16 ms.
+    let cap_ms = i32::try_from(frame_ms.unwrap_or(16)).unwrap_or(16).max(1);
     unsafe {
-        // 16ms cap so timers keep firing even without window events (~60 Hz),
-        // matching the previous select() behaviour.
-        let result = libc::poll(pollfds.as_mut_ptr(), pollfds.len() as libc::nfds_t, 16);
+        let result = libc::poll(pollfds.as_mut_ptr(), pollfds.len() as libc::nfds_t, cap_ms);
 
         if result < 0 {
             let err = std::io::Error::last_os_error();

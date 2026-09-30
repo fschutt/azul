@@ -3217,7 +3217,10 @@ impl WaylandWindow {
             let timeout_ms: i32 = if closing {
                 0
             } else if has_threads {
-                16
+                // Poll the threads once per frame of this window.
+                i32::try_from(self.common.frame_interval().as_millis())
+                    .unwrap_or(16)
+                    .max(1)
             } else {
                 -1
             };
@@ -5181,32 +5184,12 @@ impl WaylandWindow {
             // Start the scroll momentum timer if this is the first input
             if should_start_timer {
                 if let Some(queue) = input_queue_clone {
-                    use azul_core::{
-                        refany::RefAny,
-                        task::{Duration, SCROLL_MOMENTUM_TIMER_ID},
-                    };
-                    use azul_layout::{
-                        scroll_timer::{scroll_physics_timer_callback, ScrollPhysicsState},
-                        timer::{Timer, TimerCallbackType},
-                    };
-
-                    let physics_state = ScrollPhysicsState::new(
+                    let timer = azul_layout::scroll_timer::create_scroll_physics_timer(
                         queue,
                         self.common.system_style.scroll_physics.clone(),
+                        self.common.frame_interval_nanos(),
                     );
-                    let interval_ms = self.common.system_style.scroll_physics.timer_interval_ms;
-                    let data = RefAny::new(physics_state);
-                    let timer = Timer::create(
-                        data,
-                        scroll_physics_timer_callback as TimerCallbackType,
-                        azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
-                            .get_system_time_fn,
-                    )
-                    .with_interval(Duration::System(
-                        azul_core::task::SystemTimeDiff::from_millis(interval_ms as u64),
-                    ));
-
-                    self.start_timer(SCROLL_MOMENTUM_TIMER_ID.id, timer);
+                    self.start_timer(azul_core::task::SCROLL_MOMENTUM_TIMER_ID.id, timer);
                 }
             }
         }

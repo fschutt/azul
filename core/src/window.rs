@@ -173,9 +173,24 @@ pub const FALLBACK_REFRESH_RATE_HZ: u32 = 60;
 /// lower. The one formula every frame-paced driver uses, so a 120 Hz panel
 /// animates at 120 Hz and a cap of 30 paces at 33.3 ms everywhere.
 #[must_use]
-pub fn frame_interval_nanos(_monitor_hz: Option<u32>, _max_frame_rate: Option<u32>) -> u64 {
-    1_000_000_000 / u64::from(FALLBACK_REFRESH_RATE_HZ)
+pub fn frame_interval_nanos(monitor_hz: Option<u32>, max_frame_rate: Option<u32>) -> u64 {
+    // A reading outside what any display runs at (0 from a driver that
+    // does not know, garbage from a broken EDID) must neither stall nor
+    // spin a pacer.
+    let monitor_hz = monitor_hz
+        .filter(|hz| (MIN_PLAUSIBLE_REFRESH_RATE_HZ..=MAX_PLAUSIBLE_REFRESH_RATE_HZ).contains(hz))
+        .unwrap_or(FALLBACK_REFRESH_RATE_HZ);
+    let hz = match max_frame_rate {
+        Some(cap) if cap > 0 => monitor_hz.min(cap),
+        _ => monitor_hz,
+    };
+    1_000_000_000 / u64::from(hz)
 }
+
+/// The lowest refresh rate a monitor reading is believed at, in Hz.
+pub const MIN_PLAUSIBLE_REFRESH_RATE_HZ: u32 = 20;
+/// The highest refresh rate a monitor reading is believed at, in Hz.
+pub const MAX_PLAUSIBLE_REFRESH_RATE_HZ: u32 = 1000;
 
 #[repr(C)]
 #[derive(PartialEq, Copy, Clone, Debug, PartialOrd, Ord, Eq, Hash)]
@@ -1476,7 +1491,11 @@ impl Monitor {
     /// one. Every platform's monitor list puts the current mode first.
     #[must_use]
     pub fn refresh_rate_hz(&self) -> Option<u32> {
-        None
+        self.video_modes
+            .as_ref()
+            .first()
+            .map(|mode| u32::from(mode.refresh_rate))
+            .filter(|hz| *hz > 0)
     }
 }
 

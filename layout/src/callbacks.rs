@@ -2254,7 +2254,9 @@ impl CallbackInfo {
     /// - Display list resubmission (`WebRender` reuses existing scene)
     /// - Relayout
     ///
-    /// Ideal for timer callbacks that animate OpenGL content at 60fps.
+    /// Ideal for timer callbacks that animate OpenGL content once per frame
+    /// (`LayoutWindow::frame_interval`: the refresh rate of the window's
+    /// monitor).
     pub fn update_all_image_callbacks(&mut self) {
         self.push_change(CallbackChange::UpdateAllImageCallbacks);
     }

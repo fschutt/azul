@@ -1963,8 +1963,11 @@ pub fn generate_frame(
             .clone()
             .unwrap_or_else(|| Arc::new(SystemStyle::default()));
         let rr = std::mem::take(&mut layout_window.renderer_resources);
+        // One frame of THIS window (the step `tick_animations_now` just took
+        // is not kept; the zombie velocities only need the frame length).
+        let frame_step = layout_window.frame_step_s();
         let changes = layout_window.run_track_frames(
-            1.0 / 60.0,
+            frame_step,
             frame_start,
             &azul_core::window::RawWindowHandle::Unsupported,
             gl_context,

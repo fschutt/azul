@@ -1579,11 +1579,6 @@ pub struct HeadlessWindow {
     pub accessibility_adapter: A11yActionQueue,
 }
 
-/// Timer poll interval — how often the loop re-checks when timers are
-/// active.  16 ms = 60 Hz, matches the Linux select() timeout used
-/// by the X11 backend.
-const TIMER_POLL_MS: u64 = 16;
-
 impl HeadlessWindow {
     /// Create a new headless window with the given options.
     ///
@@ -2217,25 +2212,10 @@ impl HeadlessWindow {
         // input (subsequent deltas are picked up by the running
         // timer via the shared ScrollInputQueue).
         if let Some(queue) = queue {
-            let physics_state = azul_layout::scroll_timer::ScrollPhysicsState::new(
+            let timer = azul_layout::scroll_timer::create_scroll_physics_timer(
                 queue,
                 self.common.system_style.scroll_physics.clone(),
-            );
-            let interval_ms =
-                self.common.system_style.scroll_physics.timer_interval_ms;
-            let timer = azul_layout::timer::Timer::create(
-                RefAny::new(physics_state),
-                azul_layout::scroll_timer::scroll_physics_timer_callback
-                    as azul_layout::timer::TimerCallbackType,
-                azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
-                    .get_system_time_fn,
-            )
-            .with_interval(
-                azul_core::task::Duration::System(
-                    azul_core::task::SystemTimeDiff::from_millis(
-                        interval_ms as u64,
-                    ),
-                ),
+                self.common.frame_interval_nanos(),
             );
             self.start_timer(azul_core::task::SCROLL_MOMENTUM_TIMER_ID.id, timer);
         }
@@ -3179,6 +3159,11 @@ impl HeadlessWindow {
                 );
             }
 
+            // How often the loop re-checks while timers or threads are
+            // active: once per frame of this window (its monitor's refresh
+            // rate, 60 Hz when there is no monitor - the headless default).
+            let poll_interval = self.common.frame_interval();
+
             // Lock, then wait — but only if no wake is already pending.
             let mut guard = self.wake_mutex.lock().unwrap();
 
@@ -3203,12 +3188,10 @@ impl HeadlessWindow {
                 // work the wake announced is serviced now.
                 guard.woken = false;
             } else if has_timers || self.thread_poll_timer_running || has_hotkeys {
-                // Timers or threads active → poll at 60 Hz
-                let _r = self.wake_condvar.wait_timeout_while(
-                    guard,
-                    Duration::from_millis(TIMER_POLL_MS),
-                    |ws| !ws.woken,
-                );
+                // Timers or threads active → poll once per frame
+                let _r = self
+                    .wake_condvar
+                    .wait_timeout_while(guard, poll_interval, |ws| !ws.woken);
             } else {
                 // No timers → block indefinitely until woken
                 let _r = self.wake_condvar.wait_while(guard, |ws| !ws.woken);

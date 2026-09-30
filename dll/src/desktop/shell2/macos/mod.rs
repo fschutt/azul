@@ -124,9 +124,6 @@ extern "C" {
 
 const K_IOPMASSERTION_LEVEL_ON: u32 = 255;
 
-/// Timer interval for ~60 FPS tick callbacks (16ms).
-const TIMER_INTERVAL_60FPS: f64 = 0.016;
-
 /// Base DPI value (1x scale = 96 DPI on macOS/Windows).
 const BASE_DPI: f32 = 96.0;
 
@@ -2713,7 +2710,8 @@ impl GLView {
         // during window creation; ongoing ticking is driven by the repeating
         // NSTimers that start_timer / start_thread_poll_timer create.
         use objc2::sel;
-        let delay: f64 = TIMER_INTERVAL_60FPS;
+        // One frame of the window this view belongs to.
+        let delay: f64 = (*(window_ptr as *mut MacOSWindow)).frame_interval_secs();
         let _: () = msg_send![self, performSelector: sel!(tickTimers:), withObject: std::ptr::null::<NSObject>(), afterDelay: delay];
     }
 
@@ -2736,7 +2734,8 @@ impl CPUView {
         // during window creation; ongoing ticking is driven by the repeating
         // NSTimers that start_timer / start_thread_poll_timer create.
         use objc2::sel;
-        let delay: f64 = TIMER_INTERVAL_60FPS;
+        // One frame of the window this view belongs to.
+        let delay: f64 = (*(window_ptr as *mut MacOSWindow)).frame_interval_secs();
         let _: () = msg_send![self, performSelector: sel!(tickTimers:), withObject: std::ptr::null::<NSObject>(), afterDelay: delay];
     }
 
@@ -4516,7 +4515,8 @@ impl PlatformWindow for MacOSWindow {
         // were never polled from this timer at all (a spawned thread's result
         // only ever landed if some unrelated azul timer happened to be running).
         // tickTimers: runs process_timers_and_threads() on both backends.
-        let interval: f64 = TIMER_INTERVAL_60FPS;
+        // One poll per frame of this window (its monitor's refresh rate).
+        let interval: f64 = self.frame_interval_secs();
         let timer: Retained<NSTimer> = if let Some(ref gl_view) = self.gl_view {
             unsafe {
                 msg_send_id![
@@ -7365,6 +7365,13 @@ impl MacOSWindow {
             self.frame_pacer.resume();
             self.request_frame_if_pending();
         }
+    }
+
+    /// This window's frame interval in seconds - the one source,
+    /// `LayoutWindow::frame_interval_nanos` (the refresh rate of the monitor
+    /// the window is on, capped by `RendererOptions::max_frame_rate`).
+    fn frame_interval_secs(&self) -> f64 {
+        self.common.frame_interval().as_secs_f64()
     }
 
     /// Stop the display link if it runs. The pacer already recorded the
