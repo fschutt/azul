@@ -1547,6 +1547,32 @@ pub enum DefaultAction {
         direction: ScrollDirection,
         amount: ScrollAmount,
     },
+    /// Ctrl/Cmd+B, I or U in a RICH contenteditable host: toggle `format`,
+    /// `execCommand("bold" | "italic" | "underline")`. On a collapsed caret it
+    /// sets the typing style the next typed text takes; the execution is
+    /// `LayoutWindow::toggle_text_format`. APPENDED at the enum tail for ABI
+    /// stability.
+    ToggleTextFormat {
+        target: DomNodeId,
+        format: TextFormat,
+    },
+}
+
+/// A character format a rich-text editor toggles (Ctrl/Cmd+B, I, U, or a
+/// toolbar button): the inline formatting commands of the execCommand spec
+/// (<https://w3c.github.io/editing/docs/execCommand/#inline-formatting-commands>)
+/// that the engine keeps as a typing style at a collapsed caret.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
+pub enum TextFormat {
+    /// `font-weight: bold` (`<b>`).
+    Bold,
+    /// `font-style: italic` (`<i>`).
+    Italic,
+    /// `text-decoration: underline` (`<u>`).
+    Underline,
+    /// `text-decoration: line-through` (`<s>`).
+    Strikethrough,
 }
 
 /// Amount to scroll for keyboard-based scrolling

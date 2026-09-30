@@ -11817,6 +11817,18 @@ impl LayoutWindow {
         into.caret_on_edge_line(column.x(), last_line)
     }
 
+    /// Toggle `format` for the editing session in `target`'s host
+    /// (`DefaultAction::ToggleTextFormat`, Ctrl/Cmd+B / I / U). Returns
+    /// whether anything changed.
+    pub fn toggle_text_format(
+        &mut self,
+        target: DomNodeId,
+        format: azul_core::events::TextFormat,
+    ) -> bool {
+        let _ = (target, format);
+        false
+    }
+
     /// Apply a unified selection operation (navigation, extend, or delete).
     ///
     /// Single entry point that replaces the separate `ArrowKeyNavigation` and

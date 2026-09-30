@@ -12752,6 +12752,8 @@ pub trait PlatformWindow {
                                     }
                                 }
 
+                                DefaultAction::ToggleTextFormat { .. } => {}
+
                                 DefaultAction::CloseModal { .. } | DefaultAction::SelectAllText => {
                                     // Placeholder for future implementation
                                 }

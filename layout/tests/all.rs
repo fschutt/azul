@@ -658,3 +658,7 @@ mod a_components_declared_arguments_reach_its_render_fn;
 mod a_table_cell_with_loose_text_and_a_block_paints_both;
 #[path = "a_narrow_table_wraps_its_cells_to_fit.rs"]
 mod a_narrow_table_wraps_its_cells_to_fit;
+#[path = "common/editing_harness.rs"]
+mod editing_harness;
+#[path = "a_format_toggle_at_a_caret_styles_what_is_typed_next.rs"]
+mod a_format_toggle_at_a_caret_styles_what_is_typed_next;
