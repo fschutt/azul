@@ -21,6 +21,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "AzDrive"
+version = "0.1.0"
+dependencies = [
+ "azul-dll",
+ "azul-storage",
+ "chrono",
+]
+
+[[package]]
 name = "AzMaps"
 version = "0.1.0"
 dependencies = [
