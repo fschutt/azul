@@ -4685,17 +4685,9 @@ impl LayoutWindow {
 
         let lr = self.layout_results.get(&dom_id)?;
         let hierarchy = lr.styled_dom.node_hierarchy.as_container();
-        let node_data = lr.styled_dom.node_data.as_container();
         let parent_of = |n: NodeId| hierarchy.get(n).and_then(NodeHierarchyItem::parent_id);
-        // An element without its children: the clone carries the ELEMENT
-        // (type, classes, ids, inline css); its dataset/callback state stays
-        // with the app's re-render.
-        let element = |n: NodeId| Dom {
-            root: node_data[n].clone(),
-            children: Vec::new().into(),
-            css: Vec::new().into(),
-            estimated_total_children: 0,
-        };
+        // An element without its children ([`Self::element_shell`]).
+        let element = |n: NodeId| self.element_shell(dom_id, n);
 
         // One block: it alone is replaced, in its own parent.
         if first == last {
@@ -4742,7 +4734,7 @@ impl LayoutWindow {
         let mut heads = merged;
         for pair in first_side.windows(2) {
             let (inner, container) = (pair[0], pair[1]);
-            let mut rebuilt = element(container);
+            let mut rebuilt = element(container)?;
             for c in child_nodes(&hierarchy, container) {
                 if c == inner {
                     break;
@@ -4760,7 +4752,7 @@ impl LayoutWindow {
         let mut tail: Option<Dom> = None;
         for pair in last_side.windows(2) {
             let (inner, container) = (pair[0], pair[1]);
-            let mut rebuilt = element(container);
+            let mut rebuilt = element(container)?;
             if let Some(t) = tail.take() {
                 rebuilt.add_child(t);
             }
