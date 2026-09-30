@@ -7073,6 +7073,27 @@ where
                 {
                     viewport_clip_rect.size.height = content_box_rect.size.height;
                 }
+                // Ink BEFORE the start edges, on a visible axis: an OUTSIDE
+                // list marker hangs in the padding gutter at a negative inline
+                // offset (`position_one_line`'s `marker_pen`), and the growth
+                // above only reaches toward the end edges. Every text item of
+                // this IFC carries this clip, so the marker lay outside its
+                // own item's clip: WebRender clipped it away, and so did the
+                // CPU's pre-blended LCD tile path - except where the digit's
+                // and the dot's tiles overlapped and the run fell back to the
+                // unclipped sweep ("2." painted, "1." and every bullet did
+                // not: AzMail samples 02 and 08). `unclipped_bounds` is
+                // content-box relative and encloses every positioned item
+                // (dense retention included).
+                let ink = inline_layout.overflow.unclipped_bounds;
+                if !clips(get_overflow_x(self.ctx.styled_dom, dom_id, &st)) && ink.x < 0.0 {
+                    viewport_clip_rect.origin.x += ink.x;
+                    viewport_clip_rect.size.width -= ink.x;
+                }
+                if !clips(get_overflow_y(self.ctx.styled_dom, dom_id, &st)) && ink.y < 0.0 {
+                    viewport_clip_rect.origin.y += ink.y;
+                    viewport_clip_rect.size.height -= ink.y;
+                }
             }
 
             // Check for text-shadow and wrap inline content with push/pop shadow
