@@ -6341,6 +6341,9 @@ mod tests {
         let mut window = make_window_sized(&state, right_aligned_layout, 300.0, 100.0);
         window.regenerate_layout().expect("initial layout");
         window.regenerate_layout().expect("settle");
+        // The rebuild a new window is born owing: the frame path consumes it,
+        // the direct calls above do not, and it would win over the resize.
+        let _ = window.common.take_regeneration();
 
         let full = window.common.request_regeneration_for_resize(
             LogicalSize::new(300.0, 100.0),
