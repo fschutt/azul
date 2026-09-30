@@ -7,8 +7,11 @@
 //   3. through AzCalendar's debug server: clicks "Next week" (so the event, next Monday
 //      09:00 - 10:00, is days ahead, as calendar meetings are), "New event", focuses the title
 //      field (#event-title) and types a title, clicks "Add AzMeet link", clicks "Save event";
-//   4. asserts the event is ONE file, <data>/events/<uuid>.json, in format "azcalendar.event"
-//      version 2, with the title and an azlin://meet/<room id> link minted by the dev server,
+//   4. waits until AzCalendar registered the link it made with the dev server (AZCAL_SYNCED:
+//      links are made in the app, so they work offline, and registered as soon as the server
+//      answers; the dev server needs scripts/cal2/meet-000*.patch), then asserts the event is
+//      ONE file, <data>/events/<uuid>.json, in format "azcalendar.event"
+//      version 2, with the title and an azlin://meet/<room id> link the dev server knows,
 //      that the file carries the meeting's times (meeting.starts_at / ends_at: the event's day
 //      and times, read in this machine's time zone, in UTC), that the dev server knows that
 //      room and stored the same times (and keeps the room until two hours after the end), and
@@ -315,6 +318,15 @@ try {
   });
   const saved = printed(cal.out, 'AZCAL_SAVED');
   log(`AzCalendar saved ${saved} with ${link}`);
+  // The link is made in AzCalendar and saved at once (it works offline); registering its room
+  // with the meeting server follows, and rewrites the file with the server's answer.
+  const synced = await until('AzCalendar to register the link with the meeting server (AZCAL_SYNCED)', async () => {
+    const done = printed(cal.out, 'AZCAL_SYNCED');
+    if (done) return done;
+    await texts(debugCal); // wakes the app's loop
+    return null;
+  });
+  if (synced !== link) throw new Error(`AZCAL_SYNCED ${synced} is not the saved link ${link}`);
 
   // The event is one file, in the documented format, holding the minted link.
   const files = eventFiles();
@@ -332,6 +344,7 @@ try {
   expect(event.start === '09:00' && event.end === '10:00', 'not the default 09:00 - 10:00');
   expect(event.meeting?.link === link, 'the file does not hold the printed link');
   expect(event.meeting?.server === worker, 'the file does not name the meeting server');
+  expect(event.meeting?.pending === undefined, 'the registered link is still marked pending');
   const room = link.match(ROOM_LINK)?.[1];
   expect(room, `the link ${link} is not azlin://meet/<room id>`);
   log(`${files[0]}: "${event.title}" on ${event.date} ${event.start} - ${event.end}, ${event.meeting.link}`);

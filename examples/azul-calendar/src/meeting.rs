@@ -172,22 +172,162 @@ mod tests {
         json.to_string()
     }
 
+    /// There is always a meeting server: the one saved in the settings, else AzMeet's
+    /// `AZMEET_WORKER`, else the built-in one, else the local development server - the same
+    /// order as AzMeet's (`meet_rooms::server_prefill`). Links are made here and registered
+    /// with it once it answers, so no setting is needed to make one.
     #[test]
-    fn the_meeting_server_is_azmeets_setting_else_the_built_in_one() {
+    fn the_meeting_server_is_the_saved_one_else_azmeets_setting_else_a_default() {
+        let saved = meet_rooms::encode_settings("https://saved.example.com");
         assert_eq!(
-            worker(Some("http://127.0.0.1:8787/"), "https://meet.example.com"),
-            Some(String::from("http://127.0.0.1:8787"))
+            server_setting(
+                Some(&saved),
+                Some("http://127.0.0.1:9000"),
+                "https://built.in"
+            ),
+            "https://saved.example.com"
         );
         assert_eq!(
-            worker(Some("  "), "https://meet.example.com/"),
-            Some(String::from("https://meet.example.com"))
+            server_setting(None, Some("http://127.0.0.1:9000/"), "https://built.in"),
+            "http://127.0.0.1:9000"
         );
         assert_eq!(
-            worker(None, "https://meet.example.com"),
-            Some(String::from("https://meet.example.com"))
+            server_setting(Some("garbage"), Some("  "), "https://built.in/"),
+            "https://built.in"
         );
-        assert_eq!(worker(None, ""), None);
-        assert_eq!(worker(Some(""), " "), None);
+        assert_eq!(server_setting(None, None, ""), meet_rooms::LOCAL_WORKER);
+    }
+
+    /// A folder of its own under the system's temporary folder, removed when dropped.
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new() -> Self {
+            use std::sync::atomic::{AtomicU32, Ordering};
+            static NEXT: AtomicU32 = AtomicU32::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "azcalendar-meeting-test-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).unwrap();
+            TempDir(path)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn the_meeting_server_is_saved_and_read_back_and_a_broken_file_is_ignored() {
+        let dir = TempDir::new();
+        let path = settings_path(&dir.0);
+        assert_eq!(path, dir.0.join("settings.txt"));
+        assert_eq!(read_saved_server(&path), None, "no file yet");
+        save_server(&path, "https://meet.example.com").unwrap();
+        assert_eq!(
+            read_saved_server(&path).as_deref(),
+            Some("https://meet.example.com")
+        );
+        save_server(&path, "http://127.0.0.1:8787").unwrap();
+        assert_eq!(
+            read_saved_server(&path).as_deref(),
+            Some("http://127.0.0.1:8787")
+        );
+        std::fs::write(&path, "not a setting").unwrap();
+        assert_eq!(read_saved_server(&path), None);
+        // No temporary file is left next to it.
+        let names: Vec<_> = std::fs::read_dir(&dir.0)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names.len(), 1, "{names:?}");
+    }
+
+    /// The link of a meeting made here: 26 characters of the room-id alphabet from 130 of the
+    /// random bits, which AzMeet reads as a room id - the same shape as the ids the meeting
+    /// server mints, so it can register it as it is.
+    #[test]
+    fn a_room_id_made_here_is_a_room_id_azmeet_reads_and_uses_130_bits() {
+        let ids = [
+            new_room_id([0, 0, 0]),
+            new_room_id([u64::MAX, u64::MAX, u64::MAX]),
+            new_room_id([0x0123_4567_89ab_cdef, 0xfedc_ba98_7654_3210, 7]),
+        ];
+        assert_eq!(ids[0], "0".repeat(26));
+        assert_eq!(ids[1], "z".repeat(26));
+        for id in &ids {
+            assert_eq!(id.len(), 26);
+            assert_eq!(
+                meet_rooms::parse_room_key(id),
+                Some(RoomKey::Id(id.clone())),
+                "{id}"
+            );
+        }
+        // The lowest bit of the first word and the second-lowest of the third both count.
+        assert_ne!(new_room_id([1, 0, 0]), new_room_id([0, 0, 0]));
+        assert_ne!(new_room_id([0, 0, 2]), new_room_id([0, 0, 0]));
+        assert_ne!(new_room_id([0, 1 << 63, 0]), new_room_id([0, 0, 0]));
+        // Bits past the 130th do not.
+        assert_eq!(new_room_id([0, 0, 4]), new_room_id([0, 0, 0]));
+    }
+
+    #[test]
+    fn a_link_made_here_is_pending_on_the_meeting_server_it_will_be_registered_with() {
+        assert_eq!(
+            pending_meeting(SERVER, ROOM),
+            Meeting {
+                link: format!("azlin://meet/{ROOM}"),
+                server: String::from(SERVER),
+                code: String::new(),
+                expires: String::new(),
+                starts_at: String::new(),
+                ends_at: String::new(),
+                pending: true,
+            }
+        );
+    }
+
+    #[test]
+    fn registering_sends_the_room_id_and_the_meeting_times_in_utc() {
+        let body = register_body(ROOM, utc(2026, 10, 6, 7, 0), utc(2026, 10, 6, 8, 0));
+        let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "room": ROOM,
+                "starts_at": "2026-10-06T07:00:00Z",
+                "ends_at": "2026-10-06T08:00:00Z",
+            })
+        );
+    }
+
+    #[test]
+    fn the_answer_to_a_registration_must_be_the_room_that_was_sent() {
+        let link = format!("azlin://meet/{ROOM}");
+        let meeting = registered_meeting(SERVER, ROOM, &answer(ROOM, Some(&link))).unwrap();
+        assert!(!meeting.pending);
+        assert_eq!(meeting.link, link);
+        assert_eq!(meeting.code, "xq4-8kd-2nm");
+        assert_eq!(meeting.starts_at, "2026-10-06T07:00:00.000Z");
+        let other = "b2h859hyqkfaa11nhzxfh3gd7f";
+        assert!(registered_meeting(SERVER, ROOM, &answer(other, None)).is_err());
+    }
+
+    /// Unreachable, rate limited or a server error: the link stays pending and is sent again
+    /// later. A refusal (the server read the request and said no) is not repeated.
+    #[test]
+    fn a_registration_that_failed_is_sent_again_unless_the_server_refused_it() {
+        for status in [None, Some(429), Some(500), Some(502), Some(503)] {
+            assert!(sync_again(status), "{status:?}");
+        }
+        for status in [Some(400), Some(404), Some(409), Some(413), Some(415)] {
+            assert!(!sync_again(status), "{status:?}");
+        }
     }
 
     #[test]
@@ -203,6 +343,7 @@ mod tests {
                 expires: String::from("2026-10-06T10:00:00.000Z"),
                 starts_at: String::from("2026-10-06T07:00:00.000Z"),
                 ends_at: String::from("2026-10-06T08:00:00.000Z"),
+                pending: false,
             }
         );
     }
@@ -257,19 +398,6 @@ mod tests {
         assert_eq!(
             utc_window(&Utc, day(2026, 10, 6), at(9, 15), at(9, 45)),
             (utc(2026, 10, 6, 9, 15), utc(2026, 10, 6, 9, 45))
-        );
-    }
-
-    #[test]
-    fn minting_asks_the_server_to_keep_the_room_for_the_meeting_times_in_utc() {
-        let body = mint_body(utc(2026, 10, 6, 7, 0), utc(2026, 10, 6, 8, 0));
-        let json: serde_json::Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(
-            json,
-            serde_json::json!({
-                "starts_at": "2026-10-06T07:00:00Z",
-                "ends_at": "2026-10-06T08:00:00Z",
-            })
         );
     }
 
@@ -338,6 +466,7 @@ mod tests {
             expires: String::new(),
             starts_at: String::new(),
             ends_at: String::new(),
+            pending: false,
         };
         assert_eq!(
             join_env(&meeting),

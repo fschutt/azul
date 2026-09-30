@@ -418,6 +418,7 @@ mod tests {
             expires: String::from("2026-09-30T10:00:00.000Z"),
             starts_at: String::from("2026-09-30T07:00:00.000Z"),
             ends_at: String::from("2026-09-30T08:00:00.000Z"),
+            pending: false,
         }
     }
 
@@ -552,6 +553,30 @@ mod tests {
         assert!(json["meeting"].get("starts_at").is_none(), "{json}");
         assert!(json["meeting"].get("ends_at").is_none(), "{json}");
         assert_eq!(from_json(&text), Ok(untimed));
+    }
+
+    /// A link made while the meeting server could not be reached is in the file at once, marked
+    /// `pending` until the server has registered its room; a registered one leaves the mark
+    /// out, and a file without it (every file from before) is registered.
+    #[test]
+    fn a_link_made_offline_is_pending_in_the_file_until_the_server_has_its_room() {
+        let pending = Meeting {
+            code: String::new(),
+            expires: String::new(),
+            pending: true,
+            ..without_times(meeting())
+        };
+        let event = sync(Some(pending));
+        let text = to_json(&event);
+        let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(json["meeting"]["pending"], true);
+        assert_eq!(json["meeting"]["link"], format!("azlin://meet/{ROOM}"));
+        assert_eq!(from_json(&text), Ok(event));
+
+        let registered = to_json(&sync(Some(meeting())));
+        let json: serde_json::Value = serde_json::from_str(&registered).unwrap();
+        assert!(json["meeting"].get("pending").is_none(), "{json}");
+        assert!(!from_json(&registered).unwrap().meeting.unwrap().pending);
     }
 
     #[test]
