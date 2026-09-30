@@ -89651,40 +89651,22 @@
                         ],
                         "enum_fields": [
                             {
-                                "R8": {}
-                            },
-                            {
-                                "RG8": {}
-                            },
-                            {
-                                "RGB8": {}
-                            },
-                            {
-                                "RGBA8": {}
-                            },
-                            {
-                                "R16": {}
-                            },
-                            {
-                                "RG16": {}
-                            },
-                            {
-                                "RGB16": {}
-                            },
-                            {
-                                "RGBA16": {}
-                            },
-                            {
-                                "BGR8": {}
-                            },
-                            {
-                                "BGRA8": {}
-                            },
-                            {
-                                "RGBF32": {}
-                            },
-                            {
-                                "RGBAF32": {}
+                                "R8": {},
+                                "RG8": {},
+                                "RGB8": {},
+                                "RGBA8": {},
+                                "R16": {},
+                                "RG16": {},
+                                "RGB16": {},
+                                "RGBA16": {},
+                                "BGR8": {},
+                                "BGRA8": {},
+                                "RGBF32": {},
+                                "RGBAF32": {},
+                                "NV12Rec601Video": {},
+                                "NV12Rec601Full": {},
+                                "NV12Rec709Video": {},
+                                "NV12Rec709Full": {}
                             }
                         ],
                         "repr": "C"
@@ -90139,6 +90121,47 @@
                                     "type": "OptionVideoFrame"
                                 },
                                 "fn_body": "object.recv_frame()"
+                            },
+                            "set_output_size": {
+                                "doc": [
+                                    "Hand decoded frames out at `width` x `height` (`0 x 0`: the stream's",
+                                    "own size) - the size of the tile that shows them, so a 720p stream in",
+                                    "a small tile is scaled once, by the decoder (in hardware with",
+                                    "VideoToolbox), instead of by the renderer on every paint. A change on",
+                                    "a running stream starts at its next keyframe. Backends that cannot",
+                                    "scale hand out the stream's size."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "width": "u32"
+                                    },
+                                    {
+                                        "height": "u32"
+                                    }
+                                ],
+                                "fn_body": "object.set_output_size(width, height)"
+                            },
+                            "set_output_format": {
+                                "doc": [
+                                    "Hand decoded frames out in `format`: an NV12 variant (the decoder's",
+                                    "own 4:2:0 - no conversion; a tile shows it through the GPU's YUV",
+                                    "shader or the CPU rasterizer's fused convert), BGRA8, or RGBA8 (the",
+                                    "default). A change on a running stream starts at its next keyframe.",
+                                    "Backends that cannot give the format hand out RGBA8; every frame says",
+                                    "its format (`VideoFrame::format`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "format": "RawImageFormat"
+                                    }
+                                ],
+                                "fn_body": "object.set_output_format(format)"
                             }
                         },
                         "repr": "C"
@@ -144847,6 +144870,9 @@
                                 },
                                 "bytes": {
                                     "type": "U8Vec"
+                                },
+                                "format": {
+                                    "type": "RawImageFormat"
                                 }
                             }
                         ],
