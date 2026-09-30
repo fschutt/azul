@@ -611,6 +611,30 @@ mod tests {
     }
 
     #[test]
+    fn a_new_event_on_todays_week_takes_the_next_full_hour() {
+        let today = day(2026, 9, 30);
+        // Today's week: the next full hour after now, an hour long.
+        assert_eq!(
+            new_event_slot(today, today, at(15, 20)),
+            (today, at(16, 0), at(17, 0))
+        );
+        assert_eq!(
+            new_event_slot(today, day(2026, 10, 2), at(8, 0)),
+            (today, at(9, 0), at(10, 0))
+        );
+        // Late at night: tomorrow at 09:00 (an event cannot cross midnight).
+        assert_eq!(
+            new_event_slot(today, today, at(22, 10)),
+            (day(2026, 10, 1), at(9, 0), at(10, 0))
+        );
+        // Another week: its Monday at 09:00, as before.
+        assert_eq!(
+            new_event_slot(today, day(2026, 10, 7), at(15, 20)),
+            (day(2026, 10, 5), at(9, 0), at(10, 0))
+        );
+    }
+
+    #[test]
     fn a_picked_day_past_the_end_of_its_month_is_cut_to_the_last_day() {
         assert_eq!(picked_date(2026, 9, 30), Some(day(2026, 9, 30)));
         assert_eq!(picked_date(2026, 2, 31), Some(day(2026, 2, 28)));
