@@ -94,17 +94,27 @@ pub enum Codec {
 impl Codec {
     /// The codec byte of the header.
     pub fn byte(self) -> u8 {
-        todo!("M3: not written yet")
+        match self {
+            Codec::Jpeg => 1,
+            Codec::H264 => 2,
+        }
     }
 
     /// The codec a header byte names.
     pub fn from_byte(byte: u8) -> Option<Codec> {
-        todo!("M3: not written yet")
+        match byte {
+            1 => Some(Codec::Jpeg),
+            2 => Some(Codec::H264),
+            _ => None,
+        }
     }
 
     /// As the window names it.
     pub fn label(self) -> &'static str {
-        todo!("M3: not written yet")
+        match self {
+            Codec::Jpeg => "JPEG",
+            Codec::H264 => "H.264",
+        }
     }
 
     fn index(self) -> usize {
@@ -132,7 +142,14 @@ const FLAG_KEYFRAME: u8 = 1;
 
 /// The packet carrying `payload` under `header`.
 pub fn encode_packet(header: &Header, payload: &[u8]) -> Vec<u8> {
-    todo!("M3: not written yet")
+    let flags = if header.keyframe { FLAG_KEYFRAME } else { 0 };
+    let mut out = Vec::with_capacity(HEADER_BYTES + payload.len());
+    out.extend_from_slice(&[KIND_VIDEO, WIRE_VERSION, header.codec.byte(), flags]);
+    out.extend_from_slice(&header.track.to_le_bytes());
+    out.extend_from_slice(&header.seq.to_le_bytes());
+    out.extend_from_slice(&header.frame_no.to_le_bytes());
+    out.extend_from_slice(payload);
+    out
 }
 
 fn le_u32(bytes: &[u8], at: usize) -> Option<u32> {
@@ -143,7 +160,23 @@ fn le_u32(bytes: &[u8], at: usize) -> Option<u32> {
 /// Reads a packet: its header and payload. `None` for another kind, version or codec, a short
 /// header, or no payload. Flag bits other than the keyframe bit are ignored.
 pub fn decode_packet(bytes: &[u8]) -> Option<(Header, &[u8])> {
-    todo!("M3: not written yet")
+    let head = bytes.get(..HEADER_BYTES)?;
+    if head[0] != KIND_VIDEO || head[1] != WIRE_VERSION {
+        return None;
+    }
+    let codec = Codec::from_byte(head[2])?;
+    let payload = &bytes[HEADER_BYTES..];
+    if payload.is_empty() {
+        return None;
+    }
+    let header = Header {
+        codec,
+        keyframe: head[3] & FLAG_KEYFRAME != 0,
+        track: le_u32(head, 4)?,
+        seq: le_u32(head, 8)?,
+        frame_no: le_u32(head, 12)?,
+    };
+    Some((header, payload))
 }
 
 /// A video control message.
@@ -161,22 +194,39 @@ const CAPS_H264: u8 = 1;
 
 /// The request for a keyframe on `track`.
 pub fn encode_keyframe_request(track: u32) -> Vec<u8> {
-    todo!("M3: not written yet")
+    let mut out = vec![KIND_KEYFRAME_REQUEST];
+    out.extend_from_slice(&track.to_le_bytes());
+    out
 }
 
 /// The acknowledgement of every H.264 packet of `track` through `seq`.
 pub fn encode_received(track: u32, seq: u32) -> Vec<u8> {
-    todo!("M3: not written yet")
+    let mut out = vec![KIND_RECEIVED];
+    out.extend_from_slice(&track.to_le_bytes());
+    out.extend_from_slice(&seq.to_le_bytes());
+    out
 }
 
 /// The message saying whether this side decodes H.264.
 pub fn encode_caps(h264: bool) -> Vec<u8> {
-    todo!("M3: not written yet")
+    vec![KIND_CAPS, if h264 { CAPS_H264 } else { 0 }]
 }
 
 /// Reads a control message; `None` for another kind or a short message.
 pub fn decode_control(bytes: &[u8]) -> Option<Control> {
-    todo!("M3: not written yet")
+    match *bytes.first()? {
+        KIND_KEYFRAME_REQUEST => Some(Control::KeyframeRequest {
+            track: le_u32(bytes, 1)?,
+        }),
+        KIND_RECEIVED => Some(Control::Received {
+            track: le_u32(bytes, 1)?,
+            seq: le_u32(bytes, 5)?,
+        }),
+        KIND_CAPS => Some(Control::Caps {
+            h264: bytes.get(1)? & CAPS_H264 != 0,
+        }),
+        _ => None,
+    }
 }
 
 /// A video message, as it arrives.
@@ -189,14 +239,20 @@ pub enum Message<'a> {
 /// Reads a message or a frame of the camera / screen track; `None` when it is no video message
 /// (the audio state message, an unknown kind, or a malformed one).
 pub fn decode_message(bytes: &[u8]) -> Option<Message<'_>> {
-    todo!("M3: not written yet")
+    if bytes.first() == Some(&KIND_VIDEO) {
+        let (header, payload) = decode_packet(bytes)?;
+        return Some(Message::Packet(header, payload));
+    }
+    decode_control(bytes).map(Message::Control)
 }
 
 /// Whether an H.264 Annex B chunk holds an IDR slice (NAL unit type 5), so a decoder can start
 /// there. Start codes are three or four bytes; emulation prevention keeps `00 00 01` out of NAL
 /// payloads, so every match is a NAL unit.
 pub fn h264_is_keyframe(annexb: &[u8]) -> bool {
-    todo!("M3: not written yet")
+    annexb
+        .windows(4)
+        .any(|w| w[0] == 0 && w[1] == 0 && w[2] == 1 && w[3] & 0x1f == 5)
 }
 
 /// What a receiver saw on one track.
@@ -263,32 +319,87 @@ pub struct ReceiveTrack {
 
 impl ReceiveTrack {
     pub fn new() -> Self {
-        todo!("M3: not written yet")
+        ReceiveTrack::default()
     }
 
     /// Takes in a packet's header, `now_ms` on the receiver's clock, and says what to do.
     pub fn on_packet(&mut self, header: &Header, now_ms: u64) -> Verdict {
-        todo!("M3: not written yet")
+        let mut verdict = Verdict::default();
+        let stream = &mut self.streams[header.codec.index()];
+        if let Some(expected) = stream.expected {
+            let ahead = header.seq.wrapping_sub(expected) as i32;
+            if ahead < 0 && ahead.unsigned_abs() <= RESTART_AFTER_BACKWARD {
+                self.stats.late += 1;
+                return verdict;
+            }
+            if ahead < 0 {
+                // Far behind: the sender numbers from scratch, a new stream begins.
+                *stream = Stream::default();
+                verdict.restart = true;
+            } else if ahead > 0 {
+                self.stats.gaps += 1;
+                if !header.keyframe {
+                    stream.waiting = true;
+                }
+            }
+        }
+        if stream.expected.is_none() && !header.keyframe {
+            stream.waiting = true;
+        }
+        stream.expected = Some(header.seq.wrapping_add(1));
+        self.stats.packets += 1;
+        if header.keyframe {
+            self.stats.keyframes += 1;
+            stream.waiting = false;
+            stream.requested_at = None;
+        }
+        if header.codec == Codec::H264 {
+            stream.unacked += 1;
+            if header.keyframe || stream.unacked >= ACK_EVERY {
+                stream.unacked = 0;
+                verdict.ack = Some(header.seq);
+            }
+        }
+        if stream.waiting {
+            self.stats.dropped += 1;
+            let due = stream
+                .requested_at
+                .map_or(true, |at| now_ms.saturating_sub(at) >= REQUEST_RETRY_MS);
+            if due {
+                stream.requested_at = Some(now_ms);
+                self.stats.requests += 1;
+                verdict.request_keyframe = true;
+            }
+            return verdict;
+        }
+        stream.fed = stream.fed.saturating_add(1);
+        self.current = Some(header.codec);
+        verdict.decode = true;
+        verdict
     }
 
     /// Records the pictures the decoder gave back for the packet decoded last.
     pub fn decoded(&mut self, pictures: u64) {
-        todo!("M3: not written yet")
+        self.stats.decoded += pictures;
+        if let Some(codec) = self.current {
+            self.streams[codec.index()].out += pictures;
+        }
     }
 
     /// The codec of the packet decoded last.
     pub fn codec(&self) -> Option<Codec> {
-        todo!("M3: not written yet")
+        self.current
     }
 
     pub fn stats(&self) -> ReceiveStats {
-        todo!("M3: not written yet")
+        self.stats
     }
 
     /// Whether the H.264 decoder took [`DECODER_INERT_AFTER`] packets from a keyframe on and gave
     /// back nothing: a decoder that opens but does not decode (no backend on this build).
     pub fn decoder_is_inert(&self) -> bool {
-        todo!("M3: not written yet")
+        let h264 = &self.streams[Codec::H264.index()];
+        h264.out == 0 && h264.fed >= DECODER_INERT_AFTER
     }
 }
 
@@ -326,41 +437,73 @@ pub struct KeyframePolicy {
 
 impl KeyframePolicy {
     pub fn new() -> Self {
-        todo!("M3: not written yet")
+        KeyframePolicy::default()
     }
 
     /// A keyframe request, a new peer, or a peer that must catch up.
     pub fn request(&mut self) {
-        todo!("M3: not written yet")
+        self.pending = true;
     }
 
     /// Whether to force a keyframe for the frame submitted `now_ms`.
     pub fn should_force(&mut self, now_ms: u64) -> bool {
-        todo!("M3: not written yet")
+        let fresh = self.last_keyframe_ms.is_none();
+        let spaced = self
+            .last_forced_ms
+            .map_or(true, |at| now_ms.saturating_sub(at) >= MIN_FORCED_GAP_MS);
+        let asked = self.pending && spaced;
+        let periodic = self
+            .last_keyframe_ms
+            .is_some_and(|at| now_ms.saturating_sub(at) >= PERIODIC_KEYFRAME_MS);
+        if !(fresh || asked || periodic) {
+            return false;
+        }
+        if asked {
+            self.stats.on_request += 1;
+        } else if periodic {
+            self.stats.periodic += 1;
+        }
+        self.last_forced_ms = Some(now_ms);
+        self.awaiting = true;
+        true
     }
 
     /// A packet came out of the encoder `now_ms`.
     pub fn on_output(&mut self, keyframe: bool, now_ms: u64) {
-        todo!("M3: not written yet")
+        if keyframe {
+            self.stats.keyframes += 1;
+            self.last_keyframe_ms = Some(now_ms);
+            self.pending = false;
+            self.awaiting = false;
+            self.reopens_in_a_row = 0;
+        } else if self.awaiting {
+            // Forced, and a P-frame came out: this encoder cannot force keyframes.
+            self.awaiting = false;
+            self.reopen = true;
+        }
     }
 
     /// The encoder must be closed and opened again.
     pub fn must_reopen(&self) -> bool {
-        todo!("M3: not written yet")
+        self.reopen
     }
 
     /// The encoder was reopened (or opened at a new size): its first frame is forced.
     pub fn reopened(&mut self) {
-        todo!("M3: not written yet")
+        self.reopen = false;
+        self.awaiting = false;
+        self.last_keyframe_ms = None;
+        self.reopens_in_a_row += 1;
+        self.stats.reopened += 1;
     }
 
     /// [`MAX_REOPENS`] reopens in a row brought no keyframe: give H.264 up.
     pub fn is_broken(&self) -> bool {
-        todo!("M3: not written yet")
+        self.reopens_in_a_row >= MAX_REOPENS
     }
 
     pub fn stats(&self) -> KeyframeStats {
-        todo!("M3: not written yet")
+        self.stats
     }
 }
 
@@ -379,32 +522,49 @@ pub struct SendWindow {
 
 impl SendWindow {
     pub fn new() -> Self {
-        todo!("M3: not written yet")
+        SendWindow::default()
     }
 
     /// Whether to send the packet `seq` to this peer.
     pub fn offer(&mut self, seq: u32, keyframe: bool) -> bool {
-        todo!("M3: not written yet")
+        if self.unacked.len() >= MAX_IN_FLIGHT {
+            // The link does not keep up: pause, and resume at a keyframe once it caught up.
+            self.synced = false;
+            self.skipped += 1;
+            return false;
+        }
+        if !self.synced && !keyframe {
+            self.skipped += 1;
+            return false;
+        }
+        self.synced = true;
+        self.unacked.push_back(seq);
+        true
     }
 
     /// The peer received every packet through `seq`.
     pub fn acked(&mut self, seq: u32) {
-        todo!("M3: not written yet")
+        while let Some(first) = self.unacked.front() {
+            if (seq.wrapping_sub(*first) as i32) < 0 {
+                break;
+            }
+            self.unacked.pop_front();
+        }
     }
 
     /// The peer waits for a keyframe, and its link has room for one.
     pub fn wants_keyframe(&self) -> bool {
-        todo!("M3: not written yet")
+        !self.synced && self.unacked.len() <= MAX_IN_FLIGHT / 2
     }
 
     /// Packets sent and not yet acknowledged.
     pub fn in_flight(&self) -> usize {
-        todo!("M3: not written yet")
+        self.unacked.len()
     }
 
     /// Packets not sent to this peer.
     pub fn skipped(&self) -> u64 {
-        todo!("M3: not written yet")
+        self.skipped
     }
 }
 
@@ -419,17 +579,17 @@ pub struct EncoderHealth {
 impl EncoderHealth {
     /// A frame went into the encoder.
     pub fn submitted(&mut self) {
-        todo!("M3: not written yet")
+        self.submitted = self.submitted.saturating_add(1);
     }
 
     /// A packet came out.
     pub fn produced(&mut self) {
-        todo!("M3: not written yet")
+        self.produced = self.produced.saturating_add(1);
     }
 
     /// [`ENCODER_INERT_AFTER`] frames went in and nothing came out.
     pub fn is_inert(&self) -> bool {
-        todo!("M3: not written yet")
+        self.produced == 0 && self.submitted >= ENCODER_INERT_AFTER
     }
 }
 
@@ -449,7 +609,17 @@ const BARS: [[u8; 3]; 8] = [
 /// colour bars moving [`PATTERN_STEP`] pixels left per frame, as tightly packed RGBA. Empty for a
 /// zero size.
 pub fn test_pattern(width: u32, height: u32, index: u32) -> Vec<u8> {
-    todo!("M3: not written yet")
+    let (w, h) = (width as usize, height as usize);
+    if w == 0 || h == 0 {
+        return Vec::new();
+    }
+    let shift = (u64::from(index) * u64::from(PATTERN_STEP) % u64::from(width)) as usize;
+    let mut row = Vec::with_capacity(w * 4);
+    for x in 0..w {
+        let bar = BARS[(x + shift) % w * BARS.len() / w];
+        row.extend_from_slice(&[bar[0], bar[1], bar[2], 255]);
+    }
+    row.repeat(h)
 }
 
 /// Hands out the test pattern's frames by wall time, like a camera would.
@@ -461,13 +631,18 @@ pub struct PatternClock {
 
 impl PatternClock {
     pub fn new(fps: u32) -> Self {
-        todo!("M3: not written yet")
+        PatternClock { fps, last: None }
     }
 
     /// The index of the frame due `elapsed_ms` after the clock started, when it was not handed out
     /// yet; after a stall the frames missed are skipped.
     pub fn next(&mut self, elapsed_ms: u64) -> Option<u32> {
-        todo!("M3: not written yet")
+        let due = elapsed_ms.saturating_mul(u64::from(self.fps)) / 1000;
+        if self.last.is_some_and(|last| due <= last) {
+            return None;
+        }
+        self.last = Some(due);
+        Some(due as u32)
     }
 }
 
@@ -475,13 +650,29 @@ impl PatternClock {
 /// for peers that cannot decode it, or "Video: JPEG (no encoder)". `encoder` is the H.264 backend,
 /// or why there is none.
 pub fn codec_line(encoder: Result<&str, &str>, jpeg_to: &[String]) -> String {
-    todo!("M3: not written yet")
+    match encoder {
+        Ok(backend) if jpeg_to.is_empty() => format!("Video: H.264 ({backend})"),
+        Ok(backend) => format!(
+            "Video: H.264 ({backend}); JPEG to {} (no H.264 decoder)",
+            jpeg_to.join(", ")
+        ),
+        Err(why) => format!("Video: JPEG ({why})"),
+    }
 }
 
 /// The window's line for one peer's incoming track: "Video from Ben (camera): H.264, decoded 300,
 /// keyframes 12, gaps 1, dropped 3, keyframe requests 1".
 pub fn video_line(name: &str, source: &str, codec: Codec, stats: &ReceiveStats) -> String {
-    todo!("M3: not written yet")
+    format!(
+        "Video from {name} ({source}): {}, decoded {}, keyframes {}, gaps {}, dropped {}, keyframe \
+         requests {}",
+        codec.label(),
+        stats.decoded,
+        stats.keyframes,
+        stats.gaps,
+        stats.dropped,
+        stats.requests
+    )
 }
 
 /// The window's line for one outgoing track: "Sending camera: 450 H.264 packets, 0 JPEG frames,
@@ -493,7 +684,11 @@ pub fn send_line(
     keys: &KeyframeStats,
     dropped: u64,
 ) -> String {
-    todo!("M3: not written yet")
+    format!(
+        "Sending {source}: {h264_packets} H.264 packets, {jpeg_frames} JPEG frames, {} keyframes, \
+         {} on request, {} periodic, {} reopens, {dropped} dropped on purpose",
+        keys.keyframes, keys.on_request, keys.periodic, keys.reopened
+    )
 }
 #[cfg(test)]
 mod tests {
