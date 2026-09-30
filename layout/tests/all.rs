@@ -646,3 +646,5 @@ mod a_stylesheet_wrapped_in_comment_markers_keeps_its_rules;
 mod mail_markup_gets_the_html_rendering_defaults;
 #[path = "a_block_holding_only_a_line_break_is_one_line_tall.rs"]
 mod a_block_holding_only_a_line_break_is_one_line_tall;
+#[path = "a_list_marker_is_painted_inside_its_text_clip.rs"]
+mod a_list_marker_is_painted_inside_its_text_clip;
