@@ -340,9 +340,41 @@ pub fn load_all(data_dir: &Path) -> (Vec<Event>, Vec<Skipped>) {
 }
 
 /// A new event's id: a random version-4 UUID (lower case, hyphenated).
+///
+/// NOT azul's `Uuid::v4`: that is a deterministic marker mint (the same
+/// sequence in every process), fine for DOM markers and wrong for a file
+/// name that other devices and an S3 bucket share. The 128 bits come from
+/// `std`'s `RandomState` - keys the OS seeds per process - hashed with the
+/// time, the process id and a counter; no extra dependency.
 #[must_use]
 pub fn new_event_id() -> String {
-    azul::uuid::Uuid::v4().as_str().to_string()
+    use std::{
+        collections::hash_map::RandomState,
+        hash::{BuildHasher, Hasher},
+        sync::atomic::{AtomicU64, Ordering},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+    static MINTED: AtomicU64 = AtomicU64::new(0);
+    let n = MINTED.fetch_add(1, Ordering::Relaxed);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let word = |salt: u64| {
+        let mut h = RandomState::new().build_hasher();
+        h.write_u64(salt);
+        h.write_u64(n);
+        h.write_u128(nanos);
+        h.write_u32(std::process::id());
+        h.finish()
+    };
+    let mut b = [0u8; 16];
+    b[..8].copy_from_slice(&word(1).to_be_bytes());
+    b[8..].copy_from_slice(&word(2).to_be_bytes());
+    // RFC 4122: version 4, variant 0b10.
+    b[6] = (b[6] & 0x0F) | 0x40;
+    b[8] = (b[8] & 0x3F) | 0x80;
+    let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    format!("{}-{}-{}-{}-{}", &hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32])
 }
 
 #[cfg(test)]

@@ -42,7 +42,6 @@ use azul::{
     prelude::*,
     str::String as AzString,
     task::{Thread, ThreadId, ThreadReceiver, ThreadSender},
-    uuid::Uuid,
     vec::{StyledTextRunVec, U8Vec},
     widgets::{
         ButtonType, CheckBoxState, DatePicker, DatePickerState, OnTextInputReturn, TextInputState,
