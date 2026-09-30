@@ -6,13 +6,14 @@
 //!
 //! - scripts, styles, titles, forms' option lists, frames, SVG and MathML go with their content;
 //!   comments, doctypes and processing instructions go;
-//! - images are NOT loaded (remote images are off): each becomes a grey `[image: alt]` text;
+//! - images are NOT loaded (remote images are off): each becomes a grey `[image: alt]` text,
+//!   and a tracking pixel (1x1 or hidden) not even that;
 //! - only presentational tags stay (`p div span b i u a table tr td ul li h1 ...`); `font`
 //!   becomes a `span`, `center` a centred `div`, `body` a `div`, and any other tag is dropped
 //!   with its text kept;
 //! - attributes: `href` (http, https and mailto only), `colspan`, `rowspan`, `dir`, and `style`
-//!   with a short list of properties whose values name no URL; `align`, `bgcolor`, `width` and
-//!   `font color` become style;
+//!   with a short list of properties whose values name no URL (and no negative margin);
+//!   `align`, `bgcolor`, `width` and `font color` become style;
 //! - every open tag is closed, mis-nested ones in order; `<p>`, `<li>`, `<td>` and `<tr>` close
 //!   themselves as HTML says; nesting deeper than 200 keeps the text only;
 //! - character references are decoded (named, decimal, hex) and the text re-escaped.
@@ -275,12 +276,17 @@ impl Sanitizer {
             Tag::Drop => {}
             Tag::Image => {
                 self.blocked_images += 1;
-                let alt = attributes
-                    .iter()
-                    .find(|(n, _)| n == "alt")
-                    .and_then(|(_, v)| v.as_deref())
-                    .map(str::trim)
-                    .filter(|a| !a.is_empty());
+                let attribute = |name: &str| {
+                    attributes
+                        .iter()
+                        .find(|(n, _)| n == name)
+                        .and_then(|(_, v)| v.as_deref())
+                        .map(str::trim)
+                };
+                if is_tracking_pixel(attribute("width"), attribute("height"), attribute("style")) {
+                    return;
+                }
+                let alt = attribute("alt").filter(|a| !a.is_empty());
                 let label = match alt {
                     Some(alt) => format!("[image: {alt}]"),
                     None => String::from("[image]"),
@@ -534,12 +540,33 @@ fn parse_style(style: &str) -> Vec<(String, String)> {
                 value.truncate(at);
                 value = value.trim().to_string();
             }
+            // A negative margin pulls the mail over other content.
+            let negative = property.starts_with("margin") && value.contains('-');
             (STYLE_PROPERTIES.contains(&property.as_str())
                 && !value.is_empty()
+                && !negative
                 && safe_style_value(&value))
             .then_some((property, value))
         })
         .collect()
+}
+
+/// Whether an image is a tracking pixel: at most 1x1, or hidden.
+fn is_tracking_pixel(width: Option<&str>, height: Option<&str>, style: Option<&str>) -> bool {
+    let tiny = |length: Option<&str>| {
+        length
+            .and_then(|l| l.trim_end_matches("px").trim().parse::<f32>().ok())
+            .is_some_and(|n| n <= 1.0)
+    };
+    let hidden = style.is_some_and(|s| {
+        let s: String = s
+            .to_ascii_lowercase()
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        s.contains("display:none") || s.contains("visibility:hidden")
+    });
+    (tiny(width) && tiny(height)) || hidden
 }
 
 /// Whether a style value names nothing to fetch or run.

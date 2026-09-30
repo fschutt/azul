@@ -10,14 +10,16 @@ Branch `wt/mail1-azmail`, base `a7e18f4df`. Report: `scripts/MAIL1_AZMAIL_2026_0
 
 - 15cbcc005 GREEN: the bodies.
 
+- 613f9d491 imap_client.rs (imap 3.0.0-alpha.15 over AzMail's own rustls stream) + lib.rs UI +
+  sync Thread + keyring flow + azul-drawn title row (NoTitle).
+- 47ab7f44c RED: tracking pixels leave no placeholder, negative margins dropped (exploration 1.4).
+
 ## IN PROGRESS
 
-- imap_client.rs (imap 3.0.0-alpha.15 over AzMail's own rustls stream) + lib.rs UI + sync
-  Thread + keyring flow + azul-drawn title row (NoTitle) (this commit).
+- GREEN for 47ab7f44c (this commit).
 
 ## NEXT
 
-1. RED/GREEN: tracking pixels leave no placeholder, negative margins dropped (exploration 1.4).
 3. Python IMAP test server (RED unittest first) + sample mail.
 4. sync_e2e.py (headless, debug server).
 5. dependency-justifications.toml + supply-chain exemptions for the new crates.
