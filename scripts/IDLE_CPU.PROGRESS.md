@@ -36,8 +36,11 @@
 - 90340799f fix(pacing): every frame-paced driver runs at the window's monitor rate
   (API: RendererOptions.max_frame_rate: OptionU32 appended LAST)
 
+- a4d939c4d test(anim): a rotate/fade animation tick repaints without a display-list rebuild (RED)
+- f7deb7d0e fix(anim): a rotate/fade tick repaints its rect without rebuilding the list
+
 ## IN PROGRESS
-5. display-list reuse for transform/opacity-only ticks + shared animated-values source
+6. debug-server screenshot cache + builder page polling
 
 ## NEXT
 see order
