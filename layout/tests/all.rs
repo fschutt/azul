@@ -634,3 +634,5 @@ mod a_heading_and_paragraph_in_an_indented_table_cell_paint_their_text;
 mod quote_bars_from_one_gradient_paint_each_colour_at_its_length;
 #[path = "a_window_paces_at_its_monitors_refresh_rate.rs"]
 mod a_window_paces_at_its_monitors_refresh_rate;
+#[path = "the_resize_fast_path_paints_what_a_relayout_paints.rs"]
+mod the_resize_fast_path_paints_what_a_relayout_paints;
