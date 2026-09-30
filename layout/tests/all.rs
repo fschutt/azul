@@ -670,3 +670,5 @@ mod a_delete_across_blocks_keeps_the_surviving_runs;
 mod a_rich_paste_inserts_formatting_and_blocks;
 #[path = "a_reset_editor_takes_the_apps_new_content.rs"]
 mod a_reset_editor_takes_the_apps_new_content;
+#[path = "enter_in_a_nested_quote_splits_the_paragraph_not_the_quote.rs"]
+mod enter_in_a_nested_quote_splits_the_paragraph_not_the_quote;
