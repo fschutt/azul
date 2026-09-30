@@ -640,3 +640,5 @@ mod the_resize_fast_path_paints_what_a_relayout_paints;
 mod a_link_in_mail_markup_keeps_where_it_points;
 #[path = "the_named_entities_mail_uses_decode_to_their_characters.rs"]
 mod the_named_entities_mail_uses_decode_to_their_characters;
+#[path = "a_stylesheet_wrapped_in_comment_markers_keeps_its_rules.rs"]
+mod a_stylesheet_wrapped_in_comment_markers_keeps_its_rules;

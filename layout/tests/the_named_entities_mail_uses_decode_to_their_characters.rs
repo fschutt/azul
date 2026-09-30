@@ -81,7 +81,10 @@ fn assert_decoded(text: &str, which: &str) {
     // Unknown names stay as written; `&amp;amp;` is the text "&amp;" (one
     // pass, no double decoding).
     assert!(text.contains("&notanentity;"), "{which}: {text:?}");
-    assert!(text.contains("&amp;"), "{which}: &amp;amp; is the text &amp;: {text:?}");
+    assert!(
+        text.contains("&amp;"),
+        "{which}: &amp;amp; is the text &amp;: {text:?}"
+    );
 }
 
 #[test]
