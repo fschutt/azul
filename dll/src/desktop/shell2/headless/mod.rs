@@ -11251,6 +11251,10 @@ mod tests {
     ) -> azul_core::callbacks::TimerCallbackReturn {
         azul_core::callbacks::TimerCallbackReturn::terminate_unchanged()
     }
+
+    // Idle-CPU laws: animation culling, frame requests, idle timers
+    // (`tests/idle_cpu.rs`).
+    mod idle_cpu;
 }
 
 #[cfg(test)]
