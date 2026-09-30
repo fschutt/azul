@@ -2086,3 +2086,52 @@ pub fn start() {
     window.window_state.flags.decorations = WindowDecorations::NoTitle;
     app.run(window);
 }
+
+#[cfg(test)]
+mod mode_tests {
+    use super::*;
+
+    /// Every `#rgb` / `#rgba` / `#rrggbb` / `#rrggbbaa` colour written into `css`.
+    fn fixed_colours(css: &str) -> Vec<String> {
+        let bytes = css.as_bytes();
+        let mut found = Vec::new();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] != b'#' {
+                i += 1;
+                continue;
+            }
+            let digits = bytes[i + 1..]
+                .iter()
+                .take_while(|c| c.is_ascii_hexdigit())
+                .count();
+            if matches!(digits, 3 | 4 | 6 | 8) {
+                found.push(css[i..=i + digits].to_string());
+            }
+            i += 1 + digits;
+        }
+        found
+    }
+
+    /// The page's chrome and text are the desktop's palette of the mode the window is in, like
+    /// the widgets on it: a fixed light surface put the dark-mode Buttons (a translucent white
+    /// face, white ink) on white, where they vanished.
+    #[test]
+    fn the_page_chrome_and_its_text_are_system_colours_in_light_and_dark() {
+        for (name, css) in [
+            ("BODY", BODY),
+            ("TOOLBAR", TOOLBAR),
+            ("FOOTER", FOOTER),
+            ("LINE", LINE),
+            ("LABEL", LABEL),
+            ("POPOVER", POPOVER),
+        ] {
+            let fixed = fixed_colours(css);
+            assert!(
+                fixed.is_empty(),
+                "{name} paints {fixed:?} in both modes; it must follow the window's mode \
+                 (a `system:` colour): {css}"
+            );
+        }
+    }
+}
