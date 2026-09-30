@@ -4,12 +4,15 @@
 //   1. starts the meet dev server (azul-apps cf-workers/meet/dev-server.mjs, in memory);
 //   2. starts AzCalendar headless with an empty temporary data folder (AZCAL_DATA) and the dev
 //      server as its meeting server (AZMEET_WORKER);
-//   3. through AzCalendar's debug server: clicks "New event", focuses the title field
-//      (#event-title) and types a title, clicks "Add AzMeet link", clicks "Save event";
+//   3. through AzCalendar's debug server: clicks "Next week" (so the event, next Monday
+//      09:00 - 10:00, is days ahead, as calendar meetings are), "New event", focuses the title
+//      field (#event-title) and types a title, clicks "Add AzMeet link", clicks "Save event";
 //   4. asserts the event is ONE file, <data>/events/<uuid>.json, in format "azcalendar.event"
-//      version 1, with the title and an azlin://meet/<room id> link minted by the dev server,
-//      that the dev server knows that room, and that the week view shows the event with a
-//      "Join meeting" button;
+//      version 2, with the title and an azlin://meet/<room id> link minted by the dev server,
+//      that the file carries the meeting's times (meeting.starts_at / ends_at: the event's day
+//      and times, read in this machine's time zone, in UTC), that the dev server knows that
+//      room and stored the same times (and keeps the room until two hours after the end), and
+//      that the week view shows the event with a "Join meeting" button;
 //   5. starts AzMeet "Ben" headless with AZMEET_JOIN=<that link> and waits until the dev server
 //      lists Ben in the room;
 //   6. clicks "Join meeting" in AzCalendar: AzCalendar starts the AzMeet next to it (or
@@ -113,6 +116,10 @@ const launched = [];
 const TITLE = 'Team sync';
 const ROOM_LINK = /^azlin:\/\/meet\/([0-9a-z]{26})$/;
 const EVENT_FILE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/;
+/** The toolbar's week, "5 - 11 October 2026" / "28 September - 4 October 2026" (week.rs). */
+const WEEK_TITLE = /^\d{1,2}( [A-Z][a-z]+( \d{4})?)? - \d{1,2} [A-Z][a-z]+ \d{4}$/;
+/** How long the meet Worker keeps a meeting's room after it ends (ROOM_GRACE_SECONDS). */
+const ROOM_GRACE_MS = 2 * 3600 * 1000;
 /** How AzCalendar's form says an event was not saved (lib.rs: form_error, mint_failure, ...). */
 const FORM_ERRORS = [
   'Give the event a title',
@@ -282,7 +289,13 @@ try {
   await until("AzCalendar's week view", () => shows(debugCal, 'New event'));
   if (eventFiles().length !== 0) throw new Error('the data folder is not empty at the start');
 
-  // New event: title, AzMeet link, save.
+  // New event next week (a meeting that is over cannot get a room): title, AzMeet link, save.
+  const shownWeek = (await texts(debugCal)).find((t) => WEEK_TITLE.test(t));
+  await click(debugCal, 'Next week');
+  await until('the next week', async () => {
+    const title = (await texts(debugCal)).find((t) => WEEK_TITLE.test(t));
+    return title && title !== shownWeek;
+  });
   await click(debugCal, 'New event');
   await until('the new-event form', () => shows(debugCal, 'Add AzMeet link'));
   await mustOp(debugCal, { op: 'focus_node', selector: '#event-title' });
@@ -313,7 +326,7 @@ try {
   const expect = (ok, what) => {
     if (!ok) throw new Error(`${what}; the file holds ${JSON.stringify(event)}`);
   };
-  expect(event.format === 'azcalendar.event' && event.version === 1, 'not an azcalendar.event version 1');
+  expect(event.format === 'azcalendar.event' && event.version === 2, 'not an azcalendar.event version 2');
   expect(`${event.id}.json` === files[0], 'the file is not named by the event id');
   expect(event.title === TITLE, `the title is not "${TITLE}"`);
   expect(/^\d{4}-\d{2}-\d{2}$/.test(event.date), 'no date');
@@ -324,12 +337,29 @@ try {
   expect(room, `the link ${link} is not azlin://meet/<room id>`);
   log(`${files[0]}: "${event.title}" on ${event.date} ${event.start} - ${event.end}, ${event.meeting.link}`);
 
-  // The meeting server made that room.
+  // The file carries the meeting's times: the event's day and times in this machine's zone (a
+  // date-time without an offset is local in JavaScript, as chrono::Local is in AzCalendar).
+  const localMs = (time) => new Date(`${event.date}T${time}:00`).getTime();
+  const startsAt = Date.parse(event.meeting?.starts_at ?? '');
+  const endsAt = Date.parse(event.meeting?.ends_at ?? '');
+  expect(startsAt === localMs(event.start), `meeting.starts_at is not ${event.date} ${event.start} here, in UTC`);
+  expect(endsAt === localMs(event.end), `meeting.ends_at is not ${event.date} ${event.end} here, in UTC`);
+  expect(startsAt > Date.now(), 'the meeting is not ahead (was "Next week" clicked?)');
+  log(`the file carries the meeting's times: ${event.meeting.starts_at} - ${event.meeting.ends_at}`);
+
+  // The meeting server made that room, and stored the same times.
   const known = await getJson(`${worker}/rooms/${room}?format=json`);
   if (known.status !== 200 || known.json.room !== room) {
     throw new Error(`the dev server does not know room ${room}: ${known.status} ${JSON.stringify(known.json)}`);
   }
-  log(`the dev server knows room ${room} (code ${known.json.code})`);
+  const stored = `${known.json.starts_at} - ${known.json.ends_at}`;
+  if (stored !== `${event.meeting.starts_at} - ${event.meeting.ends_at}`) {
+    throw new Error(`the dev server stored ${stored}, the event file ${event.meeting.starts_at} - ${event.meeting.ends_at}`);
+  }
+  if (Date.parse(known.json.expires) !== endsAt + ROOM_GRACE_MS) {
+    throw new Error(`the dev server keeps the room until ${known.json.expires}, not two hours after the meeting`);
+  }
+  log(`the dev server knows room ${room} (code ${known.json.code}) for ${stored}, until ${known.json.expires}`);
 
   // The week view shows the event with its Join button.
   await until('the week view to show the event', () => shows(debugCal, TITLE));

@@ -400,8 +400,24 @@ mod tests {
             link: format!("azlin://meet/{ROOM}"),
             server: String::from("http://127.0.0.1:8787"),
             code: String::from("xq4-8kd-2nm"),
-            expires: String::from("2026-10-01T09:00:00.000Z"),
+            expires: String::from("2026-09-30T10:00:00.000Z"),
+            starts_at: String::from("2026-09-30T07:00:00.000Z"),
+            ends_at: String::from("2026-09-30T08:00:00.000Z"),
         }
+    }
+
+    /// The meeting as a server from before meeting times minted it: no times.
+    fn without_times(m: Meeting) -> Meeting {
+        Meeting {
+            starts_at: String::new(),
+            ends_at: String::new(),
+            ..m
+        }
+    }
+
+    /// `"version": <this version>`, as `to_json` writes it.
+    fn this_version() -> String {
+        format!("\"version\": {VERSION}")
     }
 
     fn sync(meeting: Option<Meeting>) -> Event {
@@ -452,7 +468,7 @@ mod tests {
         assert!(text.ends_with('\n'));
         let json: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(json["format"], "azcalendar.event");
-        assert_eq!(json["version"], 1);
+        assert_eq!(json["version"], 2);
         assert_eq!(json["id"], ID);
         assert_eq!(json["title"], "Team sync");
         assert_eq!(json["date"], "2026-09-30");
@@ -461,7 +477,9 @@ mod tests {
         assert_eq!(json["meeting"]["link"], format!("azlin://meet/{ROOM}"));
         assert_eq!(json["meeting"]["server"], "http://127.0.0.1:8787");
         assert_eq!(json["meeting"]["code"], "xq4-8kd-2nm");
-        assert_eq!(json["meeting"]["expires"], "2026-10-01T09:00:00.000Z");
+        assert_eq!(json["meeting"]["expires"], "2026-09-30T10:00:00.000Z");
+        assert_eq!(json["meeting"]["starts_at"], "2026-09-30T07:00:00.000Z");
+        assert_eq!(json["meeting"]["ends_at"], "2026-09-30T08:00:00.000Z");
 
         let plain: serde_json::Value = serde_json::from_str(&to_json(&sync(None))).unwrap();
         assert!(plain.get("meeting").is_none(), "{plain}");
@@ -469,8 +487,56 @@ mod tests {
 
     #[test]
     fn a_file_from_a_newer_azcalendar_is_refused_not_guessed_at() {
-        let text = to_json(&sync(None)).replace("\"version\": 1", "\"version\": 2");
-        assert_eq!(from_json(&text), Err(EventError::NewerVersion(2)));
+        let newer = format!("\"version\": {}", VERSION + 1);
+        let text = to_json(&sync(None)).replace(&this_version(), &newer);
+        assert_eq!(from_json(&text), Err(EventError::NewerVersion(VERSION + 1)));
+    }
+
+    /// Version 1 (AzCalendar before meeting times) is the same file without
+    /// `meeting.starts_at` / `meeting.ends_at`: it still reads, and is written
+    /// in this version when saved again.
+    #[test]
+    fn a_version_1_file_from_before_meeting_times_still_reads() {
+        let v1 = format!(
+            r#"{{
+  "format": "azcalendar.event",
+  "version": 1,
+  "id": "{ID}",
+  "title": "Team sync",
+  "date": "2026-09-30",
+  "start": "09:00",
+  "end": "10:00",
+  "meeting": {{
+    "link": "azlin://meet/{ROOM}",
+    "server": "http://127.0.0.1:8787",
+    "code": "xq4-8kd-2nm",
+    "expires": "2026-10-01T09:00:00.000Z"
+  }}
+}}
+"#
+        );
+        let event = from_json(&v1).unwrap();
+        assert_eq!(
+            event,
+            sync(Some(Meeting {
+                expires: String::from("2026-10-01T09:00:00.000Z"),
+                ..without_times(meeting())
+            }))
+        );
+        let json: serde_json::Value = serde_json::from_str(&to_json(&event)).unwrap();
+        assert_eq!(json["version"], VERSION);
+    }
+
+    #[test]
+    fn a_meetings_times_round_trip_through_the_event_file_and_are_left_out_when_unknown() {
+        let timed = sync(Some(meeting()));
+        assert_eq!(from_json(&to_json(&timed)), Ok(timed));
+        let untimed = sync(Some(without_times(meeting())));
+        let text = to_json(&untimed);
+        let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert!(json["meeting"].get("starts_at").is_none(), "{json}");
+        assert!(json["meeting"].get("ends_at").is_none(), "{json}");
+        assert_eq!(from_json(&text), Ok(untimed));
     }
 
     #[test]
@@ -490,14 +556,14 @@ mod tests {
         );
         let good = to_json(&sync(None));
         assert!(matches!(
-            from_json(&good.replace("\"version\": 1", "\"version\": \"one\"")),
+            from_json(&good.replace(&this_version(), "\"version\": \"one\"")),
             Err(EventError::BadField {
                 field: "version",
                 ..
             })
         ));
         assert!(matches!(
-            from_json(&good.replace("\"version\": 1", "\"version\": 0")),
+            from_json(&good.replace(&this_version(), "\"version\": 0")),
             Err(EventError::BadField {
                 field: "version",
                 ..
@@ -597,6 +663,9 @@ mod tests {
         for id in &ids {
             assert!(is_event_id(id), "{id}");
             assert!(!id.starts_with("00000000-0000"), "{id}");
+            // Version 4, variant 0b10 (RFC 4122).
+            assert_eq!(&id[14..15], "4", "{id}");
+            assert!(matches!(&id[19..20], "8" | "9" | "a" | "b"), "{id}");
         }
         let mut unique = ids.clone();
         unique.sort();

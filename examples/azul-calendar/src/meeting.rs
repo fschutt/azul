@@ -111,6 +111,8 @@ pub fn join_env(meeting: &Meeting) -> Vec<(&'static str, String)> {
 
 #[cfg(test)]
 mod tests {
+    use chrono::{FixedOffset, TimeZone};
+
     use super::*;
 
     const ROOM: &str = "a2h859hyqkfaa11nhzxfh3gd7f";
@@ -121,7 +123,9 @@ mod tests {
             "room": room,
             "code": "xq4-8kd-2nm",
             "url": format!("{SERVER}/rooms/{room}"),
-            "expires": "2026-10-01T09:00:00.000Z",
+            "expires": "2026-10-06T10:00:00.000Z",
+            "starts_at": "2026-10-06T07:00:00.000Z",
+            "ends_at": "2026-10-06T08:00:00.000Z",
         });
         if let Some(link) = link {
             json["link"] = serde_json::Value::from(link);
@@ -157,7 +161,9 @@ mod tests {
                 link,
                 server: String::from(SERVER),
                 code: String::from("xq4-8kd-2nm"),
-                expires: String::from("2026-10-01T09:00:00.000Z"),
+                expires: String::from("2026-10-06T10:00:00.000Z"),
+                starts_at: String::from("2026-10-06T07:00:00.000Z"),
+                ends_at: String::from("2026-10-06T08:00:00.000Z"),
             }
         );
     }
@@ -170,6 +176,59 @@ mod tests {
         assert_eq!(bare.link, format!("azlin://meet/{ROOM}"));
         assert_eq!(bare.code, "");
         assert_eq!(bare.expires, "");
+        assert_eq!(bare.starts_at, "");
+        assert_eq!(bare.ends_at, "");
+    }
+
+    #[test]
+    fn a_room_the_server_keeps_without_times_is_a_meeting_without_them() {
+        let body = format!("{{\"room\": \"{ROOM}\", \"starts_at\": null, \"ends_at\": null}}");
+        let meeting = minted_meeting(SERVER, &body).unwrap();
+        assert_eq!((meeting.starts_at.as_str(), meeting.ends_at.as_str()), ("", ""));
+    }
+
+    fn day(y: i32, m: u32, d: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(y, m, d).unwrap()
+    }
+
+    fn at(h: u32, m: u32) -> NaiveTime {
+        NaiveTime::from_hms_opt(h, m, 0).unwrap()
+    }
+
+    fn utc(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(y, mo, d, h, mi, 0).unwrap()
+    }
+
+    #[test]
+    fn the_meeting_times_are_the_events_day_and_times_read_in_the_local_zone_in_utc() {
+        let berlin_summer = FixedOffset::east_opt(2 * 3600).unwrap();
+        assert_eq!(
+            utc_window(&berlin_summer, day(2026, 10, 6), at(9, 0), at(10, 0)),
+            (utc(2026, 10, 6, 7, 0), utc(2026, 10, 6, 8, 0))
+        );
+        // West of Greenwich an evening meeting is on the next day in UTC.
+        let new_york_winter = FixedOffset::west_opt(5 * 3600).unwrap();
+        assert_eq!(
+            utc_window(&new_york_winter, day(2026, 12, 31), at(22, 0), at(23, 30)),
+            (utc(2027, 1, 1, 3, 0), utc(2027, 1, 1, 4, 30))
+        );
+        assert_eq!(
+            utc_window(&Utc, day(2026, 10, 6), at(9, 15), at(9, 45)),
+            (utc(2026, 10, 6, 9, 15), utc(2026, 10, 6, 9, 45))
+        );
+    }
+
+    #[test]
+    fn minting_asks_the_server_to_keep_the_room_for_the_meeting_times_in_utc() {
+        let body = mint_body(utc(2026, 10, 6, 7, 0), utc(2026, 10, 6, 8, 0));
+        let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "starts_at": "2026-10-06T07:00:00Z",
+                "ends_at": "2026-10-06T08:00:00Z",
+            })
+        );
     }
 
     #[test]
@@ -235,6 +294,8 @@ mod tests {
             server: String::from(SERVER),
             code: String::new(),
             expires: String::new(),
+            starts_at: String::new(),
+            ends_at: String::new(),
         };
         assert_eq!(
             join_env(&meeting),
