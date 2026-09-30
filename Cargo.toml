@@ -9,6 +9,7 @@ members = [
     "examples/azul-writer",
     "examples/azul-builder", # AzWriter demo (office-2013-style document editor; bin azwriter)
     "examples/azul-meet", # azul-meet demo (SUPER_PLAN_2 P8 goal app: Udp + AudioSink + MicrophoneWidget)
+    "examples/azul-calendar", # AzCalendar test app: week view, event files, mints AzMeet links
     "dll", # dll module with auto-gen C functions (optional pyO3 support), depends on layout, core and css
     "doc", # doc / test generator, depends on layout, core and css
     "layout", # layout depends on core + css

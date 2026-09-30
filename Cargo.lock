@@ -11,6 +11,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "AzCalendar"
+version = "0.1.0"
+dependencies = [
+ "azul-dll",
+ "chrono",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "AzMaps"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,32 @@
+[package]
+name = "AzCalendar"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzCalendar - a small calendar on the public azul API that mints AzMeet
+    links. A week view (08:00 - 20:00) lists the events of the shown week;
+    "New event" saves one JSON file per event (<data dir>/events/<id>.json,
+    the same layout as an object store's keys) and, with "Add AzMeet link",
+    first asks the meeting server (the `meet` Worker, AZMEET_WORKER) for a
+    room and keeps its link in the file. "Join meeting" opens AzMeet with
+    AZMEET_JOIN=<link>.
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The same features azul-layout builds chrono with (dates, and the local date for "today").
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+
+[lib]
+name = "azcalendar"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzCalendar"
+path = "src/main.rs"

@@ -1,0 +1,211 @@
+//! AzCalendar's side of AzMeet: which meeting server mints the links (the same setting as
+//! AzMeet's), what the server's answer to `POST /rooms` means, what to tell the user when minting
+//! fails, and which AzMeet program "Join meeting" opens. Link formats are AzMeet's own
+//! (`meet_rooms`, AzMeet's `rooms.rs`), not repeated here.
+
+use std::path::{Path, PathBuf};
+
+use serde::Deserialize;
+
+use crate::{
+    event::Meeting,
+    meet_rooms::{self, RoomKey},
+};
+
+/// The meeting server: set by AzMeet's variable.
+pub const WORKER_VAR: &str = "AZMEET_WORKER";
+/// The meeting AzMeet joins at start: AzMeet's variable.
+pub const JOIN_VAR: &str = "AZMEET_JOIN";
+/// The AzMeet program "Join meeting" opens, when it is not the one next to AzCalendar.
+pub const AZMEET_BIN_VAR: &str = "AZMEET_BIN";
+/// The name of the AzMeet program (without the platform's suffix).
+pub const AZMEET_PROGRAM: &str = "AzMeet";
+
+/// The meeting server built in at build time (`AZMEET_DEFAULT_WORKER`), the same default as
+/// AzMeet's; empty means none.
+pub const BUILT_IN_WORKER: &str = match option_env!("AZMEET_DEFAULT_WORKER") {
+    Some(url) => url,
+    None => "",
+};
+
+/// The meeting server: `setting` (`AZMEET_WORKER`), else the built-in one, without a trailing
+/// slash; `None` when neither is set.
+pub fn worker(setting: Option<&str>, built_in: &str) -> Option<String> {
+    let _ = (setting, built_in);
+    todo!("worker")
+}
+
+/// What `POST /rooms` answers: `{room, code, link, url, expires}`.
+#[derive(Deserialize)]
+struct RoomAnswer {
+    room: String,
+    code: Option<String>,
+    link: Option<String>,
+    expires: Option<String>,
+}
+
+/// The meeting `server` minted, read from its answer to `POST /rooms`. The link must name the
+/// room the server minted, by its id; it is kept as `azlin://meet/<room id>`.
+pub fn minted_meeting(server: &str, body: &str) -> Result<Meeting, String> {
+    let _ = (server, body, meet_rooms::APP_LINK_PREFIX);
+    let _: Option<RoomKey> = None;
+    let _: Option<RoomAnswer> = None;
+    todo!("minted_meeting")
+}
+
+/// What the user reads when `POST /rooms` failed: `status` and `body` of the server's answer, or
+/// (`status` is `None`) why the server could not be reached.
+pub fn mint_failure(server: &str, status: Option<u16>, body: &str) -> String {
+    let _ = (server, status, body);
+    todo!("mint_failure")
+}
+
+/// The AzMeet program: `setting` (`AZMEET_BIN`), else `AzMeet` next to `this_program`.
+pub fn azmeet_program(setting: Option<&str>, this_program: Option<&Path>) -> Option<PathBuf> {
+    let _ = (setting, this_program);
+    todo!("azmeet_program")
+}
+
+/// The environment AzMeet is started with to join `meeting`: the link, and the server that
+/// minted it (a link is only known to its own server).
+pub fn join_env(meeting: &Meeting) -> Vec<(&'static str, String)> {
+    let _ = meeting;
+    todo!("join_env")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ROOM: &str = "a2h859hyqkfaa11nhzxfh3gd7f";
+    const SERVER: &str = "http://127.0.0.1:8787";
+
+    fn answer(room: &str, link: Option<&str>) -> String {
+        let mut json = serde_json::json!({
+            "room": room,
+            "code": "xq4-8kd-2nm",
+            "url": format!("{SERVER}/rooms/{room}"),
+            "expires": "2026-10-01T09:00:00.000Z",
+        });
+        if let Some(link) = link {
+            json["link"] = serde_json::Value::from(link);
+        }
+        json.to_string()
+    }
+
+    #[test]
+    fn the_meeting_server_is_azmeets_setting_else_the_built_in_one() {
+        assert_eq!(
+            worker(Some("http://127.0.0.1:8787/"), "https://meet.example.com"),
+            Some(String::from("http://127.0.0.1:8787"))
+        );
+        assert_eq!(
+            worker(Some("  "), "https://meet.example.com/"),
+            Some(String::from("https://meet.example.com"))
+        );
+        assert_eq!(
+            worker(None, "https://meet.example.com"),
+            Some(String::from("https://meet.example.com"))
+        );
+        assert_eq!(worker(None, ""), None);
+        assert_eq!(worker(Some(""), " "), None);
+    }
+
+    #[test]
+    fn a_minted_room_becomes_the_events_meeting() {
+        let link = format!("azlin://meet/{ROOM}");
+        let meeting = minted_meeting(SERVER, &answer(ROOM, Some(&link))).unwrap();
+        assert_eq!(
+            meeting,
+            Meeting {
+                link,
+                server: String::from(SERVER),
+                code: String::from("xq4-8kd-2nm"),
+                expires: String::from("2026-10-01T09:00:00.000Z"),
+            }
+        );
+    }
+
+    #[test]
+    fn without_a_link_in_the_answer_the_link_is_made_from_the_room_id() {
+        let meeting = minted_meeting(SERVER, &answer(ROOM, None)).unwrap();
+        assert_eq!(meeting.link, format!("azlin://meet/{ROOM}"));
+        let bare = minted_meeting(SERVER, &format!("{{\"room\": \"{ROOM}\"}}")).unwrap();
+        assert_eq!(bare.link, format!("azlin://meet/{ROOM}"));
+        assert_eq!(bare.code, "");
+        assert_eq!(bare.expires, "");
+    }
+
+    #[test]
+    fn a_link_that_does_not_name_the_minted_room_is_refused() {
+        let other = "b2h859hyqkfaa11nhzxfh3gd7f";
+        for body in [
+            answer(ROOM, Some(&format!("azlin://meet/{other}"))),
+            answer(ROOM, Some("https://evil.example.com/")),
+            answer(ROOM, Some("azlin://meet/xq4-8kd-2nm")),
+            answer("not a room", None),
+            String::from("{}"),
+            String::from("<html>"),
+            String::from(""),
+        ] {
+            assert!(minted_meeting(SERVER, &body).is_err(), "{body}");
+        }
+    }
+
+    #[test]
+    fn a_failed_mint_says_what_the_server_said_or_why_it_was_not_reached() {
+        assert_eq!(
+            mint_failure(SERVER, None, "connection refused"),
+            "The meeting server at http://127.0.0.1:8787 is unreachable: connection refused"
+        );
+        assert_eq!(
+            mint_failure(SERVER, Some(429), "{\"error\":\"rate_limited\"}"),
+            "Too many new meetings from this network; try again in a few minutes."
+        );
+        assert_eq!(
+            mint_failure(
+                SERVER,
+                Some(500),
+                "{\"error\":\"internal\",\"message\":\"The database is down.\"}"
+            ),
+            "The meeting server answered 500: The database is down."
+        );
+        assert_eq!(
+            mint_failure(SERVER, Some(502), "<html>Bad gateway</html>"),
+            "The meeting server answered 502."
+        );
+    }
+
+    #[test]
+    fn join_meeting_opens_the_azmeet_next_to_azcalendar_unless_told_otherwise() {
+        let exe = Path::new("/opt/azul/bin/AzCalendar");
+        let next_to = PathBuf::from(format!(
+            "/opt/azul/bin/AzMeet{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        assert_eq!(azmeet_program(None, Some(exe)), Some(next_to.clone()));
+        assert_eq!(azmeet_program(Some(" "), Some(exe)), Some(next_to));
+        assert_eq!(
+            azmeet_program(Some("/usr/local/bin/AzMeet"), Some(exe)),
+            Some(PathBuf::from("/usr/local/bin/AzMeet"))
+        );
+        assert_eq!(azmeet_program(None, None), None);
+    }
+
+    #[test]
+    fn azmeet_joins_with_the_link_on_the_server_that_minted_it() {
+        let meeting = Meeting {
+            link: format!("azlin://meet/{ROOM}"),
+            server: String::from(SERVER),
+            code: String::new(),
+            expires: String::new(),
+        };
+        assert_eq!(
+            join_env(&meeting),
+            vec![
+                ("AZMEET_JOIN", format!("azlin://meet/{ROOM}")),
+                ("AZMEET_WORKER", String::from(SERVER)),
+            ]
+        );
+    }
+}
