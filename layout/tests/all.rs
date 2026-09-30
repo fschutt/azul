@@ -636,3 +636,5 @@ mod quote_bars_from_one_gradient_paint_each_colour_at_its_length;
 mod a_window_paces_at_its_monitors_refresh_rate;
 #[path = "the_resize_fast_path_paints_what_a_relayout_paints.rs"]
 mod the_resize_fast_path_paints_what_a_relayout_paints;
+#[path = "a_link_in_mail_markup_keeps_where_it_points.rs"]
+mod a_link_in_mail_markup_keeps_where_it_points;
