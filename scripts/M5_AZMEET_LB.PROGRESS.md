@@ -3,6 +3,7 @@
 Branch `wt/m5-azmeet-lb` from `748f999af`. Task: rooms of 3+ through `IrohLoadBalancer` (capacity reports,
 forwarding over a backbone, simulcast renditions from tile roles, three-clients.mjs, network panel).
 Resumed once after a power loss (the scratchpad was wiped; the worktree was intact).
+Added mid-task by the coordinator (user request): a meeting-server URL field on the start screen.
 
 ## DONE
 
@@ -11,21 +12,26 @@ Resumed once after a power loss (the scratchpad was wiped; the worktree was inta
 - `af1e06372` test(azmeet): who forwards whose media, which rendition each viewer gets, and the reports behind it (RED)
 - `9f914b564` feat(azmeet): routing plan, rendition assignment, sync and relay wire, uplink estimate
 - `cadcfc4e8` test(azmeet): three AzMeet processes route over a backbone and a far keyframe request reaches its origin (RED)
+- `f7b404f5e` feat(azmeet): rooms of three and more forward over a backbone, each tile gets its rendition
 
 ## IN PROGRESS
 
-- lib.rs glue (GREEN). Line formats the scripts read are fixed by meet-e2e.mjs (readers checked against
-  sample lines: scratchpad m5/readers_check.mjs).
+- Meeting-server field (start screen): prefill saved > AZMEET_WORKER > built-in (pure `rooms::server_prefill`,
+  RED unit test first), save on Enter / blur after a `GET /health` answers, status next to the field, demo only
+  when nothing is configured and nothing answers; headless runs neither read nor write the settings file.
 
 ## NEXT
 
-1. lib.rs glue (GREEN): peer keys, syncs on connect / change / every tick, the plan via IrohLoadBalancer
-   (`set_mesh_cap`), sending own media to the plan's children, forwarding (relay envelopes, relay windows,
-   keyframe requests passed upstream), renditions per tile role (grid / speaker view, measured tile height),
-   one encoder per rendition, camera consumers per rendition, the network panel column, ALPN azmeet/3.
-2. Type-check harness for lib.rs (the M3 harness was lost with the scratchpad: rebuild it from the generated
-   signatures in /Users/fschutt/Development/azul/target/codegen/dll_api_external.rs).
-3. Guide section, report `scripts/M5_AZMEET_LB_2026_09_29.md`.
+1. Server field: RED (rooms.rs tests + stubs), GREEN (rooms.rs + lib.rs glue), type-check with the harness.
+2. Guide section, report `scripts/M5_AZMEET_LB_2026_09_29.md`.
+
+## Type-check harness (scratchpad m5/, rebuilt after the power loss)
+
+- `azul_stub.rs`: a stub `azul` crate with the generated signatures of every item lib.rs uses
+  (`rustc --crate-type lib --crate-name azul --emit=metadata azul_stub.rs -o libazul.rmeta`), then
+  `rustc --crate-type lib [--test] --crate-name azmeet --emit=metadata -A improper_ctypes_definitions
+  --extern azul=libazul.rmeta examples/azul-meet/src/lib.rs`: the WHOLE lib.rs and its modules, lib and test
+  builds, no errors, no warnings.
 
 ## Open questions / decisions
 
