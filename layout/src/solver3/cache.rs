@@ -3275,6 +3275,23 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                     let self_content_box_pos =
                         calculate_content_box_pos(containing_block_pos, &box_props);
 
+                    // A flex or grid container's items were laid out by taffy
+                    // together with the container: their sizes and positions
+                    // are in the tree (the miss path only positions them,
+                    // `process_inflow_child`). Re-laying an item out on its own
+                    // through `calculate_layout_for_subtree` treated it as a
+                    // block with an auto height, so a `flex-grow: 1` pane that
+                    // is itself a flex container shrank to its content on the
+                    // second pass of a page (tests/flex_items_keep_the_size_
+                    // their_container_gave_them.rs, C).
+                    let items_laid_out_by_taffy =
+                        tree.get(LayoutNodeId::new(node_index)).is_some_and(|n| {
+                            matches!(
+                                n.formatting_context,
+                                FormattingContext::Flex | FormattingContext::Grid
+                            )
+                        });
+
                     // Apply cached child positions and recurse
                     let result_size = cached_layout.result_size;
                     for (child_index, child_relative_pos) in &cached_layout.child_positions {
@@ -3283,6 +3300,25 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                             self_content_box_pos.y + child_relative_pos.y,
                         );
                         super::pos_set(calculated_positions, *child_index, child_abs_pos);
+
+                        if items_laid_out_by_taffy {
+                            if let Some(child_warm) = tree.warm_mut(LayoutNodeId::new(*child_index))
+                            {
+                                child_warm.relative_position = Some(*child_relative_pos);
+                            }
+                            let (child_bp, child_used_size) = tree
+                                .get(LayoutNodeId::new(*child_index))
+                                .map(|c| (c.box_props.unpack(), c.used_size.unwrap_or_default()))
+                                .unwrap_or_default();
+                            position_flex_child_descendants(
+                                tree,
+                                *child_index,
+                                calculate_content_box_pos(child_abs_pos, &child_bp),
+                                child_bp.inner_size(child_used_size, writing_mode),
+                                calculated_positions,
+                            )?;
+                            continue;
+                        }
 
                         let inner = box_props.inner_size(result_size, writing_mode);
                         // Subtract scrollbar reservation from the available size
