@@ -36,7 +36,6 @@ export function findPaths(opts) {
   const workerDir = firstExisting('the meet Worker (pass --worker-dir)', [
     opts['worker-dir'],
     process.env.AZMEET_WORKER_DIR,
-    join(mainRepo, '..', 'azul-apps-m1', 'cf-workers', 'meet'),
     join(mainRepo, '..', 'azul-apps', 'cf-workers', 'meet'),
     join(repo, '..', 'azul-apps', 'cf-workers', 'meet'),
   ]);

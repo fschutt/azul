@@ -23,7 +23,7 @@
 // server, AZ_DEBUG / e2e-server):
 //   node examples/azul-calendar/scripts/mint-and-join.mjs
 //     [--bin target/release/AzCalendar] [--meet-bin target/release/AzMeet]
-//     [--worker-dir ../azul-apps-m1/cf-workers/meet] [--port 8797]
+//     [--worker-dir ../azul-apps/cf-workers/meet] [--port 8797]
 //     [--debug-cal 8767] [--debug-meet 8768] [--timeout 90] [--keep-logs]
 //
 // Also read from the environment: AZCAL_BIN, AZMEET_BIN, AZMEET_WORKER_DIR. Logs and the data
@@ -96,7 +96,6 @@ const meetBin = firstExisting('the AzMeet binary (pass --meet-bin)', [
 const workerDir = firstExisting('the meet Worker (pass --worker-dir)', [
   opts['worker-dir'],
   process.env.AZMEET_WORKER_DIR,
-  join(mainRepo, '..', 'azul-apps-m1', 'cf-workers', 'meet'),
   join(mainRepo, '..', 'azul-apps', 'cf-workers', 'meet'),
   join(repo, '..', 'azul-apps', 'cf-workers', 'meet'),
 ]);
