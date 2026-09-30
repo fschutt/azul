@@ -367,6 +367,22 @@ pub mod mock {
                 DeviceKind::AudioSink => "AudioSink::open",
             }
         }
+
+        /// What a headless run says when `self` is opened without a stand-in:
+        /// that nothing is opened, and how to ask for the synthetic one. The
+        /// stderr line of [`record_unavailable_device`], and the reason a
+        /// closed handle (`AudioSink::error_message`) gives.
+        #[must_use]
+        pub fn unavailable_message(self) -> String {
+            format!(
+                "{}: not available in a headless run, no device is opened. A synthetic \
+                 stand-in: AZ_SYNTHETIC_DEVICES={} or the mock op {{\"{}\": \"{}\"}}",
+                self.operation(),
+                self.name(),
+                self.name(),
+                self.stand_in()
+            )
+        }
     }
 
     /// What opening a device resolves to.
@@ -730,14 +746,7 @@ pub mod mock {
         let reported = &mut s.devices_reported[kind.index()];
         if !*reported {
             *reported = true;
-            eprintln!(
-                "[azul][e2e] {}: not available in a headless run, no device is opened. A \
-                 synthetic stand-in: AZ_SYNTHETIC_DEVICES={} or the mock op {{\"{}\": \"{}\"}}",
-                kind.operation(),
-                kind.name(),
-                kind.name(),
-                kind.stand_in()
-            );
+            eprintln!("[azul][e2e] {}", kind.unavailable_message());
         }
         s.unmocked.push(String::from(kind.operation()));
     }

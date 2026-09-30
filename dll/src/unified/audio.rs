@@ -6,14 +6,15 @@ use core::ffi::c_void;
 
 #[cfg(target_arch = "wasm32")]
 use azul_core::audio::{AudioConfig, AudioFrame};
-// wasm: stub with an identical `#[repr(C)]` layout (ptr + run_destructor) so
-// the C-ABI transmute to `AzAudioSink` stays valid. Defined directly in this
-// module so the path resolves to `azul_dll::unified::audio::AudioSink`.
-// Includes a `Drop` impl to match the real desktop type's `custom_impl(Drop)`.
+// wasm: stub with an identical `#[repr(C)]` layout (ptr + error +
+// run_destructor) so the C-ABI transmute to `AzAudioSink` stays valid. Defined
+// directly in this module so the path resolves to
+// `azul_dll::unified::audio::AudioSink`. Includes a `Drop` impl to match the
+// real desktop type's `custom_impl(Drop)`.
 #[cfg(target_arch = "wasm32")]
 use azul_css::impl_option_inner;
 #[cfg(target_arch = "wasm32")]
-use azul_css::StringVec;
+use azul_css::{AzString, OptionString, StringVec};
 
 #[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
 pub use crate::desktop::extra::audio::*;
@@ -23,6 +24,7 @@ pub use crate::desktop::extra::audio::*;
 #[repr(C)]
 pub struct AudioSink {
     pub ptr: *mut c_void,
+    pub error: OptionString,
     pub run_destructor: bool,
 }
 
@@ -31,6 +33,7 @@ impl Clone for AudioSink {
     fn clone(&self) -> Self {
         AudioSink {
             ptr: self.ptr,
+            error: self.error.clone(),
             run_destructor: false,
         }
     }
@@ -41,6 +44,7 @@ impl Default for AudioSink {
     fn default() -> Self {
         AudioSink {
             ptr: core::ptr::null_mut(),
+            error: OptionString::None,
             run_destructor: false,
         }
     }
@@ -53,9 +57,15 @@ impl Drop for AudioSink {
 
 #[cfg(target_arch = "wasm32")]
 impl AudioSink {
-    /// No audio backend on wasm: always returns an invalid handle.
+    /// No audio backend on wasm: always returns a closed handle that says so.
     pub fn open(_config: AudioConfig) -> AudioSink {
-        AudioSink::default()
+        AudioSink {
+            ptr: core::ptr::null_mut(),
+            error: OptionString::Some(AzString::from(
+                "this platform has no audio output backend in azul yet (wasm)",
+            )),
+            run_destructor: false,
+        }
     }
     pub fn is_open(&self) -> bool {
         false
@@ -63,6 +73,9 @@ impl AudioSink {
     pub fn play(&self, _frame: AudioFrame) {}
     pub fn frames_played(&self) -> u64 {
         0
+    }
+    pub fn error_message(&self) -> OptionString {
+        self.error.clone()
     }
     pub fn close(&mut self) {}
 }
