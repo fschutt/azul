@@ -990,7 +990,7 @@ pub struct AppConfig {
     /// Configuration for localization, tracking known languages.
     pub localization: LocalizationConfig,
     /// The app's Fluent translations: one `(locale, .ftl source)` pair per
-    /// entry, e.g. `("de", include_str!("resources/de.ftl"))`. Every window
+    /// entry, e.g. `("de", <the text of the app's de.ftl>)`. Every window
     /// translates the `AzString::tr` keys of its DOM with them. Default: none
     /// (keys render as written).
     pub fluent_locales: crate::window::StringPairVec,

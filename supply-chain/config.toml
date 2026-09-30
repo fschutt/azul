@@ -280,7 +280,7 @@ version = "1.5.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.azul-simplecss]]
-version = "0.2.1"
+version = "0.2.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.backon]]
