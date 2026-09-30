@@ -5886,16 +5886,10 @@ mod tests {
         None
     }
 
-    /// Pixel-diff the window's INCREMENTALLY presented frame against a full
-    /// repaint of the SAME display list by a fresh backend (no retained
-    /// pixels, nothing to blit or skip). Returns (differing px, first diff).
-    fn incremental_vs_full(window: &mut HeadlessWindow) -> (usize, Option<(u32, u32)>) {
-        let incremental = window
-            .cpu_backend
-            .last_frame
-            .as_ref()
-            .expect("incremental frame")
-            .clone_pixmap();
+    /// A full repaint of the window's CURRENT display list by a fresh backend
+    /// (no retained pixels, nothing to blit or skip): what the screen must
+    /// show, whatever path presented it.
+    fn full_repaint_of(window: &mut HeadlessWindow) -> azul_layout::cpurender::AzulPixmap {
         let ws = window.common.current_window_state();
         let (w, h, dpi) = (
             ws.size.dimensions.width,
@@ -5908,11 +5902,24 @@ mod tests {
         };
         let lw = window.common.layout_window.as_ref().expect("layout window");
         fresh.render_frame(lw, &window.common.renderer_resources, w, h, dpi);
-        let full = fresh
+        fresh
             .last_frame
             .as_ref()
             .expect("full frame")
+            .clone_pixmap()
+    }
+
+    /// Pixel-diff the window's INCREMENTALLY presented frame against a full
+    /// repaint of the SAME display list by a fresh backend (no retained
+    /// pixels, nothing to blit or skip). Returns (differing px, first diff).
+    fn incremental_vs_full(window: &mut HeadlessWindow) -> (usize, Option<(u32, u32)>) {
+        let incremental = window
+            .cpu_backend
+            .last_frame
+            .as_ref()
+            .expect("incremental frame")
             .clone_pixmap();
+        let full = full_repaint_of(window);
         assert_eq!(incremental.width(), full.width());
         assert_eq!(incremental.height(), full.height());
         let (a, b) = (incremental.data(), full.data());
@@ -10251,6 +10258,199 @@ mod tests {
         );
     }
 
+    /// Six 40px stripes of six colours in a row: 240px of content for the
+    /// 120px box that shows it, so the view scrolls by up to 120px and no
+    /// offset in that range looks like another.
+    #[cfg(feature = "cpurender")]
+    const STRIPE_COLOURS: [[u8; 4]; 6] = [
+        [220, 40, 40, 255],
+        [40, 160, 60, 255],
+        [40, 80, 220, 255],
+        [230, 200, 30, 255],
+        [180, 40, 200, 255],
+        [30, 200, 210, 255],
+    ];
+
+    #[cfg(feature = "cpurender")]
+    extern "C" fn stripes_view_render(
+        _data: RefAny,
+        _info: azul_core::callbacks::VirtualViewCallbackInfo,
+    ) -> azul_core::callbacks::VirtualViewReturn {
+        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+        use azul_css::{
+            dynamic_selector::CssPropertyWithConditions,
+            props::{
+                basic::color::ColorU,
+                layout::{
+                    dimensions::{LayoutHeight, LayoutWidth},
+                    display::LayoutDisplay,
+                    flex::LayoutFlexDirection,
+                },
+                property::CssProperty,
+                style::background::{StyleBackgroundContent, StyleBackgroundContentVec},
+            },
+        };
+
+        let row = Dom::create_div().with_css_props(
+            vec![
+                CssPropertyWithConditions::simple(CssProperty::display(LayoutDisplay::Flex)),
+                CssPropertyWithConditions::simple(CssProperty::flex_direction(
+                    LayoutFlexDirection::Row,
+                )),
+                CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(240.0))),
+                CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(60.0))),
+            ]
+            .into(),
+        );
+        let row = STRIPE_COLOURS.iter().fold(row, |row, [r, g, b, a]| {
+            let bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(ColorU {
+                r: *r,
+                g: *g,
+                b: *b,
+                a: *a,
+            })]
+            .into();
+            row.with_child(Dom::create_div().with_css_props(
+                vec![
+                    CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(40.0))),
+                    CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(60.0))),
+                    CssPropertyWithConditions::simple(CssProperty::background_content(bg)),
+                ]
+                .into(),
+            ))
+        });
+        let all = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(240.0, 60.0));
+        azul_core::callbacks::VirtualViewReturn {
+            dom: azul_core::dom::OptionDom::Some(row),
+            materialized: all,
+            virtual_rect: all,
+        }
+    }
+
+    /// `<body>` with the stripes view in a 120x60 box (at 8,8: the body's
+    /// margin).
+    #[cfg(feature = "cpurender")]
+    extern "C" fn stripes_page_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_css::{
+            dynamic_selector::CssPropertyWithConditions,
+            props::{
+                layout::dimensions::{LayoutHeight, LayoutWidth},
+                property::CssProperty,
+            },
+        };
+
+        Dom::create_body().with_child(
+            Dom::create_virtual_view(
+                RefAny::new(()),
+                azul_core::callbacks::VirtualViewCallback::create(stripes_view_render),
+            )
+            .with_css_props(
+                vec![
+                    CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(120.0))),
+                    CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(60.0))),
+                ]
+                .into(),
+            ),
+        )
+    }
+
+    /// A `VirtualView` has no scroll frame: its scroll is the `content_offset`
+    /// of its display-list item, which the lightweight scroll path re-points
+    /// (`patch_virtual_view_content_offset`) and every relayout recomputes.
+    /// The CPU backend presents the frame from the display-list diff, and
+    /// that diff must see the view move - it compared two views by child,
+    /// bounds and clip alone, so a scrolled view produced no damage and the
+    /// content stayed put while the scrollbar moved (AzReview's sheet strip
+    /// on the Mac: "only the bottom 8px still update"). Many steps, forward
+    /// and back: every presented frame equals a full repaint.
+    #[test]
+    #[cfg(feature = "cpurender")]
+    fn a_virtual_view_scrolled_on_the_lightweight_path_paints_where_its_content_moved() {
+        use azul_core::{
+            dom::{DomId, NodeId},
+            events::ProcessEventResult,
+            styled_dom::NodeHierarchyItemId,
+        };
+        use azul_layout::callbacks::CallbackChange;
+
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, stripes_page_layout, 200.0, 100.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        let _ = window.common.take_regeneration();
+
+        let view = window
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| {
+                lw.virtual_view_manager
+                    .get_all_virtual_view_infos()
+                    .first()
+                    .map(|info| NodeId::new(info.parent_node_id))
+            })
+            .expect("premise: the page holds one VirtualView");
+        let scroll_x = |window: &HeadlessWindow| {
+            window
+                .common
+                .layout_window
+                .as_ref()
+                .and_then(|lw| lw.scroll_manager.get_current_offset(DomId::ROOT_ID, view))
+                .map_or(0.0, |p| p.x)
+        };
+        // 2px into the view's box (at 8,8), mid-height: inside stripe
+        // `(x + 2) / 40` of the child at scroll offset x.
+        let probe = (10u32, 38u32);
+        let (d, f) = incremental_vs_full(&mut window);
+        assert_eq!(
+            d, 0,
+            "premise: the settled frame equals a full repaint ({d} px differ, first at {f:?})"
+        );
+
+        for (i, x) in [8.0f32, 24.0, 40.0, 57.0, 80.0, 120.0, 96.0, 30.0, 0.0, 119.0]
+            .iter()
+            .enumerate()
+        {
+            // The lightweight scroll path: what the physics timer and
+            // `CallbackInfo::scroll_to` push, serviced like any change.
+            let tier = PlatformWindow::apply_user_change(
+                &mut window,
+                &CallbackChange::ScrollTo {
+                    dom_id: DomId::ROOT_ID,
+                    node_id: NodeHierarchyItemId::from_crate_internal(Some(view)),
+                    position: LogicalPosition::new(*x, 0.0),
+                    unclamped: false,
+                },
+            );
+            if tier > ProcessEventResult::DoNothing {
+                window.service_frame(tier);
+            }
+            let at = scroll_x(&window);
+            assert!(
+                (at - x).abs() < 0.01,
+                "premise: step {i} scrolled the view to x={x}, it is at {at}"
+            );
+            let stripe = ((x + 2.0) / 40.0) as usize;
+            let full = full_repaint_of(&mut window);
+            assert_eq!(
+                pixel_of(&full, probe.0, probe.1),
+                Some(STRIPE_COLOURS[stripe]),
+                "premise: a full repaint at offset {x} shows stripe {stripe} at the view's left \
+                 edge"
+            );
+            let (diffs, first) = incremental_vs_full(&mut window);
+            assert_eq!(
+                diffs, 0,
+                "step {i} (view scrolled to x={x}): the presented frame differs from a full \
+                 repaint of the same display list in {diffs} px, first at {first:?} - the \
+                 view's content did not move with its scroll (frame damage {:?})",
+                window.cpu_backend.last_frame_damage
+            );
+        }
+    }
+
     /// REGRESSION (swallowed sub-pixel scrolling): high-resolution trackpads
     /// deliver deltas well under a device pixel per frame. The scroll baseline
     /// used to advance every frame even when the delta was dropped as
@@ -10720,7 +10920,12 @@ mod tests {
     /// Sample the RGBA of the last rendered frame at physical pixel (x, y).
     #[cfg(feature = "cpurender")]
     fn sample_px(window: &HeadlessWindow, x: u32, y: u32) -> Option<[u8; 4]> {
-        let pm = window.cpu_backend.last_frame.as_ref()?;
+        pixel_of(window.cpu_backend.last_frame.as_ref()?, x, y)
+    }
+
+    /// One pixel of `pm`, RGBA.
+    #[cfg(feature = "cpurender")]
+    fn pixel_of(pm: &azul_layout::cpurender::AzulPixmap, x: u32, y: u32) -> Option<[u8; 4]> {
         let (w, h) = (pm.width(), pm.height());
         if x >= w || y >= h {
             return None;

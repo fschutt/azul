@@ -125,6 +125,12 @@ impl Raster {
 
     /// The frame a full repaint draws at `at`.
     pub(crate) fn full(&mut self, dl: &DisplayList, at: &ScrollOffsetMap) -> AzulPixmap {
+        self.full_state(dl, &CpuRenderState::new(at.clone()))
+    }
+
+    /// The frame a full repaint draws with `state` (its offsets, and the
+    /// child display lists of its `VirtualView`s).
+    pub(crate) fn full_state(&mut self, dl: &DisplayList, state: &CpuRenderState) -> AzulPixmap {
         cpurender::render_with_font_manager_and_scroll(
             dl,
             &self.resources,
@@ -135,7 +141,7 @@ impl Raster {
                 dpi_factor: 1.0,
             },
             &mut self.glyphs,
-            &CpuRenderState::new(at.clone()),
+            state,
         )
         .expect("the list renders")
     }
@@ -173,6 +179,18 @@ impl Raster {
         at: &ScrollOffsetMap,
         damage: &[LogicalRect],
     ) {
+        self.repaint_state(dl, frame, &CpuRenderState::new(at.clone()), damage);
+    }
+
+    /// [`Self::repaint`] with an explicit render state (see
+    /// [`Self::full_state`]).
+    pub(crate) fn repaint_state(
+        &mut self,
+        dl: &DisplayList,
+        frame: &mut AzulPixmap,
+        state: &CpuRenderState,
+        damage: &[LogicalRect],
+    ) {
         cpurender::render_display_list_damaged(
             dl,
             frame,
@@ -180,7 +198,7 @@ impl Raster {
             &self.resources,
             &self.fonts,
             &mut self.glyphs,
-            &CpuRenderState::new(at.clone()),
+            state,
             damage,
         )
         .expect("the damage repaints");
@@ -205,7 +223,10 @@ fn damaged_pixels(damage: &[LogicalRect]) -> usize {
 }
 
 /// The first pixel where two frames differ.
-pub(crate) fn first_difference(a: &AzulPixmap, b: &AzulPixmap) -> Option<(u32, u32, [u8; 4], [u8; 4])> {
+pub(crate) fn first_difference(
+    a: &AzulPixmap,
+    b: &AzulPixmap,
+) -> Option<(u32, u32, [u8; 4], [u8; 4])> {
     let (da, db) = (a.data(), b.data());
     for y in 0..H {
         for x in 0..W {
@@ -229,7 +250,11 @@ fn a_scroll_box_on_a_scrolled_page_keeps_its_blit() {
     let box_clip = rect(20.0, 150.0, 120.0, 100.0);
     // Behind everything: what the window shows outside the page.
     let mut items = vec![fill(rect(0.0, 0.0, 200.0, 200.0), rgb(128, 128, 128))];
-    items.extend(open_frame(PAGE, rect(0.0, 0.0, 200.0, 200.0), LogicalSize::new(200.0, 1000.0)));
+    items.extend(open_frame(
+        PAGE,
+        rect(0.0, 0.0, 200.0, 200.0),
+        LogicalSize::new(200.0, 1000.0),
+    ));
     items.push(fill(rect(0.0, 0.0, 200.0, 1000.0), rgb(250, 250, 250)));
     items.extend(open_frame(BOX, box_clip, LogicalSize::new(120.0, 600.0)));
     items.extend(stripes(20.0, 150.0, 120.0, 10.0, 60));
