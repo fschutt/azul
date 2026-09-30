@@ -7968,13 +7968,19 @@ impl LayoutWindow {
     /// No user override is written (that is `NodeCss`): the new declarations,
     /// conditional ones included, go through the cascade like any built
     /// style, so a later light / dark switch or `:hover` re-resolves them.
+    /// A changed `var()` / `env()` reference or `--x` definition re-runs the
+    /// author cascade, whose variable pass resolves them - a definition for
+    /// the node's whole subtree.
     fn apply_node_style_change(
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
         new_style: azul_css::css::Css,
     ) -> crate::overlay::ContentChangeResult {
-        use azul_css::props::property::{CssProperty, CssPropertyType};
+        use azul_css::{
+            css::CssDeclaration,
+            props::property::{CssProperty, CssPropertyType},
+        };
 
         use crate::overlay::{ContentChangeResult, ContentDirtyTier};
 
@@ -7988,15 +7994,30 @@ impl LayoutWindow {
             return unchanged;
         }
 
-        // The property types whose declarations the write changes: they
-        // decide the tier, and which overrides must go.
-        let changed: Vec<CssPropertyType> = {
+        // The declaration keys the write changes (a property type, or `None`
+        // for the `--x` definitions): they decide the tier and which
+        // overrides must go. And whether a changed key is resolved by the
+        // author cascade's variable pass: a definition, or a property with a
+        // `var()` / `env()` declaration on either side (the pass also decides
+        // which resting `var()` wins, for its pseudo-state variants).
+        let (changed, variables): (Vec<Option<CssPropertyType>>, bool) = {
             let node_data = layout_result.styled_dom.node_data.as_container();
             let old = node_data[node_id].get_style();
             if *old == new_style {
                 return unchanged;
             }
-            Self::changed_property_types(old, &new_style)
+            let changed = Self::changed_declaration_keys(old, &new_style);
+            let reads_variables = |css: &azul_css::css::Css, key: Option<CssPropertyType>| {
+                css.rules
+                    .as_ref()
+                    .iter()
+                    .flat_map(|r| r.declarations.as_ref().iter())
+                    .any(|d| matches!(d, CssDeclaration::Dynamic(_)) && d.get_type() == key)
+            };
+            let variables = changed.iter().any(|key| {
+                key.is_none() || reads_variables(old, *key) || reads_variables(&new_style, *key)
+            });
+            (changed, variables)
         };
         layout_result.styled_dom.node_data.as_container_mut()[node_id].set_style(new_style);
         if changed.is_empty() {
@@ -8016,7 +8037,7 @@ impl LayoutWindow {
             .map(|overrides| {
                 overrides
                     .iter()
-                    .filter(|(ty, _)| changed.contains(ty))
+                    .filter(|(ty, _)| changed.contains(&Some(*ty)))
                     .map(|(ty, _)| CssProperty::initial(*ty))
                     .collect()
             })
@@ -8031,9 +8052,20 @@ impl LayoutWindow {
 
         // Inline declarations feed the UA / inheritance / compact tail of the
         // cascade, conditional ones evaluated against the window's context -
-        // the tail a theme flip re-runs. A new cascade generation keeps the
+        // the tail a theme flip re-runs. Variables are resolved one step
+        // earlier, by the author cascade's variable pass (`restyle`, which
+        // ends with the same tail). A new cascade generation keeps the
         // display-list cache from answering with the old colours.
-        layout_result.styled_dom.recascade_ua_inheritance_and_compact();
+        if variables {
+            let css = layout_result
+                .styled_dom
+                .get_css_property_cache()
+                .retained_author_css
+                .clone();
+            layout_result.styled_dom.restyle(css);
+        } else {
+            layout_result.styled_dom.recascade_ua_inheritance_and_compact();
+        }
         {
             let cache = layout_result.styled_dom.get_css_property_cache_mut();
             cache.cascade_epoch = cache.cascade_epoch.wrapping_add(1);
@@ -8041,8 +8073,11 @@ impl LayoutWindow {
 
         // Paint-only properties must not charge a layout pass; a geometry
         // change relayouts in place (the `NodeCss` rule: child DOMs keep the
-        // display-list-only path).
-        let needs_relayout = changed.iter().any(|ty| ty.can_trigger_relayout());
+        // display-list-only path). A definition can feed any property below
+        // the node (`CssDeclaration::can_trigger_relayout`).
+        let needs_relayout = changed
+            .iter()
+            .any(|key| key.is_none_or(|ty| ty.can_trigger_relayout()));
         if needs_relayout && dom_id == DomId::ROOT_ID {
             self.relayout_root_dom_in_place();
         } else {
@@ -8057,30 +8092,44 @@ impl LayoutWindow {
         }
     }
 
-    /// The property types whose inline declarations - values, conditions and
-    /// order among themselves - differ between two inline styles. Last match
-    /// wins PER PROPERTY, so a type whose own declarations are equal resolves
-    /// the same under every context.
-    fn changed_property_types(
+    /// The declaration keys whose declarations - static values, `var()` /
+    /// `env()` references, conditions and order among themselves - differ
+    /// between two inline styles. A key is the property type a declaration
+    /// sets, or `None` for the custom-property definitions (`--x`), which set
+    /// no property of their own but feed every reader below the node
+    /// (`CssDeclaration::get_type`). Last match wins PER PROPERTY, so a type
+    /// whose own declarations are equal resolves the same under every
+    /// context.
+    fn changed_declaration_keys(
         old: &azul_css::css::Css,
         new: &azul_css::css::Css,
-    ) -> Vec<azul_css::props::property::CssPropertyType> {
-        use azul_css::props::property::CssPropertyType;
-        let declarations = |css: &azul_css::css::Css, ty: CssPropertyType| {
-            css.iter_inline_properties()
-                .filter(|(p, _)| p.get_type() == ty)
-                .map(|(p, c)| (p.clone(), c.clone()))
+    ) -> Vec<Option<azul_css::props::property::CssPropertyType>> {
+        use azul_css::{css::CssDeclaration, props::property::CssPropertyType};
+        let declarations = |css: &azul_css::css::Css, key: Option<CssPropertyType>| {
+            css.rules
+                .as_ref()
+                .iter()
+                .flat_map(|r| {
+                    r.declarations
+                        .as_ref()
+                        .iter()
+                        .map(move |d| (d, &r.conditions))
+                })
+                .filter(|(d, _)| d.get_type() == key)
+                .map(|(d, c)| (d.clone(), c.clone()))
                 .collect::<Vec<_>>()
         };
-        let mut types: Vec<CssPropertyType> = old
-            .iter_inline_properties()
-            .chain(new.iter_inline_properties())
-            .map(|(p, _)| p.get_type())
+        let mut keys: Vec<Option<CssPropertyType>> = old
+            .rules
+            .as_ref()
+            .iter()
+            .chain(new.rules.as_ref().iter())
+            .flat_map(|r| r.declarations.as_ref().iter().map(CssDeclaration::get_type))
             .collect();
-        types.sort_unstable();
-        types.dedup();
-        types.retain(|ty| declarations(old, *ty) != declarations(new, *ty));
-        types
+        keys.sort_unstable();
+        keys.dedup();
+        keys.retain(|key| declarations(old, *key) != declarations(new, *key));
+        keys
     }
 
     /// The node-CSS arm of [`Self::apply_content_change`].
