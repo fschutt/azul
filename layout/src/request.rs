@@ -297,6 +297,87 @@ pub mod mock {
         Unmocked,
     }
 
+    /// A capture or playback device, which a headless / e2e run never opens
+    /// for real: no camera light, no microphone, no permission prompt.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum DeviceKind {
+        /// `MicrophoneWidget` capture. Stand-in: the widget's 440 Hz test tone.
+        Microphone,
+        /// `CameraWidget` capture. Stand-in: a colour-cycle pattern.
+        Camera,
+        /// `ScreenCaptureWidget` capture. Stand-in: a moving band.
+        Screen,
+        /// `AudioSink::open`. Stand-in: a sink that counts the frames it is
+        /// given and plays nothing.
+        AudioSink,
+    }
+
+    impl DeviceKind {
+        /// Every kind, in index order.
+        pub const ALL: [DeviceKind; 4] = [
+            DeviceKind::Microphone,
+            DeviceKind::Camera,
+            DeviceKind::Screen,
+            DeviceKind::AudioSink,
+        ];
+
+        const fn index(self) -> usize {
+            self as usize
+        }
+
+        /// The name in `AZ_SYNTHETIC_DEVICES` and in the `mock` op.
+        #[must_use]
+        pub const fn name(self) -> &'static str {
+            match self {
+                DeviceKind::Microphone => "microphone",
+                DeviceKind::Camera => "camera",
+                DeviceKind::Screen => "screen",
+                DeviceKind::AudioSink => "audio_sink",
+            }
+        }
+
+        /// The kind called `name` (see [`DeviceKind::name`]).
+        #[must_use]
+        pub fn from_name(name: &str) -> Option<DeviceKind> {
+            DeviceKind::ALL.into_iter().find(|kind| kind.name() == name)
+        }
+
+        /// What the `mock` op calls the synthetic stand-in.
+        #[must_use]
+        pub const fn stand_in(self) -> &'static str {
+            match self {
+                DeviceKind::Microphone => "tone",
+                DeviceKind::Camera | DeviceKind::Screen => "pattern",
+                DeviceKind::AudioSink => "count",
+            }
+        }
+
+        /// The operation an unavailable device is recorded as (see
+        /// [`unmocked_requests`]).
+        #[must_use]
+        pub const fn operation(self) -> &'static str {
+            match self {
+                DeviceKind::Microphone => "MicrophoneWidget capture",
+                DeviceKind::Camera => "CameraWidget capture",
+                DeviceKind::Screen => "ScreenCaptureWidget capture",
+                DeviceKind::AudioSink => "AudioSink::open",
+            }
+        }
+    }
+
+    /// What opening a device resolves to.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum MockDevice {
+        /// Not an e2e or headless run: open the real device.
+        Real,
+        /// A headless run that asked for this device's synthetic stand-in
+        /// (`AZ_SYNTHETIC_DEVICES`, or the `mock` op): use it, never the OS.
+        Synthetic,
+        /// A headless run that did not: nothing is opened ("not available in
+        /// a headless run"), and the attempt is recorded.
+        Unavailable,
+    }
+
     #[derive(Default)]
     struct MockState {
         /// `None` = decide from the environment on first use.
@@ -318,6 +399,12 @@ pub mod mock {
         video_decode_none: bool,
         saved_files: Vec<SavedFile>,
         unmocked: Vec<String>,
+        /// Which devices get their synthetic stand-in, by
+        /// [`DeviceKind::index`]; `None` = read `AZ_SYNTHETIC_DEVICES` on
+        /// first use.
+        synthetic_devices: Option<[bool; 4]>,
+        /// Which unavailable devices were already reported on stderr.
+        devices_reported: [bool; 4],
     }
 
     static STATE: Mutex<MockState> = Mutex::new(MockState {
@@ -334,6 +421,8 @@ pub mod mock {
         video_decode_none: false,
         saved_files: Vec::new(),
         unmocked: Vec::new(),
+        synthetic_devices: None,
+        devices_reported: [false; 4],
     });
 
     fn with<R>(f: impl FnOnce(&mut MockState) -> R) -> R {
@@ -363,6 +452,24 @@ pub mod mock {
 
     fn scripted_in(s: &mut MockState) -> bool {
         *s.scripted.get_or_insert_with(env_scripted)
+    }
+
+    /// The devices `AZ_SYNTHETIC_DEVICES` gives a synthetic stand-in.
+    fn env_synthetic_devices() -> [bool; 4] {
+        std::env::var("AZ_SYNTHETIC_DEVICES")
+            .map(|list| parse_synthetic_devices(&list))
+            .unwrap_or([false; 4])
+    }
+
+    /// `AZ_SYNTHETIC_DEVICES`: comma-separated [`DeviceKind::name`]s, or
+    /// `all`. An unknown name is reported and ignored.
+    fn parse_synthetic_devices(list: &str) -> [bool; 4] {
+        let _ = list;
+        todo!("RED: parse AZ_SYNTHETIC_DEVICES")
+    }
+
+    fn synthetic_in(s: &mut MockState) -> &mut [bool; 4] {
+        s.synthetic_devices.get_or_insert_with(env_synthetic_devices)
     }
 
     /// Arm the store explicitly (an e2e host that is not driven by the
@@ -463,6 +570,14 @@ pub mod mock {
     /// without touching a codec.
     pub fn set_video_decode_none(mocked: bool) {
         with(|s| s.video_decode_none = mocked);
+    }
+
+    /// Give `kind` its synthetic stand-in in this run (`true`), or leave it
+    /// unavailable (`false`, the default unless `AZ_SYNTHETIC_DEVICES` names
+    /// it). Only an armed store consults this: a normal run always opens the
+    /// real device.
+    pub fn set_synthetic_device(kind: DeviceKind, synthetic: bool) {
+        with(|s| synthetic_in(s)[kind.index()] = synthetic);
     }
 
     // ---- consumers (the request functions) ---------------------------------
@@ -568,6 +683,33 @@ pub mod mock {
         with(|s| armed_in(s) && s.video_decode_none)
     }
 
+    /// What opening `kind` resolves to: the real device in a normal run;
+    /// under an armed store (a headless or e2e run) never that - the
+    /// synthetic stand-in the run asked for, else nothing. Asking records
+    /// nothing; the caller reports an attempt to open an unavailable device
+    /// with [`record_unavailable_device`].
+    #[must_use]
+    pub fn device(kind: DeviceKind) -> MockDevice {
+        with(|s| device_in(s, kind))
+    }
+
+    fn device_in(s: &mut MockState, kind: DeviceKind) -> MockDevice {
+        let _ = (s, kind);
+        todo!("RED: decide a device under the store")
+    }
+
+    /// A headless run tried to open `kind`, which has no stand-in: say so on
+    /// stderr (once per kind) and record it like an unmocked request, so a
+    /// scenario can assert on it (`assert_unmocked_request`).
+    pub fn record_unavailable_device(kind: DeviceKind) {
+        with(|s| record_unavailable_in(s, kind));
+    }
+
+    fn record_unavailable_in(s: &mut MockState, kind: DeviceKind) {
+        let _ = (s, kind);
+        todo!("RED: record an unavailable device")
+    }
+
     /// Records an export while armed; `None` when not armed (show the real
     /// dialog), `Some(accepted)` otherwise.
     #[must_use]
@@ -637,6 +779,93 @@ pub mod mock {
                     take_http_in(&mut s, "http://x/rooms"),
                     Answer::Mocked(MockHttp::Error("canned".into()))
                 );
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod device_tests {
+        use super::{
+            device_in, parse_synthetic_devices, record_unavailable_in, DeviceKind, MockDevice,
+            MockState,
+        };
+
+        fn store(armed: bool, synthetic: [bool; 4]) -> MockState {
+            MockState {
+                armed: Some(armed),
+                scripted: Some(false),
+                synthetic_devices: Some(synthetic),
+                ..MockState::default()
+            }
+        }
+
+        /// Outside a headless / e2e run every device is the real one, even
+        /// when a stand-in was named: the store is not consulted.
+        #[test]
+        fn a_run_that_is_not_headless_opens_the_real_devices() {
+            let mut s = store(false, [true; 4]);
+            for kind in DeviceKind::ALL {
+                assert_eq!(device_in(&mut s, kind), MockDevice::Real, "{kind:?}");
+            }
+        }
+
+        /// A headless run opens no microphone, camera, screen or audio
+        /// output: each is unavailable unless the run asked for its
+        /// synthetic stand-in, and then it gets exactly that one.
+        #[test]
+        fn a_headless_run_opens_no_device_unless_it_asked_for_a_synthetic_one() {
+            let mut s = store(true, [false; 4]);
+            for kind in DeviceKind::ALL {
+                assert_eq!(device_in(&mut s, kind), MockDevice::Unavailable, "{kind:?}");
+            }
+            let mut s = store(true, [false, true, false, true]);
+            assert_eq!(
+                device_in(&mut s, DeviceKind::Microphone),
+                MockDevice::Unavailable
+            );
+            assert_eq!(device_in(&mut s, DeviceKind::Camera), MockDevice::Synthetic);
+            assert_eq!(device_in(&mut s, DeviceKind::Screen), MockDevice::Unavailable);
+            assert_eq!(
+                device_in(&mut s, DeviceKind::AudioSink),
+                MockDevice::Synthetic
+            );
+        }
+
+        /// Opening an unavailable device is a clear status, not a silent
+        /// blank: every attempt is recorded (a scenario can assert on it),
+        /// and stderr says so once per device.
+        #[test]
+        fn an_unavailable_device_is_recorded_every_time_it_is_opened() {
+            let mut s = store(true, [false; 4]);
+            record_unavailable_in(&mut s, DeviceKind::Camera);
+            record_unavailable_in(&mut s, DeviceKind::Camera);
+            record_unavailable_in(&mut s, DeviceKind::AudioSink);
+            assert_eq!(
+                s.unmocked,
+                [
+                    "CameraWidget capture",
+                    "CameraWidget capture",
+                    "AudioSink::open"
+                ]
+            );
+            assert_eq!(s.devices_reported, [false, true, false, true]);
+        }
+
+        /// `AZ_SYNTHETIC_DEVICES` names the devices a headless run gets a
+        /// stand-in for: a comma-separated list of names, or `all`; an
+        /// unknown name adds nothing.
+        #[test]
+        fn az_synthetic_devices_names_the_stand_ins_of_a_headless_run() {
+            assert_eq!(
+                parse_synthetic_devices("microphone, audio_sink"),
+                [true, false, false, true]
+            );
+            assert_eq!(parse_synthetic_devices("camera,screen"), [false, true, true, false]);
+            assert_eq!(parse_synthetic_devices("all"), [true; 4]);
+            assert_eq!(parse_synthetic_devices(""), [false; 4]);
+            assert_eq!(parse_synthetic_devices("speaker"), [false; 4]);
+            for kind in DeviceKind::ALL {
+                assert_eq!(DeviceKind::from_name(kind.name()), Some(kind));
             }
         }
     }

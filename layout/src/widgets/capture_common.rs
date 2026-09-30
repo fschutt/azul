@@ -36,6 +36,7 @@ use azul_css::{props::basic::ColorU, AzString};
 use crate::{
     callbacks::CallbackInfo,
     image_scale::{self, ResampleFn, SrcImage},
+    request::mock::{self, DeviceKind, MockDevice},
     thread::{
         ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg, WriteBackCallback,
         WriteBackCallbackType,
@@ -414,6 +415,79 @@ pub fn register_mic_backend(vtable: AudioCaptureVTable) {
 pub fn mic_backend() -> Option<AudioCaptureVTable> {
     MIC_BACKEND.get().copied()
 }
+
+// ----------------------------------------------------------------------------
+// Headless runs: never a real device
+// ----------------------------------------------------------------------------
+
+/// The backend a capture opens: the registered platform one in a normal run.
+/// A headless / e2e run ([`crate::request::mock::device`]) never reaches it:
+/// it gets the synthetic stand-in it asked for, else a source that opens
+/// nothing - no device, no camera light, no permission prompt.
+fn gated_backend<T>(
+    device: MockDevice,
+    registered: Option<T>,
+    synthetic: T,
+    unavailable: T,
+) -> Option<T> {
+    let _ = (device, registered, synthetic, unavailable);
+    todo!("RED: gate the capture backends")
+}
+
+/// The handle of a source that opened nothing. Not `0`, which would make the
+/// worker fall back to its test pattern: the stand-in of an unavailable
+/// device is nothing at all.
+const UNAVAILABLE_HANDLE: u64 = 1;
+
+fn unavailable_camera_open(_request: &CaptureRequest) -> u64 {
+    mock::record_unavailable_device(DeviceKind::Camera);
+    UNAVAILABLE_HANDLE
+}
+
+fn unavailable_screen_open(_request: &CaptureRequest) -> u64 {
+    mock::record_unavailable_device(DeviceKind::Screen);
+    UNAVAILABLE_HANDLE
+}
+
+fn unavailable_read(_handle: u64, _out: &mut Vec<u8>) -> CaptureRead {
+    CaptureRead::Ended
+}
+
+fn unavailable_mic_open(_sample_rate: u32, _channels: u16) -> u64 {
+    mock::record_unavailable_device(DeviceKind::Microphone);
+    UNAVAILABLE_HANDLE
+}
+
+fn unavailable_mic_read(_handle: u64, _out: &mut Vec<f32>) -> u32 {
+    0
+}
+
+fn unavailable_close(_handle: u64) {}
+
+/// A camera a headless run did not ask for: it opens nothing (and says so),
+/// and ends before its first frame, so the tile keeps its placeholder.
+const UNAVAILABLE_CAMERA: CaptureVTable = CaptureVTable {
+    open: unavailable_camera_open,
+    read: unavailable_read,
+    close: unavailable_close,
+    reconfigure: None,
+};
+
+/// A screen a headless run did not ask for: see [`UNAVAILABLE_CAMERA`].
+const UNAVAILABLE_SCREEN: CaptureVTable = CaptureVTable {
+    open: unavailable_screen_open,
+    read: unavailable_read,
+    close: unavailable_close,
+    reconfigure: None,
+};
+
+/// A microphone a headless run did not ask for: it opens nothing (and says
+/// so), and delivers no samples.
+const UNAVAILABLE_MIC: AudioCaptureVTable = AudioCaptureVTable {
+    open: unavailable_mic_open,
+    read: unavailable_mic_read,
+    close: unavailable_close,
+};
 
 /// Poll the main->worker channel and report whether the worker was asked to
 /// stop.
@@ -915,6 +989,59 @@ pub const fn test_pattern_vtable(kind: TestPattern) -> CaptureVTable {
         read: test_pattern_read,
         close: test_pattern_close,
         reconfigure: None,
+    }
+}
+
+/// Frequency of the built-in microphone test tone.
+const TEST_TONE_HZ: f32 = 440.0;
+/// Interval between two test-tone chunks (one chunk is ~20 ms of samples).
+const TEST_TONE_CHUNK: std::time::Duration = std::time::Duration::from_millis(20);
+
+struct TestToneState {
+    channels: u16,
+    /// Frames per chunk: ~20 ms, at least one.
+    frames: usize,
+    /// Phase advance per frame, in radians.
+    step: f32,
+    phase: f32,
+    /// A chunk was delivered: the next one waits [`TEST_TONE_CHUNK`].
+    started: bool,
+}
+
+#[allow(clippy::cast_precision_loss)] // a sample rate is far below 2^24
+fn test_tone_open(sample_rate: u32, channels: u16) -> u64 {
+    Box::into_raw(Box::new(TestToneState {
+        channels,
+        frames: (sample_rate as usize / 50).max(1),
+        step: 2.0 * core::f32::consts::PI * TEST_TONE_HZ / sample_rate as f32,
+        phase: 0.0,
+        started: false,
+    })) as u64
+}
+
+fn test_tone_read(handle: u64, out: &mut Vec<f32>) -> u32 {
+    let _ = (handle, out);
+    todo!("RED: the test tone behind the microphone vtable")
+}
+
+fn test_tone_close(handle: u64) {
+    if handle != 0 {
+        // SAFETY: the handle came from `Box::into_raw` in `test_tone_open`
+        // and is closed exactly once by the worker.
+        drop(unsafe { Box::from_raw(handle as *mut TestToneState) });
+    }
+}
+
+/// The built-in microphone: a 440 Hz sine at amplitude 0.2, the same on
+/// every channel, starting at phase 0, in ~20 ms chunks paced by wall time.
+/// `MicrophoneWidget` plays it where no platform backend opens, and it is a
+/// headless run's synthetic microphone.
+#[must_use]
+pub const fn test_tone_vtable() -> AudioCaptureVTable {
+    AudioCaptureVTable {
+        open: test_tone_open,
+        read: test_tone_read,
+        close: test_tone_close,
     }
 }
 
@@ -2414,5 +2541,86 @@ mod autotest_generated {
             assert_eq!((vt.read)(3, &mut samples), 0);
             (vt.close)(u64::MAX);
         }
+    }
+}
+
+#[cfg(test)]
+mod headless_device_tests {
+    use super::{
+        gated_backend, test_tone_vtable, CaptureRead, MockDevice, UNAVAILABLE_CAMERA,
+        UNAVAILABLE_HANDLE, UNAVAILABLE_MIC, UNAVAILABLE_SCREEN,
+    };
+
+    /// The platform backend a capture widget opens is the registered one
+    /// only in a normal run. A headless run never reaches it: it gets the
+    /// synthetic stand-in it asked for (whether or not a platform backend
+    /// exists), else the source that opens nothing.
+    #[test]
+    fn a_headless_capture_never_reaches_the_platform_backend() {
+        const PLATFORM: u8 = 1;
+        const SYNTHETIC: u8 = 2;
+        const NOTHING: u8 = 3;
+        let pick = |device, registered| gated_backend(device, registered, SYNTHETIC, NOTHING);
+
+        assert_eq!(pick(MockDevice::Real, Some(PLATFORM)), Some(PLATFORM));
+        assert_eq!(
+            pick(MockDevice::Real, None),
+            None,
+            "no backend: the widget's own test pattern / tone, as before"
+        );
+        assert_eq!(pick(MockDevice::Synthetic, Some(PLATFORM)), Some(SYNTHETIC));
+        assert_eq!(pick(MockDevice::Synthetic, None), Some(SYNTHETIC));
+        assert_eq!(pick(MockDevice::Unavailable, Some(PLATFORM)), Some(NOTHING));
+        assert_eq!(pick(MockDevice::Unavailable, None), Some(NOTHING));
+    }
+
+    /// An unavailable camera, screen or microphone delivers nothing: the
+    /// capture worker ends before its first frame (the tile keeps its
+    /// placeholder) instead of falling back to a test pattern. Its handle is
+    /// not 0, which would mean "open failed, show the test pattern".
+    #[test]
+    fn an_unavailable_capture_source_ends_before_its_first_frame() {
+        assert_ne!(UNAVAILABLE_HANDLE, 0);
+        for source in [UNAVAILABLE_CAMERA, UNAVAILABLE_SCREEN] {
+            let mut pixels = Vec::new();
+            assert_eq!(
+                (source.read)(UNAVAILABLE_HANDLE, &mut pixels),
+                CaptureRead::Ended
+            );
+            assert!(pixels.is_empty());
+            (source.close)(UNAVAILABLE_HANDLE);
+        }
+        let mut samples = Vec::new();
+        assert_eq!((UNAVAILABLE_MIC.read)(UNAVAILABLE_HANDLE, &mut samples), 0);
+        assert!(samples.is_empty());
+        (UNAVAILABLE_MIC.close)(UNAVAILABLE_HANDLE);
+    }
+
+    /// A headless run's synthetic microphone is the widget's test tone: a
+    /// 440 Hz sine inside +/-0.2 from phase 0, ~20 ms per chunk, the same
+    /// sample on every channel.
+    #[test]
+    fn the_synthetic_microphone_is_a_440_hz_tone_in_20_ms_chunks() {
+        let tone = test_tone_vtable();
+        let handle = (tone.open)(8_000, 2);
+        assert_ne!(handle, 0);
+        let mut samples = Vec::new();
+        assert_eq!((tone.read)(handle, &mut samples), 160, "20 ms at 8 kHz");
+        assert_eq!(samples.len(), 320, "two channels, interleaved");
+        assert_eq!(samples[0], 0.0, "the tone starts at phase 0");
+        assert!(samples.iter().all(|s| s.is_finite() && s.abs() <= 0.2));
+        assert!(samples.iter().any(|s| s.abs() > 0.1), "a tone, not silence");
+        for pair in samples.chunks_exact(2) {
+            assert_eq!(pair[0], pair[1]);
+        }
+        // 440 Hz at 8 kHz: one period is ~18.2 frames, so 160 frames hold
+        // 8.8 periods, i.e. about 17 sign changes.
+        let mono: Vec<f32> = samples.chunks_exact(2).map(|pair| pair[0]).collect();
+        let crossings = mono
+            .windows(2)
+            .filter(|w| (w[0] < 0.0) != (w[1] < 0.0))
+            .count();
+        assert!((15..=19).contains(&crossings), "{crossings} sign changes");
+        (tone.close)(handle);
     }
 }

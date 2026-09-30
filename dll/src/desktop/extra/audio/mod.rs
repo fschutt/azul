@@ -172,6 +172,13 @@ impl AudioSink {
         }
     }
 
+    /// [`open`](Self::open) once the mock store has decided what `open`
+    /// resolves to (split out so tests need not arm the process-wide store).
+    fn open_as(config: AudioConfig, device: azul_layout::request::mock::MockDevice) -> AudioSink {
+        let _ = (config, device);
+        todo!("RED: an audio sink under the mock store")
+    }
+
     /// Whether the sink opened successfully.
     pub fn is_open(&self) -> bool {
         !self.ptr.is_null()
@@ -604,6 +611,53 @@ fn coreaudio_device_names() -> (StringVec, StringVec) {
         }
     }
     (StringVec::from_vec(outputs), StringVec::from_vec(inputs))
+}
+
+#[cfg(test)]
+mod headless_sink_tests {
+    use azul_core::audio::{AudioConfig, AudioFrame};
+    use azul_css::F32Vec;
+    use azul_layout::request::mock::MockDevice;
+
+    use super::AudioSink;
+
+    const CONFIG: AudioConfig = AudioConfig {
+        sample_rate: 48_000,
+        channels: 1,
+    };
+
+    fn chunk() -> AudioFrame {
+        AudioFrame {
+            sample_rate: 48_000,
+            channels: 1,
+            samples: F32Vec::from_vec(vec![0.25; 960]),
+        }
+    }
+
+    /// A headless run that did not ask for a synthetic audio output opens
+    /// none: the handle says so (`is_open()` false), and playing into it is a
+    /// no-op, never a sound.
+    #[test]
+    fn a_headless_audio_sink_opens_no_device_and_is_not_open() {
+        let sink = AudioSink::open_as(CONFIG, MockDevice::Unavailable);
+        assert!(!sink.is_open());
+        sink.play(chunk());
+        assert_eq!(sink.frames_played(), 0);
+    }
+
+    /// A headless run that asked for one gets a sink that counts what it is
+    /// given and plays nothing.
+    #[test]
+    fn a_synthetic_audio_sink_counts_the_frames_it_is_given() {
+        let mut sink = AudioSink::open_as(CONFIG, MockDevice::Synthetic);
+        assert!(sink.is_open());
+        for _ in 0..3 {
+            sink.play(chunk());
+        }
+        assert_eq!(sink.frames_played(), 3);
+        sink.close();
+        assert!(!sink.is_open());
+    }
 }
 
 #[cfg(test)]
