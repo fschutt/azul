@@ -2358,6 +2358,12 @@ fn decode_picture(
             _ => (None, 0),
         },
         Codec::H264 => {
+            if input.decoder.is_none() {
+                // A fresh decoder (the first packet, a restart, a stream shown again) knows no
+                // size yet: the one the previous decoder was told is not its own, and keeping it
+                // left every restarted stream at the stream's size, scaled by the renderer.
+                input.output_size = None;
+            }
             let decoder = input.decoder.get_or_insert_with(|| {
                 let decoder = VideoDecoder::open(false);
                 decoder.set_output_format(VIDEO_FORMAT);
@@ -2698,12 +2704,35 @@ fn my_streams(s: &MeetState) -> BTreeSet<(u32, u16)> {
 }
 
 /// Closes the encoders of the renditions nobody shows any more (a paused encoder costs nothing;
-/// the next start opens a fresh one, which begins with a keyframe).
+/// the next start opens a fresh one, which begins with a keyframe), and the decoders of the
+/// renditions this side no longer shows: a tile that moved to another rung left its old
+/// decoder open for as long as the call lasted (a VideoToolbox session, its output buffers at
+/// the tile's size and its XPC connection each), and the sender may have stopped that stream
+/// altogether, so no packet ever came to close it. A stream shown again gets a fresh decoder,
+/// which starts at a keyframe (`take_video`).
 fn stop_culled(s: &mut MeetState) {
     let shown = my_streams(s);
     for (key, out) in s.video_out.iter_mut() {
         if !shown.contains(key) {
             out.stop();
+        }
+    }
+    let stale: Vec<(usize, (u32, u16))> = s
+        .remotes
+        .iter()
+        .enumerate()
+        .flat_map(|(i, r)| {
+            r.received
+                .iter()
+                .filter(|(_, input)| input.decoder.is_some())
+                .filter(|((track, height), _)| !shows(s, r.key, *track, *height))
+                .map(move |(key, _)| (i, *key))
+        })
+        .collect();
+    for (i, key) in stale {
+        if let Some(input) = s.remotes[i].received.get_mut(&key) {
+            input.decoder = None;
+            input.shown = false;
         }
     }
 }
