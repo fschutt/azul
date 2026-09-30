@@ -75,8 +75,10 @@
 //!   app's declarations win. Of its scoped `with_css` sheets, the
 //!   declarations that target the node itself (`* {..}`, `*:hover {..}`)
 //!   move into the root's inline style - on a void `<input>` they could only
-//!   ever mean the control - and every other rule stays a scoped sheet on
-//!   the widget subtree, where it can reach the widget's parts by class.
+//!   ever mean the control; a `:hover` there becomes a `:hover` condition,
+//!   the form the node's own style is read in - and every other rule stays a
+//!   scoped sheet on the widget subtree, where it can reach the widget's
+//!   parts by class.
 //! * The node's callbacks are APPENDED to the widget root's: they fire for
 //!   the same pointer and focus interactions as on the raw input, after
 //!   the widget's own handler has updated the widget. They are carried, not
@@ -2184,7 +2186,12 @@ fn graft(raw: &Dom, widget: &mut Dom, kind: FormWidget, spec: &Spec) {
             // On a `<form>` a bare `* { .. }` reaches its whole content, as
             // before: it stays a scoped sheet.
             if kind != FormWidget::Form && targets_the_node_itself(rule) {
-                rules.push(rule.clone());
+                // In the node's OWN style, which the cascade reads by its
+                // conditions and never selector-matches: `*:hover` becomes
+                // `*` under a `:hover` condition, as `Css::parse_inline` does.
+                let mut own = rule.clone();
+                own.lower_node_pseudo_states();
+                rules.push(own);
             } else {
                 rest.push(rule.clone());
             }
