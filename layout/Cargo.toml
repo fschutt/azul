@@ -233,8 +233,9 @@ widgets = ["text_layout", "strfmt"]
 
 # Extra APIs (native dialogs, file operations). The dialogs are resumable
 # (`FileDialog::open_file(.., data, on_result)`), so they need the callback
-# machinery of `text_layout`.
-extra = ["dep:tfd", "dep:dirs", "text_layout"]
+# machinery of `text_layout`. `libc` for `file::disk_space` (statfs /
+# statvfs) on unix; it is already in the tree through `probe`.
+extra = ["dep:tfd", "dep:dirs", "text_layout", "dep:libc"]
 
 # Basic text shaping (unicode support, allsorts font parsing)
 # Requires font_loading for font discovery (FcFontCache)

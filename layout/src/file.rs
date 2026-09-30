@@ -1342,7 +1342,93 @@ impl DiskSpace {
 /// can take a while to answer.
 #[must_use]
 pub fn disk_space(path: &str) -> Option<DiskSpace> {
-    let _ = path;
+    if path.is_empty() {
+        return None;
+    }
+    disk_space_of(path)
+}
+
+/// `statfs` on Apple platforms, `statvfs` on every other unix: Apple's
+/// `statvfs` counts blocks in 32 bits (`fsblkcnt_t` is an `unsigned int`
+/// there), which a big volume overflows; its `statfs` counts in 64.
+#[cfg(all(feature = "std", feature = "extra", unix))]
+#[allow(clippy::useless_conversion)] // the field widths differ per platform
+fn disk_space_of(path: &str) -> Option<DiskSpace> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let c_path = std::ffi::CString::new(Path::new(path).as_os_str().as_bytes()).ok()?;
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        // SAFETY: `stats` is zero-initialised plain data and only read after
+        // the call reported success; `c_path` is a valid NUL-terminated path.
+        let mut stats: libc::statfs = unsafe { core::mem::zeroed() };
+        if unsafe { libc::statfs(c_path.as_ptr(), &mut stats) } != 0 {
+            return None;
+        }
+        let block = u64::from(stats.f_bsize);
+        Some(DiskSpace {
+            total: u64::from(stats.f_blocks).saturating_mul(block),
+            free: u64::from(stats.f_bavail).saturating_mul(block),
+        })
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    {
+        // SAFETY: as above.
+        let mut stats: libc::statvfs = unsafe { core::mem::zeroed() };
+        if unsafe { libc::statvfs(c_path.as_ptr(), &mut stats) } != 0 {
+            return None;
+        }
+        let block = u64::from(stats.f_frsize);
+        Some(DiskSpace {
+            total: u64::from(stats.f_blocks).saturating_mul(block),
+            free: u64::from(stats.f_bavail).saturating_mul(block),
+        })
+    }
+}
+
+/// `GetDiskFreeSpaceExW`, which takes a FOLDER: a file answers for its
+/// parent. kernel32 is linked by every Windows program, so no crate is
+/// needed for one function.
+#[cfg(all(feature = "std", windows))]
+fn disk_space_of(path: &str) -> Option<DiskSpace> {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetDiskFreeSpaceExW(
+            directory_name: *const u16,
+            free_bytes_available_to_caller: *mut u64,
+            total_number_of_bytes: *mut u64,
+            total_number_of_free_bytes: *mut u64,
+        ) -> i32;
+    }
+
+    let path = Path::new(path);
+    let metadata = std::fs::metadata(path).ok()?;
+    let folder = if metadata.is_dir() {
+        path
+    } else {
+        path.parent()?
+    };
+    let wide: Vec<u16> = folder
+        .as_os_str()
+        .encode_wide()
+        .chain(core::iter::once(0))
+        .collect();
+    let (mut free, mut total) = (0_u64, 0_u64);
+    // SAFETY: `wide` is NUL-terminated; the two out-pointers are valid,
+    // writable u64s (ULARGE_INTEGER is a u64); the third may be null.
+    let ok =
+        unsafe { GetDiskFreeSpaceExW(wide.as_ptr(), &mut free, &mut total, core::ptr::null_mut()) };
+    (ok != 0).then_some(DiskSpace { total, free })
+}
+
+/// No way to ask on this platform (or without `std` / the `extra` feature).
+#[cfg(not(any(
+    all(feature = "std", feature = "extra", unix),
+    all(feature = "std", windows)
+)))]
+fn disk_space_of(_path: &str) -> Option<DiskSpace> {
     None
 }
 
@@ -1396,7 +1482,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(all(feature = "std", any(unix, windows)))]
+    #[cfg(all(feature = "std", any(all(unix, feature = "extra"), windows)))]
     fn the_temp_folder_s_volume_reports_its_size_and_its_free_space() {
         let space = disk_space(temp_dir().as_str())
             .expect("the volume of the temp folder has a size the system can tell");
