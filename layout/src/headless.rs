@@ -1161,6 +1161,17 @@ impl CpuHitTester {
                 entry_layout_idx.push(idx);
             }
 
+            // The fragments of the INLINE elements (a link inside a
+            // paragraph), which the walk above cannot see: see
+            // `push_inline_fragment_entries`.
+            push_inline_fragment_entries(
+                layout_result,
+                *dom_id,
+                offset,
+                &mut entries,
+                &mut entry_layout_idx,
+            );
+
             // PAINT ORDER, taken from the display list itself: the topmost hit
             // has to be the box painted on top. Layout order is not paint
             // order - a positioned box paints after the in-flow blocks that
@@ -1286,6 +1297,132 @@ impl CpuHitTester {
 /// A node that paints nothing of its own ranks at its first painted
 /// descendant, and one with neither at its parent, so it stays where it
 /// would paint.
+/// The hit-test entries of the INLINE elements of one dom (E10).
+///
+/// A non-replaced inline element (`<a>`, `<span>`, `<b>`) has no box of its
+/// own: its text is laid out in the enclosing block's inline formatting
+/// context, so the layout-node walk gives it no rect and a click on a link
+/// inside a paragraph reached the paragraph, never the link - no click
+/// callback, no pointer cursor, no `href` for the app to open.
+///
+/// Its FRAGMENTS are the text runs the display list already hit-tests for
+/// the cursor (`TAG_TYPE_CURSOR` areas: one per line and style run, keyed
+/// by the TEXT node, extending over the run's last letter). For every such
+/// run, every inline element between its text node and the first ancestor
+/// that is not `display: inline` (the block, or an inline-block) gets an
+/// entry with the run's rect - a link wrapped over three lines gets three,
+/// and the space between the lines stays the paragraph's. The entries take
+/// the chain and the clips of the nearest boxed ancestor they are painted
+/// in, and its paint rank (pushed after it, so the stable sort keeps them on
+/// top of it).
+fn push_inline_fragment_entries(
+    layout_result: &DomLayoutResult,
+    dom_id: DomId,
+    offset: LogicalPosition,
+    entries: &mut Vec<HitTestEntry>,
+    entry_layout_idx: &mut Vec<usize>,
+) {
+    use azul_core::hit_test::TAG_TYPE_CURSOR;
+    use azul_css::props::layout::LayoutDisplay;
+
+    use crate::solver3::{display_list::DisplayListItem, getters::get_display_property};
+
+    /// Deeper than any real inline nesting; bounds a malformed hierarchy.
+    const MAX_INLINE_DEPTH: usize = 256;
+
+    let styled_dom = &layout_result.styled_dom;
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let node_count = styled_dom.node_data.as_ref().len();
+    let parent_of = |n: NodeId| {
+        hierarchy
+            .get(n)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+    };
+    // The first entry of every boxed node (a node can own several).
+    let mut first_entry: BTreeMap<NodeId, usize> = BTreeMap::new();
+    for (i, e) in entries.iter().enumerate() {
+        first_entry.entry(e.node_id).or_insert(i);
+    }
+
+    let mut fragments: Vec<(HitTestEntry, usize)> = Vec::new();
+    for item in &layout_result.display_list.items {
+        let DisplayListItem::HitTestArea { bounds, tag } = item else {
+            continue;
+        };
+        if tag.1 & 0xFF00 != TAG_TYPE_CURSOR || (tag.0 >> 32) as usize != dom_id.inner {
+            continue;
+        }
+        let text_node = NodeId::new((tag.0 & 0xFFFF_FFFF) as usize);
+        let run = bounds.0;
+        if text_node.index() >= node_count || !(run.size.width > 0.0 && run.size.height > 0.0)
+        {
+            continue;
+        }
+        // 1. The inline elements around this run, innermost first: every
+        //    ancestor up to the first one that is not `display: inline`.
+        let mut inline_elements: Vec<NodeId> = Vec::new();
+        let mut cursor = parent_of(text_node);
+        let mut depth = 0;
+        while let Some(n) = cursor {
+            depth += 1;
+            if depth > MAX_INLINE_DEPTH {
+                break;
+            }
+            let is_inline = get_display_property(styled_dom, Some(n)).unwrap_or_default()
+                == LayoutDisplay::Inline;
+            if !is_inline {
+                break;
+            }
+            inline_elements.push(n);
+            cursor = parent_of(n);
+        }
+        if inline_elements.is_empty() {
+            continue; // text straight in its block: the block's own entry hits it
+        }
+        // 2. From there, the nearest ancestor with an entry: the box the run
+        //    is painted in (its chain, clips and rank).
+        let mut owner: Option<usize> = None;
+        while let Some(n) = cursor {
+            depth += 1;
+            if depth > MAX_INLINE_DEPTH {
+                break;
+            }
+            if let Some(&i) = first_entry.get(&n) {
+                owner = Some(i);
+                break;
+            }
+            cursor = parent_of(n);
+        }
+        let Some(owner) = owner else {
+            continue;
+        };
+        let rect = LogicalRect {
+            origin: LogicalPosition {
+                x: run.origin.x + offset.x,
+                y: run.origin.y + offset.y,
+            },
+            size: run.size,
+        };
+        for node_id in inline_elements {
+            fragments.push((
+                HitTestEntry {
+                    node_id,
+                    rect,
+                    chain: entries[owner].chain,
+                    clips: entries[owner].clips.clone(),
+                    pointer_events_none: false,
+                    clip_path: None,
+                },
+                entry_layout_idx[owner],
+            ));
+        }
+    }
+    for (entry, layout_idx) in fragments {
+        entries.push(entry);
+        entry_layout_idx.push(layout_idx);
+    }
+}
+
 fn paint_ranks(
     display_list: &crate::solver3::display_list::DisplayList,
     nodes: &[crate::solver3::layout_tree::LayoutNodeHot],
