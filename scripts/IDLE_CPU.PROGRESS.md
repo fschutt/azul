@@ -26,8 +26,14 @@
   Wayland loop polls at 16 ms while threads run (legit). macOS RunForever
   has a 33 ms repeating drain NSTimer (idle wake-ups) -> part A.
 
+- f4f9ae3c4 fix(macos): a WebRender frame finished after the link stopped wakes the loop
+- 1c74d977d test(timers): no internal timer keeps an idle window busy (RED)
+- e0c7bdff8 fix(timers): no internal timer polls an idle app
+  (debug poll 16 ms -> 250 ms when quiet; RunForever 33 ms drain timer ->
+  CFRunLoop BeforeWaiting observer)
+
 ## IN PROGRESS
-3. A: no idle internal timers
+4. B: per-window frame interval from the monitor refresh rate + cap
 
 ## NEXT
 see order
