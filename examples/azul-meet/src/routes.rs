@@ -64,8 +64,6 @@ pub const RELAY_HEADER_BYTES: usize = 22;
 /// Rooms of up to this many people send everything directly (`AZMEET_MESH_CAP`); the design's
 /// value is 8, a smaller one lets three people try the backbone.
 pub const DEFAULT_MESH_CAP: u32 = 4;
-/// The rendition heights (`IrohLoadBalancer::rendition_kbps` has their bitrates).
-pub const LADDER: [u16; 4] = [90, 180, 360, 720];
 /// What a participant reports before it measured anything (kbit/s).
 pub const DEFAULT_UPLINK_KBPS: u32 = 4000;
 /// Uplink estimates are reported in these steps (kbit/s), so small changes move nothing.
@@ -384,11 +382,6 @@ impl Plan {
     /// Every participant, by key.
     pub fn peers(&self) -> &[u64] {
         &self.peers
-    }
-
-    /// The forwarders, best first.
-    pub fn backbone(&self) -> &[u64] {
-        &self.backbone
     }
 
     pub fn contains(&self, peer: u64) -> bool {
@@ -907,7 +900,10 @@ mod tests {
 
     #[test]
     fn a_rendition_is_sixteen_by_nine_with_even_sides() {
-        let widths: Vec<u32> = LADDER.iter().map(|h| rendition_width(*h)).collect();
+        let widths: Vec<u32> = [90, 180, 360, 720]
+            .iter()
+            .map(|h| rendition_width(*h))
+            .collect();
         assert_eq!(widths, vec![160, 320, 640, 1280]);
         assert_eq!(rendition_width(100) % 2, 0);
     }
@@ -1050,7 +1046,7 @@ mod tests {
     #[test]
     fn leaves_spread_over_the_backbone_in_key_order() {
         let plan = Plan::new(&[30, 10, 50, 20, 40], &[50, 40]);
-        assert_eq!(plan.backbone(), &[50, 40]);
+        assert!(plan.is_backbone(50) && plan.is_backbone(40) && !plan.is_backbone(30));
         assert_eq!(plan.parent_of_leaf(10), Some(50));
         assert_eq!(plan.parent_of_leaf(20), Some(40));
         assert_eq!(plan.parent_of_leaf(30), Some(50));

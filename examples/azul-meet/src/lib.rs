@@ -7,8 +7,8 @@
 //! Every HTTP request runs on an azul `Thread` and resumes on the UI thread, so no callback waits
 //! on the network.
 //!
-//! Video (see `video_wire.rs`): each captured camera or screen frame (320x180) goes through an
-//! H.264 `VideoEncoder` where one works (VideoToolbox on Apple; found out at start by encoding a
+//! Video (see `video_wire.rs`): each captured camera or screen frame, in every rendition someone
+//! shows, goes through an H.264 `VideoEncoder` where one works (VideoToolbox on Apple; found out at start by encoding a
 //! test frame and decoding it back), else it is JPEG-encoded; the window says which ("Video:
 //! H.264 (VideoToolbox)" / "Video: JPEG (no encoder)"). H.264 packets go to every peer that
 //! decodes H.264 as reliable, ordered iroh messages, since a P-frame needs every packet since the
@@ -26,6 +26,18 @@
 //! muted"). Leave disconnects every peer, stops announcing, removes this participant from the
 //! room on the meeting server, and returns to the start screen.
 //!
+//! Rooms of three and more (see `routes.rs`): every participant sends everyone a small report (a
+//! `ConnectionSync`: its uplink, estimated from iroh's path statistics, how stable it is, and the
+//! tiles it shows) on connect, on every change and every 2 seconds. Every side feeds the same
+//! reports to `IrohLoadBalancer` and gets the same plan: up to the mesh cap everyone sends to
+//! everyone; above it the best-connected peers form the backbone, and every other participant
+//! uploads its media once, to its backbone parent, which passes it on (audio frames, video
+//! packets, and the keyframe requests and acknowledgements that travel back toward the origin).
+//! Each tile asks for the rendition its role and laid-out height need (`IrohTileRole`: grid tile,
+//! stage, thumbnail); a sender encodes the smallest and the largest rendition asked for, one encoder
+//! each, and nothing nobody shows. The network panel shows the plan, the routes, this side's report
+//! and one line per peer.
+//!
 //! Without a reachable meeting server it runs the in-process demo: two participants, Ada in a
 //! CPU-rendered window and Ben in a GPU-rendered one, linked by two iroh endpoints.
 //!
@@ -41,6 +53,13 @@
 //! - `AZMEET_TEST_PATTERN=1`: moving colour bars replace the camera (and the screen share), the
 //!   camera starts on, and a "Drop a video packet" button drops the next packet before it leaves.
 //! - `AZMEET_VIDEO_CODEC=jpeg`: send JPEG even where H.264 works.
+//! - `AZMEET_MESH_CAP=<n>`: rooms of up to n people send everything directly (default 4; the
+//!   design's value is 8).
+//! - `AZMEET_UPLINK_KBPS=<kbit/s>`: report this uplink instead of the estimate.
+//! - `AZMEET_NO_FORWARD=1`: never forward other people's media; `AZMEET_ON_BATTERY=1`: report
+//!   running on battery (either ranks this side last for the backbone).
+//! - `AZMEET_LAYOUT=speaker` and `AZMEET_STAGE=<name>`: start in speaker view with that participant
+//!   on the stage (else the first by name); the toolbar switches between grid and speaker view.
 //! - `AZ_BACKEND=headless`: no audio device, camera or screen is opened: the microphone is the
 //!   tone (muted until switched on, unless `AZMEET_TEST_TONE=1`), received audio is counted, not
 //!   played, and the camera and the screen share are test patterns (off until switched on, unless
@@ -68,7 +87,10 @@ use azul::{
     error::{HttpError, ResultRawImageDecodeImageError, ResultU8VecEncodeImageError},
     http::{HttpGetResult, HttpMethod, HttpRequestConfig},
     image::{ImageRef, RawImage, RawImageData, RawImageFormat, VideoDecoder, VideoEncoder},
-    iroh::{IrohConfig, IrohEndpoint, IrohEvent, IrohEventKind, IrohRelayMode},
+    iroh::{
+        IrohConfig, IrohEndpoint, IrohEvent, IrohEventKind, IrohLoadBalancer, IrohPeerCapacity,
+        IrohRelayMode, IrohTileRole,
+    },
     json::{Json, JsonKeyValue},
     option::{OptionRendererOptions, OptionString},
     prelude::*,
@@ -88,8 +110,9 @@ use azul::{
 use rooms::{Dialed, PeerRecord, Relay, RoomKey};
 use video_wire::{Codec, Control, Message};
 
-/// The protocol name: peers of an older wire format (M2's MJPEG frames) cannot connect.
-const ALPN: &str = "azmeet/2";
+/// The protocol name: peers of an older wire format (M3's, without renditions and forwarding)
+/// cannot connect.
+const ALPN: &str = "azmeet/3";
 const CAMERA_TRACK: u32 = 1;
 const SCREEN_TRACK: u32 = 2;
 /// The audio track: 20 ms PCM packets, three to a frame (`audio.rs`).
@@ -100,8 +123,12 @@ const TONE_HZ: f32 = 440.0;
 const FEED_W: u32 = 320;
 const FEED_H: u32 = 180;
 const JPEG_QUALITY: u8 = 75;
-/// The H.264 encoder's target bitrate for a 320x180 feed.
+/// The H.264 encoder's target bitrate for the 320x180 probe frame (renditions use
+/// `IrohLoadBalancer::rendition_kbps`).
 const VIDEO_KBPS: u32 = 400;
+/// Audio one participant sends one peer (kbit/s): 48 kHz 16-bit PCM, every packet sent three
+/// times.
+const AUDIO_KBPS: u64 = 2304;
 /// What the camera and the screen tracks are called in the window, by `track_slot`.
 const SOURCES: [&str; 2] = ["camera", "screen"];
 const PUMP_MS: u64 = 15;
@@ -128,6 +155,8 @@ struct Remote {
     handle: u64,
     /// The peer's endpoint id.
     node_id: String,
+    /// The peer's key in the routing plan (`routes::peer_key` of its endpoint id).
+    key: u64,
     /// Which of the peer's tracks (camera, screen) have a tile.
     tracks: [bool; 2],
     /// Muted and deafened, from the peer's last control message; `None` until the first.
@@ -135,22 +164,37 @@ struct Remote {
     /// Whether the peer decodes H.264, from its caps message; `None` until that arrives, and the
     /// peer gets JPEG until then.
     h264: Option<bool>,
-    /// How far this side ran ahead of the peer on each local video track (H.264), by `track_slot`.
-    sent: [video_wire::SendWindow; 2],
-    /// The peer's camera and screen tracks as they arrive, by `track_slot`.
-    received: [VideoIn; 2],
+    /// Whether the peer encodes H.264, from its caps message.
+    encodes: Option<bool>,
+    /// The peer's last `ConnectionSync`; the peer is part of the plan from its first one.
+    sync: Option<routes::Sync>,
+    /// Direct (else relayed) and the RTT in ms of the connection, from the last statistics.
+    path: Option<(bool, f64)>,
+    /// The laid-out height of the peer's camera and screen tiles, by `track_slot`.
+    tile_height: [Option<f32>; 2],
+    /// How far this side ran ahead of the peer on each of its own H.264 streams, by (track,
+    /// rendition height).
+    sent: BTreeMap<(u32, u16), video_wire::SendWindow>,
+    /// The peer's video streams as they reach this side (to show, or to pass on), by (track,
+    /// rendition height).
+    received: BTreeMap<(u32, u16), VideoIn>,
 }
 
 impl Remote {
     fn new(handle: u64, node_id: String) -> Self {
         Remote {
             handle,
+            key: routes::peer_key(&node_id),
             node_id,
             tracks: [false; 2],
             state: None,
             h264: None,
-            sent: [video_wire::SendWindow::new(), video_wire::SendWindow::new()],
-            received: [VideoIn::new(), VideoIn::new()],
+            encodes: None,
+            sync: None,
+            path: None,
+            tile_height: [None; 2],
+            sent: BTreeMap::new(),
+            received: BTreeMap::new(),
         }
     }
 }
@@ -327,8 +371,8 @@ struct MeetState {
     /// What this machine does with H.264 (`probe_video`); the encoder turns to `Err` when it stops
     /// working.
     video: VideoSupport,
-    /// The sending side of the camera and screen tracks, by `track_slot`.
-    video_out: [VideoOut; 2],
+    /// The sending side of this side's video, one per (track, rendition height).
+    video_out: BTreeMap<(u32, u16), VideoOut>,
     /// The camera and the screen share are test patterns (`AZMEET_TEST_PATTERN=1`, and every
     /// headless run).
     pattern_video: bool,
@@ -336,8 +380,29 @@ struct MeetState {
     pattern_clocks: [video_wire::PatternClock; 2],
     /// Shows the "Drop a video packet" button (`AZMEET_TEST_PATTERN=1`).
     video_debug: bool,
-    /// The next video packet is dropped instead of sent (the button).
-    drop_next_video: bool,
+    /// The renditions whose next packet is dropped instead of sent (the button).
+    drop_video: BTreeSet<(u32, u16)>,
+    /// This participant's key in the routing plan (`routes::peer_key` of its endpoint id).
+    me: u64,
+    /// Rooms of up to this many people send everything directly (`AZMEET_MESH_CAP`).
+    mesh_cap: u32,
+    /// The uplink and stability this side reports.
+    capacity: routes::CapacityEstimator,
+    /// Never forward other people's media (`AZMEET_NO_FORWARD=1`).
+    opted_out: bool,
+    /// Report running on battery (`AZMEET_ON_BATTERY=1`).
+    on_battery: bool,
+    /// What this side last told the others (its `ConnectionSync`).
+    sync: routes::Sync,
+    /// Who sends whose media to whom, from everyone's reports.
+    plan: routes::Plan,
+    view: ViewMode,
+    /// Who is on the stage in speaker view (`AZMEET_STAGE`); empty for the first by name.
+    stage_name: String,
+    /// Device pixels per logical pixel, from the window.
+    scale: f32,
+    /// What this side passes on for others.
+    relay: Relaying,
 }
 
 impl MeetState {
@@ -373,16 +438,54 @@ impl MeetState {
                 encoder: Err(String::from("not probed")),
                 decodes_h264: false,
             },
-            video_out: [VideoOut::new(), VideoOut::new()],
+            video_out: BTreeMap::new(),
             pattern_video: false,
             pattern_clocks: [
                 video_wire::PatternClock::new(video_wire::PATTERN_FPS),
                 video_wire::PatternClock::new(video_wire::PATTERN_FPS),
             ],
             video_debug: false,
-            drop_next_video: false,
+            drop_video: BTreeSet::new(),
+            me: 0,
+            mesh_cap: routes::DEFAULT_MESH_CAP,
+            capacity: routes::CapacityEstimator::new(None),
+            opted_out: false,
+            on_battery: false,
+            sync: routes::Sync::default(),
+            plan: routes::Plan::default(),
+            view: ViewMode::Grid,
+            stage_name: String::new(),
+            scale: 1.0,
+            relay: Relaying::default(),
         }
     }
+}
+
+/// How the call shows the others.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ViewMode {
+    /// Every camera in an equal grid tile.
+    Grid,
+    /// One participant on a large stage, the others as thumbnails.
+    Speaker,
+}
+
+/// What this side passes on for others, as a backbone peer or a leaf's parent.
+#[derive(Default)]
+struct Relaying {
+    /// How far this side ran ahead of a child on a passed-on H.264 stream, by (child connection,
+    /// origin, track, height).
+    windows: BTreeMap<(u64, u64, u32, u16), video_wire::SendWindow>,
+    /// The frame lane of each origin whose frames this side passes on (`routes::frame_track`).
+    lanes: BTreeMap<u64, u32>,
+    /// When this side last asked upstream for a keyframe of a passed-on stream, by (origin, track,
+    /// height).
+    asked: BTreeMap<(u64, u32, u16), u64>,
+    /// H.264 packets (messages) and audio and JPEG frames passed on, one per child, and keyframe
+    /// requests passed on toward their origin.
+    packets: u64,
+    frames: u64,
+    requests: u64,
 }
 
 struct Room {
@@ -412,6 +515,17 @@ const BTN_LEAVE: &str = "padding: 10px 18px; margin: 0 6px 0 24px; border-radius
                          background: #b03a3a; color: #ffffff; font-size: 14px; white-space: \
                          nowrap; flex-shrink: 0;";
 const NOTICE: &str = "padding: 6px 12px; font-size: 13px; color: #f0b060; background: #15151c;";
+/// The speaker view's stage and its thumbnails. A tile's height is what it asks for until it is
+/// laid out (`IrohTileRole::rendition_height`); each sits well inside its rendition step.
+const STAGE: &str = "width: 568px; height: 320px; margin: 8px; border-radius: 10px; background: \
+                     #2b2b38; display: flex; align-items: center; justify-content: center; color: \
+                     #99a; font-size: 17px; overflow: hidden;";
+const THUMB: &str = "width: 142px; height: 80px; margin: 6px; border-radius: 8px; background: \
+                     #2b2b38; display: flex; align-items: center; justify-content: center; color: \
+                     #99a; font-size: 12px; overflow: hidden;";
+const TILE_H: f32 = 200.0;
+const STAGE_H: f32 = 320.0;
+const THUMB_H: f32 = 80.0;
 
 fn track_slot(track: u32) -> Option<usize> {
     match track {
@@ -426,8 +540,9 @@ fn tile_marker(handle: u64, track: u32) -> String {
     format!("azmeet-peer-{handle}-track-{track}")
 }
 
-fn remote_video_tile(marker: &str) -> Dom {
-    Dom::create_div().with_css(TILE).with_child(
+/// The video tile with `marker` in the `css` box.
+fn remote_video_tile(marker: &str, css: &str) -> Dom {
+    Dom::create_div().with_css(css).with_child(
         Dom::create_image(ImageRef::null_image(
             FEED_W as usize,
             FEED_H as usize,
@@ -439,9 +554,9 @@ fn remote_video_tile(marker: &str) -> Dom {
     )
 }
 
-fn participant(name: &str) -> Dom {
+fn participant(name: &str, css: &str) -> Dom {
     Dom::create_div()
-        .with_css(TILE)
+        .with_css(css)
         .with_child(Dom::create_span_with_text(name))
 }
 
@@ -512,8 +627,33 @@ fn peer_layout(data: RefAny, index: usize) -> Dom {
     }
 }
 
-fn feed_consumer(track: u32) -> FrameConsumer {
-    FrameConsumer::create(track, FEED_W, FEED_H)
+/// The capture consumer cutting `track`'s frames at the `height` rendition (16:9).
+fn feed_consumer(track: u32, height: u16) -> FrameConsumer {
+    FrameConsumer::create(
+        consumer_id(track, height),
+        routes::rendition_width(height),
+        u32::from(height),
+    )
+}
+
+/// A capture consumer's id: the track in the low byte, the rendition height above it.
+fn consumer_id(track: u32, height: u16) -> u32 {
+    (track & 0xff) | u32::from(height) << 8
+}
+
+/// The (track, rendition height) of a capture consumer's id.
+fn consumer_stream(id: u32) -> (u32, u16) {
+    (id & 0xff, (id >> 8) as u16)
+}
+
+/// How a peer's `track` tile is shown: its role, the height it asks for until it is laid out, and
+/// its box.
+fn tile_kind(view: ViewMode, on_stage: bool, track: u32) -> (IrohTileRole, f32, &'static str) {
+    match (view, track) {
+        (ViewMode::Speaker, CAMERA_TRACK) if on_stage => (IrohTileRole::Stage, STAGE_H, STAGE),
+        (ViewMode::Speaker, CAMERA_TRACK) => (IrohTileRole::Filmstrip, THUMB_H, THUMB),
+        _ => (IrohTileRole::Gallery, TILE_H, TILE),
+    }
 }
 
 /// What the room parts of the window show.
@@ -534,10 +674,21 @@ struct LayoutSnapshot {
     linked: bool,
     /// The solo fallback without any link shows placeholder participants.
     placeholders: bool,
-    /// Markers of the remote video tiles to show.
-    remote_tiles: Vec<String>,
-    /// Labels of the remote participants with no video tile yet.
-    waiting: Vec<String>,
+    /// Markers of the remote video tiles to show and their boxes, the stage first.
+    remote_tiles: Vec<(String, &'static str)>,
+    /// Labels of the remote participants with no video tile yet, and their boxes.
+    waiting: Vec<(String, &'static str)>,
+    /// The box of this participant's own tiles.
+    self_css: &'static str,
+    /// The camera is on, but nobody shows it, so nothing is encoded or sent.
+    cam_culled: bool,
+    /// Speaker view (else grid).
+    speaker: bool,
+    /// The renditions of the camera and of the screen someone shows: one capture consumer each.
+    camera_renditions: Vec<u16>,
+    screen_renditions: Vec<u16>,
+    /// The network panel: plan, routes, role, this side's report, one line per peer.
+    network_lines: Vec<String>,
     link_status: String,
     mic: bool,
     cam: bool,
@@ -610,25 +761,35 @@ fn roster(s: &MeetState, room: &RoomSession) -> Vec<String> {
 }
 
 fn snapshot(s: &MeetState) -> LayoutSnapshot {
+    let stage = stage_key(s);
+    let mut remotes: Vec<&Remote> = s.remotes.iter().collect();
+    // The stage first; the sort is stable, so the others keep their order.
+    remotes.sort_by_key(|r| Some(r.key) != stage);
     let mut remote_tiles = Vec::new();
     let mut waiting = Vec::new();
-    for r in &s.remotes {
-        let shown: Vec<String> = [CAMERA_TRACK, SCREEN_TRACK]
+    for r in remotes {
+        let on_stage = Some(r.key) == stage;
+        let shown: Vec<(String, &'static str)> = [CAMERA_TRACK, SCREEN_TRACK]
             .into_iter()
             .filter(|track| track_slot(*track).is_some_and(|slot| r.tracks[slot]))
-            .map(|track| tile_marker(r.handle, track))
+            .map(|track| {
+                (
+                    tile_marker(r.handle, track),
+                    tile_kind(s.view, on_stage, track).2,
+                )
+            })
             .collect();
         if shown.is_empty() {
-            waiting.push(format!(
-                "{} · waiting for video",
-                remote_name(s, &r.node_id)
+            waiting.push((
+                format!("{} · waiting for video", remote_name(s, &r.node_id)),
+                tile_kind(s.view, on_stage, CAMERA_TRACK).2,
             ));
         } else {
             remote_tiles.extend(shown);
         }
     }
     if s.room.is_none() && s.endpoint.is_some() && s.remotes.is_empty() {
-        waiting.push(format!("{} · waiting for video", s.peer_name));
+        waiting.push((format!("{} · waiting for video", s.peer_name), TILE));
     }
     let header = match &s.room {
         Some(room) if !room.code.is_empty() => {
@@ -641,6 +802,7 @@ fn snapshot(s: &MeetState) -> LayoutSnapshot {
         ),
         None => format!("AzMeet · meeting {}", s.meeting),
     };
+    let camera_renditions = my_renditions(s, CAMERA_TRACK);
     LayoutSnapshot {
         header,
         notice: s.notice.clone(),
@@ -649,6 +811,16 @@ fn snapshot(s: &MeetState) -> LayoutSnapshot {
         placeholders: s.room.is_none() && s.endpoint.is_none(),
         remote_tiles,
         waiting,
+        self_css: if s.view == ViewMode::Speaker {
+            THUMB
+        } else {
+            TILE
+        },
+        cam_culled: s.cam_on && !s.remotes.is_empty() && camera_renditions.is_empty(),
+        speaker: s.view == ViewMode::Speaker,
+        screen_renditions: my_renditions(s, SCREEN_TRACK),
+        camera_renditions,
+        network_lines: network_lines(s),
         link_status: s.link_status.clone(),
         mic: s.mic_on,
         cam: s.cam_on,
@@ -767,20 +939,29 @@ fn start_layout(view: &LayoutSnapshot, room: &RoomView, data: &RefAny) -> Dom {
         .with_child(card)
 }
 
-/// The call: header, invite link and people (in a room), tiles, controls, devices.
+/// The call: header, invite link and people (in a room), tiles, controls, devices and network.
 fn call_layout(view: &LayoutSnapshot, data: &RefAny) -> Dom {
     let self_tile = if view.cam && !view.pattern_video {
-        Dom::create_div().with_css(TILE).with_child(
-            CameraWidget::create(CameraConfig::default())
-                .with_consumer(feed_consumer(CAMERA_TRACK))
+        // One consumer per rendition someone shows; none keeps the local preview only.
+        let mut camera = CameraWidget::create(CameraConfig::default());
+        for height in &view.camera_renditions {
+            camera = camera.with_consumer(feed_consumer(CAMERA_TRACK, *height));
+        }
+        Dom::create_div().with_css(view.self_css).with_child(
+            camera
                 .with_on_consumer_frame(data.clone(), send_feed_frame)
                 .dom()
                 .with_css("width: 100%; height: 100%;"),
         )
+    } else if view.cam && view.cam_culled {
+        participant(
+            "You · test pattern, not shown to anyone, not being sent",
+            view.self_css,
+        )
     } else if view.cam {
-        participant("You · test pattern")
+        participant("You · test pattern", view.self_css)
     } else {
-        participant("You · camera off")
+        participant("You · camera off", view.self_css)
     };
 
     let mut grid = Dom::create_div().with_css(
@@ -789,12 +970,15 @@ fn call_layout(view: &LayoutSnapshot, data: &RefAny) -> Dom {
     );
     grid = grid.with_child(self_tile);
     if view.screen && view.pattern_video {
-        grid = grid.with_child(participant("Your screen · test pattern"));
+        grid = grid.with_child(participant("Your screen · test pattern", view.self_css));
     } else if view.screen {
+        let mut screen = ScreenCaptureWidget::create(ScreenCaptureConfig::default());
+        for height in &view.screen_renditions {
+            screen = screen.with_consumer(feed_consumer(SCREEN_TRACK, *height));
+        }
         grid = grid.with_child(
-            Dom::create_div().with_css(TILE).with_child(
-                ScreenCaptureWidget::create(ScreenCaptureConfig::default())
-                    .with_consumer(feed_consumer(SCREEN_TRACK))
+            Dom::create_div().with_css(view.self_css).with_child(
+                screen
                     .with_on_consumer_frame(data.clone(), send_feed_frame)
                     .dom()
                     .with_css("width: 100%; height: 100%;"),
@@ -803,20 +987,25 @@ fn call_layout(view: &LayoutSnapshot, data: &RefAny) -> Dom {
     }
     if view.placeholders {
         grid = grid
-            .with_child(participant("Alice"))
-            .with_child(participant("Bob"))
-            .with_child(participant("Carol"));
+            .with_child(participant("Alice", TILE))
+            .with_child(participant("Bob", TILE))
+            .with_child(participant("Carol", TILE));
     }
-    for label in &view.waiting {
-        grid = grid.with_child(participant(label));
+    for (label, css) in &view.waiting {
+        grid = grid.with_child(participant(label, css));
     }
-    for marker in &view.remote_tiles {
-        grid = grid.with_child(remote_video_tile(marker));
+    for (marker, css) in &view.remote_tiles {
+        grid = grid.with_child(remote_video_tile(marker, css));
     }
     if view.room.is_some() && view.waiting.is_empty() && view.remote_tiles.is_empty() {
-        grid = grid.with_child(participant("Waiting for others to join"));
+        grid = grid.with_child(participant("Waiting for others to join", TILE));
     }
 
+    let cam_label = match (view.cam, view.cam_culled) {
+        (true, true) => "Stop video (not shown to anyone, not being sent)",
+        (true, false) => "Stop video",
+        (false, _) => "Start video",
+    };
     let mut toolbar = Dom::create_div()
         .with_css("display: flex; justify-content: center; padding: 14px; background: #15151c;")
         .with_child(toolbar_button(
@@ -832,11 +1021,7 @@ fn call_layout(view: &LayoutSnapshot, data: &RefAny) -> Dom {
             deafen_toggle,
         ))
         .with_child(toolbar_button(
-            if view.cam {
-                "Stop video"
-            } else {
-                "Start video"
-            },
+            cam_label,
             if view.cam { BTN_ON } else { BTN },
             data,
             cam_toggle,
@@ -850,6 +1035,16 @@ fn call_layout(view: &LayoutSnapshot, data: &RefAny) -> Dom {
             if view.screen { BTN_ON } else { BTN },
             data,
             screen_toggle,
+        ))
+        .with_child(toolbar_button(
+            if view.speaker {
+                "Grid view"
+            } else {
+                "Speaker view"
+            },
+            BTN,
+            data,
+            view_toggle,
         ));
     if view.video_debug {
         toolbar = toolbar.with_child(toolbar_button(
@@ -864,13 +1059,13 @@ fn call_layout(view: &LayoutSnapshot, data: &RefAny) -> Dom {
     }
 
     let link_line = if view.linked {
-        format!("{FEED_W}x{FEED_H} over iroh · {}", view.link_status)
+        format!("iroh · {}", view.link_status)
     } else {
         view.link_status.clone()
     };
     let mut video_col = vec![view.codec_line.clone(), link_line];
     video_col.extend(view.video_lines.iter().cloned());
-    let devices_panel = Dom::create_div()
+    let mut devices_panel = Dom::create_div()
         .with_css(
             "display: flex; justify-content: center; padding: 10px 12px 16px 12px; background: \
              #0e0e14; border-top: 1px solid #222;",
@@ -879,6 +1074,9 @@ fn call_layout(view: &LayoutSnapshot, data: &RefAny) -> Dom {
         .with_child(device_col("Speakers", &view.speakers))
         .with_child(device_col("Video", &video_col))
         .with_child(device_col("Audio", &audio_col(view)));
+    if !view.network_lines.is_empty() {
+        devices_panel = devices_panel.with_child(device_col("Network", &view.network_lines));
+    }
 
     let mut body = Dom::create_body().with_css(
         "display: flex; flex-direction: column; height: 100%; margin: 0; background: #0e0e14; \
@@ -1016,16 +1214,19 @@ extern "C" fn meter_unmounted(mut data: RefAny, _info: CallbackInfo) -> Update {
     Update::DoNothing
 }
 
-/// A frame the camera or the screen widget cut for its consumer: sent to every peer.
+/// A frame the camera or the screen widget cut for one of its consumers (one per rendition someone
+/// shows): sent to whoever gets that rendition.
 extern "C" fn send_feed_frame(
     mut data: RefAny,
     _info: CallbackInfo,
     frame: ConsumerFrame,
 ) -> Update {
     if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        let (track, height) = consumer_stream(frame.consumer.id);
         send_video(
             &mut s,
-            frame.consumer.id,
+            track,
+            height,
             frame.frame.width,
             frame.frame.height,
             &frame.frame.bytes,
@@ -1067,12 +1268,10 @@ fn apply_link_event(s: &mut MeetState, event: &IrohEvent) -> bool {
                 s.remotes.push(Remote::new(event.peer, node_id));
             }
             send_state(s, &[event.peer]);
-            // What this side decodes; until the peer's answer arrives it gets JPEG.
-            send_message_to(
-                s,
-                &[event.peer],
-                &video_wire::encode_caps(s.video.decodes_h264, false),
-            );
+            // What this side decodes and encodes; until the peer's answer arrives it gets JPEG.
+            send_caps(s, &[event.peer]);
+            // The new peer's tiles change what this side shows: everyone hears the new report.
+            network_changed(s, true);
             true
         }
         IrohEventKind::PeerDisconnected => {
@@ -1080,7 +1279,8 @@ fn apply_link_event(s: &mut MeetState, event: &IrohEvent) -> bool {
                 return false;
             };
             let gone = s.remotes.remove(pos);
-            drop_audio(s, Some(gone.handle));
+            drop_audio(s, Some(gone.key));
+            forget_relaying(s, &gone);
             // Dial again on the next poll if the peer is still listed.
             if let Some(room) = s.room.as_mut() {
                 room.dialed.remove(&gone.node_id);
@@ -1092,6 +1292,7 @@ fn apply_link_event(s: &mut MeetState, event: &IrohEvent) -> bool {
                 event.text.as_str()
             );
             s.link_status = format!("disconnected: {}", event.text.as_str());
+            network_changed(s, false);
             true
         }
         IrohEventKind::Error => {
@@ -1170,31 +1371,12 @@ extern "C" fn pump_link(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
         let Some(mut s) = data.downcast_mut::<MeetState>() else {
             continue;
         };
-        if event.kind == IrohEventKind::Frame && event.track == AUDIO_TRACK {
-            receive_audio(&mut s, &event);
-            continue;
-        }
-        let video = match event.kind {
+        refresh |= match event.kind {
             IrohEventKind::Frame | IrohEventKind::Message => {
-                video_wire::decode_message(event.data.as_slice())
+                receive_item(&mut s, &endpoint, &event, &mut pictures)
             }
-            _ => None,
+            _ => apply_link_event(&mut s, &event),
         };
-        match video {
-            Some(Message::Packet(header, payload)) => {
-                let (new_tile, picture) = receive_video(&mut s, event.peer, &header, payload);
-                refresh |= new_tile;
-                if let Some(picture) = picture {
-                    pictures.insert((event.peer, header.track), picture);
-                }
-            }
-            Some(Message::Control(control)) => {
-                refresh |= apply_video_control(&mut s, event.peer, control);
-            }
-            // A frame of no known track, or a malformed one.
-            None if event.kind == IrohEventKind::Frame => {}
-            None => refresh |= apply_link_event(&mut s, &event),
-        }
     }
     for ((peer, track), picture) in pictures {
         show_picture(&mut info, peer, track, picture);
@@ -1206,6 +1388,7 @@ extern "C" fn pump_link(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
     if let Some(mut s) = data.downcast_mut::<MeetState>() {
         s.ticks = s.ticks.wrapping_add(1);
         if s.ticks % STATS_EVERY_TICKS == 0 && !s.remotes.is_empty() {
+            network_tick(&mut s, &endpoint, &mut info.callback_info);
             let lines: Vec<String> = s
                 .remotes
                 .iter()
@@ -1227,6 +1410,9 @@ extern "C" fn pump_link(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
             for line in video_log_lines(&s) {
                 eprintln!("[azmeet] {}: {line}", s.name);
             }
+            for line in network_lines(&s) {
+                eprintln!("[azmeet] {}: {line}", s.name);
+            }
             refresh = true;
         }
     }
@@ -1243,7 +1429,7 @@ extern "C" fn pump_link(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
 /// thread (which takes one turn from every peer's jitter buffer each 20 ms). Either holds the
 /// lock only to move packets, never while a device plays.
 struct Playout {
-    /// One jitter buffer per connection handle.
+    /// One jitter buffer per origin (a peer's key), whichever way its audio comes.
     peers: BTreeMap<u64, audio::JitterBuffer>,
     /// Play through an `AudioSink` per peer. False in a headless run: the buffers are drained
     /// and counted, and no device is opened.
@@ -1378,7 +1564,8 @@ fn sync_mic(s: &mut MeetState) {
     }
 }
 
-/// Sends captured audio to every connected peer as 20 ms packets on the audio track.
+/// Sends captured audio as 20 ms packets on the audio track to whom the plan says: everyone in the
+/// full mesh, the backbone parent for a leaf.
 fn send_audio(s: &mut MeetState, sample_rate: u32, channels: u16, samples: &[f32]) {
     if !s.mic_on {
         return;
@@ -1388,20 +1575,23 @@ fn send_audio(s: &mut MeetState, sample_rate: u32, channels: u16, samples: &[f32
         s.packetizer.reset();
         return;
     }
-    let Some(endpoint) = s.endpoint.as_ref() else {
+    let Some(endpoint) = s.endpoint.clone() else {
         return;
     };
+    let targets = handles_of(s, &s.plan.children(s.me, s.me));
     for frame in s.packetizer.push(sample_rate, channels, samples) {
-        endpoint.broadcast_frame(AUDIO_TRACK, frame);
+        for handle in &targets {
+            endpoint.send_frame(*handle, AUDIO_TRACK, frame.clone());
+        }
     }
 }
 
-/// Takes a frame of a peer's audio track into that peer's jitter buffer.
-fn receive_audio(s: &mut MeetState, frame: &IrohEvent) {
-    if s.deafened || !s.remotes.iter().any(|r| r.handle == frame.peer) {
+/// Takes a frame of `origin`'s audio (from it directly, or passed on) into its jitter buffer.
+fn receive_audio(s: &mut MeetState, origin: u64, bytes: &[u8]) {
+    if s.deafened || !s.remotes.iter().any(|r| r.key == origin) {
         return;
     }
-    let Some(wire) = audio::decode_frame(frame.data.as_ref()) else {
+    let Some(wire) = audio::decode_frame(bytes) else {
         return;
     };
     let play = s.play_audio;
@@ -1409,22 +1599,22 @@ fn receive_audio(s: &mut MeetState, frame: &IrohEvent) {
     let mut playout = lock(shared);
     let jitter = playout
         .peers
-        .entry(frame.peer)
+        .entry(origin)
         .or_insert_with(|| audio::JitterBuffer::new(audio::TARGET_PACKETS, audio::MAX_PACKETS));
     for packet in wire.packets {
         jitter.push(wire.sample_rate, packet);
     }
 }
 
-/// Forgets a peer's received audio (it left, or everyone did).
-fn drop_audio(s: &MeetState, handle: Option<u64>) {
+/// Forgets the received audio of the peer with key `origin` (it left), or everyone's.
+fn drop_audio(s: &MeetState, origin: Option<u64>) {
     let Some(shared) = s.playout.as_ref() else {
         return;
     };
     let mut playout = lock(shared);
-    match handle {
-        Some(handle) => {
-            playout.peers.remove(&handle);
+    match origin {
+        Some(origin) => {
+            playout.peers.remove(&origin);
         }
         None => playout.peers.clear(),
     }
@@ -1463,7 +1653,7 @@ fn send_state_to_all(s: &MeetState) {
 }
 
 /// One line per connected peer whose audio arrived: what its jitter buffer took in and played,
-/// and whether it waits to fill up (the peer went quiet).
+/// whether it waits to fill up (the peer went quiet), and who passes it on.
 fn audio_lines(s: &MeetState) -> Vec<String> {
     let Some(shared) = s.playout.as_ref() else {
         return Vec::new();
@@ -1473,7 +1663,7 @@ fn audio_lines(s: &MeetState) -> Vec<String> {
         .remotes
         .iter()
         .filter_map(|r| {
-            let jitter = playout.peers.get(&r.handle)?;
+            let jitter = playout.peers.get(&r.key)?;
             let mut line = audio::audio_line(
                 &remote_name(s, &r.node_id),
                 &jitter.stats(),
@@ -1481,6 +1671,9 @@ fn audio_lines(s: &MeetState) -> Vec<String> {
             );
             if !jitter.is_playing() {
                 line.push_str(", filling up");
+            }
+            if let Some(via) = s.plan.parent(s.me, r.key).filter(|p| *p != r.key) {
+                line.push_str(&format!(", via {}", name_of(s, via)));
             }
             Some(line)
         })
@@ -1577,13 +1770,17 @@ impl VideoOut {
     }
 }
 
-/// The receiving side of one of a peer's video tracks.
+/// The receiving side of one of a peer's video streams (a track in one rendition).
 struct VideoIn {
     rules: video_wire::ReceiveTrack,
     /// Opened with the first H.264 packet to decode.
     decoder: Option<VideoDecoder>,
     /// The codec of the packet that arrived last.
     seen: Option<Codec>,
+    /// The connection the last packet came through: the origin's own, or a forwarder's.
+    via: u64,
+    /// This side shows the stream; else it only passes it on.
+    shown: bool,
 }
 
 impl VideoIn {
@@ -1592,6 +1789,8 @@ impl VideoIn {
             rules: video_wire::ReceiveTrack::new(),
             decoder: None,
             seen: None,
+            via: 0,
+            shown: false,
         }
     }
 }
@@ -1613,12 +1812,12 @@ fn rgba_image(width: u32, height: u32, bytes: U8Vec) -> RawImage {
     }
 }
 
-/// Frame `index` of the test pattern at the feed size.
-fn pattern_frame(index: u32) -> VideoFrame {
+/// Frame `index` of the test pattern, `width` x `height`.
+fn pattern_frame(index: u32, width: u32, height: u32) -> VideoFrame {
     VideoFrame {
-        width: FEED_W,
-        height: FEED_H,
-        bytes: U8Vec::from(video_wire::test_pattern(FEED_W, FEED_H, index)),
+        width,
+        height,
+        bytes: U8Vec::from(video_wire::test_pattern(width, height, index)),
     }
 }
 
@@ -1660,7 +1859,7 @@ fn probe_encode() -> Option<Vec<u8>> {
     }
     let mut chunk = Vec::new();
     for index in 0..3 {
-        encoder.encode(pattern_frame(index), true);
+        encoder.encode(pattern_frame(index, FEED_W, FEED_H), true);
         while let Some(packet) = encoder.recv_packet().into_option() {
             chunk.extend_from_slice(packet.as_slice());
         }
@@ -1727,66 +1926,81 @@ fn codec_status(s: &MeetState) -> String {
     video_wire::codec_line(s.video.encoder.as_deref().map_err(String::as_str), &jpeg_to)
 }
 
-/// Sends a captured frame (RGBA, `width` x `height`) of `track` to every connected peer: as H.264
-/// to the peers that decode it (reliable messages, so nothing between two keyframes goes
-/// missing), as JPEG to the others (a latest-wins frame each: every JPEG stands alone).
-fn send_video(s: &mut MeetState, track: u32, width: u32, height: u32, rgba: &U8Vec) {
-    let Some(slot) = track_slot(track) else {
-        return;
-    };
-    if s.remotes.is_empty() {
+/// Sends a captured frame (RGBA, `width` x `frame_height`) of the `rendition` of `track` to whom
+/// the plan says gets it: as H.264 to those assigned H.264 (reliable messages, so nothing between
+/// two keyframes goes missing), as JPEG to the others (a latest-wins frame each: every JPEG stands
+/// alone). A leaf sends each rendition once, to its backbone parent.
+fn send_video(
+    s: &mut MeetState,
+    track: u32,
+    rendition: u16,
+    width: u32,
+    frame_height: u32,
+    rgba: &U8Vec,
+) {
+    if track_slot(track).is_none() || s.remotes.is_empty() {
         return;
     }
     let Some(endpoint) = s.endpoint.clone() else {
         return;
     };
-    let out = &mut s.video_out[slot];
-    out.frame_no = out.frame_no.wrapping_add(1);
-    // H.264 wants even sides; 16 pixels is the smallest VideoToolbox takes.
-    let fits = width % 2 == 0 && height % 2 == 0 && width >= 16 && height >= 16;
-    let h264 = fits && s.video.encoder.is_ok();
-    let mut h264_peers = Vec::new();
-    let mut jpeg_peers = Vec::new();
-    for r in &s.remotes {
-        if h264 && r.h264 == Some(true) {
-            h264_peers.push(r.handle);
-        } else {
-            jpeg_peers.push(r.handle);
-        }
+    let assigned = assignment(s, s.me, track);
+    let hops = |h264: bool| {
+        let stream = routes::Stream {
+            height: rendition,
+            h264,
+        };
+        handles_of(s, &s.plan.next_hops(s.me, s.me, stream, &assigned))
+    };
+    let mut h264_peers = hops(true);
+    let mut jpeg_peers = hops(false);
+    if h264_peers.is_empty() && jpeg_peers.is_empty() {
+        return;
     }
-    if !h264_peers.is_empty() && !send_h264(s, &endpoint, track, (width, height), rgba, &h264_peers)
+    // H.264 wants even sides; 16 pixels is the smallest VideoToolbox takes.
+    let fits = width % 2 == 0 && frame_height % 2 == 0 && width >= 16 && frame_height >= 16;
+    if !fits || s.video.encoder.is_err() {
+        jpeg_peers.append(&mut h264_peers);
+    }
+    let out = s
+        .video_out
+        .entry((track, rendition))
+        .or_insert_with(VideoOut::new);
+    out.frame_no = out.frame_no.wrapping_add(1);
+    let size = (width, frame_height);
+    if !h264_peers.is_empty() && !send_h264(s, &endpoint, track, rendition, size, rgba, &h264_peers)
     {
         // No working encoder for this frame: these peers get it as JPEG.
         jpeg_peers.extend(h264_peers);
     }
     if !jpeg_peers.is_empty() {
-        send_jpeg(s, &endpoint, track, (width, height), rgba, &jpeg_peers);
+        send_jpeg(s, &endpoint, track, rendition, size, rgba, &jpeg_peers);
     }
 }
 
-/// Encodes the frame with the track's H.264 encoder and sends each packet to those of `peers`
-/// whose window has room ([`video_wire::SendWindow`]). False when no encoder works (it did not
-/// open, gives nothing back, or ignores keyframe requests): H.264 is given up, the frame goes as
-/// JPEG.
+/// Encodes the frame with the H.264 encoder of the `rendition` of `track` and sends each packet to
+/// those of `peers` (connection handles) whose window has room ([`video_wire::SendWindow`]). False
+/// when no encoder works (it did not open, gives nothing back, or ignores keyframe requests): H.264
+/// is given up, the frame goes as JPEG, and everyone hears that this side no longer encodes it.
 fn send_h264(
     s: &mut MeetState,
     endpoint: &IrohEndpoint,
     track: u32,
+    rendition: u16,
     (width, height): (u32, u32),
     rgba: &U8Vec,
     peers: &[u64],
 ) -> bool {
-    let Some(slot) = track_slot(track) else {
-        return false;
-    };
+    let key = (track, rendition);
     let now = now_ms(s);
     // A new peer, or one that fell behind, starts at a keyframe.
-    let resync = s
-        .remotes
-        .iter()
-        .any(|r| peers.contains(&r.handle) && r.sent[slot].wants_keyframe());
+    let resync = s.remotes.iter().any(|r| {
+        peers.contains(&r.handle) && r.sent.get(&key).map_or(true, |w| w.wants_keyframe())
+    });
     let (packets, failure) = {
-        let out = &mut s.video_out[slot];
+        let Some(out) = s.video_out.get_mut(&key) else {
+            return false;
+        };
         if resync {
             out.keyframes.request();
         }
@@ -1796,7 +2010,8 @@ fn send_h264(
             out.keyframes.reopened();
         }
         if out.encoder.is_none() {
-            let encoder = VideoEncoder::open(width, height, false, VIDEO_KBPS);
+            let kbps = IrohLoadBalancer::rendition_kbps(u32::from(rendition));
+            let encoder = VideoEncoder::open(width, height, false, kbps);
             if encoder.is_open() {
                 out.encoder = Some(encoder);
                 out.size = (width, height);
@@ -1829,7 +2044,7 @@ fn send_h264(
                         track,
                         seq: out.h264_seq,
                         frame_no,
-                        height: 0,
+                        height: rendition,
                     };
                     packets.push((header, video_wire::encode_packet(&header, chunk.as_slice())));
                 }
@@ -1850,21 +2065,31 @@ fn send_h264(
     if let Some(why) = failure {
         eprintln!("[azmeet] {}: {why}: sending JPEG from now on", s.name);
         s.video.encoder = Err(String::from(why));
+        send_caps(s, &all_peers(s));
         return false;
     }
     for (header, packet) in packets {
-        if s.drop_next_video && !header.keyframe {
-            s.drop_next_video = false;
-            s.video_out[slot].dropped += 1;
+        if !header.keyframe && s.drop_video.remove(&key) {
+            if let Some(out) = s.video_out.get_mut(&key) {
+                out.dropped += 1;
+            }
             eprintln!(
                 "[azmeet] {}: dropped H.264 packet {} of the {} on purpose",
-                s.name, header.seq, SOURCES[slot]
+                s.name,
+                header.seq,
+                rendition_label(track, rendition)
             );
             continue;
         }
-        s.video_out[slot].h264_packets += 1;
+        if let Some(out) = s.video_out.get_mut(&key) {
+            out.h264_packets += 1;
+        }
         for r in s.remotes.iter_mut().filter(|r| peers.contains(&r.handle)) {
-            if r.sent[slot].offer(header.seq, header.keyframe) {
+            let window = r
+                .sent
+                .entry(key)
+                .or_insert_with(video_wire::SendWindow::new);
+            if window.offer(header.seq, header.keyframe) {
                 endpoint.send_message(r.handle, packet.clone());
             }
         }
@@ -1872,86 +2097,148 @@ fn send_h264(
     true
 }
 
-/// Sends the frame as JPEG to `peers`, a latest-wins frame each.
+/// Sends the frame as JPEG to `peers`, a latest-wins frame each, on the rendition's own frame track.
 fn send_jpeg(
     s: &mut MeetState,
     endpoint: &IrohEndpoint,
     track: u32,
+    rendition: u16,
     (width, height): (u32, u32),
     rgba: &U8Vec,
     peers: &[u64],
 ) {
-    let Some(slot) = track_slot(track) else {
-        return;
-    };
+    let key = (track, rendition);
     let ResultU8VecEncodeImageError::Ok(jpeg) =
         rgba_image(width, height, rgba.clone()).encode_jpeg(JPEG_QUALITY)
     else {
         return;
     };
-    let out = &mut s.video_out[slot];
-    out.jpeg_seq = out.jpeg_seq.wrapping_add(1);
-    let header = video_wire::Header {
-        codec: Codec::Jpeg,
-        keyframe: true,
-        track,
-        seq: out.jpeg_seq,
-        frame_no: out.frame_no,
-        height: 0,
+    let header = {
+        let Some(out) = s.video_out.get_mut(&key) else {
+            return;
+        };
+        out.jpeg_seq = out.jpeg_seq.wrapping_add(1);
+        video_wire::Header {
+            codec: Codec::Jpeg,
+            keyframe: true,
+            track,
+            seq: out.jpeg_seq,
+            frame_no: out.frame_no,
+            height: rendition,
+        }
     };
-    if s.drop_next_video {
-        s.drop_next_video = false;
-        s.video_out[slot].dropped += 1;
+    if s.drop_video.remove(&key) {
+        if let Some(out) = s.video_out.get_mut(&key) {
+            out.dropped += 1;
+        }
         eprintln!(
             "[azmeet] {}: dropped JPEG frame {} of the {} on purpose",
-            s.name, header.seq, SOURCES[slot]
+            s.name,
+            header.seq,
+            rendition_label(track, rendition)
         );
         return;
     }
-    s.video_out[slot].jpeg_frames += 1;
+    if let Some(out) = s.video_out.get_mut(&key) {
+        out.jpeg_frames += 1;
+    }
     let packet = video_wire::encode_packet(&header, jpeg.as_slice());
+    let frame_track = routes::frame_track(0, track, rendition);
     for handle in peers {
-        endpoint.send_frame(*handle, track, packet.clone());
+        endpoint.send_frame(*handle, frame_track, packet.clone());
     }
 }
 
-/// A video packet from the peer behind connection `peer`: through the track's rules (which may
-/// acknowledge it or ask for a keyframe), then its decoder. Returns whether the track just got
-/// its tile, and the newest picture to show in it.
-fn receive_video(
+/// A video packet of `origin`'s stream that reached this side through connection `via` (the
+/// origin's own, or a forwarder's): through the stream's rules, which acknowledge it and ask for
+/// keyframes back the way it came, then, when this side shows that rendition, its decoder; the
+/// newest picture goes into `pictures`. A stream this side only passes on is followed the same way
+/// (the sender's window waits for the acknowledgements) but not decoded. Returns whether a tile
+/// appeared.
+fn take_video(
     s: &mut MeetState,
-    peer: u64,
+    endpoint: &IrohEndpoint,
+    origin: u64,
+    via: u64,
     header: &video_wire::Header,
     payload: &[u8],
-) -> (bool, Option<RawImage>) {
+    pictures: &mut BTreeMap<(u64, u32), RawImage>,
+) -> bool {
     let Some(slot) = track_slot(header.track) else {
-        return (false, None);
-    };
-    let Some(endpoint) = s.endpoint.clone() else {
-        return (false, None);
+        return false;
     };
     let now = now_ms(s);
-    let Some(remote) = s.remotes.iter_mut().find(|r| r.handle == peer) else {
-        return (false, None);
+    let me = s.me;
+    let mine = assignment(s, origin, header.track)
+        .get(&me)
+        .is_some_and(|got| got.height == header.height);
+    let Some(remote) = s.remotes.iter_mut().find(|r| r.key == origin) else {
+        return false;
     };
-    let new_tile = !remote.tracks[slot];
-    remote.tracks[slot] = true;
-    let input = &mut remote.received[slot];
+    let handle = remote.handle;
+    let new_tile = mine && !remote.tracks[slot];
+    if mine {
+        remote.tracks[slot] = true;
+    }
+    let input = remote
+        .received
+        .entry((header.track, header.height))
+        .or_insert_with(VideoIn::new);
+    if mine && !input.shown {
+        // Shown from now on: a fresh decoder, which starts at a keyframe.
+        input.rules = video_wire::ReceiveTrack::new();
+        input.decoder = None;
+    }
+    input.shown = mine;
     input.seen = Some(header.codec);
+    input.via = via;
     let verdict = input.rules.on_packet(header, now);
     if verdict.restart {
         input.decoder = None;
     }
+    let mut controls = Vec::new();
     if let Some(seq) = verdict.ack {
-        endpoint.send_message(peer, video_wire::encode_received(header.track, seq, header.height));
+        controls.push(video_wire::encode_received(
+            header.track,
+            seq,
+            header.height,
+        ));
     }
     if verdict.request_keyframe {
-        endpoint.send_message(peer, video_wire::encode_keyframe_request(header.track, header.height));
+        controls.push(video_wire::encode_keyframe_request(
+            header.track,
+            header.height,
+        ));
     }
-    if !verdict.decode {
-        return (new_tile, None);
+    let picture = if mine && verdict.decode {
+        decode_picture(input, header.codec, payload)
+    } else {
+        None
+    };
+    let inert = mine && input.rules.decoder_is_inert();
+    if inert {
+        input.decoder = None;
     }
-    let (picture, pictures) = match header.codec {
+    for control in controls {
+        send_control_up(s, endpoint, origin, via, header.track, &control);
+    }
+    if let Some(picture) = picture {
+        pictures.insert((handle, header.track), picture);
+    }
+    if inert && s.video.decodes_h264 {
+        s.video.decodes_h264 = false;
+        eprintln!(
+            "[azmeet] {}: the H.264 decoder gives no pictures back: asking everyone for JPEG",
+            s.name
+        );
+        send_caps(s, &all_peers(s));
+    }
+    new_tile
+}
+
+/// Decodes one packet of a shown stream; the newest picture that came out.
+fn decode_picture(input: &mut VideoIn, codec: Codec, payload: &[u8]) -> Option<RawImage> {
+    let (picture, pictures) = match codec {
         Codec::Jpeg => match RawImage::decode_image_bytes_any(U8VecRef::from(payload)) {
             ResultRawImageDecodeImageError::Ok(image) => (Some(image), 1),
             _ => (None, 0),
@@ -1972,101 +2259,113 @@ fn receive_video(
         }
     };
     input.rules.decoded(pictures);
-    let inert = input.rules.decoder_is_inert();
-    if inert {
-        input.decoder = None;
-    }
-    if inert && s.video.decodes_h264 {
-        s.video.decodes_h264 = false;
-        eprintln!(
-            "[azmeet] {}: the H.264 decoder gives no pictures back: asking everyone for JPEG",
-            s.name
-        );
-        send_message_to(s, &all_peers(s), &video_wire::encode_caps(false, false));
-    }
-    (new_tile, picture)
+    picture
 }
 
-/// A video control message from the peer behind connection `peer`. True when the window changes.
-fn apply_video_control(s: &mut MeetState, peer: u64, control: Control) -> bool {
+/// A control about this side's own stream, from the peer with key `requester`, arriving on
+/// connection `conn`; `via` is set when a forwarder passed it on. True when the window changes.
+fn apply_video_control(
+    s: &mut MeetState,
+    conn: u64,
+    requester: u64,
+    via: Option<u64>,
+    control: Control,
+) -> bool {
     match control {
-        Control::KeyframeRequest { track, .. } => {
+        Control::KeyframeRequest { track, height } => {
             let Some(slot) = track_slot(track) else {
                 return false;
             };
-            s.video_out[slot].keyframes.request();
-            let node_id = s
-                .remotes
-                .iter()
-                .find(|r| r.handle == peer)
-                .map(|r| r.node_id.clone())
-                .unwrap_or_default();
-            let who = remote_name(s, &node_id);
-            eprintln!(
-                "[azmeet] {}: {who} asked for a keyframe ({})",
-                s.name, SOURCES[slot]
-            );
-            false
-        }
-        Control::Received { track, seq, .. } => {
-            let slot = track_slot(track);
-            let remote = s.remotes.iter_mut().find(|r| r.handle == peer);
-            if let (Some(slot), Some(remote)) = (slot, remote) {
-                remote.sent[slot].acked(seq);
+            // A request without a height (none named) asks every rendition of the track.
+            for ((out_track, out_height), out) in s.video_out.iter_mut() {
+                if *out_track == track && (height == 0 || *out_height == height) {
+                    out.keyframes.request();
+                }
+            }
+            let who = name_of(s, requester);
+            let what = if height == 0 {
+                String::from(SOURCES[slot])
+            } else {
+                rendition_label(track, height)
+            };
+            match via {
+                Some(through) => eprintln!(
+                    "[azmeet] {}: {who} asked for a keyframe ({what}, via {})",
+                    s.name,
+                    name_of_handle(s, through)
+                ),
+                None => eprintln!("[azmeet] {}: {who} asked for a keyframe ({what})", s.name),
             }
             false
         }
-        Control::Caps { h264, .. } => {
-            let Some(remote) = s.remotes.iter_mut().find(|r| r.handle == peer) else {
+        Control::Received { track, seq, height } => {
+            if let Some(remote) = s.remotes.iter_mut().find(|r| r.handle == conn) {
+                if let Some(window) = remote.sent.get_mut(&(track, height)) {
+                    window.acked(seq);
+                }
+            }
+            false
+        }
+        Control::Caps { h264, encodes } => {
+            let Some(remote) = s.remotes.iter_mut().find(|r| r.handle == conn) else {
                 return false;
             };
-            if remote.h264 == Some(h264) {
+            if remote.h264 == Some(h264) && remote.encodes == Some(encodes) {
                 return false;
             }
+            if remote.h264 != Some(h264) {
+                // The peer's H.264 starts afresh, at a keyframe.
+                remote.sent.clear();
+            }
             remote.h264 = Some(h264);
-            // The peer's H.264 starts afresh, at a keyframe.
-            remote.sent = [video_wire::SendWindow::new(), video_wire::SendWindow::new()];
+            remote.encodes = Some(encodes);
             let node_id = remote.node_id.clone();
+            let yes = |on: bool| if on { "yes" } else { "no" };
             eprintln!(
-                "[azmeet] {}: {} decodes H.264: {}",
+                "[azmeet] {}: {} decodes H.264: {}, encodes it: {}",
                 s.name,
                 remote_name(s, &node_id),
-                if h264 { "yes" } else { "no" }
+                yes(h264),
+                yes(encodes)
             );
             true
         }
     }
 }
 
-/// Every pump while the camera or the screen share is a test pattern: the frame due now, sent like
-/// a captured one.
+/// Every pump while the camera or the screen share is a test pattern: the frame due now, in every
+/// rendition someone shows, sent like a captured one.
 fn pump_pattern(s: &mut MeetState) {
     if !s.pattern_video || s.remotes.is_empty() {
         return;
     }
     let elapsed = now_ms(s);
-    for (slot, track, on) in [(0, CAMERA_TRACK, s.cam_on), (1, SCREEN_TRACK, s.screen_on)] {
-        if !on {
+    for (slot, track) in [(0usize, CAMERA_TRACK), (1, SCREEN_TRACK)] {
+        let heights = my_renditions(s, track);
+        if heights.is_empty() {
             continue;
         }
         let Some(index) = s.pattern_clocks[slot].next(elapsed) else {
             continue;
         };
-        // The screen's bars sit half a frame further on, so the two tiles differ.
-        let frame =
-            pattern_frame(index.wrapping_add(slot as u32 * FEED_W / 2 / video_wire::PATTERN_STEP));
-        send_video(s, track, frame.width, frame.height, &frame.bytes);
+        for height in heights {
+            let width = routes::rendition_width(height);
+            // The screen's bars sit half a frame further on, so the two tiles differ.
+            let shift = slot as u32 * width / 2 / video_wire::PATTERN_STEP;
+            let frame = pattern_frame(index.wrapping_add(shift), width, u32::from(height));
+            send_video(s, track, height, frame.width, frame.height, &frame.bytes);
+        }
     }
 }
 
-/// The devices panel's video lines: what each local track sent, and what arrived on each peer's
-/// tracks.
+/// The devices panel's video lines: what each rendition of each local track sent, and what arrived
+/// of each stream this side shows ("via Ben" when a forwarder passed it on).
 fn video_lines(s: &MeetState) -> Vec<String> {
     let mut lines = Vec::new();
-    for (slot, out) in s.video_out.iter().enumerate() {
+    for ((track, height), out) in &s.video_out {
         if out.h264_packets + out.jpeg_frames + out.dropped > 0 {
             lines.push(video_wire::send_line(
-                SOURCES[slot],
+                &rendition_label(*track, *height),
                 out.h264_packets,
                 out.jpeg_frames,
                 &out.keyframes.stats(),
@@ -2075,50 +2374,880 @@ fn video_lines(s: &MeetState) -> Vec<String> {
         }
     }
     for r in &s.remotes {
-        for (slot, input) in r.received.iter().enumerate() {
+        let name = remote_name(s, &r.node_id);
+        for ((track, height), input) in &r.received {
             let stats = input.rules.stats();
             let Some(codec) = input.rules.codec().or(input.seen) else {
                 continue;
             };
-            if stats.packets > 0 {
-                let name = remote_name(s, &r.node_id);
-                lines.push(video_wire::video_line(&name, SOURCES[slot], codec, &stats));
+            if !input.shown || stats.packets == 0 {
+                continue;
             }
+            let mut source = rendition_label(*track, *height);
+            if input.via != r.handle {
+                source.push_str(&format!(" via {}", name_of_handle(s, input.via)));
+            }
+            lines.push(video_wire::video_line(&name, &source, codec, &stats));
         }
     }
     lines
 }
 
-/// The periodic log: the video lines, and per peer and track how far this side runs ahead and
-/// what arrived late.
+/// The periodic log: the video lines, how far this side runs ahead of each peer on each stream,
+/// what arrived late, and the streams it passes on.
 fn video_log_lines(s: &MeetState) -> Vec<String> {
     let mut lines = vec![codec_status(s)];
     lines.extend(video_lines(s));
     for r in &s.remotes {
         let name = remote_name(s, &r.node_id);
-        for slot in 0..SOURCES.len() {
-            let window = &r.sent[slot];
-            let late = r.received[slot].rules.stats().late;
-            if window.in_flight() + window.skipped() as usize + late as usize > 0 {
+        for ((track, height), window) in &r.sent {
+            if window.in_flight() + window.skipped() as usize > 0 {
                 lines.push(format!(
-                    "{} to {name}: {} in flight, {} not sent; from {name}: {late} late",
-                    SOURCES[slot],
+                    "{} to {name}: {} in flight, {} not sent",
+                    rendition_label(*track, *height),
                     window.in_flight(),
                     window.skipped()
                 ));
             }
         }
+        for ((track, height), input) in &r.received {
+            let late = input.rules.stats().late;
+            if late > 0 {
+                lines.push(format!(
+                    "{} from {name}: {late} late",
+                    rendition_label(*track, *height)
+                ));
+            }
+        }
+    }
+    for ((child, origin, track, height), window) in &s.relay.windows {
+        if window.in_flight() + window.skipped() as usize > 0 {
+            lines.push(format!(
+                "{}'s {} passed on to {}: {} in flight, {} not sent",
+                name_of(s, *origin),
+                rendition_label(*track, *height),
+                name_of_handle(s, *child),
+                window.in_flight(),
+                window.skipped()
+            ));
+        }
     }
     lines
 }
 
-/// The "Drop a video packet" button (`AZMEET_TEST_PATTERN=1`): the next packet is not sent, so
-/// the others see a gap.
+/// The "Drop a video packet" button (`AZMEET_TEST_PATTERN=1`): the next packet of every rendition
+/// this side sends is not sent, so everyone who gets one sees a gap.
 extern "C" fn on_drop_video_packet(mut data: RefAny, _info: CallbackInfo) -> Update {
-    if let Some(mut s) = data.downcast_mut::<MeetState>() {
-        s.drop_next_video = true;
+    if let Some(mut guard) = data.downcast_mut::<MeetState>() {
+        let s = &mut *guard;
+        s.drop_video = my_streams(s);
     }
     Update::DoNothing
+}
+
+// ==== Rooms of three and more: reports, the plan, forwarding (the rules are in routes.rs) ====
+
+/// The name of the participant with key `key`: this side's own, a peer's, or a short key.
+fn name_of(s: &MeetState, key: u64) -> String {
+    if key == s.me {
+        return s.name.clone();
+    }
+    match s.remotes.iter().find(|r| r.key == key) {
+        Some(r) => remote_name(s, &r.node_id),
+        None => format!("{key:016x}")[..8].to_string(),
+    }
+}
+
+/// The name of the peer behind connection `handle`.
+fn name_of_handle(s: &MeetState, handle: u64) -> String {
+    match s.remotes.iter().find(|r| r.handle == handle) {
+        Some(r) => remote_name(s, &r.node_id),
+        None => format!("connection {handle}"),
+    }
+}
+
+/// The connection to the participant with key `key`, when connected.
+fn handle_of(s: &MeetState, key: u64) -> Option<u64> {
+    s.remotes.iter().find(|r| r.key == key).map(|r| r.handle)
+}
+
+/// The connections to the participants `keys` that are connected.
+fn handles_of(s: &MeetState, keys: &[u64]) -> Vec<u64> {
+    keys.iter().filter_map(|key| handle_of(s, *key)).collect()
+}
+
+/// "camera 360p", "screen 90p"; the track's name alone for no rendition.
+fn rendition_label(track: u32, height: u16) -> String {
+    let source = track_slot(track).map_or("video", |slot| SOURCES[slot]);
+    if height == 0 {
+        source.to_string()
+    } else {
+        format!("{source} {height}p")
+    }
+}
+
+/// The last report of the participant with key `key`: what this side told the others, or what a
+/// peer told this side.
+fn sync_of(s: &MeetState, key: u64) -> Option<&routes::Sync> {
+    if key == s.me {
+        return Some(&s.sync);
+    }
+    s.remotes.iter().find(|r| r.key == key)?.sync.as_ref()
+}
+
+/// The height `viewer` shows `origin`'s `track` at, from its report; 0 when it does not show it.
+fn want_of(s: &MeetState, viewer: u64, origin: u64, track: u32) -> u16 {
+    sync_of(s, viewer).map_or(0, |sync| sync.want(origin, track))
+}
+
+fn decodes_h264_of(s: &MeetState, key: u64) -> bool {
+    if key == s.me {
+        return s.video.decodes_h264;
+    }
+    s.remotes
+        .iter()
+        .any(|r| r.key == key && r.h264 == Some(true))
+}
+
+fn encodes_h264_of(s: &MeetState, key: u64) -> bool {
+    if key == s.me {
+        return s.video.encoder.is_ok();
+    }
+    s.remotes
+        .iter()
+        .any(|r| r.key == key && r.encodes == Some(true))
+}
+
+/// Which stream each of `peers` gets of `origin`'s `track` (`routes::assign`).
+fn assignment_among(
+    s: &MeetState,
+    peers: &[u64],
+    origin: u64,
+    track: u32,
+) -> BTreeMap<u64, routes::Stream> {
+    let viewers: Vec<routes::Viewer> = peers
+        .iter()
+        .copied()
+        .filter(|viewer| *viewer != origin)
+        .map(|viewer| routes::Viewer {
+            key: viewer,
+            need: want_of(s, viewer, origin, track),
+            h264: decodes_h264_of(s, viewer),
+        })
+        .collect();
+    routes::assign(&viewers, encodes_h264_of(s, origin))
+}
+
+/// Which stream each participant of the plan gets of `origin`'s `track`.
+fn assignment(s: &MeetState, origin: u64, track: u32) -> BTreeMap<u64, routes::Stream> {
+    assignment_among(s, s.plan.peers(), origin, track)
+}
+
+/// The heights of this side's `track` someone shows, smallest first; none while the track is off.
+fn my_renditions(s: &MeetState, track: u32) -> Vec<u16> {
+    let on = match track {
+        CAMERA_TRACK => s.cam_on,
+        SCREEN_TRACK => s.screen_on,
+        _ => false,
+    };
+    if !on || s.remotes.is_empty() {
+        return Vec::new();
+    }
+    routes::heights(&assignment(s, s.me, track))
+}
+
+/// This side's (track, height) streams someone shows.
+fn my_streams(s: &MeetState) -> BTreeSet<(u32, u16)> {
+    let mut out = BTreeSet::new();
+    for track in [CAMERA_TRACK, SCREEN_TRACK] {
+        for height in my_renditions(s, track) {
+            out.insert((track, height));
+        }
+    }
+    out
+}
+
+/// Closes the encoders of the renditions nobody shows any more (a paused encoder costs nothing;
+/// the next start opens a fresh one, which begins with a keyframe).
+fn stop_culled(s: &mut MeetState) {
+    let shown = my_streams(s);
+    for (key, out) in s.video_out.iter_mut() {
+        if !shown.contains(key) {
+            out.stop();
+        }
+    }
+}
+
+/// The peer on the stage in speaker view: the one `AZMEET_STAGE` names, else the first by name.
+fn stage_key(s: &MeetState) -> Option<u64> {
+    if s.view != ViewMode::Speaker {
+        return None;
+    }
+    let named = s.remotes.iter().find(|r| {
+        !s.stage_name.is_empty() && remote_name(s, &r.node_id).eq_ignore_ascii_case(&s.stage_name)
+    });
+    named
+        .or_else(|| s.remotes.iter().min_by_key(|r| remote_name(s, &r.node_id)))
+        .map(|r| r.key)
+}
+
+/// What this side shows: for every peer's camera and screen, the rendition its tile needs, from
+/// the tile's role and its laid-out height (the box's height until it is laid out).
+fn my_wants(s: &MeetState) -> Vec<routes::Want> {
+    let room_size = u32::try_from(s.remotes.len() + 1).unwrap_or(u32::MAX);
+    let stage = stage_key(s);
+    let mut wants = Vec::new();
+    for r in &s.remotes {
+        for (slot, track) in [(0usize, CAMERA_TRACK), (1, SCREEN_TRACK)] {
+            let (role, box_height, _) = tile_kind(s.view, stage == Some(r.key), track);
+            let height = r.tile_height[slot]
+                .filter(|h| *h > 1.0)
+                .unwrap_or(box_height);
+            let need = role.rendition_height(height, s.scale, room_size);
+            wants.push(routes::Want {
+                origin: r.key,
+                track,
+                height: u16::try_from(need).unwrap_or(u16::MAX),
+            });
+        }
+    }
+    wants
+}
+
+/// Recomputes this side's report; true when it changed.
+fn refresh_sync(s: &mut MeetState) -> bool {
+    let sync = routes::Sync {
+        uplink_kbps: s.capacity.uplink_kbps(),
+        stability_permille: s.capacity.stability_permille(),
+        on_battery: s.on_battery,
+        relay_only: s.capacity.relay_only(),
+        opted_out: s.opted_out,
+        sends_audio: s.mic_on,
+        sends_camera: s.cam_on,
+        sends_screen: s.screen_on,
+        wants: my_wants(s),
+    };
+    let changed = sync != s.sync;
+    s.sync = sync;
+    changed
+}
+
+/// Tells the peers behind `handles` this side's report.
+fn send_sync(s: &MeetState, handles: &[u64]) {
+    send_message_to(s, handles, &routes::encode_sync(&s.sync));
+}
+
+/// Tells the peers behind `handles` whether this side decodes and encodes H.264.
+fn send_caps(s: &MeetState, handles: &[u64]) {
+    let caps = video_wire::encode_caps(s.video.decodes_h264, s.video.encoder.is_ok());
+    send_message_to(s, handles, &caps);
+}
+
+/// Something this side reports may have changed (a peer came or went, a toggle, the layout, the
+/// statistics): tells everyone when the report changed (or anyway, with `always`), plans again, and
+/// closes the encoders nobody needs.
+fn network_changed(s: &mut MeetState, always: bool) {
+    if refresh_sync(s) || always {
+        send_sync(s, &all_peers(s));
+    }
+    replan(s);
+    stop_culled(s);
+}
+
+/// A report as `IrohLoadBalancer` takes it.
+fn capacity_of(key: u64, sync: &routes::Sync) -> IrohPeerCapacity {
+    let mut capacity = IrohPeerCapacity::create(key, sync.uplink_kbps);
+    capacity.stability = f32::from(sync.stability_permille) / 1000.0;
+    capacity.on_battery = sync.on_battery;
+    capacity.relay_only = sync.relay_only;
+    capacity.opted_out = sync.opted_out;
+    capacity
+}
+
+/// What the room's streams add up to when every viewer gets its own copy (kbit/s): audio from
+/// every open microphone to everyone else, and every video delivery at its rendition's bitrate.
+/// The load balancer grows the backbone until it carries 1.5 times this.
+fn fanout_kbps(s: &MeetState, peers: &[u64]) -> u64 {
+    let viewers = u64::try_from(peers.len().saturating_sub(1)).unwrap_or(u64::MAX);
+    let mut total = 0;
+    for origin in peers {
+        let Some(sync) = sync_of(s, *origin) else {
+            continue;
+        };
+        if sync.sends_audio {
+            total += AUDIO_KBPS * viewers;
+        }
+        for (track, on) in [
+            (CAMERA_TRACK, sync.sends_camera),
+            (SCREEN_TRACK, sync.sends_screen),
+        ] {
+            if on {
+                total += assignment_among(s, peers, *origin, track)
+                    .values()
+                    .map(|stream| {
+                        u64::from(IrohLoadBalancer::rendition_kbps(u32::from(stream.height)))
+                    })
+                    .sum::<u64>();
+            }
+        }
+    }
+    total
+}
+
+/// Plans again from every report: this side's own and each peer's last. Every side feeds the same
+/// reports to the load balancer and gets the same plan. True when the plan changed.
+fn replan(s: &mut MeetState) -> bool {
+    let mut peers = vec![s.me];
+    peers.extend(s.remotes.iter().filter(|r| r.sync.is_some()).map(|r| r.key));
+    let mut balancer = IrohLoadBalancer::create();
+    balancer.set_mesh_cap(s.mesh_cap);
+    balancer.set_peer(capacity_of(s.me, &s.sync));
+    for r in &s.remotes {
+        if let Some(sync) = r.sync.as_ref() {
+            balancer.set_peer(capacity_of(r.key, sync));
+        }
+    }
+    let count = balancer.select_backbone(fanout_kbps(s, &peers));
+    let backbone: Vec<u64> = (0..count)
+        .filter_map(|index| balancer.backbone_peer(index).into_option())
+        .collect();
+    let plan = routes::Plan::new(&peers, &backbone);
+    if plan == s.plan {
+        return false;
+    }
+    s.plan = plan;
+    let view: &MeetState = s;
+    let name = |key: u64| name_of(view, key);
+    eprintln!(
+        "[azmeet] {}: {}",
+        view.name,
+        routes::plan_line(&view.plan, view.mesh_cap, &name)
+    );
+    eprintln!(
+        "[azmeet] {}: {}",
+        view.name,
+        routes::routes_line(&view.plan, &name)
+    );
+    true
+}
+
+/// The laid-out height of every peer's video tiles and the window's scale, so each tile asks for
+/// the rendition it is drawn at.
+fn measure_tiles(s: &mut MeetState, info: &mut CallbackInfo) {
+    let dpi = info.get_current_window_state().size.dpi;
+    if dpi > 0 {
+        s.scale = dpi as f32 / 96.0;
+    }
+    for r in s.remotes.iter_mut() {
+        for (slot, track) in [(0usize, CAMERA_TRACK), (1, SCREEN_TRACK)] {
+            let marker = tile_marker(r.handle, track);
+            let node = info
+                .get_node_id_by_marker(AzString::from(marker.as_str()))
+                .into_option();
+            r.tile_height[slot] = node
+                .and_then(|node| info.get_node_size(node).into_option())
+                .map(|size| size.height);
+        }
+    }
+}
+
+/// Every 2 seconds: the tiles' heights, the paths' statistics into the uplink estimate, the report
+/// to everyone (a peer that missed one gets it again), and the plan.
+fn network_tick(s: &mut MeetState, endpoint: &IrohEndpoint, info: &mut CallbackInfo) {
+    measure_tiles(s, info);
+    let now = now_ms(s);
+    let paths: Vec<(u64, routes::PathSample)> = s
+        .remotes
+        .iter_mut()
+        .map(|r| {
+            let stats = endpoint.peer_stats(r.handle);
+            r.path = Some((stats.direct, stats.rtt_us as f64 / 1000.0));
+            let sample = routes::PathSample {
+                bytes_sent: stats.bytes_sent,
+                lost_packets: stats.lost_packets,
+                rtt_us: stats.rtt_us,
+                cwnd_bytes: stats.cwnd_bytes,
+                direct: stats.direct,
+            };
+            (r.handle, sample)
+        })
+        .collect();
+    s.capacity.sample(now, &paths);
+    network_changed(s, true);
+}
+
+/// The routing settings of this run (see the module docs): the mesh cap, a pinned uplink, the
+/// forwarding opt-out, battery, and the view.
+fn configure_network(s: &mut MeetState) {
+    let setting = |key: &str| {
+        std::env::var(key)
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+    s.mesh_cap = setting("AZMEET_MESH_CAP")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(routes::DEFAULT_MESH_CAP);
+    let pinned = setting("AZMEET_UPLINK_KBPS")
+        .and_then(|v| v.parse::<u32>().ok())
+        .filter(|kbps| *kbps > 0);
+    s.capacity = routes::CapacityEstimator::new(pinned);
+    s.opted_out = setting("AZMEET_NO_FORWARD").is_some_and(|v| v == "1");
+    s.on_battery = setting("AZMEET_ON_BATTERY").is_some_and(|v| v == "1");
+    s.view = if setting("AZMEET_LAYOUT").is_some_and(|v| v.eq_ignore_ascii_case("speaker")) {
+        ViewMode::Speaker
+    } else {
+        ViewMode::Grid
+    };
+    s.stage_name = setting("AZMEET_STAGE").unwrap_or_default();
+    if let Some(endpoint) = s.endpoint.as_ref() {
+        s.me = routes::peer_key(endpoint.endpoint_id().as_str());
+    }
+    refresh_sync(s);
+    eprintln!(
+        "[azmeet] {}: mesh cap {}, reporting up {}{}{}",
+        s.name,
+        s.mesh_cap,
+        routes::kbps_label(s.sync.uplink_kbps),
+        if pinned.is_some() {
+            " (AZMEET_UPLINK_KBPS)"
+        } else {
+            " until measured"
+        },
+        if s.opted_out {
+            ", not forwarding for others"
+        } else {
+            ""
+        }
+    );
+}
+
+/// A peer's report arrived: plan again. True when the window changes.
+fn apply_sync(s: &mut MeetState, conn: u64, sync: routes::Sync) -> bool {
+    let Some(remote) = s.remotes.iter_mut().find(|r| r.handle == conn) else {
+        return false;
+    };
+    if remote.sync.as_ref() == Some(&sync) {
+        return false;
+    }
+    remote.sync = Some(sync);
+    replan(s);
+    stop_culled(s);
+    true
+}
+
+/// Media that reached this side: as its origin sent it, or already wrapped by a forwarder.
+#[derive(Clone, Copy)]
+enum Carried<'a> {
+    Direct(&'a [u8]),
+    Relayed(&'a [u8]),
+}
+
+impl Carried<'_> {
+    /// The bytes to pass on: a forwarder's envelope as it came, or the origin's bytes wrapped.
+    fn envelope(self, track: u32, origin: u64) -> Vec<u8> {
+        match self {
+            Carried::Direct(inner) => routes::encode_relay(track, origin, origin, inner),
+            Carried::Relayed(envelope) => envelope.to_vec(),
+        }
+    }
+}
+
+/// A frame or message from connection `event.peer`: media (the peer's own, or passed on for
+/// someone), a control, a report (`ConnectionSync`), or the audio state. True when the window
+/// changes.
+fn receive_item(
+    s: &mut MeetState,
+    endpoint: &IrohEndpoint,
+    event: &IrohEvent,
+    pictures: &mut BTreeMap<(u64, u32), RawImage>,
+) -> bool {
+    let conn = event.peer;
+    let bytes = event.data.as_slice();
+    let Some(sender) = s.remotes.iter().find(|r| r.handle == conn).map(|r| r.key) else {
+        return false;
+    };
+    if let Some(relayed) = routes::decode_relay(bytes) {
+        return receive_relayed(s, endpoint, conn, relayed, bytes, pictures);
+    }
+    if event.kind == IrohEventKind::Frame && event.track == AUDIO_TRACK {
+        receive_audio(s, sender, bytes);
+        pass_on_audio(s, endpoint, sender, conn, Carried::Direct(bytes));
+        return false;
+    }
+    if let Some(sync) = routes::decode_sync(bytes) {
+        return apply_sync(s, conn, sync);
+    }
+    match video_wire::decode_message(bytes) {
+        Some(Message::Packet(header, payload)) => {
+            let new_tile = take_video(s, endpoint, sender, conn, &header, payload, pictures);
+            pass_on_video(s, endpoint, sender, conn, &header, Carried::Direct(bytes));
+            new_tile
+        }
+        Some(Message::Control(control)) => apply_video_control(s, conn, sender, None, control),
+        // A frame of no known kind, or a malformed one.
+        None if event.kind == IrohEventKind::Frame => false,
+        None => apply_link_event(s, event),
+    }
+}
+
+/// An item a forwarder passed on through connection `conn` (`envelope` is all of it): someone's
+/// media, a keyframe request on its way to the origin, or a child's acknowledgement of a stream
+/// this side passes on.
+fn receive_relayed(
+    s: &mut MeetState,
+    endpoint: &IrohEndpoint,
+    conn: u64,
+    relayed: routes::Relayed<'_>,
+    envelope: &[u8],
+    pictures: &mut BTreeMap<(u64, u32), RawImage>,
+) -> bool {
+    let origin = relayed.origin;
+    if origin == s.me {
+        // A viewer further down asks for a keyframe of this side's own stream.
+        return match video_wire::decode_control(relayed.inner) {
+            Some(control @ Control::KeyframeRequest { .. }) => {
+                apply_video_control(s, conn, relayed.from, Some(conn), control)
+            }
+            _ => false,
+        };
+    }
+    if relayed.track == AUDIO_TRACK {
+        receive_audio(s, origin, relayed.inner);
+        pass_on_audio(s, endpoint, origin, conn, Carried::Relayed(envelope));
+        return false;
+    }
+    match video_wire::decode_message(relayed.inner) {
+        Some(Message::Packet(header, payload)) => {
+            let new_tile = take_video(s, endpoint, origin, conn, &header, payload, pictures);
+            pass_on_video(
+                s,
+                endpoint,
+                origin,
+                conn,
+                &header,
+                Carried::Relayed(envelope),
+            );
+            new_tile
+        }
+        Some(Message::Control(Control::KeyframeRequest { track, height })) => {
+            let request = PassedRequest {
+                origin,
+                requester: relayed.from,
+                track,
+                height,
+            };
+            pass_request_on(s, endpoint, conn, &request, envelope);
+            false
+        }
+        Some(Message::Control(Control::Received { track, seq, height })) => {
+            if let Some(window) = s.relay.windows.get_mut(&(conn, origin, track, height)) {
+                window.acked(seq);
+            }
+            false
+        }
+        _ => false,
+    }
+}
+
+/// The frame lane of `origin`'s passed-on frames (`routes::frame_track`), from 1.
+fn relay_lane(s: &mut MeetState, origin: u64) -> u32 {
+    let next = u32::try_from(s.relay.lanes.len() + 1).unwrap_or(u32::MAX);
+    *s.relay.lanes.entry(origin).or_insert(next)
+}
+
+/// The connections of `keys`, without the origin and the connection the item came through.
+fn relay_targets(s: &MeetState, origin: u64, came_from: u64, keys: &[u64]) -> Vec<u64> {
+    let origin_handle = handle_of(s, origin);
+    handles_of(s, keys)
+        .into_iter()
+        .filter(|handle| *handle != came_from && Some(*handle) != origin_handle)
+        .collect()
+}
+
+/// `origin`'s audio frame passed on to this side's children in origin's tree, on origin's lane.
+fn pass_on_audio(
+    s: &mut MeetState,
+    endpoint: &IrohEndpoint,
+    origin: u64,
+    came_from: u64,
+    carried: Carried<'_>,
+) {
+    let children = s.plan.children(s.me, origin);
+    let targets = relay_targets(s, origin, came_from, &children);
+    if targets.is_empty() {
+        return;
+    }
+    let track = routes::frame_track(relay_lane(s, origin), AUDIO_TRACK, 0);
+    let envelope = carried.envelope(AUDIO_TRACK, origin);
+    s.relay.frames += targets.len() as u64;
+    for handle in targets {
+        endpoint.send_frame(handle, track, envelope.clone());
+    }
+}
+
+/// A packet of `origin`'s video passed on to the children with a viewer of its stream below them
+/// (`routes::Plan::next_hops`): H.264 as a message through a window per child (a child that falls
+/// behind resumes at a keyframe, which is asked for upstream), JPEG as a frame on origin's lane.
+fn pass_on_video(
+    s: &mut MeetState,
+    endpoint: &IrohEndpoint,
+    origin: u64,
+    came_from: u64,
+    header: &video_wire::Header,
+    carried: Carried<'_>,
+) {
+    let stream = routes::Stream {
+        height: header.height,
+        h264: header.codec == Codec::H264,
+    };
+    let assigned = assignment(s, origin, header.track);
+    let hops = s.plan.next_hops(s.me, origin, stream, &assigned);
+    let targets = relay_targets(s, origin, came_from, &hops);
+    if targets.is_empty() {
+        return;
+    }
+    let envelope = carried.envelope(header.track, origin);
+    match header.codec {
+        Codec::H264 => {
+            let mut resync = false;
+            for handle in targets {
+                let window = s
+                    .relay
+                    .windows
+                    .entry((handle, origin, header.track, header.height))
+                    .or_insert_with(video_wire::SendWindow::new);
+                if window.offer(header.seq, header.keyframe) {
+                    endpoint.send_message(handle, envelope.clone());
+                    s.relay.packets += 1;
+                }
+                resync |= window.wants_keyframe();
+            }
+            if resync {
+                ask_upstream(s, endpoint, origin, came_from, header.track, header.height);
+            }
+        }
+        Codec::Jpeg => {
+            let track = routes::frame_track(relay_lane(s, origin), header.track, header.height);
+            s.relay.frames += targets.len() as u64;
+            for handle in targets {
+                endpoint.send_frame(handle, track, envelope.clone());
+            }
+        }
+    }
+}
+
+/// A child waits for a keyframe of a stream this side passes on: ask the way the stream comes
+/// (through `via`), at most once per `video_wire::REQUEST_RETRY_MS`.
+fn ask_upstream(
+    s: &mut MeetState,
+    endpoint: &IrohEndpoint,
+    origin: u64,
+    via: u64,
+    track: u32,
+    height: u16,
+) {
+    let now = now_ms(s);
+    let key = (origin, track, height);
+    let recent = s
+        .relay
+        .asked
+        .get(&key)
+        .is_some_and(|at| now.saturating_sub(*at) < video_wire::REQUEST_RETRY_MS);
+    if recent {
+        return;
+    }
+    s.relay.asked.insert(key, now);
+    let request = video_wire::encode_keyframe_request(track, height);
+    send_control_up(s, endpoint, origin, via, track, &request);
+}
+
+/// A control about `origin`'s stream, sent back through `via`, the connection the stream comes
+/// through: as it is when that is the origin, else wrapped, naming the origin and this side.
+fn send_control_up(
+    s: &MeetState,
+    endpoint: &IrohEndpoint,
+    origin: u64,
+    via: u64,
+    track: u32,
+    control: &[u8],
+) {
+    if handle_of(s, origin) == Some(via) {
+        endpoint.send_message(via, control.to_vec());
+    } else {
+        endpoint.send_message(via, routes::encode_relay(track, origin, s.me, control));
+    }
+}
+
+/// A keyframe request on its way from `requester` to `origin`.
+struct PassedRequest {
+    origin: u64,
+    requester: u64,
+    track: u32,
+    height: u16,
+}
+
+/// Passes a keyframe request on toward its origin, through the connection this side gets that
+/// stream from (else its parent in the origin's tree), as it came (`envelope`).
+fn pass_request_on(
+    s: &mut MeetState,
+    endpoint: &IrohEndpoint,
+    came_from: u64,
+    request: &PassedRequest,
+    envelope: &[u8],
+) {
+    let through = s
+        .remotes
+        .iter()
+        .find(|r| r.key == request.origin)
+        .and_then(|r| r.received.get(&(request.track, request.height)))
+        .map(|input| input.via);
+    let upstream = through.or_else(|| {
+        s.plan
+            .parent(s.me, request.origin)
+            .and_then(|parent| handle_of(s, parent))
+    });
+    let Some(upstream) = upstream.filter(|handle| *handle != came_from) else {
+        return;
+    };
+    endpoint.send_message(upstream, envelope.to_vec());
+    s.relay.requests += 1;
+    eprintln!(
+        "[azmeet] {}: passing {}'s keyframe request for {}'s {} on to {}",
+        s.name,
+        name_of(s, request.requester),
+        name_of(s, request.origin),
+        rendition_label(request.track, request.height),
+        name_of_handle(s, upstream)
+    );
+}
+
+/// A peer left: the windows of what this side passed on to it or for it go.
+fn forget_relaying(s: &mut MeetState, gone: &Remote) {
+    s.relay
+        .windows
+        .retain(|(child, origin, _, _), _| *child != gone.handle && *origin != gone.key);
+    s.relay
+        .asked
+        .retain(|(origin, _, _), _| *origin != gone.key);
+}
+
+/// The network panel: the plan, every origin's route, this side's role and report, what it passed
+/// on, and one line per peer. Empty while nobody else is here.
+fn network_lines(s: &MeetState) -> Vec<String> {
+    if s.remotes.is_empty() {
+        return Vec::new();
+    }
+    let name = |key: u64| name_of(s, key);
+    let mut lines = vec![
+        routes::plan_line(&s.plan, s.mesh_cap, &name),
+        routes::routes_line(&s.plan, &name),
+        routes::role_line(&s.plan, s.me, &name),
+        report_line(s),
+    ];
+    if s.relay.packets + s.relay.frames + s.relay.requests > 0 {
+        lines.push(format!(
+            "Forwarded: {} packets, {} frames, {} keyframe requests passed on",
+            s.relay.packets, s.relay.frames, s.relay.requests
+        ));
+    }
+    for r in &s.remotes {
+        lines.push(routes::peer_line(&peer_row(s, r)));
+    }
+    lines
+}
+
+/// "You report: up 1 Mbps (pinned; measured 100 Mbps) · stability 100%".
+fn report_line(s: &MeetState) -> String {
+    let mut line = format!("You report: up {}", routes::kbps_label(s.sync.uplink_kbps));
+    match (s.capacity.is_pinned(), s.capacity.measured_kbps()) {
+        (true, Some(measured)) => line.push_str(&format!(
+            " (pinned; measured {})",
+            routes::kbps_label(measured)
+        )),
+        (true, None) => line.push_str(" (pinned)"),
+        (false, Some(_)) => line.push_str(" (measured)"),
+        (false, None) => line.push_str(" (not measured yet)"),
+    }
+    line.push_str(&format!(" · stability {}%", s.sync.stability_permille / 10));
+    if s.sync.relay_only {
+        line.push_str(" · relay only");
+    }
+    if s.sync.opted_out {
+        line.push_str(" · not forwarding for others");
+    }
+    if s.sync.on_battery {
+        line.push_str(" · on battery");
+    }
+    line
+}
+
+/// The network panel's line about peer `r`: its path, its part in the plan, what it reports, what
+/// this side sends it (its own streams, then what it passes on for others), and what this side
+/// gets through it.
+fn peer_row(s: &MeetState, r: &Remote) -> routes::PeerRow {
+    let me = s.me;
+    let mut own = Vec::new();
+    let mut passed = Vec::new();
+    let mut from = Vec::new();
+    for origin in s.plan.peers().iter().copied() {
+        let Some(sync) = sync_of(s, origin) else {
+            continue;
+        };
+        let origin_name = name_of(s, origin);
+        let through_r = origin != me && s.plan.parent(me, origin) == Some(r.key);
+        let mut sends = |item: String| {
+            if origin == me {
+                own.push(item);
+            } else {
+                passed.push(format!("{origin_name} {item}"));
+            }
+        };
+        if sync.sends_audio {
+            if s.plan.children(me, origin).contains(&r.key) {
+                sends(String::from("audio"));
+            }
+            if through_r {
+                from.push(format!("{origin_name} audio"));
+            }
+        }
+        for (slot, track, on) in [
+            (0usize, CAMERA_TRACK, sync.sends_camera),
+            (1, SCREEN_TRACK, sync.sends_screen),
+        ] {
+            if !on {
+                continue;
+            }
+            let assigned = assignment(s, origin, track);
+            for stream in routes::streams(&assigned) {
+                if s.plan
+                    .next_hops(me, origin, stream, &assigned)
+                    .contains(&r.key)
+                {
+                    sends(routes::stream_label(SOURCES[slot], stream));
+                }
+            }
+            if through_r {
+                if let Some(stream) = assigned.get(&me) {
+                    from.push(format!(
+                        "{origin_name} {}",
+                        routes::stream_label(SOURCES[slot], *stream)
+                    ));
+                }
+            }
+        }
+    }
+    passed.sort();
+    from.sort();
+    own.extend(passed);
+    routes::PeerRow {
+        name: remote_name(s, &r.node_id),
+        path: r.path,
+        backbone: r.sync.as_ref().map(|_| s.plan.is_backbone(r.key)),
+        uplink_kbps: r.sync.as_ref().map(|sync| sync.uplink_kbps),
+        to: own,
+        from,
+    }
 }
 
 // ==== Meeting server: requests on an azul Thread, answers on the UI thread ====
@@ -2778,6 +3907,7 @@ extern "C" fn mic_toggle(mut data: RefAny, _info: CallbackInfo) -> Update {
         s.mic_on = !s.mic_on;
         sync_mic(s);
         send_state_to_all(s);
+        network_changed(s, false);
     }
     Update::RefreshDom
 }
@@ -2810,10 +3940,12 @@ fn leave_meeting(s: &mut MeetState) -> Option<HttpJob> {
     s.remotes.clear();
     drop_audio(s, None);
     s.packetizer.reset();
-    for out in s.video_out.iter_mut() {
+    for out in s.video_out.values_mut() {
         out.stop();
     }
-    s.drop_next_video = false;
+    s.drop_video.clear();
+    s.plan = routes::Plan::default();
+    s.relay = Relaying::default();
     s.link_status = String::from("not in a meeting");
     s.notice = String::from("You left the meeting.");
     let room = s.room.as_mut()?;
@@ -2838,13 +3970,14 @@ extern "C" fn on_leave(mut data: RefAny, mut info: CallbackInfo) -> Update {
     }
     Update::RefreshDom
 }
+
+/// The camera on or off: the encoders of its renditions close with it (`stop_culled`), and the
+/// others hear it in the next report.
 extern "C" fn cam_toggle(mut data: RefAny, _info: CallbackInfo) -> Update {
     if let Some(mut guard) = data.downcast_mut::<MeetState>() {
         let s = &mut *guard;
         s.cam_on = !s.cam_on;
-        if let (false, Some(slot)) = (s.cam_on, track_slot(CAMERA_TRACK)) {
-            s.video_out[slot].stop();
-        }
+        network_changed(s, false);
     }
     Update::RefreshDom
 }
@@ -2852,9 +3985,24 @@ extern "C" fn screen_toggle(mut data: RefAny, _info: CallbackInfo) -> Update {
     if let Some(mut guard) = data.downcast_mut::<MeetState>() {
         let s = &mut *guard;
         s.screen_on = !s.screen_on;
-        if let (false, Some(slot)) = (s.screen_on, track_slot(SCREEN_TRACK)) {
-            s.video_out[slot].stop();
+        network_changed(s, false);
+    }
+    Update::RefreshDom
+}
+
+/// Grid or speaker view: the tiles change size, so what this side asks for changes.
+extern "C" fn view_toggle(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut guard) = data.downcast_mut::<MeetState>() {
+        let s = &mut *guard;
+        s.view = match s.view {
+            ViewMode::Grid => ViewMode::Speaker,
+            ViewMode::Speaker => ViewMode::Grid,
+        };
+        // Until the tiles are laid out again, the new boxes' heights count.
+        for r in s.remotes.iter_mut() {
+            r.tile_height = [None; 2];
         }
+        network_changed(s, false);
     }
     Update::RefreshDom
 }
@@ -3002,6 +4150,7 @@ fn start_rooms(worker: String) {
     me.room = Some(room);
     configure_audio(&mut me);
     configure_video(&mut me, &probe_video());
+    configure_network(&mut me);
     run(vec![RefAny::new(me)], false);
 }
 
@@ -3033,6 +4182,8 @@ fn start_demo(notice: &str) {
         configure_audio(&mut ben);
         configure_video(&mut ada, &video);
         configure_video(&mut ben, &video);
+        configure_network(&mut ada);
+        configure_network(&mut ben);
         vec![RefAny::new(ada), RefAny::new(ben)]
     } else {
         let failure = bind_failure(&ada_link);
@@ -3043,6 +4194,7 @@ fn start_demo(notice: &str) {
         solo.link_status = failure;
         configure_audio(&mut solo);
         configure_video(&mut solo, &video);
+        configure_network(&mut solo);
         vec![RefAny::new(solo)]
     };
     let linked = peers.len() == 2;
