@@ -10,7 +10,7 @@ use std::{
     ops::Bound,
     str::FromStr,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicI32, AtomicU64, Ordering},
         Arc, Mutex, MutexGuard, OnceLock, PoisonError,
     },
 };
@@ -29,6 +29,11 @@ use super::types::{IrohConfig, IrohEvent, IrohEventKind, IrohPeerStats, IrohRela
 
 const FRAME_STREAM: u8 = 1;
 const MESSAGE_STREAM: u8 = 2;
+/// QUIC send priority of a track's frames unless `set_track_priority` changed it. Higher goes
+/// first when the link cannot carry everything at once.
+const FRAME_PRIORITY: i32 = 0;
+/// QUIC send priority of the message stream unless `set_message_priority` changed it: above
+/// frames, so a reliable message is not held back by a stale frame.
 const MESSAGE_PRIORITY: i32 = 1;
 const CLOSED_BY_APP: u32 = 0;
 const PROTOCOL_VIOLATION: u32 = 1;
@@ -90,6 +95,45 @@ struct Slot {
 struct Outbound {
     sequence: u64,
     data: Arc<[u8]>,
+}
+
+/// The send priorities of one endpoint, shared by all its connections: per track for frames,
+/// one for the message stream.
+struct Priorities {
+    tracks: Mutex<BTreeMap<u32, i32>>,
+    messages: AtomicI32,
+}
+
+impl Default for Priorities {
+    fn default() -> Self {
+        Priorities {
+            tracks: Mutex::default(),
+            messages: AtomicI32::new(MESSAGE_PRIORITY),
+        }
+    }
+}
+
+impl Priorities {
+    /// The priority a new frame stream of `track` is opened at.
+    fn frame(&self, track: u32) -> i32 {
+        let _ = track;
+        todo!("RED: per-track frame priority")
+    }
+
+    /// The priority of the message stream.
+    fn message(&self) -> i32 {
+        todo!("RED: message priority")
+    }
+
+    fn set_track(&self, track: u32, priority: i32) {
+        let _ = (track, priority);
+        todo!("RED: set a track's priority")
+    }
+
+    fn set_messages(&self, priority: i32) {
+        let _ = priority;
+        todo!("RED: set the message priority")
+    }
 }
 
 impl Engine {
@@ -228,6 +272,18 @@ impl Engine {
         };
         let sequence = self.state.message_sequence.fetch_add(1, Ordering::Relaxed) + 1;
         peer.messages.send((sequence, data.to_vec())).is_ok()
+    }
+
+    /// Frames of `track` (to every peer) leave at `priority` from the next frame on.
+    pub(super) fn set_track_priority(&self, track: u32, priority: i32) {
+        let _ = (track, priority);
+        todo!("RED: IrohEndpoint::set_track_priority")
+    }
+
+    /// The message stream (to every peer) leaves at `priority` from the next message on.
+    pub(super) fn set_message_priority(&self, priority: i32) {
+        let _ = priority;
+        todo!("RED: IrohEndpoint::set_message_priority")
     }
 
     pub(super) fn disconnect(&self, peer: u64) -> bool {
@@ -599,6 +655,110 @@ mod tests {
             next_of(&host, IrohEventKind::PeerDisconnected).peer,
             host_side
         );
+    }
+
+    /// Frames leave at 0 and messages at 1 unless changed. A track given a higher priority than
+    /// the message stream goes first when the link cannot carry everything (audio frames over
+    /// H.264 messages); the other tracks keep theirs, and the message stream can be lowered.
+    #[test]
+    fn a_track_given_a_higher_priority_outranks_the_message_stream() {
+        let priorities = Priorities::default();
+        assert_eq!(priorities.frame(3), FRAME_PRIORITY);
+        assert_eq!(priorities.message(), MESSAGE_PRIORITY);
+        assert!(
+            priorities.frame(3) < priorities.message(),
+            "by default a message goes first"
+        );
+
+        priorities.set_track(3, 2);
+        assert!(
+            priorities.frame(3) > priorities.message(),
+            "the audio track now goes first"
+        );
+        assert_eq!(
+            priorities.frame(1),
+            FRAME_PRIORITY,
+            "other tracks keep the default"
+        );
+
+        priorities.set_messages(-1);
+        assert!(priorities.frame(1) > priorities.message());
+    }
+
+    /// `peer_stats` reports the messages accepted for a peer that have not been handed to the
+    /// connection yet, and the backlog drains to zero once they left. A frame on a track given
+    /// a higher priority crosses while the backlog drains.
+    #[test]
+    fn the_message_backlog_is_reported_until_it_has_left() {
+        const COUNT: u64 = 64;
+        const SIZE: usize = 1 << 20;
+
+        let host = local_endpoint();
+        let guest = local_endpoint();
+        let ticket = next_of(&host, IrohEventKind::Ready).text;
+        guest.connect(ticket.as_str()).expect("the ticket parses");
+        let host_side = next_of(&host, IrohEventKind::PeerConnected).peer;
+        let _guest_side = next_of(&guest, IrohEventKind::PeerConnected).peer;
+
+        let message = vec![7u8; SIZE];
+        for _ in 0..COUNT {
+            assert!(host.send_message(host_side, &message));
+        }
+        // 64 MiB take far longer to leave than to queue: right after queueing, most wait.
+        let queued = host.peer_stats(host_side);
+        assert!(
+            queued.messages_queued > 0 && queued.messages_queued <= COUNT,
+            "{queued:?}"
+        );
+        assert!(
+            queued.message_bytes_queued > 0 && queued.message_bytes_queued <= COUNT * SIZE as u64,
+            "{queued:?}"
+        );
+
+        host.set_track_priority(3, 2);
+        assert!(host.send_frame(Some(host_side), 3, b"audio"));
+
+        let mut messages = 0u64;
+        let mut audio = false;
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while messages < COUNT || !audio {
+            match guest.recv() {
+                Some(event) if event.kind == IrohEventKind::Message => {
+                    assert_eq!(event.data.as_ref().len(), SIZE);
+                    messages += 1;
+                }
+                Some(event) if event.kind == IrohEventKind::Frame => {
+                    assert_eq!(event.track, 3);
+                    assert_eq!(event.data.as_ref(), b"audio");
+                    audio = true;
+                }
+                Some(event) => {
+                    assert_ne!(event.kind, IrohEventKind::Error, "{}", event.text.as_str())
+                }
+                None => {
+                    assert!(
+                        Instant::now() < deadline,
+                        "{messages} messages, audio frame: {audio}"
+                    );
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+            }
+        }
+
+        // Everything arrived, so everything was handed to the connection; the counters drop
+        // right after each write, so allow them a moment.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let left = host.peer_stats(host_side);
+            if left.messages_queued == 0 && left.message_bytes_queued == 0 {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the backlog never drained: {left:?}"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 
     #[test]
