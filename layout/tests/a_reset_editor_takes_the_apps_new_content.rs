@@ -104,18 +104,20 @@ fn typing_after_the_reset_goes_into_the_new_content() {
     assert_eq!(editor.markup_of(REPLY_P), "Re: subject");
 }
 
+/// A text edit's undo entry is keyed to the editing HOST (the focused
+/// node), not to the paragraph the typing went into.
 #[test]
 fn the_undo_history_of_the_old_content_is_gone() {
     let mut editor = typed_editor();
     assert!(
-        editor.lw.undo_redo_manager.can_undo(NodeId::new(2)),
-        "premise: the typing is undoable"
+        editor.lw.undo_redo_manager.can_undo(NodeId::new(HOST)),
+        "premise: the typing is undoable on the host"
     );
 
     reset_and_render(&mut editor, true);
 
     assert!(
-        !editor.lw.undo_redo_manager.can_undo(NodeId::new(REPLY_P)),
+        !editor.lw.undo_redo_manager.can_undo(NodeId::new(HOST)),
         "Ctrl+Z after the reset has nothing of the old content to restore"
     );
 }
