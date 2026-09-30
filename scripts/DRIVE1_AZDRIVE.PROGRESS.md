@@ -15,8 +15,10 @@ Branch `wt/drive1-azdrive` from `a7e18f4df`. Report: `scripts/DRIVE1_AZDRIVE_202
   (`lib.rs`: sidebar, breadcrumb, ListView, dialogs, keyring, Threads). Coordinator ruling done:
   NoTitle decorations + `Titlebar` title row in the toolbar colour.
 
+- `examples/azul-drive/scripts/browse.py` e2e (needs the built AzDrive; not run here).
+
 ## IN PROGRESS
-- `examples/azul-drive/scripts/browse.py` e2e.
+- Report `scripts/DRIVE1_AZDRIVE_2026_09_30.md`.
 
 ## NEXT
 1. Python S3 test server (`examples/azul-drive/scripts/s3_server.py`) + unittest, RED first.
