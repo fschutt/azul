@@ -10,14 +10,15 @@
   a6f611432 (scripts/fb1/azmeet_resize_probe.py + references on the restyle path);
   8e56c4400 (differential layout test: fast path vs relayout, AzMeet lobby + devices panel).
 - Report scripts/FB1_FEEDBACK_2026_09_30.md.
+- Follow-up: 8e56c4400 red on the parent's build (3/3) -> 43c226479 engine fix
+  (`NodeCache::final_layout_current`: a memoised final layout only while its subtree holds what it wrote).
 
 ## IN PROGRESS
 - (none)
 
 ## NEXT (for the parent / a follow-up)
-- Build, run the suites, run the differential test and the probe --compare on the rebuilt AzMeet.
-  If either is red: the final-layout-memo fix sketched in the report (or the DL patch), with the
-  differential test as its RED.
+- Parent: build 43c226479, run the 3 differential tests (expect green), the probe --compare, and
+  the resize perf numbers.
 - Screenshot AzCalendar in both modes on the rebuilt binary.
 
 ## Open questions

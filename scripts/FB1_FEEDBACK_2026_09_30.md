@@ -18,7 +18,9 @@ claim marked "run" was run against the parent's prebuilt binaries (`target/relea
 | 1023db90c | fix(headless): a latched resize takes IncrementalRelayout::Resize, as every desktop shell does |
 | a6f611432 | test(azmeet): a resize probe over the debug server, with references recorded on the restyle path |
 | 8e56c4400 | test(layout): the resize fast path paints what a relayout paints - AzMeet's lobby and statistics |
-| (last) | docs(fb1): report + progress |
+| ba8f50102 | docs(fb1): report and progress |
+| 43c226479 | fix(layout): a memoised final layout is served only while its subtree holds what it wrote (the ENGINE fix for items 1 and 2; RED = 8e56c4400) |
+| (last) | docs(fb1): report + progress (follow-up) |
 
 ## Item 3 - AzCalendar buttons in light / dark: ROOT CAUSE IN THE APP (fixed)
 
@@ -93,7 +95,33 @@ had no op to read or switch the APP's mode, so page and window disagreed.
 
 ## Items 1 and 2 - AzMeet "input forgets to stretch" / "statistics break lines on resize"
 
-Not reproduced; the harness could not reproduce them, and that is fixed.
+ROOT CAUSE IN THE ENGINE (fixed in 43c226479). Not reproducible headless until 1023db90c; the
+differential test 8e56c4400 reproduced both on the parent's build (all 3 red): after the first
+fast-path resize the lobby's stretched "AzMeet" span (NodeId 4) painted 93.89 px wide instead of
+520 at every step, the Microphones column's "(none detected)" (NodeId 13) 54.90 instead of 75.86,
+and the viewport's horizontal thumb differed.
+
+The mechanism (a memo with side effects): taffy memoises a FINAL layout (`PerformLayout`) by its
+inputs, but in the taffy bridge a MEASURE of the same subtree writes the state that final layout
+produced - `compute_child_layout` stores every answer (hypothetical-cross and min-content probes
+too, even cache hits) as the node's `used_size`, `compute_non_flex_layout` re-flows the inline
+content and re-places the children at the measure's constraints. On the fast path the taffy
+caches survive the pass. D's hypothetical-cross slot for the card alternates between
+(576, MaxContent) and (576, Definite(h)), so every pass MEASURES the card; its children answer
+their hypothetical cross size - the span's content width 93.89 - into `used_size`; the card's
+final layout (same inputs as last frame) came from the memo, and nobody wrote the stretched 520
+back. The Microphones column, clamped at its min-content 75.86, is measured, "(none detected)"
+answers its widest line 54.90, and the column's final is a memo hit. The restyle relayout never
+showed it: its reconcile clones start with empty taffy caches (deac0bebb); the fast path
+(4d0aa30c5) took the retained tree without that clone.
+
+Fix (layout/src/solver3/cache.rs, taffy_bridge.rs): `NodeCache::final_layout_current`. Every
+computation of a node in the bridge clears it before it runs, a final computation sets it when
+done, and `TaffyBridge::cache_get` serves a `PerformLayout` entry only while it is set; otherwise
+the final layout runs again, re-lays the children and writes their sizes and offsets back. A
+child is clobbered only inside a computation of its parent (and so on up to the layout root, whose
+final always runs), so a final that may still be served had nothing under it rewritten. Measures
+stay memoised; the finals under an untouched subtree still hit. General: no AzMeet-specific code.
 
 What was run (headless AzMeet, debug server, `get_node_layout` / `get_display_list` /
 `take_screenshot` after each op, `wait_frame` x2-3):
@@ -117,26 +145,15 @@ clone drops every measurement, deac0bebb; no patch), so every headless resize to
 desktop window takes. Fixed in 1023db90c (RED 2fa21e71e: `last_reconcile_was_skipped` after a
 latched resize).
 
-Engine suspects (not proven): (a) the taffy bridge memoises a FINAL layout by its inputs, but
-`compute_non_flex_layout` also writes the subtree's IFC line layout, children's offsets and used
-sizes, which a measure pass in the same frame can overwrite - a final-layout HIT then keeps the
-measure's state (the memo-with-side-effect shape of ci_green_and_layout_cache_2026_09_07; only
-reachable when taffy caches survive a frame, i.e. the fast path; deac0bebb cleared them on the
-clone for a bug of this class, 4d0aa30c5 then added the fast path without the clone). Tracing
-AzMeet's lobby and devices panel through taffy's cache keys I could not find a sequence that
-triggers it in steady state (the keys change together with the final's), so no speculative fix
-is committed. (b) the display-list patch (`PatchState`), which only resize-skip passes use.
-Candidate fix for (a) if (B) below shows it: a per-node "final layout current" bit (NodeCache),
-cleared by any measure computation of the node, set after its final computation, and a
-PerformLayout `cache_get` that misses unless the bit is set.
+(My first trace through taffy's keys missed it because I assumed a measure HIT leaves the
+node alone; the bridge's tail writes `used_size` on hits too - that is the 93.89.)
 
 Tools for the parent after the rebuild:
 - (B) layout/tests/the_resize_fast_path_paints_what_a_relayout_paints.rs: two LayoutWindows, one
   history, one resizing like a desktop shell and one like the restyle relayout, AzMeet's lobby
   (REAL flat TextInputs + Buttons) and devices panel (5 columns, counters ticking, rebuilds
   between resizes); after every step the display lists must be the same items (geometry rounded
-  to 0.01). NOT run here; RED if the Mac bugs come from the fast path (it names step and item),
-  GREEN otherwise.
+  to 0.01). RED on the parent's build (3/3), expected GREEN with 43c226479.
 - scripts/fb1/azmeet_resize_probe.py + reference_lobby.json / reference_call.json: recorded on
   the current build (restyle path), deterministic (run: 18/18 and 19/19 replay). After the
   rebuild, `--compare` reports every step where the fast path paints differently.
@@ -159,7 +176,11 @@ No changes. The new ops and response structs are layout-internal (`DebugEvent`,
 3. layout/tests/the_resize_fast_path_paints_what_a_relayout_paints.rs: `FcFontCache::clone`
    (rust-fontconfig 5.0.0 implements it), `TextInput::create().with_text("..".into())`,
    `Button::create("..".into()).dom()`, `layout_cache.cached_display_list` 6-tuple.
-4. examples/azul-calendar: format strings `{DAY_PAINT}` / `{SECONDARY}` / `{EVENT_PAINT}` /
+4. layout/src/solver3/taffy_bridge.rs (43c226479): `self.ctx.cache_map.entries.get(..)` from
+   the `&self` `cache_get` (the CacheTree impl) through the `&mut LayoutContext` field; the
+   closure passed to `compute_cached_layout` uses `inputs.run_mode` after handing `inputs` by
+   value to the compute function (`LayoutInput` is `Copy`).
+5. examples/azul-calendar: format strings `{DAY_PAINT}` / `{SECONDARY}` / `{EVENT_PAINT}` /
    `{DRAFT_PAINT}` capture consts (as `{LINE}` already did); `ColorU` no longer used (it came
    from `prelude::*`, no warning).
 
@@ -177,8 +198,10 @@ python3 scripts/fb1/azmeet_resize_probe.py --view lobby --compare scripts/fb1/re
 python3 scripts/fb1/azmeet_resize_probe.py --view call  --compare scripts/fb1/reference_call.json   # needs the Worker dev server on :8787
 ```
 Combined RED pass: e9fbed1ed (AzCalendar), d6658bd14 (ops + smoke), 2fa21e71e (headless fast
-path) are genuine REDs (the smoke RED was seen: 21/27). 8e56c4400 is a differential pin whose
-state on the base is unknown.
+path) are genuine REDs (the smoke RED was seen: 21/27); 8e56c4400 is red on the parent's build
+(3/3) and is the RED of 43c226479. The headless test's settle needs the parent's
+`let _ = window.common.take_regeneration();` (on fix/input-bugs-2026-09-19; not duplicated here,
+to keep the pick clean).
 
 Watch: after 1023db90c every headless / AZ_E2E `resize` takes the fast path (op-resize-*.json,
 bug-textinput-resize-select-visual.json, ...). A scenario that turns red there has found a
@@ -186,7 +209,8 @@ desktop resize bug that was hidden before.
 
 ## Left
 
-- Items 1 / 2: run (B) and the probe on the rebuilt tree; if red, the memo fix above (or the
-  patch) with (B) as its RED.
+- Items 1 / 2: build 43c226479, run the 3 differential tests (expect green) and the probe
+  `--compare` on the rebuilt AzMeet; then the resize perf numbers (frame_perf resize) - a final
+  after a measure computation now runs again where it used to be served.
 - AzCalendar in both modes on the rebuilt binary (screenshots): not seen yet with the new CSS
   (the palette was checked through `mount`).
