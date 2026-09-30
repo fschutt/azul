@@ -150,6 +150,11 @@ class Chrome:
         page.call("Page.enable")
         page.call("Emulation.setDeviceMetricsOverride",
                   {"width": width, "height": height, "deviceScaleFactor": 1, "mobile": False})
+        # Light mode whatever the host is in: a mail's `@media (prefers-color-scheme:
+        # dark)` rules fired in Chrome on a Mac in dark mode while azul's headless
+        # window rendered the light styles, and the boxes differed for that alone.
+        page.call("Emulation.setEmulatedMedia",
+                  {"features": [{"name": "prefers-color-scheme", "value": "light"}]})
         page.call("Page.navigate", {"url": url})
         self.wait_event("Page.loadEventFired", session)
         return page
