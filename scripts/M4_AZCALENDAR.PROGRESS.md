@@ -12,11 +12,16 @@ Branch `wt/m4-azcalendar` (base `8e9a0a683`). Report: `scripts/M4_AZCALENDAR_202
 - `4bc9ec077` feat: lib.rs UI (week view, New event form, Save -> mint -> file, Join meeting); the whole lib
   type-checks (lib + tests) against target/release's link-dynamic azul rmeta (scratchpad `m4/check_lib.sh`).
 
+- `6756d8a45` test: mint-and-join reads the form's error while waiting; dry run against Node stand-ins
+  (scratchpad `m4/fake-azcal.mjs`, `m4/fake-azmeet.mjs`) with the real dev server: PASS.
+- report `scripts/M4_AZCALENDAR_2026_09_29.md`.
+
 ## IN PROGRESS
-- dry run of mint-and-join.mjs against Node stand-ins for AzCalendar / AzMeet (scratchpad `m4/fake-*.mjs`).
+- nothing.
 
 ## NEXT
-4. report.
+- the parent: `cargo test -p AzCalendar --lib`, build AzCalendar + AzMeet + libazul with the debug server, run
+  `node examples/azul-calendar/scripts/mint-and-join.mjs --worker-dir .../azul-apps-m1/cf-workers/meet`.
 
 ## Open questions
 - The Worker's rooms live 24 h (extended by announcements); an event next week keeps a link to a room the
