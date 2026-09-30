@@ -204,6 +204,9 @@ class Week:
 
     def scroll_to_y(self, y):
         """Scrolls the week to `y` (held to its range), and waits until it is there."""
+        # The range as it is NOW: a notice above the week (e.g. "Saved ...") comes and goes and
+        # changes the scroll box's height, so a range read before it went is too long.
+        self.refresh()
         y = min(max(y, 0.0), self.max_scroll())
         self.dbg.must({"op": "scroll_node_to", "selector": "#week-scroll", "x": 0, "y": y})
 
