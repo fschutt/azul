@@ -20,11 +20,16 @@ Resumed 2026-09-30 21:15 after the kernel panic (scratchpad wiped; helper script
 - `afa332733` RED / (next) GREEN: AzDrive's places / history / search / typed path (browse.rs),
   lib.rs rebuilt on the widgets, browse.py extended (tree, Back / Forward / Up).
 
+- `82f1d74c9` accordion `variant` before `theme`; report + progress.
+- `7a01c9c29` the two tree_view test failures on the integrated build (coordinator, 2026-10-01):
+  an open node with unloaded children drew an empty children container (render by
+  `children_loaded`); the `drives_tree` fixture now opens "Cloud" so its leaf "mail" is a row.
+
 ## IN PROGRESS
-- the report
+- nothing
 
 ## NEXT
-1. report `scripts/FB2_AZDRIVE_2026_09_30.md` (api.json list, least-sure spots, test commands)
+- nothing; awaiting the parent's integrated run
 
 ## Probe tools (scratchpad, not committed; recreated after the panic)
 - `scratchpad/fb2/rects.py <bin> <port> <script.json> ENV=.. -- '#sel' ..`: runs ONE app through
