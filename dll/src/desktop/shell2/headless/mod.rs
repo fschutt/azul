@@ -11433,6 +11433,10 @@ mod tests {
         let mut window = make_window_sized(&state, layout, 400.0, 300.0);
         window.regenerate_layout().expect("initial layout");
         window.regenerate_layout().expect("settle");
+        // A new window is born owing a rebuild. The frame path consumes that
+        // request; the direct calls above do not, so the first frame under
+        // test would rebuild the DOM for it.
+        let _ = window.common.take_regeneration();
         window
             .common
             .layout_window
