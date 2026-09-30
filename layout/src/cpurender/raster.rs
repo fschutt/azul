@@ -3829,6 +3829,16 @@ fn render_text_prerendered_lcd(
     if cx1 <= cx0 || cy1 <= cy0 {
         return true; // fully clipped: nothing to paint, and nothing missed
     }
+    // The same box, for the sweep the overlapping components take (pass
+    // 2a): it used to get the STACK clip alone, so with no stack clip - or
+    // one wider than the run's clip_rect - the overlapping glyphs of a run
+    // painted past the clip_rect the tiled ones were cut to.
+    let run_clip = AzRect::from_xywh(
+        cx0 as f32,
+        cy0 as f32,
+        (cx1 - cx0) as f32,
+        (cy1 - cy0) as f32,
+    );
 
     let _p = crate::probe::Probe::span("glyph_lcd_pretile");
     // Pass 1: build tiles and group glyphs into CONNECTED COMPONENTS by
@@ -3960,11 +3970,12 @@ fn render_text_prerendered_lcd(
     }
 
     // Pass 2a: the overlapping components through the batch sweep (their
-    // pixels are disjoint from every tiled glyph's pixels).
+    // pixels are disjoint from every tiled glyph's pixels), under the SAME
+    // combined clip the tile copies below are cut to.
     if !sweep_glyphs.is_empty() {
         render_glyphs_lcd(
             pixmap,
-            clip,
+            run_clip,
             &sweep_glyphs,
             parsed_font,
             font_hash,
