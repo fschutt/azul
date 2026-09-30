@@ -6305,6 +6305,69 @@ mod tests {
         );
     }
 
+    /// A resize that crosses no breakpoint LATCHES the resize fast path
+    /// (`request_regeneration_for_resize`) - the debug server's `resize`, the
+    /// simulated OS resize, an app's `set_window_size`. The four desktop
+    /// shells answer the latch with `IncrementalRelayout::Resize`
+    /// (`resize_only_hint`: the retained tree, its warm per-node caches, a
+    /// PATCHED display list - macOS `build_atomic_txn`, X11, Wayland, Windows
+    /// `WM_PAINT`). Headless consumed the latch and ran the RESTYLE relayout
+    /// (a full reconcile whose clone drops every per-node measurement, and
+    /// no display-list patch), so no headless run - no debug-server probe, no
+    /// AZ_E2E scenario - ever laid out a resize the way a desktop window
+    /// does. AzMeet's "the input forgets to stretch" and "the statistics
+    /// break lines when I resize" showed on the Mac and nowhere in the
+    /// harness.
+    #[test]
+    fn a_resize_takes_the_fast_path_the_desktop_shells_take() {
+        use azul_core::geom::LogicalSize;
+
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, right_aligned_layout, 300.0, 100.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        let full = window.common.request_regeneration_for_resize(
+            LogicalSize::new(300.0, 100.0),
+            LogicalSize::new(500.0, 100.0),
+        );
+        assert!(!full, "no breakpoint is crossed: the fast path is latched");
+        window.snapshot_window_state_baseline("headless.test.resize_fast_path");
+        window
+            .common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions = LogicalSize::new(500.0, 100.0);
+            });
+
+        // The frame the latch asked for.
+        window.service_frame(azul_core::events::ProcessEventResult::DoNothing);
+
+        let skipped = window
+            .common
+            .layout_window
+            .as_ref()
+            .expect("the window has a layout window")
+            .layout_cache
+            .last_reconcile_was_skipped;
+        assert!(
+            skipped,
+            "the resize must run the shells' fast path (`resize_only_hint`: the retained tree, \
+             reconcile skipped), not the restyle relayout"
+        );
+        let after = rects_by_class(&window, "target");
+        assert_eq!(after.len(), 1, "{after:?}");
+        assert!(
+            (after[0].origin.x - 460.0).abs() < 1.0,
+            "the fast path laid the box out at the new width (x = 460): {after:?}"
+        );
+        assert!(
+            cpu_hit_tester_hits_class(&window, "target", 480.0, 20.0),
+            "and the frame's hit-tester follows it"
+        );
+    }
+
     // --- An unchanged RefreshDom still re-renders VirtualViews -------------
     //
     // REPORTED (AzMap "+" analysis, 2026-08-22): a RefreshDom whose only
