@@ -13,14 +13,17 @@ UNCOMPILED (house rule): every RED is derived from reading the code.
   dll clipboard reads / writes the HTML flavour; `LayoutWindow::paste_clipboard_content`).
 - (2026-09-30 18:15 the Mac panicked mid E-PASTE; the worktree survived, resumed 21:00.)
 
+- E-SET: RED 5111e1865, fix (next commit): `LayoutWindow::reset_editor_content`,
+  `CallbackInfo::reset_editor_content`, `place_pending_caret`; the caret text snapshot is keyed by
+  block element too (a latent shift after any session move between blocks of one host).
+
 ## IN PROGRESS
 
-- E-SET: `reset_editor_content` - replace a live editor's content from code.
+- E-NESTED: Enter / Backspace act on the caret's innermost block.
 
 ## NEXT
 
-1. E-NESTED: Enter / Backspace act on the caret's innermost block.
-2. Report `scripts/EDITOR_2026_09_30.md`.
+1. Report `scripts/EDITOR_2026_09_30.md`.
 
 ## api.json so far
 
