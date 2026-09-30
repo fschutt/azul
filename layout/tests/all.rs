@@ -676,3 +676,5 @@ mod enter_in_a_nested_quote_splits_the_paragraph_not_the_quote;
 mod a_scrolled_virtual_view_is_repainted_where_its_content_moved;
 #[path = "a_detected_pinch_has_no_padding.rs"]
 mod a_detected_pinch_has_no_padding;
+#[path = "flex_items_keep_the_size_their_container_gave_them.rs"]
+mod flex_items_keep_the_size_their_container_gave_them;
