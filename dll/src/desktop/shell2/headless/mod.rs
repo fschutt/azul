@@ -558,6 +558,11 @@ impl CpuBackend {
         // #27: describes THIS call only — set at target acquisition below.
         self.rendered_native = false;
 
+        // Every shell's CPU frame comes through here: the window's presented-
+        // frame generation moves (the debug server's screenshot cache keys
+        // on it).
+        layout_window.note_frame_presented();
+
         // Every early return below must leave `last_frame_damage` /
         // `last_present_damage` describing THIS call ("nothing changed"), not
         // whatever the previous call recorded. The platform blit paths read

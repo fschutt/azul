@@ -1618,6 +1618,7 @@ pub fn generate_frame(
         "[generate_frame] Calling generate_frame on transaction"
     );
     txn.generate_frame(0, WrRenderReasons::empty());
+    layout_window.note_frame_presented();
 
     log_debug!(
         LogCategory::Rendering,
@@ -2446,6 +2447,7 @@ pub fn build_webrender_transaction(
         "[build_atomic_txn] Step 7: Calling generate_frame"
     );
     txn.generate_frame(0, webrender::api::RenderReasons::empty());
+    layout_window.note_frame_presented();
 
     // Increment epoch for next frame
     layout_window.epoch.increment();
@@ -2559,6 +2561,7 @@ pub fn build_image_only_transaction(
     let changed = images_changed || scroll_changed || gpu_values_changed;
     if changed {
         txn.generate_frame(0, webrender::api::RenderReasons::empty());
+        layout_window.note_frame_presented();
     }
 
     log_debug!(

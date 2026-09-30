@@ -1050,6 +1050,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         culled_tracks: _,
         window_occluded: _,
         root_display_list_gpu_fingerprint: _,
+        presented_frames: _,
         // Two u64 arrays sized by node count (~16 B/node) — noise next to
         // the tree; walked nowhere, listed so the destructure stays total.
         last_dom_fingerprints: _,
@@ -1560,6 +1561,12 @@ pub struct LayoutWindow {
     /// ([`Self::animation_tick_is_values_only`]). `None` before the first
     /// build.
     pub root_display_list_gpu_fingerprint: Option<u64>,
+    /// Frames handed to a renderer on the paths that do not
+    /// [`Self::record_frame`] (the CPU backend of every shell, WebRender
+    /// transactions that request a frame). An atomic, because the CPU
+    /// renderer only borrows the window. See
+    /// [`Self::presented_frame_generation`].
+    pub presented_frames: core::sync::atomic::AtomicU64,
     /// The CSS DIFF of the most recent `begin_reconciliation`, waiting to be
     /// consumed by the NEXT layout pass of that DOM: node -> worst
     /// `RelayoutScope` across its changed properties (including `None` =
@@ -2250,6 +2257,26 @@ impl LayoutWindow {
 
     /// Record the damage of a freshly rendered frame on this window's report,
     /// applying any pending counter reset first.
+    /// A frame of this window went to its renderer (see
+    /// [`Self::presented_frames`]).
+    pub fn note_frame_presented(&self) {
+        self.presented_frames
+            .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Moves whenever this window presents a frame, on every backend: the
+    /// recorded frames ([`Self::record_frame`]) plus the noted ones
+    /// ([`Self::note_frame_presented`]). While it stands still, what the
+    /// window shows has not changed - the debug server's native screenshot
+    /// is served from its cache on exactly that.
+    #[must_use]
+    pub fn presented_frame_generation(&self) -> u64 {
+        self.frame_report.frame_index.wrapping_add(
+            self.presented_frames
+                .load(core::sync::atomic::Ordering::Relaxed),
+        )
+    }
+
     pub fn record_frame(&mut self, paint: FrameDamage, present: FrameDamage) {
         let generation = self.frame_report_reset_request.load(Ordering::SeqCst);
         self.frame_report
@@ -2315,6 +2342,7 @@ impl LayoutWindow {
             culled_tracks: BTreeSet::new(),
             window_occluded: false,
             root_display_list_gpu_fingerprint: None,
+            presented_frames: core::sync::atomic::AtomicU64::new(0),
             layout_cache: Solver3LayoutCache {
                 tree: None,
                 resize_only_hint: false,
@@ -23478,6 +23506,8 @@ impl LayoutWindow {
             window_occluded: _,
             // A hash; the rebuild that caused this remap re-records it.
             root_display_list_gpu_fingerprint: _,
+            // A counter, keyed by nothing.
+            presented_frames: _,
             layout_cache: _,
             layout_results: _,
             // Content-addressed (hashes / font ids / image ids), never NodeIds:

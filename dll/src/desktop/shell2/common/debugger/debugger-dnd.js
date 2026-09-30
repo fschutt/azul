@@ -515,7 +515,7 @@
      * asks for none: the refresh waits for `visibilitychange`, and runs once.
      */
     function pictureRefresh(visibilityState) {
-        return 'now';
+        return visibilityState === 'hidden' ? 'defer' : 'now';
     }
 
     /**
@@ -1679,6 +1679,13 @@
         var img = document.getElementById('azb-canvas-img');
         var info = document.getElementById('azb-canvas-info');
         if (!img || S.mode !== 'document' || !S.canvas.open) return;
+        // A page nobody sees asks the app for no picture; it catches up once,
+        // when it is shown again (see `install`).
+        if (pictureRefresh(document.visibilityState) === 'defer') {
+            S.canvas.deferred = true;
+            return;
+        }
+        S.canvas.deferred = false;
         try {
             var st = await app.api.post({ op: 'get_state' });
             var ws = (st && (st.window_state || (st.data && (st.data.value || st.data)))) || {};
@@ -1687,7 +1694,8 @@
             }
             var shot = await call({ op: 'take_screenshot' });
             var data = shot && (typeof shot === 'string' ? shot : shot.data);
-            if (data) img.src = data;
+            // The same picture again (nothing changed): keep the decoded one.
+            if (data && img.src !== data) img.src = data;
             if (info && S.canvas.logical) {
                 info.textContent = Math.round(S.canvas.logical.width) + ' × '
                     + Math.round(S.canvas.logical.height) + ' - drop components here, click to select';
@@ -2173,6 +2181,12 @@
     }
 
     install();
+    // The refresh a hidden page deferred runs once it is visible again.
+    document.addEventListener('visibilitychange', function () {
+        if (S.canvas.deferred && pictureRefresh(document.visibilityState) === 'now') {
+            refreshCanvas();
+        }
+    });
     root.azDnd = {
         logic: logic,
         state: S,

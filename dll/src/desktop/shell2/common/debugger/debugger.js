@@ -1283,6 +1283,10 @@ const app = {
     _loadNodeScreenshot: async function() {
         var section = document.getElementById('node-screenshot');
         if (!section) return;
+        // A page nobody sees asks the app for no native capture (an OS grab
+        // plus a PNG encode on its UI thread); selecting the node again once
+        // the page is shown loads it.
+        if (document.visibilityState === 'hidden') return;
         try {
             var res = await this.api.post({ op: 'take_native_screenshot' });
             if (res.status === 'ok' && res.data) {

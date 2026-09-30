@@ -15500,8 +15500,32 @@ pub fn process_debug_event(
                 "Taking native screenshot via debug API",
                 None,
             );
-            // Use the NativeScreenshotExt trait method explicitly (not the stubbed inherent method)
-            match crate::e2e::hooks::take_native_screenshot_base64(callback_info, *render_shadow) {
+            // Use the NativeScreenshotExt trait method explicitly (not the stubbed inherent method).
+            // Served from the cache while the window has presented no frame
+            // since the last capture: no OS capture, no PNG encode.
+            let key = ScreenshotKey {
+                window_id: callback_info
+                    .get_current_window_state()
+                    .window_id
+                    .as_str()
+                    .to_string(),
+                dom: 0,
+                render_shadow: *render_shadow,
+            };
+            let generation = callback_info
+                .get_layout_window()
+                .presented_frame_generation();
+            let shot = {
+                static CACHE: Mutex<ScreenshotCache> = Mutex::new(ScreenshotCache::new());
+                let mut capture = || {
+                    crate::e2e::hooks::take_native_screenshot_base64(callback_info, *render_shadow)
+                };
+                match CACHE.lock() {
+                    Ok(mut cache) => cache.get_or_capture(key, generation, capture),
+                    Err(_) => capture(),
+                }
+            };
+            match shot {
                 Ok(data_uri) => {
                     let data = ScreenshotData {
                         data: data_uri.as_str().to_string(),
@@ -20335,7 +20359,11 @@ impl ScreenshotCache {
         generation: u64,
         capture: impl FnOnce() -> Result<String, String>,
     ) -> Result<String, String> {
-        let _ = generation;
+        if let Some((taken_at, shot)) = self.entries.get(&key) {
+            if *taken_at == generation {
+                return Ok(shot.clone());
+            }
+        }
         let shot = capture()?;
         self.entries.insert(key, (generation, shot.clone()));
         Ok(shot)
