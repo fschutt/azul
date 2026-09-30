@@ -12,12 +12,15 @@
 //!      binary the grant is attributed to the *responsible process* (Terminal); detached launches
 //!      are denied.
 //!   2. `SCShareableContent` enumerates displays (completion-handler block).
-//!   3. `SCContentFilter` (whole display) + `SCStreamConfiguration` (BGRA, ~30 fps) + `SCStream` +
-//!      an `SCStreamOutput` delegate registered via `define_class!` (protocol added dynamically —
-//!      it only exists once the framework is loaded).
-//!   4. The delegate parks BGRA→RGBA frames in a shared slot; `read` drains it. Screens only
-//!      produce frames ON CHANGE, so `read` re-returns the last frame on timeout instead of `(0,0)`
-//!      (which would stop the worker).
+//!   3. `SCContentFilter` (whole display) + `SCStreamConfiguration` (the widget's format - NV12
+//!      '420v', what the H.264 encoder takes, or BGRA - at the size the consumers need, 15 fps
+//!      unless asked otherwise: screen text wants resolution more than frames) + `SCStream` + an
+//!      `SCStreamOutput` delegate registered via `define_class!` (protocol added dynamically — it
+//!      only exists once the framework is loaded).
+//!   4. The delegate parks each COMPLETE frame (the frame-status attachment: idle / blank /
+//!      suspended frames are skipped) in a shared slot as it came, no conversion; `read` takes it.
+//!      Screens only produce frames ON CHANGE, so an unchanged desktop is `Idle` and costs
+//!      nothing.
 
 use std::{
     ffi::c_void,
@@ -34,16 +37,91 @@ use objc2::{
 };
 use objc2_core_media::{CMSampleBuffer, CMTime, CMTimeFlags};
 use objc2_core_video::{
-    CVPixelBufferGetBaseAddress, CVPixelBufferGetBytesPerRow, CVPixelBufferGetHeight,
-    CVPixelBufferGetWidth, CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags,
-    CVPixelBufferUnlockBaseAddress,
+    CVPixelBufferGetHeight, CVPixelBufferGetPixelFormatType, CVPixelBufferGetWidth,
+    CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags, CVPixelBufferUnlockBaseAddress,
 };
 use objc2_foundation::{NSArray, NSObject, NSObjectProtocol, NSString};
 
-/// kCVPixelFormatType_32BGRA ('BGRA'), same as the camera backend.
-const PIXEL_FORMAT_32BGRA: u32 = 0x42475241;
 /// SCStreamOutputType.screen
 const SC_STREAM_OUTPUT_TYPE_SCREEN: isize = 0;
+/// `SCFrameStatus.complete`: a new frame.
+const SC_FRAME_STATUS_COMPLETE: isize = 0;
+/// `SCFrameStatus.started`: the first frame after the stream started.
+const SC_FRAME_STATUS_STARTED: isize = 4;
+/// The frame rate when the request leaves it to the backend.
+const DEFAULT_SCREEN_FPS: u32 = 15;
+
+use azul_core::resources::RawImageFormat;
+
+use crate::desktop::extra::camera::avfoundation::{cv_pixel_format_for, publish_pixel_buffer};
+
+extern "C" {
+    /// CoreMedia (linked through objc2-core-media): the per-sample
+    /// attachment dictionaries (a CFArray, toll-free bridged to NSArray).
+    fn CMSampleBufferGetSampleAttachmentsArray(
+        sbuf: *const c_void,
+        create_if_necessary: u8,
+    ) -> *const c_void;
+}
+
+/// `SCStreamFrameInfoStatus` (an NSString constant of ScreenCaptureKit),
+/// read once from the loaded framework. `None` when it cannot be found: then
+/// every frame with pixels counts as complete.
+fn frame_status_key() -> Option<*mut AnyObject> {
+    static KEY: OnceLock<usize> = OnceLock::new();
+    let key = *KEY.get_or_init(|| {
+        let Some(Some(lib)) = SCK_LIB.get() else {
+            return 0;
+        };
+        // SAFETY: a data symbol of type `NSString *const`; read once.
+        unsafe {
+            match lib.get::<*const *mut AnyObject>(b"SCStreamFrameInfoStatus\0") {
+                Ok(sym) => (**sym) as usize,
+                Err(_) => 0,
+            }
+        }
+    });
+    (key != 0).then_some(key as *mut AnyObject)
+}
+
+/// Whether a sample buffer is a new frame: its `SCStreamFrameInfoStatus` is
+/// complete (or started). Idle / blank / suspended / stopped status buffers
+/// are skipped before any pixel is touched. `true` when the status cannot be
+/// read.
+///
+/// # Safety
+/// `sample_buffer` must be a live sample buffer.
+unsafe fn is_complete_frame(sample_buffer: &CMSampleBuffer) -> bool {
+    let Some(key) = frame_status_key() else {
+        return true;
+    };
+    // SAFETY: CoreMedia on a live sample buffer; the array (if any) is
+    // borrowed from it (Get rule) and read through NSArray / NSDictionary,
+    // their toll-free bridged counterparts.
+    unsafe {
+        let array = CMSampleBufferGetSampleAttachmentsArray(
+            sample_buffer as *const CMSampleBuffer as *const c_void,
+            0,
+        ) as *mut AnyObject;
+        if array.is_null() {
+            return true;
+        }
+        let count: usize = msg_send![array, count];
+        if count == 0 {
+            return true;
+        }
+        let dict: *mut AnyObject = msg_send![array, objectAtIndex: 0usize];
+        if dict.is_null() {
+            return true;
+        }
+        let status: *mut AnyObject = msg_send![dict, objectForKey: key];
+        if status.is_null() {
+            return true;
+        }
+        let status: isize = msg_send![status, integerValue];
+        status == SC_FRAME_STATUS_COMPLETE || status == SC_FRAME_STATUS_STARTED
+    }
+}
 
 use azul_layout::widgets::capture_common::{CaptureRead, CaptureRequest};
 
@@ -153,6 +231,8 @@ fn ensure_screen_access() -> bool {
 
 struct OutputIvars {
     slot: Arc<CaptureSlot>,
+    /// The widget asked for RGBA8 (the old contract): BGRA is swizzled.
+    want_rgba: bool,
 }
 
 define_class!(
@@ -179,6 +259,11 @@ define_class!(
             }
             unsafe {
                 let sample_buffer = &*sample_buffer;
+                // Idle / blank / suspended frames: nothing new to show or
+                // send, and nothing to copy.
+                if !is_complete_frame(sample_buffer) {
+                    return;
+                }
                 let image = match sample_buffer.image_buffer() {
                     Some(i) => i,
                     // Idle/status-only sample buffers carry no pixels — skip.
@@ -186,16 +271,15 @@ define_class!(
                 };
                 let pb = &*image;
                 CVPixelBufferLockBaseAddress(pb, CVPixelBufferLockFlags(0));
-                let w = CVPixelBufferGetWidth(pb) as usize;
-                let h = CVPixelBufferGetHeight(pb) as usize;
-                let stride = CVPixelBufferGetBytesPerRow(pb);
-                let base = CVPixelBufferGetBaseAddress(pb) as *const u8;
-                // Swizzle into the slot's REUSED buffer and wake the reader;
-                // the slot validates the plane (see `CaptureSlot::publish_bgra`).
-                if self.ivars().slot.publish_bgra(base, w, h, stride) {
+                // Copy the planes (or rows) into the slot's REUSED buffer as
+                // they are and wake the reader; the slot validates them.
+                let ivars = self.ivars();
+                if publish_pixel_buffer(&ivars.slot, pb, ivars.want_rgba) {
                     crate::plog_info!(
-                        "[screencap] ScreenCaptureKit: first frame {}x{} stride={} BGRA→RGBA ok",
-                        w, h, stride
+                        "[screencap] ScreenCaptureKit: first frame {}x{} pixel format {:#010x}",
+                        CVPixelBufferGetWidth(pb),
+                        CVPixelBufferGetHeight(pb),
+                        CVPixelBufferGetPixelFormatType(pb)
                     );
                 }
                 CVPixelBufferUnlockBaseAddress(pb, CVPixelBufferLockFlags(0));
@@ -205,8 +289,8 @@ define_class!(
 );
 
 impl ScreenCapOutput {
-    fn new(slot: Arc<CaptureSlot>) -> Retained<Self> {
-        let this = Self::alloc().set_ivars(OutputIvars { slot });
+    fn new(slot: Arc<CaptureSlot>, want_rgba: bool) -> Retained<Self> {
+        let this = Self::alloc().set_ivars(OutputIvars { slot, want_rgba });
         unsafe { msg_send![super(this), init] }
     }
 
@@ -259,22 +343,24 @@ struct SckScreen {
     source_size: (usize, usize),
 }
 
-/// A fresh `SCStreamConfiguration`: BGRA, cursor on, `width` x `height`
-/// output, `fps` (0 -> 30). Shared by `open` and `reconfigure`.
+/// A fresh `SCStreamConfiguration`: the widget's pixel format (NV12 '420v'
+/// for the encoder, or BGRA), cursor on, `width` x `height` output (SCK
+/// scales on the GPU), `fps` (0 -> 15). Shared by `open` and `reconfigure`.
 unsafe fn make_config(
     sc_config: &AnyClass,
     width: usize,
     height: usize,
     fps: u32,
+    format: RawImageFormat,
 ) -> Option<Retained<AnyObject>> {
     let config: *mut AnyObject = msg_send![sc_config, new];
     let config = unsafe { Retained::from_raw(config)? };
     let _: () = msg_send![&*config, setWidth: width];
     let _: () = msg_send![&*config, setHeight: height];
-    let _: () = msg_send![&*config, setPixelFormat: PIXEL_FORMAT_32BGRA];
+    let _: () = msg_send![&*config, setPixelFormat: cv_pixel_format_for(format)];
     let _: () = msg_send![&*config, setShowsCursor: true];
     let _: () = msg_send![&*config, setQueueDepth: 5isize];
-    let fps = if fps > 0 { fps } else { 30 };
+    let fps = if fps > 0 { fps } else { DEFAULT_SCREEN_FPS };
     let interval = CMTime {
         value: 1,
         timescale: fps as i32,
@@ -448,7 +534,7 @@ pub(super) fn open(request: &CaptureRequest) -> u64 {
             None => return 0,
         };
 
-        let config = match make_config(sc_config, out_w, out_h, request.fps) {
+        let config = match make_config(sc_config, out_w, out_h, request.fps, request.format) {
             Some(c) => c,
             None => return 0,
         };
@@ -469,7 +555,7 @@ pub(super) fn open(request: &CaptureRequest) -> u64 {
 
         ScreenCapOutput::attach_protocol();
         let slot = CaptureSlot::new();
-        let output = ScreenCapOutput::new(slot.clone());
+        let output = ScreenCapOutput::new(slot.clone(), request.format == RawImageFormat::RGBA8);
         let queue = dispatch2::DispatchQueue::new("azul.screencap", None);
         let queue_ptr: *mut AnyObject = &*queue as *const _ as *mut AnyObject;
 
@@ -523,12 +609,13 @@ pub(super) fn open(request: &CaptureRequest) -> u64 {
         }
 
         crate::plog_info!(
-            "[screencap] ScreenCaptureKit: display {} of {} → {}x{} BGRA @{}fps{}{}",
+            "[screencap] ScreenCaptureKit: display {} of {} → {}x{} {:?} @{}fps{}{}",
             idx,
             count,
             out_w,
             out_h,
-            request.fps_or(30),
+            request.format,
+            request.fps_or(DEFAULT_SCREEN_FPS),
             if request.window != 0 { " (window)" } else { "" },
             if request.exclude_self {
                 ", own windows excluded"
@@ -547,7 +634,8 @@ pub(super) fn open(request: &CaptureRequest) -> u64 {
     }
 }
 
-/// Drain the newest frame into `out` (RGBA8). Screens only emit on CHANGE,
+/// Take the newest frame into `out` (swapping buffers with the slot, no copy)
+/// in the format it was published in. Screens only emit on CHANGE,
 /// so after the bounded wait an idle desktop is `Idle` — NOT end-of-stream,
 /// and NOT the previous frame re-served as a new buffer (that made an
 /// unchanged picture repaint the tile once a second).
@@ -558,9 +646,13 @@ pub(super) fn read(handle: u64, out: &mut Vec<u8>) -> CaptureRead {
     };
     match scr
         .slot
-        .read_newer(&mut scr.last_seq, out, Duration::from_millis(1000))
+        .take_newer(&mut scr.last_seq, out, Duration::from_millis(1000))
     {
-        Some((width, height)) => CaptureRead::Frame { width, height },
+        Some((width, height, format)) => CaptureRead::FrameIn {
+            width,
+            height,
+            format,
+        },
         None => CaptureRead::Idle,
     }
 }
@@ -588,7 +680,7 @@ pub(super) fn reconfigure(handle: u64, request: &CaptureRequest) -> bool {
         scr.source_size.1
     };
     unsafe {
-        let Some(config) = make_config(sc_config, out_w, out_h, request.fps) else {
+        let Some(config) = make_config(sc_config, out_w, out_h, request.fps, request.format) else {
             return false;
         };
         let (tx, rx) = mpsc::channel::<String>();
@@ -607,7 +699,7 @@ pub(super) fn reconfigure(handle: u64, request: &CaptureRequest) -> bool {
                     "[screencap] ScreenCaptureKit: reconfigured to {}x{} @{}fps (live)",
                     out_w,
                     out_h,
-                    request.fps_or(30)
+                    request.fps_or(DEFAULT_SCREEN_FPS)
                 );
                 true
             }

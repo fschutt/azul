@@ -62,6 +62,8 @@ struct CameraThreadInit {
     /// Who wants frames at mount time (the tile's size if already laid out,
     /// the registered consumers, whether the `on_frame` hook is set).
     targets: CaptureTargets,
+    /// The pixel format the config asked for (`CameraConfig::output_format`).
+    format: RawImageFormat,
 }
 
 impl CameraThreadInit {
@@ -78,6 +80,7 @@ impl CameraThreadInit {
                 consumers: Vec::new(),
                 wants_source: false,
             },
+            format: RawImageFormat::BGRA8,
         }
     }
 }
@@ -314,6 +317,7 @@ extern "C" fn camera_on_after_mount(mut data: RefAny, mut info: CallbackInfo) ->
             height,
             floor: capture_floor(&s.config, s.on_frame.is_some()),
             targets: s.targets(),
+            format: s.config.output_format,
         }
     };
 
@@ -366,11 +370,11 @@ extern "C" fn camera_worker(mut init: RefAny, mut sender: ThreadSender, mut recv
     let (targets, session) = match init.downcast_ref::<CameraThreadInit>() {
         Some(i) => (
             i.targets.clone(),
-            camera_session(i.index, i.fps, (i.width, i.height), i.floor),
+            camera_session(i.index, i.fps, (i.width, i.height), i.floor, i.format),
         ),
         None => (
             CaptureTargets::default(),
-            camera_session(0, 0, (640, 480), None),
+            camera_session(0, 0, (640, 480), None, RawImageFormat::BGRA8),
         ),
     };
     run_capture_loop(session, targets, &mut sender, &mut recv);
@@ -382,6 +386,7 @@ fn camera_session(
     fps: u32,
     fallback: (u32, u32),
     floor: Option<(u32, u32)>,
+    format: RawImageFormat,
 ) -> CaptureSession {
     CaptureSession {
         backend: camera_backend(),
@@ -393,6 +398,7 @@ fn camera_session(
             height: 0,
             fps,
             exclude_self: false,
+            format,
         },
         floor,
         fallback,

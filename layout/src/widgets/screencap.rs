@@ -253,6 +253,7 @@ const fn capture_request(config: &ScreenCaptureConfig) -> CaptureRequest {
         height: 0,
         fps: config.fps,
         exclude_self: true,
+        format: config.output_format,
     }
 }
 

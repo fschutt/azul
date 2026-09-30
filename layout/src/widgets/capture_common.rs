@@ -173,6 +173,7 @@ pub fn present_frame(
         frame.bytes.clone(),
         frame.width,
         frame.height,
+        frame.format,
     )
 }
 
@@ -180,9 +181,10 @@ pub fn present_frame(
 /// them out of the frame `RefAny` (dropped right after) instead of cloning
 /// a full frame on the main thread.
 ///
-/// `premultiplied_alpha: true` because every
-/// capture backend forces alpha 255, for which straight == premultiplied —
-/// `load_rgba8` then skips its per-pixel multiply.
+/// The frame goes onto the tile in its own `format` (BGRA8 and NV12 load
+/// without a conversion pass). `premultiplied_alpha: true` because every
+/// capture backend forces alpha 255 (and YCbCr has none), for which
+/// straight == premultiplied — no per-pixel multiply.
 pub fn present_frame_pixels(
     info: &mut CallbackInfo,
     marker: AzString,
@@ -190,15 +192,16 @@ pub fn present_frame_pixels(
     bytes: azul_css::U8Vec,
     width: u32,
     height: u32,
+    format: azul_core::resources::RawImageFormat,
 ) -> Option<u32> {
-    use azul_core::resources::{RawImage, RawImageData, RawImageFormat};
+    use azul_core::resources::{RawImage, RawImageData};
 
     if let Some(img) = ImageRef::new_rawimage(RawImage {
         pixels: RawImageData::U8(bytes),
         width: width as usize,
         height: height as usize,
         premultiplied_alpha: true,
-        data_format: RawImageFormat::RGBA8,
+        data_format: format,
         tag: b"azul-capture-frame".to_vec().into(),
     }) {
         if let Some(node) = info.get_node_id_by_marker(marker) {
@@ -256,10 +259,16 @@ pub struct CaptureRequest {
     /// repaint is a screen change, which emits a frame, which repaints the
     /// tile, ... — a steady 30 fps on an idle desktop.
     pub exclude_self: bool,
+    /// The pixel format the widget asked for (its config's
+    /// `output_format`). A backend that can produce it without a conversion
+    /// delivers it ([`CaptureRead::FrameIn`]: BGRA8 or NV12 on Apple); one
+    /// that cannot delivers RGBA8 ([`CaptureRead::Frame`]). Any NV12 variant
+    /// means "NV12": the frame carries the matrix and range it really has.
+    pub format: azul_core::resources::RawImageFormat,
 }
 
 impl CaptureRequest {
-    /// `index` at `width` x `height`, everything else default.
+    /// `index` at `width` x `height`, everything else default (RGBA8).
     #[must_use]
     pub const fn new(index: u32, width: u32, height: u32) -> Self {
         Self {
@@ -269,7 +278,14 @@ impl CaptureRequest {
             height,
             fps: 0,
             exclude_self: true,
+            format: azul_core::resources::RawImageFormat::RGBA8,
         }
+    }
+
+    /// The same request for frames in `format`.
+    #[must_use]
+    pub const fn with_format(self, format: azul_core::resources::RawImageFormat) -> Self {
+        Self { format, ..self }
     }
 
     /// The same request at another size.
@@ -302,6 +318,17 @@ pub enum CaptureRead {
         width: u32,
         /// Delivered height in px.
         height: u32,
+    },
+    /// A new frame in `format` (tightly packed: BGRA8 / RGBA8 rows, or both
+    /// NV12 planes) is in `out` — what a backend hands out when it can
+    /// deliver the requested format without converting.
+    FrameIn {
+        /// Delivered width in px.
+        width: u32,
+        /// Delivered height in px.
+        height: u32,
+        /// The byte layout of `out`.
+        format: azul_core::resources::RawImageFormat,
     },
     /// Nothing new within the backend's wait: an idle screen, a camera that
     /// stalled (sleep/wake, a Continuity camera reconnecting). NOT the end of
@@ -692,8 +719,15 @@ pub fn present_captured(
     }
     let shown = captured.preview.take().or_else(|| captured.source.take());
     if let Some(frame) = shown {
-        let _texture_id: Option<u32> =
-            present_frame_pixels(info, marker, None, frame.bytes, frame.width, frame.height);
+        let _texture_id: Option<u32> = present_frame_pixels(
+            info,
+            marker,
+            None,
+            frame.bytes,
+            frame.width,
+            frame.height,
+            frame.format,
+        );
     }
     update
 }
@@ -836,9 +870,16 @@ pub fn run_capture_loop(
             last_open = azul_core::task::Instant::now();
         }
 
-        let (fw, fh) = match (backend.read)(handle, &mut buf) {
-            CaptureRead::Frame { width, height } if width > 0 && height > 0 => (width, height),
-            CaptureRead::Frame { .. } | CaptureRead::Ended => break,
+        let (fw, fh, format) = match (backend.read)(handle, &mut buf) {
+            CaptureRead::Frame { width, height } if width > 0 && height > 0 => {
+                (width, height, azul_core::resources::RawImageFormat::RGBA8)
+            }
+            CaptureRead::FrameIn {
+                width,
+                height,
+                format,
+            } if width > 0 && height > 0 => (width, height, format),
+            CaptureRead::Frame { .. } | CaptureRead::FrameIn { .. } | CaptureRead::Ended => break,
             CaptureRead::Idle => continue,
         };
         delivered = Some((fw, fh));
@@ -847,7 +888,13 @@ pub fn run_capture_loop(
             // this one (the next read brings a newer one) rather than queue it.
             continue;
         }
-        let captured = cut_frame(&targets, &mut buf, fw, fh, session.resample, &in_flight);
+        let captured = cut_frame(
+            &targets,
+            &mut buf,
+            (fw, fh, format),
+            session.resample,
+            &in_flight,
+        );
         in_flight.store(true, Ordering::Release);
         let sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
             WriteBackCallback::new(session.writeback),
@@ -877,29 +924,31 @@ fn open_with_fallback(session: &CaptureSession, request: &CaptureRequest) -> (Ca
 }
 
 /// Cut the preview and every consumer from the captured frame in `buf`
-/// (RGBA8 `fw` x `fh`), moving the pixels out only when the source frame
-/// itself must travel (hook wants it, or no preview cut).
+/// (`fw` x `fh` in `format`), moving the pixels out only when the source
+/// frame itself must travel (hook wants it, or no preview cut). Every cut
+/// keeps the frame's format (`image_scale::frame_output_format`): a BGRA or
+/// NV12 capture reaches the tile and the encoder without a conversion.
 fn cut_frame(
     targets: &CaptureTargets,
     buf: &mut Vec<u8>,
-    fw: u32,
-    fh: u32,
+    (fw, fh, format): (u32, u32, azul_core::resources::RawImageFormat),
     resample: ResampleFn,
     in_flight: &Arc<AtomicBool>,
 ) -> CapturedFrames {
     let src = SrcImage {
         bytes: buf.as_slice(),
-        format: azul_core::resources::RawImageFormat::RGBA8,
+        format,
         width: fw,
         height: fh,
     };
+    let cut_format = image_scale::frame_output_format(format);
     let preview = preview_cut_size(targets, (fw, fh)).and_then(|(pw, ph)| {
-        let rgba = image_scale::cut(&src, pw, ph, resample);
-        (!rgba.is_empty()).then(|| VideoFrame::new(pw, ph, rgba.into()))
+        let bytes = image_scale::cut(&src, pw, ph, resample);
+        (!bytes.is_empty()).then(|| VideoFrame::with_format(pw, ph, bytes.into(), cut_format))
     });
     let consumers = image_scale::fan_out(&src, &targets.consumers, resample);
     let source = (targets.wants_source || preview.is_none())
-        .then(|| VideoFrame::new(fw, fh, core::mem::take(buf).into()));
+        .then(|| VideoFrame::with_format(fw, fh, core::mem::take(buf).into(), format));
     CapturedFrames {
         source,
         preview,

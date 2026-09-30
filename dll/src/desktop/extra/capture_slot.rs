@@ -1,7 +1,6 @@
 //! The producer → consumer hand-off of the macOS capture backends: the
-//! AVFoundation camera and the ScreenCaptureKit screen share publish BGRA
-//! frames from their dispatch queues, the widget's worker thread drains RGBA
-//! frames.
+//! AVFoundation camera and the ScreenCaptureKit screen share publish frames
+//! from their dispatch queues, the widget's worker thread takes them.
 //!
 //! THE CLASS this exists for — "six full-resolution passes per frame"
 //!: each backend's callback
@@ -9,9 +8,16 @@
 //! pages at 1080p, freed again when the next frame replaced it), swizzle it
 //! with a scalar bounds-checked per-pixel loop, and the worker's `read()`
 //! polled the slot every 8 ms. Both backends carried a copy of that code.
-//! One slot now: the buffer is REUSED across frames, the swizzle is
-//! row-wise over slices, and the reader sleeps on a condvar the callback
-//! signals.
+//! One slot now: the buffer is REUSED across frames, and the reader sleeps on
+//! a condvar the callback signals.
+//!
+//! A frame is published in the format the platform handed out, not
+//! converted: BGRA rows as they are ([`CaptureSlot::publish_packed`]) or
+//! both NV12 planes ([`CaptureSlot::publish_nv12`]) — the only copy is the
+//! one out of the locked (padded) platform buffer. [`CaptureSlot::take_newer`]
+//! hands the frame over by SWAPPING buffers with the reader, so it is never
+//! copied a second time. (`publish_bgra` + `read_newer` are the older
+//! RGBA-converting pair.)
 //!
 //! Plain `std`, no Objective-C: the Linux CI compiles and tests it.
 
@@ -20,15 +26,29 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[derive(Default)]
+use azul_core::resources::{Nv12Layout, RawImageFormat};
+
 struct Inner {
-    /// The latest frame, tightly packed RGBA8, alpha 255.
-    rgba: Vec<u8>,
+    /// The latest frame, tightly packed in `format`.
+    bytes: Vec<u8>,
     width: u32,
     height: u32,
+    format: RawImageFormat,
     /// Bumped per published frame; a reader compares it against the last
     /// sequence it returned.
     seq: u64,
+}
+
+impl Default for Inner {
+    fn default() -> Self {
+        Self {
+            bytes: Vec::new(),
+            width: 0,
+            height: 0,
+            format: RawImageFormat::RGBA8,
+            seq: 0,
+        }
+    }
 }
 
 /// Latest-frame mailbox between a capture callback and one reader.
@@ -46,8 +66,22 @@ impl CaptureSlot {
         })
     }
 
-    /// Publish one frame from a locked BGRA pixel buffer. Returns `true` for
-    /// the very first frame (callers log that one — the callback is hot).
+    /// Record a published frame and wake the reader. Returns `true` for the
+    /// very first frame.
+    fn finish_publish(&self, mut slot: std::sync::MutexGuard<'_, Inner>, w: usize, h: usize, format: RawImageFormat) -> bool {
+        let first = slot.seq == 0;
+        slot.width = w as u32;
+        slot.height = h as u32;
+        slot.format = format;
+        slot.seq = slot.seq.wrapping_add(1);
+        drop(slot);
+        self.ready.notify_all();
+        first
+    }
+
+    /// Publish one frame from a locked BGRA pixel buffer, converted to RGBA8.
+    /// Returns `true` for the very first frame (callers log that one — the
+    /// callback is hot).
     ///
     /// # Safety
     /// `base` must point at `h` rows of `stride` bytes each, every row
@@ -60,23 +94,133 @@ impl CaptureSlot {
         let Ok(mut slot) = self.inner.lock() else {
             return false;
         };
-        let first = slot.seq == 0;
         let row_bytes = w * 4;
         // `resize`, not a new Vec: the allocation survives from frame to frame.
-        slot.rgba.resize(row_bytes * h, 0);
+        slot.bytes.resize(row_bytes * h, 0);
         for y in 0..h {
             // SAFETY: the caller guarantees `h` rows of `stride` bytes with
             // `w` BGRA pixels each.
             let src = unsafe { core::slice::from_raw_parts(base.add(y * stride), row_bytes) };
-            let dst = &mut slot.rgba[y * row_bytes..(y + 1) * row_bytes];
+            let dst = &mut slot.bytes[y * row_bytes..(y + 1) * row_bytes];
             swizzle_bgra_row_to_rgba(src, dst);
         }
-        slot.width = w as u32;
-        slot.height = h as u32;
-        slot.seq = slot.seq.wrapping_add(1);
-        drop(slot);
-        self.ready.notify_all();
-        first
+        self.finish_publish(slot, w, h, RawImageFormat::RGBA8)
+    }
+
+    /// Publish one frame of 4-byte pixels (`format`: BGRA8 or RGBA8) from a
+    /// locked pixel buffer AS IT IS: the rows are copied out of the padded
+    /// platform buffer, nothing is converted. Returns `true` for the very
+    /// first frame.
+    ///
+    /// # Safety
+    /// As [`Self::publish_bgra`]: `h` readable rows of `stride` bytes, each
+    /// holding at least `w` 4-byte pixels.
+    pub unsafe fn publish_packed(
+        &self,
+        base: *const u8,
+        w: usize,
+        h: usize,
+        stride: usize,
+        format: RawImageFormat,
+    ) -> bool {
+        if base.is_null() || w == 0 || h == 0 || stride < w * 4 {
+            return false;
+        }
+        let Ok(mut slot) = self.inner.lock() else {
+            return false;
+        };
+        let row_bytes = w * 4;
+        slot.bytes.resize(row_bytes * h, 0);
+        for y in 0..h {
+            // SAFETY: the caller guarantees `h` rows of `stride` bytes.
+            let src = unsafe { core::slice::from_raw_parts(base.add(y * stride), row_bytes) };
+            slot.bytes[y * row_bytes..(y + 1) * row_bytes].copy_from_slice(src);
+        }
+        self.finish_publish(slot, w, h, format)
+    }
+
+    /// Publish one NV12 frame from the two planes of a locked bi-planar
+    /// pixel buffer ('420v' / '420f'): the `w x h` luma plane (rows of
+    /// `y_stride` bytes) and the `ceil(w/2) x ceil(h/2)` Cb,Cr plane (rows of
+    /// `uv_stride` bytes), packed tight one after the other
+    /// ([`Nv12Layout`]). `format` names the matrix and range. Returns `true`
+    /// for the very first frame.
+    ///
+    /// # Safety
+    /// `y` must point at `h` readable rows of `y_stride` bytes (at least `w`
+    /// each), `uv` at `ceil(h/2)` rows of `uv_stride` bytes (at least
+    /// `2 * ceil(w/2)` each), for the duration of the call.
+    #[allow(clippy::too_many_arguments)] // two planes, their strides, the size and the format
+    pub unsafe fn publish_nv12(
+        &self,
+        y: *const u8,
+        y_stride: usize,
+        uv: *const u8,
+        uv_stride: usize,
+        w: usize,
+        h: usize,
+        format: RawImageFormat,
+    ) -> bool {
+        let layout = Nv12Layout::new(w, h);
+        let uv_row = layout.chroma_width * 2;
+        if y.is_null()
+            || uv.is_null()
+            || w == 0
+            || h == 0
+            || y_stride < w
+            || uv_stride < uv_row
+            || !format.is_nv12()
+        {
+            return false;
+        }
+        let Some(total) = layout.checked_total_len() else {
+            return false;
+        };
+        let Ok(mut slot) = self.inner.lock() else {
+            return false;
+        };
+        slot.bytes.resize(total, 0);
+        for row in 0..h {
+            // SAFETY: the caller guarantees `h` luma rows of `y_stride` bytes.
+            let src = unsafe { core::slice::from_raw_parts(y.add(row * y_stride), w) };
+            slot.bytes[row * w..(row + 1) * w].copy_from_slice(src);
+        }
+        let uv_base = layout.y_len();
+        for row in 0..layout.chroma_height {
+            // SAFETY: the caller guarantees `ceil(h/2)` chroma rows of
+            // `uv_stride` bytes.
+            let src = unsafe { core::slice::from_raw_parts(uv.add(row * uv_stride), uv_row) };
+            let at = uv_base + row * uv_row;
+            slot.bytes[at..at + uv_row].copy_from_slice(src);
+        }
+        self.finish_publish(slot, w, h, format)
+    }
+
+    /// Wait up to `timeout` for a frame newer than `*last_seq` and hand it
+    /// over by SWAPPING buffers with `out` (the slot writes its next frame
+    /// into `out`'s old allocation), returning its size and format. `None`
+    /// when no newer frame arrived in time or the lock is poisoned.
+    pub fn take_newer(
+        &self,
+        last_seq: &mut u64,
+        out: &mut Vec<u8>,
+        timeout: Duration,
+    ) -> Option<(u32, u32, RawImageFormat)> {
+        let deadline = Instant::now() + timeout;
+        let mut slot = self.inner.lock().ok()?;
+        loop {
+            if slot.seq != *last_seq && slot.width > 0 {
+                *last_seq = slot.seq;
+                core::mem::swap(out, &mut slot.bytes);
+                return Some((slot.width, slot.height, slot.format));
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return None;
+            }
+            let (guard, _) = self.ready.wait_timeout(slot, deadline - now).ok()?;
+            slot = guard;
+        }
     }
 
     /// Wait up to `timeout` for a frame newer than `*last_seq`, copy it into
@@ -94,7 +238,7 @@ impl CaptureSlot {
             if slot.seq != *last_seq && slot.width > 0 {
                 *last_seq = slot.seq;
                 out.clear();
-                out.extend_from_slice(&slot.rgba);
+                out.extend_from_slice(&slot.bytes);
                 return Some((slot.width, slot.height));
             }
             let now = Instant::now();
@@ -115,7 +259,7 @@ impl CaptureSlot {
             return None;
         }
         out.clear();
-        out.extend_from_slice(&slot.rgba);
+        out.extend_from_slice(&slot.bytes);
         Some((slot.width, slot.height))
     }
 }
