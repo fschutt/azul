@@ -2543,10 +2543,18 @@ impl LayoutTreeBuilder {
         }
 
         match display_type {
+            // A table cell is a block container like the others (CSS 2.2
+            // 17.4): loose text beside a block child (`<td>Label<div>..</div>`,
+            // Outlook's `<td>text<p class=MsoNormal>`) goes into an anonymous
+            // block box. Built by the catch-all below, the cell's text node sat
+            // bare next to the block and had no line box - and the reconciled
+            // tree (`cache::reconcile_recursive`), which wraps every block
+            // container's inline runs, disagreed with the fresh one.
             LayoutDisplay::Block
             | LayoutDisplay::InlineBlock
             | LayoutDisplay::FlowRoot
-            | LayoutDisplay::ListItem => {
+            | LayoutDisplay::ListItem
+            | LayoutDisplay::TableCell => {
                 self.process_block_children(styled_dom, dom_id, node_idx, debug_messages)?;
             }
             // +spec:table-layout:d52e09 - display:table/inline-table cause element to behave like a

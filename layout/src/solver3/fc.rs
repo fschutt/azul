@@ -6814,9 +6814,10 @@ fn analyze_table_colgroup<T: ParsedFontTrait>(
 ///
 /// These are HTML presentational attributes (`AttributeType::ColSpan`/`RowSpan`
 /// on `NodeData`), not CSS properties. Missing or non-positive values default to
-/// 1 per the HTML parsing rules.
+/// 1 per the HTML parsing rules. Shared with the table's intrinsic sizing
+/// (`sizing::calculate_table_intrinsic_sizes`).
 #[allow(clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
-fn get_cell_spans(styled_dom: &StyledDom, dom_id: NodeId) -> (usize, usize) {
+pub(crate) fn get_cell_spans(styled_dom: &StyledDom, dom_id: NodeId) -> (usize, usize) {
     let mut colspan = 1usize;
     let mut rowspan = 1usize;
     let node_data = &styled_dom.node_data.as_container()[dom_id];
@@ -7582,25 +7583,25 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
     // and the clearing wiped their text (AzMail sample 01, an empty newsletter
     // body). Collapsible whitespace between blocks is no text at all (CSS 2.2
     // section 9.2.2.1), so such a cell takes the block branch.
+    //
+    // And so does a cell with loose text AND a block child
+    // (`<td>Label<div>..</div></td>`): it is a block container with mixed
+    // content, its loose text in an anonymous block box beside the block
+    // (`LayoutTreeBuilder` builds a cell's children like any block
+    // container's). Laid out as one IFC, the block was not laid out and the
+    // clearing below wiped its text. Only a cell whose children are ALL
+    // inline-level establishes an inline formatting context (9.4.2).
     let styled_dom = ctx.styled_dom;
-    let is_text = |child_id: NodeId| {
-        matches!(
-            styled_dom.node_data.as_container()[child_id].get_node_type(),
-            NodeType::Text(_)
-        )
-    };
     let any_text = cell_dom_id
         .az_children(&styled_dom.node_hierarchy.as_container())
-        .any(|child_id| is_text(child_id));
-    let loose_text = cell_dom_id
-        .az_children(&styled_dom.node_hierarchy.as_container())
         .any(|child_id| {
-            is_text(child_id)
-                && !crate::solver3::layout_tree::is_whitespace_only_text(styled_dom, child_id)
+            matches!(
+                styled_dom.node_data.as_container()[child_id].get_node_type(),
+                NodeType::Text(_)
+            )
         });
     let has_text_children = any_text
-        && (loose_text
-            || crate::solver3::layout_tree::has_only_inline_children(styled_dom, cell_dom_id));
+        && crate::solver3::layout_tree::has_only_inline_children(styled_dom, cell_dom_id);
 
     debug_table_layout!(
         ctx,

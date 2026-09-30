@@ -1239,9 +1239,18 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             }
         }
 
+        // A cell's widths go to the columns it SPANS (CSS 2.2 17.5.2.2): a
+        // one-column cell raises its column's minimum and maximum; a spanning
+        // cell starts at the column after the previous cell's span and is
+        // spread over its columns once every row is in. Counting a spanning
+        // cell in its first column only, as this did, made a table with a
+        // `colspan` header as wide as the header PLUS the other columns under
+        // a shrink-to-fit parent.
+        let mut spanning: Vec<(usize, usize, f32, f32)> = Vec::new();
         for &row_idx in &rows {
             let mut row_height = 0.0f32;
-            for (col, &cell_idx) in tree.children(row_idx).iter().enumerate() {
+            let mut col = 0_usize;
+            for &cell_idx in tree.children(row_idx) {
                 let cell_intrinsic = child_intrinsics
                     .iter()
                     .find(|(k, _)| k == &cell_idx)
@@ -1270,16 +1279,49 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 let cell_max = cell_is.max_content_width + h_extras;
                 let cell_h = cell_is.max_content_height + v_extras;
 
-                if col >= col_min.len() {
-                    col_min.push(cell_min);
-                    col_max.push(cell_max);
-                } else {
+                let span = cell_node
+                    .and_then(|cn| cn.dom_node_id)
+                    .map_or(1, |dom| {
+                        super::fc::get_cell_spans(self.ctx.styled_dom, dom).0
+                    })
+                    .max(1);
+                if col + span > col_min.len() {
+                    col_min.resize(col + span, 0.0);
+                    col_max.resize(col + span, 0.0);
+                }
+                if span == 1 {
                     col_min[col] = col_min[col].max(cell_min);
                     col_max[col] = col_max[col].max(cell_max);
+                } else {
+                    spanning.push((col, span, cell_min, cell_max));
                 }
                 row_height = row_height.max(cell_h);
+                col += span;
             }
             total_height += row_height;
+        }
+        // Each spanning cell widens the columns it spans, evenly, by what
+        // they lack together.
+        for (start, span, cell_min, cell_max) in spanning {
+            let end = (start + span).min(col_min.len());
+            let parts = f32::from(u16::try_from(end - start).unwrap_or(u16::MAX).max(1));
+            let have_min: f32 = col_min[start..end].iter().sum();
+            if cell_min > have_min {
+                let extra = (cell_min - have_min) / parts;
+                for c in &mut col_min[start..end] {
+                    *c += extra;
+                }
+            }
+            let have_max: f32 = col_max[start..end].iter().sum();
+            if cell_max > have_max {
+                let extra = (cell_max - have_max) / parts;
+                for c in &mut col_max[start..end] {
+                    *c += extra;
+                }
+            }
+        }
+        for (max, min) in col_max.iter_mut().zip(&col_min) {
+            *max = max.max(*min);
         }
 
         let min_width: f32 = col_min.iter().sum();
@@ -1985,7 +2027,17 @@ pub fn calculate_used_size_for_node(
                     // can expand and be measured. The table layout algorithm sets
                     // the final cell width from computed column widths.
                     LayoutDisplay::TableCell => {
-                        if intrinsic.max_content_width > 0.0 {
+                        if matches!(cb_w, Text3AvailableSpace::MinContent) {
+                            // The table's MIN-content measurement of the cell
+                            // (`measure_cell_min_content_width`): the cell is
+                            // as narrow as its content can be, so the text in
+                            // it wraps at every opportunity and the column's
+                            // minimum is its longest word, not its longest
+                            // line (CSS 2.2 17.5.2.2). Sized at max-content
+                            // here, no column ever shrank below its longest
+                            // line and a narrow table ran past its width.
+                            intrinsic.min_content_width.max(0.0)
+                        } else if intrinsic.max_content_width > 0.0 {
                             intrinsic.max_content_width
                         } else {
                             // A definite containing block lets an unmeasured
