@@ -626,3 +626,7 @@ mod a_full_width_rule_in_a_spanning_table_cell_renders;
 mod a_linear_gradient_puts_its_colours_where_css_says;
 #[path = "a_scroll_area_under_a_fixed_header_reaches_its_whole_content.rs"]
 mod a_scroll_area_under_a_fixed_header_reaches_its_whole_content;
+#[path = "a_receipts_price_column_sits_beside_its_labels_under_a_full_width_rule.rs"]
+mod a_receipts_price_column_sits_beside_its_labels_under_a_full_width_rule;
+#[path = "a_heading_and_paragraph_in_an_indented_table_cell_paint_their_text.rs"]
+mod a_heading_and_paragraph_in_an_indented_table_cell_paint_their_text;
