@@ -218,19 +218,26 @@ pub struct History {
 impl History {
     /// Leaving `from` for a new place: Forward has nothing to return to.
     pub fn visit(&mut self, from: Place) {
-        let _ = from;
+        const KEEP: usize = 100;
+        self.back.push(from);
+        if self.back.len() > KEEP {
+            self.back.remove(0);
+        }
+        self.forward.clear();
     }
 
     /// Back from `current`: the place before it, `current` kept for Forward.
     pub fn back(&mut self, current: Place) -> Option<Place> {
-        let _ = current;
-        None
+        let place = self.back.pop()?;
+        self.forward.push(current);
+        Some(place)
     }
 
     /// Forward from `current`: where Back came from, `current` kept for Back.
     pub fn forward(&mut self, current: Place) -> Option<Place> {
-        let _ = current;
-        None
+        let place = self.forward.pop()?;
+        self.back.push(current);
+        Some(place)
     }
 
     #[must_use]
@@ -254,16 +261,29 @@ impl History {
 /// part of the name; an empty search keeps everything).
 #[must_use]
 pub fn matches_search(entry: &Entry, search: &str) -> bool {
-    let _ = (entry, search);
-    false
+    let needle = search.trim().to_lowercase();
+    needle.is_empty() || entry.name.to_lowercase().contains(&needle)
 }
+
+/// The overview of the drives, as the address bar names it.
+pub const THIS_PC: &str = "This PC";
 
 /// The address bar's editable text for `place`: `This PC`, `Home`,
 /// `Home/mail/inbox`.
 #[must_use]
 pub fn path_text(place: &Place, drive_name: Option<&str>) -> String {
-    let _ = (place, drive_name);
-    String::new()
+    match place {
+        Place::ThisPc => THIS_PC.to_string(),
+        Place::Folder { drive, prefix } => {
+            let name = drive_name.unwrap_or(drive);
+            let folder = prefix.trim_end_matches('/');
+            if folder.is_empty() {
+                name.to_string()
+            } else {
+                format!("{name}/{folder}")
+            }
+        }
+    }
 }
 
 /// The place a typed path names: `This PC`; `Home`, `Home/mail`,
@@ -271,8 +291,30 @@ pub fn path_text(place: &Place, drive_name: Option<&str>) -> String {
 /// `None` for an unknown drive. `drives` are `(id, name)`.
 #[must_use]
 pub fn parse_path(text: &str, drives: &[(String, String)]) -> Option<Place> {
-    let _ = (text, drives);
-    None
+    let text = text.trim().replace('\\', "/");
+    let mut parts = text
+        .split('/')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .peekable();
+    if parts.peek().is_some_and(|part| part.eq_ignore_ascii_case(THIS_PC)) {
+        parts.next();
+    }
+    let Some(name) = parts.next() else {
+        return text
+            .trim()
+            .eq_ignore_ascii_case(THIS_PC)
+            .then_some(Place::ThisPc);
+    };
+    let (id, _) = drives
+        .iter()
+        .find(|(_, drive_name)| drive_name.eq_ignore_ascii_case(name))?;
+    let mut prefix = String::new();
+    for part in parts {
+        prefix.push_str(part);
+        prefix.push('/');
+    }
+    Some(Place::folder(id, &prefix))
 }
 
 /// The address bar's trail for `place`, each crumb with the place it goes
@@ -280,8 +322,14 @@ pub fn parse_path(text: &str, drives: &[(String, String)]) -> Option<Place> {
 /// open one.
 #[must_use]
 pub fn crumbs_of(place: &Place, drive_name: &str) -> Vec<(String, Place)> {
-    let _ = (place, drive_name);
-    Vec::new()
+    let mut trail = vec![(THIS_PC.to_string(), Place::ThisPc)];
+    if let Place::Folder { drive, prefix } = place {
+        trail.push((drive_name.to_string(), Place::folder(drive, "")));
+        for (label, folder) in key::folder_trail(prefix) {
+            trail.push((label, Place::folder(drive, &folder)));
+        }
+    }
+    trail
 }
 
 /// The folder above `prefix`; `None` at the root.
