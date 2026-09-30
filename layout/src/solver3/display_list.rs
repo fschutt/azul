@@ -3263,17 +3263,28 @@ impl DisplayListBuilder {
         self.push_item(DisplayListItem::PopStackingContext);
     }
 
+    /// A reference frame for the transform of `owner` - the node whose
+    /// transform it applies. Structural items get no node attribution from
+    /// the leaked `current_node` (see `push_item`), but a reference frame's
+    /// OWNER is part of what it is: the VirtualView placement walk
+    /// (`headless::resolve_virtual_view_placements`) resolves the frame's
+    /// live matrix by it, and without it a transformed host's child dom was
+    /// placed (and hit-tested) untransformed.
     pub(crate) fn push_reference_frame(
         &mut self,
         transform_key: TransformKey,
         initial_transform: ComputedTransform3D,
         bounds: LogicalRect,
+        owner: Option<NodeId>,
     ) {
         self.push_item(DisplayListItem::PushReferenceFrame {
             transform_key,
             initial_transform,
             bounds: bounds.into(),
         });
+        if let Some(slot) = self.node_mapping.last_mut() {
+            *slot = owner;
+        }
     }
 
     pub(crate) fn pop_reference_frame(&mut self) {
@@ -4840,7 +4851,12 @@ where
 
         // Push reference frame BEFORE stacking context if node has a transform
         if let Some((transform_key, initial_transform)) = has_reference_frame {
-            builder.push_reference_frame(transform_key, initial_transform, node_bounds);
+            builder.push_reference_frame(
+                transform_key,
+                initial_transform,
+                node_bounds,
+                node.dom_node_id,
+            );
         }
 
         builder.push_stacking_context(context.z_index, node_bounds);
@@ -5418,7 +5434,12 @@ where
                 size: child_size,
             };
             builder.set_current_node(child_node.dom_node_id);
-            builder.push_reference_frame(transform_key, initial_transform, child_bounds);
+            builder.push_reference_frame(
+                transform_key,
+                initial_transform,
+                child_bounds,
+                child_node.dom_node_id,
+            );
             self.open_clips.push(OpenClip::Barrier);
         }
 
@@ -12828,6 +12849,7 @@ mod autotest_generated {
             TransformKey::unique(),
             ComputedTransform3D::IDENTITY,
             LogicalRect::zero(),
+            None,
         );
         b.pop_reference_frame();
         b.push_virtual_view_placeholder(NodeId::ZERO, LogicalRect::zero(), LogicalRect::zero());
