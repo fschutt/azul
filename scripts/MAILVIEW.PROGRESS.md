@@ -17,6 +17,7 @@ Never compiled (house rule): the parent compiles and runs the suites.
 
 - 9. R1's open table items (mixed cell, min-content cells, colspan in intrinsic sizes): RED `44d2b60be`, fix `d12ef9fa6`, closure fix `4962371a7`
 - Report written: `scripts/MAILVIEW_2026_09_30.md`
+- Integration round (16 failures on `fix/input-bugs-2026-09-19` + the dll drift + AzMail E0004), all fixed on top of the RED tests, see the report's last section: cascade hand-down `3b4fcf6f6`, UA test `e7ca4ad33`, E-BR gating + one IFC extent `dd5a38040`, E-OL overflow source `c19a954e9`, table cell intrinsic `a8a192ae8`, AzMail match `3ec01e60f`
 
 ## IN PROGRESS
 (none - task complete, awaiting the parent's compile and test run)
