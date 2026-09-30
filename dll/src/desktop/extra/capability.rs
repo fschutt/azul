@@ -440,14 +440,24 @@ impl PlatformCapability {
         crate::desktop::notifications::probe()
     }
 
-    /// Probe hardware video decode for real (see
-    /// [`crate::desktop::extra::video_codec::provision`]): on Apple/Android the
-    /// built-in system codec, on Linux/Windows a live Vulkan
-    /// `VK_KHR_video_decode_h264` device-extension probe. When unavailable, the
-    /// reason notes whether a driver install could enable it (the full command
-    /// list lives in `ProvisionPlan`).
+    /// Probe H.264 decode as `VideoDecoder` does it in THIS build: unavailable
+    /// where the build has no decode engine (whatever the GPU could do), else
+    /// the hardware probe (see
+    /// [`crate::desktop::extra::video_codec::provision`]): VideoToolbox on
+    /// Apple, on Linux/Windows a live Vulkan `VK_KHR_video_decode_h264`
+    /// device-extension probe. When unavailable, the reason says whether the
+    /// build or the machine is missing it, and whether a driver install could
+    /// enable it (the full command list lives in `ProvisionPlan`).
     pub fn video_codec() -> PlatformCapability {
-        let p = crate::desktop::extra::video_codec::provision::probe_hw_decode();
+        use crate::desktop::extra::video_codec;
+        if let Err(why) = video_codec::decode_engine() {
+            return PlatformCapability {
+                available: false,
+                backend: video_codec::VideoEncoder::backend_name(),
+                reason: AzString::from(format!("this build cannot decode H.264: {why}")),
+            };
+        }
+        let p = video_codec::provision::probe_hw_decode();
         let reason = if p.available {
             AzString::from_const_str("")
         } else if p.can_remediate {

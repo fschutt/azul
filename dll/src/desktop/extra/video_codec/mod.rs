@@ -12,11 +12,12 @@
 //!     video),
 //!   - Android: **MediaCodec**,
 //!   - anything else: none (encode/decode no-op).
-//! [`VideoEncoder::backend_name`] reports the selection. The codec FFI itself
-//! is on-device per platform (like the camera/mic capture backends); this lands
-//! the cross-platform API + the backend selection + a stub engine, so the API
-//! is exercisable + cross-compiles everywhere, with the real codec swapped in
-//! per OS.
+//! [`VideoEncoder::backend_name`] reports the selection. The handles are
+//! honest: `open` returns an invalid handle (`is_open()` false) wherever this
+//! build has no working engine (today: encode only via VideoToolbox, decode via
+//! VideoToolbox or Vulkan Video on x86_64 + `video-native`; no H.265 anywhere),
+//! so an open handle always produces output. `VideoEncodeCheck` and
+//! `PlatformCapability::video_codec` answer from the same engine checks.
 
 use core::ffi::c_void;
 
@@ -79,9 +80,8 @@ fn backend() -> &'static str {
 
 /// Whether this build contains a real DECODE engine that `DecoderInner` can
 /// hold (Vulkan Video on x86_64 Linux/Windows behind `video-native`, or the
-/// dlopen'd VideoToolbox on Apple behind `libloading`). When this is false the
-/// handle still *opens* — `is_open()` is true — but `decode()` can never yield
-/// a frame, so `VideoDecoder::open` must say so.
+/// dlopen'd VideoToolbox on Apple behind `libloading`). Without one,
+/// `VideoDecoder::open` hands out an invalid handle.
 const fn decode_engine_compiled() -> bool {
     cfg!(az_gpu_video)
         || cfg!(all(
@@ -90,15 +90,70 @@ const fn decode_engine_compiled() -> bool {
         ))
 }
 
-/// Whether this build contains a real ENCODE engine that `EncoderInner` can
-/// hold. Currently only VideoToolbox (Apple + `libloading`): gpu-video encode
-/// and MediaCodec are not wired, so on Linux/Windows/Android `encode()` is a
-/// counting stub in EVERY build and `VideoEncoder::open` must say so.
-const fn encode_engine_compiled() -> bool {
-    cfg!(all(
-        any(target_os = "macos", target_os = "ios"),
-        feature = "libloading"
-    ))
+/// The H.264 ENCODE engine of this BUILD on this machine: `Ok(backend)` when
+/// one is compiled in and loads here, `Err(why not)` otherwise. Only
+/// VideoToolbox (Apple + `libloading`) exists: gpu-video encode and MediaCodec
+/// are not wired. `VideoEncoder::open` and `VideoEncodeCheck` both answer
+/// from here, so neither claims an encoder that cannot give a packet back.
+pub(crate) fn encode_engine() -> Result<&'static str, String> {
+    #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+    {
+        if videotoolbox::is_available() {
+            Ok("VideoToolbox")
+        } else {
+            Err(String::from(
+                "the VideoToolbox framework did not load (see the [video] log lines)",
+            ))
+        }
+    }
+    #[cfg(not(all(any(target_os = "macos", target_os = "ios"), feature = "libloading")))]
+    {
+        let why = if cfg!(any(target_os = "macos", target_os = "ios")) {
+            "this build has no `libloading` feature, so the VideoToolbox backend is compiled out"
+        } else if cfg!(target_os = "android") {
+            "the MediaCodec backend is not implemented yet"
+        } else if cfg!(any(target_os = "linux", target_os = "windows")) {
+            "gpu-video ENCODE is not wired yet on Linux/Windows (decode only)"
+        } else {
+            "there is no native video backend on this OS"
+        };
+        Err(String::from(why))
+    }
+}
+
+/// The H.264 DECODE engine of this BUILD on this machine (see
+/// [`encode_engine`]). Whether a Vulkan Video device decodes is only known
+/// when a decoder opens, which `VideoDecoder::open` checks.
+pub(crate) fn decode_engine() -> Result<&'static str, String> {
+    if !decode_engine_compiled() {
+        return Err(decode_engine_missing_reason());
+    }
+    #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+    {
+        if videotoolbox::is_available() {
+            Ok("VideoToolbox")
+        } else {
+            Err(String::from(
+                "the VideoToolbox framework did not load (see the [video] log lines)",
+            ))
+        }
+    }
+    #[cfg(not(all(any(target_os = "macos", target_os = "ios"), feature = "libloading")))]
+    {
+        Ok("Vulkan Video")
+    }
+}
+
+/// Says why a codec handle did not open: once per distinct reason, so a
+/// caller that retries does not flood stderr.
+fn say_not_open(what: &str, why: &str) {
+    static SAID: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+    let line = format!("{what}: {why}");
+    let mut said = SAID.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !said.contains(&line) {
+        eprintln!("[azul][video] {line} — the handle is invalid (is_open() = false)");
+        said.push(line);
+    }
 }
 
 /// One line naming why a DECODE handle can never produce output on this build
@@ -125,8 +180,13 @@ fn decode_engine_missing_reason() -> String {
     }
 }
 
-/// Engine-side encoder state. The stub records the params; the real backend
-/// (VideoToolbox / MediaCodec / gpu-video session) replaces this per platform.
+/// Engine-side encoder state: exists only with a live engine (see
+/// [`EncoderInner::open_h264`]), so an open `VideoEncoder` always encodes.
+/// Never built where this build has no encode engine.
+#[cfg_attr(
+    not(all(any(target_os = "macos", target_os = "ios"), feature = "libloading")),
+    allow(dead_code)
+)]
 struct EncoderInner {
     #[allow(dead_code)]
     width: u32,
@@ -140,10 +200,40 @@ struct EncoderInner {
     /// Encoded chunks produced by `encode` and not yet pulled with
     /// `recv_packet`.
     packets: std::collections::VecDeque<U8Vec>,
-    /// Real VideoToolbox H.264 encoder (macOS/iOS). `None` (H.265 or VT
-    /// unavailable) => behaves like the stub (returns empty chunks).
+    /// The VideoToolbox H.264 session (macOS/iOS); always `Some` in a handle
+    /// `open` handed out.
     #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
     vt: Option<videotoolbox::VtEncoder>,
+}
+
+impl EncoderInner {
+    /// A live H.264 encoder for `width` x `height`, or why none opens. Only
+    /// called once [`encode_engine`] said this build has one.
+    fn open_h264(width: u32, height: u32, bitrate_kbps: u32) -> Result<EncoderInner, String> {
+        #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+        {
+            match videotoolbox::VtEncoder::open(width, height, bitrate_kbps) {
+                Some(vt) => Ok(EncoderInner {
+                    width,
+                    height,
+                    h265: false,
+                    bitrate_kbps,
+                    frames_encoded: 0,
+                    packets: std::collections::VecDeque::new(),
+                    vt: Some(vt),
+                }),
+                None => Err(format!(
+                    "VideoToolbox could not create a {width}x{height} H.264 session (see the \
+                     [video] log lines)"
+                )),
+            }
+        }
+        #[cfg(not(all(any(target_os = "macos", target_os = "ios"), feature = "libloading")))]
+        {
+            let _ = (width, height, bitrate_kbps);
+            Err(String::from("this build has no H.264 encode engine"))
+        }
+    }
 }
 
 struct DecoderInner {
@@ -169,6 +259,47 @@ struct DecoderInner {
     /// Same pull-one-frame-per-call buffer as `pending`, for the VT backend.
     #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
     vt_pending: std::collections::VecDeque<VideoFrame>,
+}
+
+impl DecoderInner {
+    /// A live H.264 decoder, or why none opens here. Only called once
+    /// [`decode_engine`] said this build has one; a handle `VideoDecoder::open`
+    /// hands out always holds an engine.
+    fn open_h264() -> Result<DecoderInner, String> {
+        let inner = DecoderInner {
+            h265: false,
+            frames_decoded: 0,
+            ready: std::collections::VecDeque::new(),
+            #[cfg(az_gpu_video)]
+            backend: decode_vulkan::VulkanVideoDecoder::open_h264(),
+            #[cfg(az_gpu_video)]
+            pending: std::collections::VecDeque::new(),
+            #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+            vt: videotoolbox::VtDecoder::open_h264(),
+            #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+            vt_pending: std::collections::VecDeque::new(),
+        };
+        if inner.has_engine() {
+            Ok(inner)
+        } else {
+            Err(String::from(
+                "the H.264 decoder did not open on this machine (see the [video] log lines)",
+            ))
+        }
+    }
+
+    /// Whether a real decode engine is behind this state.
+    fn has_engine(&self) -> bool {
+        #[cfg(az_gpu_video)]
+        if self.backend.is_some() {
+            return true;
+        }
+        #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+        if self.vt.is_some() {
+            return true;
+        }
+        false
+    }
 }
 
 /// A hardware video encoder handle. `open(...)` selects the native backend for
@@ -199,66 +330,24 @@ impl Default for VideoEncoder {
 impl VideoEncoder {
     /// Open an encoder for `width` x `height`, H.265 if `h265` else H.264, at
     /// `bitrate_kbps`. Uses the platform-native backend ([`backend_name`]).
-    /// Returns an invalid handle (`is_open()` false) where no backend exists.
+    /// Returns an invalid handle (`is_open()` false) wherever this build
+    /// cannot encode: no engine compiled in (Linux, Windows, Android today),
+    /// the engine does not load or refuses the size, or H.265 (no backend
+    /// implements it yet). An open handle gives packets back.
     pub fn open(width: u32, height: u32, h265: bool, bitrate_kbps: u32) -> VideoEncoder {
-        if backend() == "none" {
-            static NONE_ONCE: std::sync::Once = std::sync::Once::new();
-            NONE_ONCE.call_once(|| {
-                eprintln!(
-                    "[azul][video] VideoEncoder::open: no native video backend on this OS ({}) — \
-                     handle is invalid (is_open() = false)",
-                    std::env::consts::OS
-                );
-            });
-            return VideoEncoder::default();
-        }
-        if !encode_engine_compiled() {
-            // The handle OPENS (is_open() == true) but encode() only counts
-            // frames and returns empty chunks — announce once instead of
-            // letting the caller discover an empty bitstream. NOTE: encode has
-            // its own reasons (gpu-video ENCODE is not wired at all on
-            // Linux/Windows, in any build — unlike decode).
-            static STUB_ONCE: std::sync::Once = std::sync::Once::new();
-            STUB_ONCE.call_once(|| {
-                let reason = if cfg!(any(target_os = "macos", target_os = "ios")) {
-                    "this build has no `libloading` feature, so the VideoToolbox backend is \
-                     compiled out"
-                } else if cfg!(target_os = "android") {
-                    "the MediaCodec backend is not implemented yet"
-                } else {
-                    "gpu-video ENCODE is not wired yet on Linux/Windows (decode only)"
-                };
-                eprintln!(
-                    "[azul][video] VideoEncoder::open: hardware video encode is not wired on this \
-                     build ({reason}) — encode() will return EMPTY chunks. For recording to MP4 \
-                     use ScreenRecorder (software x264 via gstreamer)"
-                );
-            });
-        } else if h265 {
-            static H265_ONCE: std::sync::Once = std::sync::Once::new();
-            H265_ONCE.call_once(|| {
-                eprintln!(
-                    "[azul][video] VideoEncoder::open: H.265 encode is not wired yet (H.264 only) \
-                     — this encoder will return EMPTY chunks"
-                );
-            });
-        }
-        let inner = Box::new(EncoderInner {
-            width,
-            height,
-            h265,
-            bitrate_kbps,
-            frames_encoded: 0,
-            packets: std::collections::VecDeque::new(),
-            // H.265 isn't wired for VT yet (demos are H.264, same scope as
-            // the Vulkan backend) — h265 keeps the stub.
-            #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
-            vt: if h265 {
-                None
-            } else {
-                videotoolbox::VtEncoder::open(width, height, bitrate_kbps)
-            },
-        });
+        let engine = if h265 {
+            Err(String::from("H.265 encode is not wired yet (H.264 only)"))
+        } else {
+            encode_engine()
+        };
+        let inner = match engine.and_then(|_| EncoderInner::open_h264(width, height, bitrate_kbps))
+        {
+            Ok(inner) => Box::new(inner),
+            Err(why) => {
+                say_not_open("VideoEncoder::open", &why);
+                return VideoEncoder::default();
+            }
+        };
         VideoEncoder {
             ptr: Box::into_raw(inner) as *mut c_void,
             run_destructor: true,
@@ -592,65 +681,23 @@ impl Default for VideoDecoder {
 
 impl VideoDecoder {
     /// Open a decoder (H.265 if `h265` else H.264) using the platform-native
-    /// backend. Invalid handle where no backend exists.
+    /// backend. Returns an invalid handle (`is_open()` false) wherever this
+    /// build cannot decode: no engine compiled in, the engine does not open
+    /// on this machine (no Vulkan Video device, VideoToolbox not loadable),
+    /// or H.265 (no backend implements it yet).
     pub fn open(h265: bool) -> VideoDecoder {
-        if backend() == "none" {
-            static NONE_ONCE: std::sync::Once = std::sync::Once::new();
-            NONE_ONCE.call_once(|| {
-                eprintln!(
-                    "[azul][video] VideoDecoder::open: no native video backend on this OS ({}) — \
-                     handle is invalid (is_open() = false)",
-                    std::env::consts::OS
-                );
-            });
-            return VideoDecoder::default();
-        }
-        if !decode_engine_compiled() {
-            // The handle OPENS (is_open() == true) but decode() can never
-            // yield a frame — the engine struct member itself is compiled
-            // out. Say so once; a valid-looking handle that never produces
-            // output is the worst kind of silent.
-            static STUB_ONCE: std::sync::Once = std::sync::Once::new();
-            STUB_ONCE.call_once(|| {
-                eprintln!(
-                    "[azul][video] VideoDecoder::open: {} — the handle opens but decode() will \
-                     NEVER produce a frame",
-                    decode_engine_missing_reason()
-                );
-            });
-        } else if h265 {
-            static H265_ONCE: std::sync::Once = std::sync::Once::new();
-            H265_ONCE.call_once(|| {
-                eprintln!(
-                    "[azul][video] VideoDecoder::open: H.265 decode is not wired yet (H.264 only) \
-                     — this decoder will produce no frames"
-                );
-            });
-        }
-        let inner = Box::new(DecoderInner {
-            h265,
-            frames_decoded: 0,
-            ready: std::collections::VecDeque::new(),
-            #[cfg(az_gpu_video)]
-            backend: if h265 {
-                // H.265 decode isn't wired into the bytes-decoder path yet; the
-                // demos are H.264. Leaving this None keeps the stub behaviour.
-                None
-            } else {
-                decode_vulkan::VulkanVideoDecoder::open_h264()
-            },
-            #[cfg(az_gpu_video)]
-            pending: std::collections::VecDeque::new(),
-            #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
-            vt: if h265 {
-                // H.265 decode isn't wired for VT yet (demos are H.264).
-                None
-            } else {
-                videotoolbox::VtDecoder::open_h264()
-            },
-            #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
-            vt_pending: std::collections::VecDeque::new(),
-        });
+        let engine = if h265 {
+            Err(String::from("H.265 decode is not wired yet (H.264 only)"))
+        } else {
+            decode_engine()
+        };
+        let inner = match engine.and_then(|_| DecoderInner::open_h264()) {
+            Ok(inner) => Box::new(inner),
+            Err(why) => {
+                say_not_open("VideoDecoder::open", &why);
+                return VideoDecoder::default();
+            }
+        };
         VideoDecoder {
             ptr: Box::into_raw(inner) as *mut c_void,
             run_destructor: true,

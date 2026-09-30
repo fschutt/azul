@@ -207,11 +207,8 @@ fn load_stream(
 ) -> Result<super::demux::DemuxedH264, String> {
     use azul_core::video::VideoSource;
 
-    if !super::decode_engine_compiled() {
-        return Err(format!(
-            "This build of azul cannot decode H.264 video: {}.",
-            super::decode_engine_missing_reason()
-        ));
+    if let Err(why) = super::decode_engine() {
+        return Err(format!("This build of azul cannot decode H.264 video: {why}."));
     }
     let bytes: Vec<u8> = match source {
         VideoSource::Url(u) => {
@@ -322,6 +319,19 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
 
         // 2. Open the platform decoder and stream-decode, presenting by the media clock.
         let decoder = super::VideoDecoder::open(false /* h264 */);
+        if !decoder.is_open() {
+            let message = "The H.264 decoder did not open on this machine.";
+            if log {
+                eprintln!("[vstream] {message}");
+            }
+            if !send_status(&mut sender, VideoStatus::failed(AzString::from(message))) {
+                return;
+            }
+            match wait_for_retry(&mut recv, &mut requested) {
+                Some(()) => continue 'session,
+                None => return,
+            }
+        }
         let mut playback =
             VideoPlayback::new(requested.start_s, requested.paused, requested.looping);
         playback.set_duration(duration);
