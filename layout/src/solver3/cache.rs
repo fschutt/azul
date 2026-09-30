@@ -185,6 +185,26 @@ pub struct NodeCache {
     /// `<html>` that also holds a menu bar resolved against the viewport in
     /// the full pass and against the taller html in the partial one.
     pub last_containing_block: Option<super::geometry::ContainingBlock>,
+
+    /// Whether this node's subtree still holds what its last FINAL layout
+    /// (taffy `RunMode::PerformLayout`, through the taffy bridge) wrote: its
+    /// children's used sizes and offsets, its inline layout, its scrollbar
+    /// geometry.
+    ///
+    /// Taffy memoises a final layout by its inputs alone, but in the bridge a
+    /// measure of the same node (`ComputeSize`) writes the same state: every
+    /// `compute_child_layout` stores the size it answered as the node's
+    /// `used_size`, `compute_non_flex_layout` re-flows the inline content and
+    /// re-places the children at the measure's constraints. So a final served
+    /// from taffy's cache after a measure of the node COMPUTED something in
+    /// between kept the measure's state: a stretched flex item painted at its
+    /// hypothetical (content) width, a column's text at the width of its
+    /// min-content probe. Cleared by every computation of the node, set by
+    /// its final computation; a `PerformLayout` cache hit requires it
+    /// (`TaffyBridge::cache_get`). Only reachable when taffy's caches survive
+    /// a pass - the resize fast path (`resize_only_hint`) - since a
+    /// reconciled tree's clones start with empty taffy caches.
+    pub final_layout_current: bool,
 }
 
 impl Default for NodeCache {
@@ -194,6 +214,7 @@ impl Default for NodeCache {
             layout_entry: None,
             is_empty: true, // fresh cache is empty/dirty
             last_containing_block: None,
+            final_layout_current: false,
         }
     }
 }
@@ -207,6 +228,7 @@ impl NodeCache {
         self.measure_entries = [None, None, None, None, None, None, None, None, None];
         self.layout_entry = None;
         self.is_empty = true;
+        self.final_layout_current = false;
     }
 
     /// Compute the deterministic slot index from constraint dimensions.

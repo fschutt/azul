@@ -1910,13 +1910,23 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
                 .map(|s| s.formatting_context)
                 .unwrap_or_default();
 
-            match fc {
+            // Whatever this computes - a measure or the final layout - it
+            // rewrites the subtree's state (children's used sizes and
+            // offsets, inline layout, scrollbars) for THESE inputs, so the
+            // memoised final layout no longer describes it until a final
+            // computation has run again (`NodeCache::final_layout_current`).
+            tree.set_final_layout_current(node_idx, false);
+            let output = match fc {
                 FormattingContext::Flex => compute_flexbox_layout(tree, node_id, inputs),
                 FormattingContext::Grid => compute_grid_layout(tree, node_id, inputs),
                 // For Block, Inline, Table, InlineBlock - delegate to layout_formatting_context
                 // This ensures proper recursive layout of all formatting contexts
                 _ => tree.compute_non_flex_layout(node_idx, inputs),
+            };
+            if inputs.run_mode == RunMode::PerformLayout {
+                tree.set_final_layout_current(node_idx, true);
             }
+            output
         });
 
         // Populate the pure-measure cache from the result we just computed.
@@ -1980,6 +1990,24 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
 }
 
 impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
+    /// Does the subtree of `node_idx` still hold what its last final layout
+    /// wrote? See `NodeCache::final_layout_current`. `false` for a node the
+    /// per-node cache does not cover (a context without one): its final
+    /// layout is then always computed.
+    fn final_layout_current(&self, node_idx: usize) -> bool {
+        self.ctx
+            .cache_map
+            .entries
+            .get(node_idx)
+            .is_some_and(|c| c.final_layout_current)
+    }
+
+    fn set_final_layout_current(&mut self, node_idx: usize, current: bool) {
+        if let Some(c) = self.ctx.cache_map.entries.get_mut(node_idx) {
+            c.final_layout_current = current;
+        }
+    }
+
     /// Compute layout for non-flex/grid nodes by delegating to `layout_formatting_context`.
     /// This handles Block, Inline, Table, `InlineBlock` formatting contexts recursively.
     #[allow(clippy::match_same_arms)]
@@ -2452,6 +2480,14 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
 impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
     fn cache_get(&self, node_id: taffy::NodeId, input: &LayoutInput) -> Option<LayoutOutput> {
         let node_idx: usize = node_id.into();
+        // A final layout is memoised by its inputs, but its side effects are
+        // not in the memo: a measure computed since then rewrote them. Serve
+        // it only while the subtree still holds what it wrote
+        // (`NodeCache::final_layout_current`), else lay it out again.
+        if input.run_mode == RunMode::PerformLayout && !self.final_layout_current(node_idx) {
+            drop(crate::probe::Probe::span("taffy_final_layout_stale"));
+            return None;
+        }
         let hit = self
             .tree
             .warm(LayoutNodeId::new(node_idx))?
