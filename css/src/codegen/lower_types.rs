@@ -5104,6 +5104,7 @@ impl Lower for crate::props::style::background::NormalizedLinearColorStop {
             vec![
                 ("offset", self.offset.lower()),
                 ("color", self.color.lower()),
+                ("offset_px", self.offset_px.lower()),
             ],
         )
     }

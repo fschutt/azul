@@ -66,6 +66,7 @@ const STYLE_FONT_FAMILY_8122988506401935406_ITEMS: &[StyleFontFamily] =
     &[StyleFontFamily::System(STRING_16146701490593874959)];
 const LINEAR_COLOR_STOP_513857305091467054_ITEMS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(0),
         color: ColorOrSystem::color(ColorU {
             r: 255,
@@ -75,6 +76,7 @@ const LINEAR_COLOR_STOP_513857305091467054_ITEMS: &[NormalizedLinearColorStop] =
         }),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(50),
         color: ColorOrSystem::color(ColorU {
             r: 255,
@@ -84,6 +86,7 @@ const LINEAR_COLOR_STOP_513857305091467054_ITEMS: &[NormalizedLinearColorStop] =
         }),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(51),
         color: ColorOrSystem::color(ColorU {
             r: 247,
@@ -93,6 +96,7 @@ const LINEAR_COLOR_STOP_513857305091467054_ITEMS: &[NormalizedLinearColorStop] =
         }),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(100),
         color: ColorOrSystem::color(ColorU {
             r: 243,

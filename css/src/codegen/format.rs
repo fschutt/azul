@@ -1061,9 +1061,10 @@ fn format_linear_color_stops(stops: &[NormalizedLinearColorStop], tabs: usize) -
 
 fn format_linear_color_stop(g: &NormalizedLinearColorStop) -> String {
     format!(
-        "NormalizedLinearColorStop {{ offset: {}, color: {} }}",
+        "NormalizedLinearColorStop {{ offset: {}, color: {}, offset_px: {} }}",
         format_percentage_value(&g.offset),
         format_color_or_system(g.color),
+        format_float_value(&g.offset_px),
     )
 }
 

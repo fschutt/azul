@@ -14,7 +14,7 @@ use agg_rust::{
     rendering_buffer::RowAccessor,
     rounded_rect::RoundedRect,
     scanline_u::ScanlineU8,
-    span_gradient::{GradientConic, GradientRadialD, GradientX},
+    span_gradient::{GradientConic, GradientRadialD, GradientRepeatAdaptor, GradientX},
     trans_affine::TransAffine,
 };
 use azul_core::{
@@ -73,23 +73,65 @@ fn resolve_color(
     }
 }
 
-/// Build a `GradientLut` from normalized linear color stops.
-fn build_gradient_lut_linear(
-    stops: &azul_css::props::style::background::NormalizedLinearColorStopVec,
-    system_colors: Option<&azul_css::system::SystemColors>,
-) -> GradientLut {
-    let mut lut = GradientLut::new_default();
-    let stops_slice = stops.as_ref();
-    if stops_slice.len() < 2 {
-        // Need at least 2 stops; fill with transparent
+/// The default gradient LUT resolution (agg's own default).
+const GRADIENT_LUT_MIN: usize = 256;
+/// The finest gradient LUT, and the longest gradient space (px) agg is handed.
+/// agg measures gradient distances in 1/16 units and computes
+/// `(d - d1) * lut_size` in `i32`: 4096 * 16 * 4096 is ~2.7e8, well inside.
+const GRADIENT_LUT_MAX: usize = 4096;
+/// How far the second stop of a hard stop is nudged past the first: agg's
+/// `build_lut` keeps ONE stop per offset (closer than 1e-10), so the pair
+/// must differ - by less than any LUT entry, so the change stays hard.
+const HARD_STOP_EPSILON: f64 = 1e-9;
+
+/// The LUT resolution for a gradient line `line_px` device pixels long: an
+/// entry per pixel (a 3 px quote bar in a 600 px block is not smeared over
+/// 256 entries), within `GRADIENT_LUT_MIN..=GRADIENT_LUT_MAX`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // finite, clamped
+fn gradient_lut_size(line_px: f64) -> usize {
+    if line_px.is_finite() && line_px > 0.0 {
+        (line_px.ceil() as usize).clamp(GRADIENT_LUT_MIN, GRADIENT_LUT_MAX)
+    } else {
+        GRADIENT_LUT_MIN
+    }
+}
+
+/// Build a `size`-entry `GradientLut` from `(offset, color)` stops - the one
+/// LUT builder of every CPU gradient.
+///
+/// The stops are ordered by offset and cut to the line (`0.0..=1.0`) by the
+/// shared [`color_stops_on_the_line`], so a stop beyond an end colors that
+/// end by interpolation. A hard stop (two stops at one offset) keeps both
+/// colors: agg would drop the second, which painted nothing at all for
+/// `red 50%, blue 50%` (one stop left), so it is nudged past the first by
+/// [`HARD_STOP_EPSILON`]. Fewer than two stops paint nothing.
+///
+/// [`color_stops_on_the_line`]: azul_css::props::style::background::color_stops_on_the_line
+fn build_gradient_lut(stops: &[(f32, ColorU)], size: usize) -> GradientLut {
+    let mut lut = GradientLut::new(size.clamp(GRADIENT_LUT_MIN, GRADIENT_LUT_MAX));
+    let mut ordered: Vec<(f32, ColorU)> = stops
+        .iter()
+        .copied()
+        .filter(|(t, _)| t.is_finite())
+        .collect();
+    ordered.sort_by(|a, b| a.0.total_cmp(&b.0)); // stable: a hard stop keeps its order
+    if ordered.len() < 2 {
         lut.add_color(0.0, Rgba8::new(0, 0, 0, 0));
         lut.add_color(1.0, Rgba8::new(0, 0, 0, 0));
         lut.build_lut();
         return lut;
     }
-    for stop in stops_slice {
-        let offset = f64::from(stop.offset.normalized()); // 0.0..1.0
-        let c = resolve_color(&stop.color, system_colors);
+    let on_line = azul_css::props::style::background::color_stops_on_the_line(
+        &ordered,
+        |from: ColorU, to: ColorU, t: f32| from.interpolate(&to, t),
+    );
+    let mut previous = f64::NEG_INFINITY;
+    for (t, c) in on_line {
+        let mut offset = f64::from(t);
+        if offset <= previous {
+            offset = previous + HARD_STOP_EPSILON;
+        }
+        previous = offset;
         lut.add_color(
             offset,
             Rgba8::new(
@@ -104,41 +146,46 @@ fn build_gradient_lut_linear(
     lut
 }
 
+/// Build a `GradientLut` from the stops of a radial gradient, which sit at a
+/// percentage of the gradient ray (the parser refuses radial stops at a
+/// length).
+fn build_gradient_lut_linear(
+    stops: &azul_css::props::style::background::NormalizedLinearColorStopVec,
+    system_colors: Option<&azul_css::system::SystemColors>,
+) -> GradientLut {
+    let stops: Vec<(f32, ColorU)> = stops
+        .as_ref()
+        .iter()
+        .map(|stop| {
+            (
+                stop.offset.normalized(),
+                resolve_color(&stop.color, system_colors),
+            )
+        })
+        .collect();
+    build_gradient_lut(&stops, GRADIENT_LUT_MIN)
+}
+
 /// Build a `GradientLut` from normalized radial (conic) color stops.
 fn build_gradient_lut_radial(
     stops: &azul_css::props::style::background::NormalizedRadialColorStopVec,
     system_colors: Option<&azul_css::system::SystemColors>,
 ) -> GradientLut {
-    let mut lut = GradientLut::new_default();
-    let stops_slice = stops.as_ref();
-    if stops_slice.len() < 2 {
-        lut.add_color(0.0, Rgba8::new(0, 0, 0, 0));
-        lut.add_color(1.0, Rgba8::new(0, 0, 0, 0));
-        lut.build_lut();
-        return lut;
-    }
-    for stop in stops_slice {
-        // Conic stops use angle — normalize to 0..1 fraction of full circle.
-        // Use the RAW degrees (not `to_degrees()`, which wraps 360 -> 0): a
-        // final 360deg stop is a meaningful, distinct offset of 1.0. Without
-        // this, `conic-gradient(a, b)` (normalized to 0deg/360deg) collapses
-        // both stops onto offset 0.0, `build_lut()` dedups them to one stop,
-        // bails (`len < 2`), and the gradient paints nothing. The clamp keeps
-        // any out-of-range raw angle inside [0, 1].
-        let offset = f64::from((stop.angle.to_degrees_raw() / 360.0).clamp(0.0, 1.0));
-        let c = resolve_color(&stop.color, system_colors);
-        lut.add_color(
-            offset,
-            Rgba8::new(
-                u32::from(c.r),
-                u32::from(c.g),
-                u32::from(c.b),
-                u32::from(c.a),
-            ),
-        );
-    }
-    lut.build_lut();
-    lut
+    let stops: Vec<(f32, ColorU)> = stops
+        .as_ref()
+        .iter()
+        .map(|stop| {
+            // Conic stops use angle — normalize to 0..1 fraction of full circle.
+            // Use the RAW degrees (not `to_degrees()`, which wraps 360 -> 0): a
+            // final 360deg stop is a meaningful, distinct offset of 1.0. Without
+            // this, `conic-gradient(a, b)` (normalized to 0deg/360deg) collapses
+            // both stops onto offset 0.0 and paints a single color. The clamp
+            // keeps any out-of-range raw angle inside [0, 1].
+            let offset = (stop.angle.to_degrees_raw() / 360.0).clamp(0.0, 1.0);
+            (offset, resolve_color(&stop.color, system_colors))
+        })
+        .collect();
+    build_gradient_lut(&stops, GRADIENT_LUT_MIN)
 }
 
 /// Resolve a background position to (`x_fraction`, `y_fraction`) in 0..1 range.
@@ -180,9 +227,7 @@ fn resolve_background_position(
     (x, y)
 }
 
-#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // software rasterizer:
-                                                                        // bounded pixel/coord/
-                                                                        // colour casts
+#[allow(clippy::suboptimal_flops)] // explicit origin + point * dpi; mul_add is no faster here
 fn render_linear_gradient(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -192,47 +237,60 @@ fn render_linear_gradient(
     dpi_factor: f32,
     system_colors: Option<&azul_css::system::SystemColors>,
 ) {
-    use azul_css::props::basic::geometry::{LayoutRect, LayoutSize};
+    use azul_css::props::style::background::ExtendMode;
 
     let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
         return;
     };
-
-    let stops = gradient.stops.as_ref();
-    if stops.is_empty() {
+    if gradient.stops.as_ref().is_empty() {
         return;
     }
 
-    let lut = build_gradient_lut_linear(&gradient.stops, system_colors);
-
-    // Convert Direction to start/end points using the existing to_points method
-    let layout_rect = LayoutRect {
-        origin: azul_css::props::basic::geometry::LayoutPoint::new(0, 0),
-        size: LayoutSize {
-            width: (rect.width as isize),
-            height: (rect.height as isize),
-        },
+    // The gradient line and every stop on it, from the resolver all
+    // renderers share (CSS Images 3: `90deg` runs like `to right`, a stop at
+    // a length sits at that length, a hard stop stays hard). It works in the
+    // box's CSS px; the line is scaled to device px here.
+    let dpi = f64::from(dpi_factor);
+    // (x1, y1, x2, y2, length) of a resolved line in device px.
+    let device_line = |r: &azul_css::props::style::background::ResolvedLinearGradient| {
+        let x1 = f64::from(rect.x) + f64::from(r.start.0) * dpi;
+        let y1 = f64::from(rect.y) + f64::from(r.start.1) * dpi;
+        let x2 = f64::from(rect.x) + f64::from(r.end.0) * dpi;
+        let y2 = f64::from(rect.y) + f64::from(r.end.1) * dpi;
+        (x1, y1, x2, y2, (x2 - x1).hypot(y2 - y1))
     };
-    let (from_pt, to_pt) = gradient.direction.to_points(&layout_rect);
-
-    // Pixel-space start/end
-    let x1 = f64::from(rect.x) + from_pt.x as f64;
-    let y1 = f64::from(rect.y) + from_pt.y as f64;
-    let x2 = f64::from(rect.x) + to_pt.x as f64;
-    let y2 = f64::from(rect.y) + to_pt.y as f64;
-
-    let dx = x2 - x1;
-    let dy = y2 - y1;
-    let len = dx.hypot(dy);
-    if len < 0.001 {
+    let mut resolved = gradient.resolve_in_box(bounds.size.width, bounds.size.height);
+    // `repeating-linear-gradient` repeats the first..last stop span. A period
+    // under a pixel cannot repeat (agg's repeat divides by its length in
+    // 1/16 px): it paints clamped instead.
+    let mut repeating = false;
+    if gradient.extend_mode == ExtendMode::Repeat {
+        let period = resolved.to_repeat_period();
+        if device_line(&period).4 >= 1.0 {
+            resolved = period;
+            repeating = true;
+        }
+    }
+    let (x1, y1, x2, y2, len) = device_line(&resolved);
+    if !len.is_finite() || len < 0.001 {
         return;
     }
 
-    // gradient-space (0..100, 0) → pixel-space line (x1,y1)→(x2,y2). Use agg's
-    // helper so the composition order is T * R * S — hand-rolling it via
-    // new_translation().rotate().scale() pre-multiplies and ends up as
+    let stops: Vec<(f32, ColorU)> = resolved
+        .stops
+        .iter()
+        .map(|(t, color)| (*t, resolve_color(color, system_colors)))
+        .collect();
+    let lut = build_gradient_lut(&stops, gradient_lut_size(len));
+
+    // Gradient space runs 0..`d2` along the line (x1,y1)→(x2,y2): one unit
+    // per device pixel, capped so agg's i32 distance math cannot overflow.
+    // Use agg's helper so the composition order is T * R * S — hand-rolling
+    // it via new_translation().rotate().scale() pre-multiplies and ends up as
     // S * R * T, which rotates the translation and yields out-of-range gx.
-    let mut transform = TransAffine::new_line_segment(x1, y1, x2, y2, 100.0);
+    #[allow(clippy::cast_precision_loss)] // GRADIENT_LUT_MAX is far below 2^52
+    let d2 = len.min(GRADIENT_LUT_MAX as f64);
+    let mut transform = TransAffine::new_line_segment(x1, y1, x2, y2, d2);
     transform.invert();
 
     let mut path = if border_radius.is_zero() {
@@ -241,9 +299,20 @@ fn render_linear_gradient(
         build_rounded_rect_path(&rect, border_radius, dpi_factor)
     };
 
-    agg_fill_gradient_clipped(
-        pixmap, &mut path, &lut, GradientX, transform, 0.0, 100.0, clip,
-    );
+    if repeating {
+        agg_fill_gradient_clipped(
+            pixmap,
+            &mut path,
+            &lut,
+            GradientRepeatAdaptor::new(GradientX),
+            transform,
+            0.0,
+            d2,
+            clip,
+        );
+    } else {
+        agg_fill_gradient_clipped(pixmap, &mut path, &lut, GradientX, transform, 0.0, d2, clip);
+    }
 }
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
@@ -6396,6 +6465,7 @@ mod autotest_generated {
             .map(|(offset_percent, color)| NormalizedLinearColorStop {
                 offset: PercentageValue::new(*offset_percent),
                 color: ColorOrSystem::Color(*color),
+                offset_px: azul_css::props::basic::FloatValue::const_new(0),
             })
             .collect::<Vec<_>>()
             .into()
@@ -6615,16 +6685,21 @@ mod autotest_generated {
     }
 
     #[test]
-    fn gradient_lut_linear_out_of_range_offsets_are_clamped_not_panicking() {
-        // -500% and +900% (and a saturating 1e30%) must clamp into 0..=1.
+    fn gradient_lut_linear_stops_beyond_the_line_color_its_ends_by_interpolation() {
+        // -500% .. +900% black -> white: the line itself starts 500/1400 of
+        // the way to white (CSS Images 3: a stop outside 0..100% is not moved
+        // onto the line, the line samples the ramp). A saturating 1e30% must
+        // not panic.
         let lut = build_gradient_lut_linear(
             &lin_stops(&[(-500.0, BLACK), (900.0, WHITE), (1e30, RED)]),
             None,
         );
         assert_eq!(lut.size(), 256);
-        assert_eq!(lut.get(0).r, 0, "the -500% stop clamps to offset 0");
-        // Both 900% and 1e30% clamp to offset 1.0; the dedup keeps one of them.
-        assert!(lut.get(255).a > 0);
+        let start = lut.get(0).r;
+        assert!((88..=94).contains(&start), "0% is gray 91, got {start}");
+        let end = lut.get(255).r;
+        assert!((104..=112).contains(&end), "100% is gray 109, got {end}");
+        assert_eq!(lut.get(255).a, 255);
     }
 
     #[test]
@@ -6636,13 +6711,44 @@ mod autotest_generated {
     }
 
     #[test]
-    fn gradient_lut_linear_duplicate_offsets_degrade_to_transparent_not_panic() {
-        // Two stops at the SAME offset dedup down to one -> <2 stops -> the LUT
-        // is left transparent. The contract that matters here: no panic, and no
-        // arbitrary color is invented.
+    fn gradient_lut_linear_a_hard_stop_splits_the_line_into_two_colors() {
+        // Two stops at the SAME offset are a hard color change (CSS Images 3).
+        // agg keeps one stop per offset, which left this LUT transparent - a
+        // `red 50%, blue 50%` background painted nothing.
         let lut = build_gradient_lut_linear(&lin_stops(&[(50.0, RED), (50.0, BLUE)]), None);
         assert_eq!(lut.size(), 256);
-        assert_eq!(lut.get(128).a, 0);
+        for i in [0usize, 64, 126] {
+            let c = lut.get(i);
+            assert!(
+                c.r == 255 && c.b == 0 && c.a == 255,
+                "entry {i} is red: {c:?}"
+            );
+        }
+        for i in [129usize, 192, 255] {
+            let c = lut.get(i);
+            assert!(
+                c.b == 255 && c.r == 0 && c.a == 255,
+                "entry {i} is blue: {c:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn gradient_lut_resolution_follows_the_line_length() {
+        assert_eq!(gradient_lut_size(100.0), GRADIENT_LUT_MIN);
+        assert_eq!(gradient_lut_size(600.2), 601);
+        assert_eq!(gradient_lut_size(1.0e9), GRADIENT_LUT_MAX);
+        assert_eq!(gradient_lut_size(f64::NAN), GRADIENT_LUT_MIN);
+        // A 3 px bar of a 600 px line owns its 3 entries.
+        let red = (RED, 0.0_f32, 3.0 / 600.0);
+        let lut = build_gradient_lut(
+            &[(red.1, red.0), (red.2, red.0), (red.2, WHITE), (1.0, WHITE)],
+            gradient_lut_size(600.0),
+        );
+        assert_eq!(lut.size(), 600);
+        assert_eq!(lut.get(1).r, 255);
+        assert_eq!(lut.get(1).g, 0, "entry 1 (px 1..2) is red");
+        assert_eq!(lut.get(4).g, 255, "entry 4 (px 4..5) is white");
     }
 
     #[test]
@@ -6655,10 +6761,12 @@ mod autotest_generated {
             NormalizedLinearColorStop {
                 offset: PercentageValue::new(0.0),
                 color: ColorOrSystem::System(SystemColorRef::Accent),
+                offset_px: azul_css::props::basic::FloatValue::const_new(0),
             },
             NormalizedLinearColorStop {
                 offset: PercentageValue::new(100.0),
                 color: ColorOrSystem::Color(WHITE),
+                offset_px: azul_css::props::basic::FloatValue::const_new(0),
             },
         ]
         .into();

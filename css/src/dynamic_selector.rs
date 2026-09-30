@@ -1266,6 +1266,7 @@ impl ResolveSystemColors for crate::props::style::background::StyleBackgroundCon
                         .map(|s| NormalizedLinearColorStop {
                             offset: s.offset,
                             color: s.color.resolve_system_colors(ctx),
+                            offset_px: s.offset_px,
                         })
                         .collect::<Vec<_>>()
                         .into();
@@ -1281,6 +1282,7 @@ impl ResolveSystemColors for crate::props::style::background::StyleBackgroundCon
                         .map(|s| NormalizedLinearColorStop {
                             offset: s.offset,
                             color: s.color.resolve_system_colors(ctx),
+                            offset_px: s.offset_px,
                         })
                         .collect::<Vec<_>>()
                         .into();

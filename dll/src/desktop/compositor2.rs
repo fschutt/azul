@@ -1625,46 +1625,54 @@ pub fn translate_displaylist_to_wr(
                 // Convert CSS gradient to WebRender gradient
                 let rect = resolve_rect(bounds, dpi_scale, current_offset!());
 
-                // Create layout rect for computing gradient points (use scaled size)
-                use azul_css::props::basic::{
-                    LayoutPoint as CssLayoutPoint, LayoutRect as CssLayoutRect,
-                    LayoutSize as CssLayoutSize,
-                };
                 let scaled_width = scale_px(bounds.0.size.width, dpi_scale);
                 let scaled_height = scale_px(bounds.0.size.height, dpi_scale);
-                let layout_rect = CssLayoutRect {
-                    origin: CssLayoutPoint::new(0, 0),
-                    size: CssLayoutSize {
-                        width: scaled_width.round() as isize,
-                        height: scaled_height.round() as isize,
-                    },
-                };
 
-                // Get start and end points from direction
-                let (start, end) = gradient.direction.to_points(&layout_rect);
-                let start_point = LayoutPoint::new(start.x as f32, start.y as f32);
-                let end_point = LayoutPoint::new(end.x as f32, end.y as f32);
-
-                // Convert extend mode
+                // The gradient line and every stop on it, from the resolver the
+                // CPU renderer shares (CSS Images 3: `90deg` runs like `to right`,
+                // a stop at a length sits at that length, a hard stop is two stops
+                // at one offset - WebRender draws those as a hard change). It
+                // works in the box's CSS px; the line is scaled to device px.
+                use azul_css::props::style::background::{color_stops_on_the_line, ExtendMode};
+                let mut resolved =
+                    gradient.resolve_in_box(bounds.0.size.width, bounds.0.size.height);
                 let extend_mode = match gradient.extend_mode {
-                    azul_css::props::style::background::ExtendMode::Clamp => WrExtendMode::Clamp,
-                    azul_css::props::style::background::ExtendMode::Repeat => WrExtendMode::Repeat,
+                    ExtendMode::Clamp => WrExtendMode::Clamp,
+                    ExtendMode::Repeat => {
+                        // The first..last stop span is what repeats.
+                        resolved = resolved.to_repeat_period();
+                        WrExtendMode::Repeat
+                    }
                 };
+                let start_point = LayoutPoint::new(
+                    scale_px(resolved.start.0, dpi_scale),
+                    scale_px(resolved.start.1, dpi_scale),
+                );
+                let end_point = LayoutPoint::new(
+                    scale_px(resolved.end.0, dpi_scale),
+                    scale_px(resolved.end.1, dpi_scale),
+                );
 
-                // Convert gradient stops
-                let wr_stops: Vec<WrGradientStop> = gradient
+                // Convert gradient stops (a clamped gradient only samples the
+                // line itself, so its stops are cut to 0..=1 there).
+                let stops: Vec<(f32, azul_css::props::basic::color::ColorU)> = resolved
                     .stops
-                    .as_ref()
                     .iter()
-                    .map(|stop| {
-                        WrGradientStop {
-                            offset: stop.offset.normalized(), // normalized() returns 0-1 range
-                            color: wr_translate_color_f(
-                                azul_css::props::basic::color::ColorF::from(
-                                    stop.color.to_color_u_default(),
-                                ),
-                            ),
-                        }
+                    .map(|(t, color)| (*t, color.to_color_u_default()))
+                    .collect();
+                let stops = match gradient.extend_mode {
+                    ExtendMode::Clamp => {
+                        color_stops_on_the_line(&stops, |from, to, t| from.interpolate(&to, t))
+                    }
+                    ExtendMode::Repeat => stops,
+                };
+                let wr_stops: Vec<WrGradientStop> = stops
+                    .iter()
+                    .map(|&(offset, color)| WrGradientStop {
+                        offset,
+                        color: wr_translate_color_f(azul_css::props::basic::color::ColorF::from(
+                            color,
+                        )),
                     })
                     .collect();
 

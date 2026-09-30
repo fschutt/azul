@@ -31,7 +31,7 @@ use crate::{
                 parse_direction, CssDirectionParseError, CssDirectionParseErrorOwned, Direction,
             },
             length::{
-                parse_percentage_value, OptionPercentageValue, PercentageParseError,
+                parse_percentage_value, FloatValue, OptionPercentageValue, PercentageParseError,
                 PercentageParseErrorOwned, PercentageValue,
             },
             pixel::{
@@ -228,6 +228,141 @@ impl PrintAsCssValue for LinearGradient {
     }
 }
 
+/// A [`LinearGradient`] laid into a concrete box: see
+/// [`LinearGradient::resolve_in_box`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedLinearGradient {
+    /// Start of the gradient line, relative to the box's top-left corner.
+    pub start: (f32, f32),
+    /// End of the gradient line.
+    pub end: (f32, f32),
+    /// `(offset, color)` of every stop, in order: 0.0 is `start`, 1.0 is
+    /// `end`, and an offset may lie beyond either. Offsets never decrease;
+    /// two stops at one offset are a hard color change.
+    pub stops: Vec<(f32, ColorOrSystem)>,
+}
+
+impl LinearGradient {
+    /// This gradient laid into a `width` x `height` box (CSS Images 3,
+    /// sections 3.1 and 3.4): the one place every renderer takes its
+    /// gradient line and stop offsets from.
+    ///
+    /// - The line is [`Direction::gradient_line`]: `90deg` runs like
+    ///   `to right`.
+    /// - A stop sits at `offset` of the line plus `offset_px` pixels (in the
+    ///   box's units), divided by the line's length.
+    /// - A stop placed before the one ahead of it moves up to it.
+    /// - Two stops at one position stay two stops: a hard color change.
+    #[must_use]
+    pub fn resolve_in_box(&self, width: f32, height: f32) -> ResolvedLinearGradient {
+        let (start, end) = self.direction.gradient_line(width, height);
+        let length = libm::hypotf(end.0 - start.0, end.1 - start.1);
+        let mut floor = f32::NEG_INFINITY;
+        let stops = self
+            .stops
+            .as_ref()
+            .iter()
+            .map(|stop| {
+                let along = if length > 0.0 {
+                    stop.offset_px.get() / length
+                } else {
+                    0.0
+                };
+                let mut offset = stop.offset.normalized() + along;
+                if !offset.is_finite() {
+                    offset = floor.max(0.0);
+                }
+                offset = offset.max(floor);
+                floor = offset;
+                (offset, stop.color)
+            })
+            .collect();
+        ResolvedLinearGradient { start, end, stops }
+    }
+}
+
+impl ResolvedLinearGradient {
+    /// For `repeating-linear-gradient`: the line shortened to the span from
+    /// the first stop to the last - the period that repeats - with the
+    /// offsets rescaled to it. Unchanged when the stops span no length.
+    #[must_use]
+    #[allow(clippy::suboptimal_flops)] // explicit start + t * direction; mul_add is no faster here
+    pub fn to_repeat_period(&self) -> Self {
+        let (Some(&(first, _)), Some(&(last, _))) = (self.stops.first(), self.stops.last()) else {
+            return self.clone();
+        };
+        let span = last - first;
+        if !span.is_finite() || span <= 0.0 {
+            return self.clone();
+        }
+        let (dx, dy) = (self.end.0 - self.start.0, self.end.1 - self.start.1);
+        let at = |t: f32| (self.start.0 + dx * t, self.start.1 + dy * t);
+        Self {
+            start: at(first),
+            end: at(last),
+            stops: self
+                .stops
+                .iter()
+                .map(|&(t, color)| ((t - first) / span, color))
+                .collect(),
+        }
+    }
+}
+
+/// Cut `(offset, color)` stops (offsets never decreasing, as
+/// [`LinearGradient::resolve_in_box`] gives them) to the gradient line
+/// itself, `0.0..=1.0`, for a renderer that only samples the line: at an end
+/// the stops reach past, the color there is interpolated with
+/// `lerp(from, to, t)` and the stops beyond are dropped; before the first
+/// stop and after the last the line keeps that stop's color. Hard stops (two
+/// at one offset) are kept.
+#[must_use]
+pub fn color_stops_on_the_line<C: Copy>(
+    stops: &[(f32, C)],
+    lerp: impl Fn(C, C, f32) -> C,
+) -> Vec<(f32, C)> {
+    let (Some(&(first, first_color)), Some(&(last, last_color))) = (stops.first(), stops.last())
+    else {
+        return Vec::new();
+    };
+    // The color the stops give the line at `t`.
+    let color_at = |t: f32| -> C {
+        if t <= first {
+            return first_color;
+        }
+        for pair in stops.windows(2) {
+            let ((a, from), (b, to)) = (pair[0], pair[1]);
+            if t <= b {
+                let span = b - a;
+                return if span > 0.0 {
+                    lerp(from, to, (t - a) / span)
+                } else {
+                    to
+                };
+            }
+        }
+        last_color
+    };
+    let mut on_line = Vec::with_capacity(stops.len() + 2);
+    if first > 0.0 {
+        on_line.push((0.0, first_color));
+    } else if first < 0.0 {
+        on_line.push((0.0, color_at(0.0)));
+    }
+    on_line.extend(
+        stops
+            .iter()
+            .copied()
+            .filter(|&(t, _)| (0.0..=1.0).contains(&t)),
+    );
+    if last < 1.0 {
+        on_line.push((1.0, last_color));
+    } else if last > 1.0 {
+        on_line.push((1.0, color_at(1.0)));
+    }
+    on_line
+}
+
 /// A CSS `radial-gradient()` or `repeating-radial-gradient()` value.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -359,21 +494,34 @@ impl fmt::Display for RadialGradientSize {
     }
 }
 
+/// A color stop of a linear (or radial) gradient, at its position on the
+/// gradient line: `offset` of the line's length plus `offset_px` pixels.
+///
+/// CSS Images 3 lets a stop sit at a percentage (`red 50%`) or a length
+/// (`red 3px`); a stop without a position that falls between one of each
+/// sits at a mix of both, which is why the position has two parts. The
+/// renderers place a stop with [`LinearGradient::resolve_in_box`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct NormalizedLinearColorStop {
+    /// The percentage part of the stop's position.
     pub offset: PercentageValue,
     /// Color for this gradient stop. Can be a concrete color or a system color reference.
     pub color: ColorOrSystem,
+    /// The length part of the stop's position, in px (0 for a stop at a
+    /// percentage). Only a linear gradient's stops carry one.
+    pub offset_px: FloatValue,
 }
 
 impl NormalizedLinearColorStop {
-    /// Create a new normalized linear color stop with a concrete color.
+    /// Create a new normalized linear color stop with a concrete color, at a
+    /// percentage of the gradient line.
     #[must_use]
     pub const fn new(offset: PercentageValue, color: ColorU) -> Self {
         Self {
             offset,
             color: ColorOrSystem::color(color),
+            offset_px: FloatValue::const_new(0),
         }
     }
 
@@ -411,9 +559,16 @@ impl_vec_eq!(NormalizedLinearColorStop, NormalizedLinearColorStopVec);
 impl_vec_hash!(NormalizedLinearColorStop, NormalizedLinearColorStopVec);
 impl PrintAsCssValue for NormalizedLinearColorStop {
     fn print_as_css_value(&self) -> String {
+        let position = if self.offset_px.number() == 0 {
+            format!("{}", self.offset)
+        } else if self.offset.raw_number().number() == 0 {
+            format!("{}px", self.offset_px)
+        } else {
+            format!("calc({} + {}px)", self.offset, self.offset_px)
+        };
         match &self.color {
-            ColorOrSystem::Color(c) => format!("{} {}", c.to_hash(), self.offset),
-            ColorOrSystem::System(s) => format!("{} {}", s.as_css_str(), self.offset),
+            ColorOrSystem::Color(c) => format!("{} {position}", c.to_hash()),
+            ColorOrSystem::System(s) => format!("{} {position}", s.as_css_str()),
         }
     }
 }
@@ -484,15 +639,22 @@ impl PrintAsCssValue for NormalizedRadialColorStop {
 /// - `red 50%` (one position)
 /// - `red 10% 30%` (two positions - creates two stops at same color)
 ///
+/// A position is a percentage or a length (`red 0 3px`): a length is kept as
+/// `0%` plus `offset1_px` / `offset2_px` pixels.
+///
 /// Supports system colors like `system:accent` for theme-aware gradients.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LinearColorStop {
     pub color: ColorOrSystem,
-    /// First position (optional)
+    /// First position (optional): its percentage part.
     pub offset1: OptionPercentageValue,
     /// Second position (optional, only valid if offset1 is Some)
     /// When present, creates two color stops at the same color.
     pub offset2: OptionPercentageValue,
+    /// The length part of the first position, in px.
+    pub offset1_px: FloatValue,
+    /// The length part of the second position, in px.
+    pub offset2_px: FloatValue,
 }
 
 /// Transient struct for parsing radial/conic color stops before normalization.
@@ -1444,6 +1606,17 @@ pub mod parser {
                     radial_stops.push(parse_linear_color_stop(item)?);
                 }
 
+                // A radial stop at a length needs the ray's length, which the
+                // radial renderers do not place yet: refused, as it always was.
+                if radial_stops
+                    .iter()
+                    .any(|s| s.offset1_px.number() != 0 || s.offset2_px.number() != 0)
+                {
+                    return Err(CssBackgroundParseError::GradientParseError(
+                        CssGradientStopParseError::Error(input),
+                    ));
+                }
+
                 radial_gradient.stops = get_normalized_linear_stops(&radial_stops).into();
                 Ok(StyleBackgroundContent::RadialGradient(radial_gradient))
             }
@@ -1486,24 +1659,62 @@ pub mod parser {
         let (color_str, offset1_str, offset2_str) = split_color_and_offsets(input);
 
         let color = parse_color_or_system(color_str)?;
-        let offset1 = match offset1_str {
-            None => OptionPercentageValue::None,
-            Some(s) => OptionPercentageValue::Some(
-                parse_percentage_value(s).map_err(CssGradientStopParseError::Percentage)?,
-            ),
+        let (offset1, offset1_px) = match offset1_str {
+            None => (OptionPercentageValue::None, FloatValue::const_new(0)),
+            Some(s) => {
+                let (percent, px) = parse_linear_stop_position(s)?;
+                (OptionPercentageValue::Some(percent), px)
+            }
         };
-        let offset2 = match offset2_str {
-            None => OptionPercentageValue::None,
-            Some(s) => OptionPercentageValue::Some(
-                parse_percentage_value(s).map_err(CssGradientStopParseError::Percentage)?,
-            ),
+        let (offset2, offset2_px) = match offset2_str {
+            None => (OptionPercentageValue::None, FloatValue::const_new(0)),
+            Some(s) => {
+                let (percent, px) = parse_linear_stop_position(s)?;
+                (OptionPercentageValue::Some(percent), px)
+            }
         };
 
         Ok(LinearColorStop {
             color,
             offset1,
             offset2,
+            offset1_px,
+            offset2_px,
         })
+    }
+
+    /// One linear color stop position, `<length-percentage>` (CSS Images 3
+    /// section 3.4): a percentage of the gradient line, or a length along it
+    /// as `0%` plus that many px. A bare `0` is a length. Only absolute
+    /// lengths (`px`, `pt`, `in`, `cm`, `mm`) resolve here - an `em` or a
+    /// viewport unit needs a font size or a viewport the stop list does not
+    /// have, so it is refused rather than guessed.
+    fn parse_linear_stop_position(
+        s: &str,
+    ) -> Result<(PercentageValue, FloatValue), CssGradientStopParseError<'_>> {
+        let s = s.trim();
+        if s.ends_with('%') {
+            let percent =
+                parse_percentage_value(s).map_err(CssGradientStopParseError::Percentage)?;
+            return Ok((percent, FloatValue::const_new(0)));
+        }
+        if is_bare_zero(s) {
+            return Ok((PercentageValue::new(0.0), FloatValue::const_new(0)));
+        }
+        match parse_pixel_value(s) {
+            Ok(length) if length.is_absolute() => Ok((
+                PercentageValue::new(0.0),
+                FloatValue::new(length.to_pixels_internal(0.0, 0.0, 0.0)),
+            )),
+            _ => Err(CssGradientStopParseError::Error(s)),
+        }
+    }
+
+    /// `0` (or `0.0`, `-0`, ...): the one length CSS lets go without a unit.
+    fn is_bare_zero(s: &str) -> bool {
+        !s.is_empty()
+            && s.chars().all(|c| matches!(c, '0'..='9' | '.' | '+' | '-'))
+            && s.parse::<f32>().is_ok_and(|v| v == 0.0)
     }
 
     /// Parses color stops per W3C CSS Images Level 3:
@@ -1585,6 +1796,10 @@ pub mod parser {
     /// Check if a string looks like a position value (percentage or length).
     /// Must contain a digit and typically ends with %, px, em, etc.
     fn is_likely_offset(s: &str) -> bool {
+        // A bare `0` is a length (`red 0 3px`); no color ends in one.
+        if is_bare_zero(s) {
+            return true;
+        }
         if !s.contains(|c: char| c.is_ascii_digit()) {
             return false;
         }
@@ -1730,14 +1945,112 @@ pub mod parser {
         };
     }
 
-    impl_get_normalized_stops! {
-        fn get_normalized_linear_stops(LinearColorStop) -> Vec<NormalizedLinearColorStop>,
-        pos_type = PercentageValue,
-        default_start = 0.0,
-        default_end = 100.0,
-        pos_ctor = (|v| PercentageValue::new(v)),
-        pos_to_f32 = (|p: &PercentageValue| p.normalized() * 100.0),
-        output_field = offset,
+    /// Linear (and radial) stops with every position filled in (CSS Images 3
+    /// section 3.4.3): two positions become two stops, a missing first / last
+    /// position is 0% / 100%, a stop before the one ahead of it moves up to
+    /// it, and a run without positions is spread evenly between its
+    /// neighbours.
+    ///
+    /// A position is a percentage plus a length (`NormalizedLinearColorStop`),
+    /// so a run between `10px` and `90%` is spread exactly. A stop can only be
+    /// moved up here while every position is in one unit; a mix is ordered on
+    /// the real line by `LinearGradient::resolve_in_box`.
+    #[allow(clippy::suboptimal_flops)] // explicit FP; mul_add slower without +fma
+    fn get_normalized_linear_stops(stops: &[LinearColorStop]) -> Vec<NormalizedLinearColorStop> {
+        // (color, (percent, px)) - `None` until a position is known.
+        let mut expanded: Vec<(ColorOrSystem, Option<(f32, f32)>)> = Vec::new();
+        for stop in stops {
+            let first = stop
+                .offset1
+                .into_option()
+                .map(|p| (p.normalized() * 100.0, stop.offset1_px.get()));
+            let second = stop
+                .offset2
+                .into_option()
+                .map(|p| (p.normalized() * 100.0, stop.offset2_px.get()));
+            match (first, second) {
+                (None, _) => expanded.push((stop.color, None)),
+                (Some(a), None) => expanded.push((stop.color, Some(a))),
+                (Some(a), Some(b)) => {
+                    expanded.push((stop.color, Some(a)));
+                    expanded.push((stop.color, Some(b)));
+                }
+            }
+        }
+        let Some(last_idx) = expanded.len().checked_sub(1) else {
+            return Vec::new();
+        };
+        if expanded[0].1.is_none() {
+            expanded[0].1 = Some((0.0, 0.0));
+        }
+        if expanded[last_idx].1.is_none() {
+            expanded[last_idx].1 = Some((100.0, 0.0));
+        }
+
+        // Move a stop up to the one ahead of it, in the one unit they share.
+        let all_percent = expanded
+            .iter()
+            .filter_map(|(_, p)| *p)
+            .all(|(_, px)| px == 0.0);
+        let all_length = expanded
+            .iter()
+            .filter_map(|(_, p)| *p)
+            .all(|(percent, _)| percent == 0.0);
+        if all_percent || all_length {
+            let mut max_so_far: f32 = 0.0;
+            for (_, pos) in &mut expanded {
+                if let Some((percent, px)) = pos {
+                    let value = if all_percent { percent } else { px };
+                    if *value < max_so_far {
+                        *value = max_so_far;
+                    } else {
+                        max_so_far = *value;
+                    }
+                }
+            }
+        }
+
+        // Spread every run without positions evenly between its neighbours
+        // (the first and the last stop have positions by now).
+        let mut i = 0;
+        while i < expanded.len() {
+            if expanded[i].1.is_some() {
+                i += 1;
+                continue;
+            }
+            let run_start = i;
+            let mut run_end = i;
+            while run_end < expanded.len() && expanded[run_end].1.is_none() {
+                run_end += 1;
+            }
+            let prev = run_start
+                .checked_sub(1)
+                .and_then(|k| expanded[k].1)
+                .unwrap_or((0.0, 0.0));
+            let next = expanded
+                .get(run_end)
+                .and_then(|e| e.1)
+                .unwrap_or((100.0, 0.0));
+            let parts = crate::cast::usize_to_f32(run_end - run_start + 1);
+            let step = ((next.0 - prev.0) / parts, (next.1 - prev.1) / parts);
+            for j in 0..(run_end - run_start) {
+                let k = crate::cast::usize_to_f32(j + 1);
+                expanded[run_start + j].1 = Some((prev.0 + step.0 * k, prev.1 + step.1 * k));
+            }
+            i = run_end;
+        }
+
+        expanded
+            .into_iter()
+            .map(|(color, pos)| {
+                let (percent, px) = pos.unwrap_or((0.0, 0.0));
+                NormalizedLinearColorStop {
+                    offset: PercentageValue::new(percent),
+                    color,
+                    offset_px: FloatValue::new(px),
+                }
+            })
+            .collect()
     }
 
     impl_get_normalized_stops! {
@@ -2078,6 +2391,7 @@ pub mod parser {
                 let lin = NormalizedLinearColorStop {
                     offset: PercentageValue::new(50.0),
                     color: ColorOrSystem::System(r),
+                    offset_px: FloatValue::const_new(0),
                 };
                 let rad = NormalizedRadialColorStop {
                     angle: AngleValue::deg(180.0),
@@ -2097,11 +2411,13 @@ pub mod parser {
             let stop = NormalizedLinearColorStop {
                 offset: PercentageValue::new(0.0),
                 color: ColorOrSystem::System(SystemColorRef::Accent),
+                offset_px: FloatValue::const_new(0),
             };
             assert_eq!(stop.resolve(&populated, fallback), accent);
             let other = NormalizedLinearColorStop {
                 offset: PercentageValue::new(0.0),
                 color: ColorOrSystem::System(SystemColorRef::ButtonText),
+                offset_px: FloatValue::const_new(0),
             };
             assert_eq!(other.resolve(&populated, fallback), fallback);
         }
@@ -2697,23 +3013,44 @@ pub mod parser {
         }
 
         #[test]
-        fn autotest_offsets_that_are_not_percentages_are_rejected() {
-            // "50px" looks like an offset (is_likely_offset), but a linear stop
-            // offset must be a percentage -> hard error, no silent fallback.
-            let err =
-                parse_style_background_content("linear-gradient(red 50px, blue)").unwrap_err();
-            assert!(
-                matches!(
-                    err,
-                    CssBackgroundParseError::GradientParseError(
-                        CssGradientStopParseError::Percentage(_)
-                    )
-                ),
-                "got {err:?}"
-            );
+        fn a_linear_stop_at_a_length_keeps_its_length_and_one_without_a_reference_is_refused() {
+            // CSS Images 3 section 3.4: a stop position is a <length-percentage>.
+            // A length is kept as 0% plus that many px (`resolve_in_box`
+            // divides it by the gradient line's length).
+            let g = linear("linear-gradient(red 50px, blue)");
+            assert_eq!(offsets(&g.stops), alloc::vec![0.0, 100.0]);
+            assert_eq!(g.stops.as_ref()[0].offset_px.get(), 50.0);
+            assert_eq!(g.stops.as_ref()[1].offset_px.get(), 0.0);
 
-            // A bare number is *not* recognised as an offset at all, so the whole
-            // token is treated as part of the color and fails to parse.
+            // A bare `0` is a length, and a stop with two positions is two stops.
+            let g = linear("linear-gradient(to right, red 0 3px, blue 3px)");
+            let px: Vec<f32> = g.stops.iter().map(|s| s.offset_px.get()).collect();
+            assert_eq!(px, alloc::vec![0.0, 3.0, 3.0]);
+            assert_eq!(offsets(&g.stops), alloc::vec![0.0, 0.0, 0.0]);
+
+            // An `em` needs a font size and a `vw` a viewport, which a stop list
+            // does not have: refused, never guessed.
+            for input in [
+                "linear-gradient(red 2em, blue)",
+                "linear-gradient(red 10vw, blue)",
+            ] {
+                let err = parse_style_background_content(input).unwrap_err();
+                assert!(
+                    matches!(
+                        err,
+                        CssBackgroundParseError::GradientParseError(
+                            CssGradientStopParseError::Error(_)
+                        )
+                    ),
+                    "{input}: got {err:?}"
+                );
+            }
+            // A radial stop at a length is refused as before (its renderers place
+            // percentages only).
+            assert!(parse_style_background_content("radial-gradient(red 10px, blue)").is_err());
+
+            // A bare nonzero number is *not* recognised as an offset at all, so the
+            // whole token is treated as part of the color and fails to parse.
             assert!(parse_style_background_content("linear-gradient(red 0.5, blue)").is_err());
             // Neither is "NaN%" (no ASCII digit).
             assert!(parse_style_background_content("linear-gradient(red NaN%, blue)").is_err());
@@ -3325,7 +3662,7 @@ pub mod parser {
                 "\t\n",
                 "!!!",
                 "\u{1F600}",
-                "red 50px",        // offset must be a percentage
+                "red 50vw",        // a viewport unit needs a viewport a stop list lacks
                 "red 0.5",         // bare number is not recognised as an offset
                 "red 10% 20% 30%", // three offsets -> the color part is junk
                 "red blue",
@@ -3878,6 +4215,7 @@ pub mod parser {
             let sys = NormalizedLinearColorStop {
                 offset: PercentageValue::new(50.0),
                 color: ColorOrSystem::System(SystemColorRef::Accent),
+                offset_px: FloatValue::const_new(0),
             };
             assert_eq!(sys.print_as_css_value(), "system:accent 50%");
             assert_eq!(
@@ -4398,5 +4736,119 @@ mod tests {
         let empty = SystemColors::default();
         let fallback = accent_stop.resolve(&empty, ColorU::TRANSPARENT);
         assert_eq!(fallback, ColorU::TRANSPARENT);
+    }
+}
+
+/// Where a linear gradient's stops land on its line (CSS Images 3 sections
+/// 3.1 and 3.4): the resolver every renderer shares.
+#[cfg(all(test, feature = "parser"))]
+mod a_linear_gradient_resolves_its_stops_on_its_line {
+    use super::*;
+
+    fn linear(input: &str) -> LinearGradient {
+        match parse_style_background_content(input) {
+            Ok(StyleBackgroundContent::LinearGradient(g)) => g,
+            other => panic!("expected a linear gradient for {input:?}, got {other:?}"),
+        }
+    }
+
+    fn offsets(r: &ResolvedLinearGradient) -> Vec<f32> {
+        r.stops.iter().map(|(t, _)| *t).collect()
+    }
+
+    fn near(a: &[f32], b: &[f32]) -> bool {
+        a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-4)
+    }
+
+    #[test]
+    fn a_90deg_line_runs_left_to_right_like_to_right() {
+        for input in [
+            "linear-gradient(90deg, red, blue)",
+            "linear-gradient(to right, red, blue)",
+        ] {
+            let r = linear(input).resolve_in_box(100.0, 20.0);
+            assert!(
+                (r.start.0 - 0.0).abs() < 0.01 && (r.end.0 - 100.0).abs() < 0.01,
+                "{input}: {r:?}"
+            );
+            assert!(near(&offsets(&r), &[0.0, 1.0]), "{input}: {r:?}");
+        }
+    }
+
+    #[test]
+    fn a_hard_stop_stays_two_stops_at_one_offset() {
+        let r = linear("linear-gradient(90deg, red 50%, blue 50%)").resolve_in_box(100.0, 20.0);
+        assert!(near(&offsets(&r), &[0.5, 0.5]), "{r:?}");
+        assert_eq!(r.stops[0].1, ColorOrSystem::Color(ColorU::RED));
+        assert_eq!(r.stops[1].1, ColorOrSystem::Color(ColorU::BLUE));
+    }
+
+    #[test]
+    fn a_stop_at_a_length_is_that_length_along_the_line() {
+        let r =
+            linear("linear-gradient(to right, red 10px, blue 10px)").resolve_in_box(100.0, 20.0);
+        assert!(near(&offsets(&r), &[0.1, 0.1]), "{r:?}");
+        // The same stops on a line four times as long sit a quarter as far.
+        let r =
+            linear("linear-gradient(to right, red 10px, blue 10px)").resolve_in_box(400.0, 20.0);
+        assert!(near(&offsets(&r), &[0.025, 0.025]), "{r:?}");
+    }
+
+    #[test]
+    fn quote_bars_are_seven_stops_at_their_lengths() {
+        let g = linear(
+            "linear-gradient(to right, red 0 3px, transparent 3px 6px, blue 6px 9px, \
+             transparent 9px)",
+        );
+        let r = g.resolve_in_box(100.0, 20.0);
+        assert!(
+            near(&offsets(&r), &[0.0, 0.03, 0.03, 0.06, 0.06, 0.09, 0.09]),
+            "{r:?}"
+        );
+    }
+
+    #[test]
+    fn a_stop_before_the_one_ahead_of_it_moves_up_to_it_on_the_real_line() {
+        // 50% and 10px can only be ordered once the line's length is known.
+        let r = linear("linear-gradient(to right, red 50%, blue 10px)").resolve_in_box(100.0, 20.0);
+        assert!(near(&offsets(&r), &[0.5, 0.5]), "{r:?}");
+        // A run without positions between a length and a percentage is
+        // spread exactly: halfway between 10px and 90% of 100px is 50px.
+        let r = linear("linear-gradient(to right, red 10px, lime, blue 90%)")
+            .resolve_in_box(100.0, 20.0);
+        assert!(near(&offsets(&r), &[0.1, 0.5, 0.9]), "{r:?}");
+    }
+
+    #[test]
+    fn stops_beyond_the_line_are_cut_to_it_with_the_color_at_its_ends() {
+        // A ramp from -1 (value 0) through 0.5 (150) to 3 (400): the line
+        // starts at 100 and ends at 200.
+        let stops = [(-1.0_f32, 0.0_f32), (0.5, 150.0), (3.0, 400.0)];
+        let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
+        let on_line = color_stops_on_the_line(&stops, lerp);
+        let want = [(0.0_f32, 100.0_f32), (0.5, 150.0), (1.0, 200.0)];
+        assert_eq!(on_line.len(), want.len(), "{on_line:?}");
+        for ((t, v), (wt, wv)) in on_line.iter().zip(want) {
+            assert!(
+                (t - wt).abs() < 1e-4 && (v - wv).abs() < 1e-2,
+                "{on_line:?}"
+            );
+        }
+
+        // Stops inside keep their places; the ends take the nearest stop's color.
+        let on_line = color_stops_on_the_line(&[(0.25, 1.0_f32), (0.5, 2.0), (0.5, 3.0)], lerp);
+        assert_eq!(
+            on_line,
+            vec![(0.0, 1.0), (0.25, 1.0), (0.5, 2.0), (0.5, 3.0), (1.0, 3.0)]
+        );
+        assert!(color_stops_on_the_line::<f32>(&[], lerp).is_empty());
+    }
+
+    #[test]
+    fn a_repeating_gradient_repeats_its_first_to_last_stop() {
+        let g = linear("repeating-linear-gradient(to right, red 0 10px, blue 10px 20px)");
+        let period = g.resolve_in_box(100.0, 20.0).to_repeat_period();
+        assert!((period.start.0 - 0.0).abs() < 0.01 && (period.end.0 - 20.0).abs() < 0.01);
+        assert!(near(&offsets(&period), &[0.0, 0.5, 0.5, 1.0]), "{period:?}");
     }
 }

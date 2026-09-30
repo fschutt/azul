@@ -165,41 +165,79 @@ impl PrintAsCssValue for Direction {
     }
 }
 
+impl DirectionCorner {
+    /// The CSS angle of `to <this side or corner>` in a `width` x `height`
+    /// box, in degrees: 0 points up, angles run clockwise (CSS Images 3
+    /// section 3.1.1). A corner's angle depends on the box ("magic
+    /// corners"): the gradient line is perpendicular to the diagonal through
+    /// the two NEIGHBOURING corners, so the 50% line runs through them.
+    #[must_use]
+    pub fn css_angle_degrees(self, width: f32, height: f32) -> f32 {
+        // Up-and-right, perpendicular to the top-left -> bottom-right diagonal
+        // (w, h): the direction (h, -w), i.e. sin a : cos a = h : w.
+        let to_top_right = libm::atan2f(height, width).to_degrees();
+        match self {
+            Self::Top => 0.0,
+            Self::Right => 90.0,
+            Self::Bottom => 180.0,
+            Self::Left => 270.0,
+            Self::TopRight => to_top_right,
+            Self::BottomRight => 180.0 - to_top_right,
+            Self::BottomLeft => 180.0 + to_top_right,
+            Self::TopLeft => 360.0 - to_top_right,
+        }
+    }
+}
+
 impl Direction {
+    /// The gradient line of this direction in a `width` x `height` box (CSS
+    /// Images 3 section 3.1.1): its start and end point, relative to the
+    /// box's top-left corner, in the box's own units.
+    ///
+    /// The line runs through the box's centre at the direction's angle (0deg
+    /// points up, angles run clockwise; `to <side or corner>` is the angle of
+    /// [`DirectionCorner::css_angle_degrees`]) and is `|w sin a| + |h cos a|`
+    /// long, so the lines perpendicular to it through its two ends touch the
+    /// box's corners: 0% and 100% of a gradient land exactly on the box.
+    ///
+    /// Every gradient renderer places its stops on this line; `90deg` and
+    /// `to right` are one line (the old angle arm ran mirrored).
+    #[must_use]
+    #[allow(clippy::suboptimal_flops)] // explicit centre +- half-length; mul_add is no faster here
+    pub fn gradient_line(&self, width: f32, height: f32) -> ((f32, f32), (f32, f32)) {
+        let degrees = match self {
+            Self::Angle(angle) => angle.to_degrees(),
+            // CSS only has `to <end>`; `dir_from` is its opposite by
+            // construction (a hand-built pair is read the same way).
+            Self::FromTo(ft) => ft.dir_to.css_angle_degrees(width, height),
+        };
+        let (sin, cos) = (
+            libm::sinf(degrees.to_radians()),
+            libm::cosf(degrees.to_radians()),
+        );
+        let half = (libm::fabsf(width * sin) + libm::fabsf(height * cos)) / 2.0;
+        let (cx, cy) = (width / 2.0, height / 2.0);
+        // Screen y grows downwards, so "up" is -y.
+        (
+            (cx - sin * half, cy + cos * half),
+            (cx + sin * half, cy - cos * half),
+        )
+    }
+
+    /// [`Self::gradient_line`] rounded to whole units for an integer rect.
+    /// `to <side or corner>` keeps the side's or corner's own point here.
     #[must_use]
     pub fn to_points(&self, rect: &LayoutRect) -> (LayoutPoint, LayoutPoint) {
         match self {
-            Self::Angle(angle_value) => {
-                // Convert the angle to start/end points on the rectangle.
-                // Normalize to [0, 360) so negative angles and angles >= 360 fall
-                // into the same quadrant branches below (rem_euclid is always >= 0).
-                let deg = (-angle_value.to_degrees()).rem_euclid(360.0);
-                let width_half = crate::cast::isize_to_f32(rect.size.width) / 2.0;
-                let height_half = crate::cast::isize_to_f32(rect.size.height) / 2.0;
-                let hypotenuse_len = libm::hypotf(width_half, height_half);
-                let angle_to_corner = libm::atanf(height_half / width_half).to_degrees();
-                let corner_angle = if deg < 90.0 {
-                    90.0 - angle_to_corner
-                } else if deg < 180.0 {
-                    90.0 + angle_to_corner
-                } else if deg < 270.0 {
-                    270.0 - angle_to_corner
-                } else {
-                    270.0 + angle_to_corner
-                };
-                let angle_diff = corner_angle - deg;
-                let line_length = libm::fabsf(hypotenuse_len * libm::cosf(angle_diff.to_radians()));
-                let dx = libm::sinf(deg.to_radians()) * line_length;
-                let dy = libm::cosf(deg.to_radians()) * line_length;
+            Self::Angle(_) => {
+                let ((x1, y1), (x2, y2)) = self.gradient_line(
+                    crate::cast::isize_to_f32(rect.size.width),
+                    crate::cast::isize_to_f32(rect.size.height),
+                );
+                let round = |v: f32| crate::cast::f32_to_isize(libm::roundf(v));
                 (
-                    LayoutPoint::new(
-                        crate::cast::f32_to_isize(libm::roundf(width_half - dx)),
-                        crate::cast::f32_to_isize(libm::roundf(height_half + dy)),
-                    ),
-                    LayoutPoint::new(
-                        crate::cast::f32_to_isize(libm::roundf(width_half + dx)),
-                        crate::cast::f32_to_isize(libm::roundf(height_half - dy)),
-                    ),
+                    LayoutPoint::new(round(x1), round(y1)),
+                    LayoutPoint::new(round(x2), round(y2)),
                 )
             }
             Self::FromTo(ft) => (ft.dir_from.to_point(rect), ft.dir_to.to_point(rect)),
@@ -1561,5 +1599,74 @@ mod autotest_generated {
             let _ = format!("{e}");
             let _ = format!("{:?}", e.to_contained());
         }
+    }
+}
+
+/// The gradient line of CSS Images 3 section 3.1.1: `90deg` and `to right`
+/// are one line (AzMail exploration: `90deg` used to paint mirrored), and a
+/// corner direction is perpendicular to the diagonal through its neighbours.
+#[cfg(test)]
+mod gradient_line_follows_css_images_3 {
+    use super::*;
+
+    fn near(a: (f32, f32), b: (f32, f32)) -> bool {
+        libm::fabsf(a.0 - b.0) < 0.01 && libm::fabsf(a.1 - b.1) < 0.01
+    }
+
+    fn to(corner: DirectionCorner) -> Direction {
+        Direction::FromTo(DirectionCorners {
+            dir_from: corner.opposite(),
+            dir_to: corner,
+        })
+    }
+
+    #[test]
+    fn each_side_angle_runs_like_its_to_keyword() {
+        for (deg, side, start, end) in [
+            (0.0, DirectionCorner::Top, (100.0, 40.0), (100.0, 0.0)),
+            (90.0, DirectionCorner::Right, (0.0, 20.0), (200.0, 20.0)),
+            (180.0, DirectionCorner::Bottom, (100.0, 0.0), (100.0, 40.0)),
+            (270.0, DirectionCorner::Left, (200.0, 20.0), (0.0, 20.0)),
+        ] {
+            let by_angle = Direction::Angle(AngleValue::deg(deg)).gradient_line(200.0, 40.0);
+            let by_keyword = to(side).gradient_line(200.0, 40.0);
+            assert!(
+                near(by_angle.0, start) && near(by_angle.1, end),
+                "{deg}deg runs {by_angle:?}, want {start:?} -> {end:?}"
+            );
+            assert!(
+                near(by_keyword.0, start) && near(by_keyword.1, end),
+                "to {side} runs {by_keyword:?}, want {start:?} -> {end:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_line_is_as_long_as_the_box_seen_along_it() {
+        // 45deg in a 200 x 100 box: |200 sin 45| + |100 cos 45| = 212.13.
+        let ((x1, y1), (x2, y2)) =
+            Direction::Angle(AngleValue::deg(45.0)).gradient_line(200.0, 100.0);
+        let len = libm::hypotf(x2 - x1, y2 - y1);
+        assert!(libm::fabsf(len - 212.132) < 0.01, "length {len}");
+        // Through the centre, pointing up and to the right.
+        assert!(libm::fabsf((x1 + x2) / 2.0 - 100.0) < 0.01);
+        assert!(libm::fabsf((y1 + y2) / 2.0 - 50.0) < 0.01);
+        assert!(x2 > x1 && y2 < y1);
+    }
+
+    #[test]
+    fn a_corner_direction_is_perpendicular_to_the_neighbouring_diagonal() {
+        // `to top right` in 200 x 100: along (h, -w) = (100, -200), and the
+        // 0% / 100% lines touch the bottom-left / top-right corners.
+        let ((x1, y1), (x2, y2)) = to(DirectionCorner::TopRight).gradient_line(200.0, 100.0);
+        let (dx, dy) = (x2 - x1, y2 - y1);
+        // Perpendicular to the top-left -> bottom-right diagonal (200, 100).
+        assert!(libm::fabsf(dx * 200.0 + dy * 100.0) < 0.01, "({dx}, {dy})");
+        assert!(dx > 0.0 && dy < 0.0, "points up and to the right");
+        // The bottom-left corner projects onto the start, the top-right onto
+        // the end.
+        let along = |px: f32, py: f32| ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy);
+        assert!(libm::fabsf(along(0.0, 100.0)) < 0.001);
+        assert!(libm::fabsf(along(200.0, 0.0) - 1.0) < 0.001);
     }
 }
