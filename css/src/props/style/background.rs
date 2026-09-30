@@ -561,7 +561,7 @@ impl PrintAsCssValue for NormalizedLinearColorStop {
     fn print_as_css_value(&self) -> String {
         let position = if self.offset_px.number() == 0 {
             format!("{}", self.offset)
-        } else if self.offset.raw_number().number() == 0 {
+        } else if self.offset.normalized() == 0.0 {
             format!("{}px", self.offset_px)
         } else {
             format!("calc({} + {}px)", self.offset, self.offset_px)
