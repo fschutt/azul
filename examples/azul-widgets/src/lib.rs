@@ -178,7 +178,7 @@ fn dock_zones(theme: UiTheme) -> Dom {
     .with_css(
         "display: flex; flex-direction: column; background-color: system:window-background; \
          border: 1px solid system:separator; border-radius: 6px; box-shadow: 0px 1px 3px \
-         rgba(0,0,0,0.1);",
+         rgba(16, 24, 40, 0.1);",
     )
     .with_child(
         Dom::create_div()
