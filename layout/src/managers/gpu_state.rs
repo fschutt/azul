@@ -477,6 +477,16 @@ impl crate::managers::NodeIdRemap for GpuStateManager {
         remap_hashmap(&mut cache.css_current_transform_values, map);
         remap_hashmap(&mut cache.opacity_keys, map);
         remap_hashmap(&mut cache.current_opacity_values, map);
+        // The ANIMATION channel (`LayoutWindow::tick_animations` writes a
+        // FLIP's transform and opacity here under the node's id every tick).
+        // Left behind, a value stayed under the OLD id and the unrelated node
+        // that inherited that slot after the rebuild was painted through a
+        // reference frame with a stranger's transform (a `<p>` mounted over
+        // a widget mid-move: painted off-screen).
+        remap_hashmap(&mut cache.anim_transform_keys, map);
+        remap_hashmap(&mut cache.anim_current_transform_values, map);
+        remap_hashmap(&mut cache.anim_opacity_keys, map);
+        remap_hashmap(&mut cache.anim_current_opacity_values, map);
         remap_dom_hashmap(&mut cache.scrollbar_v_opacity_keys, dom, map);
         remap_dom_hashmap(&mut cache.scrollbar_h_opacity_keys, dom, map);
         remap_dom_hashmap(&mut cache.scrollbar_v_opacity_values, dom, map);
