@@ -549,6 +549,55 @@ fn the_inputs_id_classes_and_inline_style_move_to_the_widget_root() {
     );
 }
 
+/// The text colour node `id` resolves to, at rest or hovered.
+fn text_colour(styled: &StyledDom, id: NodeId, hover: bool) -> Option<ColorU> {
+    let state = azul_core::styled_dom::StyledNodeState {
+        hover,
+        ..Default::default()
+    };
+    let nodes = styled.node_data.as_container();
+    match styled.get_css_property_cache().get_property(
+        &nodes[id],
+        &id,
+        &state,
+        &azul_css::props::property::CssPropertyType::TextColor,
+    )? {
+        CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+        _ => None,
+    }
+}
+
+const BLUE: ColorU = ColorU::rgb(0, 0, 255);
+const RED: ColorU = ColorU::rgb(255, 0, 0);
+
+/// The app's scoped sheet on a raw input: its `*:hover` rule can only mean
+/// the control, so it moves into the widget root's OWN style - which the
+/// cascade reads by its rules' CONDITIONS and never selector-matches. Moved
+/// in selector form it counted as a resting rule: the resting colour won in
+/// every state (it is emitted after the nested block).
+#[test]
+fn a_hover_rule_of_the_inputs_scoped_sheet_colours_the_widget_root_only_when_hovered() {
+    let lw = styling_window();
+    let styled =
+        lw.style_user_dom(page(input("checkbox").with_css("color: blue; :hover { color: red; }")));
+    let root = one_with_class(&styled, checkbox_container());
+    assert_eq!(text_colour(&styled, root, false), Some(BLUE), "at rest: the resting colour");
+    assert_eq!(text_colour(&styled, root, true), Some(RED), "hovered: the :hover rule");
+}
+
+#[test]
+fn a_lone_hover_rule_of_the_inputs_scoped_sheet_does_not_colour_the_widget_root_at_rest() {
+    let lw = styling_window();
+    let styled = lw.style_user_dom(page(input("checkbox").with_css(":hover { color: red; }")));
+    let root = one_with_class(&styled, checkbox_container());
+    assert_ne!(
+        text_colour(&styled, root, false),
+        Some(RED),
+        "at rest the :hover rule must not apply"
+    );
+    assert_eq!(text_colour(&styled, root, true), Some(RED), "hovered it does");
+}
+
 #[test]
 fn constraint_and_form_attributes_stay_on_the_widget_root() {
     // Form validation, the soft keyboard's purpose and reset detection read
