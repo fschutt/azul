@@ -15,8 +15,19 @@
   (tests: dll headless `tests/idle_cpu.rs`, layout compositor
   `node_groups_on_screen_follows_clips_transforms_and_transparency`)
 
+- b7ebc1627 test(pacer): a frame pump with nothing to do stops (RED)
+- 1532d9494 fix(macos): the display link runs only while frames are wanted
+  (tests: `cargo test --release -p azul-dll --lib --features build-dll frame_pacer`)
+- Survey: Windows waits in WaitMessage, Wayland asks wl_surface_frame per
+  present, X11/Wayland single-window loops block on fds + timerfds - no
+  always-on vsync pump. BUT the Linux MULTI-window wait
+  (`run.rs::wait_for_linux_window_activity`) caps poll() at 16 ms (60 Hz
+  wake-ups while idle) because it does not poll the windows' timer fds; the
+  Wayland loop polls at 16 ms while threads run (legit). macOS RunForever
+  has a 33 ms repeating drain NSTimer (idle wake-ups) -> part A.
+
 ## IN PROGRESS
-2. display link on demand (FramePacer)
+3. A: no idle internal timers
 
 ## NEXT
 see order
