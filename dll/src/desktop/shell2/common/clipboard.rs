@@ -20,7 +20,10 @@
 
 use azul_css::props::basic::ColorU;
 use azul_layout::managers::selection::{ClipboardContent, StyledTextRun, StyledTextRunVec};
-use rich_clipboard::{decode_payload, encode, Rgb, RichItem, RichText, Style};
+use rich_clipboard::{
+    decode_payload, decode_with, encode, Flavor, HtmlFragment, Options, Rgb, RichItem, RichText,
+    Style,
+};
 pub use rich_clipboard::{ClipboardPayload, Platform};
 
 /// 1 CSS pt = 4/3 CSS px (the 96 dpi reference used across azul).
@@ -212,7 +215,49 @@ fn payload_plain_text(payload: &ClipboardPayload) -> Option<String> {
 /// still encodes (as empty plain text), preserving the old "copy nothing
 /// clears the clipboard" behavior.
 pub fn clipboard_content_to_payload(content: &ClipboardContent) -> Option<ClipboardPayload> {
-    encode(&content_to_rich_item(content), Platform::native()).ok()
+    let platform = Platform::native();
+    let payload = encode(&content_to_rich_item(content), platform).ok()?;
+    let Some(html) = content.html.as_ref() else {
+        return Some(payload);
+    };
+    // The content's OWN markup is the HTML flavour (a mail's reply with its
+    // quotes and links), in place of the one the runs would have given; the
+    // RTF and plain flavours of the fan-out stay. Through the encoder, so
+    // Windows gets its `CF_HTML` wrapper.
+    let fragment = HtmlFragment {
+        markup: html.as_str().to_owned(),
+        context: None,
+        source_url: None,
+        plain: Some(content.plain_text.as_str().to_owned()),
+    };
+    let html_payload = encode(&RichItem::Html(fragment), platform).ok()?;
+    let mut out = ClipboardPayload::new(platform);
+    for item in payload.items() {
+        if item.flavor(platform) != Flavor::Html {
+            out.push(item.clone());
+        }
+    }
+    for item in html_payload.items() {
+        if item.flavor(platform) == Flavor::Html {
+            out.push(item.clone());
+        }
+    }
+    Some(out)
+}
+
+/// The HTML flavour of `payload` as markup, when the source offered one:
+/// bare markup on macOS and Unix, the fragment of Windows' `CF_HTML`. Over
+/// [`MAX_FLAVOR_BYTES`] it is left out, as the transports leave it.
+fn html_flavour_of(payload: &ClipboardPayload) -> Option<String> {
+    let item = payload.get(Flavor::Html)?;
+    if item.bytes.len() as u64 > MAX_FLAVOR_BYTES {
+        return None;
+    }
+    let options = Options::new().keep_html_markup(true);
+    match decode_with(item, payload.platform(), &options).ok()? {
+        RichItem::Html(fragment) => Some(fragment.markup),
+        _ => None,
+    }
 }
 
 fn content_to_rich_item(content: &ClipboardContent) -> RichItem {
@@ -255,14 +300,19 @@ fn content_to_rich_item(content: &ClipboardContent) -> RichItem {
 /// reading at all (an image, a file list) — those gain their own
 /// `ClipboardContent` representation in a later step.
 pub fn payload_to_clipboard_content(payload: &ClipboardPayload) -> Option<ClipboardContent> {
-    match decode_payload(payload).ok()? {
-        RichItem::RichText(rich) => Some(rich_text_to_content(&rich)),
-        item => item.plain_text().map(|plain| ClipboardContent {
-            plain_text: plain.into(),
+    let mut content = match decode_payload(payload).ok()? {
+        RichItem::RichText(rich) => rich_text_to_content(&rich),
+        item => ClipboardContent {
+            plain_text: item.plain_text()?.into(),
             styled_runs: StyledTextRunVec::from_const_slice(&[]),
             html: azul_css::OptionString::None,
-        }),
-    }
+        },
+    };
+    // The markup NEXT to the runs: paragraphs, lists, quotes and links have
+    // nowhere to go in the runs, and a rich editor's paste (or a mail app's
+    // sanitizer) wants them.
+    content.html = html_flavour_of(payload).map(azul_css::AzString::from).into();
+    Some(content)
 }
 
 fn rich_text_to_content(rich: &RichText) -> ClipboardContent {

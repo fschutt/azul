@@ -4230,45 +4230,98 @@ impl LayoutWindow {
     /// `editing/data/inserttext.js`) - and the last block's kept tail; the
     /// caret resumes AFTER the inserted text.
     pub fn replace_cross_block_selection(&mut self, insert: &str) -> Option<u64> {
-        use crate::managers::changeset::{
-            DocOpReplaceChildren, DocumentChangeset, DocumentOperation, NodePosition,
-        };
-
         // A PEEK: the selection is consumed only once the edit exists, so a
-        // refusal below leaves it standing.
-        let (dom_id, mut blocks): (DomId, Vec<(TextBlock, SelectionRange)>) = {
-            let sel = self.text_edit_manager.get_cross_block_selection()?;
-            (
-                sel.dom_id,
-                sel.affected_blocks
-                    .iter()
-                    .filter_map(|(b, r)| r.first().map(|r| (*b, *r)))
-                    .collect(),
-            )
-        };
-        if blocks.len() < 2 {
-            return None;
-        }
-        blocks.sort_by_key(|(b, _)| *b);
-        let (first_block, first_range) = blocks[0];
-        let (last_block, last_range) = *blocks.last().expect("len >= 2");
-        // The delete rebuilds the two ends' ELEMENTS; an anonymous block at
-        // either end has none to rebuild.
-        let (Some(first), Some(last)) = (first_block.element(), last_block.element()) else {
-            return None;
-        };
+        // refusal below leaves it standing. The delete rebuilds the two ends'
+        // ELEMENTS; an anonymous block at either end has none to rebuild.
+        self.text_edit_manager.get_cross_block_selection()?;
+        let (first_block, first_cursor, first, last, last_cursor) = self.selection_ends()?;
+        let dom_id = first_block.dom();
 
         // What each end keeps, as styled items in its own numbering (a list
         // item's text is run 1 behind its marker; a Trailing cursor cuts
         // AFTER its grapheme).
-        let head = self.kept_block_items(dom_id, first, &first_range.start, true);
-        let tail = self.kept_block_items(dom_id, last, &last_range.end, false);
+        let head = self.kept_block_items(dom_id, first, &first_cursor, true);
+        let tail = self.kept_block_items(dom_id, last, &last_cursor, false);
         let (merged, join) = self.joined_block(dom_id, first, head, insert, last, &tail)?;
+        self.record_block_replacement(first_block, first_cursor, first, last, vec![merged], 0, join)
+    }
 
+    /// The ends of the primary's selection, for an edit that replaces what
+    /// it covers: `(first block, its cut, first element, last element, last
+    /// cut)` - a document selection's two ends, or the session's one block
+    /// twice, cut at its caret or at the two ends of its range (in the
+    /// block's own numbering). `None` without a session, or for an end in
+    /// an anonymous block (no element to rebuild).
+    fn selection_ends(&self) -> Option<(TextBlock, TextCursor, NodeId, NodeId, TextCursor)> {
+        if let Some(sel) = self.text_edit_manager.get_cross_block_selection() {
+            let mut blocks: Vec<(TextBlock, SelectionRange)> = sel
+                .affected_blocks
+                .iter()
+                .filter_map(|(b, r)| r.first().map(|r| (*b, *r)))
+                .collect();
+            if blocks.len() < 2 {
+                return None;
+            }
+            blocks.sort_by_key(|(b, _)| *b);
+            let (first_block, first_range) = blocks[0];
+            let (last_block, last_range) = *blocks.last()?;
+            return Some((
+                first_block,
+                first_range.start,
+                first_block.element()?,
+                last_block.element()?,
+                last_range.end,
+            ));
+        }
+        let mc = self.text_edit_manager.multi_cursor.as_ref()?;
+        if mc.local_len() != 1 {
+            return None;
+        }
+        let block = mc.block;
+        let element = block.element()?;
+        let (start, end) = match mc.get_primary()?.selection {
+            Selection::Cursor(c) => (c, c),
+            Selection::Range(r) => {
+                let content = self.element_content(block.dom(), element);
+                // In document order, whichever way the range was made.
+                let a = content.flat_byte_of(&r.start);
+                let b = content.flat_byte_of(&r.end);
+                if a <= b {
+                    (r.start, r.end)
+                } else {
+                    (r.end, r.start)
+                }
+            }
+        };
+        Some((block, start, element, element, end))
+    }
+
+    /// Record the `ReplaceChildren` that puts `blocks` where the blocks from
+    /// `first` to `last` stood ([`Self::document_selection_replacement`]),
+    /// the caret resuming in `blocks[join_block]` at `join` (its start when
+    /// `None`), and collapse the session onto `first_cursor` in `first_block`
+    /// until the app's render lands. The one recorder of a delete across
+    /// blocks, a type-over of one and a rich paste.
+    #[allow(clippy::too_many_arguments)]
+    fn record_block_replacement(
+        &mut self,
+        first_block: TextBlock,
+        first_cursor: TextCursor,
+        first: NodeId,
+        last: NodeId,
+        blocks: Vec<Dom>,
+        join_block: usize,
+        join: Option<crate::rich_blocks::InlinePosition>,
+    ) -> Option<u64> {
+        use crate::managers::changeset::{
+            DocOpReplaceChildren, DocumentChangeset, DocumentOperation, NodePosition,
+        };
+
+        let dom_id = first_block.dom();
         // The ends need not share a parent: a document selection spans blocks
         // in document order, wherever they sit (838adc974).
         let (parent, start_idx, end_idx, replacement) =
-            self.document_selection_replacement(dom_id, first, last, vec![merged])?;
+            self.document_selection_replacement(dom_id, first, last, blocks)?;
 
         let parent_dom_node = DomNodeId {
             dom: dom_id,
@@ -4287,21 +4340,26 @@ impl LayoutWindow {
             },
             &op,
         )?;
-        // Word caret behavior: land INSIDE the merged block at the join, in
-        // the element the join is in - not merely "before the replaced slot",
-        // and not at a byte of the block's first text child.
+        // Word caret behavior: land INSIDE the block at the join, in the
+        // element the join is in - not merely "before the replaced slot",
+        // and not at a byte of the block's first text child. The blocks
+        // stand where `first` stood, one after the other.
+        let mut node_path = resume.node_path.as_ref().to_vec();
+        if let Some(last_index) = node_path.last_mut() {
+            *last_index = last_index.saturating_add(u32::try_from(join_block).unwrap_or(u32::MAX));
+        }
         match join.map(|j| j.as_resume()) {
             Some((path, position)) => {
-                let mut node_path = resume.node_path.as_ref().to_vec();
                 node_path.extend_from_slice(&path);
-                resume.node_path = node_path.into();
                 resume.position = position;
             }
             None => resume.position = NodePosition::before_child(0),
         }
+        resume.node_path = node_path.into();
 
         // The edit exists: NOW the selection is consumed.
         self.text_edit_manager.clear_cross_block_selection();
+        self.text_edit_manager.typing_style = None;
 
         // Pre-apply caret continuity: collapse onto the selection start.
         {
@@ -4314,7 +4372,7 @@ impl LayoutWindow {
             });
             self.text_edit_manager.multi_cursor =
                 Some(azul_core::selection::MultiCursorState::new_with_cursor(
-                    first_range.start,
+                    first_cursor,
                     first_block,
                     key,
                 ));
@@ -4326,6 +4384,220 @@ impl LayoutWindow {
 
         let changeset = DocumentChangeset::new(parent_dom_node, op, resume, Instant::now());
         Some(self.record_document_edit(changeset))
+    }
+
+    /// `node`'s element without its children, as a `Dom`: the clone carries
+    /// the ELEMENT (type, classes, ids, inline css); its dataset / callback
+    /// state stays with the app's re-render.
+    fn element_shell(&self, dom_id: DomId, node: NodeId) -> Option<Dom> {
+        let data = self
+            .layout_results
+            .get(&dom_id)?
+            .styled_dom
+            .node_data
+            .as_container()
+            .get(node)?
+            .clone();
+        Some(Dom {
+            root: data,
+            children: Vec::new().into(),
+            css: Vec::new().into(),
+            estimated_total_children: 0,
+        })
+    }
+
+    /// Paste `fragment` (the sanitized HTML flavour, [`crate::paste_html`])
+    /// over the primary's selection or at its caret, as ONE structural edit
+    /// for the app: the blocks that take the place of the caret's block (or
+    /// of the selected ones) - the browsers' `insertHTML` (WPT
+    /// `editing/data/inserthtml.js`):
+    ///
+    /// - inline content lands in the paragraph at the caret, between what it
+    ///   keeps before and after the cut (links included: an `<a>` is content
+    ///   the text pipeline cannot hold);
+    /// - a first pasted paragraph merges with the text before the caret, a
+    ///   last one with the text after it; every other block stands on its
+    ///   own between the two halves.
+    ///
+    /// The caret resumes after the pasted content. `None` when there is
+    /// nothing to paste into.
+    fn paste_fragment_structurally(
+        &mut self,
+        fragment: &crate::paste_html::PastedFragment,
+    ) -> Option<u64> {
+        use crate::{paste_html::PastedNode, rich_blocks::InlineTree};
+
+        let (first_block, first_cursor, first, last, last_cursor) = self.selection_ends()?;
+        let dom_id = first_block.dom();
+        let head = self.kept_block_items(dom_id, first, &first_cursor, true);
+        let tail = self.kept_block_items(dom_id, last, &last_cursor, false);
+
+        let nodes = &fragment.nodes;
+        let first_block_at = nodes.iter().position(PastedNode::is_block);
+        let last_block_at = nodes.iter().rposition(PastedNode::is_block);
+
+        // The inline content pasted into the head half: everything before the
+        // first block, plus a leading paragraph's content.
+        let mut head_tree = InlineTree::default();
+        self.push_block_items(&mut head_tree, dom_id, first, &head);
+        let inline_lead = &nodes[..first_block_at.unwrap_or(nodes.len())];
+        for node in inline_lead {
+            head_tree.push_dom(&node.to_dom());
+        }
+        let Some(first_at) = first_block_at else {
+            // Inline only: one block, the tail in it.
+            let join = head_tree.end();
+            self.push_block_items(&mut head_tree, dom_id, last, &tail);
+            let mut block = self.element_shell(dom_id, first)?;
+            for child in head_tree.into_doms() {
+                block.add_child(child);
+            }
+            return self.record_block_replacement(
+                first_block,
+                first_cursor,
+                first,
+                last,
+                vec![block],
+                0,
+                join,
+            );
+        };
+        let last_at = last_block_at.unwrap_or(first_at);
+        let mut middle_from = first_at;
+        let mut middle_to = last_at + 1;
+        if let PastedNode::Block(_, children) = &nodes[first_at] {
+            if nodes[first_at].is_inline_paragraph() {
+                for child in children {
+                    head_tree.push_dom(&child.to_dom());
+                }
+                middle_from = first_at + 1;
+            }
+        }
+        // The inline content pasted into the tail half: a trailing
+        // paragraph's content (a block other than the leading one), plus
+        // everything after the last block.
+        let mut tail_tree = InlineTree::default();
+        if last_at > first_at && nodes[last_at].is_inline_paragraph() {
+            if let PastedNode::Block(_, children) = &nodes[last_at] {
+                for child in children {
+                    tail_tree.push_dom(&child.to_dom());
+                }
+            }
+            middle_to = last_at;
+        }
+        for node in &nodes[last_at + 1..] {
+            tail_tree.push_dom(&node.to_dom());
+        }
+        let tail_join = tail_tree.end();
+        self.push_block_items(&mut tail_tree, dom_id, last, &tail);
+
+        let mut blocks: Vec<Dom> = Vec::new();
+        if !head_tree.is_empty() {
+            let mut block = self.element_shell(dom_id, first)?;
+            for child in head_tree.into_doms() {
+                block.add_child(child);
+            }
+            blocks.push(block);
+        }
+        for node in &nodes[middle_from..middle_to] {
+            blocks.push(node.to_dom());
+        }
+        let (join_block, join) = if tail_tree.is_empty() {
+            // Nothing after the paste: the caret at the end of its last
+            // block.
+            let index = blocks.len().saturating_sub(1);
+            let end = blocks.get(index).map(|b| {
+                crate::rich_blocks::InlinePosition::Before {
+                    path: Vec::new(),
+                    index: u32::try_from(b.children.as_ref().len()).unwrap_or(u32::MAX),
+                }
+            });
+            (index, end)
+        } else {
+            let mut block = self.element_shell(dom_id, last)?;
+            for child in tail_tree.into_doms() {
+                block.add_child(child);
+            }
+            blocks.push(block);
+            let index = blocks.len() - 1;
+            let join = tail_join.or(Some(crate::rich_blocks::InlinePosition::Before {
+                path: Vec::new(),
+                index: 0,
+            }));
+            (index, join)
+        };
+        if blocks.is_empty() {
+            return None;
+        }
+        self.record_block_replacement(
+            first_block,
+            first_cursor,
+            first,
+            last,
+            blocks,
+            join_block,
+            join,
+        )
+    }
+
+    /// Paste `text` with the formatting of `spans` at the primary's one
+    /// caret (over its range, in one block): the inline half of a rich paste
+    /// through the text pipeline, like typing - the overlay holds it, no app
+    /// model needed. Returns whether anything was inserted; the caller pastes
+    /// the plain text otherwise.
+    fn paste_inline_formatted(
+        &mut self,
+        text: &str,
+        spans: &[crate::text3::edit::FormatSpan],
+    ) -> bool {
+        use crate::{
+            block_content::BlockContent,
+            text3::edit::{delete_range, insert_formatted_text},
+        };
+
+        let Some((block, selections)) = self
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .filter(|mc| mc.local_len() == 1)
+            .map(|mc| (mc.block, mc.to_selections()))
+        else {
+            return false;
+        };
+        let dom_id = block.dom();
+        let target = self
+            .focus_manager
+            .focused_node
+            .filter(|f| f.dom == dom_id)
+            .unwrap_or_else(|| block.container_dom_node());
+        let Some(node_id) = self.edit_element(target, Some(block)) else {
+            return false;
+        };
+        let (mut content, generated) = self.element_content(dom_id, node_id).into_parts();
+        self.seed_empty_run(dom_id, node_id, &mut content, generated);
+        let selections = BlockContent::selections_past_generated(selections, generated);
+        let (base, caret) = match selections.first() {
+            Some(Selection::Cursor(c)) => (content.clone(), *c),
+            Some(Selection::Range(r)) => delete_range(&content, r),
+            None => return false,
+        };
+        let (mut new_content, cursor) = insert_formatted_text(&base, &caret, text, spans);
+        if new_content == content {
+            return false;
+        }
+        // Undo and the overlay hold the text only; the reshape re-adds the
+        // generated items.
+        let text_before = content.get(generated..).unwrap_or(&[]);
+        let text_after = new_content.split_off(generated.min(new_content.len()));
+        self.record_paste_undo(target, node_id, text_before, &text_after, &selections);
+        if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
+            mc.update_from_edit_result(&[Selection::Cursor(cursor)]);
+        }
+        // The paste brought its own formatting; a typing style is over.
+        self.text_edit_manager.typing_style = None;
+        self.update_text_cache_after_edit(dom_id, node_id, text_after);
+        self.text_edit_manager.mark_dirty();
+        true
     }
 
     /// The block that joins `head` - what block `first` keeps before a cut -
@@ -4375,20 +4647,7 @@ impl LayoutWindow {
         self.push_block_items(&mut tree, dom_id, first, &head);
         let join = tree.end();
         self.push_block_items(&mut tree, dom_id, last, tail);
-        let data = self
-            .layout_results
-            .get(&dom_id)?
-            .styled_dom
-            .node_data
-            .as_container()
-            .get(first)?
-            .clone();
-        let mut block = Dom {
-            root: data,
-            children: Vec::new().into(),
-            css: Vec::new().into(),
-            estimated_total_children: 0,
-        };
+        let mut block = self.element_shell(dom_id, first)?;
         for child in tree.into_doms() {
             block.add_child(child);
         }
@@ -19316,21 +19575,7 @@ impl LayoutWindow {
         // - has no text run either: the seed goes in front of the break,
         // where the blank line's one caret (run 0 of the text) stands.
         let (mut content, generated) = self.element_content(dom_id, node_id).into_parts();
-        if !content[generated..]
-            .iter()
-            .any(|item| matches!(item, InlineContent::Text(_)))
-        {
-            let style_node = self.seed_style_node(dom_id, node_id);
-            content.insert(
-                generated,
-                InlineContent::Text(StyledRun {
-                    text: Arc::from(""),
-                    style: self.get_text_style_for_node(dom_id, style_node.unwrap_or(node_id)),
-                    logical_start_byte: 0,
-                    source_node_id: style_node,
-                }),
-            );
-        }
+        self.seed_empty_run(dom_id, node_id, &mut content, generated);
 
         // Get current cursor/selection — prefer non-empty MultiCursorState, fall back to legacy
         let mc_selections = if is_primary_seat {
@@ -19911,6 +20156,41 @@ impl LayoutWindow {
                 Vec::new()
             }
         }
+    }
+
+    /// Seed ONE empty text run into `content` (element `node_id`'s, its
+    /// first `generated` items the layout's) when it holds no text run: an
+    /// insert splices into `content[cursor.source_run]`, and an editable
+    /// with no text at all - a new document, an empty `<p>`, a paragraph
+    /// holding only a `<br>` - has no run to splice into, so its first
+    /// keystroke (or paste) was dropped. The seed goes in front of the
+    /// break, where the blank line's one caret stands, in the style of the
+    /// node a full layout would shape the text at ([`Self::seed_style_node`]).
+    fn seed_empty_run(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+        content: &mut Vec<InlineContent>,
+        generated: usize,
+    ) {
+        if content
+            .get(generated..)
+            .unwrap_or(&[])
+            .iter()
+            .any(|item| matches!(item, InlineContent::Text(_)))
+        {
+            return;
+        }
+        let style_node = self.seed_style_node(dom_id, node_id);
+        content.insert(
+            generated.min(content.len()),
+            InlineContent::Text(StyledRun {
+                text: Arc::from(""),
+                style: self.get_text_style_for_node(dom_id, style_node.unwrap_or(node_id)),
+                logical_start_byte: 0,
+                source_node_id: style_node,
+            }),
+        );
     }
 
     /// The node whose cascade the seeded empty run must carry: the first
@@ -22983,14 +23263,49 @@ impl LayoutWindow {
     /// one implementation the shells call, so the headless tests paste what
     /// a user pastes.
     ///
-    /// Over a document selection, one atomic replace of it; with one line
-    /// per caret, the smart paste ([`Self::paste_one_line_per_caret`]);
-    /// else the text at every caret, recorded for the pass's changeset.
+    /// In a RICH editing host the HTML flavour is what is pasted
+    /// ([`crate::paste_html::sanitize_html`]: b / i / u / s, links, line
+    /// breaks, paragraphs, lists, quotes; never a script, a style sheet or a
+    /// form): inline formatting through the text pipeline at one caret
+    /// ([`Self::paste_inline_formatted`]), blocks, links and a paste over a
+    /// document selection as one structural edit for the app
+    /// ([`Self::paste_fragment_structurally`]). A plain-text host (a text
+    /// area, `white-space: pre*`), several carets, or HTML that does not
+    /// parse take the plain text. Otherwise: over a document selection, one
+    /// atomic replace of it; with one line per caret, the smart paste
+    /// ([`Self::paste_one_line_per_caret`]); else the text at every caret,
+    /// recorded for the pass's changeset.
     pub fn paste_clipboard_content(
         &mut self,
         content: &crate::managers::selection::ClipboardContent,
     ) -> PasteOutcome {
         let text = content.plain_text.as_str().to_string();
+        let rich_host = self
+            .build_editing_query_state(self.focus_manager.focused_node)
+            .is_some_and(|e| e.is_contenteditable && !e.host_preserves_newlines);
+        let fragment = content
+            .html
+            .as_ref()
+            .filter(|_| rich_host)
+            .and_then(|html| crate::paste_html::sanitize_html(html.as_str()));
+        if let Some(fragment) = fragment {
+            if fragment.is_empty() {
+                // Every bit of it was sanitized away: nothing to paste.
+                return PasteOutcome::Nothing;
+            }
+            let document_selection = self.text_edit_manager.get_cross_block_selection().is_some();
+            if document_selection || fragment.has_structure() || fragment.has_links() {
+                if self.paste_fragment_structurally(&fragment).is_some() {
+                    return PasteOutcome::Structural;
+                }
+            } else {
+                let (text, spans) = fragment.text_and_spans();
+                if self.paste_inline_formatted(&text, &spans) {
+                    return PasteOutcome::Text;
+                }
+            }
+            // No session to paste into as content: the plain text below.
+        }
         // Paste over a cross-block selection: one atomic replace-merge
         // changeset with the pasted text at the join (caret resumes after
         // it).

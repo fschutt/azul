@@ -546,6 +546,10 @@ pub mod block_content;
 /// of a structural edit that joins blocks or pastes a fragment.
 #[cfg(feature = "text_layout")]
 pub mod rich_blocks;
+/// The HTML flavour of a paste, sanitized into formatted text, links and
+/// blocks.
+#[cfg(feature = "text_layout")]
+pub mod paste_html;
 /// Text blocks: which inline formatting context a node, a caret or a
 /// selection end lives in - the one resolver.
 #[cfg(feature = "text_layout")]
