@@ -220,6 +220,30 @@ impl GpuValueCache {
                 on_transform(key.id, value);
             }
         }
+        // The ANIMATION channel is separate from the CSS one because
+        // `synchronize` owns `css_transform_keys` and evicts anything not
+        // backed by a CSS `transform`; by key id the two are
+        // indistinguishable, which is the intent.
+        for (node_id, key) in &self.anim_transform_keys {
+            if let Some(value) = self.anim_current_transform_values.get(node_id) {
+                on_transform(key.id, value);
+            }
+        }
+        for (node_id, key) in &self.css_transform_keys {
+            if let Some(value) = self.css_current_transform_values.get(node_id) {
+                on_transform(key.id, value);
+            }
+        }
+        for (node_id, key) in &self.anim_opacity_keys {
+            if let Some(&value) = self.anim_current_opacity_values.get(node_id) {
+                on_opacity(key.id, value);
+            }
+        }
+        for (node_id, key) in &self.opacity_keys {
+            if let Some(&value) = self.current_opacity_values.get(node_id) {
+                on_opacity(key.id, value);
+            }
+        }
         for ((d, node_id), key) in &self.scrollbar_v_opacity_keys {
             if *d == dom_id {
                 if let Some(&value) = self.scrollbar_v_opacity_values.get(&(*d, *node_id)) {

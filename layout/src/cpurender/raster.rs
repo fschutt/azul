@@ -1489,63 +1489,18 @@ pub fn extract_gpu_values(
         let mut transforms = HashMap::new();
         let mut opacities = HashMap::new();
 
+        // THE shared source (`GpuValueCache::for_each_bound_value`): the
+        // WebRender path hands the same values to its dynamic properties.
         if let Some(cache) = gpu_cache {
-            // Scrollbar thumb transforms (vertical)
-            for (node_id, key) in &cache.transform_keys {
-                if let Some(value) = cache.current_transform_values.get(node_id) {
-                    transforms.insert(key.id, *value);
-                }
-            }
-            // Scrollbar thumb transforms (horizontal)
-            for (node_id, key) in &cache.h_transform_keys {
-                if let Some(value) = cache.h_current_transform_values.get(node_id) {
-                    transforms.insert(key.id, *value);
-                }
-            }
-            // ANIMATION transforms — a separate channel from the CSS one,
-            // because `synchronize` owns `css_transform_keys` and evicts
-            // anything not backed by a CSS `transform` property. Extracted the
-            // same way: the rasteriser looks values up by KEY id, so an
-            // animated node is indistinguishable from a CSS-transformed one at
-            // this point, which is the intent.
-            for (node_id, key) in &cache.anim_transform_keys {
-                if let Some(value) = cache.anim_current_transform_values.get(node_id) {
-                    transforms.insert(key.id, *value);
-                }
-            }
-            for (node_id, key) in &cache.anim_opacity_keys {
-                if let Some(value) = cache.anim_current_opacity_values.get(node_id) {
-                    opacities.insert(key.id, *value);
-                }
-            }
-            // CSS transforms
-            for (node_id, key) in &cache.css_transform_keys {
-                if let Some(value) = cache.css_current_transform_values.get(node_id) {
-                    transforms.insert(key.id, *value);
-                }
-            }
-            // Scrollbar opacity (vertical)
-            for ((d, node_id), key) in &cache.scrollbar_v_opacity_keys {
-                if *d == dom_id {
-                    if let Some(&value) = cache.scrollbar_v_opacity_values.get(&(*d, *node_id)) {
-                        opacities.insert(key.id, value);
-                    }
-                }
-            }
-            // Scrollbar opacity (horizontal)
-            for ((d, node_id), key) in &cache.scrollbar_h_opacity_keys {
-                if *d == dom_id {
-                    if let Some(&value) = cache.scrollbar_h_opacity_values.get(&(*d, *node_id)) {
-                        opacities.insert(key.id, value);
-                    }
-                }
-            }
-            // CSS opacity
-            for (node_id, key) in &cache.opacity_keys {
-                if let Some(&value) = cache.current_opacity_values.get(node_id) {
-                    opacities.insert(key.id, value);
-                }
-            }
+            cache.for_each_bound_value(
+                dom_id,
+                |key, value| {
+                    transforms.insert(key, *value);
+                },
+                |key, value| {
+                    opacities.insert(key, value);
+                },
+            );
         }
 
         (transforms, opacities)

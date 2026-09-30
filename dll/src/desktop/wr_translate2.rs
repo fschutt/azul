@@ -1735,71 +1735,22 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
         colors: Vec::new(),
     };
 
-    // Synchronize opacity values from GPU cache
+    // Every bound value, from THE shared source the CPU renderer reads too
+    // (`GpuValueCache::for_each_bound_value`): scrollbar thumbs and fades,
+    // CSS transforms and opacities, and the animation channel. The animation
+    // channel used to be missing here, so a tick that skipped the scene
+    // rebuild moved nothing on the GPU path; carrying it is what lets an
+    // animation frame be a dynamic-property update instead of a rebuild.
     for dom_id in layout_window.layout_results.keys() {
-        let gpu_cache = layout_window.gpu_state_manager.get_or_create_cache(*dom_id);
-
-        // Synchronize vertical scrollbar opacities
-        for ((cache_dom_id, node_id), &opacity) in &gpu_cache.scrollbar_v_opacity_values {
-            if cache_dom_id != dom_id {
-                continue;
-            }
-
-            if let Some(&opacity_key) = gpu_cache.scrollbar_v_opacity_keys.get(&(*dom_id, *node_id))
-            {
-                // Add opacity property update
-                // Convert OpacityKey to PropertyBindingKey<f32> using its id field (usize -> u64)
-                properties.floats.push(PropertyValue {
-                    key: webrender::api::PropertyBindingKey::new(opacity_key.id as u64),
-                    value: opacity,
-                });
-
-                log_debug!(
-                    LogCategory::Rendering,
-                    "[synchronize_gpu_values] Set vertical scrollbar opacity for {:?}:{:?} to {} \
-                     (key={:?})",
-                    dom_id,
-                    node_id,
-                    opacity,
-                    opacity_key
-                );
-            }
-        }
-
-        // Synchronize horizontal scrollbar opacities
-        for ((cache_dom_id, node_id), &opacity) in &gpu_cache.scrollbar_h_opacity_values {
-            if cache_dom_id != dom_id {
-                continue;
-            }
-
-            if let Some(&opacity_key) = gpu_cache.scrollbar_h_opacity_keys.get(&(*dom_id, *node_id))
-            {
-                // Add opacity property update
-                // Convert OpacityKey to PropertyBindingKey<f32> using its id field (usize -> u64)
-                properties.floats.push(PropertyValue {
-                    key: webrender::api::PropertyBindingKey::new(opacity_key.id as u64),
-                    value: opacity,
-                });
-
-                log_debug!(
-                    LogCategory::Rendering,
-                    "[synchronize_gpu_values] Set horizontal scrollbar opacity for {:?}:{:?} to \
-                     {} (key={:?})",
-                    dom_id,
-                    node_id,
-                    opacity,
-                    opacity_key
-                );
-            }
-        }
-
-        // Synchronize vertical scrollbar transform values from GPU cache
-        for (node_id, transform) in &gpu_cache.current_transform_values {
-            if let Some(&transform_key) = gpu_cache.transform_keys.get(node_id) {
-                // Convert ComputedTransform3D to WR LayoutTransform.
-                // IMPORTANT: Scale translation components (m[3][0..2]) by DPI to match
-                // compositor2's coordinate space where all positions are logical × dpi_scale.
+        let Some(gpu_cache) = layout_window.gpu_state_manager.get_cache(*dom_id) else {
+            continue;
+        };
+        gpu_cache.for_each_bound_value(
+            *dom_id,
+            |key, transform| {
                 use webrender::api::units::LayoutTransform;
+                // Translation scaled by DPI: compositor2 lays items out in
+                // logical px x dpi_scale, and a transform acts in that space.
                 let wr_transform = LayoutTransform::new(
                     transform.m[0][0],
                     transform.m[0][1],
@@ -1818,65 +1769,18 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
                     transform.m[3][2] * dpi_scale,
                     transform.m[3][3],
                 );
-
                 properties.transforms.push(PropertyValue {
-                    key: webrender::api::PropertyBindingKey::new(transform_key.id as u64),
+                    key: webrender::api::PropertyBindingKey::new(key as u64),
                     value: wr_transform,
                 });
-
-                log_debug!(
-                    LogCategory::Rendering,
-                    "[synchronize_gpu_values] Set v-transform for {:?}:{:?} (key={}), \
-                     translate=({:.1}, {:.1})",
-                    dom_id,
-                    node_id,
-                    transform_key.id,
-                    transform.m[3][0],
-                    transform.m[3][1]
-                );
-            }
-        }
-
-        // Synchronize horizontal scrollbar transform values from GPU cache
-        for (node_id, transform) in &gpu_cache.h_current_transform_values {
-            if let Some(&transform_key) = gpu_cache.h_transform_keys.get(node_id) {
-                use webrender::api::units::LayoutTransform;
-                let wr_transform = LayoutTransform::new(
-                    transform.m[0][0],
-                    transform.m[0][1],
-                    transform.m[0][2],
-                    transform.m[0][3],
-                    transform.m[1][0],
-                    transform.m[1][1],
-                    transform.m[1][2],
-                    transform.m[1][3],
-                    transform.m[2][0],
-                    transform.m[2][1],
-                    transform.m[2][2],
-                    transform.m[2][3],
-                    transform.m[3][0] * dpi_scale,
-                    transform.m[3][1] * dpi_scale,
-                    transform.m[3][2] * dpi_scale,
-                    transform.m[3][3],
-                );
-
-                properties.transforms.push(PropertyValue {
-                    key: webrender::api::PropertyBindingKey::new(transform_key.id as u64),
-                    value: wr_transform,
+            },
+            |key, opacity| {
+                properties.floats.push(PropertyValue {
+                    key: webrender::api::PropertyBindingKey::new(key as u64),
+                    value: opacity,
                 });
-
-                log_debug!(
-                    LogCategory::Rendering,
-                    "[synchronize_gpu_values] Set h-transform for {:?}:{:?} (key={}), \
-                     translate=({:.1}, {:.1})",
-                    dom_id,
-                    node_id,
-                    transform_key.id,
-                    transform.m[3][0],
-                    transform.m[3][1]
-                );
-            }
-        }
+            },
+        );
     }
 
     // Nothing collected at all: nothing to send, nothing changed.

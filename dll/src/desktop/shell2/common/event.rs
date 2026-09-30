@@ -4393,16 +4393,22 @@ pub trait PlatformWindow {
             }
         }
 
-        let (needs_relayout, patched) = match self.get_layout_window_mut() {
-            Some(lw) => (lw.take_transition_relayout(), lw.take_transition_patched()),
-            None => (false, false),
+        // `values_only`: the tick moved only values the display list binds
+        // by key (a spinner's rotation and fade) - repaint, do not rebuild.
+        let (needs_relayout, patched, values_only) = match self.get_layout_window_mut() {
+            Some(lw) => (
+                lw.take_transition_relayout(),
+                lw.take_transition_patched(),
+                lw.animation_tick_is_values_only(),
+            ),
+            None => (false, false, false),
         };
         // A settled step still owes this frame, so the final value reaches
         // the screen; only then does the driver go idle.
         self.disarm_css_animation_timer_if_idle();
         result.max(if needs_relayout {
             ProcessEventResult::ShouldIncrementalRelayout
-        } else if patched {
+        } else if patched || values_only {
             ProcessEventResult::ShouldReRenderCurrentWindow
         } else {
             ProcessEventResult::ShouldUpdateDisplayListCurrentWindow

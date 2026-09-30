@@ -1049,6 +1049,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // One id per culled live track, a subset of `live_tracks`; a bool.
         culled_tracks: _,
         window_occluded: _,
+        root_display_list_gpu_fingerprint: _,
         // Two u64 arrays sized by node count (~16 B/node) — noise next to
         // the tree; walked nowhere, listed so the destructure stays total.
         last_dom_fingerprints: _,
@@ -1551,6 +1552,14 @@ pub struct LayoutWindow {
     /// holds. Minimized and hidden windows need no flag - the window state
     /// says so.
     pub window_occluded: bool,
+    /// `GpuValueCache::dl_emission_fingerprint` of the cache the ROOT display
+    /// list in `layout_results` was built from - which nodes it binds to
+    /// which transform / opacity keys. While the live cache still has this
+    /// fingerprint, a rebuild would bind exactly the same keys, and an
+    /// animation tick that only moved VALUES can repaint the list as it is
+    /// ([`Self::animation_tick_is_values_only`]). `None` before the first
+    /// build.
+    pub root_display_list_gpu_fingerprint: Option<u64>,
     /// The CSS DIFF of the most recent `begin_reconciliation`, waiting to be
     /// consumed by the NEXT layout pass of that DOM: node -> worst
     /// `RelayoutScope` across its changed properties (including `None` =
@@ -2305,6 +2314,7 @@ impl LayoutWindow {
             last_anim_tick: None,
             culled_tracks: BTreeSet::new(),
             window_occluded: false,
+            root_display_list_gpu_fingerprint: None,
             layout_cache: Solver3LayoutCache {
                 tree: None,
                 resize_only_hint: false,
@@ -6748,6 +6758,12 @@ impl LayoutWindow {
                 )
             })?
         };
+
+        // The key population this list binds (a cache hit inside
+        // `layout_document` serves a list keyed on the same fingerprint).
+        if dom_id == DomId::ROOT_ID {
+            self.root_display_list_gpu_fingerprint = Some(gpu_cache.dl_emission_fingerprint());
+        }
 
         // Hint the allocator to return freed pages after the layout pass
         // drops its transient allocations (intrinsic sizing Vecs, etc.).
@@ -13145,6 +13161,33 @@ impl LayoutWindow {
             }
         }
         self.culled_tracks = culled;
+    }
+
+    /// May this animation tick repaint the display list AS IT IS?
+    ///
+    /// Yes when everything it changed is a VALUE the list binds by key -
+    /// a reference frame's transform, an opacity group's opacity - and both
+    /// renderers read those live (`GpuValueCache::for_each_bound_value`):
+    /// the key population is the one the root list was built from
+    /// ([`Self::root_display_list_gpu_fingerprint`]), no transition staged a
+    /// restyle (`pending_css_dirty`), and no exit is running (zombie tracks
+    /// may re-solve a retained tree). A spinner's frame then costs a repaint
+    /// of its own rect instead of a rebuild of the whole window's list.
+    ///
+    /// A new key (a track's first sample, a spring that just started) or a
+    /// released one (a finished track) changes the fingerprint: that tick
+    /// rebuilds, so the list gains or drops the group, and the next ones
+    /// do not.
+    #[must_use]
+    pub fn animation_tick_is_values_only(&self) -> bool {
+        self.pending_css_dirty.is_none()
+            && !self.zombies.iter().any(|z| !z.tracks.is_empty())
+            && self.root_display_list_gpu_fingerprint.is_some()
+            && self.root_display_list_gpu_fingerprint
+                == self
+                    .gpu_state_manager
+                    .get_cache(DomId::ROOT_ID)
+                    .map(GpuValueCache::dl_emission_fingerprint)
     }
 
     /// The frame driver stops while live tracks remain - all of them culled.
@@ -20784,6 +20827,10 @@ impl LayoutWindow {
                 if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
                     layout_result.display_list = display_list.clone();
                 }
+                if dom_id == DomId::ROOT_ID {
+                    self.root_display_list_gpu_fingerprint =
+                        Some(gpu_cache.dl_emission_fingerprint());
+                }
                 // Refresh the solver's structural-identity DL cache with the
                 // SAME list, keyed on the fingerprint of the gpu cache this
                 // regeneration consumed. Without this the two DL authorities
@@ -23429,6 +23476,8 @@ impl LayoutWindow {
             culled_tracks,
             // A bool about the window, no NodeId.
             window_occluded: _,
+            // A hash; the rebuild that caused this remap re-records it.
+            root_display_list_gpu_fingerprint: _,
             layout_cache: _,
             layout_results: _,
             // Content-addressed (hashes / font ids / image ids), never NodeIds:
