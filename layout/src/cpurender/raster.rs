@@ -10381,3 +10381,255 @@ mod pass2b_clamp_tests {
         );
     }
 }
+
+/// A glyph run whose geometry no rasterizer can place is skipped, never
+/// handed to agg - and a clip thinner than a pixel paints nothing.
+///
+/// agg rasterizes on `i32` coordinates (24.8 fixed point, x tripled on the
+/// LCD path). A pen that a broken layout parked at 1e38 saturated to
+/// `i32::MAX`, the LCD `* 3` wrapped, the rasterizer's x range straddled all
+/// of `i32` and `ScanlineU8::reset` allocated a one-cover span: `index out of
+/// bounds: the len is 1 but the index is 1` in `add_cell`. That panic took
+/// down the AzMail reading pane (a receipt table) and aborted AzWidgets seven
+/// times on 2026-09-30 with no table involved, always from `render_glyphs_lcd`.
+#[cfg(all(test, feature = "std"))]
+mod unplaceable_glyph_geometry_tests {
+    use super::*;
+
+    const W: u32 = 96;
+    const H: u32 = 32;
+    const FONT_PX: f32 = 16.0;
+    const BLACK: ColorU = ColorU {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
+    const WHITE: ColorU = ColorU {
+        r: 255,
+        g: 255,
+        b: 255,
+        a: 255,
+    };
+
+    fn white_pixmap() -> AzulPixmap {
+        let mut pm = AzulPixmap::new(W, H).expect("a 96x32 pixmap");
+        pm.fill(255, 255, 255, 255);
+        pm
+    }
+
+    /// How many pixels are not pure white.
+    fn inked(pm: &AzulPixmap) -> usize {
+        pm.data()
+            .chunks_exact(4)
+            .filter(|p| p[0] != 255 || p[1] != 255 || p[2] != 255)
+            .count()
+    }
+
+    fn whole_window() -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize {
+                width: W as f32,
+                height: H as f32,
+            },
+        }
+    }
+
+    /// `HHHHHH` on a baseline at y = 22.
+    fn sane_run(font: &ParsedFont) -> Vec<GlyphInstance> {
+        lcd_pretile_tests::shape_pub(font, "HHHHHH", FONT_PX, 2.0, 22.0)
+    }
+
+    /// The sane run, then the same glyph at pens nothing can place: NaN on
+    /// either axis, both infinities and +-1e38.
+    fn run_with_unplaceable_pens(font: &ParsedFont) -> Vec<GlyphInstance> {
+        let mut glyphs = sane_run(font);
+        let template = glyphs[0];
+        for (x, y) in [
+            (f32::NAN, 22.0),
+            (22.0, f32::NAN),
+            (f32::INFINITY, 22.0),
+            (f32::NEG_INFINITY, 22.0),
+            (1.0e38, 22.0),
+            (-1.0e38, 22.0),
+        ] {
+            glyphs.push(GlyphInstance {
+                point: LogicalPosition { x, y },
+                ..template
+            });
+        }
+        glyphs
+    }
+
+    /// The LCD batch sweep, called directly.
+    fn lcd_sweep(
+        pm: &mut AzulPixmap,
+        clip: Option<AzRect>,
+        glyphs: &[GlyphInstance],
+        font: &ParsedFont,
+        font_hash: FontHash,
+    ) {
+        let scale = FONT_PX / f32::from(font.font_metrics.units_per_em);
+        let mut gc = GlyphCache::new();
+        render_glyphs_lcd(
+            pm,
+            clip,
+            glyphs,
+            font,
+            font_hash,
+            0,
+            scale,
+            1.0,
+            BLACK,
+            1.0,
+            (0.0, 0.0),
+            &mut gc,
+        );
+    }
+
+    /// The grayscale path (the one text-shadows take).
+    fn grayscale(
+        pm: &mut AzulPixmap,
+        clip: Option<AzRect>,
+        glyphs: &[GlyphInstance],
+        rr: &RendererResources,
+        fm: &FontManager<FontRef>,
+        font_hash: FontHash,
+    ) {
+        let mut gc = GlyphCache::new();
+        render_text(
+            glyphs,
+            font_hash,
+            FONT_PX,
+            BLACK,
+            pm,
+            &whole_window(),
+            clip,
+            rr,
+            fm,
+            1.0,
+            &mut gc,
+            (0.0, 0.0),
+            true,
+        );
+    }
+
+    #[test]
+    fn the_lcd_sweep_skips_the_pens_it_cannot_place() {
+        let Some(font) = lcd_pretile_tests::load_test_font_pub() else {
+            eprintln!("no system test font - skipping");
+            return;
+        };
+        let (_rr, _fm, font_hash) = lcd_pretile_tests::rr_with_pub(&font);
+        let glyphs = run_with_unplaceable_pens(&font);
+
+        let mut unclipped = white_pixmap();
+        lcd_sweep(&mut unclipped, None, &glyphs, &font, font_hash);
+        let mut clipped = white_pixmap();
+        lcd_sweep(
+            &mut clipped,
+            AzRect::from_xywh(0.0, 0.0, W as f32, H as f32),
+            &glyphs,
+            &font,
+            font_hash,
+        );
+
+        // Skipped glyph by glyph: the placeable ones still paint.
+        assert!(inked(&unclipped) > 0, "the sane glyphs of the run paint");
+        assert!(
+            inked(&clipped) > 0,
+            "the sane glyphs of the run paint under a clip"
+        );
+    }
+
+    #[test]
+    fn the_grayscale_and_pretiled_paths_skip_the_pens_they_cannot_place() {
+        let Some(font) = lcd_pretile_tests::load_test_font_pub() else {
+            eprintln!("no system test font - skipping");
+            return;
+        };
+        let (rr, fm, font_hash) = lcd_pretile_tests::rr_with_pub(&font);
+        let glyphs = run_with_unplaceable_pens(&font);
+
+        let mut gray = white_pixmap();
+        grayscale(&mut gray, None, &glyphs, &rr, &fm, font_hash);
+        assert!(
+            inked(&gray) > 0,
+            "the sane glyphs paint on the grayscale path"
+        );
+
+        // The pre-blended tile path (a proven uniform background).
+        let mut tiled = white_pixmap();
+        let mut gc = GlyphCache::new();
+        render_text_with_bg(
+            &glyphs,
+            font_hash,
+            FONT_PX,
+            BLACK,
+            &mut tiled,
+            &whole_window(),
+            None,
+            &rr,
+            &fm,
+            1.0,
+            &mut gc,
+            (0.0, 0.0),
+            false,
+            Some((
+                WHITE,
+                LogicalRect {
+                    origin: LogicalPosition {
+                        x: -10_000.0,
+                        y: -10_000.0,
+                    },
+                    size: LogicalSize {
+                        width: 20_000.0,
+                        height: 20_000.0,
+                    },
+                }
+                .into(),
+            )),
+        );
+        assert!(inked(&tiled) > 0, "the sane glyphs paint on the tile path");
+    }
+
+    #[test]
+    fn a_clip_thinner_than_a_pixel_paints_nothing() {
+        let Some(font) = lcd_pretile_tests::load_test_font_pub() else {
+            eprintln!("no system test font - skipping");
+            return;
+        };
+        let (rr, fm, font_hash) = lcd_pretile_tests::rr_with_pub(&font);
+        let glyphs = sane_run(&font);
+        // A sliver across every row the H crossbars can sit on, and one down
+        // every column the first stem can sit in: both cover no whole pixel.
+        let slivers = [
+            (0.0, 14.2, W as f32, 0.4),
+            (0.0, 15.2, W as f32, 0.4),
+            (0.0, 16.2, W as f32, 0.4),
+            (3.2, 0.0, 0.4, H as f32),
+            (4.2, 0.0, 0.4, H as f32),
+        ];
+        for (x, y, w, h) in slivers {
+            let clip = AzRect::from_xywh(x, y, w, h);
+            assert!(clip.is_some(), "the sliver is a valid rect");
+
+            let mut pm = white_pixmap();
+            lcd_sweep(&mut pm, clip, &glyphs, &font, font_hash);
+            assert_eq!(
+                inked(&pm),
+                0,
+                "the LCD sweep painted outside the sub-pixel clip {clip:?}"
+            );
+
+            let mut pm = white_pixmap();
+            grayscale(&mut pm, clip, &glyphs, &rr, &fm, font_hash);
+            assert_eq!(
+                inked(&pm),
+                0,
+                "the grayscale path painted outside the sub-pixel clip {clip:?}"
+            );
+        }
+    }
+}
