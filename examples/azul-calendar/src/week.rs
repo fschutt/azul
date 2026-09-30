@@ -860,6 +860,30 @@ mod tests {
     }
 
     #[test]
+    fn a_saved_event_out_of_view_is_scrolled_to_with_an_hour_above_it() {
+        // A 600 px view at 48 px/h scrolled to 14:00 (672 px): an event at 09:00 is above it.
+        assert_eq!(reveal_scroll(9 * 60, 48.0, 672.0, 600.0), Some(384.0));
+        // At 00:30 the hour above it is cut at midnight.
+        assert_eq!(reveal_scroll(30, 48.0, 672.0, 600.0), Some(0.0));
+        // Below the view: 23:00 with the view at midnight; the view stops at the day's end.
+        assert_eq!(
+            reveal_scroll(23 * 60, 48.0, 0.0, 600.0),
+            Some(max_scroll(48.0, 600.0))
+        );
+        // At 60 px/h a y is its minute: a block whose top is 1 px too low for its drawn
+        // height to fit is out of view.
+        assert_eq!(reveal_scroll(583, 60.0, 0.0, 600.0), Some(523.0));
+    }
+
+    #[test]
+    fn a_saved_event_in_view_leaves_the_view_where_it_is() {
+        assert_eq!(reveal_scroll(10 * 60, 48.0, 384.0, 600.0), None);
+        // At 60 px/h: its top 18 px (MIN_BLOCK_PX) above the bottom edge still fits.
+        assert_eq!(reveal_scroll(582, 60.0, 0.0, 600.0), None);
+        assert_eq!(reveal_scroll(0, 48.0, 0.0, 600.0), None);
+    }
+
+    #[test]
     fn the_view_opens_at_eight_or_an_hour_before_now_on_todays_week() {
         assert_eq!(first_minute_shown(false, at(14, 20)), 8 * 60);
         assert_eq!(first_minute_shown(true, at(14, 20)), 13 * 60);
