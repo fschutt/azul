@@ -477,6 +477,175 @@ mod tests {
         assert_eq!(out, [128, 128, 128, 128]);
     }
 
+    // --- frame formats: BGRA stays BGRA, NV12 stays NV12 --------------------
+
+    /// A `w x h` NV12 frame of one colour (`y`, `cb`, `cr`).
+    fn solid_nv12(w: u32, h: u32, y: u8, cb: u8, cr: u8) -> Vec<u8> {
+        let layout = azul_core::resources::Nv12Layout::new(w as usize, h as usize);
+        let mut bytes = alloc::vec![y; layout.y_len()];
+        for _ in 0..layout.chroma_width * layout.chroma_height {
+            bytes.push(cb);
+            bytes.push(cr);
+        }
+        bytes
+    }
+
+    #[test]
+    fn an_nv12_pixel_reads_as_its_rgb_with_the_chroma_of_its_block() {
+        // 2x2, video range: black, white / grey, white over neutral chroma.
+        let bytes = [16u8, 235, 126, 235, 128, 128];
+        let src = SrcImage {
+            bytes: &bytes,
+            format: RawImageFormat::NV12Rec601Video,
+            width: 2,
+            height: 2,
+        };
+        assert!(src.is_sampleable());
+        assert_eq!(src.pixel(0, 0), [0, 0, 0, 255]);
+        assert_eq!(src.pixel(1, 0), [255, 255, 255, 255]);
+        assert_eq!(src.pixel(9, 9), [255, 255, 255, 255], "edge-clamped");
+        let short = SrcImage {
+            bytes: &bytes[..5],
+            ..src
+        };
+        assert!(!short.is_sampleable(), "a truncated chroma plane");
+    }
+
+    #[test]
+    fn a_bgra_frame_resamples_to_bgra_not_rgba() {
+        // The capture pipeline carries BGRA end to end: a scaler that hands
+        // back RGBA forces a swizzle on every frame, twice.
+        let bytes = [10u8, 20, 200, 255].repeat(4 * 4); // B G R A
+        let src = SrcImage {
+            bytes: &bytes,
+            format: RawImageFormat::BGRA8,
+            width: 4,
+            height: 4,
+        };
+        assert_eq!(frame_output_format(RawImageFormat::BGRA8), RawImageFormat::BGRA8);
+        let out = resample_frame(&src, 2, 2);
+        assert_eq!(out, [10u8, 20, 200, 255].repeat(4));
+    }
+
+    #[test]
+    fn an_nv12_frame_resamples_to_nv12_at_the_new_size() {
+        let bytes = solid_nv12(8, 6, 100, 90, 200);
+        let src = SrcImage {
+            bytes: &bytes,
+            format: RawImageFormat::NV12Rec709Video,
+            width: 8,
+            height: 6,
+        };
+        assert_eq!(
+            frame_output_format(RawImageFormat::NV12Rec709Video),
+            RawImageFormat::NV12Rec709Video
+        );
+        // 5x3: odd on both axes, so the chroma plane is 3x2 pairs.
+        let out = resample_frame(&src, 5, 3);
+        assert_eq!(out, solid_nv12(5, 3, 100, 90, 200));
+    }
+
+    #[test]
+    fn a_same_size_cut_of_a_frame_is_a_copy_in_its_own_format() {
+        let bytes = solid_nv12(4, 2, 50, 60, 70);
+        let src = SrcImage {
+            bytes: &bytes,
+            format: RawImageFormat::NV12Rec601Full,
+            width: 4,
+            height: 2,
+        };
+        assert_eq!(cut(&src, 4, 2, resample_frame_rect), bytes);
+        let bgra = [1u8, 2, 3, 255].repeat(6);
+        let src = SrcImage {
+            bytes: &bgra,
+            format: RawImageFormat::BGRA8,
+            width: 3,
+            height: 2,
+        };
+        assert_eq!(cut(&src, 3, 2, resample_frame_rect), bgra);
+        // Formats that are not frame formats come out as RGBA8, as before.
+        assert_eq!(frame_output_format(RawImageFormat::RGB8), RawImageFormat::RGBA8);
+    }
+
+    #[test]
+    fn a_cut_to_another_aspect_crops_the_centre_instead_of_squashing() {
+        // A 16:9 camera frame shown in a 3:2 tile, or a 4:3 camera sent as a
+        // 16:9 rendition: stretching squashes faces. The cut keeps the
+        // aspect of what was asked for and takes the centre of the source
+        // (CSS `object-fit: cover`).
+        // 4x2: an outer column of blue on each side of two green columns.
+        let blue = [0u8, 0, 255, 255];
+        let green = [0u8, 255, 0, 255];
+        let mut bytes = Vec::new();
+        for _ in 0..2 {
+            for px in [blue, green, green, blue] {
+                bytes.extend_from_slice(&px);
+            }
+        }
+        let src = rgba(&bytes, 4, 2);
+        assert_eq!(
+            cover_crop(4, 2, 2, 2, false),
+            SrcRect {
+                x: 1,
+                y: 0,
+                width: 2,
+                height: 2
+            }
+        );
+        let out = cut(&src, 2, 2, resample_frame_rect);
+        assert_eq!(out, green.repeat(4), "the centre, not a squash of all four columns");
+        // NV12 crops land on even pixels, so the chroma pairs stay aligned.
+        let crop = cover_crop(1280, 720, 300, 200, true);
+        assert_eq!((crop.x % 2, crop.y % 2, crop.width % 2, crop.height % 2), (0, 0, 0, 0));
+        assert!(crop.width <= 1280 && crop.height == 720, "{crop:?}");
+    }
+
+    /// Every resample a test's fan-out ran: (source crop width, height,
+    /// destination width, height).
+    std::thread_local! {
+        static CUTS: core::cell::RefCell<Vec<(u32, u32, u32, u32)>> =
+            const { core::cell::RefCell::new(Vec::new()) };
+    }
+
+    fn counting_resample(src: &SrcImage<'_>, crop: SrcRect, w: u32, h: u32) -> Vec<u8> {
+        CUTS.with(|c| c.borrow_mut().push((crop.width, crop.height, w, h)));
+        resample_frame_rect(src, crop, w, h)
+    }
+
+    #[test]
+    fn each_rendition_is_cut_from_the_smallest_frame_that_covers_it() {
+        // One capture, three consumers: 640x360, 320x180 and 160x90. Each is
+        // ONE downscale, and each from the smallest frame already made that
+        // covers it - not three full-size passes over the capture.
+        let bytes = [50u8, 60, 70, 255].repeat(1280 * 720);
+        let src = SrcImage {
+            bytes: &bytes,
+            format: RawImageFormat::BGRA8,
+            width: 1280,
+            height: 720,
+        };
+        CUTS.with(|c| c.borrow_mut().clear());
+        let consumers = [
+            FrameConsumer::new(3, 160, 90),
+            FrameConsumer::new(1, 640, 360),
+            FrameConsumer::new(2, 320, 180),
+        ];
+        let cuts = fan_out(&src, &consumers, counting_resample);
+        let ids: Vec<u32> = cuts.iter().map(|c| c.consumer.id).collect();
+        assert_eq!(ids, vec![3, 1, 2], "results keep the consumers' order");
+        assert!(cuts.iter().all(|c| c.frame.format == RawImageFormat::BGRA8));
+        let runs = CUTS.with(|c| c.borrow().clone());
+        assert_eq!(
+            runs,
+            vec![
+                (1280, 720, 640, 360),
+                (640, 360, 320, 180),
+                (320, 180, 160, 90),
+            ],
+            "a cascade: 720 -> 360 -> 180 -> 90"
+        );
+    }
+
     #[test]
     fn resample_rejects_a_zero_destination_or_unsampleable_source() {
         let bytes = [1u8, 2, 3, 4];

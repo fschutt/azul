@@ -8983,6 +8983,88 @@ mod autotest_generated {
         }
     }
 
+    /// A deterministic, non-uniform NV12 source (both planes).
+    fn noisy_nv12(w: u32, h: u32) -> Vec<u8> {
+        let len = azul_core::resources::Nv12Layout::new(w as usize, h as usize)
+            .checked_total_len()
+            .expect("small");
+        (0..len).map(|i| ((i * 37 + 11) % 256) as u8).collect()
+    }
+
+    #[test]
+    fn an_nv12_frame_blits_byte_identical_to_image_scale_sample() {
+        // A camera / decoder frame in NV12 goes through the same blit as any
+        // image: its rows are converted to RGB once each (the fused
+        // convert + scale pass), and every painted byte is the byte the
+        // reference sampler gives.
+        use azul_core::resources::RawImageFormat as F;
+        for fmt in [F::NV12Rec601Video, F::NV12Rec709Full] {
+            let (sw, sh) = (13u32, 7u32);
+            let bytes = noisy_nv12(sw, sh);
+            let src = crate::image_scale::SrcImage {
+                bytes: &bytes,
+                format: fmt,
+                width: sw,
+                height: sh,
+            };
+            assert!(src.is_sampleable(), "{fmt:?} must be sampleable");
+            for (dw, dh) in [(13u32, 7u32), (40, 23), (5, 3), (1, 1)] {
+                let mut fast = pixmap(dw + 4, dh + 4);
+                let mut want = pixmap(dw + 4, dh + 4);
+                blit_sampled_image(
+                    &mut fast,
+                    &src,
+                    2,
+                    2,
+                    dw,
+                    dh,
+                    (0, 0, dw, dh),
+                    None,
+                    &mut RowConversions::new(),
+                );
+                reference_blit(&mut want, &src, 2, 2, dw, dh);
+                assert_eq!(
+                    snap(&fast),
+                    snap(&want),
+                    "{fmt:?} {sw}x{sh} -> {dw}x{dh}: NV12 must blit byte-identical to the sampler"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_frame_at_the_tiles_size_converts_each_visible_row_exactly_once() {
+        // A video frame that arrives at the tile's device size (the point of
+        // resampling early) is a 1:1 blit: each VISIBLE source row is
+        // converted once and copied. The bilinear path used to read one more
+        // row (the lerp partner at weight 0) for every run of rows.
+        use azul_core::resources::RawImageFormat as F;
+        let (w, h) = (64u32, 32u32);
+        let bytes = noisy_nv12(w, h);
+        let src = crate::image_scale::SrcImage {
+            bytes: &bytes,
+            format: F::NV12Rec709Video,
+            width: w,
+            height: h,
+        };
+        let mut p = pixmap(w, h);
+        let mut conv = RowConversions::new();
+        // Only rows 8..24 are damaged.
+        blit_sampled_image(&mut p, &src, 0, 0, w, h, (0, 8, w, 24), None, &mut conv);
+        assert_eq!(
+            conv.0, 16,
+            "a 1:1 blit of 16 visible rows converts exactly those 16 source rows"
+        );
+        let mut want = pixmap(w, h);
+        reference_blit(&mut want, &src, 0, 0, w, h);
+        let row = (w * 4) as usize;
+        assert_eq!(
+            &snap(&p)[8 * row..24 * row],
+            &snap(&want)[8 * row..24 * row],
+            "and paints what the sampler gives"
+        );
+    }
+
     #[test]
     fn a_clipped_image_blit_narrows_its_loop_to_the_clip() {
         // THE STRUCTURAL BUG. The blit walked every pixel of the image NODE and
