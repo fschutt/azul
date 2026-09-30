@@ -372,11 +372,17 @@ impl_option!(
     [Debug, Clone, Copy, PartialEq, Eq]
 );
 
-/// Result of pinch gesture detection
+/// Result of pinch gesture detection.
+///
+/// `scale` is CUMULATIVE: the scale since the gesture began, on every source
+/// (two touches, a trackpad magnify, a platform recognizer). A consumer zooms
+/// by the ratio of successive updates of one gesture - `scale / previous`,
+/// with `previous = 1.0` on the update that has `began` set - and never by an
+/// update's scale on its own.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct DetectedPinch {
-    /// Scale factor (< 1.0 for pinch in, > 1.0 for pinch out)
+    /// Scale since the gesture began (< 1.0 pinched in, > 1.0 spread out)
     pub scale: f32,
     /// Center point of the pinch gesture
     pub center: LogicalPosition,
@@ -386,7 +392,27 @@ pub struct DetectedPinch {
     pub current_distance: f32,
     /// Duration of pinch (milliseconds)
     pub duration_ms: u64,
+    /// This is the first update of its gesture (once per gesture): `scale` is
+    /// measured from 1.0 here, and a new gesture starts no matter what the
+    /// last one ended at.
+    pub began: bool,
 }
+
+/// The phase of a trackpad gesture event, as the OS reports it (macOS
+/// `NSEvent.phase`: `Began`, `Changed` / `Stationary`, `Ended` / `Cancelled`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrackpadGesturePhase {
+    /// The fingers came down: a gesture begins.
+    Began,
+    /// An update of the gesture in flight.
+    Changed,
+    /// The fingers lifted, or the OS cancelled the gesture.
+    Ended,
+}
+
+/// Nominal finger distance for pinches that report a ratio, not a distance:
+/// `current_distance / initial_distance == scale`.
+const PINCH_NOMINAL_DISTANCE: f32 = 100.0;
 
 /// Result of rotation gesture detection
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -799,6 +825,13 @@ pub struct GestureAndDragManager {
     /// Seat id -> the session its pressed button owns (9b-ii-b-i); the
     /// per-seat twin of `touch_sessions`.
     seat_sessions: alloc::collections::btree_map::BTreeMap<u64, u64>,
+    /// The trackpad pinch in flight ([`Self::trackpad_magnify`]): its
+    /// cumulative scale. `None` between gestures.
+    trackpad_pinch_scale: Option<f32>,
+    /// The two touch sessions whose pinch was dispatched
+    /// ([`Self::note_pinch_dispatched`]): a pinch of the same pair does not
+    /// begin a gesture again.
+    touch_pinch_pair: Option<(u64, u64)>,
 }
 
 /// Gesture detected by a platform-native recognizer.
@@ -875,6 +908,87 @@ impl GestureAndDragManager {
             touch_sessions: alloc::collections::btree_map::BTreeMap::new(),
             seat_sessions: alloc::collections::btree_map::BTreeMap::new(),
             seat_pens: alloc::collections::btree_map::BTreeMap::new(),
+            trackpad_pinch_scale: None,
+            touch_pinch_pair: None,
+        }
+    }
+
+    /// Feeds one trackpad magnification event and answers the CUMULATIVE
+    /// pinch it amounts to, for [`Self::inject_native_gesture`].
+    ///
+    /// macOS `magnifyWithEvent:` reports each event's OWN magnification (a
+    /// delta), not the gesture's. Injected as is, two zoom-in steps of +2 %
+    /// and +1 % read as scales 1.02 then 1.01 - a zoom OUT to every consumer
+    /// that compares successive updates (the AzMaps jitter). So: `Began`
+    /// starts a gesture at 1.0 (`began` set); `Changed` multiplies in
+    /// `1 + magnification` (an update with no gesture open begins one; a
+    /// delta that is not a finite growth factor changes nothing); `Ended`
+    /// ends the gesture and answers nothing.
+    pub fn trackpad_magnify(
+        &mut self,
+        phase: TrackpadGesturePhase,
+        magnification: f32,
+        center: LogicalPosition,
+    ) -> Option<DetectedPinch> {
+        let (scale, began) = match phase {
+            TrackpadGesturePhase::Ended => {
+                self.trackpad_pinch_scale = None;
+                return None;
+            }
+            TrackpadGesturePhase::Began => (1.0, true),
+            TrackpadGesturePhase::Changed => {
+                let (base, began) = match self.trackpad_pinch_scale {
+                    Some(scale) => (scale, false),
+                    None => (1.0, true),
+                };
+                let step = 1.0 + magnification;
+                let scale = if step.is_finite() && step > 0.0 {
+                    base * step
+                } else {
+                    base
+                };
+                (scale, began)
+            }
+        };
+        self.trackpad_pinch_scale = Some(scale);
+        Some(DetectedPinch {
+            scale,
+            center,
+            initial_distance: PINCH_NOMINAL_DISTANCE,
+            current_distance: PINCH_NOMINAL_DISTANCE * scale,
+            // A trackpad magnify carries no gesture clock.
+            duration_ms: 0,
+            began,
+        })
+    }
+
+    /// The last two input sessions, if both are live contacts: the pair a
+    /// touch pinch is measured between.
+    fn active_touch_pair(&self) -> Option<(&InputSession, &InputSession)> {
+        let n = self.input_sessions.len();
+        if n < 2 {
+            return None;
+        }
+        let (a, b) = (&self.input_sessions[n - 2], &self.input_sessions[n - 1]);
+        (!a.ended && !b.ended).then_some((a, b))
+    }
+
+    /// Called by the event loop at the end of every pass (next to
+    /// [`Self::clear_native_gesture`]): a touch pinch that was dispatched is
+    /// not `began` again while the same two touches last, however many passes
+    /// see it; a new pair of touches begins a new gesture.
+    pub fn note_pinch_dispatched(&mut self) {
+        let pair = self
+            .active_touch_pair()
+            .map(|(a, b)| (a.session_id, b.session_id));
+        match pair {
+            None => self.touch_pinch_pair = None,
+            Some(pair) if self.touch_pinch_pair == Some(pair) => {}
+            Some(pair) => {
+                // Recorded only once the pinch was actually reported: under the
+                // threshold, nothing has begun yet.
+                self.touch_pinch_pair = self.detect_touch_pinch().map(|_| pair);
+            }
         }
     }
 
@@ -1989,23 +2103,19 @@ impl GestureAndDragManager {
         if let Some(NativeGestureEvent::Pinch(p)) = self.native_gesture {
             return Some(p);
         }
-        // Need at least two active sessions for pinch
-        if self.input_sessions.len() < 2 {
-            return None;
-        }
+        self.detect_touch_pinch()
+    }
 
-        // Get last two sessions (most recent touches)
-        let session1 = &self.input_sessions[self.input_sessions.len() - 2];
-        let session2 = &self.input_sessions[self.input_sessions.len() - 1];
-
+    /// The pinch of the two live touches, measured from where they landed
+    /// (cumulative); `began` until [`Self::note_pinch_dispatched`] saw it.
+    #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+    fn detect_touch_pinch(&self) -> Option<DetectedPinch> {
         // A pinch is a TWO-finger gesture: both contacts must be concurrently
         // active. A desktop mouse produces *sequential* sessions (the previous one
         // is `ended` on button-up before the next begins), so without this guard a
         // stale ended session (e.g. a prior click on a button) pairs with the
         // current drag and is misread as a pinch — the map zooms on a plain click.
-        if session1.ended || session2.ended {
-            return None;
-        }
+        let (session1, session2) = self.active_touch_pair()?;
 
         // Both must have samples
         let first1 = session1.first_sample()?;
@@ -2053,6 +2163,7 @@ impl GestureAndDragManager {
             initial_distance,
             current_distance,
             duration_ms,
+            began: self.touch_pinch_pair != Some((session1.session_id, session2.session_id)),
         })
     }
 
@@ -4206,6 +4317,7 @@ mod autotest_generated {
             initial_distance: 0.0,
             current_distance: f32::NAN,
             duration_ms: 0,
+            began: true,
         };
         m.inject_native_gesture(NativeGestureEvent::Pinch(pinch));
         let got = m.detect_pinch().expect("native pinch is passed through");

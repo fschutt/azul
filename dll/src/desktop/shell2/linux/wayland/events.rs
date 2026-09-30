@@ -5196,6 +5196,7 @@ extern "C" fn gesture_pinch_begin(
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     window.pinch_accumulated_rotation = 0.0;
+    window.pinch_began = true;
 }
 
 extern "C" fn gesture_pinch_update(
@@ -5229,6 +5230,9 @@ extern "C" fn gesture_pinch_update(
     // both because two fingers can do both at once — so both are injected and
     // the app decides which it cares about.
     if (scale_f - 1.0).abs() > f32::EPSILON {
+        // `scale` is the protocol's scale since the begin: cumulative, as
+        // `DetectedPinch` is defined; the first update reported begins it.
+        let began = core::mem::replace(&mut window.pinch_began, false);
         lw.gesture_drag_manager.inject_native_gesture(
             azul_layout::managers::gesture::NativeGestureEvent::Pinch(
                 azul_layout::managers::gesture::DetectedPinch {
@@ -5237,6 +5241,7 @@ extern "C" fn gesture_pinch_update(
                     initial_distance: PINCH_NOMINAL_DISTANCE,
                     current_distance: PINCH_NOMINAL_DISTANCE * scale_f,
                     duration_ms: 0,
+                    began,
                 },
             ),
         );

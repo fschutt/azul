@@ -245,6 +245,9 @@ pub struct Win32Window {
     /// GID_ZOOM reports an absolute distance in pixels, not a ratio, so the
     /// first message is a baseline rather than a scale.
     pub gesture_zoom_baseline: f32,
+    /// A WM_GESTURE zoom began and has not reported a scale yet: its first
+    /// scale carries `DetectedPinch::began`.
+    pub gesture_zoom_began: bool,
     pub high_surrogate: Option<u16>,
     /// IME composition string (for preview during typing)
     pub ime_composition: Option<String>,
@@ -847,6 +850,7 @@ impl Win32Window {
             thread_timer_running: None,
             high_surrogate: None,
             gesture_zoom_baseline: 0.0,
+            gesture_zoom_began: false,
             ime_composition: None,
             ime_enabled: true,
             ime_saved_himc: std::ptr::null_mut(),
@@ -5543,8 +5547,8 @@ unsafe extern "system" fn window_proc(
             {
                 use azul_layout::managers::gesture::{DetectedPinch, NativeGestureEvent};
                 // One notch is a 10% step, the ratio browsers use for a zoom
-                // level. `scale` is cumulative-from-1.0 per event, which is
-                // what the macOS magnification path also reports.
+                // level. Each notch is a pinch gesture of its own: one update,
+                // `began`, its scale measured from 1.0.
                 const PINCH_STEP_PER_NOTCH: f32 = 0.1;
                 const PINCH_NOMINAL_DISTANCE: f32 = 100.0;
                 let scale = 1.0 + scroll_amount * PINCH_STEP_PER_NOTCH;
@@ -5556,6 +5560,7 @@ unsafe extern "system" fn window_proc(
                             initial_distance: PINCH_NOMINAL_DISTANCE,
                             current_distance: PINCH_NOMINAL_DISTANCE * scale,
                             duration_ms: 0,
+                            began: true,
                         }));
                 }
             }
@@ -6550,8 +6555,12 @@ unsafe extern "system" fn window_proc(
                     let distance = gi.ullArguments as f32;
                     if gi.dwFlags & dlopen::GF_BEGIN != 0 || window.gesture_zoom_baseline <= 0.0 {
                         window.gesture_zoom_baseline = distance.max(1.0);
+                        window.gesture_zoom_began = true;
                     } else if let Some(ref mut lw) = window.common.layout_window {
+                        // Distance over the begin's baseline: cumulative, as
+                        // `DetectedPinch` is defined.
                         let scale = distance / window.gesture_zoom_baseline;
+                        let began = core::mem::replace(&mut window.gesture_zoom_began, false);
                         lw.gesture_drag_manager
                             .inject_native_gesture(NativeGestureEvent::Pinch(DetectedPinch {
                                 scale,
@@ -6559,6 +6568,7 @@ unsafe extern "system" fn window_proc(
                                 initial_distance: PINCH_NOMINAL_DISTANCE,
                                 current_distance: PINCH_NOMINAL_DISTANCE * scale,
                                 duration_ms: 0,
+                                began,
                             }));
                     }
                 }

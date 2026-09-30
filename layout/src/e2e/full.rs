@@ -2289,6 +2289,11 @@ pub enum DebugEvent {
         current_distance: f32,
         #[serde(default)]
         duration_ms: u64,
+        /// Whether this update begins its gesture (`DetectedPinch::began`);
+        /// `scale` is the scale since the gesture began. Omitted: `true`, a
+        /// pinch of one update.
+        #[serde(default)]
+        began: Option<bool>,
     },
     Rotate {
         #[serde(default)]
@@ -18156,6 +18161,7 @@ pub fn process_debug_event(
             initial_distance,
             current_distance,
             duration_ms,
+            began,
         } => {
             use azul_layout::managers::gesture::{DetectedPinch, NativeGestureEvent};
             callback_info.inject_native_gesture(NativeGestureEvent::Pinch(DetectedPinch {
@@ -18167,6 +18173,7 @@ pub fn process_debug_event(
                 initial_distance: *initial_distance,
                 current_distance: *current_distance,
                 duration_ms: *duration_ms,
+                began: began.unwrap_or(true),
             }));
             // NO `needs_update` — see the note on `process_debug_event`.
             send_ok(request, None, None);

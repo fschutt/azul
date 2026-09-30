@@ -1989,6 +1989,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
     // #17 wires real injection.
     if let Some(lw) = window.common.layout_window.as_mut() {
         lw.gesture_drag_manager.clear_native_gesture();
+        lw.gesture_drag_manager.note_pinch_dispatched();
     }
 }
 
@@ -3414,6 +3415,9 @@ mod jni_bridge {
         initial_distance: f32,
         current_distance: f32,
         duration_ms: i64,
+        // jboolean: the first update of the gesture (NativeGestureBridge's
+        // onScaleBegin), whose scale the bridge multiplies up from 1.0.
+        began: u8,
     ) {
         with_window(native_ptr, |w| {
             inject(
@@ -3427,6 +3431,7 @@ mod jni_bridge {
                     initial_distance,
                     current_distance,
                     duration_ms: duration_ms as u64,
+                    began: began != 0,
                 }),
             );
         });

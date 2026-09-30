@@ -821,13 +821,13 @@ pub struct MapTileCache {
     /// mouse-move to derive the pixel delta, which then converts to a
     /// lat/lon delta via the Web Mercator inverse.
     pub drag_anchor: Option<azul_core::geom::LogicalPosition>,
-    /// Pinch reference distance (pixels) - the two-finger separation
-    /// the last time a pinch event was observed for this widget.
-    /// `Some` while a pinch is in flight, `None` between gestures.
-    /// On each subsequent pinch update we compute
-    /// `dz = log2(current_distance / pinch_anchor)` and add it to
-    /// `viewport.zoom`, then reset the anchor to the current
-    /// distance - so the gesture stays continuous across many frames.
+    /// The pinch in flight: its scale at its last update
+    /// (`DetectedPinch::scale`, cumulative since the gesture began).
+    /// `None` between gestures. Each update adds
+    /// `dz = log2(scale / pinch_anchor)` to `viewport.zoom` - from 1.0 on
+    /// the update that begins a gesture - and stores its scale here, so the
+    /// gesture stays continuous across many frames and a new one starts
+    /// where the last one left the map.
     pub pinch_anchor: Option<f32>,
     /// The user's `on_viewport_changed` hook, copied here from the builder
     /// so the pan / pinch callbacks can fire it. Carried across relayout.
@@ -1521,8 +1521,9 @@ extern "C" fn map_on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Updat
 ///
 /// If a pinch gesture is in flight (two fingers on the widget), the
 /// pan branch is skipped and the move event drives zoom instead -
-/// `dz = log2(current_distance / pinch_anchor)`. The next move resets
-/// the anchor to the current distance so the gesture stays
+/// `dz = log2(scale / pinch_anchor)`, the ratio of the gesture's cumulative
+/// scale to its previous update (1.0 when the update begins the gesture).
+/// The anchor then holds this update's scale, so the gesture stays
 /// continuous across many frames.
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -1538,14 +1539,23 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
         let Some(mut cache) = data.downcast_mut::<MapTileCache>() else {
             return Update::DoNothing;
         };
-        let anchor = *cache.pinch_anchor.get_or_insert(pinch.current_distance);
-        if anchor > 1.0 && pinch.current_distance > 1.0 {
-            let dz = (pinch.current_distance / anchor).log2();
+        // The scale is cumulative since the gesture began: zoom by its ratio
+        // to the gesture's previous update. Reading an update's scale on its
+        // own, or comparing across two gestures, is what made the trackpad
+        // pinch jitter between zooming in and out.
+        let previous = if pinch.began {
+            1.0
+        } else {
+            cache.pinch_anchor.unwrap_or(1.0)
+        };
+        let usable = |s: f32| s.is_finite() && s > 0.0;
+        if usable(previous) && usable(pinch.scale) {
+            let dz = (pinch.scale / previous).log2();
             let min = f32::from(cache.layer.min_zoom);
             let max = f32::from(cache.layer.max_zoom);
             cache.viewport.zoom = (cache.viewport.zoom + dz).clamp(min, max);
+            cache.pinch_anchor = Some(pinch.scale);
         }
-        cache.pinch_anchor = Some(pinch.current_distance);
         // Pinch is exclusive with pan — clear the drag anchor so the
         // pinch end doesn't accidentally drop into a pan.
         cache.drag_anchor = None;

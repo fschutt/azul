@@ -581,12 +581,31 @@ mod view_handlers {
     /// gesture manager's native-override slot — which was designed for
     /// exactly this and never called from macOS — then runs an event pass so
     /// detect_pinch consumers fire in the same frame.
+    ///
+    /// An NSEvent's `magnification` is that EVENT's own change, not the
+    /// gesture's: the manager adds the deltas up over the event's phase
+    /// (`trackpad_magnify`), so the injected `DetectedPinch` is cumulative
+    /// since the fingers came down, as on every other source. Injecting the
+    /// raw `1 + magnification` read +2 % then +1 % as a zoom OUT to every
+    /// consumer comparing successive updates - the AzMaps jitter.
     pub(super) fn magnify(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
         let Some(window_ptr) = window_ptr else { return };
         unsafe {
+            use azul_layout::managers::gesture::{NativeGestureEvent, TrackpadGesturePhase};
             let macos_window = &mut *(window_ptr as *mut MacOSWindow);
             let magnification = event.magnification() as f32;
-            let scale = 1.0 + magnification;
+            let phase = event.phase();
+            let phase = if phase == objc2_app_kit::NSEventPhase::Began {
+                TrackpadGesturePhase::Began
+            } else if phase == objc2_app_kit::NSEventPhase::Ended
+                || phase == objc2_app_kit::NSEventPhase::Cancelled
+            {
+                TrackpadGesturePhase::Ended
+            } else {
+                // Changed, Stationary - and a device that reports no phase,
+                // whose updates then add up into one long gesture.
+                TrackpadGesturePhase::Changed
+            };
             let center = macos_window
                 .common
                 .current_window_state()
@@ -595,20 +614,13 @@ mod view_handlers {
                 .get_position()
                 .unwrap_or(azul_core::geom::LogicalPosition { x: 0.0, y: 0.0 });
             if let Some(lw) = macos_window.common.layout_window.as_mut() {
-                use azul_layout::managers::gesture::{DetectedPinch, NativeGestureEvent};
-                // Synthesized distances: only the RATIO is meaningful for a
-                // native recognizer (a trackpad magnify event carries no
-                // real touch points).
-                lw.gesture_drag_manager
-                    .inject_native_gesture(NativeGestureEvent::Pinch(DetectedPinch {
-                        scale,
-                        center,
-                        initial_distance: 100.0,
-                        current_distance: 100.0 * scale,
-                        // Trackpad magnify events are deltas without a
-                        // gesture clock; consumers key off scale/center.
-                        duration_ms: 0,
-                    }));
+                if let Some(pinch) =
+                    lw.gesture_drag_manager
+                        .trackpad_magnify(phase, magnification, center)
+                {
+                    lw.gesture_drag_manager
+                        .inject_native_gesture(NativeGestureEvent::Pinch(pinch));
+                }
             }
             macos_window.snapshot_window_state_baseline("macos.magnify");
             let result = macos_window.process_window_events(0);

@@ -11885,6 +11885,9 @@ pub trait PlatformWindow {
             w.scroll_manager.forget_queued_scroll_input();
             w.scroll_manager.pending_wheel_event = None;
             w.gesture_drag_manager.clear_native_gesture();
+            // A touch pinch dispatched this pass does not `begin` its gesture
+            // again on the next pass that sees the same two touches.
+            w.gesture_drag_manager.note_pinch_dispatched();
         }
 
         // MWA-C-clipboard: fire the W3C clipboard events for the deferred

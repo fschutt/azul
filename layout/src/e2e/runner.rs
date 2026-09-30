@@ -1082,6 +1082,7 @@ impl Runner {
             lw.keyring_manager.clear_pending_event();
             lw.gesture_drag_manager.clear_pen_event_pending();
             lw.gesture_drag_manager.clear_native_gesture();
+            lw.gesture_drag_manager.note_pinch_dispatched();
             lw.media_player_manager.clear_pending_event();
         }
 

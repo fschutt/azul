@@ -3862,6 +3862,7 @@ mod autotest_generated {
             initial_distance: 0.0,
             current_distance: 0.0,
             duration_ms: 0,
+            began: true,
         }));
         g
     }

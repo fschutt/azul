@@ -700,6 +700,7 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
     }
     if let Some(lw) = window.common.layout_window.as_mut() {
         lw.gesture_drag_manager.clear_native_gesture();
+        lw.gesture_drag_manager.note_pinch_dispatched();
 
         // Pencil events route through the same gesture manager that pen
         // tablets do on desktop. Apple Pencil has no eraser tip and no
@@ -939,7 +940,10 @@ extern "C" fn on_pinch(_this: &Object, _cmd: Sel, sender: *mut Object) {
     use azul_core::geom::LogicalPosition;
     use azul_layout::managers::gesture::{DetectedPinch, NativeGestureEvent};
     let state: i64 = unsafe { msg_send![sender, state] };
-    if state != UI_GESTURE_RECOGNIZER_STATE_CHANGED {
+    // `scale` is the recognizer's scale since the gesture began (cumulative,
+    // as `DetectedPinch` is defined); the BEGAN update opens the gesture.
+    let began = state == UI_GESTURE_RECOGNIZER_STATE_BEGAN;
+    if !began && state != UI_GESTURE_RECOGNIZER_STATE_CHANGED {
         return;
     }
     let scale: f64 = unsafe { msg_send![sender, scale] };
@@ -956,6 +960,7 @@ extern "C" fn on_pinch(_this: &Object, _cmd: Sel, sender: *mut Object) {
                 initial_distance: 0.0,
                 current_distance: 0.0,
                 duration_ms: 0,
+                began,
             }),
         );
     }

@@ -2824,6 +2824,9 @@ pub struct X11Window {
     /// Rotation accumulated across the current XI pinch. `delta_angle` is a
     /// per-update delta in degrees, so an absolute angle only exists as a sum.
     pub pinch_accumulated_rotation: f32,
+    /// An XI pinch began and has not reported an update yet: its first update
+    /// carries `DetectedPinch::began` (XI's `scale` is already cumulative).
+    pub pinch_began: bool,
     /// Travel accumulated across the current XI swipe; the direction is only
     /// decided at the end event.
     pub swipe_accumulated: (f32, f32),
@@ -4319,6 +4322,7 @@ impl X11Window {
             pending_raw_motion: (0.0, 0.0),
             pending_raw_motion_device: 0,
             pinch_accumulated_rotation: 0.0,
+            pinch_began: false,
             swipe_accumulated: (0.0, 0.0),
             pen_valuators,
             scroll_valuators,
@@ -9878,6 +9882,7 @@ unsafe fn handle_xi_gesture_event(win: &mut X11Window, cookie: &defines::XGeneri
     match cookie.evtype {
         defines::XI_GesturePinchBegin => {
             win.pinch_accumulated_rotation = 0.0;
+            win.pinch_began = true;
         }
         defines::XI_GesturePinchUpdate => {
             let ev = &*(cookie.data as *const defines::XIGesturePinchEvent);
@@ -9891,6 +9896,9 @@ unsafe fn handle_xi_gesture_event(win: &mut X11Window, cookie: &defines::XGeneri
             // Both are injected: two fingers can pinch and rotate at once, and
             // the protocol reports both on the same event.
             if (scale - 1.0).abs() > f32::EPSILON {
+                // XI's `scale` is relative to the begin: cumulative, as
+                // `DetectedPinch` is defined; the first update reported begins it.
+                let began = core::mem::replace(&mut win.pinch_began, false);
                 lw.gesture_drag_manager
                     .inject_native_gesture(NativeGestureEvent::Pinch(DetectedPinch {
                         scale,
@@ -9898,6 +9906,7 @@ unsafe fn handle_xi_gesture_event(win: &mut X11Window, cookie: &defines::XGeneri
                         initial_distance: PINCH_NOMINAL_DISTANCE,
                         current_distance: PINCH_NOMINAL_DISTANCE * scale,
                         duration_ms: 0,
+                        began,
                     }));
             }
             if rotation.abs() > f32::EPSILON {

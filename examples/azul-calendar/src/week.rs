@@ -254,37 +254,27 @@ pub fn wheel_zoom_factor(dy: f32) -> f32 {
         .clamp(MIN_WHEEL_STEP, MAX_WHEEL_STEP)
 }
 
-/// One pinch update, as the engine reports it (`DetectedPinch`).
+/// One pinch update, as the engine reports it (`DetectedPinch`): the scale since the gesture
+/// began (cumulative, on every source), and whether this update began the gesture.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PinchSample {
     pub scale: f32,
-    pub initial_distance: f32,
-    pub duration_ms: u64,
+    pub began: bool,
 }
 
-/// How much one pinch update zooms. A trackpad pinch (macOS magnify) has no gesture clock
-/// (`duration_ms` 0) and reports each update's own scale. A pinch the engine measures from two
-/// touches reports the scale since the gesture began, so an update of the same gesture (the
-/// same starting distance, a clock that did not go back) zooms by its ratio to the one before.
-pub fn pinch_step(previous: Option<PinchSample>, now: PinchSample) -> f32 {
+/// How much one pinch update zooms: its ratio to the gesture's previous update, `previous`
+/// (that update's cumulative scale; 1.0 when this update begins the gesture, or when the
+/// gesture's start was missed). An unusable scale zooms nothing.
+pub fn pinch_step(previous: Option<f32>, now: PinchSample) -> f32 {
     let usable = |scale: f32| scale.is_finite() && scale > 0.0;
     if !usable(now.scale) {
         return 1.0;
     }
-    if now.duration_ms == 0 {
-        return now.scale;
-    }
-    match previous {
-        Some(p)
-            if p.duration_ms > 0
-                && p.duration_ms <= now.duration_ms
-                && (p.initial_distance - now.initial_distance).abs() < 0.5
-                && usable(p.scale) =>
-        {
-            now.scale / p.scale
-        }
-        _ => now.scale,
-    }
+    let base = match previous {
+        Some(p) if !now.began && usable(p) => p,
+        _ => 1.0,
+    };
+    now.scale / base
 }
 
 /// How far down a view `view_height` px high can scroll over the day at `hour_px` an hour.

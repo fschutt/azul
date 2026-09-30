@@ -661,6 +661,10 @@ pub struct WaylandWindow {
     /// Rotation accumulated across the current pinch. The protocol sends a
     /// per-update DELTA in degrees, so an absolute angle only exists as a sum.
     pinch_accumulated_rotation: f32,
+    /// A pinch began and has not reported an update yet: its first update
+    /// carries `DetectedPinch::began` (the protocol's `scale` is already
+    /// cumulative since the begin).
+    pinch_began: bool,
     /// Travel accumulated across the current swipe. The direction is only
     /// decided at `end` — the protocol streams deltas and never classifies.
     swipe_accumulated: (f32, f32),
@@ -2222,6 +2226,7 @@ impl WaylandWindow {
             pointer_gestures_version: 0,
             pointer_gestures_initialized: false,
             pinch_accumulated_rotation: 0.0,
+            pinch_began: false,
             swipe_accumulated: (0.0, 0.0),
             data_device_manager: std::ptr::null_mut(),
             data_device: std::ptr::null_mut(),

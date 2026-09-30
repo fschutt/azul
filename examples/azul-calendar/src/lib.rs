@@ -117,8 +117,8 @@ struct CalState {
     hour_px: f32,
     /// A press on empty time in the week, until it is let go.
     press: Option<Press>,
-    /// The last pinch update, to tell the next step of a touch pinch from a new one.
-    last_pinch: Option<week::PinchSample>,
+    /// The cumulative scale of the pinch in flight at its last update (`DetectedPinch::scale`).
+    last_pinch_scale: Option<f32>,
     /// When the popover last closed by a click outside it or Escape.
     popover_closed_at: Option<Instant>,
 }
@@ -964,17 +964,17 @@ extern "C" fn on_week_pinch(mut data: RefAny, mut info: CallbackInfo) -> Update 
     let Some(pinch) = info.get_pinch().into_option() else {
         return Update::DoNothing;
     };
+    // Cumulative since the gesture began: the zoom is the ratio to the previous update.
     let sample = week::PinchSample {
         scale: pinch.scale,
-        initial_distance: pinch.initial_distance,
-        duration_ms: pinch.duration_ms,
+        began: pinch.began,
     };
     let Some(mut guard) = data.downcast_mut::<CalState>() else {
         return Update::DoNothing;
     };
     let s = &mut *guard;
-    let factor = week::pinch_step(s.last_pinch, sample);
-    s.last_pinch = Some(sample);
+    let factor = week::pinch_step(s.last_pinch_scale, sample);
+    s.last_pinch_scale = Some(sample.scale);
     zoom(s, &mut info, factor, Some(pinch.center.y))
 }
 
@@ -1698,7 +1698,7 @@ pub fn start() {
         launched: Vec::new(),
         hour_px: week::DEFAULT_HOUR_PX,
         press: None,
-        last_pinch: None,
+        last_pinch_scale: None,
         popover_closed_at: None,
     };
     let app = App::create(RefAny::new(state), AppConfig::create());
