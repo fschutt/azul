@@ -1,14 +1,41 @@
-//! Week math for the week view: which events fall in a week, and where each one sits in its
-//! day's column. Weeks start on Monday; the view shows 08:00 to 20:00.
+//! Week math for the week view: which events fall in a week, where each one sits in its day's
+//! column, and the view's own geometry - the time at a y, the event a press lands on, the event a
+//! click or a drag makes, and the zoom. Weeks start on Monday; the view holds the whole day,
+//! 00:00 to 24:00, and scrolls.
 
 use chrono::{Datelike, Duration, NaiveDate, NaiveTime, Timelike};
 
 use crate::event::Event;
 
-/// The first hour the week view shows.
-pub const FIRST_HOUR: u32 = 8;
-/// The hour the week view ends at: it shows 08:00 up to 20:00.
-pub const END_HOUR: u32 = 20;
+/// Minutes in a day: the week view holds all of them.
+pub const DAY_MINUTES: u32 = 24 * 60;
+/// The last minute an event can end at: an event does not cross midnight, and 24:00 is not a
+/// time of day.
+pub const LAST_MINUTE: u32 = DAY_MINUTES - 1;
+/// A new event starts (and a dragged one ends) on this grid, in minutes.
+pub const SNAP_MINUTES: u32 = 15;
+/// How long an event a click makes is (cut at the end of the day).
+pub const CLICK_MINUTES: u32 = 60;
+/// The height of an hour when the app starts, in logical px.
+pub const DEFAULT_HOUR_PX: f32 = 48.0;
+/// The zoom's limits: the smallest and the largest hour, in logical px.
+pub const MIN_HOUR_PX: f32 = 20.0;
+pub const MAX_HOUR_PX: f32 = 240.0;
+/// An event block is never drawn shorter than this, so its title stays readable; a press on the
+/// drawn block finds the event.
+pub const MIN_BLOCK_PX: f32 = 18.0;
+/// How far a press moves before it is a drag, in logical px.
+pub const DRAG_THRESHOLD_PX: f32 = 4.0;
+/// The hour at the top of the view when it opens on a week that is not today's.
+pub const MORNING_HOUR: u32 = 8;
+/// Wheel pixels that double (or halve) the hour height: one notch (60 px) is a quarter of that.
+const WHEEL_PX_PER_DOUBLING: f32 = 240.0;
+/// No single wheel event zooms more than this, however far it scrolled (a trackpad flick is
+/// dozens of events).
+const MAX_WHEEL_STEP: f32 = 1.25;
+const MIN_WHEEL_STEP: f32 = 0.8;
+/// How much a y read back from pixels may fall short of the line it was on, in minutes.
+const LINE_TOLERANCE: f32 = 1e-3;
 
 /// The Monday on or before `day`.
 pub fn week_start(day: NaiveDate) -> NaiveDate {
@@ -50,14 +77,20 @@ pub fn minute_of_day(t: NaiveTime) -> u32 {
     t.hour() * 60 + t.minute()
 }
 
+/// The time `minute` minutes after midnight; a minute past the day is its last minute.
+pub fn time_of_minute(minute: u32) -> NaiveTime {
+    let minute = minute.min(LAST_MINUTE);
+    NaiveTime::from_hms_opt(minute / 60, minute % 60, 0).unwrap_or(NaiveTime::MIN)
+}
+
 /// Where an event sits in its day's column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Placement {
     /// The event's index in the day's list.
     pub index: usize,
-    /// Minutes from `FIRST_HOUR` to the event's top edge, clipped to the view.
+    /// Minutes from midnight to the event's top edge.
     pub top: u32,
-    /// Minutes of the event inside the view.
+    /// The event's length in minutes.
     pub height: u32,
     /// Which of the `lanes` side-by-side columns the event takes; 0 is the leftmost.
     pub lane: u32,
@@ -65,22 +98,12 @@ pub struct Placement {
     pub lanes: u32,
 }
 
-/// One day's column: the events in view, and how many lie wholly before or after the view.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct DayLayout {
-    pub placements: Vec<Placement>,
-    pub earlier: usize,
-    pub later: usize,
-}
-
 /// Lays out one day's events. Events that overlap in time sit side by side: a group of events
 /// linked by overlaps shares the column's width in as many lanes as it needs at once, each
 /// event in the leftmost lane that is free at its start. An event that ends as another starts
-/// does not overlap it. Events are clipped to 08:00 - 20:00.
-pub fn lay_out_day(events: &[&Event]) -> DayLayout {
-    let view_start = FIRST_HOUR * 60;
-    let view_end = END_HOUR * 60;
-    let mut layout = DayLayout::default();
+/// does not overlap it.
+pub fn lay_out_day(events: &[&Event]) -> Vec<Placement> {
+    let mut placements: Vec<Placement> = Vec::with_capacity(events.len());
     let mut order: Vec<usize> = (0..events.len()).collect();
     order.sort_by_key(|&i| (minute_of_day(events[i].start), minute_of_day(events[i].end)));
     // The group being built: where its placements begin, when its last event ends, and when
@@ -91,17 +114,9 @@ pub fn lay_out_day(events: &[&Event]) -> DayLayout {
     for index in order {
         let start = minute_of_day(events[index].start);
         let end = minute_of_day(events[index].end);
-        if end <= view_start {
-            layout.earlier += 1;
-            continue;
-        }
-        if start >= view_end {
-            layout.later += 1;
-            continue;
-        }
         if !lane_free_at.is_empty() && start >= group_end {
-            set_lanes(&mut layout.placements[group_from..], lane_free_at.len());
-            group_from = layout.placements.len();
+            set_lanes(&mut placements[group_from..], lane_free_at.len());
+            group_from = placements.len();
             lane_free_at.clear();
         }
         group_end = if lane_free_at.is_empty() {
@@ -119,18 +134,16 @@ pub fn lay_out_day(events: &[&Event]) -> DayLayout {
                 lane_free_at.len() - 1
             }
         };
-        let top = start.max(view_start) - view_start;
-        let bottom = end.min(view_end) - view_start;
-        layout.placements.push(Placement {
+        placements.push(Placement {
             index,
-            top,
-            height: bottom - top,
+            top: start,
+            height: end.saturating_sub(start),
             lane: lane as u32,
             lanes: 0,
         });
     }
-    set_lanes(&mut layout.placements[group_from..], lane_free_at.len());
-    layout
+    set_lanes(&mut placements[group_from..], lane_free_at.len());
+    placements
 }
 
 fn set_lanes(group: &mut [Placement], lanes: usize) {
@@ -138,6 +151,170 @@ fn set_lanes(group: &mut [Placement], lanes: usize) {
         placement.lanes = lanes as u32;
     }
 }
+
+// ==== The view's geometry ====
+
+/// The y of `minute` in a day column whose hours are `hour_px` high.
+pub fn y_of_minute(minute: f32, hour_px: f32) -> f32 {
+    minute * hour_px / 60.0
+}
+
+/// The height of the whole day at `hour_px` an hour.
+pub fn day_height(hour_px: f32) -> f32 {
+    y_of_minute(DAY_MINUTES as f32, hour_px)
+}
+
+/// The minute at `y` in a day column whose hours are `hour_px` high, held to the day.
+pub fn minute_at_y(y: f32, hour_px: f32) -> f32 {
+    if !y.is_finite() || !hour_px.is_finite() || hour_px <= 0.0 {
+        return 0.0;
+    }
+    (y * 60.0 / hour_px).clamp(0.0, DAY_MINUTES as f32)
+}
+
+/// A minute read from pixels, held to the day (nothing read is 0).
+fn in_day(minute: f32) -> f32 {
+    if minute.is_finite() {
+        minute.clamp(0.0, DAY_MINUTES as f32)
+    } else {
+        0.0
+    }
+}
+
+/// The start of the quarter hour `minute` is in. A minute a hair under a line (a y read back
+/// from pixels) counts as the line.
+fn snap_down(minute: f32) -> u32 {
+    let snap = SNAP_MINUTES as f32;
+    ((in_day(minute) + LINE_TOLERANCE) / snap).floor() as u32 * SNAP_MINUTES
+}
+
+/// The end of the quarter hour `minute` is in; a minute a hair past a line counts as the line.
+fn snap_up(minute: f32) -> u32 {
+    let snap = SNAP_MINUTES as f32;
+    ((in_day(minute) - LINE_TOLERANCE).max(0.0) / snap).ceil() as u32 * SNAP_MINUTES
+}
+
+/// The event a click at `minute` makes: an hour from the start of the quarter hour it lands
+/// in, cut at the end of the day. `(start, end)` in minutes from midnight, `start < end`.
+pub fn click_range(minute: f32) -> (u32, u32) {
+    let start = snap_down(minute).min(DAY_MINUTES - SNAP_MINUTES);
+    (start, (start + CLICK_MINUTES).min(LAST_MINUTE))
+}
+
+/// The event a drag from `from` to `to` (minutes, either way round) makes: every quarter hour
+/// it touched, at least one, inside the day. `(start, end)`, `start < end`.
+pub fn drag_range(from: f32, to: f32) -> (u32, u32) {
+    let (from, to) = (in_day(from), in_day(to));
+    let (low, high) = if from <= to { (from, to) } else { (to, from) };
+    let start = snap_down(low).min(DAY_MINUTES - SNAP_MINUTES);
+    let end = snap_up(high).max(start + SNAP_MINUTES).min(LAST_MINUTE);
+    (start, end)
+}
+
+/// Whether a press that went down at `from_y` and is now at `to_y` is a drag.
+pub fn is_drag(from_y: f32, to_y: f32) -> bool {
+    (to_y - from_y).abs() >= DRAG_THRESHOLD_PX
+}
+
+/// The event (its index in the day's list) whose block a press at `y` lands on, `x_frac` of the
+/// way across the column (0 = left edge, 1 = right edge), with hours `hour_px` high. A block is
+/// its event's time, drawn at least `MIN_BLOCK_PX` tall, in its lane.
+pub fn event_at(placements: &[Placement], y: f32, x_frac: f32, hour_px: f32) -> Option<usize> {
+    placements
+        .iter()
+        .find(|p| {
+            let top = y_of_minute(p.top as f32, hour_px);
+            let height = y_of_minute(p.height as f32, hour_px).max(MIN_BLOCK_PX);
+            let lanes = p.lanes.max(1) as f32;
+            let left = p.lane as f32 / lanes;
+            let right = (p.lane + 1) as f32 / lanes;
+            y >= top && y < top + height && x_frac >= left && x_frac < right
+        })
+        .map(|p| p.index)
+}
+
+// ==== Zoom ====
+
+/// `hour_px` held to the zoom's limits (the default for nonsense).
+pub fn clamp_hour_px(hour_px: f32) -> f32 {
+    if hour_px.is_finite() {
+        hour_px.clamp(MIN_HOUR_PX, MAX_HOUR_PX)
+    } else {
+        DEFAULT_HOUR_PX
+    }
+}
+
+/// The zoom factor of one wheel event with the zoom modifier held: `dy` > 0 (wheel up, as the
+/// engine reports it) zooms in. Proportional to the delta, and bounded per event.
+pub fn wheel_zoom_factor(dy: f32) -> f32 {
+    if !dy.is_finite() {
+        return 1.0;
+    }
+    2f32.powf(dy / WHEEL_PX_PER_DOUBLING)
+        .clamp(MIN_WHEEL_STEP, MAX_WHEEL_STEP)
+}
+
+/// One pinch update, as the engine reports it (`DetectedPinch`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PinchSample {
+    pub scale: f32,
+    pub initial_distance: f32,
+    pub duration_ms: u64,
+}
+
+/// How much one pinch update zooms. A trackpad pinch (macOS magnify) has no gesture clock
+/// (`duration_ms` 0) and reports each update's own scale. A pinch the engine measures from two
+/// touches reports the scale since the gesture began, so an update of the same gesture (the
+/// same starting distance, a clock that did not go back) zooms by its ratio to the one before.
+pub fn pinch_step(previous: Option<PinchSample>, now: PinchSample) -> f32 {
+    let usable = |scale: f32| scale.is_finite() && scale > 0.0;
+    if !usable(now.scale) {
+        return 1.0;
+    }
+    if now.duration_ms == 0 {
+        return now.scale;
+    }
+    match previous {
+        Some(p)
+            if p.duration_ms > 0
+                && p.duration_ms <= now.duration_ms
+                && (p.initial_distance - now.initial_distance).abs() < 0.5
+                && usable(p.scale) =>
+        {
+            now.scale / p.scale
+        }
+        _ => now.scale,
+    }
+}
+
+/// How far down a view `view_height` px high can scroll over the day at `hour_px` an hour.
+pub fn max_scroll(hour_px: f32, view_height: f32) -> f32 {
+    (day_height(hour_px) - view_height).max(0.0)
+}
+
+/// The scroll offset that keeps the time under the pointer under it when the hour height goes
+/// from `old_px` to `new_px`: `pointer` is the pointer's y in the view, `scroll_y` the view's
+/// offset before, `view_height` its height. Held to the day.
+pub fn zoom_scroll(old_px: f32, new_px: f32, pointer: f32, scroll_y: f32, view_height: f32) -> f32 {
+    let minute = minute_at_y(scroll_y + pointer, old_px);
+    let target = y_of_minute(minute, new_px) - pointer;
+    if !target.is_finite() {
+        return 0.0;
+    }
+    target.clamp(0.0, max_scroll(new_px, view_height))
+}
+
+/// The minute at the top of the view when it opens: an hour before now (on the hour) when the
+/// week shows today, else `MORNING_HOUR`.
+pub fn first_minute_shown(today_shown: bool, now: NaiveTime) -> u32 {
+    if today_shown {
+        minute_of_day(now).saturating_sub(60) / 60 * 60
+    } else {
+        MORNING_HOUR * 60
+    }
+}
+
+// ==== Labels ====
 
 /// "Wed 30"
 pub fn day_label(day: NaiveDate) -> String {
@@ -161,6 +338,16 @@ pub fn week_title(day: NaiveDate) -> String {
 /// "09:00 - 10:00"
 pub fn time_range(start: NaiveTime, end: NaiveTime) -> String {
     format!("{} - {}", start.format("%H:%M"), end.format("%H:%M"))
+}
+
+/// "13:00", the label of an hour in the view's gutter.
+pub fn hour_label(hour: u32) -> String {
+    format!("{hour:02}:00")
+}
+
+/// "Wednesday 30 September, 10:30 - 11:30": what a new event's popover says it is.
+pub fn draft_label(date: NaiveDate, start: NaiveTime, end: NaiveTime) -> String {
+    format!("{}, {}", date.format("%A %-d %B"), time_range(start, end))
 }
 
 /// The day a new event starts on: today when today is in the shown week, else the shown week's

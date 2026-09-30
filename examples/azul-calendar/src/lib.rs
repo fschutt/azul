@@ -1,7 +1,17 @@
 //! AzCalendar: a small calendar on the public azul API that mints AzMeet links.
 //!
-//! A week view (Monday to Sunday, 08:00 to 20:00) lists the events of the shown week; events that
-//! overlap sit side by side. "New event" opens a form (title, day, start, end, "Add AzMeet link").
+//! A week view (Monday to Sunday) holds the whole day, 00:00 to 24:00: the day-header row stays
+//! put while the hours scroll under it, with the hour labels. A pinch on the trackpad, or the
+//! wheel with Ctrl / Cmd held, zooms the hours (20 to 240 px an hour) around the time under the
+//! pointer; a plain wheel scrolls. Events that overlap sit side by side.
+//!
+//! Clicking empty time makes a draft event there (an hour from the quarter hour clicked);
+//! dragging over empty time makes one over the dragged quarter hours. The draft shows in the
+//! week, dashed, with a popover next to it (a `<transient-window>`): its title (focused), the
+//! day and times, "Add AzMeet link", Cancel and Save. Enter or Save saves it; Escape, Cancel or a
+//! press outside drops it. "New event" opens the same form as a side sheet, with a day picker
+//! and times. A press on an existing event is the event's.
+//!
 //! Save writes the event as one JSON file, `<data dir>/events/<uuid>.json` (see `event.rs`); with
 //! "Add AzMeet link" it first asks the meeting server (the `meet` Worker) for a room with
 //! `POST /rooms {starts_at, ends_at}` (the event's day and times here, in UTC, so the server keeps
@@ -34,14 +44,16 @@ pub mod meet_rooms;
 use std::{
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
+    time::Instant,
 };
 
 use azul::{
-    css::WindowDecorations,
-    dom::ClipboardContent,
+    css::{WindowBackgroundMaterial, WindowDecorations},
+    dom::{ClipboardContent, DomId, DomNodeId, NodeHierarchyItemId, NodeId, VirtualKeyCode},
     error::HttpError,
     file::FilePath,
     http::{HttpGetResult, HttpMethod, HttpRequestConfig},
+    misc::{TransientAnchor, TransientDismiss},
     prelude::*,
     str::String as AzString,
     task::{Thread, ThreadId, ThreadReceiver, ThreadSender},
@@ -50,19 +62,26 @@ use azul::{
         ButtonType, CheckBoxState, DatePicker, DatePickerState, OnTextInputReturn, TextInputState,
         TextInputValid, TimePicker, TimePickerState, Titlebar,
     },
+    window::TransientWindowConfig,
 };
 use chrono::{Datelike, NaiveDate, NaiveTime};
 use event::{Event, EventError, Meeting};
 
 /// The data folder's variable.
 const DATA_VAR: &str = "AZCAL_DATA";
-/// Pixels per hour in the week view.
-const HOUR_PX: u32 = 64;
 /// Width of the hour labels left of the days.
 const GUTTER_PX: u32 = 56;
 const HTTP_TIMEOUT_SECS: u64 = 10;
 /// What the form's "Add AzMeet link" line says once it is ticked.
 const WILL_MINT: &str = "A new AzMeet link is made when you save.";
+/// What an event made in the week's popover without a title is called (Google Calendar's way:
+/// such an event may have no title), and what its draft shows until it has one.
+const UNTITLED: &str = "(No title)";
+/// A press this soon after the popover closed by a click outside it is that click: it makes no
+/// new draft (on some systems the popover's own window reports the click first).
+const DISMISSING_PRESS: std::time::Duration = std::time::Duration::from_millis(250);
+/// The `id` of the week's scroll area.
+const WEEK_SCROLL_ID: &str = "week-scroll";
 
 const BODY: &str = "display: flex; flex-direction: column; height: 100%; margin: 0; font-family: \
                     sans-serif; font-size: 14px; color: #1d2330; background: #f4f5f8;";
@@ -73,6 +92,11 @@ const FOOTER: &str = "padding: 4px 16px; font-size: 12px; color: #6b7385; backgr
                       border-top: 1px solid #d9dce3;";
 const LINE: &str = "#d9dce3";
 const LABEL: &str = "font-size: 12px; color: #4a5468; margin-top: 12px; margin-bottom: 4px;";
+/// The popover's card: the whole of its window.
+const POPOVER: &str = "display: flex; flex-direction: column; width: 320px; padding: 16px; \
+                       box-sizing: border-box; background: #ffffff; border: 1px solid #c9cdd6; \
+                       border-radius: 8px; font-family: sans-serif; font-size: 14px; color: \
+                       #1d2330;";
 
 /// The app.
 struct CalState {
@@ -89,9 +113,26 @@ struct CalState {
     notice: String,
     /// AzMeet processes "Join meeting" started, until they end.
     launched: Vec<Child>,
+    /// The height of an hour in the week, in logical px: the zoom.
+    hour_px: f32,
+    /// A press on empty time in the week, until it is let go.
+    press: Option<Press>,
+    /// The last pinch update, to tell the next step of a touch pinch from a new one.
+    last_pinch: Option<week::PinchSample>,
+    /// When the popover last closed by a click outside it or Escape.
+    popover_closed_at: Option<Instant>,
 }
 
-/// The "New event" form.
+/// Where a form is shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FormPlace {
+    /// The "New event" side sheet.
+    Sheet,
+    /// The popover next to a draft in the week, made by a click or a drag on empty time.
+    Popover,
+}
+
+/// A new event being made: the "New event" side sheet, or the week's draft and its popover.
 struct Form {
     serial: u32,
     /// The new event's id, fixed when the form opens: its file's name.
@@ -106,18 +147,42 @@ struct Form {
     /// A link minted for this form whose event could not be saved yet: used, not minted again.
     minted: Option<Meeting>,
     error: String,
+    place: FormPlace,
 }
 
 impl Form {
     fn event(&self, meeting: Option<Meeting>) -> Result<Event, EventError> {
-        Event::create(
-            &self.id,
-            &self.title,
-            self.date,
-            self.start,
-            self.end,
-            meeting,
-        )
+        let title = match self.place {
+            FormPlace::Popover if self.title.trim().is_empty() => UNTITLED,
+            _ => self.title.as_str(),
+        };
+        Event::create(&self.id, title, self.date, self.start, self.end, meeting)
+    }
+}
+
+/// A press on empty time in a day's column: a click, or the start of a drag.
+#[derive(Debug, Clone, Copy)]
+struct Press {
+    /// The column, 0 = Monday.
+    day: usize,
+    /// Where it went down, and where the pointer is now: y in the column (from midnight), px.
+    from_y: f32,
+    to_y: f32,
+    /// It moved far enough to be a drag.
+    dragging: bool,
+}
+
+impl Press {
+    /// The event this press makes if it is let go now, `(start, end)` in minutes.
+    fn range(&self, hour_px: f32) -> (u32, u32) {
+        if self.dragging || week::is_drag(self.from_y, self.to_y) {
+            week::drag_range(
+                week::minute_at_y(self.from_y, hour_px),
+                week::minute_at_y(self.to_y, hour_px),
+            )
+        } else {
+            week::click_range(week::minute_at_y(self.from_y, hour_px))
+        }
     }
 }
 
@@ -134,6 +199,40 @@ fn form_error(e: &EventError) -> String {
     }
 }
 
+/// Opens a form for a new event on `date`, `start` to `end`, at `place`.
+fn open_form(
+    s: &mut CalState,
+    place: FormPlace,
+    date: NaiveDate,
+    start: NaiveTime,
+    end: NaiveTime,
+) {
+    s.forms_opened += 1;
+    s.form = Some(Form {
+        serial: s.forms_opened,
+        id: event::new_event_id(),
+        title: String::new(),
+        date,
+        start,
+        end,
+        add_meet: false,
+        minting: false,
+        minted: None,
+        error: String::new(),
+        place,
+    });
+    s.notice.clear();
+}
+
+/// Where the events of the shown week's `day` (0 = Monday) sit in its column.
+fn placements_of(s: &CalState, day: usize) -> Vec<week::Placement> {
+    let lists = week::events_in_week(&s.events, s.week);
+    lists
+        .get(day)
+        .map(|list| week::lay_out_day(list))
+        .unwrap_or_default()
+}
+
 // ==== Layout ====
 
 /// What the window shows, read from `CalState` before the DOM is built.
@@ -141,6 +240,9 @@ struct View {
     week_title: String,
     days: Vec<DayView>,
     form: Option<FormView>,
+    /// The draft in the week: the popover form's event, or the one a drag is making.
+    draft: Option<DraftView>,
+    hour_px: f32,
     can_mint: bool,
     notice: String,
     footer: String,
@@ -150,15 +252,15 @@ struct DayView {
     label: String,
     today: bool,
     blocks: Vec<BlockView>,
-    earlier: usize,
-    later: usize,
+    /// Minutes since midnight now, in today's column.
+    now: Option<u32>,
 }
 
 struct BlockView {
     id: String,
     title: String,
     time: String,
-    /// Minutes from 08:00, and minutes long, inside the view.
+    /// Minutes from midnight, and minutes long.
     top: u32,
     height: u32,
     lane: u32,
@@ -167,6 +269,8 @@ struct BlockView {
 }
 
 struct FormView {
+    serial: u32,
+    place: FormPlace,
     title: String,
     date: NaiveDate,
     start: NaiveTime,
@@ -176,42 +280,75 @@ struct FormView {
     error: String,
 }
 
+struct DraftView {
+    /// The column, 0 = Monday.
+    day: usize,
+    /// Minutes from midnight.
+    start: u32,
+    end: u32,
+    title: String,
+    /// The popover is open on it (not while a drag is still making it).
+    popover: bool,
+}
+
 fn view_of(s: &CalState) -> View {
     let lists = week::events_in_week(&s.events, s.week);
+    let now = week::minute_of_day(chrono::Local::now().time());
     let days = week::week_days(s.week)
         .iter()
         .zip(lists.iter())
-        .map(|(date, list)| {
-            let layout = week::lay_out_day(list);
-            DayView {
-                label: week::day_label(*date),
-                today: *date == s.today,
-                blocks: layout
-                    .placements
-                    .iter()
-                    .map(|p| {
-                        let e = list[p.index];
-                        BlockView {
-                            id: e.id.clone(),
-                            title: e.title.clone(),
-                            time: week::time_range(e.start, e.end),
-                            top: p.top,
-                            height: p.height,
-                            lane: p.lane,
-                            lanes: p.lanes,
-                            joinable: e.meeting.is_some(),
-                        }
-                    })
-                    .collect(),
-                earlier: layout.earlier,
-                later: layout.later,
-            }
+        .map(|(date, list)| DayView {
+            label: week::day_label(*date),
+            today: *date == s.today,
+            blocks: week::lay_out_day(list)
+                .iter()
+                .map(|p| {
+                    let e = list[p.index];
+                    BlockView {
+                        id: e.id.clone(),
+                        title: e.title.clone(),
+                        time: week::time_range(e.start, e.end),
+                        top: p.top,
+                        height: p.height,
+                        lane: p.lane,
+                        lanes: p.lanes,
+                        joinable: e.meeting.is_some(),
+                    }
+                })
+                .collect(),
+            now: (*date == s.today).then_some(now),
         })
         .collect();
+    let dragged = s.press.filter(|p| p.dragging).map(|p| {
+        let (start, end) = p.range(s.hour_px);
+        DraftView {
+            day: p.day,
+            start,
+            end,
+            title: String::new(),
+            popover: false,
+        }
+    });
+    let popover = s
+        .form
+        .as_ref()
+        .filter(|f| f.place == FormPlace::Popover)
+        .and_then(|f| {
+            let day = usize::try_from((f.date - s.week).num_days()).ok()?;
+            (day < 7).then(|| DraftView {
+                day,
+                start: week::minute_of_day(f.start),
+                end: week::minute_of_day(f.end),
+                title: f.title.clone(),
+                popover: true,
+            })
+        });
     View {
         week_title: week::week_title(s.week),
         days,
         form: s.form.as_ref().map(|f| FormView {
+            serial: f.serial,
+            place: f.place,
             title: f.title.clone(),
             date: f.date,
             start: f.start,
@@ -220,6 +357,8 @@ fn view_of(s: &CalState) -> View {
             minting: f.minting,
             error: f.error.clone(),
         }),
+        draft: dragged.or(popover),
+        hour_px: s.hour_px,
         can_mint: s.worker.is_some(),
         notice: s.notice.clone(),
         footer: format!(
@@ -245,9 +384,9 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         return Dom::create_body();
     };
     let mut main = Dom::create_div()
-        .with_css("display: flex; flex-direction: row; flex-grow: 1;")
+        .with_css("display: flex; flex-direction: row; flex-grow: 1; min-height: 0;")
         .with_child(week_grid(&view, &data));
-    if let Some(form) = &view.form {
+    if let Some(form) = view.form.as_ref().filter(|f| f.place == FormPlace::Sheet) {
         main.add_child(form_panel(form, view.can_mint, &data));
     }
     let mut body = Dom::create_body()
@@ -289,36 +428,75 @@ fn toolbar(view: &View, data: &RefAny) -> Dom {
         )
 }
 
+/// The week: the day-header row, fixed, over the scroll area (`#week-scroll`) that holds the
+/// whole day (`#week-grid`: the hour labels and the seven day columns, `#day-0` .. `#day-6`).
+/// The scroll area has `min-height: 0` (and so has every flex box above it), or it would grow
+/// to the day's height instead of scrolling over it.
 fn week_grid(view: &View, data: &RefAny) -> Dom {
     let gutter = format!("width: {GUTTER_PX}px; flex-shrink: 0;");
+    let hour = view.hour_px;
     let mut header = Dom::create_div()
         .with_css(format!(
-            "display: flex; flex-direction: row; background: #ffffff; border-bottom: 1px solid \
-             {LINE};"
+            "display: flex; flex-direction: row; flex-shrink: 0; background: #ffffff; \
+             border-bottom: 1px solid {LINE};"
         ))
         .with_child(Dom::create_div().with_css(gutter.as_str()));
     let mut hours = Dom::create_div().with_css(gutter.as_str());
-    for hour in week::FIRST_HOUR..week::END_HOUR {
+    for h in 0..24 {
         hours.add_child(
             Dom::create_div()
                 .with_css(format!(
-                    "height: {HOUR_PX}px; padding-right: 6px; font-size: 11px; color: #6b7385; \
+                    "height: {hour:.3}px; padding-right: 6px; font-size: 11px; color: #6b7385; \
                      text-align: right; box-sizing: border-box;"
                 ))
-                .with_child(Dom::create_span_with_text(format!("{hour:02}:00"))),
+                .with_child(Dom::create_span_with_text(week::hour_label(h))),
         );
     }
-    let mut columns = Dom::create_div()
-        .with_css("display: flex; flex-direction: row;")
+    let mut grid = Dom::create_div()
+        .with_id("week-grid")
+        .with_css(format!(
+            "display: flex; flex-direction: row; flex-shrink: 0; height: {:.3}px;",
+            week::day_height(hour)
+        ))
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::Scroll),
+            data.clone(),
+            on_week_wheel,
+        )
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::PinchIn),
+            data.clone(),
+            on_week_pinch,
+        )
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::PinchOut),
+            data.clone(),
+            on_week_pinch,
+        )
         .with_child(hours);
-    for day in &view.days {
+    for (index, day) in view.days.iter().enumerate() {
         header.add_child(day_header(day));
-        columns.add_child(day_column(day, data));
+        let draft = view.draft.as_ref().filter(|d| d.day == index);
+        grid.add_child(day_column(index, day, draft, view, data));
     }
+    let scroll = Dom::create_div()
+        .with_id(WEEK_SCROLL_ID)
+        .with_css(
+            "flex-grow: 1; flex-basis: 0px; min-height: 0; overflow-y: auto; overflow-x: hidden;",
+        )
+        .with_callback(
+            EventFilter::Component(ComponentEventFilter::AfterMount),
+            data.clone(),
+            on_week_mounted,
+        )
+        .with_child(grid);
     Dom::create_div()
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; padding: 0 8px 8px 0;")
+        .with_css(
+            "display: flex; flex-direction: column; flex-grow: 1; min-width: 0; min-height: 0; \
+             padding: 0 8px 8px 0;",
+        )
         .with_child(header)
-        .with_child(columns)
+        .with_child(scroll)
 }
 
 fn day_header(day: &DayView) -> Dom {
@@ -327,58 +505,84 @@ fn day_header(day: &DayView) -> Dom {
     } else {
         ""
     };
-    let mut header = Dom::create_div()
+    Dom::create_div()
         .with_css(format!(
             "display: flex; flex-direction: column; flex-grow: 1; flex-basis: 0px; padding: 6px \
              8px; border-left: 1px solid {LINE}; {colour}"
         ))
-        .with_child(Dom::create_span_with_text(day.label.as_str()));
-    let mut outside = Vec::new();
-    if day.earlier > 0 {
-        outside.push(format!("+{} before 08:00", day.earlier));
-    }
-    if day.later > 0 {
-        outside.push(format!("+{} after 20:00", day.later));
-    }
-    if !outside.is_empty() {
-        header.add_child(
-            Dom::create_span_with_text(outside.join(", "))
-                .with_css("font-size: 11px; color: #6b7385; font-weight: normal;"),
-        );
-    }
-    header
+        .with_child(Dom::create_span_with_text(day.label.as_str()))
 }
 
-fn day_column(day: &DayView, data: &RefAny) -> Dom {
-    let height = (week::END_HOUR - week::FIRST_HOUR) * HOUR_PX;
+/// A day's column (`#day-<index>`): the hour lines, the events, the "now" line on today, and
+/// the draft with its popover. A press on empty time starts a click or a drag.
+fn day_column(
+    index: usize,
+    day: &DayView,
+    draft: Option<&DraftView>,
+    view: &View,
+    data: &RefAny,
+) -> Dom {
+    let hour = view.hour_px;
     let background = if day.today { "#f7faff" } else { "#ffffff" };
-    let mut column = Dom::create_div().with_css(format!(
-        "position: relative; flex-grow: 1; flex-basis: 0px; height: {height}px; border-left: 1px \
-         solid {LINE}; background: {background};"
-    ));
-    for _ in week::FIRST_HOUR..week::END_HOUR {
+    let target = RefAny::new(DayRef {
+        app: data.clone(),
+        day: index,
+    });
+    let mut column = Dom::create_div()
+        .with_id(format!("day-{index}"))
+        .with_css(format!(
+            "position: relative; flex-grow: 1; flex-basis: 0px; height: {:.3}px; border-left: \
+             1px solid {LINE}; background: {background};",
+            week::day_height(hour)
+        ))
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::LeftMouseDown),
+            target.clone(),
+            on_day_press,
+        )
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::MouseMove),
+            target.clone(),
+            on_day_drag,
+        )
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::LeftMouseUp),
+            target,
+            on_day_release,
+        );
+    for _ in 0..24 {
         column.add_child(Dom::create_div().with_css(format!(
-            "height: {HOUR_PX}px; border-top: 1px solid #e8eaf0; box-sizing: border-box;"
+            "height: {hour:.3}px; border-top: 1px solid #e8eaf0; box-sizing: border-box;"
         )));
     }
     for block in &day.blocks {
-        column.add_child(event_block(block, data));
+        column.add_child(event_block(block, hour, data));
+    }
+    if let Some(now) = day.now {
+        column.add_child(Dom::create_div().with_css(format!(
+            "position: absolute; left: 0px; width: 100%; top: {:.3}px; height: 2px; background: \
+             #d93025;",
+            week::y_of_minute(now as f32, hour)
+        )));
+    }
+    if let Some(draft) = draft {
+        column.add_child(draft_block(draft, view, data));
     }
     column
 }
 
 /// One event in its day's column: title, time and, with a meeting link, "Join meeting".
-fn event_block(block: &BlockView, data: &RefAny) -> Dom {
-    let top = block.top * HOUR_PX / 60;
-    let height = (block.height * HOUR_PX / 60).max(18);
+fn event_block(block: &BlockView, hour_px: f32, data: &RefAny) -> Dom {
+    let top = week::y_of_minute(block.top as f32, hour_px);
+    let height = week::y_of_minute(block.height as f32, hour_px).max(week::MIN_BLOCK_PX);
     let width = 100.0 / block.lanes.max(1) as f32;
     let left = width * block.lane as f32;
     let mut dom = Dom::create_div()
         .with_css(format!(
-            "position: absolute; top: {top}px; left: {left:.3}%; width: {width:.3}%; height: \
-             {height}px; box-sizing: border-box; display: flex; flex-direction: column; padding: \
-             3px 6px; background: #dbe7ff; border-left: 3px solid #2f6db0; border-radius: 4px; \
-             font-size: 12px;"
+            "position: absolute; top: {top:.3}px; left: {left:.3}%; width: {width:.3}%; height: \
+             {height:.3}px; box-sizing: border-box; display: flex; flex-direction: column; \
+             padding: 3px 6px; background: #dbe7ff; border-left: 3px solid #2f6db0; \
+             border-radius: 4px; font-size: 12px;"
         ))
         .with_child(Dom::create_span_with_text(block.title.as_str()).with_css("font-weight: bold;"))
         .with_child(Dom::create_span_with_text(block.time.as_str()).with_css("color: #4a5468;"));
@@ -397,13 +601,166 @@ fn event_block(block: &BlockView, data: &RefAny) -> Dom {
     dom
 }
 
+/// The draft (`#draft`): drawn like an event, dashed and pale, "(No title)" until it has one;
+/// with its popover once the press that made it was let go.
+fn draft_block(draft: &DraftView, view: &View, data: &RefAny) -> Dom {
+    let hour = view.hour_px;
+    let top = week::y_of_minute(draft.start as f32, hour);
+    let minutes = draft.end.saturating_sub(draft.start) as f32;
+    let height = week::y_of_minute(minutes, hour).max(week::MIN_BLOCK_PX);
+    let title = if draft.title.trim().is_empty() {
+        UNTITLED
+    } else {
+        draft.title.as_str()
+    };
+    let time = week::time_range(
+        week::time_of_minute(draft.start),
+        week::time_of_minute(draft.end),
+    );
+    let mut block = Dom::create_div()
+        .with_id("draft")
+        .with_css(format!(
+            "position: absolute; top: {top:.3}px; left: 0px; width: 100%; height: \
+             {height:.3}px; box-sizing: border-box; display: flex; flex-direction: column; \
+             padding: 3px 6px; background: #eef4ff; border: 2px dashed #2f6db0; border-radius: \
+             4px; font-size: 12px;"
+        ))
+        .with_child(
+            Dom::create_span_with_text(title).with_css("font-weight: bold; color: #2f6db0;"),
+        )
+        .with_child(Dom::create_span_with_text(time).with_css("color: #4a5468;"));
+    if draft.popover {
+        if let Some(form) = view.form.as_ref().filter(|f| f.place == FormPlace::Popover) {
+            block.add_child(popover(form, view.can_mint, data));
+        }
+    }
+    block
+}
+
+/// The draft's popover: a `<transient-window>` that opens to the right of the draft (the
+/// engine flips it left at the screen's edge). A press outside it, Escape, or its window
+/// losing focus dismisses it (`Dismissed`: the draft goes). It takes the keyboard, and the
+/// engine focuses its first control, the title.
+fn popover(form: &FormView, can_mint: bool, data: &RefAny) -> Dom {
+    let config = TransientWindowConfig::opened()
+        .with_anchor(TransientAnchor::Right)
+        .with_dismiss(TransientDismiss::Outside)
+        .with_material(WindowBackgroundMaterial::Transparent);
+    let target = RefAny::new(FormRef {
+        app: data.clone(),
+        serial: form.serial,
+    });
+    Dom::create_from_data(NodeData::create_node(NodeType::TransientWindow(config)))
+        .with_callback(
+            EventFilter::Component(ComponentEventFilter::Dismissed),
+            target,
+            on_popover_dismissed,
+        )
+        .with_child(popover_panel(form, can_mint, data))
+}
+
+/// The popover's card: title (`#draft-title`), day and times (`#draft-when`), "Add AzMeet
+/// link", and Cancel (`#draft-cancel`) / Save (`#draft-save`).
+fn popover_panel(form: &FormView, can_mint: bool, data: &RefAny) -> Dom {
+    let mut panel = Dom::create_div()
+        .with_id("draft-panel")
+        .with_css(POPOVER)
+        .with_child(
+            TextInput::create()
+                .with_text(form.title.as_str())
+                .with_placeholder("Add title")
+                .with_on_text_input(data.clone(), on_title)
+                .with_on_virtual_key_down(data.clone(), on_title_key)
+                .dom()
+                .with_id("draft-title"),
+        )
+        .with_child(
+            Dom::create_span_with_text(week::draft_label(form.date, form.start, form.end))
+                .with_id("draft-when")
+                .with_css("font-size: 13px; color: #4a5468; margin-top: 10px;"),
+        )
+        .with_child(meet_toggle(form, can_mint, data));
+    if !form.error.is_empty() {
+        panel.add_child(
+            Dom::create_span_with_text(form.error.as_str())
+                .with_css("font-size: 13px; color: #b3261e; margin-top: 12px;"),
+        );
+    }
+    panel.with_child(
+        Dom::create_div()
+            .with_css(
+                "display: flex; flex-direction: row; justify-content: flex-end; margin-top: 16px;",
+            )
+            .with_child(
+                Button::create("Cancel")
+                    .with_on_click(data.clone(), on_cancel)
+                    .dom()
+                    .with_id("draft-cancel")
+                    .with_css("margin-right: 8px;"),
+            )
+            .with_child(
+                Button::with_type(
+                    if form.minting {
+                        "Making the link..."
+                    } else {
+                        "Save"
+                    },
+                    ButtonType::Primary,
+                )
+                .with_on_click(data.clone(), on_save)
+                .dom()
+                .with_id("draft-save"),
+            ),
+    )
+}
+
+/// "Add AzMeet link" (the box, and its label, which toggles it too) and what ticking it means;
+/// or, without a meeting server, how to set one. The side sheet's and the popover's.
+fn meet_toggle(form: &FormView, can_mint: bool, data: &RefAny) -> Dom {
+    let mut part = Dom::create_div().with_css("display: flex; flex-direction: column;");
+    if !can_mint {
+        return part.with_child(
+            Dom::create_span_with_text(
+                "No meeting server is set: start AzCalendar with AZMEET_WORKER=<url> to add \
+                 AzMeet links.",
+            )
+            .with_css("font-size: 12px; color: #6b7385; margin-top: 16px;"),
+        );
+    }
+    part.add_child(
+        Dom::create_div()
+            .with_css("display: flex; flex-direction: row; align-items: center; margin-top: 16px;")
+            .with_child(
+                CheckBox::create(form.add_meet)
+                    .with_on_toggle(data.clone(), on_meet_toggled)
+                    .dom(),
+            )
+            .with_child(
+                Dom::create_span_with_text("Add AzMeet link")
+                    .with_css("margin-left: 8px; cursor: pointer;")
+                    .with_callback(
+                        EventFilter::Hover(HoverEventFilter::Click),
+                        data.clone(),
+                        on_meet_label,
+                    ),
+            ),
+    );
+    if form.add_meet {
+        part.add_child(
+            Dom::create_span_with_text(WILL_MINT)
+                .with_css("font-size: 12px; color: #4a5468; margin-top: 4px;"),
+        );
+    }
+    part
+}
+
 /// The "New event" form, a side sheet right of the week.
 fn form_panel(form: &FormView, can_mint: bool, data: &RefAny) -> Dom {
     let label = |text: &str| Dom::create_span_with_text(text).with_css(LABEL);
     let mut panel = Dom::create_div()
         .with_css(format!(
             "width: 340px; flex-shrink: 0; display: flex; flex-direction: column; padding: 16px; \
-             background: #ffffff; border-left: 1px solid {LINE};"
+             background: #ffffff; border-left: 1px solid {LINE}; overflow-y: auto;"
         ))
         .with_child(
             Dom::create_span_with_text("Create an event")
@@ -431,43 +788,8 @@ fn form_panel(form: &FormView, can_mint: bool, data: &RefAny) -> Dom {
         .with_child(label("Starts"))
         .with_child(time_picker(form.start, data, on_start))
         .with_child(label("Ends"))
-        .with_child(time_picker(form.end, data, on_end));
-    if can_mint {
-        panel.add_child(
-            Dom::create_div()
-                .with_css(
-                    "display: flex; flex-direction: row; align-items: center; margin-top: 16px;",
-                )
-                .with_child(
-                    CheckBox::create(form.add_meet)
-                        .with_on_toggle(data.clone(), on_meet_toggled)
-                        .dom(),
-                )
-                .with_child(
-                    Dom::create_span_with_text("Add AzMeet link")
-                        .with_css("margin-left: 8px; cursor: pointer;")
-                        .with_callback(
-                            EventFilter::Hover(HoverEventFilter::Click),
-                            data.clone(),
-                            on_meet_label,
-                        ),
-                ),
-        );
-        if form.add_meet {
-            panel.add_child(
-                Dom::create_span_with_text(WILL_MINT)
-                    .with_css("font-size: 12px; color: #4a5468; margin-top: 4px;"),
-            );
-        }
-    } else {
-        panel.add_child(
-            Dom::create_span_with_text(
-                "No meeting server is set: start AzCalendar with AZMEET_WORKER=<url> to add \
-                 AzMeet links.",
-            )
-            .with_css("font-size: 12px; color: #6b7385; margin-top: 16px;"),
-        );
-    }
+        .with_child(time_picker(form.end, data, on_end))
+        .with_child(meet_toggle(form, can_mint, data));
     if !form.error.is_empty() {
         panel.add_child(
             Dom::create_span_with_text(form.error.as_str())
@@ -523,6 +845,14 @@ fn show_week(data: &mut RefAny, weeks: Option<i64>) -> Update {
         None => s.today,
     };
     s.week = week::shift_weeks(from, weeks.unwrap_or(0));
+    // A draft belongs to the week it was made in.
+    if s.form
+        .as_ref()
+        .is_some_and(|f| f.place == FormPlace::Popover)
+    {
+        s.form = None;
+    }
+    s.press = None;
     Update::RefreshDom
 }
 
@@ -538,6 +868,296 @@ extern "C" fn on_this_week(mut data: RefAny, _info: CallbackInfo) -> Update {
     show_week(&mut data, None)
 }
 
+// ==== The week: scroll, zoom ====
+
+fn root_dom() -> DomId {
+    DomId { inner: 0 }
+}
+
+/// The week's scroll area as a callback sees it: its node, where it is in the window, and how
+/// far it is scrolled.
+struct WeekScroll {
+    node: NodeHierarchyItemId,
+    top: f32,
+    height: f32,
+    scroll_y: f32,
+}
+
+fn week_scroll(info: &CallbackInfo) -> Option<WeekScroll> {
+    let node = info.get_node_id_by_id_attribute(root_dom(), WEEK_SCROLL_ID);
+    // 0 is "no node"; a node's raw id is its index + 1.
+    let index = node.into_raw().checked_sub(1)?;
+    let rect = info
+        .get_node_rect(DomNodeId {
+            dom: root_dom(),
+            node,
+        })
+        .into_option()?;
+    let scroll_y = info
+        .get_scroll_offset_for_node(root_dom(), NodeId::create(index))
+        .into_option()
+        .map_or(0.0, |offset| offset.y);
+    Some(WeekScroll {
+        node,
+        top: rect.origin.y,
+        height: rect.size.height,
+        scroll_y,
+    })
+}
+
+/// Zooms the week's hours by `factor`, keeping the time under the pointer (`pointer_y`, a
+/// window y; the view's middle without one) where it is.
+fn zoom(s: &mut CalState, info: &mut CallbackInfo, factor: f32, pointer_y: Option<f32>) -> Update {
+    let old = s.hour_px;
+    let new = week::clamp_hour_px(old * factor);
+    if (new - old).abs() < 0.01 {
+        return Update::DoNothing;
+    }
+    s.hour_px = new;
+    if let Some(view) = week_scroll(info) {
+        let pointer = pointer_y.map_or(view.height / 2.0, |y| {
+            (y - view.top).clamp(0.0, view.height.max(0.0))
+        });
+        let y = week::zoom_scroll(old, new, pointer, view.scroll_y, view.height);
+        // Unclamped: the day is taller after zooming in than the layout the offset is checked
+        // against now; the rebuild this returns lays the new height out before anything draws.
+        info.scroll_to_unclamped(root_dom(), view.node, LogicalPosition { x: 0.0, y });
+    }
+    Update::RefreshDom
+}
+
+/// The wheel over the week: with Ctrl or Cmd held it zooms (and the week does not scroll as
+/// well); without, the week scrolls as any scroll area does.
+extern "C" fn on_week_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let modifiers = info.get_key_modifiers();
+    if !(modifiers.ctrl || modifiers.meta) {
+        return Update::DoNothing;
+    }
+    let hit = info.get_hit_node();
+    let node = NodeId::create(hit.node.into_raw().saturating_sub(1));
+    let dy = info
+        .get_scroll_delta(hit.dom, node)
+        .into_option()
+        .map_or(0.0, |delta| delta.y);
+    if dy == 0.0 {
+        return Update::DoNothing;
+    }
+    // The wheel has one consumer: this zoom. The scroll it would have made is taken back.
+    info.prevent_default();
+    let pointer_y = info
+        .get_cursor_relative_to_viewport()
+        .into_option()
+        .map(|p| p.y);
+    let Some(mut guard) = data.downcast_mut::<CalState>() else {
+        return Update::DoNothing;
+    };
+    zoom(
+        &mut guard,
+        &mut info,
+        week::wheel_zoom_factor(dy),
+        pointer_y,
+    )
+}
+
+/// A pinch over the week zooms it around the pinch's centre.
+extern "C" fn on_week_pinch(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(pinch) = info.get_pinch().into_option() else {
+        return Update::DoNothing;
+    };
+    let sample = week::PinchSample {
+        scale: pinch.scale,
+        initial_distance: pinch.initial_distance,
+        duration_ms: pinch.duration_ms,
+    };
+    let Some(mut guard) = data.downcast_mut::<CalState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let factor = week::pinch_step(s.last_pinch, sample);
+    s.last_pinch = Some(sample);
+    zoom(s, &mut info, factor, Some(pinch.center.y))
+}
+
+/// The week opens at 08:00, or an hour before now on today's week.
+extern "C" fn on_week_mounted(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((minute, hour_px)) = data.downcast_ref::<CalState>().map(|s| {
+        let today_shown = week::week_start(s.today) == s.week;
+        (
+            week::first_minute_shown(today_shown, chrono::Local::now().time()),
+            s.hour_px,
+        )
+    }) else {
+        return Update::DoNothing;
+    };
+    let scroll = info.get_hit_node();
+    info.scroll_to(
+        scroll.dom,
+        scroll.node,
+        LogicalPosition {
+            x: 0.0,
+            y: week::y_of_minute(minute as f32, hour_px),
+        },
+    );
+    Update::DoNothing
+}
+
+// ==== The week: click or drag to make an event ====
+
+/// A day's column, for its callbacks.
+struct DayRef {
+    app: RefAny,
+    /// 0 = Monday.
+    day: usize,
+}
+
+/// A form, for a callback that must not act on a newer one.
+struct FormRef {
+    app: RefAny,
+    serial: u32,
+}
+
+/// A press in a day's column. On empty time it starts a click or a drag; on an event it is the
+/// event's. While the popover is open, it is the press that closes it: the draft goes and
+/// nothing new starts (Google Calendar's way).
+extern "C" fn on_day_press(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, day)) = data
+        .downcast_ref::<DayRef>()
+        .map(|r| (r.app.clone(), r.day))
+    else {
+        return Update::DoNothing;
+    };
+    let Some(mut guard) = app.downcast_mut::<CalState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    s.press = None;
+    match s.form.as_ref().map(|f| f.place) {
+        Some(FormPlace::Popover) => {
+            s.form = None;
+            s.popover_closed_at = Some(Instant::now());
+            return Update::RefreshDom;
+        }
+        // The side sheet is making an event: the week waits.
+        Some(FormPlace::Sheet) => return Update::DoNothing,
+        None => {}
+    }
+    if s.popover_closed_at
+        .is_some_and(|closed| closed.elapsed() < DISMISSING_PRESS)
+    {
+        return Update::DoNothing;
+    }
+    let Some(at) = info.get_cursor_relative_to_node().into_option() else {
+        return Update::DoNothing;
+    };
+    let width = info
+        .get_hit_node_rect()
+        .into_option()
+        .map_or(0.0, |rect| rect.size.width);
+    let x_frac = if width > 0.0 { at.x / width } else { 0.5 };
+    if week::event_at(&placements_of(s, day), at.y, x_frac, s.hour_px).is_some() {
+        return Update::DoNothing;
+    }
+    s.press = Some(Press {
+        day,
+        from_y: at.y,
+        to_y: at.y,
+        dragging: false,
+    });
+    // The drag goes on when the pointer leaves the column (or the window).
+    let column = info.get_hit_node();
+    info.capture_pointer(column);
+    Update::DoNothing
+}
+
+/// The pointer moving over a day's column: a press on empty time that moved a few pixels is a
+/// drag, and the draft follows it (redrawn when its quarter hours change).
+extern "C" fn on_day_drag(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((mut app, day)) = data
+        .downcast_ref::<DayRef>()
+        .map(|r| (r.app.clone(), r.day))
+    else {
+        return Update::DoNothing;
+    };
+    let Some(mut guard) = app.downcast_mut::<CalState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let hour_px = s.hour_px;
+    let Some(press) = s.press.as_mut().filter(|p| p.day == day) else {
+        return Update::DoNothing;
+    };
+    let Some(at) = info.get_cursor_relative_to_node().into_option() else {
+        return Update::DoNothing;
+    };
+    let before = press.dragging.then(|| press.range(hour_px));
+    press.to_y = at.y;
+    if !press.dragging && !week::is_drag(press.from_y, press.to_y) {
+        return Update::DoNothing;
+    }
+    press.dragging = true;
+    if before == Some(press.range(hour_px)) {
+        Update::DoNothing
+    } else {
+        Update::RefreshDom
+    }
+}
+
+/// The press let go: a draft of what it made (an hour from a click, the quarter hours of a
+/// drag), with its popover.
+extern "C" fn on_day_release(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((mut app, day)) = data
+        .downcast_ref::<DayRef>()
+        .map(|r| (r.app.clone(), r.day))
+    else {
+        return Update::DoNothing;
+    };
+    let Some(mut guard) = app.downcast_mut::<CalState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let Some(mut press) = s.press.filter(|p| p.day == day) else {
+        return Update::DoNothing;
+    };
+    s.press = None;
+    if let Some(at) = info.get_cursor_relative_to_node().into_option() {
+        press.to_y = at.y;
+    }
+    let (start, end) = press.range(s.hour_px);
+    let date = week::week_days(s.week)[day.min(6)];
+    open_form(
+        s,
+        FormPlace::Popover,
+        date,
+        week::time_of_minute(start),
+        week::time_of_minute(end),
+    );
+    Update::RefreshDom
+}
+
+/// The popover was dismissed (a press outside it, Escape, its window losing focus): the draft
+/// goes.
+extern "C" fn on_popover_dismissed(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some((mut app, serial)) = data
+        .downcast_ref::<FormRef>()
+        .map(|r| (r.app.clone(), r.serial))
+    else {
+        return Update::DoNothing;
+    };
+    let Some(mut s) = app.downcast_mut::<CalState>() else {
+        return Update::DoNothing;
+    };
+    let ours = s
+        .form
+        .as_ref()
+        .is_some_and(|f| f.serial == serial && f.place == FormPlace::Popover);
+    if !ours {
+        return Update::DoNothing;
+    }
+    s.form = None;
+    s.popover_closed_at = Some(Instant::now());
+    Update::RefreshDom
+}
+
 // ==== The form ====
 
 extern "C" fn on_new_event(mut data: RefAny, _info: CallbackInfo) -> Update {
@@ -548,20 +1168,8 @@ extern "C" fn on_new_event(mut data: RefAny, _info: CallbackInfo) -> Update {
     if s.form.is_some() {
         return Update::DoNothing;
     }
-    s.forms_opened += 1;
-    s.form = Some(Form {
-        serial: s.forms_opened,
-        id: event::new_event_id(),
-        title: String::new(),
-        date: week::default_day(s.today, s.week),
-        start: at(9, 0),
-        end: at(10, 0),
-        add_meet: false,
-        minting: false,
-        minted: None,
-        error: String::new(),
-    });
-    s.notice.clear();
+    let date = week::default_day(s.today, s.week);
+    open_form(s, FormPlace::Sheet, date, at(9, 0), at(10, 0));
     Update::RefreshDom
 }
 
@@ -585,6 +1193,30 @@ extern "C" fn on_title(
     }
     OnTextInputReturn {
         update: Update::DoNothing,
+        valid: TextInputValid::Yes,
+    }
+}
+
+/// Enter in the popover's title saves the event, as Save does.
+extern "C" fn on_title_key(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    _state: TextInputState,
+) -> OnTextInputReturn {
+    let key = info
+        .get_current_keyboard_state()
+        .current_virtual_keycode
+        .into_option();
+    let update = if matches!(
+        key,
+        Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter)
+    ) {
+        save(&mut data, &mut info)
+    } else {
+        Update::DoNothing
+    };
+    OnTextInputReturn {
+        update,
         valid: TextInputValid::Yes,
     }
 }
@@ -678,8 +1310,13 @@ extern "C" fn on_meet_label(mut data: RefAny, _info: CallbackInfo) -> Update {
     set_add_meet(&mut data, None)
 }
 
-/// Save: without a link, writes the event at once; with one, first asks the meeting server.
 extern "C" fn on_save(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    save(&mut data, &mut info)
+}
+
+/// Save (the button, or Enter in the popover's title): without a link, writes the event at
+/// once; with one, first asks the meeting server.
+fn save(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
     let job = {
         let Some(mut guard) = data.downcast_mut::<CalState>() else {
             return Update::DoNothing;
@@ -733,7 +1370,7 @@ extern "C" fn on_save(mut data: RefAny, mut info: CallbackInfo) -> Update {
         "[azcalendar] asking {} for a meeting room: {}",
         job.server, job.body
     );
-    spawn_mint(&mut info, data.clone(), job);
+    spawn_mint(info, data.clone(), job);
     Update::RefreshDom
 }
 
@@ -1042,6 +1679,10 @@ pub fn start() {
         forms_opened: 0,
         notice: String::new(),
         launched: Vec::new(),
+        hour_px: week::DEFAULT_HOUR_PX,
+        press: None,
+        last_pinch: None,
+        popover_closed_at: None,
     };
     let app = App::create(RefAny::new(state), AppConfig::create());
     let mut window = WindowCreateOptions::create(layout);
