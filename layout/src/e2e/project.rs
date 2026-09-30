@@ -969,7 +969,7 @@ fn common_project_prefix(entries: &[crate::zip::ZipFileEntry]) -> Option<String>
 }
 
 /// Standard base64 (padding and whitespace tolerated).
-fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
+pub(super) fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut lut = [255u8; 256];
     for (i, &c) in T.iter().enumerate() {

@@ -391,6 +391,66 @@ fn a_component_thumbnail_is_rendered_natively_and_cached_until_the_component_cha
     assert_passes(&result);
 }
 
+/// How many pixels of the thumbnail step `i` answered are exactly the opaque
+/// colour `rgb`.
+fn thumbnail_pixels(result: &E2eTestResult, i: usize, rgb: [u8; 3]) -> usize {
+    let value = answer(result, i);
+    let uri = value["data"]
+        .as_str()
+        .unwrap_or_else(|| panic!("step {i} answered no picture: {value}"));
+    let png = super::project::decode_base64(
+        uri.strip_prefix("data:image/png;base64,")
+            .expect("a PNG data URI"),
+    )
+    .expect("the picture is base64");
+    let pixmap = crate::cpurender::AzulPixmap::decode_png(&png).expect("the picture is a PNG");
+    pixmap
+        .data()
+        .chunks_exact(4)
+        .filter(|p| p[..3] == rgb && p[3] == 255)
+        .count()
+}
+
+/// The debugger page in dark mode asks for its palette in dark mode: the
+/// component renders under the dark mode context, so its
+/// `prefers-color-scheme: dark` rule applies - and the light picture the
+/// cache holds is not the answer.
+#[test]
+fn a_component_thumbnail_asked_for_in_dark_mode_renders_its_dark_rules() {
+    const RED: [u8; 3] = [255, 0, 0];
+    const BLUE: [u8; 3] = [0, 0, 255];
+    let result = run(
+        "component_thumbnail_dark",
+        false,
+        steps(vec![
+            /* 0 */ serde_json::json!({ "op": "create_library", "name": "thumbs" }),
+            /* 1 */
+            serde_json::json!({ "op": "create_component", "library": "thumbs", "name": "sq",
+                                "render_tree": { "tag": "div", "classes": ["sq"] } }),
+            /* 2 */
+            serde_json::json!({ "op": "update_component", "library": "thumbs", "name": "sq",
+                "css": ".sq { width: 24px; height: 24px; background: #ff0000; } \
+                        @media (prefers-color-scheme: dark) { .sq { background: #0000ff; } }" }),
+            /* 3 */
+            serde_json::json!({ "op": "get_component_thumbnail", "library": "thumbs",
+                                "name": "sq" }),
+            /* 4 */
+            serde_json::json!({ "op": "get_component_thumbnail", "library": "thumbs",
+                                "name": "sq", "dark": true }),
+            /* 5 */
+            serde_json::json!({ "op": "get_component_thumbnail", "library": "thumbs",
+                                "name": "sq", "dark": false }),
+        ]),
+    );
+    assert_passes(&result);
+    assert!(thumbnail_pixels(&result, 3, RED) > 0, "light: the square is red");
+    assert_eq!(thumbnail_pixels(&result, 3, BLUE), 0, "light: the dark rule does not apply");
+    assert!(thumbnail_pixels(&result, 4, BLUE) > 0, "dark: the square is blue");
+    assert_eq!(thumbnail_pixels(&result, 4, RED), 0, "dark: the light colour is gone");
+    assert!(thumbnail_pixels(&result, 5, RED) > 0, "`dark: false` is the light picture");
+    assert_eq!(answer(&result, 5)["cached"], true, "the one the cache already holds");
+}
+
 #[test]
 fn builder_reset_gives_the_window_back_to_the_app() {
     let [wf, w] = settle();
