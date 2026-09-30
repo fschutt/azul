@@ -9,14 +9,16 @@ Branch `wt/r1-mail-render` from `abbba2408`. House rules: wave3_common.md (no ca
 - 56e2efc87 RED: receipt price column (bis_D) + newsletter indented cell (sample 01) layout tests
 - 3c8ac84cf FIX: table cell measured against a typed constraint; block-branch cell laid out at its
   column width, content height = content box; inline branch only for loose text / inline-only cells
-
-## IN PROGRESS
-- E-GRAD: gradient direction + stop resolution (one shared helper, CPU + GPU)
-
-## NEXT
-- RED quote-bar gradient test (before the E-GRAD fix)
-- E-GRAD fix
+- bb5e41e2c RED: quote-bar gradient test
+- fb05834f9 FIX: E-GRAD (gradient_line, length stops / offset_px, shared resolver, CPU LUT, GPU path)
+- 0d1f13626 FIX: compositor2 closure types
 - report scripts/R1_MAIL_RENDER_2026_09_30.md
 
+## IN PROGRESS
+- nothing
+
+## NEXT
+- parent: compile, run the commands in the report, autofix api.json, AZ_BLESS the codegen goldens
+
 ## Open questions
-- none yet
+- see "What is left" in the report
