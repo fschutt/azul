@@ -3402,6 +3402,102 @@ mod autotest_generated {
         tick.status.as_ref().map(|s| s.position_s)
     }
 
+    // ---- the decode gate: the worker holds a window of frames, not the clip
+
+    /// The idle memory spike (2026-09-30): a `<video>` nobody had played held
+    /// its whole clip decoded - 300 frames, ~280 MB - because the worker
+    /// decoded on while held. Held, the schedule wants the poster and then
+    /// nothing until the clock runs.
+    #[test]
+    fn a_held_video_wants_its_poster_and_no_frame_after_it() {
+        let mut pb = VideoPlayback::new(0.0, true, false);
+        pb.set_duration(1.0);
+        assert!(pb.wants_frame(0.0, None), "the poster");
+        pb.push_frame(0.0, tagged(1));
+        let _ = pb.tick(0.0);
+        assert!(
+            !pb.wants_frame(5.0, Some(0.0)),
+            "held on its poster, the rest of the clip stays undecoded"
+        );
+    }
+
+    /// Playing, the worker keeps [`DECODE_LOOKAHEAD_S`] of frames ahead of
+    /// the clock and no more.
+    #[test]
+    fn a_playing_video_decodes_one_lookahead_ahead_of_its_clock() {
+        let mut pb = VideoPlayback::new(0.0, false, false);
+        pb.set_duration(10.0);
+        pb.push_frame(0.0, tagged(1));
+        let _ = pb.tick(0.0); // the clock starts with the first frame
+        assert!(
+            pb.wants_frame(0.5, Some(1.0)),
+            "1.0 s decoded at 0.5 s: under the lookahead"
+        );
+        let full = 0.5 + DECODE_LOOKAHEAD_S + 0.1;
+        assert!(!pb.wants_frame(0.5, Some(full)), "the lookahead is full");
+        assert!(pb.wants_frame(3.0, Some(full)), "the clock moved on: room again");
+    }
+
+    /// Frames the clock has passed are dropped, except the one on screen.
+    #[test]
+    fn frames_behind_the_clock_are_dropped_and_the_one_on_screen_stays() {
+        let mut pb = clip(false, false); // 30 frames, 1 s
+        let _ = pb.tick(0.0);
+        let tick = pb.tick(0.9);
+        assert_eq!(shown(&pb, &tick), Some(28), "frame 28 (0.9 s) is on screen");
+        let dropped = pb.trim(0.9);
+        // Everything more than DECODE_KEEP_BEHIND_S (0.5 s) behind 0.9 s:
+        // the 12 frames before 0.4 s.
+        assert!((11..=13).contains(&dropped), "frames behind the clock go: {dropped}");
+        assert_eq!(pb.frames_held(), 30 - dropped);
+        assert_eq!(pb.on_screen().map(|f| f.width), Some(28), "the frame on screen stays");
+        let again = pb.tick(0.9);
+        assert_eq!(again.present, None, "and is still the one on screen");
+    }
+
+    /// A loop wrap (or a seek back past the kept frames): the schedule shows
+    /// nothing new - not the stale frame after the target - and asks the
+    /// worker to decode from the target's keyframe again.
+    #[test]
+    fn a_loop_wrap_asks_for_the_start_to_be_decoded_again() {
+        let mut pb = clip(false, true);
+        let _ = pb.tick(0.0);
+        let _ = pb.tick(0.95);
+        let _ = pb.trim(0.95); // the start of the clip is gone
+        assert_eq!(pb.restart_wanted(0.95, Some(0.97)), None);
+        let wrapped = pb.tick(1.02); // past the 1 s end: wraps to ~0.02 s
+        assert!(pb.position(1.02) < 0.5, "the clock wrapped");
+        assert_eq!(wrapped.present, None, "no frame at the wrapped position: keep the picture");
+        let want = pb.restart_wanted(1.02, Some(0.97));
+        assert!(want.is_some_and(|p| p < 0.5), "decode from the start again: {want:?}");
+    }
+
+    /// A seek far ahead of the decoder restarts at the target's keyframe
+    /// instead of decoding every frame up to it.
+    #[test]
+    fn a_seek_far_ahead_of_the_decoder_restarts_at_the_target() {
+        let mut pb = VideoPlayback::new(0.0, false, false);
+        pb.set_duration(10.0);
+        for n in 0..15_u32 {
+            pb.push_frame(n as f32 / 30.0, tagged(n + 1));
+        }
+        let _ = pb.tick(0.0);
+        assert_eq!(pb.restart_wanted(0.1, Some(0.47)), None);
+        pb.seek(8.0, 0.1);
+        assert_eq!(pb.restart_wanted(0.1, Some(0.47)), Some(8.0));
+    }
+
+    /// A frame decoded again for a time that already has one replaces it
+    /// (a restart re-decodes the frames between its keyframe and the target).
+    #[test]
+    fn a_frame_decoded_again_replaces_the_one_at_its_time() {
+        let mut pb = VideoPlayback::new(0.0, true, false);
+        pb.push_frame(0.5, tagged(1));
+        pb.push_frame(0.5, tagged(2));
+        assert_eq!(pb.frames_held(), 1);
+        assert_eq!(pb.frame(0).map(|f| f.width), Some(2));
+    }
+
     #[test]
     fn a_video_that_does_not_autoplay_holds_its_first_frame_as_a_poster() {
         let mut pb = clip(true, false);

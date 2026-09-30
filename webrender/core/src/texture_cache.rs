@@ -1710,6 +1710,31 @@ impl TextureCacheUpdate {
 
 #[cfg(test)]
 mod test_texture_cache {
+    /// An NV12 video frame is two planes: Y as R8 and CbCr as RG8. The
+    /// shared atlases hold R8, R16, RGBA8 and BGRA8 (`SharedTextures::select`);
+    /// a small RG8 plane was routed into them and `select` panicked with
+    /// "Unexpected format RG8", taking AzMeet and AzWidgets down with the
+    /// first NV12 frame (2026-09-30). Any other format gets a standalone
+    /// texture - the YUV shader samples it just the same - and the Y plane
+    /// keeps its atlas.
+    #[test]
+    fn an_rg8_chroma_plane_is_never_placed_in_the_shared_cache() {
+        use api::{ImageDescriptor, ImageDescriptorFlags, ImageFormat};
+
+        use crate::{device::TextureFilter, texture_cache::TextureCache};
+        let texture_cache = TextureCache::new_for_testing(2048, ImageFormat::BGRA8);
+        let uv = ImageDescriptor::new(320, 180, ImageFormat::RG8, ImageDescriptorFlags::IS_OPAQUE);
+        let y = ImageDescriptor::new(320, 180, ImageFormat::R8, ImageDescriptorFlags::IS_OPAQUE);
+        assert!(
+            !texture_cache.is_allowed_in_shared_cache(TextureFilter::Linear, &uv),
+            "RG8 has no shared atlas: it must get a standalone texture"
+        );
+        assert!(
+            texture_cache.is_allowed_in_shared_cache(TextureFilter::Linear, &y),
+            "the Y plane keeps its alpha8 atlas"
+        );
+    }
+
     #[test]
     fn check_allocation_size_balance() {
         // Allocate some glyphs, observe the total allocation size, and free
