@@ -10,10 +10,12 @@ Resumed once after a power loss (the scratchpad was wiped; the worktree was inta
 - `8fc8f78af` feat(iroh): IrohLoadBalancer::set_mesh_cap moves the everyone-forwards threshold
 - `af1e06372` test(azmeet): who forwards whose media, which rendition each viewer gets, and the reports behind it (RED)
 - `9f914b564` feat(azmeet): routing plan, rendition assignment, sync and relay wire, uplink estimate
+- `cadcfc4e8` test(azmeet): three AzMeet processes route over a backbone and a far keyframe request reaches its origin (RED)
 
 ## IN PROGRESS
 
-- three-clients.mjs (RED) + two-clients.mjs regexes for the rendition in the video / sending lines.
+- lib.rs glue (GREEN). Line formats the scripts read are fixed by meet-e2e.mjs (readers checked against
+  sample lines: scratchpad m5/readers_check.mjs).
 
 ## NEXT
 
