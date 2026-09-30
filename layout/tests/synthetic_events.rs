@@ -193,11 +193,7 @@ fn synthetic_audio_frame_roundtrips() {
 #[test]
 fn synthetic_video_frame_carries_pixels() {
     let px: Vec<u8> = vec![255, 0, 0, 255, 0, 255, 0, 255]; // 2 RGBA pixels
-    let frame = VideoFrame {
-        width: 2,
-        height: 1,
-        bytes: U8Vec::from_vec(px.clone()),
-    };
+    let frame = VideoFrame::new(2, 1, U8Vec::from_vec(px.clone()));
     assert_eq!(frame.width, 2);
     assert_eq!(frame.height, 1);
     assert_eq!(frame.bytes.as_ref(), px.as_slice());

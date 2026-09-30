@@ -347,21 +347,22 @@ static FRAME_RESAMPLER: std::sync::OnceLock<ResampleFn> = std::sync::OnceLock::n
 
 /// Register a platform-accelerated whole-frame scaler (the dll registers
 /// Accelerate/vImage on macOS). It must be a pure function with
-/// [`image_scale::resample_rgba`]'s contract — same inputs, same output
-/// within rounding — because the fan-out may run it per consumer on any
-/// thread. First registration wins; without one the portable scaler is used.
+/// [`image_scale::resample_frame_rect`]'s contract — same inputs, same
+/// output (in the source frame's own format) within rounding — because the
+/// fan-out may run it per consumer on any thread. First registration wins;
+/// without one the portable scaler is used.
 pub fn register_frame_resampler(resample: ResampleFn) {
     let _ = FRAME_RESAMPLER.set(resample);
 }
 
 /// The whole-frame scaler the capture fan-out uses: the registered
-/// platform one, else [`image_scale::resample_rgba`].
+/// platform one, else [`image_scale::resample_frame_rect`].
 #[must_use]
 pub fn frame_resampler() -> ResampleFn {
     FRAME_RESAMPLER
         .get()
         .copied()
-        .unwrap_or(image_scale::resample_rgba)
+        .unwrap_or(image_scale::resample_frame_rect)
 }
 
 /// Register the platform **camera** capture backend (called once by the dll at
@@ -2228,7 +2229,7 @@ mod autotest_generated {
             floor,
             fallback: (640, 480),
             writeback: loop_writeback,
-            resample: image_scale::resample_rgba,
+            resample: image_scale::resample_frame_rect,
             reopen_cooldown_ms: 0,
         };
         run_capture_loop(session, initial, &mut sender, &mut receiver);

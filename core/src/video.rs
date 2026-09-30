@@ -186,13 +186,19 @@ impl VideoStatus {
     }
 }
 
-/// One captured or decoded frame - tightly-packed RGBA8 pixels
-/// (`width * height * 4`).
+/// One captured or decoded frame: tightly packed pixels in `format`.
 ///
 /// The unit a capture/decode worker produces, the
 /// `set_on_frame` hook hands to user code (effects / save / send), and (P8)
 /// azul-meet sends over UDP. Defined here (like [`crate::audio::AudioFrame`])
 /// so it crosses the FFI without `azul-layout` as a dependency.
+///
+/// `format` says what `bytes` holds: `RGBA8` or `BGRA8` (`width * height *
+/// 4` bytes), or one of the NV12 formats (the Y plane, then the Cb,Cr plane,
+/// see `azul_core::resources::Nv12Layout`). A capture delivers what its
+/// config's `output_format` asked for where the platform can (NV12 and BGRA8
+/// without a conversion on Apple), a decoder what `set_output_format` asked
+/// for; RGBA8 is the default.
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VideoFrame {
@@ -200,18 +206,47 @@ pub struct VideoFrame {
     pub width: u32,
     /// Frame height in px.
     pub height: u32,
-    /// Tightly-packed RGBA8 pixel bytes (`width * height * 4`).
+    /// Tightly packed pixel bytes in `format`.
     pub bytes: U8Vec,
+    /// The byte layout of `bytes`.
+    pub format: RawImageFormat,
 }
 
 impl VideoFrame {
     /// A frame wrapping `bytes` (tightly-packed RGBA8, `width * height * 4`).
     #[must_use]
     pub const fn new(width: u32, height: u32, bytes: U8Vec) -> Self {
+        Self::with_format(width, height, bytes, RawImageFormat::RGBA8)
+    }
+
+    /// A frame wrapping `bytes` in `format` (see [`VideoFrame::format`]).
+    #[must_use]
+    pub const fn with_format(
+        width: u32,
+        height: u32,
+        bytes: U8Vec,
+        format: RawImageFormat,
+    ) -> Self {
         Self {
             width,
             height,
             bytes,
+            format,
+        }
+    }
+
+    /// The byte length a frame of this size and format must have (`None` on
+    /// overflow, or for a format frames do not use).
+    #[must_use]
+    pub fn expected_len(&self) -> Option<usize> {
+        let (w, h) = (self.width as usize, self.height as usize);
+        if self.format.is_nv12() {
+            crate::resources::Nv12Layout::new(w, h).checked_total_len()
+        } else {
+            match self.format {
+                RawImageFormat::RGBA8 | RawImageFormat::BGRA8 => w.checked_mul(h)?.checked_mul(4),
+                _ => None,
+            }
         }
     }
 }

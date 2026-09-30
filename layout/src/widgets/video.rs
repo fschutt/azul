@@ -697,11 +697,7 @@ extern "C" fn video_test_worker(_init: RefAny, mut sender: ThreadSender, _recv: 
                 bytes.extend_from_slice(&[c[0], c[1], c[2], 255]);
             }
         }
-        let frame = VideoFrame {
-            width: w as u32,
-            height: h as u32,
-            bytes: bytes.into(),
-        };
+        let frame = VideoFrame::new(w as u32, h as u32, bytes.into());
         let sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
             WriteBackCallback::new(video_writeback),
             RefAny::new(frame),
@@ -772,17 +768,19 @@ pub extern "C" fn video_writeback(
             // empty buffer would spuriously "match" and store a bogus frame. A
             // `checked_mul` that overflows drops the frame — the hook is still
             // notified below, exactly as for a byte-count mismatch.
-            let fits = (frame.width as usize)
-                .checked_mul(frame.height as usize)
-                .and_then(|px| px.checked_mul(4))
-                .is_some();
+            // `expected_len` is `None` on overflow and for a format frames
+            // do not use.
+            let fits = frame.expected_len().is_some();
             if fits {
+                // A decoded frame is opaque, for which straight ==
+                // premultiplied: no per-pixel multiply. It is shown in the
+                // format it was decoded in (NV12 / BGRA8 / RGBA8).
                 if let Some(img) = ImageRef::new_rawimage(RawImage {
                     pixels: RawImageData::U8(frame.bytes.clone()),
                     width: frame.width as usize,
                     height: frame.height as usize,
-                    premultiplied_alpha: false,
-                    data_format: RawImageFormat::RGBA8,
+                    premultiplied_alpha: true,
+                    data_format: frame.format,
                     tag: b"azul-video-frame".to_vec().into(),
                 }) {
                     if let Some(mut s) = writeback_data.downcast_mut::<VideoWidgetState>() {
@@ -1433,20 +1431,12 @@ mod autotest_generated {
     /// A tightly-packed RGBA frame (`width * height * 4` bytes).
     fn frame(width: u32, height: u32) -> VideoFrame {
         let px = (width as usize) * (height as usize);
-        VideoFrame {
-            width,
-            height,
-            bytes: vec![7u8; px * 4].into(),
-        }
+        VideoFrame::new(width, height, vec![7u8; px * 4].into())
     }
 
     /// A frame whose declared dimensions need NOT match its byte count.
     fn frame_raw(width: u32, height: u32, bytes: Vec<u8>) -> VideoFrame {
-        VideoFrame {
-            width,
-            height,
-            bytes: bytes.into(),
-        }
+        VideoFrame::new(width, height, bytes.into())
     }
 
     /// A zero-allocation stand-in for an already-decoded frame.

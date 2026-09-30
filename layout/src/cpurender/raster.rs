@@ -4894,7 +4894,15 @@ impl RgbaRow {
 /// Convert source row `y` into `out` as straight RGBA8. The format match runs
 /// ONCE per row instead of once per tap (four times per destination pixel).
 fn source_row_to_rgba(src: &crate::image_scale::SrcImage<'_>, y: u32, out: &mut [u8]) {
-    use azul_core::resources::RawImageFormat;
+    use azul_core::resources::{Nv12Layout, RawImageFormat, YuvCoefficients};
+    // NV12 (a camera / decoder frame): the row's luma with the chroma of its
+    // row pair, through the one YCbCr table - the same values
+    // `SrcImage::pixel` gives, so the blit stays byte-identical to `sample`.
+    if let Some(coeffs) = YuvCoefficients::of(src.format) {
+        let layout = Nv12Layout::new(src.width as usize, src.height as usize);
+        coeffs.row_to_rgba(src.bytes, &layout, y as usize, out);
+        return;
+    }
     let Some(bpp) = crate::image_scale::bytes_per_pixel(src.format) else {
         out.fill(0);
         return;
@@ -5040,6 +5048,28 @@ fn blit_sampled_image(
     let src_w = src.width as usize;
     let last_x = src.width as i32 - 1;
     let last_y = src.height as i32 - 1;
+
+    if src.width == dst_w && src.height == dst_h && mask.is_none() {
+        // ---- 1:1: a frame that already has the tile's device size ---------
+        // `sample` at scale 1 is the source pixel itself (the bilinear
+        // partner row and column get weight 0), so each VISIBLE source row
+        // is converted once and composited as it is: no lerp, and no read of
+        // the row below. This is the steady state of a video tile whose
+        // frames are resampled early.
+        let mut rgba = RgbaRow::new(src_w);
+        for py in py_lo..py_hi {
+            source_row_to_rgba(src, py, &mut rgba.bytes);
+            conversions.0 += 1;
+            let ty_px = (dst_y + py as i32) as u32;
+            let tx_px = (dst_x + px_lo as i32) as u32;
+            composite_rgba_row(
+                pixmap,
+                ((ty_px * pw + tx_px) * 4) as usize,
+                &rgba.bytes[px_lo as usize * 4..px_hi as usize * 4],
+            );
+        }
+        return;
+    }
 
     let mut stage = vec![0u8; vis_w * 4];
 

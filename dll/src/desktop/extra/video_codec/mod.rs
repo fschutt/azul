@@ -853,11 +853,7 @@ mod honest_handle_tests {
                 bytes.push(255);
             }
         }
-        VideoFrame {
-            width: W,
-            height: H,
-            bytes: U8Vec::from_vec(bytes),
-        }
+        VideoFrame::new(W, H, U8Vec::from_vec(bytes))
     }
 
     /// Encodes eight frames (the first a forced keyframe) and returns every
@@ -981,11 +977,7 @@ mod screenrec_tests {
                 px[2] = 64;
                 px[3] = 255;
             }
-            let frame = VideoFrame {
-                width: 64,
-                height: 48,
-                bytes: U8Vec::from_vec(buf),
-            };
+            let frame = VideoFrame::new(64, 48, U8Vec::from_vec(buf));
             assert!(r.write_frame(frame), "write_frame {}", f);
         }
         assert_eq!(r.frames_written(), 24);

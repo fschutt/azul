@@ -523,11 +523,7 @@ fn scale_frame_bilinear(
             }
         }
     }
-    azul_core::video::VideoFrame {
-        width: tw,
-        height: th,
-        bytes: U8Vec::from_vec(out),
-    }
+    azul_core::video::VideoFrame::new(tw, th, U8Vec::from_vec(out))
 }
 
 /// Fetch `url` via an HTTP **range request** (`Range: bytes=0-`). BBB is small so

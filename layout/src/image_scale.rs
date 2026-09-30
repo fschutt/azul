@@ -22,11 +22,19 @@
 //! each destination pixel's source footprint on a downscale, and bilinearly
 //! interpolates on an upscale — so a huge source feeding a tiny preview only
 //! reads the pixels its taps land on, never the whole image.
+//!
+//! FRAMES keep their format ([`resample_frame_rect`]): a BGRA capture is
+//! scaled as BGRA and an NV12 one as NV12 (its Y plane and its Cb,Cr plane
+//! each on their own), so no frame pays a swizzle or a YCbCr conversion on
+//! its way to a tile or an encoder. A cut to another aspect ratio crops the
+//! centre ([`cover_crop`]) instead of squashing, and a fan-out cuts every
+//! consumer from the smallest frame already made that covers it
+//! ([`fan_out`]).
 
 use alloc::vec::Vec;
 
 use azul_core::{
-    resources::RawImageFormat,
+    resources::{Nv12Layout, RawImageFormat, YuvCoefficients},
     video::{ConsumerFrame, FrameConsumer, VideoFrame},
 };
 
@@ -41,7 +49,8 @@ const MAX_TAPS: u32 = 4;
 /// format. Borrows the source; holds no allocation of its own.
 #[derive(Debug, Clone, Copy)]
 pub struct SrcImage<'a> {
-    /// Tightly-packed pixel bytes (`width * height * bytes_per_pixel(format)`).
+    /// Tightly-packed pixel bytes (`width * height * bytes_per_pixel(format)`,
+    /// or both planes of an NV12 image, see `Nv12Layout`).
     pub bytes: &'a [u8],
     /// The byte layout of `bytes`.
     pub format: RawImageFormat,
@@ -51,9 +60,10 @@ pub struct SrcImage<'a> {
     pub height: u32,
 }
 
-/// Bytes per pixel for the formats [`SrcImage::pixel`] can read. `None` for a
-/// format this scaler does not sample (16-bit / float / two-channel) — the
-/// caller renders those some other way.
+/// Bytes per pixel for the PACKED formats [`SrcImage::pixel`] can read.
+/// `None` for a format this scaler does not sample (16-bit / float /
+/// two-channel) and for the planar NV12 formats, which are sampled plane by
+/// plane (see [`SrcImage::is_sampleable`]).
 #[must_use]
 pub const fn bytes_per_pixel(format: RawImageFormat) -> Option<usize> {
     match format {
@@ -69,6 +79,11 @@ impl SrcImage<'_> {
     /// long enough for `width × height`.
     #[must_use]
     pub fn is_sampleable(&self) -> bool {
+        if self.format.is_nv12() {
+            return Nv12Layout::new(self.width as usize, self.height as usize)
+                .checked_total_len()
+                .is_some_and(|need| self.bytes.len() >= need);
+        }
         bytes_per_pixel(self.format).is_some_and(|bpp| {
             (self.width as usize)
                 .checked_mul(self.height as usize)
@@ -80,12 +95,17 @@ impl SrcImage<'_> {
     /// One source pixel as straight RGBA, clamped to the image edge (so a tap
     /// off the border repeats the border, never reads out of bounds). Returns
     /// opaque black for an unsupported format or a truncated buffer — callers
-    /// gate on [`Self::is_sampleable`] first.
+    /// gate on [`Self::is_sampleable`] first. An NV12 pixel is its own luma
+    /// with the chroma of its 2x2 block, converted by the one YCbCr table
+    /// (`YuvCoefficients`).
     #[must_use]
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_wrap)] // clamped to [0, dim)
     pub fn pixel(&self, x: i32, y: i32) -> [u8; 4] {
         if self.width == 0 || self.height == 0 {
             return [0, 0, 0, 255];
+        }
+        if let Some(coeffs) = YuvCoefficients::of(self.format) {
+            return self.nv12_pixel(&coeffs, x, y);
         }
         let Some(bpp) = bytes_per_pixel(self.format) else {
             return [0, 0, 0, 255];
@@ -108,6 +128,173 @@ impl SrcImage<'_> {
             _ => [0, 0, 0, 255],
         }
     }
+
+    /// [`Self::pixel`] of an NV12 source (the caller checked the format).
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_wrap)] // clamped to [0, dim)
+    fn nv12_pixel(&self, coeffs: &YuvCoefficients, x: i32, y: i32) -> [u8; 4] {
+        let layout = Nv12Layout::new(self.width as usize, self.height as usize);
+        let x = x.clamp(0, self.width as i32 - 1) as usize;
+        let y = y.clamp(0, self.height as i32 - 1) as usize;
+        let c = layout.y_len() + (y / 2) * layout.chroma_width * 2 + (x / 2) * 2;
+        match (
+            self.bytes.get(y * layout.width + x),
+            self.bytes.get(c),
+            self.bytes.get(c + 1),
+        ) {
+            (Some(&luma), Some(&cb), Some(&cr)) => {
+                let [r, g, b] = coeffs.to_rgb(luma, cb, cr);
+                [r, g, b, 255]
+            }
+            _ => [0, 0, 0, 255],
+        }
+    }
+}
+
+/// A rectangle of source pixels: the part of the source a cut reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SrcRect {
+    /// Left edge in source pixels.
+    pub x: u32,
+    /// Top edge in source pixels.
+    pub y: u32,
+    /// Width in source pixels.
+    pub width: u32,
+    /// Height in source pixels.
+    pub height: u32,
+}
+
+impl SrcRect {
+    /// The whole of a `width x height` source.
+    #[must_use]
+    pub const fn full(width: u32, height: u32) -> Self {
+        Self {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        }
+    }
+
+    /// This rect clipped to a `width x height` source; `None` when nothing of
+    /// it is left.
+    #[must_use]
+    pub fn clamped_to(self, width: u32, height: u32) -> Option<Self> {
+        if self.x >= width || self.y >= height {
+            return None;
+        }
+        let w = self.width.min(width - self.x);
+        let h = self.height.min(height - self.y);
+        (w > 0 && h > 0).then_some(Self {
+            x: self.x,
+            y: self.y,
+            width: w,
+            height: h,
+        })
+    }
+}
+
+/// The centred part of a `sw x sh` source with the aspect ratio of
+/// `dw x dh` (CSS `object-fit: cover`): the whole height of a source that is
+/// wider than asked for, the whole width of one that is taller. `even` keeps
+/// the origin and size on even pixels, so an NV12 crop covers whole chroma
+/// pairs. A zero size anywhere gives the whole source.
+#[must_use]
+#[allow(clippy::cast_possible_truncation)] // results are <= sw / sh, which are u32
+pub fn cover_crop(sw: u32, sh: u32, dw: u32, dh: u32, even: bool) -> SrcRect {
+    if sw == 0 || sh == 0 || dw == 0 || dh == 0 {
+        return SrcRect::full(sw, sh);
+    }
+    let (sw64, sh64, dw64, dh64) = (
+        u64::from(sw),
+        u64::from(sh),
+        u64::from(dw),
+        u64::from(dh),
+    );
+    // sw / sh > dw / dh without floats.
+    let (mut cw, mut ch) = if sw64 * dh64 > dw64 * sh64 {
+        (((sh64 * dw64 + dh64 / 2) / dh64) as u32, sh)
+    } else {
+        (sw, ((sw64 * dh64 + dw64 / 2) / dw64) as u32)
+    };
+    cw = cw.clamp(1, sw);
+    ch = ch.clamp(1, sh);
+    let mut x = (sw - cw) / 2;
+    let mut y = (sh - ch) / 2;
+    if even {
+        x &= !1;
+        y &= !1;
+        if cw > 1 {
+            cw &= !1;
+        }
+        if ch > 1 {
+            ch &= !1;
+        }
+    }
+    SrcRect {
+        x,
+        y,
+        width: cw,
+        height: ch,
+    }
+}
+
+/// The value of destination pixel `(dx, dy)` of a `dst_w x dst_h` resample
+/// of a `src_w x src_h` grid of `C`-channel samples, read through `read`
+/// (which clamps to the grid's edge).
+///
+/// THE sampling math, for every channel count: [`sample`] (straight RGBA of
+/// any format), the frame planes of [`resample_frame_rect`] (4 channels of a
+/// BGRA or RGBA frame as they are, 1 for NV12 luma, 2 for NV12 chroma).
+/// Area-averages a bounded tap grid on a downscale, bilinear on an upscale,
+/// nearest at 1:1.
+#[inline]
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+fn sample_with<const C: usize, F: Fn(i32, i32) -> [u8; C]>(
+    read: &F,
+    src_w: u32,
+    src_h: u32,
+    dst_w: u32,
+    dst_h: u32,
+    dx: u32,
+    dy: u32,
+) -> [u8; C] {
+    let scale_x = src_w as f32 / dst_w.max(1) as f32;
+    let scale_y = src_h as f32 / dst_h.max(1) as f32;
+    // Source-space centre of this destination pixel.
+    let cx = (dx as f32 + 0.5) * scale_x;
+    let cy = (dy as f32 + 0.5) * scale_y;
+
+    if scale_x <= 1.0 && scale_y <= 1.0 {
+        return bilinear_with(read, cx - 0.5, cy - 0.5);
+    }
+
+    // Downscale on at least one axis: average a grid of taps spread across the
+    // footprint [cx ± scale_x/2] × [cy ± scale_y/2]. An axis that is actually
+    // an UPSCALE (scale < 1) takes a single centred tap.
+    let nx = (scale_x.ceil() as u32).clamp(1, MAX_TAPS);
+    let ny = (scale_y.ceil() as u32).clamp(1, MAX_TAPS);
+    let mut acc = [0u32; C];
+    for ty in 0..ny {
+        // Tap centres at the (k + 0.5)/n fractions of the footprint.
+        let fy = cy + ((ty as f32 + 0.5) / ny as f32 - 0.5) * scale_y;
+        for tx in 0..nx {
+            let fx = cx + ((tx as f32 + 0.5) / nx as f32 - 0.5) * scale_x;
+            let p = read(fx.floor() as i32, fy.floor() as i32);
+            for (a, v) in acc.iter_mut().zip(p.iter()) {
+                *a += u32::from(*v);
+            }
+        }
+    }
+    let n = nx * ny;
+    let mut out = [0u8; C];
+    for (o, a) in out.iter_mut().zip(acc.iter()) {
+        *o = ((*a + n / 2) / n) as u8;
+    }
+    out
 }
 
 /// The straight-RGBA value of destination pixel `(dx, dy)` when `src` is
@@ -118,48 +305,16 @@ impl SrcImage<'_> {
 /// downscale (kills aliasing), bilinear on an upscale (no blocky enlargement),
 /// nearest at 1:1.
 #[must_use]
-#[allow(
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss
-)]
-#[allow(clippy::many_single_char_names)] // r/g/b/a channel accumulators + tap coords
 pub fn sample(src: &SrcImage<'_>, dst_w: u32, dst_h: u32, dx: u32, dy: u32) -> [u8; 4] {
-    let scale_x = src.width as f32 / dst_w.max(1) as f32;
-    let scale_y = src.height as f32 / dst_h.max(1) as f32;
-    // Source-space centre of this destination pixel.
-    let cx = (dx as f32 + 0.5) * scale_x;
-    let cy = (dy as f32 + 0.5) * scale_y;
-
-    if scale_x <= 1.0 && scale_y <= 1.0 {
-        return bilinear(src, cx - 0.5, cy - 0.5);
-    }
-
-    // Downscale on at least one axis: average a grid of taps spread across the
-    // footprint [cx ± scale_x/2] × [cy ± scale_y/2]. An axis that is actually
-    // an UPSCALE (scale < 1) takes a single centred tap.
-    let nx = (scale_x.ceil() as u32).clamp(1, MAX_TAPS);
-    let ny = (scale_y.ceil() as u32).clamp(1, MAX_TAPS);
-    let (mut r, mut g, mut b, mut a) = (0u32, 0u32, 0u32, 0u32);
-    for ty in 0..ny {
-        // Tap centres at the (k + 0.5)/n fractions of the footprint.
-        let fy = cy + ((ty as f32 + 0.5) / ny as f32 - 0.5) * scale_y;
-        for tx in 0..nx {
-            let fx = cx + ((tx as f32 + 0.5) / nx as f32 - 0.5) * scale_x;
-            let p = src.pixel(fx.floor() as i32, fy.floor() as i32);
-            r += u32::from(p[0]);
-            g += u32::from(p[1]);
-            b += u32::from(p[2]);
-            a += u32::from(p[3]);
-        }
-    }
-    let n = nx * ny;
-    [
-        ((r + n / 2) / n) as u8,
-        ((g + n / 2) / n) as u8,
-        ((b + n / 2) / n) as u8,
-        ((a + n / 2) / n) as u8,
-    ]
+    sample_with(
+        &|x: i32, y: i32| src.pixel(x, y),
+        src.width,
+        src.height,
+        dst_w,
+        dst_h,
+        dx,
+        dy,
+    )
 }
 
 /// Bilinear sample at source coordinate `(fx, fy)` in pixel units (a pixel's
@@ -170,18 +325,22 @@ pub fn sample(src: &SrcImage<'_>, dst_w: u32, dst_h: u32, dx: u32, dy: u32) -> [
     clippy::cast_precision_loss
 )]
 #[allow(clippy::many_single_char_names)] // p00/p10/.. corners + tx/ty weights
-fn bilinear(src: &SrcImage<'_>, fx: f32, fy: f32) -> [u8; 4] {
+fn bilinear_with<const C: usize, F: Fn(i32, i32) -> [u8; C]>(
+    read: &F,
+    fx: f32,
+    fy: f32,
+) -> [u8; C] {
     let x0 = fx.floor();
     let y0 = fy.floor();
     let tx = fx - x0;
     let ty = fy - y0;
     let (x0, y0) = (x0 as i32, y0 as i32);
-    let p00 = src.pixel(x0, y0);
-    let p10 = src.pixel(x0 + 1, y0);
-    let p01 = src.pixel(x0, y0 + 1);
-    let p11 = src.pixel(x0 + 1, y0 + 1);
-    let mut out = [0u8; 4];
-    for c in 0..4 {
+    let p00 = read(x0, y0);
+    let p10 = read(x0 + 1, y0);
+    let p01 = read(x0, y0 + 1);
+    let p11 = read(x0 + 1, y0 + 1);
+    let mut out = [0u8; C];
+    for c in 0..C {
         let top = f32::from(p00[c]) * (1.0 - tx) + f32::from(p10[c]) * tx;
         let bot = f32::from(p01[c]) * (1.0 - tx) + f32::from(p11[c]) * tx;
         out[c] = (top * (1.0 - ty) + bot * ty).round().clamp(0.0, 255.0) as u8;
@@ -191,10 +350,10 @@ fn bilinear(src: &SrcImage<'_>, fx: f32, fy: f32) -> [u8; 4] {
 
 /// Resample `src` to a tightly-packed `dst_w × dst_h` RGBA8 buffer.
 ///
-/// The serial whole-image walk over [`sample`] — the frame scaler the capture
-/// pipeline uses to cut each consumer's size from one captured frame, and the
-/// convenience path for a one-off `RawImage` resize. Returns an empty `Vec`
-/// for a zero destination or an unsampleable source.
+/// The serial whole-image walk over [`sample`] — the convenience path for a
+/// one-off `RawImage` resize to straight RGBA. Returns an empty `Vec` for a
+/// zero destination or an unsampleable source. Frames (which keep their
+/// format) go through [`resample_frame_rect`].
 #[must_use]
 pub fn resample_rgba(src: &SrcImage<'_>, dst_w: u32, dst_h: u32) -> Vec<u8> {
     if dst_w == 0 || dst_h == 0 || !src.is_sampleable() {
@@ -211,14 +370,191 @@ pub fn resample_rgba(src: &SrcImage<'_>, dst_w: u32, dst_h: u32) -> Vec<u8> {
     out
 }
 
-/// A whole-frame scaler: `(source, dst_w, dst_h) -> tightly-packed RGBA8`
-/// (`dst_w * dst_h * 4` bytes, or empty on failure). [`resample_rgba`] is
-/// the portable one; the dll may register a platform-accelerated one
-/// (Accelerate/vImage on macOS) with the same signature — see
-/// `widgets::capture_common::register_frame_resampler`. Every implementation
-/// must be a pure function of its inputs so the fan-out can run per consumer
-/// on any thread.
-pub type ResampleFn = fn(&SrcImage<'_>, u32, u32) -> Vec<u8>;
+/// The byte format [`resample_frame_rect`] produces for a source format: the
+/// frame formats keep their own (a BGRA capture stays BGRA, an NV12 one stays
+/// NV12, RGBA stays RGBA), anything else becomes RGBA8.
+#[must_use]
+pub const fn frame_output_format(format: RawImageFormat) -> RawImageFormat {
+    if format.is_nv12() {
+        return format;
+    }
+    match format {
+        RawImageFormat::BGRA8 => RawImageFormat::BGRA8,
+        _ => RawImageFormat::RGBA8,
+    }
+}
+
+/// One tightly packed plane of `C`-byte samples, read inside `rect` with
+/// `rect`-relative coordinates clamped to its edge.
+#[derive(Clone, Copy)]
+struct Plane<'a> {
+    bytes: &'a [u8],
+    /// Samples per row of the whole plane.
+    stride: usize,
+    rect: SrcRect,
+}
+
+impl Plane<'_> {
+    #[inline]
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_wrap)] // clamped to [0, dim)
+    fn read<const C: usize>(&self, x: i32, y: i32) -> [u8; C] {
+        let x = x.clamp(0, self.rect.width as i32 - 1) as usize + self.rect.x as usize;
+        let y = y.clamp(0, self.rect.height as i32 - 1) as usize + self.rect.y as usize;
+        let i = (y * self.stride + x) * C;
+        let mut out = [0u8; C];
+        if let Some(s) = self.bytes.get(i..i + C) {
+            out.copy_from_slice(s);
+        }
+        out
+    }
+
+    /// Append the `dst_w x dst_h` resample of `rect` to `out`: row copies
+    /// at 1:1 (a crop that already has the asked size), [`sample_with`]
+    /// otherwise. `rect` must be non-empty.
+    fn resample_into<const C: usize>(&self, dst_w: u32, dst_h: u32, out: &mut Vec<u8>) {
+        let row_len = dst_w as usize * C;
+        if self.rect.width == dst_w && self.rect.height == dst_h {
+            for y in 0..dst_h as usize {
+                let start = ((self.rect.y as usize + y) * self.stride + self.rect.x as usize) * C;
+                match self.bytes.get(start..start + row_len) {
+                    Some(row) => out.extend_from_slice(row),
+                    None => out.resize(out.len() + row_len, 0),
+                }
+            }
+            return;
+        }
+        let read = |x: i32, y: i32| self.read::<C>(x, y);
+        for dy in 0..dst_h {
+            for dx in 0..dst_w {
+                let px = sample_with(
+                    &read,
+                    self.rect.width,
+                    self.rect.height,
+                    dst_w,
+                    dst_h,
+                    dx,
+                    dy,
+                );
+                out.extend_from_slice(&px);
+            }
+        }
+    }
+}
+
+/// Resample the `crop` of a frame to `dst_w x dst_h`, keeping its format
+/// ([`frame_output_format`]): BGRA8 / RGBA8 bytes are scaled as they are
+/// (the sampler is channel-order agnostic), an NV12 frame's Y plane and its
+/// Cb,Cr plane are each scaled on their own, anything else is sampled to
+/// straight RGBA8. A crop that already has the asked size is row copies.
+/// Empty for a zero size, an empty crop or an unsampleable source.
+///
+/// THE whole-frame scaler of the capture pipeline ([`ResampleFn`]); the
+/// dll may register a platform one with the same contract.
+#[must_use]
+#[allow(clippy::cast_possible_wrap)] // crop sizes are bounded by the source's u32 size
+pub fn resample_frame_rect(src: &SrcImage<'_>, crop: SrcRect, dst_w: u32, dst_h: u32) -> Vec<u8> {
+    if dst_w == 0 || dst_h == 0 || !src.is_sampleable() {
+        return Vec::new();
+    }
+    let Some(crop) = crop.clamped_to(src.width, src.height) else {
+        return Vec::new();
+    };
+    let px = dst_w as usize * dst_h as usize;
+    match src.format {
+        RawImageFormat::RGBA8 | RawImageFormat::BGRA8 => {
+            let mut out = Vec::with_capacity(px * 4);
+            Plane {
+                bytes: src.bytes,
+                stride: src.width as usize,
+                rect: crop,
+            }
+            .resample_into::<4>(dst_w, dst_h, &mut out);
+            out
+        }
+        f if f.is_nv12() => resample_nv12(src, crop, dst_w, dst_h),
+        _ => {
+            let (cx, cy) = (crop.x as i32, crop.y as i32);
+            let (cw, ch) = (crop.width as i32, crop.height as i32);
+            let read =
+                |x: i32, y: i32| src.pixel(x.clamp(0, cw - 1) + cx, y.clamp(0, ch - 1) + cy);
+            let mut out = Vec::with_capacity(px * 4);
+            for dy in 0..dst_h {
+                for dx in 0..dst_w {
+                    out.extend_from_slice(&sample_with(
+                        &read,
+                        crop.width,
+                        crop.height,
+                        dst_w,
+                        dst_h,
+                        dx,
+                        dy,
+                    ));
+                }
+            }
+            out
+        }
+    }
+}
+
+/// [`resample_frame_rect`] of an NV12 source: the luma crop to `dst_w x
+/// dst_h`, the chroma crop (half size, rounded out) to the destination's
+/// chroma size.
+#[allow(clippy::cast_possible_truncation)] // chroma sizes are half of u32 sizes
+fn resample_nv12(src: &SrcImage<'_>, crop: SrcRect, dst_w: u32, dst_h: u32) -> Vec<u8> {
+    let sl = Nv12Layout::new(src.width as usize, src.height as usize);
+    let dl = Nv12Layout::new(dst_w as usize, dst_h as usize);
+    let Some(total) = dl.checked_total_len() else {
+        return Vec::new();
+    };
+    let (Some(y_plane), Some(uv_plane)) = (
+        src.bytes.get(..sl.y_len()),
+        src.bytes.get(sl.y_len()..sl.y_len() + sl.uv_len()),
+    ) else {
+        return Vec::new();
+    };
+    // The chroma pairs under the luma crop: from the pair of its first
+    // column / row to the pair of its last one.
+    let cx0 = crop.x / 2;
+    let cy0 = crop.y / 2;
+    let cx1 = ((crop.x + crop.width - 1) / 2 + 1).min(sl.chroma_width as u32);
+    let cy1 = ((crop.y + crop.height - 1) / 2 + 1).min(sl.chroma_height as u32);
+    let chroma = SrcRect {
+        x: cx0,
+        y: cy0,
+        width: cx1.saturating_sub(cx0).max(1),
+        height: cy1.saturating_sub(cy0).max(1),
+    };
+    let mut out = Vec::with_capacity(total);
+    Plane {
+        bytes: y_plane,
+        stride: sl.width,
+        rect: crop,
+    }
+    .resample_into::<1>(dst_w, dst_h, &mut out);
+    Plane {
+        bytes: uv_plane,
+        stride: sl.chroma_width,
+        rect: chroma,
+    }
+    .resample_into::<2>(dl.chroma_width as u32, dl.chroma_height as u32, &mut out);
+    out
+}
+
+/// [`resample_frame_rect`] of the whole frame (a stretch to `dst_w x
+/// dst_h`, no crop).
+#[must_use]
+pub fn resample_frame(src: &SrcImage<'_>, dst_w: u32, dst_h: u32) -> Vec<u8> {
+    resample_frame_rect(src, SrcRect::full(src.width, src.height), dst_w, dst_h)
+}
+
+/// A whole-frame scaler: `(source, crop, dst_w, dst_h) -> the crop at
+/// dst_w x dst_h in frame_output_format(source.format)` (empty on failure).
+/// [`resample_frame_rect`] is the portable one; the dll may register a
+/// platform-accelerated one (Accelerate/vImage on macOS) with the same
+/// signature — see `widgets::capture_common::register_frame_resampler`.
+/// Every implementation must be a pure function of its inputs so the
+/// fan-out can run per consumer on any thread.
+pub type ResampleFn = fn(&SrcImage<'_>, SrcRect, u32, u32) -> Vec<u8>;
 
 /// The smallest capture size that covers every requested size: the per-axis
 /// maximum. Zero-sized entries are ignored; `None` when nothing is left.
@@ -235,43 +571,76 @@ pub fn covering_size<I: IntoIterator<Item = (u32, u32)>>(sizes: I) -> Option<(u3
         .reduce(|(aw, ah), (w, h)| (aw.max(w), ah.max(h)))
 }
 
-/// Cut `src` to `width x height` RGBA8 with `resample`. A same-size RGBA8
-/// source is copied, not resampled (the common "the camera already captures
-/// at the largest consumer's size" case costs one memcpy).
+/// Cut `src` to `width x height` with `resample`, in
+/// [`frame_output_format`]`(src.format)`. A source of another aspect ratio
+/// gives its centre ([`cover_crop`]; even-aligned for NV12) instead of being
+/// squashed, and a crop that already has the asked size is a row copy — the
+/// common "the camera already captures at the largest consumer's size" case.
 #[must_use]
 pub fn cut(src: &SrcImage<'_>, width: u32, height: u32, resample: ResampleFn) -> Vec<u8> {
     if width == 0 || height == 0 || !src.is_sampleable() {
         return Vec::new();
     }
-    if src.width == width && src.height == height && src.format == RawImageFormat::RGBA8 {
-        return src.bytes.to_vec();
-    }
-    resample(src, width, height)
+    let crop = cover_crop(src.width, src.height, width, height, src.format.is_nv12());
+    resample(src, crop, width, height)
 }
 
 /// Cut ONE captured frame to every consumer's requested size.
 ///
-/// Each element is independent of the others (a pure function of `src` and
-/// its own consumer), so this serial loop can become a parallel map without
-/// touching the callers. Invalid consumers (zero size, the reserved preview
-/// id) and failed cuts are skipped, so the result may be shorter than the
-/// input; match results to requests by `ConsumerFrame::consumer.id`.
+/// A cascade, largest first: each consumer is cut from the smallest frame
+/// already made that covers it (else from `src`), so "720p capture, 360p and
+/// 180p renditions" is 720 -> 360 -> 180, each pass smaller than the last,
+/// instead of every rendition re-reading the full capture. Invalid consumers
+/// (zero size, the reserved preview id) and failed cuts are skipped, so the
+/// result may be shorter than the input; it keeps the consumers' order, and
+/// requests are matched by `ConsumerFrame::consumer.id`. Every frame is in
+/// [`frame_output_format`]`(src.format)`.
 #[must_use]
 pub fn fan_out(
     src: &SrcImage<'_>,
     consumers: &[FrameConsumer],
     resample: ResampleFn,
 ) -> Vec<ConsumerFrame> {
-    consumers
+    let valid: Vec<FrameConsumer> = consumers
         .iter()
         .copied()
         .filter(FrameConsumer::is_valid)
-        .filter_map(|c| {
-            let rgba = cut(src, c.width, c.height, resample);
-            (!rgba.is_empty())
-                .then(|| ConsumerFrame::new(c, VideoFrame::new(c.width, c.height, rgba.into())))
-        })
-        .collect()
+        .collect();
+    let area = |c: &FrameConsumer| u64::from(c.width) * u64::from(c.height);
+    // Largest first; the sort is stable, so equal sizes keep their order.
+    let mut order: Vec<usize> = (0..valid.len()).collect();
+    order.sort_by(|&a, &b| area(&valid[b]).cmp(&area(&valid[a])));
+    let out_format = frame_output_format(src.format);
+    let mut made: Vec<Option<ConsumerFrame>> = valid.iter().map(|_| None).collect();
+    for i in order {
+        let c = valid[i];
+        let base = made
+            .iter()
+            .flatten()
+            .filter(|m| m.frame.width >= c.width && m.frame.height >= c.height)
+            .min_by_key(|m| u64::from(m.frame.width) * u64::from(m.frame.height));
+        let bytes = match base {
+            Some(m) => cut(
+                &SrcImage {
+                    bytes: m.frame.bytes.as_ref(),
+                    format: m.frame.format,
+                    width: m.frame.width,
+                    height: m.frame.height,
+                },
+                c.width,
+                c.height,
+                resample,
+            ),
+            None => cut(src, c.width, c.height, resample),
+        };
+        if !bytes.is_empty() {
+            made[i] = Some(ConsumerFrame::new(
+                c,
+                VideoFrame::with_format(c.width, c.height, bytes.into(), out_format),
+            ));
+        }
+    }
+    made.into_iter().flatten().collect()
 }
 
 #[cfg(test)]
@@ -314,7 +683,7 @@ mod tests {
             FrameConsumer::new(0, 4, 2),  // the preview id is NOT a fan-out consumer
             FrameConsumer::new(9, 0, 10), // a zero size is skipped
         ];
-        let cuts = fan_out(&src, &consumers, resample_rgba);
+        let cuts = fan_out(&src, &consumers, resample_frame_rect);
         let ids: Vec<u32> = cuts.iter().map(|c| c.consumer.id).collect();
         assert_eq!(
             ids,
@@ -338,14 +707,14 @@ mod tests {
     fn a_cut_never_upscales_past_what_was_asked_and_rejects_bad_input() {
         let bytes = [9u8; 4];
         let src = rgba(&bytes, 1, 1);
-        assert_eq!(cut(&src, 3, 2, resample_rgba).len(), 3 * 2 * 4);
-        assert!(cut(&src, 0, 2, resample_rgba).is_empty());
+        assert_eq!(cut(&src, 3, 2, resample_frame_rect).len(), 3 * 2 * 4);
+        assert!(cut(&src, 0, 2, resample_frame_rect).is_empty());
         let truncated = SrcImage {
             bytes: &bytes[..2],
             ..src
         };
         assert!(
-            cut(&truncated, 1, 1, resample_rgba).is_empty(),
+            cut(&truncated, 1, 1, resample_frame_rect).is_empty(),
             "an unsampleable source cuts nothing"
         );
     }

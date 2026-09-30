@@ -797,11 +797,7 @@ extern "C" fn dec_output(
                 }
             }
             if let Ok(mut q) = shared.frames.lock() {
-                q.push_back(VideoFrame {
-                    width: w as u32,
-                    height: h as u32,
-                    bytes: U8Vec::from_vec(rgba),
-                });
+                q.push_back(VideoFrame::new(w as u32, h as u32, U8Vec::from_vec(rgba)));
             }
         }
         (lib.CVPixelBufferUnlockBaseAddress)(image, 1);

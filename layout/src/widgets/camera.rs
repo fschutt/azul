@@ -658,11 +658,7 @@ mod autotest_generated {
     /// A tightly-packed RGBA frame (`width * height * 4` bytes).
     fn frame(width: u32, height: u32) -> VideoFrame {
         let px = (width as usize) * (height as usize);
-        VideoFrame {
-            width,
-            height,
-            bytes: vec![7u8; px * 4].into(),
-        }
+        VideoFrame::new(width, height, vec![7u8; px * 4].into())
     }
 
     // ---- CallbackInfo harness --------------------------------------------
@@ -1336,11 +1332,7 @@ mod autotest_generated {
         // A malformed/hostile frame (huge dims, no pixels): the image upload must fail
         // cleanly instead of indexing out of bounds or allocating.
         let mut data = state(cfg(2, 2), true, None);
-        let bogus = captured(VideoFrame {
-            width: u32::MAX,
-            height: 1,
-            bytes: Vec::<u8>::new().into(),
-        });
+        let bogus = captured(VideoFrame::new(u32::MAX, 1, Vec::<u8>::new().into()));
 
         let (update, changes) =
             with_callback_info(|info| camera_writeback(data.clone(), bogus.clone(), info));
