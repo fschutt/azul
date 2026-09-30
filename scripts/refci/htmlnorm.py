@@ -86,6 +86,8 @@ class Document:
     def __init__(self):
         self.html = Node("html")
         self.body = Node("body", parent=self.html)
+        # The <title> text (kept in the output: azul-doc's reftest report shows it).
+        self.title = ""
         # (rel, href) of every <link>, in order; rel lower-cased and split.
         self.links = []
         # (name, content) of every <meta name=...>.
@@ -120,7 +122,18 @@ class Document:
 
     def to_xhtml(self, resolve_css=None):
         css = self.stylesheet_text(resolve_css)
-        out = ["<html", attrs_xml(self.html.attrs), ">\n<head>\n"]
+        # The XHTML namespace: a browser reading the file as XML (Chrome, for a
+        # .xht in `azul-doc reftest`) styles the elements only when they are in
+        # it; azul's loader ignores the attribute.
+        html_attrs = list(self.html.attrs)
+        if not any(k == "xmlns" for k, _ in html_attrs):
+            html_attrs.insert(0, ("xmlns", "http://www.w3.org/1999/xhtml"))
+        out = ["<html", attrs_xml(html_attrs), ">\n<head>\n"]
+        if self.title:
+            out.append("<title>" + escape_text(self.title) + "</title>\n")
+        for name, content in self.metas:
+            if name in ("assert", "flags"):
+                out.append('<meta name="%s" content="%s"/>\n' % (name, escape_attr(content)))
         if css:
             out.append("<style>\n")
             out.append(escape_text(css))
@@ -311,6 +324,8 @@ class _TreeBuilder(HTMLParser):
     def handle_endtag(self, tag):
         if self.raw_tag == tag:
             text = "".join(self.raw_text)
+            if tag == "title":
+                self.doc.title = " ".join(text.split())
             if tag == "style":
                 if self.xhtml:
                     text = _strip_cdata(text)
