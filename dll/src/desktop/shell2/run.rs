@@ -1001,14 +1001,16 @@ pub fn run(
                 // frame-ready presents, callback-created windows) never runs —
                 // menu items silently did nothing and create_window() from a
                 // callback queued forever in RunForever mode. Drive that work
-                // from a repeating NSTimer instead, registered in COMMON run
-                // loop modes so it keeps firing during menu tracking and live
-                // resize.
+                // from the run loop itself: once per loop turn, just before it
+                // sleeps, in the COMMON modes so it also runs during menu
+                // tracking and live resize. It used to be a repeating 33 ms
+                // NSTimer - 30 wake-ups a second for an app with nothing to do
+                // (USER ruling 2026-09-30: no internal timer may stay
+                // registered without work). Every source of this work wakes
+                // the loop by itself: input and menu actions are events, the
+                // tray and notifications post the loop waker's event, and so
+                // does a WebRender frame (`Notifier::wake`).
                 {
-                    use block2::RcBlock;
-                    use objc2::{msg_send, msg_send_id, rc::Retained};
-                    use objc2_foundation::{NSObject, NSTimer};
-
                     let app_data = app_data.clone();
                     let undo_manager = undo_manager.clone();
                     let config_c = config.clone();
@@ -1016,7 +1018,7 @@ pub fn run(
                     let fc_cache = fc_cache.clone();
                     let font_registry = font_registry.clone();
                     let font_manager_c = font_manager.clone();
-                    let drain = RcBlock::new(move || {
+                    let drain = move || {
                         // The app-level sources - tray menu clicks and
                         // notification events - in one collection, run against
                         // the most recently focused window (else the oldest).
@@ -1080,24 +1082,8 @@ pub fn run(
                         for wptr in super::macos::registry::get_all_window_ptrs() {
                             unsafe { (*wptr).request_frame_if_pending() };
                         }
-                    });
-                    let timer: Retained<NSTimer> = unsafe {
-                        msg_send_id![
-                            objc2::class!(NSTimer),
-                            scheduledTimerWithTimeInterval: 0.033f64,
-                            repeats: true,
-                            block: &*drain
-                        ]
                     };
-                    unsafe {
-                        let run_loop: *mut NSObject =
-                            msg_send![objc2::class!(NSRunLoop), currentRunLoop];
-                        let mode = objc2_foundation::ns_string!("kCFRunLoopCommonModes");
-                        let _: () = msg_send![&*run_loop, addTimer: &*timer, forMode: mode];
-                    }
-                    // Intentionally leak the Retained<NSTimer>: it must live for
-                    // the whole app.run() (forever).
-                    std::mem::forget(timer);
+                    run_before_main_loop_waits(Box::new(drain));
                 }
 
                 unsafe {
@@ -1380,6 +1366,86 @@ pub fn run(
 
         Ok(())
     })
+}
+
+/// Run `work` every time the main run loop is about to sleep: a
+/// `kCFRunLoopBeforeWaiting` observer in the common modes, so it also runs
+/// inside menu tracking and live resize. Once per loop turn that did
+/// something, never while the app is idle - where a repeating timer woke the
+/// app at its interval forever.
+///
+/// The observer and `work` live for the rest of the process. A nested run
+/// loop started from inside `work` (a modal dialog opened by a menu action)
+/// fires the observer again; that re-entry is skipped, since `work` holds
+/// `&mut` borrows of the windows it drains.
+#[cfg(target_os = "macos")]
+fn run_before_main_loop_waits(work: Box<dyn FnMut()>) {
+    use core::ffi::c_void;
+
+    #[repr(C)]
+    struct CFRunLoopObserverContext {
+        version: isize,
+        info: *mut c_void,
+        retain: *const c_void,
+        release: *const c_void,
+        copy_description: *const c_void,
+    }
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFRunLoopGetMain() -> *mut c_void;
+        fn CFRunLoopObserverCreate(
+            allocator: *const c_void,
+            activities: usize,
+            repeats: u8,
+            order: isize,
+            callout: extern "C" fn(*mut c_void, usize, *mut c_void),
+            context: *mut CFRunLoopObserverContext,
+        ) -> *mut c_void;
+        fn CFRunLoopAddObserver(run_loop: *mut c_void, observer: *mut c_void, mode: *const c_void);
+        static kCFRunLoopCommonModes: *const c_void;
+    }
+
+    /// `kCFRunLoopBeforeWaiting`.
+    const BEFORE_WAITING: usize = 1 << 5;
+
+    thread_local! {
+        static RUNNING: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+    }
+
+    extern "C" fn callout(_observer: *mut c_void, _activity: usize, info: *mut c_void) {
+        if info.is_null() || RUNNING.with(core::cell::Cell::get) {
+            return;
+        }
+        RUNNING.with(|r| r.set(true));
+        // SAFETY: `info` is the leaked `Box<Box<dyn FnMut()>>` below, only
+        // ever touched here, on the main thread, never re-entrantly.
+        let work = unsafe { &mut *info.cast::<Box<dyn FnMut()>>() };
+        work();
+        RUNNING.with(|r| r.set(false));
+    }
+
+    let info: *mut Box<dyn FnMut()> = Box::into_raw(Box::new(work));
+    let mut context = CFRunLoopObserverContext {
+        version: 0,
+        info: info.cast(),
+        retain: core::ptr::null(),
+        release: core::ptr::null(),
+        copy_description: core::ptr::null(),
+    };
+    unsafe {
+        let observer = CFRunLoopObserverCreate(
+            core::ptr::null(),
+            BEFORE_WAITING,
+            1,
+            0,
+            callout,
+            &mut context,
+        );
+        if !observer.is_null() {
+            CFRunLoopAddObserver(CFRunLoopGetMain(), observer, kCFRunLoopCommonModes);
+        }
+    }
 }
 
 // Store initial options globally for the AppDelegate to retrieve.

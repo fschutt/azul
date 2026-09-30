@@ -12317,7 +12317,8 @@ pub fn e2e_pump_continuation(
 // ==================== Timer Callback ====================
 
 /// Timer callback that processes debug requests.
-/// Called every ~16ms when debug mode is enabled.
+/// Called every 16 ms while requests arrive, every 250 ms once the server has
+/// been quiet for a second (`DebugPollPace`).
 #[cfg(feature = "std")]
 #[cfg(feature = "e2e-server")]
 pub extern "C" fn debug_timer_callback(
@@ -12427,10 +12428,34 @@ pub extern "C" fn debug_timer_callback(
         processed_count += 1;
     }
 
+    // Busy or quiet: a served request, or a scenario still suspended
+    // between ticks, keeps the poll at its busy rate.
+    let worked = processed_count > 0 || needs_update || session.pending.is_some();
+
     // Hand the session back to the timer's `RefAny` so the next tick resumes
     // exactly where this one left off.
-    if let Some(mut dtd) = timer_data.downcast_mut::<DebugTimerData>() {
-        dtd.session = session;
+    let rearm_ms = match timer_data.downcast_mut::<DebugTimerData>() {
+        Some(mut dtd) => {
+            dtd.session = session;
+            dtd.pace.on_tick(worked)
+        }
+        None => None,
+    };
+    // A new rate re-registers the timer under the same id with the SAME
+    // `RefAny` (the session and the pace travel with it); every shell's
+    // `start_timer` replaces the running OS timer of that id.
+    if let Some(ms) = rearm_ms {
+        let timer = azul_layout::timer::Timer::create(
+            timer_data.clone(),
+            azul_layout::timer::TimerCallback::create(debug_timer_callback),
+            azul_layout::callbacks::ExternalSystemCallbacks::rust_internal().get_system_time_fn,
+        )
+        .with_interval(azul_core::task::Duration::System(
+            azul_core::task::SystemTimeDiff::from_millis(ms),
+        ));
+        timer_info
+            .callback_info
+            .add_timer(azul_core::task::TimerId { id: DEBUG_TIMER_ID }, timer);
     }
 
     if processed_count > 0 {
@@ -20311,14 +20336,35 @@ impl DebugPollPace {
     /// The interval the timer runs at now, in ms.
     #[must_use]
     pub const fn interval_ms(&self) -> u64 {
-        DEBUG_POLL_BUSY_MS
+        if self.busy {
+            DEBUG_POLL_BUSY_MS
+        } else {
+            DEBUG_POLL_IDLE_MS
+        }
     }
 
     /// One tick. `worked`: a request was served or a scenario is still
     /// suspended. Returns the new interval when the timer must be re-armed
     /// at a different rate.
-    pub fn on_tick(&mut self, _worked: bool) -> Option<u64> {
-        None
+    pub fn on_tick(&mut self, worked: bool) -> Option<u64> {
+        if worked {
+            self.quiet_ms = 0;
+            if self.busy {
+                return None;
+            }
+            self.busy = true;
+            return Some(DEBUG_POLL_BUSY_MS);
+        }
+        if !self.busy {
+            return None;
+        }
+        self.quiet_ms = self.quiet_ms.saturating_add(DEBUG_POLL_BUSY_MS);
+        if self.quiet_ms < DEBUG_POLL_SETTLE_MS {
+            return None;
+        }
+        self.busy = false;
+        self.quiet_ms = 0;
+        Some(DEBUG_POLL_IDLE_MS)
     }
 }
 
@@ -20392,12 +20438,15 @@ pub fn create_debug_timer(
     use azul_core::task::Duration;
     use azul_layout::timer::{Timer, TimerCallback};
 
+    let pace = DebugPollPace::new();
+    let interval_ms = pace.interval_ms();
     let timer_data = azul_core::refany::RefAny::new(DebugTimerData {
         app_data,
         component_map,
         request_rx,
         window_id,
         session: E2eSession::new(),
+        pace,
     });
 
     Timer::create(
@@ -20406,7 +20455,7 @@ pub fn create_debug_timer(
         get_system_time_fn,
     )
     .with_interval(Duration::System(
-        azul_core::task::SystemTimeDiff::from_millis(16),
+        azul_core::task::SystemTimeDiff::from_millis(interval_ms),
     ))
 }
 
@@ -20429,6 +20478,9 @@ struct DebugTimerData {
     /// to survive between timer ticks. Per-window on purpose: it used to be a
     /// process-global, so two windows shared one slot.
     session: E2eSession,
+    /// How often this timer polls (busy while requests arrive, idle after a
+    /// quiet second): see [`DebugPollPace`].
+    pace: DebugPollPace,
 }
 
 // Re-export log categories for convenience

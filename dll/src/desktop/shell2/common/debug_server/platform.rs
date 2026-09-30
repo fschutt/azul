@@ -594,10 +594,9 @@ pub fn register_debug_timer(
         None,
     );
 
-    /// Well-known timer ID for the debug server polling timer.
-    /// Chosen to avoid collision with user-registered timer IDs.
-    const DEBUG_TIMER_ID: usize = 0xDEBE;
-    let timer_id: usize = DEBUG_TIMER_ID;
+    // Well-known timer ID for the debug server polling timer, shared with
+    // the timer's own re-arming (`DebugPollPace`).
+    let timer_id: usize = azul_layout::e2e::DEBUG_TIMER_ID;
     let app_data_for_timer = window.get_app_data().borrow().clone();
     let window_id = window
         .get_current_window_state()

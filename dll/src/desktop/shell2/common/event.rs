@@ -6119,8 +6119,7 @@ pub trait PlatformWindow {
                     window_id,
                 );
 
-                const DEBUG_TIMER_ID: usize = 0xDEBE;
-                self.start_timer(DEBUG_TIMER_ID, debug_timer);
+                self.start_timer(azul_layout::e2e::DEBUG_TIMER_ID, debug_timer);
                 ProcessEventResult::DoNothing
             }
             #[cfg(not(feature = "debug-server"))]
@@ -6128,8 +6127,7 @@ pub trait PlatformWindow {
 
             #[cfg(feature = "debug-server")]
             CallbackChange::StopHttpServer => {
-                const DEBUG_TIMER_ID: usize = 0xDEBE;
-                self.stop_timer(DEBUG_TIMER_ID);
+                self.stop_timer(azul_layout::e2e::DEBUG_TIMER_ID);
                 azul_layout::e2e::take_logs(); // Clear logs if necessary
                 if let Some(server) = azul_layout::e2e::get_debug_server() {
                     server.shutdown();
