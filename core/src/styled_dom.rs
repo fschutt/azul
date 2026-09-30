@@ -3384,8 +3384,9 @@ pub fn collect_nodes_in_document_order(
 /// Check if two `StyledDom`s are structurally equivalent for layout purposes.
 ///
 /// Returns `true` if the DOMs have the same structure, node types, classes,
-/// IDs, inline styles, and callback event registrations - meaning the
-/// layout output would be identical.
+/// IDs, inline styles, node stylesheets (`Dom::with_css`, compared through
+/// the author CSS the cascade ran with), and callback event registrations -
+/// meaning the layout output would be identical.
 ///
 /// Image callback nodes are compared by function pointer and `RefAny` type ID
 /// rather than heap pointer, since each `layout()` call creates new `ImageRef`
@@ -3495,6 +3496,18 @@ pub fn is_layout_equivalent(old: &StyledDom, new: &StyledDom) -> bool {
         if old_node.attributes().as_ref() != new_node.attributes().as_ref() {
             return false;
         }
+    }
+
+    // Compare the author CSS the cascade ran with. The sheets nodes carry
+    // (`Dom::with_css`, scoped to their subtrees) are collected into it, not
+    // into `NodeData::style`, so a rebuild that changed only such a value
+    // (a zoomed grid's `height: 72px` for `48px`) is compared here or nowhere.
+    // A difference in scope ranges alone cannot occur: the hierarchies are
+    // equal by now, and the scopes are derived from it.
+    if old.get_css_property_cache().retained_author_css
+        != new.get_css_property_cache().retained_author_css
+    {
+        return false;
     }
 
     // Compare styled node states (hover/focus/active flags affect CSS resolution)

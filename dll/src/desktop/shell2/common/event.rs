@@ -9956,6 +9956,11 @@ pub trait PlatformWindow {
             };
             for f in filters {
                 let (event_type, data) = match f {
+                    // The Default action's filter (`process_accessibility_action`):
+                    // activation, the one `Click` every widget listens on - the same
+                    // synthetic event Enter / Space dispatch. Skipping it made a
+                    // screen reader's "press" run no callback anywhere.
+                    EventFilter::Hover(HoverEventFilter::Click) => (EventType::Click, mouse_data()),
                     EventFilter::Hover(HoverEventFilter::MouseUp)
                     | EventFilter::Focus(FocusEventFilter::MouseUp) => {
                         (EventType::MouseUp, mouse_data())
