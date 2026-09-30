@@ -68,6 +68,25 @@ fn push(scroll_id: u64, clip: LogicalRect, content: LogicalSize) -> DisplayListI
     }
 }
 
+/// A scroll container as the display-list generator emits it: its CLIP,
+/// then its scroll frame (`push_node_clips`). The raster's scroll frame is
+/// an offset only - it relies on this clip - so a frame pushed without it
+/// paints its content unclipped, which no layout ever produces.
+fn open_frame(scroll_id: u64, clip: LogicalRect, content: LogicalSize) -> [DisplayListItem; 2] {
+    [
+        DisplayListItem::PushClip {
+            bounds: WindowLogicalRect(clip),
+            border_radius: BorderRadius::default(),
+        },
+        push(scroll_id, clip, content),
+    ]
+}
+
+/// The end of an [`open_frame`]: the scroll frame, then its clip.
+fn close_frame() -> [DisplayListItem; 2] {
+    [DisplayListItem::PopScrollFrame, DisplayListItem::PopClip]
+}
+
 /// `n` opaque stripes `h` px tall, alternating two colours, from `(x, y)`:
 /// content whose every row differs from the next, so a move by the wrong
 /// amount - or none - shows.
@@ -206,22 +225,18 @@ pub(crate) fn first_difference(a: &AzulPixmap, b: &AzulPixmap) -> Option<(u32, u
 /// after its frame - the order `paint_scrollbars` emits. The box scrolls by
 /// 10px while the page stays where it is.
 #[test]
-#[ignore = "S1 (2026-09-29, first run): the blitted frame and a full repaint differ on the row \
-            just below the box clip, (20,150): [220,40,40] vs [40,160,60] - under investigation"]
 fn a_scroll_box_on_a_scrolled_page_keeps_its_blit() {
     let box_clip = rect(20.0, 150.0, 120.0, 100.0);
-    let mut items = vec![
-        // Behind everything: what the window shows outside the page.
-        fill(rect(0.0, 0.0, 200.0, 200.0), rgb(128, 128, 128)),
-        push(PAGE, rect(0.0, 0.0, 200.0, 200.0), LogicalSize::new(200.0, 1000.0)),
-        fill(rect(0.0, 0.0, 200.0, 1000.0), rgb(250, 250, 250)),
-        push(BOX, box_clip, LogicalSize::new(120.0, 600.0)),
-    ];
+    // Behind everything: what the window shows outside the page.
+    let mut items = vec![fill(rect(0.0, 0.0, 200.0, 200.0), rgb(128, 128, 128))];
+    items.extend(open_frame(PAGE, rect(0.0, 0.0, 200.0, 200.0), LogicalSize::new(200.0, 1000.0)));
+    items.push(fill(rect(0.0, 0.0, 200.0, 1000.0), rgb(250, 250, 250)));
+    items.extend(open_frame(BOX, box_clip, LogicalSize::new(120.0, 600.0)));
     items.extend(stripes(20.0, 150.0, 120.0, 10.0, 60));
-    items.push(DisplayListItem::PopScrollFrame);
+    items.extend(close_frame());
     // The box's own bar, over its content, inside the page.
     items.push(fill(rect(128.0, 150.0, 12.0, 100.0), rgb(30, 30, 30)));
-    items.push(DisplayListItem::PopScrollFrame);
+    items.extend(close_frame());
     let dl = DisplayList {
         items,
         ..Default::default()
