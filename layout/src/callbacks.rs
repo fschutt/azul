@@ -697,6 +697,14 @@ pub enum CallbackChange {
         host: DomNodeId,
         format: azul_core::events::TextFormat,
     },
+    /// The app replaces the content of editing host `host` from code and
+    /// re-renders (`LayoutWindow::reset_editor_content`): the typing the app
+    /// never synced, the host's undo history and a pending structural edit
+    /// go, and the caret lands at the end (or the start) of the new content.
+    ResetEditorContent {
+        host: DomNodeId,
+        caret_at_end: bool,
+    },
 
     // Cursor Movement Operations
     /// Move cursor left (arrow left)
@@ -3471,6 +3479,22 @@ impl CallbackInfo {
     /// spans). Applied after the callback returns.
     pub fn toggle_text_format(&mut self, host: DomNodeId, format: azul_core::events::TextFormat) {
         self.push_change(CallbackChange::ToggleTextFormat { host, format });
+    }
+
+    /// Replace the content of the editing host `host` from code: call this,
+    /// then return `Update::RefreshDom` with the host's new content (a mail
+    /// app quoting the original into the reply, inserting a signature,
+    /// switching between plain and rich, clearing the body after Send).
+    ///
+    /// The DOM rendered next is the truth: typing the app never synced
+    /// (`get_unsynced_text_edits`) is dropped instead of painting over it,
+    /// the host's undo history and a pending structural edit
+    /// (`get_document_edit_clone`) go with the old content, and the caret
+    /// lands at the end of the new content (`caret_at_end`) or at its start.
+    /// HTML's `innerHTML = ..` on a contenteditable. Applied after the
+    /// callback returns.
+    pub fn reset_editor_content(&mut self, host: DomNodeId, caret_at_end: bool) {
+        self.push_change(CallbackChange::ResetEditorContent { host, caret_at_end });
     }
 
     // === Multi-Cursor Operations ===

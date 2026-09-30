@@ -668,3 +668,5 @@ mod a_plain_arrow_crosses_the_blocks_of_its_editing_host;
 mod a_delete_across_blocks_keeps_the_surviving_runs;
 #[path = "a_rich_paste_inserts_formatting_and_blocks.rs"]
 mod a_rich_paste_inserts_formatting_and_blocks;
+#[path = "a_reset_editor_takes_the_apps_new_content.rs"]
+mod a_reset_editor_takes_the_apps_new_content;

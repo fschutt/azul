@@ -6969,6 +6969,15 @@ pub trait PlatformWindow {
                 ProcessEventResult::DoNothing
             }
 
+            CallbackChange::ResetEditorContent { host, caret_at_end } => {
+                // The app's next DOM is the editor's content; the caret is
+                // placed once it is laid out.
+                if let Some(lw) = self.get_layout_window_mut() {
+                    let _ = lw.reset_editor_content(*host, *caret_at_end);
+                }
+                ProcessEventResult::ShouldRegenerateDomCurrentWindow
+            }
+
             // === Cursor Movement ===
             CallbackChange::MoveCursorLeft { .. }
             | CallbackChange::MoveCursorRight { .. }

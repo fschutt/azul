@@ -2865,6 +2865,12 @@ impl Runner {
                 let _ = self.layout_window.toggle_text_format(*host, *format);
                 ProcessEventResult::DoNothing
             }
+            CallbackChange::ResetEditorContent { host, caret_at_end } => {
+                let _ = self
+                    .layout_window
+                    .reset_editor_content(*host, *caret_at_end);
+                ProcessEventResult::ShouldRegenerateDomCurrentWindow
+            }
 
             // === Cursor movement ===
             CallbackChange::MoveCursorLeft { .. }

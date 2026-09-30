@@ -12294,6 +12294,15 @@ impl LayoutWindow {
         true
     }
 
+    /// The app replaces the content of the editing host `host` from code
+    /// (`CallbackInfo::reset_editor_content`): the DOM it renders next is
+    /// the truth. Returns whether `host` is an editing host of a laid-out
+    /// DOM.
+    pub fn reset_editor_content(&mut self, host: DomNodeId, caret_at_end: bool) -> bool {
+        let _ = (host, caret_at_end);
+        false
+    }
+
     /// Toggle `format` for the editing session in `target`'s host
     /// (`DefaultAction::ToggleTextFormat`, Ctrl/Cmd+B / I / U, or an app's
     /// B button through `CallbackInfo::toggle_text_format`). Returns whether
