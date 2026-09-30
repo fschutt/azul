@@ -1511,6 +1511,52 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         (px(style.min_size.height), px(style.max_size.height))
     }
 
+    /// The BORDER-BOX width the node's own style fixes: its `width` - a
+    /// length, or a percentage of a known `parent_width` - clamped by its
+    /// `min-width` / `max-width` of the same kinds, content-box sizing adding
+    /// `padding_border_width`. `None` for `auto` and every width that depends
+    /// on the content (min-/max-/fit-content, calc) or on an unknown parent.
+    ///
+    /// taffy's own leaf algorithm resolves exactly this into the known width
+    /// before it measures anything; the bridge's non-flex path must too, or a
+    /// min-content query lays a `width: 140px` box's text out at its longest
+    /// word while answering "140 wide" - and taffy serves that entry for the
+    /// box's real 140 px query
+    /// (tests/flex_items_keep_the_size_their_container_gave_them.rs, B).
+    fn own_definite_width(
+        &self,
+        node_idx: usize,
+        parent_width: Option<f32>,
+        padding_border_width: f32,
+    ) -> Option<f32> {
+        let style = self.get_taffy_style(node_idx);
+        let resolve = |d: Dimension| -> Option<f32> {
+            let raw = d.into_raw();
+            let value = raw.value();
+            let resolved = if raw.tag() == CompactLength::LENGTH_TAG {
+                Some(value)
+            } else if raw.tag() == CompactLength::PERCENT_TAG {
+                parent_width.map(|w| w * value)
+            } else {
+                None
+            };
+            resolved.filter(|v| v.is_finite())
+        };
+        let extra = if style.box_sizing == BoxSizing::ContentBox {
+            padding_border_width
+        } else {
+            0.0
+        };
+        let mut width = resolve(style.size.width)? + extra;
+        if let Some(max) = resolve(style.max_size.width) {
+            width = width.min(max + extra);
+        }
+        if let Some(min) = resolve(style.min_size.width) {
+            width = width.max(min + extra);
+        }
+        Some(width.max(padding_border_width))
+    }
+
     /// Determines if cross-axis intrinsic size should be suppressed for stretching.
     ///
     /// Per CSS Flexbox spec, align-items: stretch makes items fill the cross-axis
@@ -2046,6 +2092,32 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                     bp.border.top + bp.border.bottom,
                 )
             });
+
+        // A box whose own style fixes its width lays its content out at that
+        // width, whatever the query's available space says: taffy resolves it
+        // into the known width in its own leaf algorithm (`own_definite_width`).
+        // The answer then describes one box - "140 wide, as tall as the text at
+        // 140" - not "140 wide, as tall as the text at its longest word", which
+        // taffy's cache served for the real 140 px query and a whole flex row
+        // came out four times too tall. The cache entry keeps the original
+        // inputs as its key (this runs inside `compute_cached_layout`).
+        let inputs = match inputs.known_dimensions.width {
+            Some(_) => inputs,
+            None => match self.own_definite_width(
+                node_idx,
+                inputs.parent_size.width,
+                node_padding_width + node_border_width,
+            ) {
+                Some(width) => LayoutInput {
+                    known_dimensions: Size {
+                        width: Some(width),
+                        height: inputs.known_dimensions.height,
+                    },
+                    ..inputs
+                },
+                None => inputs,
+            },
+        };
 
         // Determine available size from Taffy's inputs.
         // When known_dimensions is set (e.g. flex stretch), subtract the child's own
