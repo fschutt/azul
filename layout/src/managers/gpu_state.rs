@@ -1448,6 +1448,55 @@ mod autotest_generated {
         assert!(c.scrollbar_v_opacity_values.is_empty());
     }
 
+    /// The ANIMATION channel is a per-node cache like the twelve maps above:
+    /// a FLIP in flight writes its node's transform and opacity under the
+    /// node's id on every tick (`LayoutWindow::tick_animations`), and a
+    /// rebuild renumbers the arena. Left where it was, the value stayed
+    /// under the OLD id, and the unrelated node that inherited that slot
+    /// was painted through a reference frame with a stranger's transform:
+    /// a document mounted over AzWidgets at 760x400 had its first `<p>`
+    /// (node 4) painted off-screen - "the first text line is missing".
+    #[test]
+    fn remap_node_ids_moves_the_animation_channel_with_its_node_and_drops_the_unmounted() {
+        let mut m = GpuStateManager::default();
+        let (moved, gone, new) = (NodeId::new(1), NodeId::new(4), NodeId::new(8));
+        let d = dom(0);
+        {
+            let c = m.get_or_create_cache(d);
+            c.anim_transform_keys.insert(moved, TransformKey::unique());
+            c.anim_current_transform_values.insert(moved, tx(0.0, -50.0));
+            c.anim_opacity_keys.insert(moved, OpacityKey::unique());
+            c.anim_current_opacity_values.insert(moved, 0.5);
+            c.anim_transform_keys.insert(gone, TransformKey::unique());
+            c.anim_current_transform_values.insert(gone, tx(0.0, -300.0));
+            c.anim_opacity_keys.insert(gone, OpacityKey::unique());
+            c.anim_current_opacity_values.insert(gone, 1.0);
+        }
+
+        m.remap_node_ids(d, &NodeIdMap::from_pairs([(moved, new)]));
+
+        let c = m.get_cache(d).unwrap();
+        assert!(
+            c.anim_transform_keys.contains_key(&new),
+            "the animation's transform key follows its node"
+        );
+        assert_eq!(
+            c.anim_current_transform_values.get(&new),
+            Some(&tx(0.0, -50.0))
+        );
+        assert!(c.anim_opacity_keys.contains_key(&new));
+        assert_eq!(c.anim_current_opacity_values.get(&new), Some(&0.5));
+        for old in [moved, gone] {
+            assert!(
+                !c.anim_transform_keys.contains_key(&old),
+                "no animation transform stays under {old:?}"
+            );
+            assert!(!c.anim_current_transform_values.contains_key(&old));
+            assert!(!c.anim_opacity_keys.contains_key(&old));
+            assert!(!c.anim_current_opacity_values.contains_key(&old));
+        }
+    }
+
     // ------------------------------------------------------------------
     // update_scrollbar_transforms
     // ------------------------------------------------------------------

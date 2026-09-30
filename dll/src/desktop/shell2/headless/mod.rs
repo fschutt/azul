@@ -10258,6 +10258,141 @@ mod tests {
         );
     }
 
+    /// Three pages of one app: two paragraphs; a 50px box above them (they
+    /// move down: a FLIP in flight); then three boxes and no paragraph at
+    /// all (nothing of the second page survives but the first box).
+    struct FlipPage {
+        stage: u8,
+    }
+
+    extern "C" fn flip_page_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_css::{
+            dynamic_selector::CssPropertyWithConditions,
+            props::{
+                layout::dimensions::{LayoutHeight, LayoutWidth},
+                property::CssProperty,
+            },
+        };
+
+        fn sized(dom: Dom, width: f32, height: f32) -> Dom {
+            dom.with_css_props(
+                vec![
+                    CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(width))),
+                    CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(
+                        height,
+                    ))),
+                ]
+                .into(),
+            )
+        }
+
+        let stage = data.downcast_ref::<FlipPage>().map_or(0, |p| p.stage);
+        let mut body = Dom::create_body();
+        if stage >= 1 {
+            body = body.with_child(sized(Dom::create_div(), 40.0, 50.0));
+        }
+        if stage <= 1 {
+            body = body
+                .with_child(sized(Dom::create_p_with_text("guard"), 40.0, 20.0))
+                .with_child(sized(Dom::create_p_with_text("line"), 40.0, 20.0));
+        } else {
+            body = body
+                .with_child(sized(Dom::create_div_with_text("guard"), 40.0, 20.0))
+                .with_child(sized(Dom::create_div_with_text("line"), 40.0, 20.0));
+        }
+        body
+    }
+
+    fn set_flip_stage(state: &Arc<RefCell<RefAny>>, stage: u8) {
+        let mut g = state.borrow_mut();
+        let r: &mut RefAny = &mut g;
+        let mut opt = r.downcast_mut::<FlipPage>();
+        if let Some(s) = opt.as_mut() {
+            s.stage = stage;
+        }
+    }
+
+    /// How many reference frames the root display list opens.
+    fn dl_reference_frames(window: &HeadlessWindow) -> usize {
+        window
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.layout_results.get(&azul_core::dom::DomId::ROOT_ID))
+            .map_or(0, |r| {
+                r.display_list
+                    .items
+                    .iter()
+                    .filter(|i| matches!(i, DisplayListItem::PushReferenceFrame { .. }))
+                    .count()
+            })
+    }
+
+    /// The nodes whose animation transform the GPU value cache holds.
+    fn animated_nodes(window: &HeadlessWindow) -> Vec<azul_core::dom::NodeId> {
+        let mut nodes: Vec<azul_core::dom::NodeId> = window
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.gpu_state_manager.get_cache(azul_core::dom::DomId::ROOT_ID))
+            .map_or(Vec::new(), |c| c.anim_transform_keys.keys().copied().collect());
+        nodes.sort();
+        nodes
+    }
+
+    /// A FLIP in flight writes its node's transform into the GPU value
+    /// cache under the node's id, and a rebuild renumbers the arena. The
+    /// cache is remapped like every node-keyed store, but its ANIMATION
+    /// channel was left behind under the old ids: the unrelated node that
+    /// inherited such an id was wrapped in a reference frame carrying a
+    /// stranger's transform. That is how a document mounted over AzWidgets
+    /// at 760x400 lost its first line: the `<p>` took node 4 from a widget
+    /// mid-move and was painted where that widget had been, off-screen.
+    #[test]
+    fn a_node_that_inherits_the_id_of_an_animated_node_is_not_painted_through_its_transform() {
+        let state = Arc::new(RefCell::new(RefAny::new(FlipPage { stage: 0 })));
+        let mut window = make_window_with(&state, flip_page_layout);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        let _ = window.common.take_regeneration();
+        assert_eq!(
+            animated_nodes(&window),
+            Vec::new(),
+            "premise: nothing animates on the first page"
+        );
+
+        // The box pushes both paragraphs down by 50px: a FLIP for each,
+        // sampled at frame 0 into the cache under their ids.
+        set_flip_stage(&state, 1);
+        window.regenerate_layout().expect("the paragraphs move");
+        let moving = animated_nodes(&window);
+        assert!(
+            !moving.is_empty(),
+            "premise: the moved paragraphs animate (a FLIP is in flight)"
+        );
+        assert!(
+            dl_reference_frames(&window) >= moving.len(),
+            "premise: each mover is painted through its reference frame"
+        );
+
+        // The paragraphs go; boxes take their ids. Nothing on this page
+        // animates (enters are opt-in), so nothing is painted through a
+        // transform.
+        set_flip_stage(&state, 2);
+        window.regenerate_layout().expect("the paragraphs are replaced");
+        assert_eq!(
+            animated_nodes(&window),
+            Vec::new(),
+            "the cache keeps no animation transform for a node that is gone: the boxes that \
+             inherited the paragraphs' ids ({moving:?}) would be painted through it"
+        );
+        assert_eq!(
+            dl_reference_frames(&window),
+            0,
+            "a page whose nodes are all new opens no reference frame"
+        );
+    }
+
     /// Six 40px stripes of six colours in a row: 240px of content for the
     /// 120px box that shows it, so the view scrolls by up to 120px and no
     /// offset in that range looks like another.
