@@ -638,3 +638,5 @@ mod a_window_paces_at_its_monitors_refresh_rate;
 mod the_resize_fast_path_paints_what_a_relayout_paints;
 #[path = "a_link_in_mail_markup_keeps_where_it_points.rs"]
 mod a_link_in_mail_markup_keeps_where_it_points;
+#[path = "the_named_entities_mail_uses_decode_to_their_characters.rs"]
+mod the_named_entities_mail_uses_decode_to_their_characters;
