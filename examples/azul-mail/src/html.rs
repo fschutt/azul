@@ -943,6 +943,20 @@ mod tests {
         );
     }
 
+    /// azul turns parsed form controls into live widgets, so a phishing mail would show a working
+    /// sign-in form: forms, fields and buttons go (a button with its label), their text stays.
+    #[test]
+    fn form_controls_go_and_a_buttons_label_with_it() {
+        assert_eq!(
+            inner(
+                "<form action=\"https://x.example/login\">Name <input name=email \
+                 value=\"ada@example.org\"><button>Sign in</button><select><option>A\
+                 </select><textarea>t</textarea></form>after"
+            ),
+            "Name after"
+        );
+    }
+
     /// A 1x1 or hidden image is a tracking pixel: blocked, and not even a placeholder shows.
     #[test]
     fn a_tracking_pixel_leaves_no_placeholder() {
