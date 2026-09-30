@@ -3285,6 +3285,68 @@ fn lcd_distribution_lut() -> &'static agg_rust::pixfmt_lcd::LcdDistributionLut {
     })
 }
 
+// ---- Glyph geometry agg can take ----
+//
+// agg rasterizes on `i32` coordinates (24.8 fixed point; the LCD path triples
+// x). A pen or clip that is non-finite, or far enough off the pixmap to
+// saturate those integers, must never reach it: a pen that a broken layout
+// parked at 1e38 saturated to `i32::MAX`, the LCD `* 3` wrapped, the
+// rasterizer's x range straddled all of `i32` and `ScanlineU8::reset`
+// allocated a ONE-cover span - `index out of bounds: the len is 1 but the
+// index is 1` in `add_cell` (the AzMail receipt, and seven AzWidgets aborts on
+// 2026-09-30). Every glyph path (LCD sweep, LCD tiles, grayscale) goes through
+// the three helpers below.
+
+/// The largest rendered em, in device pixels, a glyph run is rasterized at.
+/// With the 4-em ink bound of [`glyph_ink_reach`] it keeps a glyph's own
+/// cells far inside agg's `i32` range: 4 x 65536 px x 3 stripes x 256
+/// subpixels is about 2e8, a tenth of `i32::MAX`.
+const MAX_RASTER_EM_PX: f32 = 65_536.0;
+
+/// How far (device px) a glyph's ink can reach from its pen: 4 em, the bound
+/// the LCD sweep's horizontal cull always used. `None` for an em no
+/// rasterizer can take (non-finite, not positive, or past
+/// [`MAX_RASTER_EM_PX`]): the whole run is skipped.
+fn glyph_ink_reach(em_px: f32) -> Option<f32> {
+    (em_px.is_finite() && em_px > 0.0 && em_px <= MAX_RASTER_EM_PX).then(|| em_px * 4.0)
+}
+
+/// Whether a glyph whose pen sits at device `(x, y)` can put ink on a
+/// `width` x `height` pixmap, its ink reaching `reach` px from the pen on
+/// every side. A glyph this rejects paints nothing anyway; one it admits
+/// keeps every integer offset agg sees within `reach` of the pixmap.
+#[allow(clippy::cast_precision_loss)] // pixmap sides are far below 2^24
+fn glyph_pen_reaches_pixmap(x: f32, y: f32, reach: f32, width: u32, height: u32) -> bool {
+    let (w, h) = (width as f32, height as f32);
+    x.is_finite()
+        && y.is_finite()
+        && reach.is_finite()
+        && x >= -reach
+        && x <= w + reach
+        && y >= -reach
+        && y <= h + reach
+}
+
+/// The whole pixels a text clip covers on a `width` x `height` pixmap, in
+/// agg's inclusive `clip_box_i` form `(x1, y1, x2, y2)` (the truncating rule
+/// the text paths always used), or `None` when it covers no pixel.
+///
+/// Intersecting with the pixmap FIRST keeps every coordinate small enough for
+/// agg's integer math (the LCD stripe clip triples x). An empty result must
+/// skip the run rather than reach agg: `RendererBase::clip_box_i` NORMALIZES
+/// an inverted box, so a clip thinner than a pixel used to paint two.
+// The casts run after the clamp to the pixmap.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+fn text_clip_pixel_box(clip: AzRect, width: u32, height: u32) -> Option<(i32, i32, i32, i32)> {
+    let pixmap = AzRect::from_xywh(0.0, 0.0, width as f32, height as f32)?;
+    let c = clip.clip(&pixmap)?;
+    let x1 = c.x as i32;
+    let y1 = c.y as i32;
+    let x2 = (c.x + c.width) as i32 - 1;
+    let y2 = (c.y + c.height) as i32 - 1;
+    (x2 >= x1 && y2 >= y1).then_some((x1, y1, x2, y2))
+}
+
 /// RGB LCD subpixel-AA glyph run. Rasterizes each glyph at **3× horizontal
 /// resolution** (one sub-sample per R/G/B stripe), then lets [`PixfmtRgba32Lcd`]
 /// run a 5-tap FIR (the `FreeType` default "light" filter `[08 4D 56 4D 08]`, which
@@ -3328,6 +3390,21 @@ fn render_glyphs_lcd(
 ) {
     use agg_rust::pixfmt_lcd::{LcdDistributionLut, PixfmtRgba32Lcd};
 
+    // Geometry agg can take (see `glyph_pen_reaches_pixmap`): the clip as
+    // whole pixels on this pixmap - one covering no pixel paints nothing -
+    // and the reach of a glyph's ink from its pen, from the RENDERED em.
+    let clip_box = match clip {
+        Some(c) => match text_clip_pixel_box(c, pixmap.width, pixmap.height) {
+            Some(b) => Some(b),
+            None => return,
+        },
+        None => None,
+    };
+    let em_px = scale * f32::from(parsed_font.font_metrics.units_per_em);
+    let Some(max_ink_w) = glyph_ink_reach(em_px) else {
+        return;
+    };
+
     let agg_color = Rgba8::new(
         u32::from(color.r),
         u32::from(color.g),
@@ -3346,6 +3423,18 @@ fn render_glyphs_lcd(
 
         let glyph_x = (glyph.point.x - scroll_offset.0) * dpi_factor;
         let glyph_baseline_y = (glyph.point.y - scroll_offset.1) * dpi_factor;
+
+        // A pen that cannot put ink on the pixmap - NaN, or parked far off it
+        // by a broken layout - never reaches agg's integer cell math.
+        if !glyph_pen_reaches_pixmap(
+            glyph_x,
+            glyph_baseline_y,
+            max_ink_w,
+            pixmap.width,
+            pixmap.height,
+        ) {
+            continue;
+        }
 
         // Horizontal cull BEFORE decode: a glyph whose ink cannot reach the
         // clip contributes nothing to the sweep. Pad = 2px for the FIR
@@ -3366,7 +3455,7 @@ fn render_glyphs_lcd(
             // both sides so negative bearings / RTL marks reaching into the
             // clip from the right survive too. Only ever more conservative
             // than exact ink: a glyph is clipped by the sweep, never lost.
-            let max_ink_w = scale * f32::from(parsed_font.font_metrics.units_per_em) * 4.0;
+            // (`max_ink_w` is that 4-em bound, from `glyph_ink_reach`.)
             let cx0 = c.x;
             let cx1 = c.x + c.width;
             if glyph_x - max_ink_w > cx1 + 2.0 || glyph_x + max_ink_w < cx0 - 2.0 {
@@ -3430,51 +3519,41 @@ fn render_glyphs_lcd(
         // sRGB-space blending), instead of only on near-b/w pairs.
         let mut pf = agg_rust::pixfmt_lcd::PixfmtRgba32LcdLinear::new(&mut ra, lut, params);
         pf.set_subpixel_order(order);
-        if let Some(c) = clip {
+        if let Some((x1, _, x2, _)) = clip_box {
             // The FIR spread writes 2 stripes past every span; the renderer-
             // base clip box cannot bound those writes (task #17: a damage-rect
             // repaint double-blended the escaped fringe one pixel LEFT of the
             // rect — 239²/255 = 224, the exact measured divergence).
-            pf.set_stripe_clip((c.x as i32) * 3, ((c.x + c.width) as i32) * 3);
+            pf.set_stripe_clip(x1 * 3, (x2 + 1) * 3);
         }
         let mut rb = RendererBase::new(pf);
-        if let Some(c) = clip {
+        if let Some((_, y1, _, y2)) = clip_box {
             // Y-only span clip: vertical has no FIR spread, so scanline
             // clipping is exact. X spans must reach the FIR distribution
             // UNCLIPPED — ink just OUTSIDE the clip contributes fringe to
             // the boundary column INSIDE it (a span-clipped repaint loses
             // that contribution and renders the column lighter than a full
             // repaint). The stripe clip set above bounds the WRITES instead.
-            rb.clip_box_i(
-                0,
-                c.y as i32,
-                (w as i32) * 3 - 1,
-                (c.y + c.height) as i32 - 1,
-            );
+            rb.clip_box_i(0, y1, (w as i32) * 3 - 1, y2);
         }
         render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
     } else {
         // Legacy sRGB-space blending (AZ_LCD_BLEND=legacy).
         let mut pf = PixfmtRgba32Lcd::new(&mut ra, lut);
         pf.set_subpixel_order(order);
-        if let Some(c) = clip {
+        if let Some((x1, _, x2, _)) = clip_box {
             // Same stripe-clip as the colorimetric arm above.
-            pf.set_stripe_clip((c.x as i32) * 3, ((c.x + c.width) as i32) * 3);
+            pf.set_stripe_clip(x1 * 3, (x2 + 1) * 3);
         }
         let mut rb = RendererBase::new(pf);
-        if let Some(c) = clip {
+        if let Some((_, y1, _, y2)) = clip_box {
             // Y-only span clip: vertical has no FIR spread, so scanline
             // clipping is exact. X spans must reach the FIR distribution
             // UNCLIPPED — ink just OUTSIDE the clip contributes fringe to
             // the boundary column INSIDE it (a span-clipped repaint loses
             // that contribution and renders the column lighter than a full
             // repaint). The stripe clip set above bounds the WRITES instead.
-            rb.clip_box_i(
-                0,
-                c.y as i32,
-                (w as i32) * 3 - 1,
-                (c.y + c.height) as i32 - 1,
-            );
+            rb.clip_box_i(0, y1, (w as i32) * 3 - 1, y2);
         }
         render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
     }
@@ -3684,6 +3763,10 @@ fn render_text_prerendered_lcd(
     } else {
         1.0
     };
+    // An em no rasterizer can take paints nothing (see `glyph_ink_reach`).
+    let Some(ink_reach) = glyph_ink_reach(effective_px) else {
+        return true;
+    };
     let lut = lcd_distribution_lut();
 
     // Combined clip: the item clip_rect ∩ the stack clip, device pixels.
@@ -3728,6 +3811,11 @@ fn render_text_prerendered_lcd(
     for glyph in glyphs {
         let gx = (glyph.point.x - scroll_offset.0) * dpi_factor;
         let gy = (glyph.point.y - scroll_offset.1) * dpi_factor;
+        // A pen that cannot put ink on the pixmap never reaches the tile
+        // placement (`int_x + tile.dx` overflowed for a saturated pen).
+        if !glyph_pen_reaches_pixmap(gx, gy, ink_reach, pixmap.width, pixmap.height) {
+            continue;
+        }
         let glyph_index = glyph.index as u16;
         let Some(glyph_data) = parsed_font.get_or_decode_glyph(glyph_index) else {
             continue;
@@ -3779,10 +3867,12 @@ fn render_text_prerendered_lcd(
             // horizontally scrolled TextInput into the per-glyph cull).
             let prx = pr.origin.x - scroll_offset.0;
             let pry = pr.origin.y - scroll_offset.1;
-            let px0 = (prx * dpi_factor).ceil() as i32 + 1;
-            let py0 = (pry * dpi_factor).ceil() as i32 + 1;
-            let px1 = ((prx + pr.size.width) * dpi_factor).floor() as i32 - 1;
-            let py1 = ((pry + pr.size.height) * dpi_factor).floor() as i32 - 1;
+            // Saturating: a proven rect far off the pixmap saturates the
+            // casts, and the 1-px inset must not overflow them.
+            let px0 = ((prx * dpi_factor).ceil() as i32).saturating_add(1);
+            let py0 = ((pry * dpi_factor).ceil() as i32).saturating_add(1);
+            let px1 = (((prx + pr.size.width) * dpi_factor).floor() as i32).saturating_sub(1);
+            let py1 = (((pry + pr.size.height) * dpi_factor).floor() as i32).saturating_sub(1);
             if x0 < px0 || y0 < py0 || x0 + tile.w as i32 > px1 || y0 + tile.h as i32 > py1 {
                 drop(crate::probe::Probe::span("glyph_lcd_pretile_boundary"));
                 return false; // whole run sweeps (rare: edge-hugging text)
@@ -3991,18 +4081,27 @@ fn render_text(
     let h = pixmap.height;
     let stride = (w * 4) as i32;
 
+    // Geometry agg can take (see `glyph_pen_reaches_pixmap`): a clip covering
+    // no whole pixel paints nothing, and an em no rasterizer can take skips
+    // the run.
+    let clip_box = match clip {
+        Some(c) => match text_clip_pixel_box(c, w, h) {
+            Some(b) => Some(b),
+            None => return,
+        },
+        None => None,
+    };
+    let Some(ink_reach) = glyph_ink_reach(effective_px) else {
+        return;
+    };
+
     // Create renderer infrastructure once, reuse for all glyphs in this text run.
     // Batches all glyph cells into a single rasterizer pass when possible.
     let mut ra = unsafe { RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride) };
     let mut pf = PixfmtRgba32::new(&mut ra);
     let mut rb = RendererBase::new(pf);
-    if let Some(c) = clip {
-        rb.clip_box_i(
-            c.x as i32,
-            c.y as i32,
-            (c.x + c.width) as i32 - 1,
-            (c.y + c.height) as i32 - 1,
-        );
+    if let Some((x1, y1, x2, y2)) = clip_box {
+        rb.clip_box_i(x1, y1, x2, y2);
     }
     let mut ras = RasterizerScanlineAa::new();
     ras.filling_rule(FillingRule::NonZero);
@@ -4011,6 +4110,13 @@ fn render_text(
     // This amortizes sort_cells cost across all glyphs in the run.
     for glyph in glyphs {
         let glyph_index = glyph.index as u16;
+
+        let glyph_x = (glyph.point.x - scroll_offset.0) * dpi_factor;
+        let glyph_baseline_y = (glyph.point.y - scroll_offset.1) * dpi_factor;
+        // A pen that cannot put ink on the pixmap never reaches agg.
+        if !glyph_pen_reaches_pixmap(glyph_x, glyph_baseline_y, ink_reach, w, h) {
+            continue;
+        }
 
         // Lazy decode: first access to a given gid for this face does
         // the allsorts glyf walk + OwnedGlyph conversion; subsequent
@@ -4028,9 +4134,6 @@ fn render_text(
                 ppem,
             )
             .is_some_and(|c| c.is_hinted);
-
-        let glyph_x = (glyph.point.x - scroll_offset.0) * dpi_factor;
-        let glyph_baseline_y = (glyph.point.y - scroll_offset.1) * dpi_factor;
 
         let Some((cells, int_x, int_y)) = glyph_cache.get_or_build_cells(
             font_hash.font_hash,
@@ -10631,5 +10734,88 @@ mod unplaceable_glyph_geometry_tests {
                 "the grayscale path painted outside the sub-pixel clip {clip:?}"
             );
         }
+    }
+
+    // ---- the three guards, without a font ----
+
+    #[test]
+    fn an_em_no_rasterizer_can_take_has_no_ink_reach() {
+        assert_eq!(glyph_ink_reach(16.0), Some(64.0), "4 em");
+        for bad in [
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            0.0,
+            -16.0,
+            MAX_RASTER_EM_PX * 2.0,
+            1.0e38,
+        ] {
+            assert_eq!(glyph_ink_reach(bad), None, "em {bad}");
+        }
+    }
+
+    #[test]
+    fn a_pen_reaches_the_pixmap_only_from_within_its_ink_reach() {
+        // Inside, and just outside on every side within the reach.
+        assert!(glyph_pen_reaches_pixmap(10.0, 20.0, 64.0, W, H));
+        assert!(glyph_pen_reaches_pixmap(-60.0, 20.0, 64.0, W, H));
+        assert!(glyph_pen_reaches_pixmap(W as f32 + 60.0, 20.0, 64.0, W, H));
+        assert!(glyph_pen_reaches_pixmap(10.0, -60.0, 64.0, W, H));
+        assert!(glyph_pen_reaches_pixmap(10.0, H as f32 + 60.0, 64.0, W, H));
+        // Beyond the reach, non-finite, or far past agg's integer range.
+        for (x, y) in [
+            (-65.0, 20.0),
+            (W as f32 + 65.0, 20.0),
+            (10.0, -65.0),
+            (10.0, H as f32 + 65.0),
+            (f32::NAN, 20.0),
+            (10.0, f32::NAN),
+            (f32::INFINITY, 20.0),
+            (f32::NEG_INFINITY, 20.0),
+            (1.0e38, 20.0),
+            (-1.0e38, 20.0),
+            (8.0e8, 20.0),
+            (10.0, 1.0e38),
+        ] {
+            assert!(
+                !glyph_pen_reaches_pixmap(x, y, 64.0, W, H),
+                "pen ({x}, {y}) must be skipped"
+            );
+        }
+        assert!(
+            !glyph_pen_reaches_pixmap(10.0, 20.0, f32::NAN, W, H),
+            "a NaN reach admits nothing"
+        );
+    }
+
+    #[test]
+    fn a_text_clip_becomes_the_pixels_it_covers_or_nothing() {
+        let rect = |x, y, w, h| AzRect::from_xywh(x, y, w, h).expect("a valid rect");
+        // Inside the pixmap: the truncating rule the text paths always used.
+        assert_eq!(
+            text_clip_pixel_box(rect(3.7, 2.2, 10.0, 5.0), W, H),
+            Some((3, 2, 12, 6))
+        );
+        // Larger than the pixmap, or huge: clamped to it, so the LCD stripe
+        // clip's `* 3` cannot overflow.
+        assert_eq!(
+            text_clip_pixel_box(rect(-50.0, -50.0, 1000.0, 1000.0), W, H),
+            Some((0, 0, W as i32 - 1, H as i32 - 1))
+        );
+        assert_eq!(
+            text_clip_pixel_box(rect(-1.0e30, -1.0e30, 2.0e30, 2.0e30), W, H),
+            Some((0, 0, W as i32 - 1, H as i32 - 1))
+        );
+        // Thinner than a pixel on either axis, or off the pixmap: nothing.
+        assert_eq!(text_clip_pixel_box(rect(4.2, 0.0, 0.4, 10.0), W, H), None);
+        assert_eq!(text_clip_pixel_box(rect(0.0, 16.2, 10.0, 0.4), W, H), None);
+        assert_eq!(
+            text_clip_pixel_box(rect(1.0e30, 0.0, 10.0, 10.0), W, H),
+            None
+        );
+        assert_eq!(
+            text_clip_pixel_box(rect(-500.0, 0.0, 10.0, 10.0), W, H),
+            None
+        );
     }
 }
