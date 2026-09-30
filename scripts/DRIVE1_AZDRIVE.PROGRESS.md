@@ -8,8 +8,12 @@ Branch `wt/drive1-azdrive` from `a7e18f4df`. Report: `scripts/DRIVE1_AZDRIVE_202
 
 - GREEN: the storage crate's bodies (see git log).
 
+- RED + GREEN: `examples/azul-drive/scripts/s3_server.py` + `test_s3_server.py` (23 tests pass:
+  `python3 examples/azul-drive/scripts/test_s3_server.py`).
+
 ## IN PROGRESS
-- Python S3 test server.
+- AzDrive app. Coordinator ruling: NoTitle decorations + `Titlebar` as the body's first child
+  (pattern: d4ea59a19, examples/azul-maps `title_row`).
 
 ## NEXT
 1. Python S3 test server (`examples/azul-drive/scripts/s3_server.py`) + unittest, RED first.
