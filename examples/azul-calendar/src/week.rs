@@ -203,14 +203,28 @@ mod tests {
 
     /// (lane, lanes) of each placed event, by title, in the order of the day's list.
     fn lanes(day: &[&Event]) -> Vec<(String, u32, u32)> {
-        let layout = lay_out_day(day);
-        let mut out: Vec<(usize, String, u32, u32)> = layout
-            .placements
+        let placements = lay_out_day(day);
+        let mut out: Vec<(usize, String, u32, u32)> = placements
             .iter()
             .map(|p| (p.index, day[p.index].title.clone(), p.lane, p.lanes))
             .collect();
         out.sort();
         out.into_iter().map(|(_, t, l, n)| (t, l, n)).collect()
+    }
+
+    /// A placement for the hit tests: `top` / `height` in minutes from midnight.
+    fn placed(index: usize, top: u32, height: u32, lane: u32, lanes: u32) -> Placement {
+        Placement {
+            index,
+            top,
+            height,
+            lane,
+            lanes,
+        }
+    }
+
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() < 1e-3
     }
 
     #[test]
@@ -277,31 +291,14 @@ mod tests {
     }
 
     #[test]
-    fn events_that_do_not_overlap_take_the_whole_column() {
+    fn events_that_do_not_overlap_take_the_whole_column_at_their_minute_of_the_day() {
         let d = day(2026, 9, 30);
         let a = event(1, "A", d, at(9, 0), at(10, 0));
         let b = event(2, "B", d, at(11, 0), at(12, 30));
-        let layout = lay_out_day(&[&a, &b]);
         assert_eq!(
-            layout.placements,
-            vec![
-                Placement {
-                    index: 0,
-                    top: 60,
-                    height: 60,
-                    lane: 0,
-                    lanes: 1
-                },
-                Placement {
-                    index: 1,
-                    top: 180,
-                    height: 90,
-                    lane: 0,
-                    lanes: 1
-                },
-            ]
+            lay_out_day(&[&a, &b]),
+            vec![placed(0, 540, 60, 0, 1), placed(1, 660, 90, 0, 1)]
         );
-        assert_eq!((layout.earlier, layout.later), (0, 0));
     }
 
     #[test]
@@ -353,36 +350,35 @@ mod tests {
     }
 
     #[test]
-    fn events_are_clipped_to_the_view_or_counted_when_wholly_outside() {
+    fn the_view_holds_the_whole_day_from_midnight_to_the_last_minute() {
         let d = day(2026, 9, 30);
-        let dawn = event(1, "Dawn", d, at(6, 0), at(7, 30));
-        let into = event(2, "Into the view", d, at(7, 0), at(9, 0));
-        let out_of = event(3, "Out of the view", d, at(19, 30), at(21, 0));
-        let night = event(4, "Night", d, at(20, 0), at(22, 0));
-        let day_list = [&dawn, &into, &out_of, &night];
-        let layout = lay_out_day(&day_list);
-        assert_eq!(layout.earlier, 1);
-        assert_eq!(layout.later, 1);
-        let spans: Vec<(usize, u32, u32)> = layout
-            .placements
+        let midnight = event(1, "Midnight", d, at(0, 0), at(0, 30));
+        let dawn = event(2, "Dawn", d, at(6, 0), at(7, 30));
+        let night = event(3, "Night", d, at(22, 0), at(23, 59));
+        let spans: Vec<(usize, u32, u32)> = lay_out_day(&[&midnight, &dawn, &night])
             .iter()
             .map(|p| (p.index, p.top, p.height))
             .collect();
-        assert_eq!(spans, vec![(1, 0, 60), (2, 690, 30)]);
-        assert_eq!(minute_of_day(at(20, 0)), (END_HOUR * 60));
-        assert_eq!(minute_of_day(at(8, 0)), (FIRST_HOUR * 60));
+        assert_eq!(spans, vec![(0, 0, 30), (1, 360, 90), (2, 1320, 119)]);
+        assert_eq!(DAY_MINUTES, 24 * 60);
+        assert_eq!(minute_of_day(at(23, 59)), LAST_MINUTE);
     }
 
     #[test]
-    fn an_event_wholly_before_the_view_does_not_narrow_the_events_in_it() {
+    fn events_before_eight_share_lanes_like_any_others() {
         let d = day(2026, 9, 30);
-        // Early overlaps Dawn, but only before 08:00, where nothing is shown.
+        // Early overlaps Dawn: both are in the view now, so they sit side by side; Nine starts
+        // as Dawn ends and takes the whole column.
         let dawn = event(1, "Dawn", d, at(6, 0), at(9, 0));
         let early = event(2, "Early", d, at(7, 0), at(7, 45));
         let nine = event(3, "Nine", d, at(9, 0), at(10, 0));
         assert_eq!(
             lanes(&[&dawn, &early, &nine]),
-            vec![(String::from("Dawn"), 0, 1), (String::from("Nine"), 0, 1)]
+            vec![
+                (String::from("Dawn"), 0, 2),
+                (String::from("Early"), 1, 2),
+                (String::from("Nine"), 0, 1),
+            ]
         );
     }
 
@@ -400,6 +396,20 @@ mod tests {
             "28 December 2026 - 3 January 2027"
         );
         assert_eq!(time_range(at(9, 0), at(10, 30)), "09:00 - 10:30");
+        assert_eq!(hour_label(0), "00:00");
+        assert_eq!(hour_label(13), "13:00");
+    }
+
+    #[test]
+    fn a_draft_names_its_day_and_times() {
+        assert_eq!(
+            draft_label(day(2026, 9, 30), at(10, 30), at(11, 30)),
+            "Wednesday 30 September, 10:30 - 11:30"
+        );
+        assert_eq!(
+            draft_label(day(2026, 10, 4), at(23, 45), at(23, 59)),
+            "Sunday 4 October, 23:45 - 23:59"
+        );
     }
 
     #[test]
@@ -420,5 +430,254 @@ mod tests {
         assert_eq!(picked_date(2026, 1, 0), Some(day(2026, 1, 1)));
         assert_eq!(picked_date(2026, 13, 1), None);
         assert_eq!(picked_date(2026, 0, 1), None);
+    }
+
+    // ==== Pixels and times ====
+
+    #[test]
+    fn a_minute_sits_at_its_share_of_the_hour_height() {
+        assert!(close(y_of_minute(0.0, 48.0), 0.0));
+        assert!(close(y_of_minute(90.0, 48.0), 72.0));
+        assert!(close(y_of_minute(600.0, 48.0), 480.0));
+        assert!(close(y_of_minute(600.0, 120.0), 1200.0));
+        assert!(close(day_height(48.0), 1152.0));
+        assert!(close(day_height(20.0), 480.0));
+    }
+
+    #[test]
+    fn a_y_reads_back_as_its_minute_at_any_hour_height() {
+        for hour_px in [20.0, 48.0, 57.6, 120.0, 240.0] {
+            for minute in [0.0, 1.0, 59.5, 605.0, 1439.0] {
+                let y = y_of_minute(minute, hour_px);
+                assert!(
+                    close(minute_at_y(y, hour_px), minute),
+                    "{minute} min at {hour_px} px/h: y {y} reads back as {}",
+                    minute_at_y(y, hour_px)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_y_outside_the_day_reads_as_its_nearest_end() {
+        assert!(close(minute_at_y(-30.0, 48.0), 0.0));
+        assert!(close(minute_at_y(5000.0, 48.0), DAY_MINUTES as f32));
+        assert!(close(minute_at_y(f32::NAN, 48.0), 0.0));
+        assert!(close(minute_at_y(100.0, 0.0), 0.0));
+    }
+
+    #[test]
+    fn a_minute_of_the_day_is_a_time() {
+        assert_eq!(time_of_minute(0), at(0, 0));
+        assert_eq!(time_of_minute(630), at(10, 30));
+        assert_eq!(time_of_minute(LAST_MINUTE), at(23, 59));
+        assert_eq!(time_of_minute(DAY_MINUTES + 10), at(23, 59));
+    }
+
+    // ==== Click and drag to create ====
+
+    #[test]
+    fn a_click_makes_an_hour_from_the_quarter_hour_it_lands_in() {
+        // 10:36 -> 10:30 - 11:30; exactly on 10:00 -> 10:00 - 11:00; 10:59.9 -> 10:45.
+        assert_eq!(click_range(636.0), (630, 690));
+        assert_eq!(click_range(600.0), (600, 660));
+        assert_eq!(click_range(659.9), (645, 705));
+        assert_eq!(click_range(0.0), (0, 60));
+    }
+
+    #[test]
+    fn a_click_on_a_line_is_not_pushed_into_the_quarter_before_it() {
+        // A y on the 14:00 line can read back a hair under 840 minutes.
+        assert_eq!(click_range(839.9999), (840, 900));
+        assert_eq!(click_range(840.0001), (840, 900));
+    }
+
+    #[test]
+    fn a_click_late_in_the_day_is_cut_at_the_end_of_the_day() {
+        assert_eq!(click_range(23.0 * 60.0 + 20.0), (1395, LAST_MINUTE));
+        assert_eq!(click_range(1439.5), (1425, LAST_MINUTE));
+        assert_eq!(click_range(DAY_MINUTES as f32), (1425, LAST_MINUTE));
+    }
+
+    #[test]
+    fn a_drag_covers_the_quarter_hours_it_touched_whichever_way_it_went() {
+        // 13:05 -> 14:50: 13:00 - 15:00, down or up.
+        assert_eq!(drag_range(785.0, 890.0), (780, 900));
+        assert_eq!(drag_range(890.0, 785.0), (780, 900));
+        // Lines exactly: 13:00 -> 14:00 is 13:00 - 14:00.
+        assert_eq!(drag_range(780.0, 840.0), (780, 840));
+        assert_eq!(drag_range(840.0, 780.0), (780, 840));
+    }
+
+    #[test]
+    fn a_drag_inside_one_quarter_hour_makes_that_quarter_hour() {
+        assert_eq!(drag_range(782.0, 790.0), (780, 795));
+        assert_eq!(drag_range(790.0, 782.0), (780, 795));
+        assert_eq!(drag_range(780.0, 780.0), (780, 795));
+    }
+
+    #[test]
+    fn a_drag_stays_inside_the_day() {
+        assert_eq!(drag_range(1390.0, DAY_MINUTES as f32), (1380, LAST_MINUTE));
+        assert_eq!(drag_range(-50.0, 20.0), (0, 30));
+        assert_eq!(drag_range(1435.0, 1439.0), (1425, LAST_MINUTE));
+        assert_eq!(drag_range(f32::NAN, 20.0), (0, 30));
+    }
+
+    #[test]
+    fn a_press_becomes_a_drag_once_it_moves_a_few_pixels() {
+        assert!(!is_drag(100.0, 100.0));
+        assert!(!is_drag(100.0, 100.0 + DRAG_THRESHOLD_PX - 0.5));
+        assert!(!is_drag(100.0, 100.0 - DRAG_THRESHOLD_PX + 0.5));
+        assert!(is_drag(100.0, 100.0 + DRAG_THRESHOLD_PX));
+        assert!(is_drag(100.0, 40.0));
+    }
+
+    #[test]
+    fn a_press_on_an_event_finds_it_and_a_press_beside_it_finds_nothing() {
+        // 09:00 - 10:00 at 48 px/h: y 432 .. 480.
+        let blocks = [placed(7, 540, 60, 0, 1)];
+        assert_eq!(event_at(&blocks, 450.0, 0.5, 48.0), Some(7));
+        assert_eq!(event_at(&blocks, 432.0, 0.0, 48.0), Some(7));
+        assert_eq!(event_at(&blocks, 431.0, 0.5, 48.0), None);
+        assert_eq!(event_at(&blocks, 480.0, 0.5, 48.0), None);
+        // The same event at 120 px/h: y 1080 .. 1200.
+        assert_eq!(event_at(&blocks, 1150.0, 0.5, 120.0), Some(7));
+    }
+
+    #[test]
+    fn a_press_between_side_by_side_events_finds_the_one_in_its_lane() {
+        let blocks = [placed(0, 600, 60, 0, 2), placed(1, 600, 60, 1, 2)];
+        assert_eq!(event_at(&blocks, 500.0, 0.25, 48.0), Some(0));
+        assert_eq!(event_at(&blocks, 500.0, 0.75, 48.0), Some(1));
+        // Lane 0 of two, from 10:00 to 11:00: a press in lane 1's column is free.
+        let one = [placed(0, 600, 60, 0, 2)];
+        assert_eq!(event_at(&one, 500.0, 0.75, 48.0), None);
+    }
+
+    #[test]
+    fn a_short_event_is_pressed_where_its_block_is_drawn() {
+        // Five minutes at 48 px/h is 4 px; the block is drawn MIN_BLOCK_PX tall.
+        let blocks = [placed(3, 600, 5, 0, 1)];
+        assert_eq!(
+            event_at(&blocks, 480.0 + MIN_BLOCK_PX - 1.0, 0.5, 48.0),
+            Some(3)
+        );
+        assert_eq!(
+            event_at(&blocks, 480.0 + MIN_BLOCK_PX + 1.0, 0.5, 48.0),
+            None
+        );
+    }
+
+    // ==== Zoom ====
+
+    #[test]
+    fn the_hour_height_stays_between_its_limits() {
+        assert!(close(clamp_hour_px(48.0), 48.0));
+        assert!(close(clamp_hour_px(5.0), MIN_HOUR_PX));
+        assert!(close(clamp_hour_px(1000.0), MAX_HOUR_PX));
+        assert!(close(clamp_hour_px(f32::NAN), DEFAULT_HOUR_PX));
+        assert!(close(MIN_HOUR_PX, 20.0));
+        assert!(close(MAX_HOUR_PX, 240.0));
+        assert!(close(DEFAULT_HOUR_PX, 48.0));
+    }
+
+    #[test]
+    fn a_wheel_notch_zooms_a_step_and_a_flick_is_bounded() {
+        assert!(close(wheel_zoom_factor(0.0), 1.0));
+        // One notch (60 px) up zooms in by 2^(1/4); down zooms out by as much.
+        assert!(close(wheel_zoom_factor(60.0), 2f32.powf(0.25)));
+        assert!(close(wheel_zoom_factor(-60.0), 2f32.powf(-0.25)));
+        assert!(close(wheel_zoom_factor(10_000.0), 1.25));
+        assert!(close(wheel_zoom_factor(-10_000.0), 0.8));
+        assert!(close(wheel_zoom_factor(f32::NAN), 1.0));
+    }
+
+    #[test]
+    fn a_trackpad_pinch_zooms_by_each_updates_own_scale() {
+        // macOS magnify events: deltas without a gesture clock (duration 0).
+        let step = |scale| PinchSample {
+            scale,
+            initial_distance: 100.0,
+            duration_ms: 0,
+        };
+        assert!(close(pinch_step(None, step(1.1)), 1.1));
+        assert!(close(pinch_step(Some(step(1.1)), step(1.05)), 1.05));
+        assert!(close(pinch_step(Some(step(1.05)), step(0.9)), 0.9));
+    }
+
+    #[test]
+    fn a_touch_pinch_zooms_by_the_change_since_its_last_update() {
+        // Two touches: the scale is measured from where the gesture began.
+        let sample = |scale, initial_distance, duration_ms| PinchSample {
+            scale,
+            initial_distance,
+            duration_ms,
+        };
+        assert!(close(pinch_step(None, sample(1.2, 100.0, 50)), 1.2));
+        assert!(close(
+            pinch_step(Some(sample(1.2, 100.0, 50)), sample(1.5, 100.0, 80)),
+            1.25
+        ));
+        // A new gesture (other fingers, or a younger clock) starts from its own scale.
+        assert!(close(
+            pinch_step(Some(sample(1.5, 100.0, 80)), sample(1.1, 140.0, 90)),
+            1.1
+        ));
+        assert!(close(
+            pinch_step(Some(sample(1.5, 100.0, 80)), sample(1.1, 100.0, 10)),
+            1.1
+        ));
+    }
+
+    #[test]
+    fn a_pinch_that_reports_no_usable_scale_does_not_zoom() {
+        let sample = |scale| PinchSample {
+            scale,
+            initial_distance: 100.0,
+            duration_ms: 0,
+        };
+        assert!(close(pinch_step(None, sample(0.0)), 1.0));
+        assert!(close(pinch_step(None, sample(-1.0)), 1.0));
+        assert!(close(pinch_step(None, sample(f32::NAN)), 1.0));
+    }
+
+    #[test]
+    fn zooming_keeps_the_time_under_the_pointer_under_the_pointer() {
+        // 08:00 at the top of a 600 px view at 48 px/h, the pointer 100 px down (10:05).
+        let (scroll, pointer, view) = (384.0, 100.0, 600.0);
+        let before = minute_at_y(scroll + pointer, 48.0);
+        assert!(close(before, 605.0));
+        for new_px in [60.0, 96.0, 120.0, 240.0] {
+            let after_scroll = zoom_scroll(48.0, new_px, pointer, scroll, view);
+            let after = minute_at_y(after_scroll + pointer, new_px);
+            assert!(
+                close(after, before),
+                "at {new_px} px/h the pointer is over {after} min, not {before}"
+            );
+        }
+    }
+
+    #[test]
+    fn zooming_near_the_top_or_the_bottom_stays_inside_the_day() {
+        // Zooming out with 00:30 under the pointer near the top: the view cannot scroll above
+        // midnight.
+        assert!(close(zoom_scroll(96.0, 48.0, 50.0, 0.0, 600.0), 0.0));
+        // Zooming out at the bottom of the day: the view ends at 24:00.
+        let bottom = zoom_scroll(96.0, 48.0, 500.0, day_height(96.0) - 600.0, 600.0);
+        assert!(close(bottom, max_scroll(48.0, 600.0)));
+        assert!(close(max_scroll(48.0, 600.0), 1152.0 - 600.0));
+        // A day shorter than the view does not scroll at all.
+        assert!(close(max_scroll(20.0, 600.0), 0.0));
+        assert!(close(zoom_scroll(48.0, 20.0, 300.0, 400.0, 600.0), 0.0));
+    }
+
+    #[test]
+    fn the_view_opens_at_eight_or_an_hour_before_now_on_todays_week() {
+        assert_eq!(first_minute_shown(false, at(14, 20)), 8 * 60);
+        assert_eq!(first_minute_shown(true, at(14, 20)), 13 * 60);
+        assert_eq!(first_minute_shown(true, at(14, 0)), 13 * 60);
+        assert_eq!(first_minute_shown(true, at(0, 30)), 0);
+        assert_eq!(first_minute_shown(true, at(23, 59)), 22 * 60);
     }
 }

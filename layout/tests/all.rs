@@ -624,3 +624,5 @@ mod a_node_restyled_to_other_variables_resolves_them;
 mod a_full_width_rule_in_a_spanning_table_cell_renders;
 #[path = "a_linear_gradient_puts_its_colours_where_css_says.rs"]
 mod a_linear_gradient_puts_its_colours_where_css_says;
+#[path = "a_scroll_area_under_a_fixed_header_reaches_its_whole_content.rs"]
+mod a_scroll_area_under_a_fixed_header_reaches_its_whole_content;
