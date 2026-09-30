@@ -15,14 +15,18 @@ Added mid-task by the coordinator (user request): a meeting-server URL field on 
 - `f7b404f5e` feat(azmeet): rooms of three and more forward over a backbone, each tile gets its rendition
 - `71279a53f` test(azmeet): the meeting server is the saved one, else AZMEET_WORKER, else the built-in default (RED)
 - `a27770933` feat(azmeet): a meeting server field on the start screen, remembered once it answers
+- `3164bcaed` refactor(azmeet): one helper says whether this side shows a rendition
+- `72702c282` test(azmeet): three-clients pins Cleo's uplink at 10 Mbps, far from Ben's
+- `415b2a33b` docs(guide): AzMeet rooms of three and more, renditions, the meeting server field
+- the report `scripts/M5_AZMEET_LB_2026_09_29.md`
 
 ## IN PROGRESS
 
-- Guide section (doc/guide/en/system/realtime-media.md) and the report.
+- none: the task is complete; the parent adds the api.json entry, compiles and runs the suites (report).
 
 ## NEXT
 
-1. Report `scripts/M5_AZMEET_LB_2026_09_29.md`, commit.
+- (parent) api.json `IrohLoadBalancer.set_mesh_cap` via autofix; the commands in the report.
 
 ## Type-check harness (scratchpad m5/, rebuilt after the power loss)
 
