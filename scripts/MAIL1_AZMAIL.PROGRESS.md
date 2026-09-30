@@ -17,14 +17,15 @@ Branch `wt/mail1-azmail`, base `a7e18f4df`. Report: `scripts/MAIL1_AZMAIL_2026_0
 - cb767f967 GREEN for 47ab7f44c.
 - a59d917e9 RED: test_imap_server.py (16 tests over a stub).
 
+- edd4890e7 imap_server.py (16/16 tests pass) + sample_mail/ + sync_e2e.py.
+- 6f8cc1f6d RED: a button goes with its label.
+
 ## IN PROGRESS
 
-- imap_server.py (all 16 tests pass: `python3 examples/azul-mail/scripts/test_imap_server.py`)
-  + sample_mail/ + sync_e2e.py (this commit).
+- GREEN for 6f8cc1f6d (this commit).
 
 ## NEXT
 
-1. RED/GREEN: a button's label goes with it (the newsletter / phishing samples have forms).
 3. Python IMAP test server (RED unittest first) + sample mail.
 4. sync_e2e.py (headless, debug server).
 5. dependency-justifications.toml + supply-chain exemptions for the new crates.

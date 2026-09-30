@@ -4,8 +4,9 @@
 //! `&nbsp;`, uppercase tags, conditional comments. azul's parser (`Xml::from_str`) takes XHTML
 //! only, so this module reads the HTML leniently and writes a small, well-formed XHTML subset:
 //!
-//! - scripts, styles, titles, forms' option lists, frames, SVG and MathML go with their content;
-//!   comments, doctypes and processing instructions go;
+//! - scripts, styles, titles, form controls (`select`, `textarea`, `button` with its label;
+//!   `form` and `input` are dropped too, since azul would make them live widgets), frames, SVG
+//!   and MathML go with their content; comments, doctypes and processing instructions go;
 //! - images are NOT loaded (remote images are off): each becomes a grey `[image: alt]` text,
 //!   and a tracking pixel (1x1 or hidden) not even that;
 //! - only presentational tags stay (`p div span b i u a table tr td ul li h1 ...`); `font`
@@ -42,8 +43,8 @@ const BLOCKED_IMAGE_STYLE: &str = "color: #6b7385";
 
 /// Elements that go with everything inside them.
 const SKIP_WITH_CONTENT: &[&str] = &[
-    "script", "style", "title", "textarea", "select", "noscript", "template", "iframe", "object",
-    "applet", "svg", "math", "xmp", "frameset", "noframes", "audio", "video", "canvas",
+    "script", "style", "title", "textarea", "select", "button", "noscript", "template", "iframe",
+    "object", "applet", "svg", "math", "xmp", "frameset", "noframes", "audio", "video", "canvas",
 ];
 
 /// Output tags that end an open `<p>` when they start.
