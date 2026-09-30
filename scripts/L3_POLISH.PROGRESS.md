@@ -13,17 +13,18 @@ Branch `wt/l3-polish`, base `748f999af`. Report: `scripts/L3_POLISH_2026_09_29.m
 - Item 1a: `4bbe89050` (RED), `b81940907` (fix) - `get_component_thumbnail` takes `dark`
   (`builder::preview_in_dark_mode`). Resumed after a power loss: the uncommitted fix was
   complete and was committed as it was.
+- Item 1b: `4c9681b8b` - the debugger page's light / dark tokens, the Auto / Light / Dark
+  toggle (`app.mode`), thumbnails in the page's mode, `builder-mode-smoke.mjs` (19/19) and the
+  `light-dark-*.png` screenshots. Every node test and smoke passes.
+- The report `scripts/L3_POLISH_2026_09_29.md`.
 
 ## IN PROGRESS
 
-- Item 1b: debugger page light + dark (tokens on `:root`, ONE dark block under
-  `@media (prefers-color-scheme: dark)`, header toggle rewrites its media condition), palette
-  thumbnails requested with `dark`, smoke `scripts/debugger-ui/builder-mode-smoke.mjs` +
-  screenshots `scripts/debugger-ui/screenshots/light-dark-*.png`, rerun every node test + smoke.
+(none)
 
 ## NEXT
 
-- Report `scripts/L3_POLISH_2026_09_29.md`.
+(none: the parent compiles and runs the Rust suites listed in the report)
 
 ## Open questions
 
