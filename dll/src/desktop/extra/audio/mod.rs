@@ -61,6 +61,14 @@ struct AudioSinkInner {
     ios_sink: Option<avfoundation_sink::AvfSink>,
 }
 
+/// One open platform output stream: the seam between the `AudioSink` handle
+/// and the device.
+trait OutputDevice {
+    /// Hands interleaved f32 `samples` to the device. False when the device
+    /// did not take them.
+    fn play(&self, samples: &[f32]) -> bool;
+}
+
 /// An audio output handle. Open one with [`AudioSink::open`], feed it
 /// [`AudioFrame`]s with [`play`](Self::play); drop it to stop. Carries an
 /// engine resource (the output stream), so it follows the C-ABI handle
@@ -219,6 +227,12 @@ impl AudioSink {
         Self::from_inner(inner)
     }
 
+    /// A sink on `output` (the platform device, or why there is none).
+    fn open_on(config: AudioConfig, output: Result<Box<dyn OutputDevice>, String>) -> AudioSink {
+        let _ = (config, output);
+        todo!("RED: a sink on an output device, or a closed handle that says why")
+    }
+
     fn from_inner(inner: AudioSinkInner) -> AudioSink {
         AudioSink {
             ptr: Box::into_raw(Box::new(inner)) as *mut c_void,
@@ -266,6 +280,11 @@ impl AudioSink {
         unsafe { (self.ptr as *const AudioSinkInner).as_ref() }
             .map(|i| i.frames_played)
             .unwrap_or(0)
+    }
+
+    /// Why this sink is not open.
+    pub fn error_message(&self) -> azul_css::OptionString {
+        todo!("RED: the reason a sink did not open")
     }
 
     /// Stop playback + release the output. (Dropping the handle does this too;
@@ -662,11 +681,16 @@ fn coreaudio_device_names() -> (StringVec, StringVec) {
 
 #[cfg(test)]
 mod headless_sink_tests {
+    use std::sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    };
+
     use azul_core::audio::{AudioConfig, AudioFrame};
-    use azul_css::F32Vec;
+    use azul_css::{F32Vec, OptionString};
     use azul_layout::request::mock::MockDevice;
 
-    use super::AudioSink;
+    use super::{AudioSink, OutputDevice};
 
     const CONFIG: AudioConfig = AudioConfig {
         sample_rate: 48_000,
@@ -704,6 +728,84 @@ mod headless_sink_tests {
         assert_eq!(sink.frames_played(), 3);
         sink.close();
         assert!(!sink.is_open());
+    }
+
+    /// The reason a sink gives for not being open, as plain text.
+    fn reason(sink: &AudioSink) -> Option<String> {
+        match sink.error_message() {
+            OptionString::Some(why) => Some(why.as_str().to_string()),
+            OptionString::None => None,
+        }
+    }
+
+    /// A stand-in output device: takes every other frame (its queue is full
+    /// for the rest) and counts every frame it is handed.
+    struct TakesEveryOther {
+        handed: Arc<AtomicU32>,
+    }
+
+    impl OutputDevice for TakesEveryOther {
+        fn play(&self, samples: &[f32]) -> bool {
+            assert_eq!(samples.len(), 960, "the frame's samples reach the device");
+            let n = self.handed.fetch_add(1, Ordering::SeqCst) + 1;
+            n % 2 == 1
+        }
+    }
+
+    /// An output that does not open (no device, no backend in this build, or
+    /// the device refuses the format) gives a CLOSED handle that says why -
+    /// never an open-looking one that plays into nothing.
+    #[test]
+    fn a_device_that_does_not_open_gives_a_closed_handle_that_says_why() {
+        let why = "the output device refused 48000 Hz x 1 f32";
+        let sink = AudioSink::open_on(CONFIG, Err(String::from(why)));
+        assert!(!sink.is_open());
+        assert_eq!(reason(&sink).as_deref(), Some(why));
+        sink.play(chunk());
+        assert_eq!(sink.frames_played(), 0);
+        // A copy of the handle carries the reason too.
+        assert_eq!(reason(&sink.clone()).as_deref(), Some(why));
+    }
+
+    /// `frames_played` counts only the frames a device TOOK: a frame the
+    /// device did not take (its queue full, the write failed) was never
+    /// heard, so it is not counted.
+    #[test]
+    fn frames_played_counts_only_the_frames_the_device_took() {
+        let handed = Arc::new(AtomicU32::new(0));
+        let device: Box<dyn OutputDevice> = Box::new(TakesEveryOther {
+            handed: handed.clone(),
+        });
+        let mut sink = AudioSink::open_on(CONFIG, Ok(device));
+        assert!(sink.is_open());
+        assert_eq!(reason(&sink), None);
+        for _ in 0..4 {
+            sink.play(chunk());
+        }
+        assert_eq!(
+            handed.load(Ordering::SeqCst),
+            4,
+            "every frame reached the device"
+        );
+        assert_eq!(sink.frames_played(), 2, "only the two it took count");
+        sink.close();
+        assert!(!sink.is_open());
+        assert_eq!(reason(&sink), None, "closing on purpose is not an error");
+    }
+
+    /// A headless run that opens no audio output says why and how to get the
+    /// synthetic stand-in; the stand-in is open and has nothing to report.
+    #[test]
+    fn a_headless_sink_that_opens_nothing_says_why() {
+        let sink = AudioSink::open_as(CONFIG, MockDevice::Unavailable);
+        let why = reason(&sink).expect("an unavailable sink says why");
+        assert!(why.contains("not available in a headless run"), "{why}");
+        assert!(why.contains("AZ_SYNTHETIC_DEVICES=audio_sink"), "{why}");
+
+        let synthetic = AudioSink::open_as(CONFIG, MockDevice::Synthetic);
+        assert!(synthetic.is_open());
+        assert_eq!(reason(&synthetic), None);
+        assert_eq!(reason(&AudioSink::default()), None);
     }
 }
 
