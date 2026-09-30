@@ -335,9 +335,16 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
         let mut playback =
             VideoPlayback::new(requested.start_s, requested.paused, requested.looping);
         playback.set_duration(duration);
+        playback.set_frame_interval(frame_s);
         let mut chunk_idx = 0usize;
         // Frames handed back so far, in the order they came.
         let mut emitted = 0usize;
+        // The newest presentation time decoded since the last (re)start: the
+        // schedule's decode gate reads it (`wants_frame`, `restart_wanted`).
+        let mut decoded_until: Option<f32> = None;
+        // The restart under way, so a target the clock keeps moving past is
+        // restarted for once, not on every pass until its frames arrive.
+        let mut restart_target: Option<f32> = None;
         // The display-order time of the n-th frame a display-order decoder hands back.
         let display_order_pts = |n: usize| -> f32 {
             display_pts
@@ -364,6 +371,7 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
                     Control::Seek(ts) => {
                         requested.start_s = ts;
                         playback.seek(ts, now());
+                        restart_target = None;
                         if log {
                             eprintln!("[vstream] seek → {ts:.2}s");
                         }
@@ -388,9 +396,38 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
                 }
             }
 
-            // Decode one access unit per iteration (drain every frame it
-            // yields), flushing the reorder buffer after the final chunk.
-            if chunk_idx < total {
+            // A seek back past the kept frames, a loop wrap, or a jump far
+            // ahead: decode again from the keyframe at or before the target.
+            match playback.restart_wanted(now(), decoded_until) {
+                Some(target) if restart_target.is_none() => {
+                    let k = keyframe_at_or_before(&demuxed.chunks, &chunk_pts, target, frame_s);
+                    // What the decoder still holds is the old run's.
+                    let mut f = decoder.flush();
+                    while let OptionVideoFrame::Some(_) = f {
+                        f = decoder.next_frame();
+                    }
+                    chunk_idx = k;
+                    emitted = display_pts.partition_point(|p| *p < chunk_pts[k]);
+                    decoded_until = None;
+                    restart_target = Some(target);
+                    playback.restart_decode();
+                    if log {
+                        eprintln!(
+                            "[vstream] restart at chunk {k} ({:.2}s) for {target:.2}s",
+                            chunk_pts[k]
+                        );
+                    }
+                }
+                Some(_) => {} // decoding towards it
+                None => restart_target = None,
+            }
+
+            // Decode one access unit per pass while the schedule wants one
+            // (the poster while held, a lookahead while playing - never the
+            // whole clip), draining every frame it yields, and flushing the
+            // reorder buffer after the final chunk.
+            let decoding = chunk_idx < total && playback.wants_frame(now(), decoded_until);
+            if decoding {
                 let _accepted =
                     decoder.decode(U8Vec::from_vec(demuxed.chunks[chunk_idx].annexb.clone()));
                 let mut nth = 0usize;
@@ -402,6 +439,7 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
                         display_order_pts(emitted)
                     };
                     playback.push_frame(pts, frame);
+                    decoded_until = Some(decoded_until.map_or(pts, |d| d.max(pts)));
                     emitted += 1;
                     nth += 1;
                     f = decoder.next_frame();
@@ -410,7 +448,9 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
                 if chunk_idx == total {
                     let mut f = decoder.flush();
                     while let OptionVideoFrame::Some(frame) = f {
-                        playback.push_frame(display_order_pts(emitted), frame);
+                        let pts = display_order_pts(emitted);
+                        playback.push_frame(pts, frame);
+                        decoded_until = Some(decoded_until.map_or(pts, |d| d.max(pts)));
                         emitted += 1;
                         f = decoder.next_frame();
                     }
@@ -463,8 +503,13 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
             if let Some(status) = tick.status {
                 if log {
                     eprintln!(
-                        "[vstream] {:?} {:.2}/{:.2}s decoded={}/{}",
-                        status.phase, status.position_s, status.duration_s, chunk_idx, total
+                        "[vstream] {:?} {:.2}/{:.2}s decoded={}/{} held={}",
+                        status.phase,
+                        status.position_s,
+                        status.duration_s,
+                        chunk_idx,
+                        total,
+                        playback.frames_held()
                     );
                 }
                 if !send_status(&mut sender, status) {
@@ -472,16 +517,35 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
                 }
             }
 
-            // Once fully decoded, pace so we don't busy-spin (slower while
-            // held: only a control message can change anything); while still
-            // decoding, loop fast (the decode itself is the work) to stay
-            // ahead of the clock.
-            if chunk_idx >= total {
+            // The frames the clock has passed go (the one on screen stays).
+            let _ = playback.trim(now());
+
+            // Pace when there is nothing to decode (the gate is shut, or the
+            // clip is in): slower while held, when only a control message can
+            // change anything. While decoding, loop fast - the decode itself
+            // is the work - to stay ahead of the clock.
+            if !decoding {
                 let idle_ms = if requested.paused { 30 } else { 8 };
                 std::thread::sleep(Duration::from_millis(idle_ms));
             }
         }
     }
+}
+
+/// The decode-order index of the last keyframe shown at or before
+/// `target_s` (the first chunk when none is), where a restarted decode
+/// begins: an IDR needs no earlier frame.
+#[cfg(feature = "video-native")]
+fn keyframe_at_or_before(
+    chunks: &[super::demux::H264Chunk],
+    chunk_pts: &[f32],
+    target_s: f32,
+    frame_s: f32,
+) -> usize {
+    (0..chunks.len().min(chunk_pts.len()))
+        .rev()
+        .find(|&i| chunks[i].is_keyframe && chunk_pts[i] <= target_s + frame_s * 0.5)
+        .unwrap_or(0)
 }
 
 /// Resize a decoded `VideoFrame` to `tw`×`th`, on the decode thread, so the

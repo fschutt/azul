@@ -1431,6 +1431,17 @@ impl TextureCache {
     ) -> bool {
         let mut allowed_in_shared_cache = true;
 
+        // The shared atlases hold R8, R16, RGBA8 and BGRA8 (`SharedTextures::
+        // select`, which panics on anything else). Every other format - the
+        // RG8 CbCr plane of an NV12 video frame - gets a standalone texture;
+        // the YUV shader samples it just the same.
+        if !matches!(
+            descriptor.format,
+            ImageFormat::R8 | ImageFormat::R16 | ImageFormat::RGBA8 | ImageFormat::BGRA8
+        ) {
+            allowed_in_shared_cache = false;
+        }
+
         if matches!(descriptor.format, ImageFormat::RGBA8 | ImageFormat::BGRA8)
             && filter == TextureFilter::Linear
         {

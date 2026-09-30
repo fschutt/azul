@@ -112,6 +112,11 @@ pub const fn accessibility_role_is_specified(role: &AccessibilityRole) -> bool {
 /// attribute (`password`, `search`, `email`, `tel`, `url`, `text`), or the
 /// `Protected` accessibility state for a masked field. Anything else keeps the
 /// generic role (`None`).
+///
+/// Gated like `Role` itself: without the `a11y` feature (the `webrender`
+/// crate's own build of this crate) the type does not exist, and this file
+/// did not compile.
+#[cfg(feature = "a11y")]
 #[must_use]
 pub fn typed_text_input_role(
     node_data: &NodeData,

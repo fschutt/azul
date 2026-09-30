@@ -50,6 +50,14 @@ pub const STATUS_INTERVAL_S: f32 = crate::managers::media_player::TIME_UPDATE_IN
 /// Slack when matching the clock to a frame's presentation time, so a clock
 /// that lands a hair before a frame (`n / fps` rounds) still shows it.
 const PTS_TOLERANCE_S: f32 = 0.001;
+/// How far ahead of its clock the decode worker keeps frames while playing.
+pub const DECODE_LOOKAHEAD_S: f32 = 2.0;
+/// How far behind its clock the worker keeps frames (a short seek back
+/// replays them without a decode).
+pub const DECODE_KEEP_BEHIND_S: f32 = 0.5;
+/// A seek this far past the decoded frames restarts the decode at the
+/// target's keyframe instead of decoding every frame up to it.
+pub const DECODE_JUMP_S: f32 = 3.0;
 
 /// Live state for one video widget, carried across relayout by
 /// [`merge_video_state`].
@@ -958,6 +966,9 @@ pub struct VideoPlayback {
     looping: bool,
     /// The app asked to hold.
     paused: bool,
+    /// One frame's time, from the worker ([`set_frame_interval`](Self::set_frame_interval));
+    /// 1/30 s until then. Says whether the frame due at a position is held.
+    frame_s: f32,
 }
 
 /// What one [`VideoPlayback::tick`] asks of the decode worker.
@@ -995,12 +1006,106 @@ impl VideoPlayback {
             complete: false,
             looping,
             paused,
+            frame_s: 1.0 / 30.0,
         }
     }
 
     /// The video is `duration_s` long (`0.0`, NaN or negative: unknown).
     pub const fn set_duration(&mut self, duration_s: f32) {
         self.duration_s = sanitize_position(duration_s);
+    }
+
+    /// One frame lasts `frame_s` (ignored unless positive and finite).
+    pub const fn set_frame_interval(&mut self, frame_s: f32) {
+        if frame_s > 0.0 && frame_s.is_finite() {
+            self.frame_s = frame_s;
+        }
+    }
+
+    /// The frames held, in presentation order.
+    #[must_use]
+    pub const fn frames_held(&self) -> usize {
+        self.frames.len()
+    }
+
+    /// The frame on screen, if a tick presented one.
+    #[must_use]
+    pub fn on_screen(&self) -> Option<&VideoFrame> {
+        self.presented.and_then(|i| self.frame(i))
+    }
+
+    /// Whether the frame due at `position_s` is held: the first held frame
+    /// is at or before it (within one frame).
+    fn holds_frame_at(&self, position_s: f32) -> bool {
+        self.frames
+            .first()
+            .is_some_and(|(first, _)| *first <= position_s + self.frame_s + PTS_TOLERANCE_S)
+    }
+
+    /// Whether the worker should decode another access unit now.
+    /// `decoded_until_s` is the presentation time of the newest frame it
+    /// decoded since it last (re)started, `None` before the first. Held, the
+    /// schedule wants the poster - the frame at its position - and nothing
+    /// after it; playing, [`DECODE_LOOKAHEAD_S`] ahead of the clock; ended,
+    /// or with every frame in, nothing. This is what keeps a `<video>` nobody
+    /// plays from holding its whole clip decoded.
+    #[must_use]
+    pub fn wants_frame(&self, now_s: f64, decoded_until_s: Option<f32>) -> bool {
+        if self.complete {
+            return false;
+        }
+        let Some(decoded_until) = decoded_until_s else {
+            return true;
+        };
+        match self.clock {
+            PlaybackClock::Held => self.base_s > decoded_until + PTS_TOLERANCE_S,
+            PlaybackClock::Running { .. } => {
+                decoded_until < self.position(now_s) + DECODE_LOOKAHEAD_S
+            }
+            PlaybackClock::Ended => false,
+        }
+    }
+
+    /// The position the worker must restart decoding for, from the keyframe
+    /// at or before it: the frame due there is not held (a seek back past the
+    /// kept frames, a loop wrap), or it lies more than [`DECODE_JUMP_S`] past
+    /// what the worker decoded (a seek far ahead). `None` otherwise, and
+    /// before the first frame (the worker is decoding from the start).
+    #[must_use]
+    pub fn restart_wanted(&self, now_s: f64, decoded_until_s: Option<f32>) -> Option<f32> {
+        if self.frames.is_empty() || self.clock == PlaybackClock::Ended {
+            return None;
+        }
+        let position = self.position(now_s);
+        if !self.holds_frame_at(position) {
+            return Some(position);
+        }
+        match decoded_until_s {
+            Some(until) if !self.complete && position > until + DECODE_JUMP_S => Some(position),
+            _ => None,
+        }
+    }
+
+    /// The worker restarted its decode: the end is not in until it is handed
+    /// in again.
+    pub const fn restart_decode(&mut self) {
+        self.complete = false;
+    }
+
+    /// Drop the frames more than [`DECODE_KEEP_BEHIND_S`] behind the clock,
+    /// never the one on screen; how many went.
+    pub fn trim(&mut self, now_s: f64) -> usize {
+        let keep_from = self.position(now_s) - DECODE_KEEP_BEHIND_S;
+        let mut n = self.frames.partition_point(|(pts, _)| *pts < keep_from);
+        if let Some(on_screen) = self.presented {
+            n = n.min(on_screen);
+        }
+        if n == 0 {
+            return 0;
+        }
+        self.frames.drain(..n);
+        self.presented = self.presented.map(|i| i - n);
+        n
     }
 
     /// The length in seconds, `0.0` while unknown.
@@ -1058,7 +1163,16 @@ impl VideoPlayback {
     /// order; the frame on screen stays the one on screen.
     pub fn push_frame(&mut self, pts_s: f32, frame: VideoFrame) {
         let pts_s = sanitize_position(pts_s);
-        let at = self.frames.partition_point(|(pts, _)| *pts <= pts_s);
+        let at = self
+            .frames
+            .partition_point(|(pts, _)| *pts < pts_s - PTS_TOLERANCE_S);
+        if let Some(slot) = self.frames.get_mut(at) {
+            if (slot.0 - pts_s).abs() <= PTS_TOLERANCE_S {
+                // Decoded again (a restart from a keyframe): the newer copy.
+                slot.1 = frame;
+                return;
+            }
+        }
         self.frames.insert(at, (pts_s, frame));
         if let Some(on_screen) = self.presented {
             if at <= on_screen {
@@ -1148,6 +1262,20 @@ impl VideoPlayback {
                     self.paused = true;
                 }
             }
+        }
+        // The frame due is not held (a seek back past the kept frames, a
+        // loop wrap): keep the picture - not the stale frame after it - while
+        // the worker decodes from its keyframe again (`restart_wanted`).
+        if self.clock != PlaybackClock::Ended && !self.holds_frame_at(position) {
+            let phase = match self.clock {
+                PlaybackClock::Held => VideoPhase::Paused,
+                PlaybackClock::Running { .. } | PlaybackClock::Ended => VideoPhase::Playing,
+            };
+            let status = self.report(phase, position);
+            return VideoTick {
+                present: None,
+                status,
+            };
         }
         let index = if self.clock == PlaybackClock::Ended {
             self.frames.len() - 1
