@@ -34767,6 +34767,27 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "AccordionVariant": {
+                        "external": "azul_layout::widgets::accordion::AccordionVariant",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Panel": {},
+                                "Groups": {}
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -61703,10 +61724,16 @@
                                 "children": {
                                     "type": "TreeViewNodeVec"
                                 },
+                                "icon": {
+                                    "type": "String"
+                                },
                                 "is_expanded": {
                                     "type": "bool"
                                 },
                                 "is_selected": {
+                                    "type": "bool"
+                                },
+                                "has_unloaded_children": {
                                     "type": "bool"
                                 }
                             }
@@ -65503,6 +65530,9 @@
                                 "content": {
                                     "type": "Dom"
                                 },
+                                "count": {
+                                    "type": "OptionUsize"
+                                },
                                 "is_open": {
                                     "type": "bool"
                                 }
@@ -65563,6 +65593,9 @@
                                 },
                                 "on_toggle": {
                                     "type": "OptionAccordionOnToggle"
+                                },
+                                "variant": {
+                                    "type": "AccordionVariant"
                                 },
                                 "theme": {
                                     "type": "OptionUiTheme"
@@ -67887,6 +67920,9 @@
                                     "type": "BreadcrumbState"
                                 },
                                 "on_navigate": {
+                                    "type": "OptionBreadcrumbOnNavigate"
+                                },
+                                "on_segment_menu": {
                                     "type": "OptionBreadcrumbOnNavigate"
                                 }
                             }
@@ -133091,6 +133127,25 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionDiskSpace": {
+                        "external": "azul_layout::file::OptionDiskSpace",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "DiskSpace"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -146437,6 +146492,21 @@
                                     "type": "ResultFilePathFileError"
                                 },
                                 "fn_body": "object.canonicalize().into()"
+                            },
+                            "disk_space": {
+                                "doc": [
+                                    "The size and free space of the volume this path is on; `None` when the",
+                                    "path does not exist or the platform cannot tell. See [`disk_space`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionDiskSpace"
+                                },
+                                "fn_body": "object.disk_space().into()"
                             }
                         },
                         "repr": "C"
@@ -146571,6 +146641,28 @@
                                     "doc": [
                                         "Number of elements in the slice"
                                     ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DiskSpace": {
+                        "external": "azul_layout::file::DiskSpace",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "total": {
+                                    "type": "u64"
+                                },
+                                "free": {
+                                    "type": "u64"
                                 }
                             }
                         ],
