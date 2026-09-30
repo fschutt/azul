@@ -320,3 +320,47 @@ fn an_idle_window_registers_no_timers_and_requests_no_frames() {
         "an idle window asked for {requested} frames over 10 periods"
     );
 }
+
+/// The measured cost: AzWidgets spent ~18% of a core rebuilding the WHOLE
+/// window's display list on every animation frame to turn three spinners.
+/// A spinner only rotates and fades - values the display list binds by key
+/// (`PushReferenceFrame` / `PushOpacity`) and both renderers read live - so
+/// once its groups are in the list, a tick must repaint without rebuilding
+/// it. The frame path is the one the desktop shells run: a dirty display
+/// list is regenerated (`regenerate_display_list_for_dom`), anything else
+/// only re-rendered.
+#[test]
+fn a_transform_and_opacity_animation_tick_does_not_rebuild_the_display_list() {
+    let mut window = spinner_window();
+    let rebuilds_before = lw(&window).frame_report.dl_rebuilds;
+
+    let mut requested = 0;
+    for _ in 0..5 {
+        let _ = azul_core::task::advance_test_clock_ms(FRAME_MS);
+        if window.process_timers_and_threads() {
+            requested += 1;
+        }
+        // The desktop frame path (macOS `render_and_present_in_draw_rect`,
+        // X11 / Wayland / Win32 alike).
+        if window.common.display_list_dirty {
+            window.common.display_list_dirty = false;
+            if let Some(lw) = window.common.layout_window.as_mut() {
+                lw.regenerate_display_list_for_dom(DomId::ROOT_ID);
+            }
+        }
+    }
+    let rebuilds = lw(&window).frame_report.dl_rebuilds - rebuilds_before;
+    let regen = window.common.regeneration_pending();
+    azul_core::task::reset_test_clock();
+
+    assert_eq!(
+        requested, 5,
+        "harness: a visible spinner asks for every frame"
+    );
+    assert_eq!(
+        rebuilds, 0,
+        "five spinner frames rebuilt the whole display list {rebuilds} times; rotating and \
+         fading keyed groups must only repaint"
+    );
+    assert!(!regen, "and must not queue a DOM regeneration");
+}

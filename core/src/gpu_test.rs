@@ -741,3 +741,70 @@ mod autotest_generated {
         assert!(cache.opacity_keys.keys().all(|n| n.index() < node_count));
     }
 }
+
+/// The one "current animated values by key" source
+/// (`GpuValueCache::for_each_bound_value`) must hand out EVERY bound
+/// channel: WebRender's dynamic properties used to carry the scrollbar
+/// channels only, so an animation tick that skipped the display-list
+/// rebuild moved nothing on the GPU path.
+#[cfg(test)]
+mod bound_values {
+    use super::*;
+
+    fn translate(x: f32) -> ComputedTransform3D {
+        ComputedTransform3D::new_translation(x, 0.0, 0.0)
+    }
+
+    #[test]
+    fn every_bound_channel_is_visited_once_by_key() {
+        let dom = DomId::ROOT_ID;
+        let (a, b, c) = (NodeId::new(1), NodeId::new(2), NodeId::new(3));
+        let mut cache = GpuValueCache::default();
+
+        let thumb = TransformKey::unique();
+        cache.transform_keys.insert(a, thumb);
+        cache.current_transform_values.insert(a, translate(1.0));
+        let css = TransformKey::unique();
+        cache.css_transform_keys.insert(b, css);
+        cache.css_current_transform_values.insert(b, translate(2.0));
+        let anim = TransformKey::unique();
+        cache.anim_transform_keys.insert(c, anim);
+        cache.anim_current_transform_values.insert(c, translate(3.0));
+        // A key without a value binds nothing.
+        cache.anim_transform_keys.insert(a, TransformKey::unique());
+
+        let fade = OpacityKey::unique();
+        cache.scrollbar_v_opacity_keys.insert((dom, a), fade);
+        cache.scrollbar_v_opacity_values.insert((dom, a), 0.5);
+        let css_o = OpacityKey::unique();
+        cache.opacity_keys.insert(b, css_o);
+        cache.current_opacity_values.insert(b, 0.25);
+        let anim_o = OpacityKey::unique();
+        cache.anim_opacity_keys.insert(c, anim_o);
+        cache.anim_current_opacity_values.insert(c, 0.75);
+        // Another DOM's scrollbar fade is not this DOM's.
+        cache
+            .scrollbar_h_opacity_keys
+            .insert((DomId { inner: 7 }, a), OpacityKey::unique());
+        cache
+            .scrollbar_h_opacity_values
+            .insert((DomId { inner: 7 }, a), 0.1);
+
+        let mut transforms = Vec::new();
+        let mut opacities = Vec::new();
+        cache.for_each_bound_value(
+            dom,
+            |k, v| transforms.push((k, v.m[3][0])),
+            |k, v| opacities.push((k, v)),
+        );
+        transforms.sort_by_key(|(k, _)| *k);
+        opacities.sort_by_key(|(k, _)| *k);
+
+        let mut want_t = vec![(thumb.id, 1.0), (css.id, 2.0), (anim.id, 3.0)];
+        want_t.sort_by_key(|(k, _)| *k);
+        let mut want_o = vec![(fade.id, 0.5), (css_o.id, 0.25), (anim_o.id, 0.75)];
+        want_o.sort_by_key(|(k, _)| *k);
+        assert_eq!(transforms, want_t, "every transform channel, by key");
+        assert_eq!(opacities, want_o, "every opacity channel of this DOM, by key");
+    }
+}

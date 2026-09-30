@@ -194,6 +194,48 @@ impl GpuValueCache {
         h
     }
 
+    /// Every value a display list can BIND, by key id: `on_transform` for
+    /// each transform key with a value (scrollbar thumbs, CSS `transform`,
+    /// the animation channel), `on_opacity` for each opacity key with a value
+    /// (scrollbar fades of `dom_id`, CSS `opacity`, the animation channel).
+    ///
+    /// THE one "current animated values by key" source. The CPU renderer
+    /// (`cpurender::extract_gpu_values`) and WebRender's dynamic properties
+    /// (`wr_translate2::synchronize_gpu_values`) both read it, so a value that
+    /// changes without a display-list rebuild - an animation tick - reaches
+    /// both backends the same way.
+    pub fn for_each_bound_value(
+        &self,
+        dom_id: DomId,
+        mut on_transform: impl FnMut(usize, &ComputedTransform3D),
+        mut on_opacity: impl FnMut(usize, f32),
+    ) {
+        for (node_id, key) in &self.transform_keys {
+            if let Some(value) = self.current_transform_values.get(node_id) {
+                on_transform(key.id, value);
+            }
+        }
+        for (node_id, key) in &self.h_transform_keys {
+            if let Some(value) = self.h_current_transform_values.get(node_id) {
+                on_transform(key.id, value);
+            }
+        }
+        for ((d, node_id), key) in &self.scrollbar_v_opacity_keys {
+            if *d == dom_id {
+                if let Some(&value) = self.scrollbar_v_opacity_values.get(&(*d, *node_id)) {
+                    on_opacity(key.id, value);
+                }
+            }
+        }
+        for ((d, node_id), key) in &self.scrollbar_h_opacity_keys {
+            if *d == dom_id {
+                if let Some(&value) = self.scrollbar_h_opacity_values.get(&(*d, *node_id)) {
+                    on_opacity(key.id, value);
+                }
+            }
+        }
+    }
+
     /// Synchronizes the cache with the current `StyledDom`, generating change events
     /// for CSS transform and opacity additions, modifications, and removals.
     ///
