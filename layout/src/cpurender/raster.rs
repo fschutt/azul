@@ -10911,6 +10911,119 @@ mod unplaceable_glyph_geometry_tests {
         }
     }
 
+    /// Ink in the columns from `x0` rightwards.
+    fn inked_right_of(pm: &AzulPixmap, x0: u32) -> usize {
+        let w = pm.width() as usize;
+        pm.data()
+            .chunks_exact(4)
+            .enumerate()
+            .filter(|(i, p)| (i % w) as u32 >= x0 && (p[0] != 255 || p[1] != 255 || p[2] != 255))
+            .count()
+    }
+
+    /// A text item is clipped to its OWN `clip_rect` (cut to the active
+    /// clip) on every paint path, as WebRender clips it. The pre-tiled LCD
+    /// path did; the batch sweep and the grayscale path clipped to the
+    /// STACK clip alone and only skipped a run whose clip_rect lay wholly
+    /// outside it - so ink past a run's clip_rect painted on two paths and
+    /// not on the third (a list marker cut by one, painted by the other).
+    #[test]
+    fn a_runs_ink_outside_its_own_clip_rect_is_cut_on_every_paint_path() {
+        let Some(font) = lcd_pretile_tests::load_test_font_pub() else {
+            eprintln!("no system test font - skipping");
+            return;
+        };
+        let (rr, fm, font_hash) = lcd_pretile_tests::rr_with_pub(&font);
+        let glyphs = sane_run(&font);
+
+        // Premise: unclipped, the six H's ink well past x = 20.
+        let mut open = white_pixmap();
+        grayscale(&mut open, None, &glyphs, &rr, &fm, font_hash);
+        assert!(
+            inked_right_of(&open, 20) > 0,
+            "premise: the run inks past x = 20 when nothing clips it"
+        );
+
+        // The run's own clip ends at x = 20. The stack clip is absent, or
+        // the whole window: wider than the run's clip either way.
+        let own = LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize {
+                width: 20.0,
+                height: H as f32,
+            },
+        };
+        for stack in [None, AzRect::from_xywh(0.0, 0.0, W as f32, H as f32)] {
+            let mut pm = white_pixmap();
+            let mut gc = GlyphCache::new();
+            render_text(
+                &glyphs,
+                font_hash,
+                FONT_PX,
+                BLACK,
+                &mut pm,
+                &own,
+                stack,
+                &rr,
+                &fm,
+                1.0,
+                &mut gc,
+                (0.0, 0.0),
+                true,
+            );
+            assert!(
+                inked(&pm) > 0,
+                "the H's inside the run's clip paint (stack clip {stack:?})"
+            );
+            assert_eq!(
+                inked_right_of(&pm, 20),
+                0,
+                "the grayscale path painted ink right of the run's own clip_rect (x >= 20) \
+                 under stack clip {stack:?}"
+            );
+
+            // The pre-blended tile path (a proven uniform background): the
+            // same rule.
+            let mut tiled = white_pixmap();
+            let mut gc = GlyphCache::new();
+            render_text_with_bg(
+                &glyphs,
+                font_hash,
+                FONT_PX,
+                BLACK,
+                &mut tiled,
+                &own,
+                stack,
+                &rr,
+                &fm,
+                1.0,
+                &mut gc,
+                (0.0, 0.0),
+                false,
+                Some((
+                    WHITE,
+                    LogicalRect {
+                        origin: LogicalPosition {
+                            x: -10_000.0,
+                            y: -10_000.0,
+                        },
+                        size: LogicalSize {
+                            width: 20_000.0,
+                            height: 20_000.0,
+                        },
+                    }
+                    .into(),
+                )),
+            );
+            assert_eq!(
+                inked_right_of(&tiled, 20),
+                0,
+                "the tile path painted ink right of the run's own clip_rect (x >= 20) under \
+                 stack clip {stack:?}"
+            );
+        }
+    }
+
     // ---- the three guards, without a font ----
 
     #[test]
