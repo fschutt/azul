@@ -354,8 +354,10 @@ pub struct CaptureVTable {
     /// Open the source described by the request. Returns an opaque handle,
     /// or `0` on failure (the worker then falls back to the test pattern).
     pub open: fn(request: &CaptureRequest) -> u64,
-    /// Block (bounded, ~1 s) for the next frame, writing tightly-packed RGBA8
-    /// into `out` (resized as needed). See [`CaptureRead`] for the three
+    /// Block (bounded, ~1 s) for the next frame, writing it tightly packed
+    /// into `out` (resized, or swapped with the backend's own buffer): RGBA8
+    /// (`Frame`), or the format the request asked for when the backend has
+    /// it without a conversion (`FrameIn`). See [`CaptureRead`] for the
     /// outcomes — a timeout is `Idle`, never `Ended`.
     pub read: fn(handle: u64, out: &mut Vec<u8>) -> CaptureRead,
     /// Close + free the source.
