@@ -199,7 +199,8 @@ extern "C" fn pump(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackR
 - `connect(ticket)` dials. The outcome arrives as a `PeerConnected` or `Error` event.
 - `send_frame(peer, track, data)` and `broadcast_frame(track, data)` send each frame on its own QUIC stream. A frame that has not left yet is replaced by the next frame of the same track, so a slow link lowers the frame rate instead of adding latency. The receiver likewise keeps only the newest frame of each track until `recv` takes it, so a stream where every piece counts (audio) repeats recent data in each frame. JPEG frames from `RawImage::encode_jpeg` are the simplest video format.
 - `send_message(peer, data)` is reliable and ordered, for chat and control data.
-- `peer_stats(peer)` reports whether the path is direct or relayed, the RTT, the congestion window and frame counters.
+- When the link cannot carry everything, higher priority goes first. Frames start at 0 and messages at 1; `set_track_priority(track, priority)` and `set_message_priority(priority)` change that for every peer. A call app that sends video as messages sets its audio track to 2, so video never starves audio.
+- `peer_stats(peer)` reports whether the path is direct or relayed, the RTT, the congestion window, frame counters, and the outgoing message backlog (`messages_queued`, `message_bytes_queued`: accepted by `send_message`, not yet handed to the connection).
 - Nothing arrives unless you poll `recv`, so drive it from a timer.
 - For rooms, `IrohLoadBalancer` picks the peers that forward media for everyone (`backbone_size`, `select_backbone`), and `IrohTileRole::rendition_height` picks the resolution a video tile should request.
 

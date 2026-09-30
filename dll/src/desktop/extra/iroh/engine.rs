@@ -73,6 +73,7 @@ struct State {
     next_peer: AtomicU64,
     frame_sequences: Mutex<BTreeMap<u32, u64>>,
     message_sequence: AtomicU64,
+    priorities: Arc<Priorities>,
 }
 
 struct Peer {
@@ -84,6 +85,12 @@ struct Peer {
     frames_sent: AtomicU64,
     frames_received: AtomicU64,
     frames_skipped: AtomicU64,
+    /// The endpoint's send priorities.
+    priorities: Arc<Priorities>,
+    /// Messages accepted by `send_message` and not yet written to the message stream.
+    messages_queued: AtomicU64,
+    /// Their payload bytes.
+    message_bytes_queued: AtomicU64,
 }
 
 #[derive(Default)]
@@ -116,23 +123,23 @@ impl Default for Priorities {
 impl Priorities {
     /// The priority a new frame stream of `track` is opened at.
     fn frame(&self, track: u32) -> i32 {
-        let _ = track;
-        todo!("RED: per-track frame priority")
+        lock(&self.tracks)
+            .get(&track)
+            .copied()
+            .unwrap_or(FRAME_PRIORITY)
     }
 
     /// The priority of the message stream.
     fn message(&self) -> i32 {
-        todo!("RED: message priority")
+        self.messages.load(Ordering::Relaxed)
     }
 
     fn set_track(&self, track: u32, priority: i32) {
-        let _ = (track, priority);
-        todo!("RED: set a track's priority")
+        lock(&self.tracks).insert(track, priority);
     }
 
     fn set_messages(&self, priority: i32) {
-        let _ = priority;
-        todo!("RED: set the message priority")
+        self.messages.store(priority, Ordering::Relaxed);
     }
 }
 
@@ -271,19 +278,25 @@ impl Engine {
             return false;
         };
         let sequence = self.state.message_sequence.fetch_add(1, Ordering::Relaxed) + 1;
-        peer.messages.send((sequence, data.to_vec())).is_ok()
+        // Counted before it is queued, so the sending task never lowers a count it was not
+        // raised for.
+        peer.message_queued(data.len());
+        if peer.messages.send((sequence, data.to_vec())).is_ok() {
+            true
+        } else {
+            peer.message_left(data.len());
+            false
+        }
     }
 
     /// Frames of `track` (to every peer) leave at `priority` from the next frame on.
     pub(super) fn set_track_priority(&self, track: u32, priority: i32) {
-        let _ = (track, priority);
-        todo!("RED: IrohEndpoint::set_track_priority")
+        self.state.priorities.set_track(track, priority);
     }
 
     /// The message stream (to every peer) leaves at `priority` from the next message on.
     pub(super) fn set_message_priority(&self, priority: i32) {
-        let _ = priority;
-        todo!("RED: IrohEndpoint::set_message_priority")
+        self.state.priorities.set_messages(priority);
     }
 
     pub(super) fn disconnect(&self, peer: u64) -> bool {
@@ -320,6 +333,8 @@ impl Engine {
             frames_sent: peer.frames_sent.load(Ordering::Relaxed),
             frames_received: peer.frames_received.load(Ordering::Relaxed),
             frames_skipped: peer.frames_skipped.load(Ordering::Relaxed),
+            messages_queued: peer.messages_queued.load(Ordering::Relaxed),
+            message_bytes_queued: peer.message_bytes_queued.load(Ordering::Relaxed),
             ..IrohPeerStats::default()
         };
         let paths = peer.conn.paths();
@@ -399,6 +414,20 @@ impl Peer {
         }
         slot.wake.notify_one();
     }
+
+    /// A message of `bytes` joined the backlog.
+    fn message_queued(&self, bytes: usize) {
+        self.messages_queued.fetch_add(1, Ordering::Relaxed);
+        self.message_bytes_queued
+            .fetch_add(bytes as u64, Ordering::Relaxed);
+    }
+
+    /// A message of `bytes` left the backlog: written to the stream, or never queued.
+    fn message_left(&self, bytes: usize) {
+        self.messages_queued.fetch_sub(1, Ordering::Relaxed);
+        self.message_bytes_queued
+            .fetch_sub(bytes as u64, Ordering::Relaxed);
+    }
 }
 
 fn adopt(state: &Arc<State>, conn: Connection) {
@@ -413,6 +442,9 @@ fn adopt(state: &Arc<State>, conn: Connection) {
         frames_sent: AtomicU64::new(0),
         frames_received: AtomicU64::new(0),
         frames_skipped: AtomicU64::new(0),
+        priorities: state.priorities.clone(),
+        messages_queued: AtomicU64::new(0),
+        message_bytes_queued: AtomicU64::new(0),
     });
     lock(&state.peers).insert(id, peer.clone());
     state.push(IrohEvent::new(
@@ -420,7 +452,7 @@ fn adopt(state: &Arc<State>, conn: Connection) {
         id,
         conn.remote_id().to_string(),
     ));
-    tokio::spawn(send_messages(conn.clone(), outbox));
+    tokio::spawn(send_messages(peer.clone(), outbox));
     tokio::spawn(receive_streams(state.clone(), peer));
     let state = state.clone();
     tokio::spawn(async move {
@@ -478,6 +510,7 @@ async fn send_frames(peer: Arc<Peer>, track: u32, slot: Arc<Slot>) {
         let Ok(mut stream) = peer.conn.open_uni().await else {
             return;
         };
+        let _ = stream.set_priority(peer.priorities.frame(track));
         let mut header = [0u8; 13];
         header[0] = FRAME_STREAM;
         header[1..5].copy_from_slice(&track.to_le_bytes());
@@ -492,7 +525,8 @@ async fn send_frames(peer: Arc<Peer>, track: u32, slot: Arc<Slot>) {
     }
 }
 
-async fn send_messages(conn: Connection, mut outbox: mpsc::UnboundedReceiver<(u64, Vec<u8>)>) {
+async fn send_messages(peer: Arc<Peer>, mut outbox: mpsc::UnboundedReceiver<(u64, Vec<u8>)>) {
+    let conn = &peer.conn;
     let mut stream: Option<SendStream> = None;
     loop {
         let (sequence, data) = tokio::select! {
@@ -506,7 +540,6 @@ async fn send_messages(conn: Connection, mut outbox: mpsc::UnboundedReceiver<(u6
             let Ok(mut opened) = conn.open_uni().await else {
                 return;
             };
-            let _ = opened.set_priority(MESSAGE_PRIORITY);
             if opened.write_all(&[MESSAGE_STREAM]).await.is_err() {
                 return;
             }
@@ -515,12 +548,15 @@ async fn send_messages(conn: Connection, mut outbox: mpsc::UnboundedReceiver<(u6
         let Some(open) = stream.as_mut() else {
             return;
         };
+        // Per message, so `set_message_priority` applies to the open stream too.
+        let _ = open.set_priority(peer.priorities.message());
         let mut header = [0u8; 12];
         header[..8].copy_from_slice(&sequence.to_le_bytes());
         header[8..].copy_from_slice(&(data.len() as u32).to_le_bytes());
         if open.write_all(&header).await.is_err() || open.write_all(&data).await.is_err() {
             return;
         }
+        peer.message_left(data.len());
     }
     if let Some(mut open) = stream {
         let _ = open.finish();
