@@ -2244,23 +2244,29 @@ impl DisplayListItem {
             // its bar every frame (`_ => false`), so `FrameDamage::None` was
             // unreachable and idle windows re-rendered + re-presented forever.
             (Self::ScrollBarStyled { info: i1 }, Self::ScrollBarStyled { info: i2 }) => i1 == i2,
-            // VirtualView: the item only carries WHERE the child renders; the
-            // child DOM's content changes are detected by
+            // VirtualView: the item carries WHERE the child renders - its
+            // box, and `content_offset`, which IS the view's scroll (a view
+            // has no scroll frame; the lightweight scroll path re-points
+            // this field alone, see `patch_virtual_view_content_offset`).
+            // The child DOM's own content changes are detected by
             // compute_virtual_view_damage (child display-list diff).
+            // Comparing without the offset made a scrolled view "unchanged":
+            // the diff produced no damage, and the content stayed where it
+            // was while the scrollbar moved.
             (
                 Self::VirtualView {
                     child_dom_id: d1,
                     bounds: b1,
                     clip_rect: c1,
-                    ..
+                    content_offset: o1,
                 },
                 Self::VirtualView {
                     child_dom_id: d2,
                     bounds: b2,
                     clip_rect: c2,
-                    ..
+                    content_offset: o2,
                 },
-            ) => d1 == d2 && b1 == b2 && c1 == c2,
+            ) => d1 == d2 && b1 == b2 && c1 == c2 && o1 == o2,
             (
                 Self::VirtualViewPlaceholder { bounds: b1, .. },
                 Self::VirtualViewPlaceholder { bounds: b2, .. },
