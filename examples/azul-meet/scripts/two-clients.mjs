@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Two AzMeet processes meet through the local meet Worker mock, hear each other, and one leaves.
+// Two AzMeet processes meet through the local meet Worker mock, hear and see each other, and one leaves.
 //
 //   1. starts the meet dev server (azul-apps cf-workers/meet/dev-server.mjs, in memory);
 //   2. starts AzMeet "Ada" headless with AZMEET_AUTOCREATE=1 and reads the link it prints;
@@ -10,14 +10,25 @@
 //      headless run never opens an audio device: no capture, and received audio is counted, not
 //      played). Each window's "Audio from <other>: N packets, M played, ..." line must count at
 //      least a second of packets taken into its jitter buffer and half a second played;
-//   6. Ben clicks "Mute": Ada's window shows "Ben · connected · muted" (the control message);
-//   7. Ben clicks "Leave": his window returns to the start screen, the dev server stops listing
+//   6. video: both run with AZMEET_TEST_PATTERN=1, so moving colour bars replace the camera (a
+//      headless run never opens a camera or a screen). Each window's codec line says H.264 (a
+//      working encoder, VideoToolbox on macOS) or JPEG (no encoder); each window's "Video from
+//      <other> (camera): <codec>, decoded N, keyframes K, ..." line must count at least 30 decoded
+//      frames (2 s at 15 fps) and a keyframe;
+//   7. loss: Ben clicks "Drop a video packet" (shown with AZMEET_TEST_PATTERN=1): Ada's window
+//      counts a gap. With H.264 she asks Ben for a keyframe (her "keyframe requests" count rises,
+//      Ben's "on request" count rises) and decodes again (15 more frames, one more keyframe); if
+//      the packet after the dropped one happened to be a keyframe no request is needed, and the
+//      drop is repeated (up to 3 times). With JPEG every frame stands alone: no request, decoding
+//      goes on. --require-h264 fails a run that fell back to JPEG;
+//   8. Ben clicks "Mute": Ada's window shows "Ben · connected · muted" (the control message);
+//   9. Ben clicks "Leave": his window returns to the start screen, the dev server stops listing
 //      him at once (DELETE, not the 120 s TTL), and Ada's window stops listing him.
 //
 // Usage (from the azul repository, after building AzMeet and libazul with the debug server):
 //   node examples/azul-meet/scripts/two-clients.mjs
 //     [--bin target/release/AzMeet] [--worker-dir ../azul-apps/cf-workers/meet]
-//     [--port 8787] [--debug-a 8765] [--debug-b 8766] [--timeout 90]
+//     [--port 8787] [--debug-a 8765] [--debug-b 8766] [--timeout 90] [--require-h264]
 //
 // Also read from the environment: AZMEET_BIN, AZMEET_WORKER_DIR. Logs go to a temporary
 // directory that is printed at the end (kept on failure, or always with --keep-logs).
@@ -37,6 +48,7 @@ const { values: opts } = parseArgs({
     'debug-b': { type: 'string', default: '8766' },
     timeout: { type: 'string', default: '90' },
     'keep-logs': { type: 'boolean', default: false },
+    'require-h264': { type: 'boolean', default: false },
   },
 });
 
@@ -137,6 +149,21 @@ async function until(what, check) {
   throw new Error(`timed out waiting for ${what}${last ? ` (last error: ${last.message})` : ''}`);
 }
 
+/** Like `until`, but gives up after `ms` (or at the deadline) and returns null. */
+async function within(ms, check) {
+  const stop = Math.min(deadline, Date.now() + ms);
+  while (Date.now() < stop) {
+    try {
+      const value = await check();
+      if (value) return value;
+    } catch {
+      // the next poll may answer
+    }
+    await sleep(500);
+  }
+  return null;
+}
+
 async function getJson(url, init) {
   const res = await fetch(url, { ...init, signal: AbortSignal.timeout(5000) });
   return { status: res.status, json: await res.json() };
@@ -186,6 +213,36 @@ async function audioFrom(debugPort, peerName) {
   return { line, packets, played, silent, late, buffered };
 }
 
+/** The window's codec line: "Video: H.264 (VideoToolbox)" or "Video: JPEG (no encoder)". */
+async function codecLine(debugPort) {
+  return (await texts(debugPort)).find((t) => t.startsWith('Video: '));
+}
+
+/** The counts of the window's "Video from <peer> (<source>): <codec>, decoded N, keyframes K,
+ *  gaps G, dropped D, keyframe requests R" line, if shown. */
+async function videoFrom(debugPort, peerName, source = 'camera') {
+  const prefix = `Video from ${peerName} (${source}): `;
+  const line = (await texts(debugPort)).find((t) => t.startsWith(prefix));
+  const m = line?.match(
+    /: (H\.264|JPEG), decoded (\d+), keyframes (\d+), gaps (\d+), dropped (\d+), keyframe requests (\d+)$/,
+  );
+  if (!m) return null;
+  const [decoded, keyframes, gaps, dropped, requests] = m.slice(2).map(Number);
+  return { line, codec: m[1], decoded, keyframes, gaps, dropped, requests };
+}
+
+/** The counts of the window's "Sending <source>: N H.264 packets, M JPEG frames, K keyframes,
+ *  R on request, ..." line, if shown. */
+async function sending(debugPort, source = 'camera') {
+  const line = (await texts(debugPort)).find((t) => t.startsWith(`Sending ${source}: `));
+  const m = line?.match(
+    /: (\d+) H\.264 packets, (\d+) JPEG frames, (\d+) keyframes, (\d+) on request, (\d+) periodic, (\d+) reopens, (\d+) dropped on purpose$/,
+  );
+  if (!m) return null;
+  const [h264, jpeg, keyframes, onRequest, periodic, reopens, dropped] = m.slice(1).map(Number);
+  return { line, h264, jpeg, keyframes, onRequest, periodic, reopens, dropped };
+}
+
 /** Clicks the first node whose text contains `text` (the debug server's click op). */
 async function click(debugPort, text) {
   const answer = await debugOp(debugPort, { op: 'click', text });
@@ -200,6 +257,7 @@ function appEnv(name, debugPort, extra) {
     AZMEET_NAME: name,
     AZMEET_RELAY: 'off',
     AZMEET_TEST_TONE: '1',
+    AZMEET_TEST_PATTERN: '1',
     ...extra,
   };
 }
@@ -255,6 +313,83 @@ try {
   }
   log('both apps run without audio devices: the tone replaces the mic, playback is counted');
 
+  // Video: the test pattern goes out as H.264 where an encoder works, else as JPEG.
+  const codecs = [];
+  for (const [name, port] of [['Ada', debugA], ['Ben', debugB]]) {
+    const line = await until(`${name}'s window to show its video codec`, () => codecLine(port));
+    log(`${name}: ${line}`);
+    codecs.push(line);
+  }
+  const h264 = codecs.every((line) => line.startsWith('Video: H.264'));
+  if (!h264 && opts['require-h264']) {
+    throw new Error(`--require-h264, but the video is not H.264 on both sides: ${codecs.join(' / ')}`);
+  }
+  const codec = h264 ? 'H.264' : 'JPEG';
+  for (const [listener, port, sender] of [['Ada', debugA, 'Ben'], ['Ben', debugB, 'Ada']]) {
+    const seen = await until(`${listener}'s window to decode 2 s of ${codec} video from ${sender}`, async () => {
+      const v = await videoFrom(port, sender);
+      return v && v.codec === codec && v.decoded >= 30 && v.keyframes >= 1 ? v : null;
+    });
+    log(`${listener}: ${seen.line}`);
+  }
+  for (const [name, child] of [['ada', ada], ['ben', children.find((c) => c.name === 'ben')]]) {
+    if (!readFileSync(child.err, 'utf8').includes('no camera or screen is opened')) {
+      throw new Error(`${name} did not say it runs without a camera or screen (see its stderr)`);
+    }
+  }
+  log('both apps send the test pattern: no camera or screen is opened');
+
+  // Loss: Ben drops one video packet before it leaves.
+  let recovered = null;
+  for (let attempt = 1; attempt <= 3 && !recovered; attempt++) {
+    const before = await until("Ada's video line before the drop", () => videoFrom(debugA, 'Ben'));
+    const sentBefore = await until("Ben's sending line before the drop", () => sending(debugB));
+    await click(debugB, 'Drop a video packet');
+    const gap = await within(15000, async () => {
+      const v = await videoFrom(debugA, 'Ben');
+      return v && v.gaps > before.gaps ? v : null;
+    });
+    if (!gap) throw new Error("Ada's window never counted Ben's dropped packet as a gap");
+    log(`Ada after the drop: ${gap.line}`);
+    const sentAfter = await until("Ben's window to count the dropped packet", async () => {
+      const s = await sending(debugB);
+      return s && s.dropped > sentBefore.dropped ? s : null;
+    });
+    if (!h264) {
+      if (gap.requests !== before.requests) throw new Error('a lost JPEG frame asked for a keyframe');
+      recovered = await until('JPEG decoding to go on after the lost frame', async () => {
+        const v = await videoFrom(debugA, 'Ben');
+        return v && v.decoded >= gap.decoded + 15 ? v : null;
+      });
+      log(`JPEG: the lost frame cost nothing, no keyframe request: ${recovered.line}`);
+      break;
+    }
+    if (gap.requests === before.requests) {
+      log(`attempt ${attempt}: the packet after the dropped one was a keyframe, nothing to ask for; again`);
+      continue;
+    }
+    if (gap.dropped <= before.dropped) {
+      throw new Error(`Ada asked for a keyframe but decoded the P-frames after the gap: ${gap.line}`);
+    }
+    recovered = await until('H.264 decoding to resume at the requested keyframe', async () => {
+      const v = await videoFrom(debugA, 'Ben');
+      return v && v.keyframes > before.keyframes && v.decoded >= gap.decoded + 15 ? v : null;
+    });
+    log(`Ada decodes again: ${recovered.line}`);
+    const forced = await until("Ben's window to count a keyframe forced on request", async () => {
+      const s = await sending(debugB);
+      return s && s.onRequest > sentBefore.onRequest ? s : null;
+    });
+    log(`Ben: ${forced.line} (was: ${sentAfter.line})`);
+    const benErr = readFileSync(children.find((c) => c.name === 'ben').err, 'utf8');
+    if (!benErr.includes('Ada asked for a keyframe')) {
+      throw new Error("Ben's stderr does not show Ada's keyframe request");
+    }
+  }
+  if (!recovered) {
+    throw new Error('each of 3 drops was followed by a keyframe, so no keyframe request was ever tested');
+  }
+
   // Mute: Ben's state reaches Ada as a control message.
   await click(debugB, 'Mute');
   await until("Ada's window to show Ben as muted", async () => {
@@ -282,7 +417,10 @@ try {
   log("Ada's window no longer lists Ben");
 
   passed = true;
-  log('PASS: two AzMeet clients met through the meet Worker mock, heard each other over iroh, and one left');
+  log(
+    `PASS: two AzMeet clients met through the meet Worker mock, heard and saw each other over iroh ` +
+      `(${codec}), recovered from a lost video packet, and one left`,
+  );
 } catch (e) {
   log(`FAIL: ${e.message}`);
   for (const { name, out, err } of children) {
