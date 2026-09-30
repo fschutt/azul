@@ -116,10 +116,22 @@ pub struct IrohLoadBalancer {
     pub run_destructor: bool,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 struct Room {
     peers: Vec<IrohPeerCapacity>,
     backbone: Vec<u64>,
+    /// Rooms of up to this many people let every peer forward.
+    mesh_cap: u32,
+}
+
+impl Default for Room {
+    fn default() -> Self {
+        Room {
+            peers: Vec::new(),
+            backbone: Vec::new(),
+            mesh_cap: SHARED_FORWARDING_ROOM,
+        }
+    }
 }
 
 impl Clone for IrohLoadBalancer {
@@ -195,7 +207,7 @@ impl IrohLoadBalancer {
         let Some(room) = self.room_mut() else {
             return 0;
         };
-        room.backbone = backbone(&room.peers, fanout_kbps);
+        room.backbone = backbone(&room.peers, fanout_kbps, room.mesh_cap);
         room.backbone.len()
     }
 
@@ -214,16 +226,14 @@ impl IrohLoadBalancer {
 
     /// Rooms of up to `room_size` people let every peer forward (8 unless set); a larger room picks max(ceil(sqrt N), ceil(N / 8)) forwarders, grown by capacity. Applies from the next `select_backbone`.
     pub fn set_mesh_cap(&mut self, room_size: u32) {
-        let _ = room_size;
+        if let Some(room) = self.room_mut() {
+            room.mesh_cap = room_size;
+        }
     }
 
     /// Minimum forwarder count for a room of `room_size`: everyone up to 8 people, then max(ceil(sqrt N), ceil(N / 8)).
     pub fn backbone_size(room_size: u32) -> u32 {
-        if room_size <= SHARED_FORWARDING_ROOM {
-            return room_size;
-        }
-        let sqrt = (room_size as f64).sqrt().ceil() as u32;
-        sqrt.max(room_size.div_ceil(8))
+        forwarder_count(room_size, SHARED_FORWARDING_ROOM)
     }
 
     /// Bitrate in kbit/s the planner assumes for a rendition of `height` pixels.
@@ -235,7 +245,16 @@ impl IrohLoadBalancer {
     }
 }
 
-fn backbone(peers: &[IrohPeerCapacity], fanout_kbps: u64) -> Vec<u64> {
+/// Everyone in a room of up to `mesh_cap` people, else max(ceil(sqrt N), ceil(N / 8)).
+fn forwarder_count(room_size: u32, mesh_cap: u32) -> u32 {
+    if room_size <= mesh_cap {
+        return room_size;
+    }
+    let sqrt = (room_size as f64).sqrt().ceil() as u32;
+    sqrt.max(room_size.div_ceil(8))
+}
+
+fn backbone(peers: &[IrohPeerCapacity], fanout_kbps: u64, mesh_cap: u32) -> Vec<u64> {
     let mut ranked: Vec<&IrohPeerCapacity> = peers.iter().filter(|p| p.score() > 0.0).collect();
     ranked.sort_by(|a, b| {
         b.score()
@@ -243,7 +262,7 @@ fn backbone(peers: &[IrohPeerCapacity], fanout_kbps: u64) -> Vec<u64> {
             .then_with(|| a.peer.cmp(&b.peer))
     });
     let room_size = u32::try_from(peers.len()).unwrap_or(u32::MAX);
-    let mut chosen = (IrohLoadBalancer::backbone_size(room_size) as usize).min(ranked.len());
+    let mut chosen = (forwarder_count(room_size, mesh_cap) as usize).min(ranked.len());
     let usable = |count: usize| {
         ranked[..count]
             .iter()
@@ -313,15 +332,27 @@ mod tests {
     #[test]
     fn a_room_above_its_mesh_cap_picks_the_strongest_forwarders() {
         let mut lb = room(&[1000, 50_000, 30_000]);
-        assert_eq!(lb.select_backbone(0), 3, "three people fit the default mesh cap of 8");
+        assert_eq!(
+            lb.select_backbone(0),
+            3,
+            "three people fit the default mesh cap of 8"
+        );
         lb.set_mesh_cap(2);
-        assert_eq!(lb.select_backbone(0), 2, "max(ceil(sqrt 3), ceil(3 / 8)) = 2");
+        assert_eq!(
+            lb.select_backbone(0),
+            2,
+            "max(ceil(sqrt 3), ceil(3 / 8)) = 2"
+        );
         assert_eq!(lb.backbone_peer(0), OptionU64::Some(2));
         assert_eq!(lb.backbone_peer(1), OptionU64::Some(3));
         assert_eq!(lb.backbone_peer(2), OptionU64::None);
         assert!(!lb.is_backbone(1));
         lb.set_mesh_cap(3);
-        assert_eq!(lb.select_backbone(0), 3, "a room at its mesh cap lets everyone forward");
+        assert_eq!(
+            lb.select_backbone(0),
+            3,
+            "a room at its mesh cap lets everyone forward"
+        );
     }
 
     #[test]
@@ -334,7 +365,13 @@ mod tests {
 
     #[test]
     fn the_same_reports_in_any_order_give_the_same_backbone() {
-        let reports = [(7_u64, 4000_u32), (3, 9000), (11, 9000), (5, 1500), (2, 4000)];
+        let reports = [
+            (7_u64, 4000_u32),
+            (3, 9000),
+            (11, 9000),
+            (5, 1500),
+            (2, 4000),
+        ];
         let mut forward = IrohLoadBalancer::create();
         let mut backward = IrohLoadBalancer::create();
         for (peer, up) in reports {
