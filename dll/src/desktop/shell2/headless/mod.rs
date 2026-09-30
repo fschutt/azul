@@ -6615,6 +6615,86 @@ mod tests {
         );
     }
 
+    // --- A screen reader's default action clicks the node ------------------
+    //
+    // FOUND (AzCalendar's E2E, 2026-09-30): `accessibility_action default` on a
+    // Button did nothing. `LayoutWindow::process_accessibility_action` answers
+    // `AccessibilityAction::Default` with the node's `Click` filter (activation,
+    // the filter every widget listens on), but
+    // `PlatformWindow::dispatch_accessibility_events` only turned MouseUp /
+    // MouseDown filters into events and skipped the rest, so no event was
+    // dispatched: VoiceOver's / NVDA's "press" reached no callback on any
+    // backend. This drives the headless ingress every backend shares.
+
+    #[derive(Debug, Clone)]
+    struct ClickLog {
+        clicks: Arc<core::sync::atomic::AtomicUsize>,
+    }
+
+    extern "C" fn log_click(
+        mut refany: RefAny,
+        _info: azul_layout::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
+        if let Some(log) = refany.downcast_ref::<ClickLog>() {
+            log.clicks
+                .fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+        }
+        azul_core::callbacks::Update::DoNothing
+    }
+
+    extern "C" fn click_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::{
+            callbacks::{CoreCallback, CoreCallbackData},
+            events::{EventFilter, HoverEventFilter},
+        };
+        let log = data
+            .downcast_ref::<ClickLog>()
+            .map(|l| l.clone())
+            .expect("click log");
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_css("width: 120px; height: 40px;")
+                .with_callbacks(
+                    vec![CoreCallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::Click),
+                        callback: CoreCallback {
+                            cb: log_click as usize,
+                            ctx: azul_core::refany::OptionRefAny::None,
+                        },
+                        refany: RefAny::new(log),
+                    }]
+                    .into(),
+                ),
+        )
+    }
+
+    #[cfg(feature = "a11y")]
+    #[test]
+    fn a_screen_readers_default_action_runs_the_nodes_click_callback_once() {
+        use core::sync::atomic::{AtomicUsize, Ordering};
+
+        let log = ClickLog {
+            clicks: Arc::new(AtomicUsize::new(0)),
+        };
+        let state = Arc::new(RefCell::new(RefAny::new(log.clone())));
+        let mut window = make_window_sized(&state, click_layout, 400.0, 300.0);
+        window.regenerate_layout().expect("initial layout");
+
+        window.inject_accessibility_action(
+            azul_core::dom::DomId::ROOT_ID,
+            azul_core::id::NodeId::new(1),
+            azul_core::dom::AccessibilityAction::Default,
+        );
+        window.process_accessibility_actions();
+
+        assert_eq!(
+            log.clicks.load(Ordering::SeqCst),
+            1,
+            "the default action (a screen reader's press) must run the node's Click callback \
+             exactly once"
+        );
+    }
+
     // --- NodeResized fires when a node's box changes ----------------------
     //
     // REPORTED (AzPaint): "do we have a working 'node was resized' event?"

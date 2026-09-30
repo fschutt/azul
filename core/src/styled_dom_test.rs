@@ -1732,6 +1732,25 @@ mod autotest_generated {
         assert!(!is_layout_equivalent(&build("a"), &build("b")));
     }
 
+    /// A node's `Dom::with_css` sheet is cascaded from the collected author CSS, not kept in
+    /// `NodeData::style`, so two builds that differ only in it looked equivalent: a rebuild
+    /// that only changed such a value (AzCalendar's zoom: every hour `height: 72px` instead of
+    /// `48px`) kept the previous layout, and the change never showed.
+    #[test]
+    fn is_layout_equivalent_rejects_a_changed_node_stylesheet() {
+        let build = |height: &str| {
+            let mut dom = Dom::create_body().with_children(
+                vec![Dom::create_div().with_css(&format!("height: {height};"))].into(),
+            );
+            StyledDom::create(&mut dom, Css::empty())
+        };
+        assert!(is_layout_equivalent(&build("48px"), &build("48px")));
+        assert!(
+            !is_layout_equivalent(&build("48px"), &build("72px")),
+            "a node whose with_css height changed must not reuse the old layout"
+        );
+    }
+
     #[test]
     fn is_layout_equivalent_rejects_a_changed_pseudo_state() {
         let base = flat_body(2);
