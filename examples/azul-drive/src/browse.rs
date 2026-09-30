@@ -2,11 +2,11 @@
 //! order, sizes and dates as text, the way back and up, the breadcrumb, and the
 //! "Add drive" form. No azul types here, so all of it is tested without a window.
 
-use std::path::Path;
+use std::{cmp::Ordering, path::Path};
 
 use azul_storage::{
     config::{DriveAuth, DriveEntry, DriveLocation},
-    Credentials, ListPage, S3Config,
+    key, sigv4, Credentials, HttpCall, HttpReply, ListPage, S3Config, S3Drive, Transport,
 };
 
 /// A column of the file list.
@@ -65,8 +65,10 @@ impl Sort {
     /// another column sorts by it, ascending.
     #[must_use]
     pub fn clicked(self, column: Column) -> Sort {
-        let _ = column;
-        todo!("RED")
+        Sort {
+            column,
+            descending: column == self.column && !self.descending,
+        }
     }
 }
 
@@ -88,7 +90,11 @@ impl Entry {
     /// What the Name column shows: `inbox/` for a folder, the name for a file.
     #[must_use]
     pub fn label(&self) -> String {
-        todo!("RED")
+        if self.is_folder {
+            format!("{}/", self.name)
+        } else {
+            self.name.clone()
+        }
     }
 }
 
@@ -96,22 +102,79 @@ impl Entry {
 /// files, named relative to the folder.
 #[must_use]
 pub fn entries_of(page: &ListPage, prefix: &str) -> Vec<Entry> {
-    let _ = (page, prefix);
-    todo!("RED")
+    let folders = page.folders.iter().filter_map(|folder| {
+        let name = key::last_segment(folder);
+        (!name.is_empty()).then(|| Entry {
+            key: folder.clone(),
+            name: name.to_string(),
+            is_folder: true,
+            size: None,
+            modified: None,
+        })
+    });
+    // A key ending in `/` is a "folder marker" object some tools write: the folder
+    // itself, or one already listed as a common prefix.
+    let files = page
+        .objects
+        .iter()
+        .filter(|object| object.key != prefix && !object.key.ends_with('/'))
+        .map(|object| Entry {
+            key: object.key.clone(),
+            name: object.name().to_string(),
+            is_folder: false,
+            size: Some(object.size),
+            modified: object.modified,
+        });
+    folders.chain(files).collect()
+}
+
+/// Names compare without case first, then with it (so the order is total).
+fn compare_names(a: &Entry, b: &Entry) -> Ordering {
+    a.name
+        .to_lowercase()
+        .cmp(&b.name.to_lowercase())
+        .then_with(|| a.name.cmp(&b.name))
 }
 
 /// Puts the rows in `sort` order, folders first; ties go by name.
 pub fn sort_entries(entries: &mut [Entry], sort: Sort) {
-    let _ = (entries, sort);
-    todo!("RED")
+    entries.sort_by(|a, b| {
+        b.is_folder
+            .cmp(&a.is_folder)
+            .then_with(|| {
+                let by_column = match sort.column {
+                    Column::Name => compare_names(a, b),
+                    Column::Size => a.size.cmp(&b.size),
+                    Column::Modified => a.modified.cmp(&b.modified),
+                };
+                if sort.descending {
+                    by_column.reverse()
+                } else {
+                    by_column
+                }
+            })
+            .then_with(|| compare_names(a, b))
+    });
 }
 
 /// `0 B`, `999 B`, `1.5 KB`, `5.0 MB` (1024-based, as file managers show);
 /// empty for a folder.
 #[must_use]
 pub fn format_size(bytes: Option<u64>) -> String {
-    let _ = bytes;
-    todo!("RED")
+    const UNITS: [&str; 5] = ["KB", "MB", "GB", "TB", "PB"];
+    match bytes {
+        None => String::new(),
+        Some(bytes) if bytes < 1024 => format!("{bytes} B"),
+        Some(bytes) => {
+            let mut value = bytes as f64 / 1024.0;
+            let mut unit = 0;
+            while value >= 1024.0 && unit + 1 < UNITS.len() {
+                value /= 1024.0;
+                unit += 1;
+            }
+            format!("{value:.1} {}", UNITS[unit])
+        }
+    }
 }
 
 /// `2009-10-12 17:50` in `zone`; empty when unknown.
@@ -120,8 +183,10 @@ pub fn format_modified<Tz: chrono::TimeZone>(unix: Option<u64>, zone: &Tz) -> St
 where
     Tz::Offset: std::fmt::Display,
 {
-    let _ = (unix, zone);
-    todo!("RED")
+    unix.and_then(|secs| i64::try_from(secs).ok())
+        .and_then(|secs| zone.timestamp_opt(secs, 0).single())
+        .map(|time| time.format("%Y-%m-%d %H:%M").to_string())
+        .unwrap_or_default()
 }
 
 /// The folders visited before, for "Back".
@@ -133,13 +198,16 @@ pub struct History {
 impl History {
     /// Leaving the folder `from` for another one.
     pub fn visit(&mut self, from: &str) {
-        let _ = from;
-        todo!("RED")
+        const KEEP: usize = 100;
+        self.visited.push(from.to_string());
+        if self.visited.len() > KEEP {
+            self.visited.remove(0);
+        }
     }
 
     /// The folder to go back to, forgotten here.
     pub fn back(&mut self) -> Option<String> {
-        todo!("RED")
+        self.visited.pop()
     }
 
     #[must_use]
@@ -156,30 +224,53 @@ impl History {
 /// The folder above `prefix`; `None` at the root.
 #[must_use]
 pub fn up(prefix: &str) -> Option<String> {
-    let _ = prefix;
-    todo!("RED")
+    if prefix.is_empty() {
+        None
+    } else {
+        Some(key::parent_prefix(prefix))
+    }
 }
 
 /// The breadcrumb: the drive (its root), then every folder down to `prefix`,
 /// as `(label, prefix)`.
 #[must_use]
 pub fn crumbs(drive_name: &str, prefix: &str) -> Vec<(String, String)> {
-    let _ = (drive_name, prefix);
-    todo!("RED")
+    let mut trail = vec![(drive_name.to_string(), String::new())];
+    trail.extend(key::folder_trail(prefix));
+    trail
 }
 
 /// The file an upload of `file_name` becomes in the folder `prefix`.
 #[must_use]
 pub fn upload_key(prefix: &str, file_name: &str) -> Option<String> {
-    let _ = (prefix, file_name);
-    todo!("RED")
+    if file_name.contains('/') || key::check_path_key(file_name).is_err() {
+        return None;
+    }
+    Some(format!("{prefix}{file_name}"))
 }
 
 /// A `file://` URL of a local path, percent-encoded, for the OS to open.
 #[must_use]
 pub fn file_url(path: &Path) -> String {
-    let _ = path;
-    todo!("RED")
+    #[cfg(windows)]
+    let text = path.to_string_lossy().replace('\\', "/");
+    #[cfg(not(windows))]
+    let text = path.to_string_lossy().into_owned();
+    // `C:/Users/..`: the drive letter and its colon stay as they are.
+    let bytes = text.as_bytes();
+    if bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic() {
+        return format!(
+            "file:///{}{}",
+            &text[..2],
+            sigv4::uri_encode(&text[2..], false)
+        );
+    }
+    let absolute = if text.starts_with('/') {
+        text
+    } else {
+        format!("/{text}")
+    };
+    format!("file://{}", sigv4::uri_encode(&absolute, false))
 }
 
 /// The region an empty "Region" field means.
@@ -213,21 +304,87 @@ impl Default for DriveForm {
 
 impl std::fmt::Debug for DriveForm {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let _ = f;
-        todo!("RED")
+        f.debug_struct("DriveForm")
+            .field("name", &self.name)
+            .field("endpoint", &self.endpoint)
+            .field("region", &self.region)
+            .field("bucket", &self.bucket)
+            .field("access_key", &"<hidden>")
+            .field("secret_key", &"<hidden>")
+            .field("path_style", &self.path_style)
+            .finish()
+    }
+}
+
+/// A transport that sends nothing: `S3Drive::new` checks the endpoint and the
+/// bucket name without one.
+struct NoTransport;
+
+impl Transport for NoTransport {
+    fn send(&self, _call: &HttpCall) -> Result<HttpReply, String> {
+        Err(String::from("not sent"))
     }
 }
 
 impl DriveForm {
     /// The bucket settings and keys of the form, or what to fix, as a sentence.
     pub fn check(&self) -> Result<(S3Config, Credentials), String> {
-        todo!("RED")
+        let endpoint = self.endpoint.trim();
+        let lower = endpoint.to_ascii_lowercase();
+        if self.name.trim().is_empty() {
+            return Err(String::from("Give the drive a name."));
+        }
+        if endpoint.is_empty() {
+            return Err(String::from(
+                "Enter the endpoint, for example https://s3.eu-central-1.amazonaws.com.",
+            ));
+        }
+        if !lower.starts_with("http://") && !lower.starts_with("https://") {
+            return Err(String::from(
+                "The endpoint must start with http:// or https://.",
+            ));
+        }
+        if self.bucket.trim().is_empty() {
+            return Err(String::from("Enter the bucket name."));
+        }
+        if self.access_key.trim().is_empty() {
+            return Err(String::from("Enter the access key."));
+        }
+        if self.secret_key.trim().is_empty() {
+            return Err(String::from("Enter the secret key."));
+        }
+        let region = match self.region.trim() {
+            "" => DEFAULT_REGION,
+            region => region,
+        };
+        let config = S3Config {
+            endpoint: endpoint.to_string(),
+            region: region.to_string(),
+            bucket: self.bucket.trim().to_string(),
+            path_style: self.path_style,
+        };
+        let credentials = Credentials::new(self.access_key.trim(), self.secret_key.trim());
+        // The same checks the drive makes when it opens: a readable endpoint and a
+        // bucket name that fits in the URL.
+        S3Drive::new(config.clone(), credentials.clone(), Box::new(NoTransport))
+            .map_err(|e| format!("{e}."))?;
+        Ok((config, credentials))
     }
 
     /// The drives-file entry (without the keys, which go to the keyring).
     pub fn entry(&self, id: &str) -> Result<DriveEntry, String> {
-        let _ = (id, DriveAuth::Keyring, |l: DriveLocation| l);
-        todo!("RED")
+        let (config, _) = self.check()?;
+        Ok(DriveEntry {
+            id: id.to_string(),
+            name: self.name.trim().to_string(),
+            location: DriveLocation::S3 {
+                endpoint: config.endpoint,
+                region: config.region,
+                bucket: config.bucket,
+                path_style: config.path_style,
+                auth: DriveAuth::Keyring,
+            },
+        })
     }
 }
 

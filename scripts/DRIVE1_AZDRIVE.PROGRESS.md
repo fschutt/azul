@@ -11,9 +11,12 @@ Branch `wt/drive1-azdrive` from `a7e18f4df`. Report: `scripts/DRIVE1_AZDRIVE_202
 - RED + GREEN: `examples/azul-drive/scripts/s3_server.py` + `test_s3_server.py` (23 tests pass:
   `python3 examples/azul-drive/scripts/test_s3_server.py`).
 
+- RED: `examples/azul-drive/src/browse.rs` view model tests; GREEN: browse.rs + the app
+  (`lib.rs`: sidebar, breadcrumb, ListView, dialogs, keyring, Threads). Coordinator ruling done:
+  NoTitle decorations + `Titlebar` title row in the toolbar colour.
+
 ## IN PROGRESS
-- AzDrive app. Coordinator ruling: NoTitle decorations + `Titlebar` as the body's first child
-  (pattern: d4ea59a19, examples/azul-maps `title_row`).
+- `examples/azul-drive/scripts/browse.py` e2e.
 
 ## NEXT
 1. Python S3 test server (`examples/azul-drive/scripts/s3_server.py`) + unittest, RED first.
