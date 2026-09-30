@@ -78,6 +78,9 @@ fn spinner_window() -> HeadlessWindow {
         // does it, or every later tick would look dirty.
         window.common.display_list_dirty = false;
     }
+    // The rebuild a new window is born owing: the frame path consumes it,
+    // the direct calls above do not.
+    let _ = window.common.take_regeneration();
     window
 }
 

@@ -8194,15 +8194,18 @@ mod tests {
     /// `NSTimer` does exactly that behind a slow render - and both are frames.
     #[test]
     fn css_driver_steps_on_an_on_time_wake_after_a_late_one() {
+        // The driver paces at the window's monitor rate: 60 Hz here, one
+        // period = 16.67 ms, so its wakes are due at 16.7, 33.3 and 50 ms.
         let mut window = toggled_switch_window();
-        let _ = azul_core::task::advance_test_clock_ms(16);
+        let _ = azul_core::task::advance_test_clock_ms(17);
         let first = window.process_timers_and_threads();
-        // The 32 ms wake comes 10 ms late ...
+        // The 33 ms wake comes 10 ms late (43 ms) ...
         let _ = azul_core::task::advance_test_clock_ms(26);
         let late = window.process_timers_and_threads();
         let progress_late = knob_glide_progress(&window);
-        // ... and the 48 ms one on time, 6 ms after it.
-        let _ = azul_core::task::advance_test_clock_ms(6);
+        // ... and the 50 ms one on time, 8 ms after it: less than half a
+        // period, but in a later period of the driver's schedule.
+        let _ = azul_core::task::advance_test_clock_ms(8);
         let on_time = window.process_timers_and_threads();
         let progress_on_time = knob_glide_progress(&window);
         azul_core::task::reset_test_clock();
