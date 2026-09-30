@@ -4,9 +4,11 @@
 //! overlap sit side by side. "New event" opens a form (title, day, start, end, "Add AzMeet link").
 //! Save writes the event as one JSON file, `<data dir>/events/<uuid>.json` (see `event.rs`); with
 //! "Add AzMeet link" it first asks the meeting server (the `meet` Worker) for a room with
-//! `POST /rooms`, on an azul `Thread` so no callback waits on the network, and keeps the returned
-//! `azlin://meet/<room id>` link in the file. An event with a link shows "Join meeting", which
-//! starts AzMeet with `AZMEET_JOIN=<link>` (or, without AzMeet, copies the link).
+//! `POST /rooms {starts_at, ends_at}` (the event's day and times here, in UTC, so the server keeps
+//! the room until the meeting is over, however far ahead), on an azul `Thread` so no callback
+//! waits on the network, and keeps the returned `azlin://meet/<room id>` link and the times the
+//! server answered in the file. An event with a link shows "Join meeting", which starts AzMeet
+//! with `AZMEET_JOIN=<link>` (or, without AzMeet, copies the link).
 //!
 //! Durable data is only the event files; the meeting server holds the rooms (minting and joining),
 //! nothing of the calendar.
@@ -588,6 +590,10 @@ extern "C" fn on_day(mut data: RefAny, _info: CallbackInfo, state: DatePickerSta
     // The picker restyles a picked day itself; a new month needs a new picker (its grid cannot
     // rebuild itself).
     let turned = (date.year(), date.month()) != (form.date.year(), form.date.month());
+    if date != form.date {
+        // A link kept from a failed save holds its room for the old day: mint a new one.
+        form.minted = None;
+    }
     form.date = date;
     if turned {
         Update::RefreshDom
@@ -611,6 +617,11 @@ fn set_time(data: &mut RefAny, state: TimePickerState, is_start: bool) -> Update
     let Some(time) = NaiveTime::from_hms_opt(hour, state.minute, 0) else {
         return Update::DoNothing;
     };
+    let old = if is_start { form.start } else { form.end };
+    if old != time {
+        // A link kept from a failed save holds its room for the old times: mint a new one.
+        form.minted = None;
+    }
     if is_start {
         form.start = time;
     } else {
@@ -670,17 +681,24 @@ extern "C" fn on_save(mut data: RefAny, mut info: CallbackInfo) -> Update {
             return Update::DoNothing;
         }
         form.error.clear();
-        if let Err(e) = form.event(None) {
-            form.error = form_error(&e);
-            eprintln!("[azcalendar] cannot save: {}", form.error);
-            return Update::RefreshDom;
-        }
+        let checked = match form.event(None) {
+            Ok(event) => event,
+            Err(e) => {
+                form.error = form_error(&e);
+                eprintln!("[azcalendar] cannot save: {}", form.error);
+                return Update::RefreshDom;
+            }
+        };
         match (form.add_meet, form.minted.clone(), worker) {
             (true, None, Some(server)) => {
                 form.minting = true;
+                // The room is kept for the event's times: its day and times here, in UTC.
+                let (starts, ends) =
+                    meeting::utc_window(&chrono::Local, checked.date, checked.start, checked.end);
                 MintJob {
                     server,
                     serial: form.serial,
+                    body: meeting::mint_body(starts, ends),
                 }
             }
             (true, None, None) => {
@@ -699,7 +717,10 @@ extern "C" fn on_save(mut data: RefAny, mut info: CallbackInfo) -> Update {
             }
         }
     };
-    eprintln!("[azcalendar] asking {} for a meeting room", job.server);
+    eprintln!(
+        "[azcalendar] asking {} for a meeting room: {}",
+        job.server, job.body
+    );
     spawn_mint(&mut info, data.clone(), job);
     Update::RefreshDom
 }
@@ -754,6 +775,8 @@ struct MintJob {
     server: String,
     /// The form the link is for.
     serial: u32,
+    /// The `POST /rooms` body: the event's times (`meeting::mint_body`).
+    body: String,
 }
 
 struct MintInit {
@@ -779,9 +802,10 @@ fn spawn_mint(info: &mut CallbackInfo, app: RefAny, job: MintJob) {
 /// Runs `POST /rooms` on a worker thread: `http_request` blocks here, then queues its answer,
 /// which the UI thread hands to `on_minted`.
 extern "C" fn mint_thread(mut init: RefAny, _sender: ThreadSender, _receiver: ThreadReceiver) {
-    let Some((url, reply)) = init.downcast_ref::<MintInit>().map(|i| {
+    let Some((url, body, reply)) = init.downcast_ref::<MintInit>().map(|i| {
         (
             format!("{}/rooms", i.job.server),
+            i.job.body.clone(),
             MintReply {
                 app: i.app.clone(),
                 serial: i.job.serial,
@@ -798,7 +822,7 @@ extern "C" fn mint_thread(mut init: RefAny, _sender: ThreadSender, _receiver: Th
         .http_request(
             HttpMethod::Post,
             url.as_str(),
-            U8Vec::from(b"{}".to_vec()),
+            U8Vec::from(body.into_bytes()),
             "application/json",
             RefAny::new(reply),
             on_minted,
@@ -861,7 +885,19 @@ extern "C" fn on_minted(mut data: RefAny, _info: CallbackInfo, result: RefAny) -
     form.minting = false;
     match outcome {
         Ok(meeting) => {
-            eprintln!("[azcalendar] {server} made the room {}", meeting.link);
+            if meeting.starts_at.is_empty() {
+                // A meeting server from before meeting times: the room ends a day after its
+                // last use, whatever the event's day.
+                eprintln!(
+                    "[azcalendar] {server} made the room {} without the meeting's times; it ends {}",
+                    meeting.link, meeting.expires
+                );
+            } else {
+                eprintln!(
+                    "[azcalendar] {server} made the room {} for {} - {}",
+                    meeting.link, meeting.starts_at, meeting.ends_at
+                );
+            }
             save_form(s, Some(meeting));
         }
         Err(message) => {

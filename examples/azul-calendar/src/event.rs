@@ -3,12 +3,12 @@
 //! the folder can move to S3 or R2 as it is. Durable data lives only in these files: the meeting
 //! server (the `meet` Worker) mints a meeting's link, and the event file keeps it.
 //!
-//! The format, version 1:
+//! The format, version 2:
 //!
 //! ```json
 //! {
 //!   "format": "azcalendar.event",
-//!   "version": 1,
+//!   "version": 2,
 //!   "id": "0b0f6f2e-5b8e-4c43-9a57-3f1f0d6f4b1a",
 //!   "title": "Team sync",
 //!   "date": "2026-09-30",
@@ -18,14 +18,22 @@
 //!     "link": "azlin://meet/a2h859hyqkfaa11nhzxfh3gd7f",
 //!     "server": "http://127.0.0.1:8787",
 //!     "code": "xq4-8kd-2nm",
-//!     "expires": "2026-10-01T09:00:00.000Z"
+//!     "expires": "2026-09-30T10:00:00.000Z",
+//!     "starts_at": "2026-09-30T07:00:00.000Z",
+//!     "ends_at": "2026-09-30T08:00:00.000Z"
 //!   }
 //! }
 //! ```
 //!
-//! Times are wall-clock times on the event's day (no time zones in this version); an event ends
-//! on the day it starts. A file with a higher `version` was written by a newer AzCalendar and is
-//! left alone, never guessed at; fields this version does not know are ignored.
+//! Times are wall-clock times on the event's day (no time zones in the event itself); an event
+//! ends on the day it starts. `meeting.starts_at` / `ends_at` are the times the meeting server
+//! keeps the room for, in UTC, as it answered them: the event's times read in the zone of the
+//! AzCalendar that minted the link.
+//!
+//! Version 1 is the same without `meeting.starts_at` / `ends_at` (links minted before meeting
+//! times); it is still read, and written as version 2 when saved again. A file with a higher
+//! `version` was written by a newer AzCalendar and is left alone, never guessed at; fields this
+//! version does not know are ignored.
 
 use std::path::{Path, PathBuf};
 
@@ -36,8 +44,10 @@ use crate::meet_rooms::{self, RoomKey};
 
 /// The `format` of an event file.
 pub const FORMAT: &str = "azcalendar.event";
-/// The version this AzCalendar writes and reads.
-pub const VERSION: u64 = 1;
+/// The version this AzCalendar writes, and the newest it reads.
+pub const VERSION: u64 = 2;
+/// The oldest version this AzCalendar reads.
+pub const OLDEST_VERSION: u64 = 1;
 /// The folder, and the object-key prefix, of the event files.
 pub const EVENTS_DIR: &str = "events";
 /// The folder in the user's data folder when `AZCAL_DATA` is not set.
@@ -72,6 +82,13 @@ pub struct Meeting {
     /// When the server forgets the room (ISO 8601, as the server sent it).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub expires: String,
+    /// The meeting's start and end the server keeps the room for (RFC 3339, UTC, as the server
+    /// sent them); empty when it keeps the room without times (a server, or a file, from before
+    /// meeting times).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub starts_at: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ends_at: String,
 }
 
 /// Why an event cannot be made or read.
@@ -109,7 +126,7 @@ impl std::fmt::Display for EventError {
             EventError::NewerVersion(v) => {
                 write!(
                     f,
-                    "written by a newer AzCalendar (version {v}; this one reads {VERSION})"
+                    "written by a newer AzCalendar (version {v}; this one reads up to {VERSION})"
                 )
             }
             EventError::Malformed(e) => write!(f, "malformed ({e})"),
@@ -169,9 +186,9 @@ fn to_the_minute(t: NaiveTime) -> NaiveTime {
     NaiveTime::from_hms_opt(t.hour(), t.minute(), 0).unwrap_or(t)
 }
 
-/// The file on disk, version 1.
+/// The file on disk: version 2, and version 1 (the same without a meeting's times).
 #[derive(Serialize, Deserialize)]
-struct FileV1 {
+struct EventFile {
     format: String,
     version: u64,
     id: String,
@@ -185,7 +202,7 @@ struct FileV1 {
 
 /// The event's file contents (pretty JSON, ending in a newline).
 pub fn to_json(event: &Event) -> String {
-    let file = FileV1 {
+    let file = EventFile {
         format: FORMAT.to_string(),
         version: VERSION,
         id: event.id.clone(),
@@ -210,7 +227,7 @@ pub fn from_json(text: &str) -> Result<Event, EventError> {
     }
     let version = value.get("version");
     match version.and_then(|v| v.as_u64()) {
-        Some(VERSION) => {}
+        Some(v) if (OLDEST_VERSION..=VERSION).contains(&v) => {}
         Some(newer) if newer > VERSION => return Err(EventError::NewerVersion(newer)),
         _ => {
             return Err(EventError::BadField {
@@ -219,7 +236,7 @@ pub fn from_json(text: &str) -> Result<Event, EventError> {
             })
         }
     }
-    let file: FileV1 =
+    let file: EventFile =
         serde_json::from_value(value).map_err(|e| EventError::Malformed(e.to_string()))?;
     let date =
         NaiveDate::parse_from_str(&file.date, DATE_FORMAT).map_err(|_| EventError::BadField {

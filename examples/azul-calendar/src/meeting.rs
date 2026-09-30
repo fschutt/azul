@@ -1,10 +1,12 @@
 //! AzCalendar's side of AzMeet: which meeting server mints the links (the same setting as
-//! AzMeet's), what the server's answer to `POST /rooms` means, what to tell the user when minting
-//! fails, and which AzMeet program "Join meeting" opens. Link formats are AzMeet's own
-//! (`meet_rooms`, AzMeet's `rooms.rs`), not repeated here.
+//! AzMeet's), what AzCalendar asks it for (a room kept for the event's times, in UTC), what the
+//! server's answer to `POST /rooms` means, what to tell the user when minting fails, and which
+//! AzMeet program "Join meeting" opens. Link formats are AzMeet's own (`meet_rooms`, AzMeet's
+//! `rooms.rs`), not repeated here.
 
 use std::path::{Path, PathBuf};
 
+use chrono::{DateTime, NaiveDate, NaiveTime, SecondsFormat, TimeDelta, TimeZone, Utc};
 use serde::Deserialize;
 
 use crate::{
@@ -38,13 +40,48 @@ pub fn worker(setting: Option<&str>, built_in: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-/// What `POST /rooms` answers: `{room, code, link, url, expires}`.
+/// When an event on `date` from `start` to `end` (wall-clock times in `zone`, the user's zone in
+/// the app) starts and ends, in UTC: the times the meeting server keeps its room for. Of a time
+/// the clocks pass twice, the first; a time they skip (DST starts) is read an hour later, which is
+/// the same instant in the zone's offset from before the change.
+pub fn utc_window<Tz: TimeZone>(
+    zone: &Tz,
+    date: NaiveDate,
+    start: NaiveTime,
+    end: NaiveTime,
+) -> (DateTime<Utc>, DateTime<Utc>) {
+    let utc = |time: NaiveTime| {
+        let local = date.and_time(time);
+        zone.from_local_datetime(&local)
+            .earliest()
+            .or_else(|| {
+                zone.from_local_datetime(&(local + TimeDelta::hours(1)))
+                    .earliest()
+            })
+            .map(|t| t.with_timezone(&Utc))
+            .unwrap_or_else(|| local.and_utc())
+    };
+    (utc(start), utc(end))
+}
+
+/// The body of `POST /rooms` for a meeting from `starts` to `ends`:
+/// `{"starts_at": "2026-10-06T07:00:00Z", "ends_at": "2026-10-06T08:00:00Z"}` (RFC 3339, UTC). The
+/// server keeps the room until a while after `ends`, not only a day after it was minted.
+pub fn mint_body(starts: DateTime<Utc>, ends: DateTime<Utc>) -> String {
+    let rfc3339 = |t: DateTime<Utc>| t.to_rfc3339_opts(SecondsFormat::Secs, true);
+    serde_json::json!({ "starts_at": rfc3339(starts), "ends_at": rfc3339(ends) }).to_string()
+}
+
+/// What `POST /rooms` answers: `{room, code, link, url, expires, starts_at, ends_at}`
+/// (`starts_at` / `ends_at` null or missing for a room kept without times).
 #[derive(Deserialize)]
 struct RoomAnswer {
     room: String,
     code: Option<String>,
     link: Option<String>,
     expires: Option<String>,
+    starts_at: Option<String>,
+    ends_at: Option<String>,
 }
 
 /// The meeting `server` minted, read from its answer to `POST /rooms`. The link must name the
@@ -63,6 +100,8 @@ pub fn minted_meeting(server: &str, body: &str) -> Result<Meeting, String> {
             server: server.to_string(),
             code: answer.code.unwrap_or_default(),
             expires: answer.expires.unwrap_or_default(),
+            starts_at: answer.starts_at.unwrap_or_default(),
+            ends_at: answer.ends_at.unwrap_or_default(),
         }),
         _ => Err(format!(
             "The meeting server sent a link that is not the AzMeet room it made: {link}"
@@ -111,7 +150,7 @@ pub fn join_env(meeting: &Meeting) -> Vec<(&'static str, String)> {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{FixedOffset, TimeZone};
+    use chrono::FixedOffset;
 
     use super::*;
 
@@ -184,7 +223,10 @@ mod tests {
     fn a_room_the_server_keeps_without_times_is_a_meeting_without_them() {
         let body = format!("{{\"room\": \"{ROOM}\", \"starts_at\": null, \"ends_at\": null}}");
         let meeting = minted_meeting(SERVER, &body).unwrap();
-        assert_eq!((meeting.starts_at.as_str(), meeting.ends_at.as_str()), ("", ""));
+        assert_eq!(
+            (meeting.starts_at.as_str(), meeting.ends_at.as_str()),
+            ("", "")
+        );
     }
 
     fn day(y: i32, m: u32, d: u32) -> NaiveDate {
