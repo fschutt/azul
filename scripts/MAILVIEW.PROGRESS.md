@@ -4,7 +4,7 @@ Branch `wt/mailview-engine` from `d8be2016d`. Report: `scripts/MAILVIEW_2026_09_
 Never compiled (house rule): the parent compiles and runs the suites.
 
 ## DONE
-- 1. E-XML-2 href: RED `2b9071aa0`, fix `589f75168`
+- 1. E-XML-2 href: RED `2b9071aa0`, first fix `589f75168` (attribute-table entry) REPLACED by ruling: RED `76363ee28`, fix `3d158593f` (component arguments: data_model_with_attributes + apply_builtin_element_args, both loaders + builtin render fn)
 - 7. E-XML-4 entities: RED `a9121e604`, fix `e81a2e7cb`
 - 6. E-CSS-1 CDO/CDC: RED `e667598a2`, fix `dab0ffad1`
 - 3. E-UA: RED `d879dc38e`, fix `3e400235d` (also: UA beats inherited on elements + hand-down)
@@ -14,7 +14,7 @@ Never compiled (house rule): the parent compiles and runs the suites.
 - 5. E-OL: RED `8db89d933`, fix `ce06c2aca` (marker outside its text clip; CPU LCD tile path clips, sweep does not)
 
 ## IN PROGRESS
-- 8. E-MODE: RED `f0b198335`; fix = new CSS property color-scheme (StyleColorScheme, mirror TextOrientation registrations) + per-node mode in the cascade (node_modes on CssPropertyCache)
+- 8. E-MODE DROPPED from the engine by ruling (RED f0b198335 removed in e062843b8; unfinished color-scheme property patch saved in the scratchpad, not committed). Replacement: AzMail sanitizer wraps HTML mail in a light paper container + strips prefers-color-scheme dark rules.
 
 ## NEXT
 - 9. R1's open table items
