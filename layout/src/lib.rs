@@ -542,6 +542,10 @@ pub mod text3;
 /// numbering) and the flat byte offsets into a block's text.
 #[cfg(feature = "text_layout")]
 pub mod block_content;
+/// Text blocks rebuilt as DOM subtrees from their styled runs - the payload
+/// of a structural edit that joins blocks or pastes a fragment.
+#[cfg(feature = "text_layout")]
+pub mod rich_blocks;
 /// Text blocks: which inline formatting context a node, a caret or a
 /// selection end lives in - the one resolver.
 #[cfg(feature = "text_layout")]

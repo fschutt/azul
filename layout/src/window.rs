@@ -4185,8 +4185,9 @@ impl LayoutWindow {
     ///     start..end:   its children holding the FIRST to the LAST block,
     ///     content:      those children rebuilt around ONE merged block - the
     ///                   FIRST block's element (classes and inline styles
-    ///                   survive, Word semantics) holding first-kept-text +
-    ///                   last-kept-text,
+    ///                   survive, Word semantics) holding what the first
+    ///                   block keeps before the selection and what the last
+    ///                   one keeps after it,
     /// }
     /// ```
     ///
@@ -4195,10 +4196,11 @@ impl LayoutWindow {
     ///
     /// Atomicity is the point: the app applies or rejects the WHOLE edit,
     /// undo is one entry, and the overlay previews the merged paragraph
-    /// ahead of the app's re-render. The resume point puts the caret at
-    /// the JOIN byte inside the merged text. Rich intra-block spans are
-    /// flattened to plain text in v1 (single-text-run editables, the
-    /// common case, keep their block-level formatting).
+    /// ahead of the app's re-render. What the two ends keep keeps its
+    /// inline elements - rebuilt from their styled runs
+    /// ([`crate::rich_blocks`]): a `<b>` before the selection and an `<i>`
+    /// after it are both in the merged block. The resume point puts the
+    /// caret at the JOIN, inside the element it was cut in.
     ///
     /// Returns the changeset id, or `None` when no cross-block selection
     /// is active / the selection could not be resolved - in which case the
@@ -4208,15 +4210,14 @@ impl LayoutWindow {
     }
 
     /// [`Self::delete_cross_block_selection`] with `insert` placed at the
-    /// join: the paste-over-selection primitive. The merged paragraph holds
-    /// `first-kept + insert + last-kept` and the caret resumes AFTER the
-    /// inserted text.
+    /// join: the type-over and paste-over-selection primitive. The merged
+    /// paragraph holds the first block's kept head, `insert` - in the style
+    /// of the text it follows, the selection's start (WPT
+    /// `editing/data/inserttext.js`) - and the last block's kept tail; the
+    /// caret resumes AFTER the inserted text.
     pub fn replace_cross_block_selection(&mut self, insert: &str) -> Option<u64> {
-        use crate::{
-            managers::changeset::{
-                DocOpReplaceChildren, DocumentChangeset, DocumentOperation, NodePosition,
-            },
-            text3::cache::InlineContent,
+        use crate::managers::changeset::{
+            DocOpReplaceChildren, DocumentChangeset, DocumentOperation, NodePosition,
         };
 
         // A PEEK: the selection is consumed only once the edit exists, so a
@@ -4243,44 +4244,17 @@ impl LayoutWindow {
             return None;
         };
 
-        // The text a block keeps before (`head`) or after its cut, in the
-        // carets' own run numbering (`element_content` - a list item's
-        // text is run 1 behind its marker) and affinity-aware (a Trailing
-        // cursor cuts AFTER its grapheme).
-        let kept = |block: NodeId, cut: &TextCursor, head: bool| -> String {
-            use crate::text3::edit::cursor_byte_offset_in_run;
-            let cut_run = cut.cluster_id.source_run;
-            let mut out = String::new();
-            for (i, item) in self.element_content(dom_id, block).items().iter().enumerate() {
-                let InlineContent::Text(run) = item else {
-                    continue;
-                };
-                let i = u32::try_from(i).unwrap_or(u32::MAX);
-                if i == cut_run {
-                    let byte = cursor_byte_offset_in_run(&run.text, cut).min(run.text.len());
-                    out.push_str(if head { &run.text[..byte] } else { &run.text[byte..] });
-                } else if (i < cut_run) == head {
-                    out.push_str(&run.text);
-                }
-            }
-            out
-        };
-        let first_kept = kept(first, &first_range.start, true);
-        let last_kept = kept(last, &last_range.end, false);
-
-        let join_byte = u32::try_from(first_kept.len() + insert.len()).unwrap_or(u32::MAX);
-        let merged_text = {
-            let mut t = String::with_capacity(first_kept.len() + insert.len() + last_kept.len());
-            t.push_str(&first_kept);
-            t.push_str(insert);
-            t.push_str(&last_kept);
-            t
-        };
+        // What each end keeps, as styled items in its own numbering (a list
+        // item's text is run 1 behind its marker; a Trailing cursor cuts
+        // AFTER its grapheme).
+        let head = self.kept_block_items(dom_id, first, &first_range.start, true);
+        let tail = self.kept_block_items(dom_id, last, &last_range.end, false);
+        let (merged, join) = self.joined_block(dom_id, first, head, insert, last, &tail)?;
 
         // The ends need not share a parent: a document selection spans blocks
         // in document order, wherever they sit (838adc974).
         let (parent, start_idx, end_idx, replacement) =
-            self.document_selection_replacement(dom_id, first, last, merged_text)?;
+            self.document_selection_replacement(dom_id, first, last, vec![merged])?;
 
         let parent_dom_node = DomNodeId {
             dom: dom_id,
@@ -4299,9 +4273,18 @@ impl LayoutWindow {
             },
             &op,
         )?;
-        // Word caret behavior: land INSIDE the merged text at the join, not
-        // merely "before the replaced slot".
-        resume.position = NodePosition::in_text_child(0, join_byte);
+        // Word caret behavior: land INSIDE the merged block at the join, in
+        // the element the join is in - not merely "before the replaced slot",
+        // and not at a byte of the block's first text child.
+        match join.map(|j| j.as_resume()) {
+            Some((path, position)) => {
+                let mut node_path = resume.node_path.as_ref().to_vec();
+                node_path.extend_from_slice(&path);
+                resume.node_path = node_path.into();
+                resume.position = position;
+            }
+            None => resume.position = NodePosition::before_child(0),
+        }
 
         // The edit exists: NOW the selection is consumed.
         self.text_edit_manager.clear_cross_block_selection();
@@ -4331,13 +4314,82 @@ impl LayoutWindow {
         Some(self.record_document_edit(changeset))
     }
 
+    /// The block that joins `head` - what block `first` keeps before a cut -
+    /// `insert` and `tail` - what block `last` keeps after one: `first`'s
+    /// element around the three rebuilt as inline content
+    /// ([`crate::rich_blocks`]), and where the join (after `insert`) stands
+    /// in it. `insert` takes the style of the text it follows: it joins the
+    /// head's last text run, or - after a line break, or with no head text -
+    /// a run in that run's style (the block's own with no run at all).
+    fn joined_block(
+        &self,
+        dom_id: DomId,
+        first: NodeId,
+        mut head: Vec<InlineContent>,
+        insert: &str,
+        last: NodeId,
+        tail: &[InlineContent],
+    ) -> Option<(Dom, Option<crate::rich_blocks::InlinePosition>)> {
+        if !insert.is_empty() {
+            match head.last_mut() {
+                Some(InlineContent::Text(run)) => {
+                    let mut text = String::from(&*run.text);
+                    text.push_str(insert);
+                    run.text = Arc::from(text.as_str());
+                }
+                _ => {
+                    let (style, source_node_id) = head
+                        .iter()
+                        .rev()
+                        .find_map(|item| match item {
+                            InlineContent::Text(run) => {
+                                Some((run.style.clone(), run.source_node_id))
+                            }
+                            _ => None,
+                        })
+                        .unwrap_or_else(|| (self.get_text_style_for_node(dom_id, first), None));
+                    head.push(InlineContent::Text(StyledRun {
+                        text: Arc::from(insert),
+                        style,
+                        logical_start_byte: 0,
+                        source_node_id,
+                    }));
+                }
+            }
+        }
+        let mut tree = crate::rich_blocks::InlineTree::default();
+        self.push_block_items(&mut tree, dom_id, first, &head);
+        let join = tree.end();
+        self.push_block_items(&mut tree, dom_id, last, tail);
+        let data = self
+            .layout_results
+            .get(&dom_id)?
+            .styled_dom
+            .node_data
+            .as_container()
+            .get(first)?
+            .clone();
+        let mut block = Dom {
+            root: data,
+            children: Vec::new().into(),
+            css: Vec::new().into(),
+            estimated_total_children: 0,
+        };
+        for child in tree.into_doms() {
+            block.add_child(child);
+        }
+        Some((block, join))
+    }
+
     /// The `(parent, start, end, fragment)` of the `ReplaceChildren` that
-    /// deletes a document selection from block `first` to block `last` and
-    /// joins what is left into `first`. `parent` is their nearest common
+    /// replaces the blocks from `first` to `last` - a document selection's,
+    /// or `first` alone when the two are one block - with `merged`, the
+    /// blocks that take `first`'s place. `parent` is their nearest common
     /// ancestor; of its children, the one holding `first` keeps what precedes
-    /// `first` plus `first` itself holding `merged_text` (one run, the v1
-    /// flattening), the one holding `last` keeps what follows `last` (and goes
-    /// if that is nothing), and everything between goes.
+    /// `first` plus `merged` in its place, the one holding `last` keeps what
+    /// follows `last` (and goes if that is nothing), and everything between
+    /// goes. The blocks of `merged` stand where `first` stood, one after the
+    /// other.
     ///
     /// The payload is a FRAGMENT - `document_edit::apply_replace` and the
     /// overlay insert its CHILDREN and ignore its root. `None` when one block
@@ -4347,7 +4399,7 @@ impl LayoutWindow {
         dom_id: DomId,
         first: NodeId,
         last: NodeId,
-        merged_text: String,
+        merged: Vec<Dom>,
     ) -> Option<(NodeId, u32, u32, Dom)> {
         use azul_core::styled_dom::NodeHierarchyItem;
 
@@ -4364,6 +4416,17 @@ impl LayoutWindow {
             css: Vec::new().into(),
             estimated_total_children: 0,
         };
+
+        // One block: it alone is replaced, in its own parent.
+        if first == last {
+            let parent = parent_of(first)?;
+            let index = sibling_index(&hierarchy, first);
+            let mut fragment = Dom::create_div();
+            for block in merged {
+                fragment.add_child(block);
+            }
+            return Some((parent, index, index + 1, fragment));
+        }
 
         // `first` and every ancestor above it.
         let mut first_chain = vec![first];
@@ -4394,13 +4457,9 @@ impl LayoutWindow {
         let first_top = *first_side.last()?;
         let last_top = *last_side.last()?;
 
-        // `first`'s side, bottom-up: the merged block (BARE text: it is the
-        // block's inline content, not a <p><p>), then each container around
-        // it keeping only what came before it.
-        let mut head = element(first);
-        head.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(
-            merged_text,
-        ));
+        // `first`'s side, bottom-up: the merged blocks, then each container
+        // around them keeping only what came before `first`.
+        let mut heads = merged;
         for pair in first_side.windows(2) {
             let (inner, container) = (pair[0], pair[1]);
             let mut rebuilt = element(container);
@@ -4410,8 +4469,10 @@ impl LayoutWindow {
                 }
                 rebuilt.add_child(self.live_subtree(dom_id, c));
             }
-            rebuilt.add_child(head);
-            head = rebuilt;
+            for head in heads {
+                rebuilt.add_child(head);
+            }
+            heads = vec![rebuilt];
         }
 
         // `last`'s side, bottom-up: `last` itself is consumed, each container
@@ -4435,7 +4496,9 @@ impl LayoutWindow {
         }
 
         let mut fragment = Dom::create_div();
-        fragment.add_child(head);
+        for head in heads {
+            fragment.add_child(head);
+        }
         if let Some(t) = tail {
             fragment.add_child(t);
         }
@@ -4448,8 +4511,10 @@ impl LayoutWindow {
     }
 
     /// `node`'s subtree as a plain `Dom` WITH the typing the app has not
-    /// synced yet: an element the overlay holds edited text for gets it as ONE
-    /// run. From the DOM alone, a block kept by a delete would lose it.
+    /// synced yet: an element the overlay holds edited text for gets it
+    /// rebuilt from its styled runs ([`crate::rich_blocks`]), its inline
+    /// elements and what typing formatted included. From the DOM alone, a
+    /// block kept by a delete would lose it.
     fn live_subtree(&self, dom_id: DomId, node: NodeId) -> Dom {
         let Some(lr) = self.layout_results.get(&dom_id) else {
             return Dom::create_div();
@@ -4457,12 +4522,11 @@ impl LayoutWindow {
         let Some(data) = lr.styled_dom.node_data.as_container().get(node).cloned() else {
             return Dom::create_div();
         };
-        let edited = self
-            .content_overlay
-            .text_for_node(dom_id, node)
-            .map(|dirty| crate::overlay::flatten_inline_content(&dirty.content));
-        if let (Some(text), NodeType::Text(_)) = (&edited, data.get_node_type()) {
-            return Dom::create_text_do_not_use_without_block_level_wrapper(text.clone());
+        let edited = self.content_overlay.text_for_node(dom_id, node);
+        if let (Some(dirty), NodeType::Text(_)) = (edited, data.get_node_type()) {
+            return Dom::create_text_do_not_use_without_block_level_wrapper(
+                crate::overlay::flatten_inline_content(&dirty.content),
+            );
         }
         let mut out = Dom {
             root: data,
@@ -4470,10 +4534,12 @@ impl LayoutWindow {
             css: Vec::new().into(),
             estimated_total_children: 0,
         };
-        if let Some(text) = edited {
-            out.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(
-                text,
-            ));
+        if let Some(dirty) = edited {
+            let mut tree = crate::rich_blocks::InlineTree::default();
+            self.push_block_items(&mut tree, dom_id, node, &dirty.content);
+            for child in tree.into_doms() {
+                out.add_child(child);
+            }
             return out;
         }
         for c in child_nodes(&lr.styled_dom.node_hierarchy.as_container(), node) {
@@ -19853,7 +19919,7 @@ impl LayoutWindow {
     }
 
     /// Get the font style for a text node from CSS
-    fn get_text_style_for_node(&self, dom_id: DomId, node_id: NodeId) -> Arc<StyleProperties> {
+    pub(crate) fn get_text_style_for_node(&self, dom_id: DomId, node_id: NodeId) -> Arc<StyleProperties> {
         use alloc::sync::Arc;
 
         let Some(layout_result) = self.layout_results.get(&dom_id) else {
