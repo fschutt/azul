@@ -4077,7 +4077,6 @@ where
         // DOM attribution is PER ITEM, not per run: a content run can switch
         // attribution mid-run (e.g. an IFC root's items ending with a text
         // child's id) — the golden test caught a first-item flattening here.
-        let saved_node = builder.current_node;
         builder.set_current_layout(Some((node_index, phase)));
         for i in run.0..run.1 {
             builder.set_current_node(patch.prev.node_mapping.get(i).copied().flatten());
@@ -4088,7 +4087,12 @@ where
             builder.push_item(item);
         }
         builder.set_current_layout(None);
-        builder.set_current_node(saved_node);
+        // The builder is left attributing to the run's LAST item's node, as a
+        // fresh paint leaves it: items this node emits outside its cached runs
+        // (its scrollbars, a placeholder prompt) take their owner from here.
+        // Restoring the node that was current BEFORE the copy handed them to
+        // whatever was painted last - a resized parent - so after a resize
+        // their hit-tests and damage went to the wrong node.
         true
     }
 
@@ -7407,7 +7411,28 @@ where
     /// clip so scrollbars appear on top of content and are not clipped.
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse
                                      // routine (one branch per case)
+    /// A scroll container's scrollbars, attributed to the container itself.
+    ///
+    /// They are painted AFTER the container's children, so without naming
+    /// their node they took whatever the builder attributed last: the last
+    /// child on a fresh paint, the node before a copied run on the resize fast
+    /// path (DL patching) - one scrollbar, two owners, and hit-tests and damage
+    /// aimed at a child.
     fn paint_scrollbars(&self, builder: &mut DisplayListBuilder, node_index: usize) -> Result<()> {
+        let saved_node = builder.current_node;
+        if let Some(node) = self.positioned_tree.tree.get(LayoutNodeId::new(node_index)) {
+            builder.set_current_node(node.dom_node_id);
+        }
+        let result = self.paint_scrollbars_inner(builder, node_index);
+        builder.set_current_node(saved_node);
+        result
+    }
+
+    fn paint_scrollbars_inner(
+        &self,
+        builder: &mut DisplayListBuilder,
+        node_index: usize,
+    ) -> Result<()> {
         // CSS 2.2 §11.2: visibility:hidden scroll containers must not paint scrollbars,
         // but their layout space is preserved (already handled by layout).
         if self.is_node_hidden(node_index) {
