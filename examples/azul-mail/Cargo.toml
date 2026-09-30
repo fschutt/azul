@@ -45,3 +45,8 @@ crate-type = ["rlib", "cdylib"]
 [[bin]]
 name = "AzMail"
 path = "src/main.rs"
+
+# The sanitizer as a filter (stdin -> stdout), for scripts/refci/mail_boxes.py.
+[[bin]]
+name = "azmail-sanitize"
+path = "src/bin/azmail_sanitize.rs"
