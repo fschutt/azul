@@ -1939,10 +1939,21 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
             }
         }
 
-        // Store layout for container nodes - Taffy only calls set_unrounded_layout for leaf nodes
-        if let Some(node) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
-            let size = translate_taffy_size_back(result.size);
-            node.used_size = Some(size);
+        // Store the FINAL layout's size on the node. Only a final layout
+        // (`RunMode::PerformLayout`) may write it: a MEASURE answers a
+        // question ("how tall at this width?", "how wide at min-content?")
+        // and must leave the node as the last final layout left it. Writing
+        // every answer here - cache hits included - let a block parent's
+        // second measure of a flex row overwrite a stretched item with its
+        // measured size; the item's column then served its own final layout
+        // from taffy's cache, so the item's final layout never ran again and
+        // a 260 px capacity bar stayed 2 px wide
+        // (tests/flex_items_keep_the_size_their_container_gave_them.rs, A).
+        if inputs.run_mode == RunMode::PerformLayout {
+            if let Some(node) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
+                let size = translate_taffy_size_back(result.size);
+                node.used_size = Some(size);
+            }
         }
 
         // CRITICAL FIX: For Flex/Grid children with overflow:auto/scroll,
@@ -2168,6 +2179,15 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
         // content). Reset `used_size` to the border-box dims Taffy fixed for THIS
         // measure. When width is unknown (an intrinsic pass), clear it so layout_bfc
         // falls back to `constraints.available_size` (INFINITY → true intrinsic).
+        //
+        // A MEASURE hands the size back afterwards: what the node held before
+        // (its last FINAL layout) is restored below, so a measure leaves no
+        // size behind (see `compute_child_layout`, and
+        // tests/flex_items_keep_the_size_their_container_gave_them.rs, A).
+        let used_size_before_measure = self
+            .tree
+            .get(LayoutNodeId::new(node_idx))
+            .and_then(|n| n.used_size);
         if let Some(n) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
             n.used_size = match (
                 inputs.known_dimensions.width,
@@ -2384,48 +2404,58 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                     max_h.map_or(clamped, |m| clamped.min(m.max(min_h.unwrap_or(0.0))))
                 };
 
-                // CRITICAL: Transfer positions from layout_formatting_context to child nodes.
-                // Without this, children of flex items won't have their relative_position set,
-                // causing them to all render at (0,0) relative to their parent.
-                for (child_idx, child_pos) in &output.positions {
-                    if let Some(child_warm) = self.tree.warm_mut(LayoutNodeId::new(*child_idx)) {
-                        child_warm.relative_position = Some(*child_pos);
+                if inputs.run_mode == RunMode::PerformLayout {
+                    // CRITICAL: Transfer positions from layout_formatting_context to child
+                    // nodes. Without this, children of flex items won't have their
+                    // relative_position set, causing them to all render at (0,0) relative to
+                    // their parent.
+                    for (child_idx, child_pos) in &output.positions {
+                        if let Some(child_warm) = self.tree.warm_mut(LayoutNodeId::new(*child_idx))
+                        {
+                            child_warm.relative_position = Some(*child_pos);
+                        }
                     }
-                }
 
-                // Compute scrollbar_info for this node (it's a child of a Flex/Grid container,
-                // so calculate_layout_for_subtree won't be called for it).
-                // Uses the unified compute_scrollbar_info_core path.
-                //
-                // content_width/height come from our own BFC/IFC overflow_size,
-                // which is already content-box relative — unlike Taffy's
-                // border-box-origin content_size.
-                let (scrollbar_info, _, _) = compute_taffy_scrollbar_info(
-                    self.ctx,
-                    self.tree,
-                    node_idx,
-                    final_width,
-                    final_height,
-                    content_width,
-                    content_height,
-                    ContentSizeOrigin::ContentBox,
-                );
+                    // Compute scrollbar_info for this node (it's a child of a Flex/Grid
+                    // container, so calculate_layout_for_subtree won't be called for it).
+                    // Uses the unified compute_scrollbar_info_core path.
+                    //
+                    // content_width/height come from our own BFC/IFC overflow_size,
+                    // which is already content-box relative — unlike Taffy's
+                    // border-box-origin content_size.
+                    let (scrollbar_info, _, _) = compute_taffy_scrollbar_info(
+                        self.ctx,
+                        self.tree,
+                        node_idx,
+                        final_width,
+                        final_height,
+                        content_width,
+                        content_height,
+                        ContentSizeOrigin::ContentBox,
+                    );
 
-                // Store the border-box size and scrollbar_info on the node for display list
-                // generation
-                if let Some(node) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
-                    node.used_size = Some(LogicalSize {
-                        width: final_width,
-                        height: final_height,
-                    });
-                }
-                if let Some(warm) = self.tree.warm_mut(LayoutNodeId::new(node_idx)) {
-                    warm.scrollbar_info = Some(scrollbar_info);
-                    // Store the actual content size for scroll calculations
-                    warm.overflow_content_size = Some(LogicalSize {
-                        width: content_width,
-                        height: content_height,
-                    });
+                    // Store the border-box size and scrollbar_info on the node for display
+                    // list generation
+                    if let Some(node) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
+                        node.used_size = Some(LogicalSize {
+                            width: final_width,
+                            height: final_height,
+                        });
+                    }
+                    if let Some(warm) = self.tree.warm_mut(LayoutNodeId::new(node_idx)) {
+                        warm.scrollbar_info = Some(scrollbar_info);
+                        // Store the actual content size for scroll calculations
+                        warm.overflow_content_size = Some(LogicalSize {
+                            width: content_width,
+                            height: content_height,
+                        });
+                    }
+                } else if let Some(node) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
+                    // A MEASURE: its children's positions, the scroll bars of a box
+                    // this tall and the size are the answer to a question, not the
+                    // node's layout - hand the size the last final layout left back
+                    // (taken before the reset above) and write nothing else.
+                    node.used_size = used_size_before_measure;
                 }
 
                 // Return the same size to Taffy for correct positioning
@@ -2448,6 +2478,12 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                 }
             }
             Err(_e) => {
+                // A measure leaves no size behind, as on the success path.
+                if inputs.run_mode != RunMode::PerformLayout {
+                    if let Some(node) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
+                        node.used_size = used_size_before_measure;
+                    }
+                }
                 // Fallback to intrinsic sizes if layout fails
                 let intrinsic = self
                     .tree
