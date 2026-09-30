@@ -144,7 +144,10 @@ define_class!(
                     None => return,
                 };
                 let pb = &*image;
-                CVPixelBufferLockBaseAddress(pb, CVPixelBufferLockFlags(0));
+                // kCVPixelBufferLock_ReadOnly (1): the planes are only read. A
+                // read-write lock tells CoreVideo the CPU may have changed the
+                // buffer, which invalidates its GPU / IOSurface caches for nothing.
+                CVPixelBufferLockBaseAddress(pb, CVPixelBufferLockFlags(1));
                 // Copy the planes (or rows) into the slot's REUSED buffer as
                 // they are and wake the reader; the slot validates them.
                 let ivars = self.ivars();
@@ -157,7 +160,7 @@ define_class!(
                         CVPixelBufferGetPixelFormatType(pb)
                     );
                 }
-                CVPixelBufferUnlockBaseAddress(pb, CVPixelBufferLockFlags(0));
+                CVPixelBufferUnlockBaseAddress(pb, CVPixelBufferLockFlags(1));
             }
         }
     }
