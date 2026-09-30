@@ -798,14 +798,137 @@ fn named_char(name: &str) -> Option<char> {
 mod tests {
     use super::*;
 
-    const HEAD: &str = "<html><body><div>";
+    /// Every result's body is the mail on its PAPER (the sheet it is read on).
+    const PAPER: &str = "<body><div class=\"azmail-paper\">";
     const TAIL: &str = "</div></body></html>";
 
     /// The sanitized body, without the wrapper every result has.
     fn inner(html: &str) -> String {
         let out = sanitize(html).xhtml;
-        assert!(out.starts_with(HEAD) && out.ends_with(TAIL), "{out}");
-        out[HEAD.len()..out.len() - TAIL.len()].to_string()
+        let start = out.find(PAPER).map(|at| at + PAPER.len());
+        assert!(start.is_some() && out.ends_with(TAIL), "{out}");
+        out[start.unwrap_or(0)..out.len() - TAIL.len()].to_string()
+    }
+
+    /// The sanitized document's style sheet (`<head><style>`), as written.
+    fn style_sheet(s: &Sanitized) -> String {
+        let out = &s.xhtml;
+        assert!(out.starts_with("<html><head><style>"), "{out}");
+        let start = out.find("<style>").map(|at| at + "<style>".len());
+        let end = out.find("</style>");
+        match (start, end) {
+            (Some(a), Some(b)) if a <= b => out[a..b].to_string(),
+            _ => panic!("no style sheet in {out}"),
+        }
+    }
+
+    /// A mail that says nothing about the dark mode was designed on white: it is shown on
+    /// white paper with dark text in EITHER mode. The sheet holds no `prefers-color-scheme`
+    /// condition, so the cascade, which matches those against the window's mode, finds nothing
+    /// to change in a dark app: the paper stays white. Its links get a blue readable on white
+    /// (the UA's dark-mode link colour is a pale one meant for a dark background).
+    #[test]
+    fn a_mail_without_dark_rules_is_white_paper_even_in_a_dark_app() {
+        let s = sanitize("<p>Hi <a href=\"https://example.org\">link</a></p>");
+        assert!(!s.has_dark_rules);
+        let css = style_sheet(&s);
+        assert!(
+            css.contains(".azmail-paper { background-color: #ffffff; color: #1a1a1a;"),
+            "{css}"
+        );
+        assert!(
+            !css.contains("prefers-color-scheme"),
+            "nothing follows the mode: {css}"
+        );
+        assert!(css.contains(".azmail-paper a { color: #0b57d0; }"), "{css}");
+        assert_eq!(
+            inner("<p>Hi</p>"),
+            "<p>Hi</p>",
+            "the paper wraps the mail's own markup"
+        );
+    }
+
+    /// A mail that ships its own dark design keeps it: its `prefers-color-scheme: dark` rules
+    /// stay (scoped to the paper), and the paper follows the app's mode - white with dark text
+    /// in the light mode, dark with light text in the dark one - so the mail's dark rules fire
+    /// on a dark sheet, as its author designed them.
+    #[test]
+    fn a_mail_with_dark_rules_keeps_them_and_its_paper_follows_the_mode() {
+        let s = sanitize(
+            "<style>.x { color: #111111 } @media (prefers-color-scheme: dark) { .x { color: \
+             #eeeeee } }</style><p class=x>t</p>",
+        );
+        assert!(s.has_dark_rules);
+        let css = style_sheet(&s);
+        assert!(
+            css.contains(".azmail-paper { background-color: #ffffff; color: #1a1a1a;"),
+            "the light mode's paper: {css}"
+        );
+        assert!(
+            css.contains(
+                "@media (prefers-color-scheme: dark) { .azmail-paper { background-color: \
+                 #1e1e1e; color: #e8e8e8; } }"
+            ),
+            "the dark mode's paper: {css}"
+        );
+        assert!(
+            css.contains(
+                "@media (prefers-color-scheme: dark) { .azmail-paper .x { color: #eeeeee; } }"
+            ),
+            "the mail's own dark rule: {css}"
+        );
+        assert!(
+            !css.contains(".azmail-paper a { color"),
+            "links take the UA's colour of the mode the paper is in: {css}"
+        );
+    }
+
+    /// Dark support is also declared without a media query: a `color-scheme` (or the older
+    /// `supported-color-schemes`) meta, or a `color-scheme` declaration, that names `dark`.
+    #[test]
+    fn a_color_scheme_meta_or_declaration_naming_dark_counts_as_dark_rules() {
+        assert!(
+            sanitize("<head><meta name=\"color-scheme\" content=\"light dark\"></head><p>t</p>")
+                .has_dark_rules
+        );
+        assert!(
+            sanitize("<meta name=supported-color-schemes content=\"light dark\"><p>t</p>")
+                .has_dark_rules
+        );
+        assert!(
+            sanitize("<style>:root { color-scheme: light dark; }</style><p>t</p>").has_dark_rules
+        );
+        assert!(!sanitize("<meta name=\"color-scheme\" content=\"light\"><p>t</p>").has_dark_rules);
+        assert!(!sanitize("<style>.x { color: red }</style><p>t</p>").has_dark_rules);
+    }
+
+    /// A mail's style sheet keeps only what is safe, scoped to the paper: no imports, fonts,
+    /// fetched URLs or positioning, no comment wrapping; the mail's `body` is the paper.
+    #[test]
+    fn a_mails_style_sheet_keeps_only_safe_rules_scoped_to_the_paper() {
+        let s = sanitize(
+            "<style><!-- @import url(x.css); @font-face { src: url(f.woff) } body { margin: 0; \
+             background-color: #f4f4f4 } * { position: fixed } .b { color: red; background: \
+             url(t.png) } --></style>t",
+        );
+        let css = style_sheet(&s);
+        for gone in [
+            "import",
+            "url(",
+            "font-face",
+            "position",
+            "<!--",
+            "-->",
+            "&lt;!--",
+        ] {
+            assert!(!css.contains(gone), "{gone} is gone: {css}");
+        }
+        assert!(
+            css.contains(".azmail-paper { margin: 0; background-color: #f4f4f4; }"),
+            "the mail's body is the paper: {css}"
+        );
+        assert!(css.contains(".azmail-paper .b { color: red; }"), "{css}");
+        assert_eq!(inner("<style>p { color: red }</style>ok"), "ok");
     }
 
     #[test]
