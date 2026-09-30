@@ -2862,3 +2862,121 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
         }
     }
 }
+
+/// A video tile's frames on the GPU path: one renderer image per tile for its
+/// whole life, whose pixels each new frame replaces (`update_image`), instead
+/// of a new image key, a new texture and a display-list + scene rebuild per
+/// frame.
+#[cfg(test)]
+mod overlay_upload_tests {
+    use azul_core::{
+        dom::{DomId, NodeId},
+        resources::{
+            IdNamespace, ImageRef, Nv12Layout, RawImage, RawImageData, RawImageFormat,
+            RendererResources,
+        },
+    };
+    use webrender::api::ImageFormat;
+
+    use super::{nv12_plane_descriptors, plan_overlay_image_uploads};
+
+    fn frame(format: RawImageFormat, w: usize, h: usize, fill: u8) -> ImageRef {
+        let len = if format.is_nv12() {
+            Nv12Layout::new(w, h).checked_total_len().expect("small")
+        } else {
+            w * h * 4
+        };
+        ImageRef::new_rawimage(RawImage {
+            pixels: RawImageData::U8(vec![fill; len].into()),
+            width: w,
+            height: h,
+            premultiplied_alpha: true,
+            data_format: format,
+            tag: Vec::new().into(),
+        })
+        .expect("a well-formed frame")
+    }
+
+    const TILE: (DomId, NodeId) = (DomId { inner: 0 }, NodeId::new(3));
+    const NS: IdNamespace = IdNamespace(7);
+
+    #[test]
+    fn a_tiles_frames_share_one_renderer_key_and_the_old_frame_is_forgotten() {
+        let mut rr = RendererResources::default();
+        let f1 = frame(RawImageFormat::BGRA8, 4, 2, 1);
+        let first = plan_overlay_image_uploads([(TILE, &f1)].into_iter(), &mut rr, NS);
+        assert_eq!(first.len(), 1);
+        assert!(!first[0].update, "the tile's first frame adds its key");
+        let key = first[0].key;
+        assert_eq!(rr.node_image_slots.get(&TILE), Some(&key));
+        assert_eq!(
+            rr.currently_registered_images
+                .get(&f1.get_hash())
+                .map(|r| r.key),
+            Some(key),
+            "the display list's frame resolves to the tile's key"
+        );
+
+        let f2 = frame(RawImageFormat::BGRA8, 4, 2, 2);
+        let second = plan_overlay_image_uploads([(TILE, &f2)].into_iter(), &mut rr, NS);
+        assert_eq!(second.len(), 1);
+        assert!(second[0].update, "a later frame UPDATES the same key: pixels only");
+        assert_eq!(second[0].key, key);
+        assert!(
+            !rr.currently_registered_images.contains_key(&f1.get_hash()),
+            "the previous frame is forgotten, not deleted: the key lives on"
+        );
+        assert_eq!(
+            rr.currently_registered_images
+                .get(&f2.get_hash())
+                .map(|r| r.key),
+            Some(key)
+        );
+        assert_eq!(rr.image_key_map.get(&key), Some(&f2.get_hash()));
+
+        let again = plan_overlay_image_uploads([(TILE, &f2)].into_iter(), &mut rr, NS);
+        assert!(again.is_empty(), "a frame already up uploads nothing");
+    }
+
+    #[test]
+    fn an_nv12_frame_is_two_planes_under_two_stable_keys_sharing_one_buffer() {
+        let mut rr = RendererResources::default();
+        let f1 = frame(RawImageFormat::NV12Rec709Video, 6, 4, 9);
+        let up = plan_overlay_image_uploads([(TILE, &f1)].into_iter(), &mut rr, NS);
+        let chroma = up[0].chroma.expect("NV12 has a chroma plane");
+        assert!(!chroma.update);
+        assert_ne!(chroma.key, up[0].key);
+        assert_eq!(rr.nv12_chroma_keys.get(&up[0].key), Some(&chroma.key));
+
+        let f2 = frame(RawImageFormat::NV12Rec709Video, 6, 4, 10);
+        let up2 = plan_overlay_image_uploads([(TILE, &f2)].into_iter(), &mut rr, NS);
+        assert!(up2[0].update);
+        assert_eq!(
+            up2[0].chroma.map(|c| (c.key, c.update)),
+            Some((chroma.key, true)),
+            "the chroma plane is updated in place too"
+        );
+
+        // The two planes are views into ONE buffer: no split copy.
+        let (y, uv) = nv12_plane_descriptors(&up2[0].descriptor).expect("NV12 planes");
+        assert_eq!(y.format, ImageFormat::R8);
+        assert_eq!((y.size.width, y.size.height), (6, 4));
+        assert_eq!((y.stride, y.offset), (Some(6), 0));
+        assert_eq!(uv.format, ImageFormat::RG8);
+        assert_eq!((uv.size.width, uv.size.height), (3, 2));
+        assert_eq!((uv.stride, uv.offset), (Some(6), 24));
+    }
+
+    #[test]
+    fn a_tile_that_turns_from_nv12_to_bgra_drops_its_chroma_plane() {
+        let mut rr = RendererResources::default();
+        let f1 = frame(RawImageFormat::NV12Rec601Video, 4, 4, 9);
+        let up = plan_overlay_image_uploads([(TILE, &f1)].into_iter(), &mut rr, NS);
+        let chroma = up[0].chroma.expect("NV12").key;
+        let f2 = frame(RawImageFormat::BGRA8, 4, 4, 1);
+        let up2 = plan_overlay_image_uploads([(TILE, &f2)].into_iter(), &mut rr, NS);
+        assert!(up2[0].chroma.is_none());
+        assert_eq!(up2[0].drop_chroma, Some(chroma));
+        assert!(rr.nv12_chroma_keys.get(&up2[0].key).is_none());
+    }
+}
