@@ -620,3 +620,5 @@ mod a_scrollbar_in_a_transformed_virtual_view_is_pressed_where_it_is_painted;
 mod a_nodes_own_hover_block_applies_only_when_hovered;
 #[path = "a_node_restyled_to_other_variables_resolves_them.rs"]
 mod a_node_restyled_to_other_variables_resolves_them;
+#[path = "a_full_width_rule_in_a_spanning_table_cell_renders.rs"]
+mod a_full_width_rule_in_a_spanning_table_cell_renders;
