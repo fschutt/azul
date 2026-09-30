@@ -95,7 +95,9 @@ def tag_elements(xhtml):
                 counter[0] += 1
                 n = counter[0]
                 tags[n] = c.tag
-                attrs = [(k, v) for k, v in c.attrs if k != "class"]
+                # `on*` handlers go (the sanitizer drops them; the normalizer
+                # keeps everything): Chrome runs no scripts, azul none at all.
+                attrs = [(k, v) for k, v in c.attrs if k != "class" and not k.startswith("on")]
                 old = dict(c.attrs).get("class") or ""
                 attrs.append(("class", ("%s azr-%d" % (old, n)).strip()))
                 c.attrs = attrs

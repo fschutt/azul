@@ -75,6 +75,9 @@ class Chrome:
             "--disable-extensions", "--mute-audio", "--allow-file-access-from-files",
             # Nothing leaves the machine: every host name fails to resolve.
             "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost",
+            # No scripts: a mail's onerror="alert(1)" opened a dialog that hung
+            # every later protocol call (the hostile sample of the corpus).
+            "--blink-settings=scriptEnabled=false",
         ] + list(extra_args) + ["about:blank"]
         self.proc = subprocess.Popen(args, close_fds=False, preexec_fn=wire,
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -117,7 +120,16 @@ class Chrome:
                 if "error" in m:
                     raise CdpError("%s: %s" % (method, m["error"].get("message")))
                 return m.get("result", {})
-            self._events.append(m)
+            self._note_event(m)
+
+    def _note_event(self, m):
+        """Queue an event; a JavaScript dialog is dismissed at once, or every
+        later call on that page would hang behind it."""
+        if m.get("method") == "Page.javascriptDialogOpening" and m.get("sessionId"):
+            self._send({"id": 0, "method": "Page.handleJavaScriptDialog",
+                        "params": {"accept": True}, "sessionId": m["sessionId"]})
+            return
+        self._events.append(m)
 
     def wait_event(self, method, session=None, timeout=60):
         for i, e in enumerate(self._events):
@@ -128,7 +140,7 @@ class Chrome:
             m = self._recv(max(0.1, deadline - time.time()))
             if m.get("method") == method and m.get("sessionId") == session:
                 return m
-            self._events.append(m)
+            self._note_event(m)
 
     # -- pages -----------------------------------------------------------
     def open(self, url, width=800, height=600):
