@@ -196,8 +196,11 @@ impl SrcRect {
 /// The centred part of a `sw x sh` source with the aspect ratio of
 /// `dw x dh` (CSS `object-fit: cover`): the whole height of a source that is
 /// wider than asked for, the whole width of one that is taller. `even` keeps
-/// the origin and size on even pixels, so an NV12 crop covers whole chroma
-/// pairs. A zero size anywhere gives the whole source.
+/// the origin, and every side the crop CUTS, on even pixels, so an NV12 crop
+/// covers whole chroma pairs; a side that spans the whole source keeps the
+/// source's own (possibly odd) extent, whose last chroma pair the source's
+/// layout holds - so a same-size cut is the whole frame, a copy. A zero
+/// size anywhere gives the whole source.
 #[must_use]
 #[allow(clippy::cast_possible_truncation)] // results are <= sw / sh, which are u32
 pub fn cover_crop(sw: u32, sh: u32, dw: u32, dh: u32, even: bool) -> SrcRect {
@@ -223,10 +226,10 @@ pub fn cover_crop(sw: u32, sh: u32, dw: u32, dh: u32, even: bool) -> SrcRect {
     if even {
         x &= !1;
         y &= !1;
-        if cw > 1 {
+        if cw > 1 && cw < sw {
             cw &= !1;
         }
-        if ch > 1 {
+        if ch > 1 && ch < sh {
             ch &= !1;
         }
     }
