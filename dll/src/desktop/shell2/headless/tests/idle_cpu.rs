@@ -73,6 +73,10 @@ fn spinner_window() -> HeadlessWindow {
         let _ = azul_core::task::advance_test_clock_ms(FRAME_MS);
         let _ = window.process_timers_and_threads();
         window.relayout_only().expect("repaint");
+        // The relayout rebuilt the list the flag asked for. A desktop frame
+        // consumes the flag here; headless has no consumer, so the harness
+        // does it, or every later tick would look dirty.
+        window.common.display_list_dirty = false;
     }
     window
 }
