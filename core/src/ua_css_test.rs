@@ -332,8 +332,12 @@ mod autotest_generated {
 
     #[test]
     fn unknown_elements_default_to_inline_display() {
-        // Per CSS spec, unknown/custom elements are inline.
-        for nt in [NodeType::Address, NodeType::Legend, NodeType::Meter] {
+        // Per CSS spec, unknown/custom elements are inline: these are the
+        // node types WITHOUT a row of their own, so they take the `(_,
+        // Display)` catch-all. `address` was listed here until it got its
+        // `display: block` (HTML rendering 15.3.3) - an element with a UA
+        // rule is a known one, and its rule is what this table says.
+        for nt in [NodeType::Output, NodeType::Legend, NodeType::Meter] {
             assert_eq!(display_of(&nt), LayoutDisplay::Inline, "{nt:?}");
         }
     }
