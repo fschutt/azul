@@ -2461,3 +2461,128 @@ mod autotest_generated {
     }
 
 }
+
+/// NV12 (two-plane 4:2:0 YCbCr): the format cameras and hardware video
+/// decoders produce natively. Carrying it end to end means no per-frame
+/// YUV->RGB pass on the CPU: the GPU converts in its shader, the CPU
+/// rasterizer converts only the rows it paints.
+#[cfg(test)]
+mod nv12_tests {
+    use super::*;
+
+    #[test]
+    fn an_nv12_image_is_a_full_y_plane_then_a_half_size_interleaved_chroma_plane() {
+        let even = Nv12Layout::new(4, 2);
+        assert_eq!(even.y_len(), 8);
+        assert_eq!((even.chroma_width, even.chroma_height), (2, 1));
+        assert_eq!(even.uv_len(), 4, "one Cb,Cr pair per 2x2 block");
+        assert_eq!(even.checked_total_len(), Some(12));
+        // An odd size rounds the chroma plane UP: the last column / row still
+        // has a chroma sample.
+        let odd = Nv12Layout::new(5, 3);
+        assert_eq!((odd.chroma_width, odd.chroma_height), (3, 2));
+        assert_eq!(odd.uv_len(), 12);
+        assert_eq!(odd.checked_total_len(), Some(15 + 12));
+        assert_eq!(Nv12Layout::new(usize::MAX, 2).checked_total_len(), None);
+    }
+
+    #[test]
+    fn the_nv12_formats_name_their_matrix_and_range() {
+        assert_eq!(RawImageFormat::nv12(false, false), RawImageFormat::NV12Rec601Video);
+        assert_eq!(RawImageFormat::nv12(false, true), RawImageFormat::NV12Rec601Full);
+        assert_eq!(RawImageFormat::nv12(true, false), RawImageFormat::NV12Rec709Video);
+        assert_eq!(RawImageFormat::nv12(true, true), RawImageFormat::NV12Rec709Full);
+        for f in [
+            RawImageFormat::NV12Rec601Video,
+            RawImageFormat::NV12Rec601Full,
+            RawImageFormat::NV12Rec709Video,
+            RawImageFormat::NV12Rec709Full,
+        ] {
+            assert!(f.is_nv12(), "{f:?}");
+            assert_eq!(RawImageFormat::nv12(f.is_rec709(), f.is_full_range()), f);
+        }
+        for f in [RawImageFormat::RGBA8, RawImageFormat::BGRA8, RawImageFormat::R8] {
+            assert!(!f.is_nv12(), "{f:?} is not NV12");
+        }
+    }
+
+    #[test]
+    fn video_range_black_and_white_convert_exactly_in_both_matrices() {
+        for f in [RawImageFormat::NV12Rec601Video, RawImageFormat::NV12Rec709Video] {
+            assert_eq!(yuv_to_rgb(f, 16, 128, 128), [0, 0, 0], "{f:?} black");
+            assert_eq!(yuv_to_rgb(f, 235, 128, 128), [255, 255, 255], "{f:?} white");
+            assert_eq!(yuv_to_rgb(f, 0, 128, 128), [0, 0, 0], "{f:?} below black clamps");
+        }
+        for f in [RawImageFormat::NV12Rec601Full, RawImageFormat::NV12Rec709Full] {
+            assert_eq!(yuv_to_rgb(f, 0, 128, 128), [0, 0, 0], "{f:?} black");
+            assert_eq!(yuv_to_rgb(f, 255, 128, 128), [255, 255, 255], "{f:?} white");
+            assert_eq!(yuv_to_rgb(f, 128, 128, 128), [128, 128, 128], "{f:?} grey");
+        }
+    }
+
+    #[test]
+    fn a_saturated_red_comes_back_red_in_its_own_matrix_only() {
+        // Rec.601 video-range red is Y 81, Cb 90, Cr 240.
+        let red = yuv_to_rgb(RawImageFormat::NV12Rec601Video, 81, 90, 240);
+        assert!(red[0] >= 253 && red[1] <= 2 && red[2] <= 2, "601 red: {red:?}");
+        // The same samples read as Rec.709 are a visibly different colour:
+        // the matrix is part of the format, not a detail.
+        let wrong = yuv_to_rgb(RawImageFormat::NV12Rec709Video, 81, 90, 240);
+        assert!(wrong[1] > 20, "709 reads 601 red with green in it: {wrong:?}");
+    }
+
+    #[test]
+    fn nv12_to_rgba_gives_every_pixel_its_own_luma_and_its_blocks_chroma() {
+        // 2x2, one chroma pair: four luma steps over neutral chroma.
+        let bytes = [16u8, 235, 126, 235, 128, 128];
+        let rgba = nv12_to_rgba(&bytes, 2, 2, RawImageFormat::NV12Rec601Video)
+            .expect("a well-formed 2x2 NV12 image converts");
+        assert_eq!(rgba.len(), 16);
+        assert_eq!(&rgba[0..4], &[0, 0, 0, 255]);
+        assert_eq!(&rgba[4..8], &[255, 255, 255, 255]);
+        assert_eq!(rgba[8], rgba[9], "neutral chroma stays grey");
+        assert!(nv12_to_rgba(&bytes[..5], 2, 2, RawImageFormat::NV12Rec601Video).is_none());
+        assert!(nv12_to_rgba(&bytes, 2, 2, RawImageFormat::RGBA8).is_none());
+    }
+
+    #[test]
+    fn an_nv12_raw_image_loads_as_is_without_a_conversion_pass() {
+        let bytes: Vec<u8> = (0u8..12).collect();
+        let image = ImageRef::new_rawimage(RawImage {
+            pixels: RawImageData::U8(bytes.clone().into()),
+            width: 4,
+            height: 2,
+            premultiplied_alpha: true,
+            data_format: RawImageFormat::NV12Rec709Video,
+            tag: Vec::new().into(),
+        })
+        .expect("a well-formed NV12 image loads");
+        let DecodedImage::Raw((descriptor, data)) = image.get_data() else {
+            panic!("an NV12 image is raw pixel data");
+        };
+        assert_eq!(descriptor.format, RawImageFormat::NV12Rec709Video);
+        assert_eq!((descriptor.width, descriptor.height), (4, 2));
+        assert!(descriptor.flags.is_opaque, "YCbCr has no alpha");
+        assert!(
+            !descriptor.flags.allow_mipmaps,
+            "a video frame is shown at its size: mipmaps are wasted work"
+        );
+        let ImageData::Raw(shared) = data else {
+            panic!("raw bytes");
+        };
+        assert_eq!(shared.as_ref(), &bytes[..], "no swizzle, no repacking");
+    }
+
+    #[test]
+    fn an_nv12_raw_image_of_the_wrong_length_is_rejected() {
+        let image = ImageRef::new_rawimage(RawImage {
+            pixels: RawImageData::U8(vec![0u8; 11].into()),
+            width: 4,
+            height: 2,
+            premultiplied_alpha: true,
+            data_format: RawImageFormat::NV12Rec601Video,
+            tag: Vec::new().into(),
+        });
+        assert!(image.is_none());
+    }
+}
