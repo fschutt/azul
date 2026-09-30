@@ -5,10 +5,7 @@
 //! and which AzMeet program "Join meeting" opens. Link formats and the settings format are
 //! AzMeet's own (`meet_rooms`, AzMeet's `rooms.rs`), not repeated here.
 
-use std::{
-    io::Read,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, NaiveDate, NaiveTime, SecondsFormat, TimeDelta, TimeZone, Utc};
 use serde::Deserialize;
@@ -16,6 +13,7 @@ use serde::Deserialize;
 use crate::{
     event::Meeting,
     meet_rooms::{self, RoomKey},
+    settings,
 };
 
 /// The meeting server: set by AzMeet's variable.
@@ -43,39 +41,16 @@ pub fn server_setting(saved: Option<&str>, env: Option<&str>, built_in: &str) ->
     meet_rooms::server_prefill(saved.as_deref(), env, built_in).0
 }
 
-/// The file the meeting server is saved in: `settings.txt` in the data folder.
-pub fn settings_path(data_dir: &Path) -> PathBuf {
-    data_dir.join("settings.txt")
-}
-
-/// The settings file's text, if there is a file of a sensible size.
-pub fn read_settings_text(path: &Path) -> Option<String> {
-    let file = std::fs::File::open(path).ok()?;
-    let mut text = String::new();
-    file.take(meet_rooms::MAX_SETTINGS_BYTES as u64 + 1)
-        .read_to_string(&mut text)
-        .ok()?;
-    Some(text)
-}
-
-/// The meeting server saved at `path`; `None` without a file, or with one that names none.
+/// The meeting server saved in the settings file at `path` (`settings::path`); `None` without a
+/// file, or with one that names none.
 pub fn read_saved_server(path: &Path) -> Option<String> {
-    meet_rooms::decode_settings(&read_settings_text(path)?)
+    meet_rooms::decode_settings(&settings::read_text(path)?)
 }
 
-/// Saves `server` at `path`: written next to it, then renamed over it, so the file is never half
-/// written.
+/// Saves `server` in the settings file at `path` (AzMeet's `meeting_server=` line), keeping the
+/// file's other settings.
 pub fn save_server(path: &Path, server: &str) -> std::io::Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let temp = path.with_extension("txt.tmp");
-    std::fs::write(&temp, meet_rooms::encode_settings(server))?;
-    if let Err(e) = std::fs::rename(&temp, path) {
-        let _ = std::fs::remove_file(&temp);
-        return Err(e);
-    }
-    Ok(())
+    settings::write_line(path, &meet_rooms::encode_settings(server))
 }
 
 /// The alphabet of room ids: lower-case Crockford base32, as the meeting server mints them and
@@ -267,7 +242,7 @@ mod tests {
     use chrono::FixedOffset;
 
     use super::*;
-    use crate::{settings, test_dir::TempDir};
+    use crate::test_dir::TempDir;
 
     const ROOM: &str = "a2h859hyqkfaa11nhzxfh3gd7f";
     const SERVER: &str = "http://127.0.0.1:8787";

@@ -3,6 +3,92 @@
 //! `meeting`). Saving one setting keeps every other line, so the meeting server and the week's
 //! zoom (`week_hour_px=`) do not overwrite each other, and a line a newer version wrote survives.
 
+use std::{
+    io::Read,
+    path::{Path, PathBuf},
+};
+
+use crate::{meet_rooms, week};
+
+/// The settings file's name in the data folder.
+const FILE_NAME: &str = "settings.txt";
+/// The week's zoom: the height of an hour, in px.
+const HOUR_PX_KEY: &str = "week_hour_px=";
+
+/// The settings file of the data folder `data_dir`.
+pub fn path(data_dir: &Path) -> PathBuf {
+    data_dir.join(FILE_NAME)
+}
+
+/// The settings file's text; `None` without a file, or with one longer than AzMeet reads a
+/// settings file (`meet_rooms::MAX_SETTINGS_BYTES`).
+pub fn read_text(path: &Path) -> Option<String> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut text = String::new();
+    file.take(meet_rooms::MAX_SETTINGS_BYTES as u64 + 1)
+        .read_to_string(&mut text)
+        .ok()?;
+    (text.len() <= meet_rooms::MAX_SETTINGS_BYTES).then_some(text)
+}
+
+/// The key of a `key=value` line: up to and with its `=` (the whole trimmed line without one).
+fn key_of(line: &str) -> &str {
+    let line = line.trim();
+    line.find('=').map_or(line, |i| &line[..=i])
+}
+
+/// `text` with `line` (a `key=value` setting) in place of every line with the same key, at the
+/// end; every other line is kept as it is. Every line ends in a newline.
+pub fn with_line(text: &str, line: &str) -> String {
+    let line = line.trim();
+    let key = key_of(line);
+    let mut out: String = text
+        .lines()
+        .filter(|l| key_of(l) != key)
+        .flat_map(|l| [l, "\n"])
+        .collect();
+    out.push_str(line);
+    out.push('\n');
+    out
+}
+
+/// Writes the setting `line` into the settings file at `path` (see `with_line`; a file too long
+/// to read is replaced): written next to it, then renamed over it, so the file is never half
+/// written. Makes the data folder.
+pub fn write_line(path: &Path, line: &str) -> std::io::Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let text = with_line(&read_text(path).unwrap_or_default(), line);
+    let temp = path.with_extension("txt.tmp");
+    std::fs::write(&temp, text)?;
+    if let Err(e) = std::fs::rename(&temp, path) {
+        let _ = std::fs::remove_file(&temp);
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// The settings line keeping the week's zoom, `hour_px` px an hour (held to the limits).
+pub fn hour_px_line(hour_px: f32) -> String {
+    format!("{HOUR_PX_KEY}{:.1}\n", week::clamp_hour_px(hour_px))
+}
+
+/// The week's zoom the settings file's text keeps (its last `week_hour_px=` line), held to the
+/// limits; `None` without one, or when its value is no finite number.
+pub fn hour_px(text: &str) -> Option<f32> {
+    let value = text
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix(HOUR_PX_KEY))
+        .last()?;
+    let px = value
+        .trim()
+        .parse::<f32>()
+        .ok()
+        .filter(|px| px.is_finite())?;
+    Some(week::clamp_hour_px(px))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

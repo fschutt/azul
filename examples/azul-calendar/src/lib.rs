@@ -25,7 +25,8 @@
 //! Durable data is only the event files; the meeting server holds the rooms (registering and
 //! joining), nothing of the calendar. The meeting server is chosen in Settings > Meeting server
 //! (`<data dir>/settings.txt`, AzMeet's settings format), else `AZMEET_WORKER`, else the built-in
-//! one, else AzMeet's local development server: there always is one.
+//! one, else AzMeet's local development server: there always is one. The same file keeps the
+//! week's zoom (`settings.rs`).
 //!
 //! Environment:
 //! - `AZCAL_DATA`: the data folder (default: `AzCalendar` in the user's data folder).
@@ -158,6 +159,8 @@ struct CalState {
     sync_timer: bool,
     /// The Settings sheet, while it is open.
     settings: Option<SettingsForm>,
+    /// A timer saves the zoom in a moment (`queue_zoom_save`).
+    zoom_save_queued: bool,
 }
 
 /// The Settings sheet: the meeting server as typed.
@@ -984,14 +987,21 @@ fn week_scroll(info: &CallbackInfo) -> Option<WeekScroll> {
 }
 
 /// Zooms the week's hours by `factor`, keeping the time under the pointer (`pointer_y`, a
-/// window y; the view's middle without one) where it is.
-fn zoom(s: &mut CalState, info: &mut CallbackInfo, factor: f32, pointer_y: Option<f32>) -> Update {
+/// window y; the view's middle without one) where it is; the zoom is saved a moment later.
+fn zoom(
+    s: &mut CalState,
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    factor: f32,
+    pointer_y: Option<f32>,
+) -> Update {
     let old = s.hour_px;
     let new = week::clamp_hour_px(old * factor);
     if (new - old).abs() < 0.01 {
         return Update::DoNothing;
     }
     s.hour_px = new;
+    queue_zoom_save(s, info, app);
     if let Some(view) = week_scroll(info) {
         let pointer = pointer_y.map_or(view.height / 2.0, |y| {
             (y - view.top).clamp(0.0, view.height.max(0.0))
@@ -1002,6 +1012,36 @@ fn zoom(s: &mut CalState, info: &mut CallbackInfo, factor: f32, pointer_y: Optio
         info.scroll_to_unclamped(root_dom(), view.node, LogicalPosition { x: 0.0, y });
     }
     Update::RefreshDom
+}
+
+/// How long after a zoom step the zoom is saved: one write a second at most, not one per step.
+const ZOOM_SAVE_DELAY_MS: u64 = 1000;
+
+/// Saves the zoom in the settings file a moment from now, unless that is queued already.
+fn queue_zoom_save(s: &mut CalState, info: &mut CallbackInfo, app: &RefAny) {
+    if s.zoom_save_queued {
+        return;
+    }
+    s.zoom_save_queued = true;
+    let get_time = info.get_system_time_fn();
+    info.add_timer(
+        TimerId::unique(),
+        Timer::create(app.clone(), on_save_zoom, get_time).with_delay(Duration::System(
+            SystemTimeDiff::from_millis(ZOOM_SAVE_DELAY_MS),
+        )),
+    );
+}
+
+/// Writes the zoom as it is now into the settings file, for the next start.
+extern "C" fn on_save_zoom(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackReturn {
+    if let Some(mut s) = data.downcast_mut::<CalState>() {
+        s.zoom_save_queued = false;
+        let line = settings::hour_px_line(s.hour_px);
+        if let Err(e) = settings::write_line(&settings::path(&s.data_dir), &line) {
+            eprintln!("[azcalendar] could not save the zoom: {e}");
+        }
+    }
+    TimerCallbackReturn::terminate_unchanged()
 }
 
 /// The wheel over the week: with Ctrl or Cmd held it zooms (and the week does not scroll as
@@ -1026,12 +1066,14 @@ extern "C" fn on_week_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update 
         .get_cursor_relative_to_viewport()
         .into_option()
         .map(|p| p.y);
+    let app = data.clone();
     let Some(mut guard) = data.downcast_mut::<CalState>() else {
         return Update::DoNothing;
     };
     zoom(
         &mut guard,
         &mut info,
+        &app,
         week::wheel_zoom_factor(dy),
         pointer_y,
     )
@@ -1047,13 +1089,14 @@ extern "C" fn on_week_pinch(mut data: RefAny, mut info: CallbackInfo) -> Update 
         scale: pinch.scale,
         began: pinch.began,
     };
+    let app = data.clone();
     let Some(mut guard) = data.downcast_mut::<CalState>() else {
         return Update::DoNothing;
     };
     let s = &mut *guard;
     let factor = week::pinch_step(s.last_pinch_scale, sample);
     s.last_pinch_scale = Some(sample.scale);
-    zoom(s, &mut info, factor, Some(pinch.center.y))
+    zoom(s, &mut info, &app, factor, Some(pinch.center.y))
 }
 
 /// The week opens at 08:00, or an hour before now on today's week; pending meeting links start
@@ -1789,7 +1832,7 @@ extern "C" fn on_settings_save(mut data: RefAny, mut info: CallbackInfo) -> Upda
         );
         return Update::RefreshDom;
     };
-    if let Err(e) = meeting::save_server(&meeting::settings_path(&s.data_dir), &server) {
+    if let Err(e) = meeting::save_server(&settings::path(&s.data_dir), &server) {
         settings.error = format!("Could not save the setting: {e}");
         return Update::RefreshDom;
     }
@@ -1997,18 +2040,23 @@ pub fn start() {
             file.reason
         );
     }
+    let saved = settings::read_text(&settings::path(&data_dir));
     let server = meeting::server_setting(
-        meeting::read_settings_text(&meeting::settings_path(&data_dir)).as_deref(),
+        saved.as_deref(),
         std::env::var(meeting::WORKER_VAR).ok().as_deref(),
         meeting::BUILT_IN_WORKER,
     );
+    let hour_px = saved
+        .as_deref()
+        .and_then(settings::hour_px)
+        .unwrap_or(week::DEFAULT_HOUR_PX);
     let sync_seconds = std::env::var(SYNC_VAR)
         .ok()
         .and_then(|v| v.trim().parse::<u64>().ok())
         .filter(|&n| n > 0)
         .unwrap_or(SYNC_SECONDS);
     eprintln!(
-        "[azcalendar] {} event(s) in {}; meeting server: {server}",
+        "[azcalendar] {} event(s) in {}; meeting server: {server}; {hour_px} px an hour",
         events.len(),
         data_dir.display(),
     );
@@ -2023,7 +2071,7 @@ pub fn start() {
         forms_opened: 0,
         notice: String::new(),
         launched: Vec::new(),
-        hour_px: week::DEFAULT_HOUR_PX,
+        hour_px,
         press: None,
         last_pinch_scale: None,
         popover_closed_at: None,
@@ -2033,6 +2081,7 @@ pub fn start() {
         sync_every_ms: sync_seconds.saturating_mul(1000),
         sync_timer: false,
         settings: None,
+        zoom_save_queued: false,
     };
     let app = App::create(RefAny::new(state), AppConfig::create());
     let mut window = WindowCreateOptions::create(layout);
