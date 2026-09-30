@@ -651,9 +651,13 @@ fn sanitize_rules(css: &str, out: &mut String, dark: &mut bool, nested: bool) {
                 .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
                 .unwrap_or(at_rule.len());
             let name = at_rule[..name_len].to_ascii_lowercase();
-            // A statement (`@import ...;`) ends at its `;`, a block at-rule at its block.
+            // A statement (`@import ...;`) ends at its `;` - when no block follows at all, or
+            // before the first one - a block at-rule at its block.
             match (rest.find(';'), brace) {
-                (Some(semi), b) if b.map_or(true, |b| semi < b) => {
+                (Some(semi), None) => {
+                    rest = rest[semi + 1..].trim_start();
+                }
+                (Some(semi), Some(b)) if semi < b => {
                     rest = rest[semi + 1..].trim_start();
                 }
                 (_, Some(b)) => {
