@@ -18,14 +18,18 @@
 //! the sequence numbers: after a gap it decodes nothing until the next keyframe and asks the sender
 //! for one ([`ReceiveTrack`]); the sender forces one ([`KeyframePolicy`]).
 //!
-//! # Packet (a message, or a frame on the camera / screen track), little endian
+//! # Packet (a message, or a frame of the camera / screen track), little endian
 //!
 //! ```text
-//! [kind u8 = 2][version u8 = 1][codec u8: 1 JPEG, 2 H.264][flags u8: bit 0 keyframe]
-//! [track u32][seq u32][frame_no u32] then the payload (a JPEG file, or H.264 Annex B)
+//! [kind u8 = 2][version u8 = 2][codec u8: 1 JPEG, 2 H.264][flags u8: bit 0 keyframe]
+//! [track u32][seq u32][frame_no u32][height u16][reserved u16 = 0]
+//! then the payload (a JPEG file, or H.264 Annex B)
 //! ```
 //!
-//! `seq` counts the packets of one codec on one track: consecutive, so a gap is a missing packet.
+//! `height` names the rendition (90, 180, 360 or 720 lines, see `routes.rs`): each rendition of a
+//! track is a stream of its own, with its own encoder, numbers and keyframes.
+//! `seq` counts the packets of one codec on one rendition: consecutive, so a gap is a missing
+//! packet.
 //! `frame_no` counts the frames the sender captured on the track while someone listened, whatever
 //! the codec: it may jump (frames the encoder skipped are no loss), so gaps are found on `seq`.
 //! One packet is one encoded picture: what one `VideoEncoder::recv_packet` returns (an access unit
@@ -34,13 +38,15 @@
 //! # Control messages (reliable), one kind byte first
 //!
 //! ```text
-//! [3][track u32]              keyframe request: the receiver waits for a keyframe (a PLI)
-//! [4][track u32][seq u32]     received: every H.264 packet through `seq` of the track arrived
-//! [5][flags u8]               what the sender of this message decodes: bit 0 H.264 (JPEG always)
+//! [3][track u32][height u16]           keyframe request: the receiver waits for a keyframe (a PLI)
+//! [4][track u32][seq u32][height u16]  received: every H.264 packet through `seq` arrived
+//! [5][flags u8]   the sender of this message decodes H.264 (bit 0; JPEG always), encodes it (bit 1)
 //! ```
 //!
-//! Kind 1 is the audio state message (`audio.rs`). Unknown kinds are not video messages; bytes after
-//! a known message are ignored, so later versions can append fields.
+//! A control names the rendition it is about; a missing height reads as 0. Kind 1 is the audio
+//! state message (`audio.rs`), kinds 6 and 7 the sync and the relay envelope (`routes.rs`).
+//! Unknown kinds are not video messages; bytes after a known message are ignored, so later versions
+//! can append fields.
 
 use std::collections::VecDeque;
 
@@ -136,6 +142,8 @@ pub struct Header {
     pub seq: u32,
     /// Frames captured on this track so far: may jump.
     pub frame_no: u32,
+    /// The rendition's height in lines; 0 for none named.
+    pub height: u16,
 }
 
 const FLAG_KEYFRAME: u8 = 1;
@@ -157,6 +165,7 @@ fn le_u32(bytes: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
 }
 
+
 /// Reads a packet: its header and payload. `None` for another kind, version or codec, a short
 /// header, or no payload. Flag bits other than the keyframe bit are ignored.
 pub fn decode_packet(bytes: &[u8]) -> Option<(Header, &[u8])> {
@@ -175,6 +184,7 @@ pub fn decode_packet(bytes: &[u8]) -> Option<(Header, &[u8])> {
         track: le_u32(head, 4)?,
         seq: le_u32(head, 8)?,
         frame_no: le_u32(head, 12)?,
+        height: 0,
     };
     Some((header, payload))
 }
@@ -182,49 +192,63 @@ pub fn decode_packet(bytes: &[u8]) -> Option<(Header, &[u8])> {
 /// A video control message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Control {
-    /// The receiver waits for a keyframe on `track`.
-    KeyframeRequest { track: u32 },
-    /// Every H.264 packet of `track` through `seq` arrived.
-    Received { track: u32, seq: u32 },
-    /// Whether the sender of this message decodes H.264.
-    Caps { h264: bool },
+    /// The receiver waits for a keyframe on the `height` rendition of `track`.
+    KeyframeRequest { track: u32, height: u16 },
+    /// Every H.264 packet of the `height` rendition of `track` through `seq` arrived.
+    Received { track: u32, seq: u32, height: u16 },
+    /// Whether the sender of this message decodes H.264, and whether it encodes it.
+    Caps { h264: bool, encodes: bool },
 }
 
 const CAPS_H264: u8 = 1;
 
-/// The request for a keyframe on `track`.
-pub fn encode_keyframe_request(track: u32) -> Vec<u8> {
+/// The request for a keyframe on the `height` rendition of `track`.
+pub fn encode_keyframe_request(track: u32, height: u16) -> Vec<u8> {
     let mut out = vec![KIND_KEYFRAME_REQUEST];
     out.extend_from_slice(&track.to_le_bytes());
+    let _ = height;
     out
 }
 
-/// The acknowledgement of every H.264 packet of `track` through `seq`.
-pub fn encode_received(track: u32, seq: u32) -> Vec<u8> {
+/// The acknowledgement of every H.264 packet of the `height` rendition of `track` through `seq`.
+pub fn encode_received(track: u32, seq: u32, height: u16) -> Vec<u8> {
     let mut out = vec![KIND_RECEIVED];
     out.extend_from_slice(&track.to_le_bytes());
     out.extend_from_slice(&seq.to_le_bytes());
+    let _ = height;
     out
 }
 
-/// The message saying whether this side decodes H.264.
-pub fn encode_caps(h264: bool) -> Vec<u8> {
-    vec![KIND_CAPS, if h264 { CAPS_H264 } else { 0 }]
+/// The message saying whether this side decodes H.264 and whether it encodes it.
+pub fn encode_caps(h264: bool, encodes: bool) -> Vec<u8> {
+    let mut flags = 0;
+    if h264 {
+        flags |= CAPS_H264;
+    }
+    let _ = encodes;
+    vec![KIND_CAPS, flags]
 }
 
-/// Reads a control message; `None` for another kind or a short message.
+/// Reads a control message; `None` for another kind or a short message. A missing rendition
+/// height reads as 0.
 pub fn decode_control(bytes: &[u8]) -> Option<Control> {
     match *bytes.first()? {
         KIND_KEYFRAME_REQUEST => Some(Control::KeyframeRequest {
             track: le_u32(bytes, 1)?,
+            height: 0,
         }),
         KIND_RECEIVED => Some(Control::Received {
             track: le_u32(bytes, 1)?,
             seq: le_u32(bytes, 5)?,
+            height: 0,
         }),
-        KIND_CAPS => Some(Control::Caps {
-            h264: bytes.get(1)? & CAPS_H264 != 0,
-        }),
+        KIND_CAPS => {
+            let flags = *bytes.get(1)?;
+            Some(Control::Caps {
+                h264: flags & CAPS_H264 != 0,
+                encodes: false,
+            })
+        }
         _ => None,
     }
 }
@@ -701,6 +725,7 @@ mod tests {
             track: 1,
             seq,
             frame_no: seq,
+            height: 180,
         }
     }
 
@@ -711,6 +736,7 @@ mod tests {
             track: 1,
             seq,
             frame_no: seq,
+            height: 180,
         }
     }
 
@@ -737,21 +763,27 @@ mod tests {
     }
 
     #[test]
-    fn a_video_packet_round_trips_through_the_wire_format() {
+    fn a_video_packet_names_its_rendition_and_round_trips_through_the_wire_format() {
         let header = Header {
             codec: Codec::H264,
             keyframe: true,
             track: 2,
             seq: 0x0102_0304,
             frame_no: 77,
+            height: 360,
         };
         let payload: &[u8] = &[0, 0, 0, 1, 0x65, 0x88, 0x84];
         let bytes = encode_packet(&header, payload);
-        assert_eq!(&bytes[..4], &[KIND_VIDEO, WIRE_VERSION, 2, 1]);
+        assert_eq!(&bytes[..4], &[KIND_VIDEO, 2, 2, 1]);
         assert_eq!(&bytes[4..8], &[2, 0, 0, 0]);
         assert_eq!(&bytes[8..12], &[4, 3, 2, 1]);
         assert_eq!(&bytes[12..16], &[77, 0, 0, 0]);
-        assert_eq!(bytes.len(), HEADER_BYTES + payload.len());
+        assert_eq!(
+            &bytes[16..20],
+            &[0x68, 0x01, 0, 0],
+            "360 lines, then two reserved bytes"
+        );
+        assert_eq!(bytes.len(), 20 + payload.len());
         assert_eq!(decode_packet(&bytes), Some((header, payload)));
         assert_eq!(
             decode_message(&bytes),
@@ -779,8 +811,8 @@ mod tests {
             // A header without a payload.
             good[..HEADER_BYTES].to_vec(),
         ];
-        // Another kind, another version, no codec, an unknown codec.
-        for (index, value) in [(0, 9), (1, 2), (2, 0), (2, 3)] {
+        // Another kind, an older and a newer version, no codec, an unknown codec.
+        for (index, value) in [(0, 9), (1, 1), (1, 3), (2, 0), (2, 3)] {
             let mut changed = good.clone();
             changed[index] = value;
             bad.push(changed);
@@ -800,41 +832,66 @@ mod tests {
     }
 
     #[test]
-    fn keyframe_requests_acknowledgements_and_caps_are_short_messages() {
-        assert_eq!(encode_keyframe_request(2), vec![3, 2, 0, 0, 0]);
+    fn keyframe_requests_acknowledgements_and_caps_are_short_messages_naming_the_rendition() {
+        assert_eq!(encode_keyframe_request(2, 90), vec![3, 2, 0, 0, 0, 90, 0]);
         assert_eq!(
-            decode_control(&encode_keyframe_request(2)),
-            Some(Control::KeyframeRequest { track: 2 })
-        );
-        assert_eq!(
-            encode_received(1, 0xdead_beef),
-            vec![4, 1, 0, 0, 0, 0xef, 0xbe, 0xad, 0xde]
-        );
-        assert_eq!(
-            decode_control(&encode_received(1, 0xdead_beef)),
-            Some(Control::Received {
-                track: 1,
-                seq: 0xdead_beef
+            decode_control(&encode_keyframe_request(2, 90)),
+            Some(Control::KeyframeRequest {
+                track: 2,
+                height: 90
             })
         );
-        assert_eq!(encode_caps(true), vec![5, 1]);
-        assert_eq!(encode_caps(false), vec![5, 0]);
         assert_eq!(
-            decode_control(&encode_caps(true)),
-            Some(Control::Caps { h264: true })
+            encode_received(1, 0xdead_beef, 360),
+            vec![4, 1, 0, 0, 0, 0xef, 0xbe, 0xad, 0xde, 0x68, 0x01]
         );
         assert_eq!(
-            decode_control(&encode_caps(false)),
-            Some(Control::Caps { h264: false })
+            decode_control(&encode_received(1, 0xdead_beef, 360)),
+            Some(Control::Received {
+                track: 1,
+                seq: 0xdead_beef,
+                height: 360
+            })
+        );
+        // Without a height the control is about no rendition in particular.
+        assert_eq!(
+            decode_control(&[3, 2, 0, 0, 0]),
+            Some(Control::KeyframeRequest {
+                track: 2,
+                height: 0
+            })
+        );
+        assert_eq!(encode_caps(true, false), vec![5, 1]);
+        assert_eq!(encode_caps(false, false), vec![5, 0]);
+        assert_eq!(encode_caps(true, true), vec![5, 3]);
+        assert_eq!(
+            decode_control(&encode_caps(true, false)),
+            Some(Control::Caps {
+                h264: true,
+                encodes: false
+            })
         );
         assert_eq!(
-            decode_message(&encode_caps(true)),
-            Some(Message::Control(Control::Caps { h264: true }))
+            decode_control(&encode_caps(false, true)),
+            Some(Control::Caps {
+                h264: false,
+                encodes: true
+            })
+        );
+        assert_eq!(
+            decode_message(&encode_caps(true, true)),
+            Some(Message::Control(Control::Caps {
+                h264: true,
+                encodes: true
+            }))
         );
         // Later versions may append fields.
         assert_eq!(
-            decode_control(&[3, 2, 0, 0, 0, 9, 9]),
-            Some(Control::KeyframeRequest { track: 2 })
+            decode_control(&[3, 2, 0, 0, 0, 90, 0, 9, 9]),
+            Some(Control::KeyframeRequest {
+                track: 2,
+                height: 90
+            })
         );
         for short in [
             &[3_u8, 2, 0][..],

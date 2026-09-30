@@ -48,6 +48,7 @@
 
 mod audio;
 mod rooms;
+mod routes;
 mod video_wire;
 
 use std::{
@@ -1070,7 +1071,7 @@ fn apply_link_event(s: &mut MeetState, event: &IrohEvent) -> bool {
             send_message_to(
                 s,
                 &[event.peer],
-                &video_wire::encode_caps(s.video.decodes_h264),
+                &video_wire::encode_caps(s.video.decodes_h264, false),
             );
             true
         }
@@ -1828,6 +1829,7 @@ fn send_h264(
                         track,
                         seq: out.h264_seq,
                         frame_no,
+                        height: 0,
                     };
                     packets.push((header, video_wire::encode_packet(&header, chunk.as_slice())));
                 }
@@ -1895,6 +1897,7 @@ fn send_jpeg(
         track,
         seq: out.jpeg_seq,
         frame_no: out.frame_no,
+        height: 0,
     };
     if s.drop_next_video {
         s.drop_next_video = false;
@@ -1940,10 +1943,10 @@ fn receive_video(
         input.decoder = None;
     }
     if let Some(seq) = verdict.ack {
-        endpoint.send_message(peer, video_wire::encode_received(header.track, seq));
+        endpoint.send_message(peer, video_wire::encode_received(header.track, seq, header.height));
     }
     if verdict.request_keyframe {
-        endpoint.send_message(peer, video_wire::encode_keyframe_request(header.track));
+        endpoint.send_message(peer, video_wire::encode_keyframe_request(header.track, header.height));
     }
     if !verdict.decode {
         return (new_tile, None);
@@ -1979,7 +1982,7 @@ fn receive_video(
             "[azmeet] {}: the H.264 decoder gives no pictures back: asking everyone for JPEG",
             s.name
         );
-        send_message_to(s, &all_peers(s), &video_wire::encode_caps(false));
+        send_message_to(s, &all_peers(s), &video_wire::encode_caps(false, false));
     }
     (new_tile, picture)
 }
@@ -1987,7 +1990,7 @@ fn receive_video(
 /// A video control message from the peer behind connection `peer`. True when the window changes.
 fn apply_video_control(s: &mut MeetState, peer: u64, control: Control) -> bool {
     match control {
-        Control::KeyframeRequest { track } => {
+        Control::KeyframeRequest { track, .. } => {
             let Some(slot) = track_slot(track) else {
                 return false;
             };
@@ -2005,7 +2008,7 @@ fn apply_video_control(s: &mut MeetState, peer: u64, control: Control) -> bool {
             );
             false
         }
-        Control::Received { track, seq } => {
+        Control::Received { track, seq, .. } => {
             let slot = track_slot(track);
             let remote = s.remotes.iter_mut().find(|r| r.handle == peer);
             if let (Some(slot), Some(remote)) = (slot, remote) {
@@ -2013,7 +2016,7 @@ fn apply_video_control(s: &mut MeetState, peer: u64, control: Control) -> bool {
             }
             false
         }
-        Control::Caps { h264 } => {
+        Control::Caps { h264, .. } => {
             let Some(remote) = s.remotes.iter_mut().find(|r| r.handle == peer) else {
                 return false;
             };
