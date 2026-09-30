@@ -389,9 +389,18 @@ impl Tile {
     /// looks, each in its `@theme(<name>)` block, and the app theme picks.
     #[must_use]
     pub fn dom(self) -> Dom {
-        // RED: built in the next commit.
-        let _ = self;
-        Dom::create_div()
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::tile(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::tile(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                crate::widgets::themes::flat::tile,
+                crate::widgets::themes::flora::tile,
+            ),
+        }
     }
 }
 

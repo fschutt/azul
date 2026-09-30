@@ -4662,3 +4662,245 @@ pub fn accordion_groups(a: crate::widgets::accordion::Accordion) -> Dom {
         &rule,
     )
 }
+
+// ==== tile ====
+//
+// The flat tile is Windows 7 Explorer's drive tile: the icon in a steel
+// blue beside the title, the capacity bar in Explorer's #26A0DA (the alarm
+// red #DA2626 past a tenth free) on a #E6E6E6 track, the "x free of y" line
+// in the secondary ink. A tile washes to the row-hover blue under the
+// pointer, the selected one takes the selection blue #CCE8FF; focus is an
+// inset ring. At night: the desktop's secondary ink, the tree's dark
+// selection, flat's dark row hover.
+
+/// Explorer's capacity blue.
+const TILE_BAR_FILL: ColorU = ColorU {
+    r: 38,
+    g: 160,
+    b: 218,
+    a: 255,
+};
+/// Explorer's capacity red: the volume is nearly full.
+const TILE_BAR_ALARM: ColorU = ColorU {
+    r: 218,
+    g: 38,
+    b: 38,
+    a: 255,
+};
+/// The bar's track.
+const TILE_BAR_TRACK: ColorU = ColorU {
+    r: 230,
+    g: 230,
+    b: 230,
+    a: 255,
+};
+/// The tile icon's steel blue, by day and by night.
+const TILE_ICON_LIGHT: ColorU = ColorU {
+    r: 74,
+    g: 122,
+    b: 181,
+    a: 255,
+};
+const TILE_ICON_DARK: ColorU = ColorU {
+    r: 122,
+    g: 167,
+    b: 224,
+    a: 255,
+};
+/// Explorer's selection blue (#CCE8FF); the tree's dark selection at night.
+const TILE_SELECTED_LIGHT: ColorU = ColorU {
+    r: 204,
+    g: 232,
+    b: 255,
+    a: 255,
+};
+const TILE_SELECTED_DARK: ColorU = ColorU {
+    r: 9,
+    g: 71,
+    b: 113,
+    a: 255,
+};
+
+/// One solid layer, as a bar's fill or track.
+fn solid(color: ColorU) -> StyleBackgroundContentVec {
+    StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(color)])
+}
+
+/// Flat's tile look.
+#[must_use]
+pub(crate) fn tile_look() -> crate::widgets::tile::TileLook {
+    use super::decl;
+    let mut tile = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            13,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    tile.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    tile.extend(decl::padding(6, 6, 6, 6));
+    tile.extend(decl::radius(3));
+    tile.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
+    tile.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+
+    let tile_selected = decl::themed_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK).to_vec();
+
+    let mut icon = vec![CssPropertyWithConditions::simple(CssProperty::const_font_size(
+        StyleFontSize::const_px(44),
+    ))];
+    icon.extend(decl::margin(0, 8, 0, 0));
+    icon.extend(decl::themed_ink(TILE_ICON_LIGHT, TILE_ICON_DARK));
+
+    let mut detail = vec![CssPropertyWithConditions::simple(CssProperty::const_font_size(
+        StyleFontSize::const_px(12),
+    ))];
+    detail.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    crate::widgets::tile::TileLook {
+        tile,
+        tile_selected,
+        icon,
+        title: Vec::new(),
+        detail,
+        bar: decl::margin(3, 0, 3, 0).to_vec(),
+        bar_height: 12,
+        bar_track: solid(TILE_BAR_TRACK),
+        bar_fill: solid(TILE_BAR_FILL),
+        bar_fill_alarm: solid(TILE_BAR_ALARM),
+        marker: None,
+    }
+}
+
+/// The flat tile: Explorer's drive tile.
+#[must_use]
+pub fn tile(t: crate::widgets::tile::Tile) -> Dom {
+    crate::widgets::tile::build(t, &tile_look())
+}
+
+// ==== details_pane ====
+//
+// The flat details pane is Explorer's: a strip on the window surface under
+// a hairline, the big icon in the tile's steel blue, the item's name a shade
+// heavier than its kind, the keys in the secondary ink set right so the
+// values line up. At night the desktop's surfaces and inks.
+
+/// Flat's details-pane look.
+#[must_use]
+pub(crate) fn details_pane_look() -> crate::widgets::details_pane::DetailsPaneLook {
+    use super::decl;
+    let mut pane = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            13,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    pane.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    pane.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    pane.extend(decl::padding(8, 16, 8, 16));
+    pane.extend([
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
+            LayoutBorderTopWidth::const_px(1),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(
+            StyleBorderTopStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+    ]);
+    pane.extend(decl::themed_border_top_color(LIGHT_BD, DARK_BD));
+
+    let mut icon = vec![CssPropertyWithConditions::simple(CssProperty::const_font_size(
+        StyleFontSize::const_px(56),
+    ))];
+    icon.extend(decl::margin(0, 12, 0, 0));
+    icon.extend(decl::themed_ink(TILE_ICON_LIGHT, TILE_ICON_DARK));
+
+    let heading = decl::margin(0, 24, 0, 0).to_vec();
+    let title = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            14,
+        ))),
+        decl::semibold(),
+    ];
+    let mut subtitle = vec![CssPropertyWithConditions::simple(CssProperty::const_font_size(
+        StyleFontSize::const_px(12),
+    ))];
+    subtitle.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut key = vec![CssPropertyWithConditions::simple(CssProperty::const_width(
+        LayoutWidth::const_px(110),
+    ))];
+    key.extend(decl::margin(0, 6, 0, 0));
+    key.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    crate::widgets::details_pane::DetailsPaneLook {
+        pane,
+        icon,
+        heading,
+        title,
+        subtitle,
+        properties: Vec::new(),
+        row: decl::margin(1, 0, 1, 0).to_vec(),
+        key,
+        value: Vec::new(),
+        marker: None,
+    }
+}
+
+/// The flat details pane.
+#[must_use]
+pub fn details_pane(p: crate::widgets::details_pane::DetailsPane) -> Dom {
+    crate::widgets::details_pane::build(p, &details_pane_look())
+}
+
+// ==== address_bar ====
+//
+// The flat address bar is Explorer's: a strip on the window surface over a
+// hairline, the arrows and Refresh as flat icon buttons, the path in a
+// field - a white box in the field rule, ringed by the field ring under the
+// pointer - and the search box at a fixed width. At night the desktop's
+// surfaces, the dark field and the accent ring.
+
+/// Flat's address-bar look.
+#[must_use]
+pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook {
+    use super::decl;
+    let mut bar = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            13,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    bar.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    bar.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    bar.extend(decl::padding(4, 8, 4, 8));
+    bar.extend(decl::border_bottom(1));
+    bar.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut field = vec![CssPropertyWithConditions::simple(CssProperty::const_height(
+        LayoutHeight::const_px(26),
+    ))];
+    field.extend(decl::padding(0, 6, 0, 6));
+    field.extend(decl::margin(0, 8, 0, 4));
+    field.extend(decl::border(1));
+    field.extend(decl::themed_border_color(LIGHT_BD3, DARK_BD3));
+    field.extend(decl::radius(2));
+    field.extend(decl::themed_fill(LIGHT_FLD, DARK_FLD));
+    field.extend(decl::hover_border_color(FIELD_RING, DARK_ACC));
+
+    crate::widgets::address_bar::AddressBarLook {
+        bar,
+        nav: decl::margin(0, 2, 0, 0).to_vec(),
+        field,
+        field_editing: decl::margin(0, 8, 0, 4).to_vec(),
+        search: vec![CssPropertyWithConditions::simple(CssProperty::const_width(
+            LayoutWidth::const_px(220),
+        ))],
+        marker: None,
+    }
+}
+
+/// The flat address bar.
+#[must_use]
+pub fn address_bar(b: crate::widgets::address_bar::AddressBar) -> Dom {
+    crate::widgets::address_bar::build(b, &address_bar_look())
+}

@@ -6295,3 +6295,205 @@ pub fn accordion_groups(a: crate::widgets::accordion::Accordion) -> Dom {
         &rule,
     )
 }
+
+// ==== tile ====
+//
+// A flora tile: the icon in brass ink beside the title, the capacity bar in
+// the accent on the house track (an ember red past a tenth free), the "x
+// free of y" line in --fl-soft1. A tile washes to the radio row's hover
+// under the pointer; the selected one sits on the track colour; focus is
+// flora's accent halo, inside. At night every ink and wash takes its night
+// value.
+
+/// The ember the bar turns when the volume is nearly full.
+const TILE_ALARM: ColorU = ColorU::new(180, 60, 44, 255);
+
+/// One solid layer, as a bar's fill or track.
+fn solid_layer(color: ColorU) -> StyleBackgroundContentVec {
+    StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(color)])
+}
+
+/// Flora's tile look.
+#[must_use]
+pub(crate) fn tile_look() -> crate::widgets::tile::TileLook {
+    use super::decl;
+    let mut tile = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            13,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    tile.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    tile.extend(decl::padding(8, 8, 8, 8));
+    tile.extend(decl::radius(3));
+    tile.extend(decl::hover_fill(
+        RADIO_GROUP_HOVER_LIGHT,
+        RADIO_GROUP_HOVER_DARK,
+    ));
+    tile.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+
+    let tile_selected = decl::themed_fill(LIGHT_TRACK, DARK_TRACK).to_vec();
+
+    let mut icon = vec![CssPropertyWithConditions::simple(CssProperty::const_font_size(
+        StyleFontSize::const_px(44),
+    ))];
+    icon.extend(decl::margin(0, 10, 0, 0));
+    icon.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
+    let mut detail = vec![CssPropertyWithConditions::simple(CssProperty::const_font_size(
+        StyleFontSize::const_px(12),
+    ))];
+    detail.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    crate::widgets::tile::TileLook {
+        tile,
+        tile_selected,
+        icon,
+        title: vec![decl::semibold()],
+        detail,
+        bar: decl::margin(4, 0, 4, 0).to_vec(),
+        bar_height: 10,
+        bar_track: solid_layer(LIGHT_TRACK),
+        bar_fill: solid_layer(LIGHT_ACC),
+        bar_fill_alarm: solid_layer(TILE_ALARM),
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}
+
+/// The flora tile.
+#[must_use]
+pub fn tile(t: crate::widgets::tile::Tile) -> Dom {
+    crate::widgets::tile::build(t, &tile_look())
+}
+
+// ==== details_pane ====
+//
+// A flora details pane is a strip of the leaf under a --fl-bd hairline: the
+// big icon in brass, the item's name semibold, its kind as `.fl-label`
+// (bold, tracked, --fl-soft1), the keys in --fl-soft1 set right. At night
+// the night leaf and inks.
+
+/// Flora's details-pane look.
+#[must_use]
+pub(crate) fn details_pane_look() -> crate::widgets::details_pane::DetailsPaneLook {
+    use super::decl;
+    let mut pane = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            13,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    pane.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    pane.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    pane.extend(decl::padding(10, 16, 10, 16));
+    pane.extend([
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
+            LayoutBorderTopWidth::const_px(1),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(
+            StyleBorderTopStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+    ]);
+    pane.extend(decl::themed_border_top_color(LIGHT_BD, DARK_BD));
+
+    let mut icon = vec![CssPropertyWithConditions::simple(CssProperty::const_font_size(
+        StyleFontSize::const_px(56),
+    ))];
+    icon.extend(decl::margin(0, 14, 0, 0));
+    icon.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
+    let heading = decl::margin(0, 28, 0, 0).to_vec();
+    let title = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            14,
+        ))),
+        decl::semibold(),
+    ];
+    let mut subtitle = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            11,
+        ))),
+        decl::bold(),
+        decl::letter_spacing_em(0.08),
+    ];
+    subtitle.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut key = vec![CssPropertyWithConditions::simple(CssProperty::const_width(
+        LayoutWidth::const_px(110),
+    ))];
+    key.extend(decl::margin(0, 8, 0, 0));
+    key.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    crate::widgets::details_pane::DetailsPaneLook {
+        pane,
+        icon,
+        heading,
+        title,
+        subtitle,
+        properties: Vec::new(),
+        row: decl::margin(1, 0, 1, 0).to_vec(),
+        key,
+        value: Vec::new(),
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}
+
+/// The flora details pane.
+#[must_use]
+pub fn details_pane(p: crate::widgets::details_pane::DetailsPane) -> Dom {
+    crate::widgets::details_pane::build(p, &details_pane_look())
+}
+
+// ==== address_bar ====
+//
+// A flora address bar is a toolbar strip (--fl-strip) over a --fl-bd
+// hairline; the path sits in field paper (--fl-fld) inside a --fl-bd2 rule
+// at the house radius, ringed by the accent under the pointer; the search
+// box keeps a fixed width. At night the night strip, field and glow.
+
+/// Flora's address-bar look.
+#[must_use]
+pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook {
+    use super::decl;
+    let mut bar = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            13,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    bar.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    bar.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+    bar.extend(decl::padding(5, 8, 5, 8));
+    bar.extend(decl::border_bottom(1));
+    bar.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut field = vec![CssPropertyWithConditions::simple(CssProperty::const_height(
+        LayoutHeight::const_px(26),
+    ))];
+    field.extend(decl::padding(0, 8, 0, 8));
+    field.extend(decl::margin(0, 8, 0, 4));
+    field.extend(decl::border(1));
+    field.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
+    field.extend(decl::radius(3));
+    field.extend(decl::themed_fill(LIGHT_FLD, DARK_FLD));
+    field.extend(decl::hover_border_color(LIGHT_ACC, DARK_GLOW));
+
+    crate::widgets::address_bar::AddressBarLook {
+        bar,
+        nav: decl::margin(0, 2, 0, 0).to_vec(),
+        field,
+        field_editing: decl::margin(0, 8, 0, 4).to_vec(),
+        search: vec![CssPropertyWithConditions::simple(CssProperty::const_width(
+            LayoutWidth::const_px(220),
+        ))],
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}
+
+/// The flora address bar.
+#[must_use]
+pub fn address_bar(b: crate::widgets::address_bar::AddressBar) -> Dom {
+    crate::widgets::address_bar::build(b, &address_bar_look())
+}

@@ -381,9 +381,49 @@ pub(crate) fn build(bc: Breadcrumb, look: &BreadcrumbLook) -> Dom {
         // Resolved before `bc.breadcrumb_state` is moved out below.
         let container_style = bc.resolved_container_style();
 
+        // With segment menus every crumb - the current page too - is
+        // followed by a chevron that is a button (`on_segment_menu_click`).
+        let with_menus = bc.breadcrumb_state.on_segment_menu.is_some();
+
         // One shared RefAny across every crumb callback (RefAny::clone shares the
         // underlying state — same pattern as segmented/tabs/map).
         let state = RefAny::new(bc.breadcrumb_state);
+
+        // The plain separator between two crumbs.
+        let separator = || {
+            crate::widgets::widget_p_with_text(look.separator_glyph.clone())
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(BREADCRUMB_SEPARATOR_CLASS))
+                .with_css_props(part(BREADCRUMB_LABEL_BASE, look.separator.as_slice()))
+        };
+        // A crumb's chevron: the separator's glyph and skin on a crumb's base
+        // (it takes the pointer), a keyboard stop and a button named after
+        // the crumb, reporting it through `on_segment_menu`.
+        let chevron = |label: &AzString| {
+            crate::widgets::widget_p_with_text(look.separator_glyph.clone())
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(BREADCRUMB_SEPARATOR_CLASS))
+                .with_css_props(part(BREADCRUMB_ITEM_BASE, look.separator.as_slice()))
+                .with_callbacks(
+                    vec![CoreCallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::Click),
+                        callback: CoreCallback {
+                            cb: on_segment_menu_click as usize,
+                            ctx: OptionRefAny::None,
+                        },
+                        refany: state.clone(),
+                    }]
+                    .into(),
+                )
+                .with_tab_index(TabIndex::Auto)
+                .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                    role: azul_core::a11y::AccessibilityRole::PushButton,
+                    accessibility_name: Some(AzString::from(alloc::format!(
+                        "{} menu",
+                        label.as_str()
+                    )))
+                    .into(),
+                    ..Default::default()
+                })
+        };
 
         let mut children: Vec<Dom> = Vec::with_capacity(count.saturating_mul(2));
         for (i, label) in bc.labels.as_ref().iter().enumerate() {
@@ -398,6 +438,9 @@ pub(crate) fn build(bc: Breadcrumb, look: &BreadcrumbLook) -> Dom {
                         ))
                         .with_css_props(part(BREADCRUMB_LABEL_BASE, look.current.as_slice())),
                 );
+                if with_menus {
+                    children.push(chevron(label));
+                }
             } else {
                 // A clickable crumb link.
                 children.push(
@@ -424,14 +467,12 @@ pub(crate) fn build(bc: Breadcrumb, look: &BreadcrumbLook) -> Dom {
                 ..Default::default()
             }),
                 );
-                // Separator after every non-last crumb.
-                children.push(
-                    crate::widgets::widget_p_with_text(look.separator_glyph.clone())
-                        .with_ids_and_classes(IdOrClassVec::from_const_slice(
-                            BREADCRUMB_SEPARATOR_CLASS,
-                        ))
-                        .with_css_props(part(BREADCRUMB_LABEL_BASE, look.separator.as_slice())),
-                );
+                // Separator (or the crumb's chevron) after every non-last crumb.
+                children.push(if with_menus {
+                    chevron(label)
+                } else {
+                    separator()
+                });
             }
         }
 
@@ -458,28 +499,11 @@ impl Default for Breadcrumb {
 /// children alternate crumb/separator), updates the state, and invokes the user
 /// `on_navigate` callback. No live restyle — navigating is expected to rebuild
 /// the page.
-extern "C" fn on_crumb_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    use azul_core::dom::DomNodeId;
-
-    let clicked = info.get_hit_node();
-    let Some(parent) = info.get_parent(clicked) else {
-        return Update::DoNothing;
-    };
-
-    // Collect the children in document order, then find the clicked crumb's slot.
-    let mut siblings: Vec<DomNodeId> = Vec::new();
-    let mut cur = info.get_first_child(parent);
-    while let Some(node) = cur {
-        siblings.push(node);
-        cur = info.get_next_sibling(node);
-    }
-
-    let Some(pos) = siblings.iter().position(|n| *n == clicked) else {
-        return Update::DoNothing;
-    };
+extern "C" fn on_crumb_click(mut data: RefAny, info: CallbackInfo) -> Update {
     // Crumbs sit at even positions (crumb, separator, crumb, separator, …).
-    let index = pos / 2;
-
+    let Some(index) = hit_slot(&info).map(|pos| pos / 2) else {
+        return Update::DoNothing;
+    };
     let Some(mut bc) = data.downcast_mut::<BreadcrumbStateWrapper>() else {
         return Update::DoNothing;
     };
@@ -492,6 +516,43 @@ extern "C" fn on_crumb_click(mut data: RefAny, mut info: CallbackInfo) -> Update
         }
         None => Update::DoNothing,
     }
+}
+
+/// Click handler of a crumb's chevron (segment menus): the chevron sits right
+/// after its crumb, at an odd position, so `index = position / 2` names the
+/// crumb; the state records it and `on_segment_menu` hears it.
+extern "C" fn on_segment_menu_click(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some(index) = hit_slot(&info).map(|pos| pos / 2) else {
+        return Update::DoNothing;
+    };
+    let Some(mut bc) = data.downcast_mut::<BreadcrumbStateWrapper>() else {
+        return Update::DoNothing;
+    };
+    bc.inner.selected_index = index;
+    let inner = bc.inner;
+    let bc = &mut *bc;
+    match bc.on_segment_menu.as_mut() {
+        Some(BreadcrumbOnNavigate { callback, refany }) => {
+            callback.invoke(refany.clone(), info, inner)
+        }
+        None => Update::DoNothing,
+    }
+}
+
+/// The hit node's position among its siblings, in document order.
+fn hit_slot(info: &CallbackInfo) -> Option<usize> {
+    let clicked = info.get_hit_node();
+    let parent = info.get_parent(clicked)?;
+    let mut pos = 0;
+    let mut cur = info.get_first_child(parent);
+    while let Some(node) = cur {
+        if node == clicked {
+            return Some(pos);
+        }
+        pos += 1;
+        cur = info.get_next_sibling(node);
+    }
+    None
 }
 
 impl From<Breadcrumb> for Dom {

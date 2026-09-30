@@ -343,9 +343,16 @@ impl AddressBar {
     /// theme picks.
     #[must_use]
     pub fn dom(self) -> Dom {
-        // RED: built in the next commit.
-        let _ = self;
-        Dom::create_div()
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::address_bar(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::address_bar(self),
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                crate::widgets::themes::flat::address_bar,
+                crate::widgets::themes::flora::address_bar,
+            ),
+        }
     }
 }
 
