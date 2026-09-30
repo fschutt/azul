@@ -642,3 +642,5 @@ mod a_link_in_mail_markup_keeps_where_it_points;
 mod the_named_entities_mail_uses_decode_to_their_characters;
 #[path = "a_stylesheet_wrapped_in_comment_markers_keeps_its_rules.rs"]
 mod a_stylesheet_wrapped_in_comment_markers_keeps_its_rules;
+#[path = "mail_markup_gets_the_html_rendering_defaults.rs"]
+mod mail_markup_gets_the_html_rendering_defaults;
