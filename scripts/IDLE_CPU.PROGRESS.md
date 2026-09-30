@@ -10,10 +10,13 @@
 7. `scripts/idle_cpu_probe.py` + report `scripts/IDLE_CPU_2026_09_30.md`.
 
 ## DONE
-(nothing yet)
+- 801be66ad test(idle-cpu): an animation nobody can see asks for no frames (RED)
+- 3752810f0 fix(anim): cull animations nobody can see; they keep their clock
+  (tests: dll headless `tests/idle_cpu.rs`, layout compositor
+  `node_groups_on_screen_follows_clips_transforms_and_transparency`)
 
 ## IN PROGRESS
-1. culling
+2. display link on demand (FramePacer)
 
 ## NEXT
 see order
