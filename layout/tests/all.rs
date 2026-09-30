@@ -662,3 +662,5 @@ mod a_narrow_table_wraps_its_cells_to_fit;
 mod editing_harness;
 #[path = "a_format_toggle_at_a_caret_styles_what_is_typed_next.rs"]
 mod a_format_toggle_at_a_caret_styles_what_is_typed_next;
+#[path = "a_plain_arrow_crosses_the_blocks_of_its_editing_host.rs"]
+mod a_plain_arrow_crosses_the_blocks_of_its_editing_host;
