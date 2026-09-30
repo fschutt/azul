@@ -6,10 +6,11 @@ Branch `wt/m3-azmeet-h264` from `c1dbc55a1` (tip of `fix/input-bugs-2026-09-19`)
 
 - `3a9c08ad5` test(azmeet): the rules H.264 video travels by between participants (RED)
 - `2dda5629b` feat(azmeet): packet header, keyframe requests and send window for video
+- `07739df02` test(azmeet): two AzMeet processes see each other's video and recover from a lost packet (RED)
 
 ## IN PROGRESS
 
-- RED `two-clients.mjs`: decoded frames, keyframes, loss -> keyframe request -> resume.
+- GREEN `lib.rs` (NEXT 3).
 
 ## NEXT
 
