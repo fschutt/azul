@@ -11010,6 +11010,9 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         None
     };
 
+    // The bottom of the lowest line box of any column (horizontal modes):
+    // what the IFC's height is measured to, see below.
+    let mut line_box_extent = 0.0_f32;
     'column_loop: while current_column < num_columns {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
@@ -11290,6 +11293,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             let band_height = line_height.max(fragment_constraints.resolved_line_height());
             line_bands.push((line_index, line_top_y, band_height));
             line_top_y += band_height;
+            line_box_extent = line_box_extent.max(line_top_y);
             line_index += 1;
             positioned_items.extend(line_pos_items);
         }
@@ -11328,7 +11332,32 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     };
 
     // Calculate bounds on demand via the bounds() method
-    let calculated_bounds = layout.bounds();
+    let mut calculated_bounds = layout.bounds();
+
+    // +spec:display-property:a0d0ab - an IFC is as tall as its LINE BOXES (CSS 2.2
+    // 10.6.3: from the top of the topmost to the bottom of the bottommost). The
+    // items' bounds miss a line box that holds no glyph: the line a lone `<br>`
+    // ends (`<div><br></div>`, Gmail's blank line) is one line-height tall in
+    // every browser (a line ending in a forced break is not a zero-height line
+    // box, 9.4.2), and measured 0 here because a break has no geometry. The
+    // vertical modes stack their line boxes along x and keep the item bounds.
+    let horizontal = !matches!(
+        fragment_constraints.writing_mode,
+        Some(
+            WritingMode::VerticalRl
+                | WritingMode::VerticalLr
+                | WritingMode::SidewaysRl
+                | WritingMode::SidewaysLr
+        )
+    );
+    if horizontal && line_box_extent > 0.0 {
+        let top = if layout.items.is_empty() {
+            0.0
+        } else {
+            calculated_bounds.y
+        };
+        calculated_bounds.height = calculated_bounds.height.max(line_box_extent - top);
+    }
 
     // Record the unclipped content bounds. `overflow_items` stays empty by
     // design: this positioner places *every* item, so visual overflow is handled
