@@ -776,6 +776,140 @@ impl Drop for VideoDecoder {
 }
 
 #[cfg(test)]
+mod honest_handle_tests {
+    use azul_core::video::{OptionVideoFrame, VideoFrame};
+    use azul_css::{corety::OptionU8Vec, U8Vec};
+
+    use super::{decode_engine_compiled, provision::VideoEncodeCheck, VideoDecoder, VideoEncoder};
+    use crate::desktop::extra::capability::PlatformCapability;
+
+    const W: u32 = 320;
+    const H: u32 = 240;
+
+    /// Frame `i` of eight vertical colour bars moving 4 px per frame.
+    fn bars(i: u32) -> VideoFrame {
+        const COLOURS: [[u8; 3]; 8] = [
+            [235, 235, 235],
+            [235, 235, 16],
+            [16, 235, 235],
+            [16, 235, 16],
+            [235, 16, 235],
+            [235, 16, 16],
+            [16, 16, 235],
+            [16, 16, 16],
+        ];
+        let mut bytes = Vec::with_capacity((W * H * 4) as usize);
+        for _y in 0..H {
+            for x in 0..W {
+                let bar = (((x + i * 4) % W) * 8 / W) as usize;
+                bytes.extend_from_slice(&COLOURS[bar]);
+                bytes.push(255);
+            }
+        }
+        VideoFrame {
+            width: W,
+            height: H,
+            bytes: U8Vec::from_vec(bytes),
+        }
+    }
+
+    /// Encodes eight frames (the first a forced keyframe) and returns every
+    /// chunk the encoder gave back.
+    fn encode_some(encoder: &mut VideoEncoder) -> Vec<Vec<u8>> {
+        let mut chunks = Vec::new();
+        for i in 0..8 {
+            assert!(encoder.encode(bars(i), i == 0), "an open encoder takes frames");
+            while let OptionU8Vec::Some(chunk) = encoder.recv_packet() {
+                chunks.push(chunk.as_ref().to_vec());
+            }
+        }
+        chunks
+    }
+
+    /// `VideoEncoder::open` hands out an open handle only where this build
+    /// encodes: an engine is compiled in and works on this machine. An open
+    /// handle gives packets back; everywhere else (no engine in this build,
+    /// or it does not load here) the handle is not open, and
+    /// `VideoEncodeCheck` says the same.
+    #[test]
+    fn an_encoder_handle_is_open_only_where_it_gives_packets_back() {
+        let check = VideoEncodeCheck::run();
+        let mut encoder = VideoEncoder::open(W, H, false, 400);
+        if !encoder.is_open() {
+            assert!(
+                !check.hw_encode_ready,
+                "no encoder opens, so the check must not say ready: {}",
+                check.detail.as_str()
+            );
+            return;
+        }
+        let chunks = encode_some(&mut encoder);
+        assert!(
+            !chunks.is_empty(),
+            "an open encoder must give packets back (backend {})",
+            VideoEncoder::backend_name().as_str()
+        );
+        assert!(
+            check.hw_encode_ready,
+            "an encoder works, so the check must say ready: {}",
+            check.detail.as_str()
+        );
+    }
+
+    /// No backend implements H.265 yet: neither handle opens for it.
+    #[test]
+    fn no_codec_handle_opens_for_h265_which_no_backend_implements() {
+        assert!(!VideoEncoder::open(W, H, true, 400).is_open());
+        assert!(!VideoDecoder::open(true).is_open());
+    }
+
+    /// `VideoDecoder::open` hands out an open handle only where this build
+    /// has a decode engine that opened here, and
+    /// `PlatformCapability::video_codec` never reports decode a build without
+    /// an engine cannot do (whatever the GPU could).
+    #[test]
+    fn a_decoder_handle_is_open_only_where_this_build_decodes() {
+        let capability = PlatformCapability::video_codec();
+        let decoder = VideoDecoder::open(false);
+        if !decode_engine_compiled() {
+            assert!(!decoder.is_open(), "no decode engine in this build");
+            assert!(
+                !capability.available,
+                "no decode engine in this build: {}",
+                capability.reason.as_str()
+            );
+        }
+        if decoder.is_open() {
+            assert!(
+                capability.available,
+                "a decoder opened, so the capability must say so: {}",
+                capability.reason.as_str()
+            );
+        }
+    }
+
+    /// Where both handles open, a picture survives the round trip: what the
+    /// encoder gives back, the decoder turns into frames of the same size.
+    #[test]
+    fn an_open_encoder_and_decoder_round_trip_a_picture() {
+        let mut encoder = VideoEncoder::open(W, H, false, 400);
+        let mut decoder = VideoDecoder::open(false);
+        if !encoder.is_open() || !decoder.is_open() {
+            return;
+        }
+        let mut pictures = 0;
+        for chunk in encode_some(&mut encoder) {
+            assert!(decoder.decode(U8Vec::from_vec(chunk)));
+            while let OptionVideoFrame::Some(frame) = decoder.recv_frame() {
+                assert_eq!((frame.width, frame.height), (W, H));
+                pictures += 1;
+            }
+        }
+        assert!(pictures > 0, "the decoder turned no chunk into a picture");
+    }
+}
+
+#[cfg(test)]
 mod screenrec_tests {
     use azul_css::{AzString, U8Vec};
 
