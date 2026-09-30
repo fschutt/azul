@@ -98,6 +98,8 @@ const TREE_CLASS_NAME: &str = "__azul-native-tree-view";
 const TREE_ROW_CLASS_NAME: &str = "__azul-native-tree-view-row";
 /// The class of a parent row's disclosure box: the arrow's own click target.
 const TREE_TOGGLE_CLASS_NAME: &str = "__azul-native-tree-view-toggle";
+const TREE_TOGGLE_CLASS: &[IdOrClass] =
+    &[Class(AzString::from_const_str(TREE_TOGGLE_CLASS_NAME))];
 const TREE_ROW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(TREE_ROW_CLASS_NAME))];
 
 // -- Font --
@@ -212,6 +214,17 @@ pub(crate) static CHILDREN_BASE: &[CssPropertyWithConditions] = &[
 /// The disclosure icon keeps its column's width.
 pub(crate) static ICON_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+];
+
+/// The disclosure arrow's own click box (a tree with a toggle hook): it
+/// centres the arrow on the row's midline, keeps the arrow's width and takes
+/// the pointer. Structure only - the same in every theme; the arrow inside
+/// carries the look's icon style.
+pub(crate) static TREE_TOGGLE_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
 ];
 
 /// The label takes the rest of the row.
@@ -721,7 +734,9 @@ fn render_rows(node: &TreeViewNode, rows: &RowContext, index: &mut usize, out: &
     let current_index = *index;
     *index += 1;
 
-    let has_children = !node.children.as_slice().is_empty();
+    // A parent: it has children, loaded or still to load.
+    let has_children = node.has_children();
+    let children_loaded = !node.children.as_slice().is_empty();
     let look = &rows.look;
 
     // Choose the row's parts by selection state
@@ -738,7 +753,34 @@ fn render_rows(node: &TreeViewNode, rows: &RowContext, index: &mut usize, out: &
         } else {
             "chevron_right"
         };
-        Dom::create_icon(AzString::from_const_str(icon_name)).with_css_props(icon_style.clone())
+        let arrow =
+            Dom::create_icon(AzString::from_const_str(icon_name)).with_css_props(icon_style.clone());
+        if rows.on_toggle.is_some() {
+            // With a toggle hook the arrow is its OWN click target: a click on
+            // it opens or closes the node and stops there, so the row's click
+            // (a selection) does not run too - the file manager's tree.
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(TREE_TOGGLE_CLASS))
+                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(TREE_TOGGLE_BASE))
+                .with_callbacks(
+                    vec![CoreCallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::Click),
+                        refany: RefAny::new(ToggleData {
+                            node_index: current_index,
+                            is_expanded: node.is_expanded,
+                            on_node_toggle: rows.on_toggle.clone(),
+                        }),
+                        callback: CoreCallback {
+                            cb: on_tree_toggle_click as usize,
+                            ctx: azul_core::refany::OptionRefAny::None,
+                        },
+                    }]
+                    .into(),
+                )
+                .with_child(arrow)
+        } else {
+            arrow
+        }
     } else {
         // Empty spacer for leaf alignment
         Dom::create_div().with_css_props(look.leaf_spacer.clone())
@@ -747,6 +789,15 @@ fn render_rows(node: &TreeViewNode, rows: &RowContext, index: &mut usize, out: &
     // Build the label
     let label =
         crate::widgets::widget_p_with_text(node.label.clone()).with_css_props(label_style.clone());
+
+    // The row's parts: the disclosure, the node's own icon (when it has one,
+    // in the disclosure's ink and size), the label.
+    let mut parts = Vec::with_capacity(3);
+    parts.push(icon_or_spacer);
+    if !node.icon.as_str().is_empty() {
+        parts.push(Dom::create_icon(node.icon.clone()).with_css_props(icon_style.clone()));
+    }
+    parts.push(label);
 
     // Build the row: one Tab stop per tree (the roving tabindex), the arrow
     // keys on every row, the click only when the app listens for it.
@@ -766,7 +817,7 @@ fn render_rows(node: &TreeViewNode, rows: &RowContext, index: &mut usize, out: &
             states: row_states(has_children, node.is_expanded, node.is_selected),
             ..Default::default()
         })
-        .with_children(DomVec::from_vec(vec![icon_or_spacer, label]));
+        .with_children(DomVec::from_vec(parts));
 
     let mut callbacks: Vec<CoreCallbackData> = Vec::with_capacity(2);
     // The click callback, if provided - always FIRST.
@@ -793,6 +844,7 @@ fn render_rows(node: &TreeViewNode, rows: &RowContext, index: &mut usize, out: &
         refany: RefAny::new(TreeRowData {
             node_index: current_index,
             has_children,
+            children_loaded,
             is_expanded: node.is_expanded,
             on_node_toggle: rows.on_toggle.clone(),
         }),
@@ -801,6 +853,22 @@ fn render_rows(node: &TreeViewNode, rows: &RowContext, index: &mut usize, out: &
             ctx: azul_core::refany::OptionRefAny::None,
         },
     });
+    // A double-click on a parent row opens or closes it, when the app
+    // listens for that (a leaf has nothing to open).
+    if has_children && rows.on_toggle.is_some() {
+        callbacks.push(CoreCallbackData {
+            event: EventFilter::Hover(HoverEventFilter::DoubleClick),
+            refany: RefAny::new(ToggleData {
+                node_index: current_index,
+                is_expanded: node.is_expanded,
+                on_node_toggle: rows.on_toggle.clone(),
+            }),
+            callback: CoreCallback {
+                cb: on_tree_toggle_double_click as usize,
+                ctx: azul_core::refany::OptionRefAny::None,
+            },
+        });
+    }
     row = row.with_callbacks(callbacks.into());
 
     out.push(row);
@@ -864,9 +932,47 @@ struct NodeClickData {
 /// What the arrow-key handler needs to know about the row it runs on.
 struct TreeRowData {
     node_index: usize,
+    /// A parent: children loaded, or still to load.
     has_children: bool,
+    /// The children are in the tree (Right on the open row can move into
+    /// them); `false` for a parent whose children the app has not loaded.
+    children_loaded: bool,
     is_expanded: bool,
     on_node_toggle: OptionTreeViewOnNodeToggle,
+}
+
+/// What a click on the disclosure arrow and a double-click on a parent row
+/// carry: the node, its state, and the app's toggle hook.
+struct ToggleData {
+    node_index: usize,
+    is_expanded: bool,
+    on_node_toggle: OptionTreeViewOnNodeToggle,
+}
+
+/// The toggle a click or double-click asks for: `(node, expand, hook)` -
+/// open a closed node, close an open one.
+fn toggle_request(data: &mut RefAny) -> Option<(usize, bool, OptionTreeViewOnNodeToggle)> {
+    let d = data.downcast_ref::<ToggleData>()?;
+    Some((d.node_index, !d.is_expanded, d.on_node_toggle.clone()))
+}
+
+/// A click on a parent row's disclosure arrow: asks the app to open a closed
+/// node or close an open one - and stops there, so the row's own click (a
+/// selection) does not run.
+extern "C" fn on_tree_toggle_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((node_index, expand, on_toggle)) = toggle_request(&mut data) else {
+        return Update::DoNothing;
+    };
+    info.stop_propagation();
+    toggle(&on_toggle, info, node_index, expand)
+}
+
+/// A double-click on a parent row: the same request as the arrow's click.
+extern "C" fn on_tree_toggle_double_click(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((node_index, expand, on_toggle)) = toggle_request(&mut data) else {
+        return Update::DoNothing;
+    };
+    toggle(&on_toggle, info, node_index, expand)
 }
 
 // ============================================================================
@@ -917,13 +1023,14 @@ extern "C" fn on_tree_row_key(mut data: RefAny, mut info: CallbackInfo) -> Updat
     ) {
         return Update::DoNothing;
     }
-    let (node_index, has_children, is_expanded, on_toggle) = {
+    let (node_index, has_children, children_loaded, is_expanded, on_toggle) = {
         let Some(row) = data.downcast_ref::<TreeRowData>() else {
             return Update::DoNothing;
         };
         (
             row.node_index,
             row.has_children,
+            row.children_loaded,
             row.is_expanded,
             row.on_node_toggle.clone(),
         )
@@ -946,8 +1053,10 @@ extern "C" fn on_tree_row_key(mut data: RefAny, mut info: CallbackInfo) -> Updat
         K::Down => Some(current + 1).filter(|t| *t < rows.len()),
         K::Home => Some(0),
         K::End => rows.len().checked_sub(1),
-        // An open parent's first child is the next visible row.
-        K::Right if open => Some(current + 1).filter(|t| *t < rows.len()),
+        // An open parent's first child is the next visible row - once the
+        // children are in the tree (an open node still loading shows none).
+        K::Right if open && children_loaded => Some(current + 1).filter(|t| *t < rows.len()),
+        K::Right if open => None,
         K::Right if has_children => return toggle(&on_toggle, info, node_index, true),
         K::Left if open => return toggle(&on_toggle, info, node_index, false),
         K::Left => parent_row_of(&info, tree, focused)
