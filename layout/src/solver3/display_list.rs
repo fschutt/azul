@@ -7089,9 +7089,13 @@ where
                 // and the dot's tiles overlapped and the run fell back to the
                 // unclipped sweep ("2." painted, "1." and every bullet did
                 // not: AzMail samples 02 and 08). `unclipped_bounds` is
-                // content-box relative and encloses every positioned item
-                // (dense retention included).
-                let ink = inline_layout.overflow.unclipped_bounds;
+                // content-box relative and encloses every positioned item.
+                // Read from the CACHED layout's own record: under dense-text
+                // retention `cached_layout.layout` is the shared empty
+                // sentinel, whose overflow is the default - read there, the
+                // ink began at 0 and this never fired (the marker of every
+                // `<li>` stayed clipped in the default build).
+                let ink = cached_layout.overflow.unclipped_bounds;
                 if !clips(get_overflow_x(self.ctx.styled_dom, dom_id, &st)) && ink.x < 0.0 {
                     viewport_clip_rect.origin.x += ink.x;
                     viewport_clip_rect.size.width -= ink.x;
