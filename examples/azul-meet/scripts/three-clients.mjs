@@ -9,12 +9,13 @@
 //
 //   Ada   1 Mbps    grid view
 //   Ben  50 Mbps    grid view
-//   Cleo 30 Mbps    speaker view with Ben on the stage (AZMEET_LAYOUT=speaker, AZMEET_STAGE=Ben)
+//   Cleo 10 Mbps    speaker view with Ben on the stage (AZMEET_LAYOUT=speaker, AZMEET_STAGE=Ben)
 //
 // The planner (IrohLoadBalancer with a mesh cap of 2, then the trees of routes.rs) picks
-// max(ceil(sqrt 3), ceil(3 / 8)) = 2 forwarders by reported uplink: Ben and Cleo (their 68 Mbps of
-// usable uplink carry 1.5 times the room's ~17 Mbps of fan-out, so it does not grow). Ada is the
-// one leaf and attaches to the best forwarder, Ben. So:
+// max(ceil(sqrt 3), ceil(3 / 8)) = 2 forwarders by score (reported uplink times stability): Ben and
+// Cleo (their 51 Mbps of usable uplink carry 1.5 times the room's ~17 Mbps of fan-out, so the
+// backbone does not grow). The uplinks lie far apart, so a dip in someone's stability changes no
+// rank. Ada is the one leaf and attaches to the best forwarder, Ben. So:
 //
 //   Ada's media:  Ada>Ben, Ben>Cleo      (a leaf uploads once)
 //   Ben's media:  Ben>Ada, Ben>Cleo
@@ -88,7 +89,7 @@ const people = [
   {
     name: 'Cleo',
     port: Number(opts['debug-c']),
-    env: { AZMEET_UPLINK_KBPS: '30000', AZMEET_LAYOUT: 'speaker', AZMEET_STAGE: 'Ben' },
+    env: { AZMEET_UPLINK_KBPS: '10000', AZMEET_LAYOUT: 'speaker', AZMEET_STAGE: 'Ben' },
   },
 ];
 const [ada, ben, cleo] = people;
