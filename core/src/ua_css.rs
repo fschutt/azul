@@ -37,7 +37,11 @@ use azul_css::{
         ThemeCondition,
     },
     props::{
-        basic::{font::StyleFontWeight, pixel::PixelValue, ColorU, StyleFontSize},
+        basic::{
+            font::{StyleFontFamily, StyleFontFamilyVec, StyleFontStyle, StyleFontWeight},
+            pixel::PixelValue,
+            ColorU, StyleFontSize,
+        },
         layout::{
             dimensions::{LayoutHeight, LayoutWidth},
             display::LayoutDisplay,
@@ -50,6 +54,7 @@ use azul_css::{
         },
         property::{CssProperty, CssPropertyType},
         style::{
+            background::{StyleBackgroundContent, StyleBackgroundContentVec},
             border::{
                 BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
                 LayoutBorderRightWidth, LayoutBorderTopWidth, StyleBorderBottomColor,
@@ -64,13 +69,14 @@ use azul_css::{
                 LayoutScrollbarWidth, ScrollbarColorCustom, ScrollbarFadeDelay,
                 ScrollbarFadeDuration, ScrollbarVisibilityMode, StyleScrollbarColor,
             },
-            text::StyleTextDecoration,
+            text::{StyleTextColor, StyleTextDecoration},
             StyleTextAlign, StyleVerticalAlign,
         },
     },
+    AzString,
 };
 
-use crate::dom::{NodeData, NodeType};
+use crate::dom::{AttributeType, NodeData, NodeType};
 
 /// `white-space: pre` — the `<pre>` default (HTML rendering §15.3.3).
 static WHITE_SPACE_PRE: CssProperty = CssProperty::WhiteSpace(CssPropertyValue::Exact(
@@ -480,6 +486,110 @@ static PADDING_INLINE_START_40PX: CssProperty =
 static TEXT_DECORATION_UNDERLINE: CssProperty =
     CssProperty::TextDecoration(CssPropertyValue::Exact(StyleTextDecoration::Underline));
 
+// --- Phrasing and flow content (HTML Living Standard, rendering 15.3.3 / 15.3.4) ---
+//
+// What mail HTML leans on: `<em>` is italic, `<s>` struck through, `<code>`
+// monospace, a `<blockquote>` indented, a link blue. The XML loaders read the
+// legacy `<strike>` as `s` and `<tt>` as `code` (`tag_to_node_type`).
+
+/// `address, cite, dfn, em, i, var { font-style: italic }`
+static FONT_STYLE_ITALIC: CssProperty =
+    CssProperty::FontStyle(CssPropertyValue::Exact(StyleFontStyle::Italic));
+
+/// `del, s, strike { text-decoration: line-through }`
+static TEXT_DECORATION_LINE_THROUGH: CssProperty =
+    CssProperty::TextDecoration(CssPropertyValue::Exact(StyleTextDecoration::LineThrough));
+
+/// The generic `monospace` family, resolved like an author's `font-family: monospace`.
+const MONOSPACE_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(
+    AzString::from_const_str("monospace"),
+)];
+
+/// `code, kbd, pre, samp, tt { font-family: monospace }`
+static FONT_FAMILY_MONOSPACE: CssProperty = CssProperty::FontFamily(CssPropertyValue::Exact(
+    StyleFontFamilyVec::from_const_slice(MONOSPACE_FAMILIES),
+));
+
+/// `blockquote, figure { margin-inline: 40px }`, `dd { margin-inline-start: 40px }`
+/// (the left edge in LTR, as `PADDING_INLINE_START_40PX` does for lists).
+static MARGIN_LEFT_40PX: CssProperty =
+    CssProperty::MarginLeft(CssPropertyValue::Exact(LayoutMarginLeft {
+        inner: PixelValue::const_px(40),
+    }));
+
+/// `blockquote, figure { margin-inline: 40px }` (the right edge).
+static MARGIN_RIGHT_40PX: CssProperty =
+    CssProperty::MarginRight(CssPropertyValue::Exact(LayoutMarginRight {
+        inner: PixelValue::const_px(40),
+    }));
+
+/// `small, sub, sup { font-size: smaller }`. CSS Fonts leaves the ratio to
+/// the UA; 0.83em is the step the heading table uses (`h5`) and the browsers'
+/// 1/1.2.
+static FONT_SIZE_SMALLER: CssProperty =
+    CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
+        inner: PixelValue::const_em_fractional(0, 83),
+    }));
+
+/// `big { font-size: larger }`: 1.2em, the inverse step.
+static FONT_SIZE_LARGER: CssProperty =
+    CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
+        inner: PixelValue::const_em_fractional(1, 2),
+    }));
+
+/// `sub { vertical-align: sub }`
+static VERTICAL_ALIGN_SUB: CssProperty =
+    CssProperty::VerticalAlign(CssPropertyValue::Exact(StyleVerticalAlign::Sub));
+
+/// `sup { vertical-align: super }`
+static VERTICAL_ALIGN_SUPER: CssProperty =
+    CssProperty::VerticalAlign(CssPropertyValue::Exact(StyleVerticalAlign::Superscript));
+
+/// `mark { background: yellow }`
+const MARK_BACKGROUND_LAYERS: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::Color(ColorU {
+        r: 255,
+        g: 255,
+        b: 0,
+        a: 255,
+    })];
+static MARK_BACKGROUND: CssProperty = CssProperty::BackgroundContent(CssPropertyValue::Exact(
+    StyleBackgroundContentVec::from_const_slice(MARK_BACKGROUND_LAYERS),
+));
+
+/// `mark { color: black }` - in either mode: the highlight stays yellow.
+static MARK_TEXT_COLOR: CssProperty =
+    CssProperty::TextColor(CssPropertyValue::Exact(StyleTextColor {
+        inner: ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        },
+    }));
+
+/// `:link { color: #0000EE }` - a link (`<a href>`, see [`is_link`]).
+static LINK_COLOR: CssProperty = CssProperty::TextColor(CssPropertyValue::Exact(StyleTextColor {
+    inner: ColorU {
+        r: 0x00,
+        g: 0x00,
+        b: 0xee,
+        a: 255,
+    },
+}));
+
+/// The link colour in the DARK mode: #9E9EFF, the browsers' dark
+/// `LinkText` - #0000EE is unreadable on a dark background.
+static LINK_COLOR_DARK: CssProperty =
+    CssProperty::TextColor(CssPropertyValue::Exact(StyleTextColor {
+        inner: ColorU {
+            r: 0x9e,
+            g: 0x9e,
+            b: 0xff,
+            a: 255,
+        },
+    }));
+
 // --- Button Element Defaults ---
 // Per browser UA CSS, <button> has padding, border, and a system font size.
 // These ensure a button is visible even without author CSS.
@@ -728,8 +838,12 @@ pub fn get_ua_property(
         (NT::Ol, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
         (NT::Li, PT::Display) => Some(&DISPLAY_LIST_ITEM),
         (NT::Dl, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Dl, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
+        (NT::Dl, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
         (NT::Dt, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Dd, PT::Display) => Some(&DISPLAY_BLOCK),
+        // `dd { margin-inline-start: 40px }` (the left edge in LTR).
+        (NT::Dd, PT::MarginLeft) => Some(&MARGIN_LEFT_40PX),
 
         // Inline Elements
         (NT::Span, PT::Display) => Some(&DISPLAY_INLINE),
@@ -738,22 +852,50 @@ pub fn get_ua_property(
         (NT::Strong, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Strong, PT::FontWeight) => Some(&FONT_WEIGHT_BOLDER),
         (NT::Em, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Em, PT::FontStyle) => Some(&FONT_STYLE_ITALIC),
         (NT::B, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::B, PT::FontWeight) => Some(&FONT_WEIGHT_BOLDER),
         (NT::I, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::I, PT::FontStyle) => Some(&FONT_STYLE_ITALIC),
         (NT::U, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::U, PT::TextDecoration) => Some(&TEXT_DECORATION_UNDERLINE),
+        // `del, s, strike { text-decoration: line-through }` (`<strike>` is
+        // read as `s`).
+        (NT::S, PT::TextDecoration) => Some(&TEXT_DECORATION_LINE_THROUGH),
         (NT::Small, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Small, PT::FontSize) => Some(&FONT_SIZE_SMALLER),
+        (NT::Big, PT::FontSize) => Some(&FONT_SIZE_LARGER),
+        // `code, kbd, pre, samp, tt { font-family: monospace }` (`<tt>` is
+        // read as `code`).
         (NT::Code, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Code, PT::FontFamily) => Some(&FONT_FAMILY_MONOSPACE),
         (NT::Kbd, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Kbd, PT::FontFamily) => Some(&FONT_FAMILY_MONOSPACE),
         (NT::Samp, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Samp, PT::FontFamily) => Some(&FONT_FAMILY_MONOSPACE),
         (NT::Sub, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Sub, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_SUB),
+        (NT::Sub, PT::FontSize) => Some(&FONT_SIZE_SMALLER),
         (NT::Sup, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Sup, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_SUPER),
+        (NT::Sup, PT::FontSize) => Some(&FONT_SIZE_SMALLER),
 
         // Text Content
+        // `pre { margin-block: 1em; font-family: monospace; white-space: pre }`
         (NT::Pre, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Pre, PT::WhiteSpace) => Some(&WHITE_SPACE_PRE),
+        (NT::Pre, PT::FontFamily) => Some(&FONT_FAMILY_MONOSPACE),
+        (NT::Pre, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
+        (NT::Pre, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
+        // `blockquote, figure { margin-block: 1em; margin-inline: 40px }`
         (NT::BlockQuote, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::BlockQuote, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
+        (NT::BlockQuote, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
+        (NT::BlockQuote, PT::MarginLeft) => Some(&MARGIN_LEFT_40PX),
+        (NT::BlockQuote, PT::MarginRight) => Some(&MARGIN_RIGHT_40PX),
+        // `address { display: block; font-style: italic }`
+        (NT::Address, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Address, PT::FontStyle) => Some(&FONT_STYLE_ITALIC),
         (NT::Hr, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Hr, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Hr, PT::Height) => Some(&HEIGHT_ZERO),
@@ -906,12 +1048,20 @@ pub fn get_ua_property(
         // Other Inline Elements
         (NT::Abbr, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Cite, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Cite, PT::FontStyle) => Some(&FONT_STYLE_ITALIC),
         (NT::Del, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Del, PT::TextDecoration) => Some(&TEXT_DECORATION_LINE_THROUGH),
         (NT::Ins, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Ins, PT::TextDecoration) => Some(&TEXT_DECORATION_UNDERLINE),
+        // `mark { background: yellow; color: black }`
         (NT::Mark, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Mark, PT::BackgroundContent) => Some(&MARK_BACKGROUND),
+        (NT::Mark, PT::TextColor) => Some(&MARK_TEXT_COLOR),
         (NT::Q, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Dfn, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Dfn, PT::FontStyle) => Some(&FONT_STYLE_ITALIC),
         (NT::Var, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Var, PT::FontStyle) => Some(&FONT_STYLE_ITALIC),
         (NT::Time, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Data, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Wbr, PT::Display) => Some(&DISPLAY_INLINE),
@@ -927,20 +1077,32 @@ pub fn get_ua_property(
         (NT::FieldSet, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Figure, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Figure, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
+        (NT::Figure, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
+        (NT::Figure, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
+        (NT::Figure, PT::MarginLeft) => Some(&MARGIN_LEFT_40PX),
+        (NT::Figure, PT::MarginRight) => Some(&MARGIN_RIGHT_40PX),
         (NT::FigCaption, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::FigCaption, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
         (NT::Details, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Summary, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Dialog, PT::Display) => Some(&DISPLAY_BLOCK),
 
-        // Table Caption
+        // Table Caption: `caption { text-align: center }`
         (NT::Caption, PT::Display) => Some(&DISPLAY_TABLE_CAPTION),
+        (NT::Caption, PT::TextAlign) => Some(&TEXT_ALIGN_CENTER),
         (NT::ColGroup, PT::Display) => Some(&DISPLAY_TABLE_COLUMN_GROUP),
         (NT::Col, PT::Display) => Some(&DISPLAY_TABLE_COLUMN),
 
-        // Legacy/Deprecated Elements
+        // Legacy/Deprecated Elements: `dir, menu` are lists
+        // (`margin-block: 1em; padding-inline-start: 40px`).
         (NT::Menu, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Menu, PT::PaddingLeft) => Some(&PADDING_INLINE_START_40PX),
+        (NT::Menu, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
+        (NT::Menu, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
         (NT::Dir, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Dir, PT::PaddingLeft) => Some(&PADDING_INLINE_START_40PX),
+        (NT::Dir, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
+        (NT::Dir, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
 
         // Html (root) Element
         //
@@ -1043,6 +1205,8 @@ pub const UA_PROPERTY_TYPES: &[CssPropertyType] = &[
     CssPropertyType::BreakBefore,
     // Text properties
     CssPropertyType::TextColor,
+    // `mark { background: yellow }`.
+    CssPropertyType::BackgroundContent,
     CssPropertyType::LineHeight,
     CssPropertyType::LetterSpacing,
     CssPropertyType::WordSpacing,
@@ -1108,6 +1272,13 @@ pub fn get_ua_default(
 ) -> Option<&'static CssProperty> {
     get_ua_property_themed(&node.node_type, property_type, ctx)
         .or_else(|| {
+            if is_link(node) {
+                get_ua_link_property(property_type, ctx)
+            } else {
+                None
+            }
+        })
+        .or_else(|| {
             if node.is_contenteditable() {
                 get_ua_editing_host_property(property_type)
             } else {
@@ -1121,6 +1292,36 @@ pub fn get_ua_default(
                 None
             }
         })
+}
+
+/// Is `node` a LINK - the `:link` of the UA sheet: an `<a>` with an `href`
+/// (HTML 4.8.1: without one it is a placeholder, not a hyperlink).
+#[must_use]
+pub fn is_link(node: &NodeData) -> bool {
+    matches!(node.node_type, NodeType::A)
+        && node
+            .attributes()
+            .as_ref()
+            .iter()
+            .any(|a| matches!(a, AttributeType::Href(_)))
+}
+
+/// UA defaults of a LINK ([`is_link`]): `:link { color: #0000EE; cursor:
+/// pointer }` (HTML rendering 15.3.4), the colour themed - #9E9EFF in the
+/// dark mode, where #0000EE cannot be read. The underline every `<a>` gets
+/// from the per-type table.
+#[must_use]
+pub fn get_ua_link_property(
+    property_type: CssPropertyType,
+    ctx: Option<&DynamicSelectorContext>,
+) -> Option<&'static CssProperty> {
+    let dark = ctx.is_some_and(|c| c.mode == azul_css::system::DarkLightMode::Dark);
+    match property_type {
+        CssPropertyType::TextColor if dark => Some(&LINK_COLOR_DARK),
+        CssPropertyType::TextColor => Some(&LINK_COLOR),
+        CssPropertyType::Cursor => Some(&CURSOR_POINTER),
+        _ => None,
+    }
 }
 
 /// UA defaults of an EDITING HOST (a `contenteditable` node), inherited by

@@ -4925,7 +4925,35 @@ impl CssPropertyCache {
     /// flip on a retained DOM — first removes the entries the previous call
     /// pushed (`StatefulCssProperty::ua_origin`) and answers them again.
     /// Leaves `cascaded_props` sorted and flattened.
+    ///
+    /// A UA default is a DECLARED value (CSS Cascade 4: the user-agent
+    /// origin), so on an ELEMENT it beats what the element would inherit: a
+    /// link under `<td style="color:#333">` is `#0000EE`, `<code>` under
+    /// `font-family: serif` is monospace. Only a TEXT node lets what it
+    /// inherited win over its own row (its I-beam cursor yields to a
+    /// button's pointer). Without the tree, the descendants of such an
+    /// element keep the stale value the inheritance walk handed them; the
+    /// cascade calls [`Self::apply_ua_css_in_tree`].
     pub fn apply_ua_css(&mut self, node_data: &[NodeData]) {
+        self.apply_ua_css_inner(node_data, None);
+    }
+
+    /// [`Self::apply_ua_css`], and then every node below an element whose UA
+    /// default overrode an inherited value inherits that default instead
+    /// ([`Self::hand_ua_defaults_down`]). What `StyledDom`'s cascade runs.
+    pub fn apply_ua_css_in_tree(
+        &mut self,
+        node_data: &[NodeData],
+        node_hierarchy: &[NodeHierarchyItem],
+    ) {
+        self.apply_ua_css_inner(node_data, Some(node_hierarchy));
+    }
+
+    fn apply_ua_css_inner(
+        &mut self,
+        node_data: &[NodeData],
+        node_hierarchy: Option<&[NodeHierarchyItem]>,
+    ) {
         use azul_css::dynamic_selector::PseudoStateType;
 
         let node_count = node_data.len();
@@ -4963,7 +4991,9 @@ impl CssPropertyCache {
                 };
                 // No bitset write needed: `UA_PROPERTY_TYPES` has no
                 // duplicates (pinned by `one_themed_ua_table` tests), so one
-                // node sees each type once.
+                // node sees each type once. On an element this may sit beside
+                // the value the inheritance walk handed it: pushed LAST, the
+                // UA default is the one `sort_cascaded_props` keeps.
                 self.cascaded_props.push_to(
                     node_index,
                     StatefulCssProperty {
@@ -4974,6 +5004,10 @@ impl CssPropertyCache {
                     },
                 );
             }
+        }
+
+        if let Some(node_hierarchy) = node_hierarchy {
+            self.hand_ua_defaults_down(node_data, node_hierarchy);
         }
 
         // Back to the read phase the rest of the pipeline expects
@@ -5009,10 +5043,92 @@ impl CssPropertyCache {
         }
     }
 
+    /// The inheritance walk of [`Self::restyle`] runs BEFORE the UA pass: it
+    /// handed every node its parent's value as the parent stood then. Where
+    /// an element's UA default has since overridden that value (a link's
+    /// `color`, `<code>`'s `font-family`), everything below it that declares
+    /// nothing of its own must inherit the default instead - the text of the
+    /// link painted the wrapper's grey without this.
+    ///
+    /// One pre-order pass per inheritable UA type: a node that declares the
+    /// type (author css, an unconditional inline declaration, the `*` bucket
+    /// on an element) keeps it, and so do the children of a node that
+    /// declares it (the walk copied that declaration, which is right); an
+    /// element keeps its own UA default; every other node takes its parent's
+    /// Normal-state cascaded value - which this pass already settled, the
+    /// parent coming first. Rewritten entries are `ua_origin`, so a
+    /// re-application strips and re-derives them under the new context.
+    fn hand_ua_defaults_down(
+        &mut self,
+        node_data: &[NodeData],
+        node_hierarchy: &[NodeHierarchyItem],
+    ) {
+        use azul_css::dynamic_selector::PseudoStateType;
+
+        let node_count = node_data
+            .len()
+            .min(node_hierarchy.len())
+            .min(self.cascaded_props.len());
+        let types: Vec<CssPropertyType> = crate::ua_css::UA_PROPERTY_TYPES
+            .iter()
+            .copied()
+            .filter(|t| t.is_inheritable() && !is_resolved_parent_inherited(*t))
+            .collect();
+        let declared = self.declared_normal_props(node_data);
+        for node_index in 1..node_count {
+            let Some(parent) = node_hierarchy[node_index].parent_id() else {
+                continue;
+            };
+            let parent_index = parent.index();
+            // Pre-order arena: the parent is settled before the child.
+            if parent_index >= node_index {
+                continue;
+            }
+            let is_text = node_data[node_index].is_text_node();
+            for &ty in &types {
+                if prop_type_bit_test(&declared[parent_index], ty)
+                    || prop_type_bit_test(&declared[node_index], ty)
+                {
+                    continue;
+                }
+                let is_normal_of = |e: &StatefulCssProperty| {
+                    e.state == PseudoStateType::Normal && e.prop_type == ty
+                };
+                let Some(value) = self
+                    .cascaded_props
+                    .build_get(parent_index)
+                    .and_then(|v| v.iter().rev().find(|e| is_normal_of(e)))
+                    .map(|e| clone_inheritable_property(&e.property))
+                else {
+                    continue;
+                };
+                let keep = self
+                    .cascaded_props
+                    .build_get(node_index)
+                    .and_then(|v| v.iter().rev().find(|e| is_normal_of(e)))
+                    .is_some_and(|own| (own.ua_origin && !is_text) || own.property == value);
+                if keep {
+                    continue;
+                }
+                let own = self.cascaded_props.build_mut(node_index);
+                own.retain(|e| !is_normal_of(e));
+                own.push(StatefulCssProperty {
+                    state: PseudoStateType::Normal,
+                    prop_type: ty,
+                    property: value,
+                    ua_origin: true,
+                });
+            }
+        }
+    }
+
     /// Per node, which property types already have a Normal-state value from
-    /// a layer that beats the UA sheet: author css (`css_props`), the cascade
-    /// (`cascaded_props`, i.e. inherited values), unconditional inline
-    /// declarations, and the global `*` bucket.
+    /// a layer that beats the UA sheet: author css (`css_props`), unconditional
+    /// inline declarations, the global `*` bucket - and, on a TEXT node only,
+    /// what it inherited (`cascaded_props`): a text node has no UA sheet of
+    /// its own in CSS, and its one row here (the I-beam cursor) must yield to
+    /// an inherited value (a button's pointer). On an ELEMENT the UA default
+    /// is a declared value and beats the inherited one.
     ///
     /// A `* { margin: 0 }` reset is author CSS and must beat UA defaults on
     /// every ELEMENT (origin beats specificity), but it is stored once
@@ -5024,14 +5140,30 @@ impl CssPropertyCache {
     fn normal_props_present(&self, node_data: &[NodeData]) -> Vec<PropTypeBits> {
         use azul_css::dynamic_selector::PseudoStateType;
 
-        let mut prop_set: Vec<PropTypeBits> = vec![[0u128; 2]; node_data.len()];
-
-        for (node_idx, props) in self.css_props.iter_node_slices() {
+        let mut prop_set = self.declared_normal_props(node_data);
+        for (node_idx, props) in self.cascaded_props.iter_node_slices() {
+            if !node_data.get(node_idx).is_some_and(NodeData::is_text_node) {
+                continue;
+            }
             for p in props.iter().filter(|p| p.state == PseudoStateType::Normal) {
                 prop_type_bit_set(&mut prop_set[node_idx], p.prop_type);
             }
         }
-        for (node_idx, props) in self.cascaded_props.iter_node_slices() {
+        prop_set
+    }
+
+    /// Per node, which property types it DECLARES in the Normal state: author
+    /// css (`css_props`), an unconditional inline declaration, and - on an
+    /// element - the global `*` bucket. (What it inherited is not declared.)
+    fn declared_normal_props(&self, node_data: &[NodeData]) -> Vec<PropTypeBits> {
+        use azul_css::dynamic_selector::PseudoStateType;
+
+        let mut prop_set: Vec<PropTypeBits> = vec![[0u128; 2]; node_data.len()];
+
+        for (node_idx, props) in self.css_props.iter_node_slices() {
+            if node_idx >= prop_set.len() {
+                continue;
+            }
             for p in props.iter().filter(|p| p.state == PseudoStateType::Normal) {
                 prop_type_bit_set(&mut prop_set[node_idx], p.prop_type);
             }

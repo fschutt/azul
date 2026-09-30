@@ -1368,7 +1368,10 @@ impl StyledDom {
         // a different layout for the desktop renderer; computed_values
         // is the "tall" form that the web renderer's CSS emitter
         // (`emit_css_from_cache`) walks per node.
-        css_property_cache.apply_ua_css(compact_dom.node_data.as_ref().internal);
+        css_property_cache.apply_ua_css_in_tree(
+            compact_dom.node_data.as_ref().internal,
+            node_hierarchy.as_container().internal,
+        );
         css_property_cache.compute_inherited_values(
             node_hierarchy.as_container().internal,
             compact_dom.node_data.as_ref().internal,
@@ -1937,9 +1940,10 @@ impl StyledDom {
 
         // Apply UA CSS properties before computing inheritance (strips and
         // re-answers its own previous entries, see `apply_ua_css`).
-        self.css_property_cache
-            .downcast_mut()
-            .apply_ua_css(self.node_data.as_container().internal);
+        self.css_property_cache.downcast_mut().apply_ua_css_in_tree(
+            self.node_data.as_container().internal,
+            self.node_hierarchy.as_container().internal,
+        );
 
         // Compute inherited values after restyle and apply_ua_css (resolves em, %, etc.)
         self.css_property_cache

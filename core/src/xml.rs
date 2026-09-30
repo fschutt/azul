@@ -2844,6 +2844,15 @@ html_tag_node_types! {
     "sub" => Sub,
     "sup" => Sup,
     "big" => Big,
+    // Legacy presentational tags mail still writes (HTML obsolete features,
+    // 16.2): read as the element whose rendering they share, so they stay
+    // INLINE instead of becoming the unknown tag's block. `<strike>` is
+    // `<s>`, `<tt>` is `<code>` (monospace), `<font>` and `<nobr>` are
+    // spans (their attributes are not read).
+    "strike" => S,
+    "tt" => Code,
+    "font" => Span,
+    "nobr" => Span,
     "bdo" => Bdo,
     "bdi" => Bdi,
     "wbr" => Wbr,
