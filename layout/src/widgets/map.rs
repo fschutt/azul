@@ -3835,8 +3835,19 @@ mod autotest_generated {
         cursor: OptionLogicalPosition,
         f: impl FnOnce(CallbackInfo) -> R,
     ) -> (R, Vec<CallbackChange>) {
-        let layout_window =
+        with_prepared_callback_info_at(cursor, |_| {}, f)
+    }
+
+    /// [`with_callback_info_at`], with `prepare` run on the window first (a
+    /// gesture injected into its gesture manager, say).
+    fn with_prepared_callback_info_at<R>(
+        cursor: OptionLogicalPosition,
+        prepare: impl FnOnce(&mut LayoutWindow),
+        f: impl FnOnce(CallbackInfo) -> R,
+    ) -> (R, Vec<CallbackChange>) {
+        let mut layout_window =
             LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        prepare(&mut layout_window);
         let renderer_resources = RendererResources::default();
         let previous_window_state: Option<FullWindowState> = None;
         let current_window_state = FullWindowState::default();
@@ -5625,6 +5636,72 @@ mod autotest_generated {
             map_on_pointer_move(dataset.clone(), info)
         });
         assert_eq!(hook_log(&mut log), (1, 0));
+    }
+
+    /// One pinch update over the map as the engine reports it: `scale` since
+    /// the gesture began, `began` on its first update.
+    fn pinch_update(scale: f32, began: bool) -> crate::managers::gesture::DetectedPinch {
+        crate::managers::gesture::DetectedPinch {
+            scale,
+            center: LogicalPosition::new(50.0, 50.0),
+            initial_distance: 100.0,
+            current_distance: 100.0 * scale,
+            duration_ms: 0,
+            began,
+        }
+    }
+
+    /// Runs the map's pinch handler for one update; answers the zoom after it.
+    fn zoom_after_pinch(dataset: &RefAny, pinch: crate::managers::gesture::DetectedPinch) -> f32 {
+        use crate::managers::gesture::NativeGestureEvent;
+        let _ = with_prepared_callback_info_at(
+            cursor_at(50.0, 50.0),
+            |lw| {
+                lw.gesture_drag_manager
+                    .inject_native_gesture(NativeGestureEvent::Pinch(pinch));
+            },
+            |info| map_on_pointer_move(dataset.clone(), info),
+        );
+        let mut dataset = dataset.clone();
+        let cache = dataset.downcast_ref::<MapTileCache>().expect("cache");
+        cache.viewport.zoom
+    }
+
+    /// REPORTED (AzMaps, 2026-09-30): a trackpad pinch "works but then jitters
+    /// back and forth between zooming in and out". The pinch is cumulative
+    /// since its gesture began; the map zooms by the ratio of successive
+    /// updates of ONE gesture and starts a new gesture from 1.0.
+    #[test]
+    fn a_zoom_in_pinch_only_zooms_in_and_a_second_pinch_starts_where_the_first_ended() {
+        let dataset = RefAny::new(cache_at(0.0, 0.0, 4.0));
+        let mut zoom = 4.0_f32;
+        // Trackpad updates of +2 %, +1 %, +3 %: cumulative 1.02, 1.0302, 1.061106.
+        for (scale, began) in [
+            (1.0, true),
+            (1.02, false),
+            (1.0302, false),
+            (1.061_106, false),
+        ] {
+            let now = zoom_after_pinch(&dataset, pinch_update(scale, began));
+            assert!(
+                now >= zoom,
+                "a zoom-in update (scale {scale}) zoomed OUT: {zoom} -> {now}"
+            );
+            zoom = now;
+        }
+        assert!(
+            (zoom - (4.0 + 1.061_106_f32.log2())).abs() < 1e-3,
+            "the gesture zooms by its whole scale: {zoom}"
+        );
+
+        // A second gesture begins at 1.0: the map stays where the first left it.
+        let at_start = zoom_after_pinch(&dataset, pinch_update(1.0, true));
+        assert!(
+            (at_start - zoom).abs() < 1e-5,
+            "a new gesture jumped the zoom: {zoom} -> {at_start}"
+        );
+        let after = zoom_after_pinch(&dataset, pinch_update(1.05, false));
+        assert!(after > at_start);
     }
 
     #[test]

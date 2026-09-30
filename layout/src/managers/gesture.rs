@@ -2828,6 +2828,106 @@ mod touch_session_tests {
         // Further moves for the lifted finger are ignored.
         assert!(!m.touch_move(1, pos(0.0, 0.0), ts(3), pos(0.0, 0.0)));
     }
+
+    // --- A pinch is CUMULATIVE since its gesture began, on every source ------
+    //
+    // REPORTED (AzMaps, 2026-09-30): a trackpad pinch "works but then jitters
+    // back and forth between zooming in and out". macOS `magnifyWithEvent:`
+    // reports each event's OWN magnification, a delta, and the shell injected
+    // it as is: two zoom-in steps of +2 % and +1 % became scales 1.02 then
+    // 1.01, which every consumer comparing successive samples read as a zoom
+    // OUT. `DetectedPinch::scale` is now the scale since the gesture began on
+    // every source, and `began` marks the gesture's first update.
+
+    #[test]
+    fn trackpad_magnify_deltas_add_up_to_a_growing_cumulative_scale() {
+        let mut m = GestureAndDragManager::new();
+        let c = pos(10.0, 20.0);
+        let first = m
+            .trackpad_magnify(TrackpadGesturePhase::Began, 0.0, c)
+            .expect("a gesture begins");
+        assert!(first.began);
+        assert_eq!(first.scale, 1.0);
+        let mut last = first.scale;
+        for (i, delta) in [0.02_f32, 0.01, 0.03].into_iter().enumerate() {
+            let p = m
+                .trackpad_magnify(TrackpadGesturePhase::Changed, delta, c)
+                .expect("an update");
+            assert!(!p.began, "only the first update of a gesture begins it");
+            assert!(
+                p.scale > last,
+                "update {i}: zoom-in deltas must grow the cumulative scale ({} after {last})",
+                p.scale
+            );
+            assert!((p.current_distance / p.initial_distance - p.scale).abs() < 1e-5);
+            assert_eq!(p.center, c);
+            last = p.scale;
+        }
+        assert!((last - 1.02 * 1.01 * 1.03).abs() < 1e-5);
+        // A new gesture starts from 1.0 again.
+        let again = m
+            .trackpad_magnify(TrackpadGesturePhase::Began, 0.0, c)
+            .expect("a second gesture");
+        assert!(again.began);
+        assert_eq!(again.scale, 1.0);
+    }
+
+    #[test]
+    fn a_trackpad_pinch_ends_and_an_update_without_a_begin_opens_a_new_one() {
+        let mut m = GestureAndDragManager::new();
+        let c = pos(0.0, 0.0);
+        let _ = m.trackpad_magnify(TrackpadGesturePhase::Began, 0.0, c);
+        let _ = m.trackpad_magnify(TrackpadGesturePhase::Changed, 0.5, c);
+        assert!(m
+            .trackpad_magnify(TrackpadGesturePhase::Ended, 0.0, c)
+            .is_none());
+        let p = m
+            .trackpad_magnify(TrackpadGesturePhase::Changed, 0.1, c)
+            .expect("an update");
+        assert!(p.began, "an update with no gesture open begins one");
+        assert!((p.scale - 1.1).abs() < 1e-6);
+        // A nonsense delta leaves the scale where it was.
+        let q = m
+            .trackpad_magnify(TrackpadGesturePhase::Changed, f32::NAN, c)
+            .expect("an update");
+        assert!(!q.began);
+        assert!((q.scale - 1.1).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_touch_pinch_begins_once_per_pair_of_touches() {
+        let mut m = GestureAndDragManager::new();
+        let u = WindowPosition::Uninitialized;
+        m.touch_down(1, pos(100.0, 100.0), ts(0), u, pos(100.0, 100.0));
+        m.touch_down(2, pos(200.0, 100.0), ts(1), u, pos(200.0, 100.0));
+        m.touch_move(2, pos(260.0, 100.0), ts(2), pos(260.0, 100.0));
+        let first = m.detect_pinch().expect("a pinch");
+        assert!(
+            first.began,
+            "the first pinch of two touches begins a gesture"
+        );
+        m.note_pinch_dispatched();
+
+        m.touch_move(2, pos(300.0, 100.0), ts(3), pos(300.0, 100.0));
+        let next = m.detect_pinch().expect("still a pinch");
+        assert!(!next.began, "the same two touches continue the gesture");
+        assert!(
+            next.scale > first.scale,
+            "cumulative: the fingers moved further apart"
+        );
+        // Seen again by a later pass, it is still no beginning.
+        m.note_pinch_dispatched();
+        assert!(!m.detect_pinch().expect("a pinch").began);
+
+        // Two new touches are a new gesture.
+        m.touch_up(1, pos(100.0, 100.0), ts(4), pos(100.0, 100.0));
+        m.touch_up(2, pos(300.0, 100.0), ts(5), pos(300.0, 100.0));
+        m.note_pinch_dispatched();
+        m.touch_down(3, pos(100.0, 300.0), ts(6), u, pos(100.0, 300.0));
+        m.touch_down(4, pos(200.0, 300.0), ts(7), u, pos(200.0, 300.0));
+        m.touch_move(4, pos(260.0, 300.0), ts(8), pos(260.0, 300.0));
+        assert!(m.detect_pinch().expect("a new pinch").began);
+    }
 }
 
 #[cfg(test)]

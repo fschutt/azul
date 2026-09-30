@@ -792,53 +792,70 @@ mod tests {
         assert!(close(wheel_zoom_factor(f32::NAN), 1.0));
     }
 
-    #[test]
-    fn a_trackpad_pinch_zooms_by_each_updates_own_scale() {
-        // macOS magnify events: deltas without a gesture clock (duration 0).
-        let step = |scale| PinchSample {
-            scale,
-            initial_distance: 100.0,
-            duration_ms: 0,
-        };
-        assert!(close(pinch_step(None, step(1.1)), 1.1));
-        assert!(close(pinch_step(Some(step(1.1)), step(1.05)), 1.05));
-        assert!(close(pinch_step(Some(step(1.05)), step(0.9)), 0.9));
+    /// A pinch update as the engine reports it: the scale since the gesture began, and
+    /// whether this update began it.
+    fn sample(scale: f32, began: bool) -> PinchSample {
+        PinchSample { scale, began }
     }
 
     #[test]
-    fn a_touch_pinch_zooms_by_the_change_since_its_last_update() {
-        // Two touches: the scale is measured from where the gesture began.
-        let sample = |scale, initial_distance, duration_ms| PinchSample {
-            scale,
-            initial_distance,
-            duration_ms,
-        };
-        assert!(close(pinch_step(None, sample(1.2, 100.0, 50)), 1.2));
-        assert!(close(
-            pinch_step(Some(sample(1.2, 100.0, 50)), sample(1.5, 100.0, 80)),
-            1.25
-        ));
-        // A new gesture (other fingers, or a younger clock) starts from its own scale.
-        assert!(close(
-            pinch_step(Some(sample(1.5, 100.0, 80)), sample(1.1, 140.0, 90)),
-            1.1
-        ));
-        assert!(close(
-            pinch_step(Some(sample(1.5, 100.0, 80)), sample(1.1, 100.0, 10)),
-            1.1
-        ));
+    fn a_pinch_zooms_by_the_change_since_the_gestures_last_update() {
+        // The first update of a gesture is measured from 1.0.
+        assert!(close(pinch_step(None, sample(1.0, true)), 1.0));
+        assert!(close(pinch_step(Some(1.8), sample(1.1, true)), 1.1));
+        // Later updates by their ratio to the one before.
+        assert!(close(pinch_step(Some(1.2), sample(1.5, false)), 1.25));
+        assert!(close(pinch_step(Some(1.5), sample(1.2, false)), 0.8));
+        // An update whose gesture start was missed counts from 1.0.
+        assert!(close(pinch_step(None, sample(1.3, false)), 1.3));
     }
 
     #[test]
     fn a_pinch_that_reports_no_usable_scale_does_not_zoom() {
-        let sample = |scale| PinchSample {
-            scale,
-            initial_distance: 100.0,
-            duration_ms: 0,
+        assert!(close(pinch_step(None, sample(0.0, true)), 1.0));
+        assert!(close(pinch_step(Some(1.2), sample(-1.0, false)), 1.0));
+        assert!(close(pinch_step(Some(1.2), sample(f32::NAN, false)), 1.0));
+        assert!(close(pinch_step(Some(0.0), sample(1.2, false)), 1.2));
+    }
+
+    /// REPORTED (AzMaps' twin, 2026-09-30): a trackpad pinch jittered between zooming in and
+    /// out, because macOS's per-event magnification deltas were read as cumulative scales.
+    /// Fed the engine's cumulative updates, the hour only grows while the fingers spread, and
+    /// a second gesture starts where the first left off.
+    #[test]
+    fn a_zoom_in_pinch_only_grows_the_hour_and_a_second_pinch_does_not_jump() {
+        let mut hour = DEFAULT_HOUR_PX;
+        let mut last: Option<f32> = None;
+        let mut apply = |s: PinchSample| {
+            hour = clamp_hour_px(hour * pinch_step(last, s));
+            last = Some(s.scale);
+            hour
         };
-        assert!(close(pinch_step(None, sample(0.0)), 1.0));
-        assert!(close(pinch_step(None, sample(-1.0)), 1.0));
-        assert!(close(pinch_step(None, sample(f32::NAN)), 1.0));
+        // Trackpad updates of +2 %, +1 %, +3 %: cumulative 1.02, 1.0302, 1.061106.
+        let mut before = DEFAULT_HOUR_PX;
+        for s in [
+            sample(1.0, true),
+            sample(1.02, false),
+            sample(1.0302, false),
+            sample(1.061_106, false),
+        ] {
+            let now = apply(s);
+            assert!(
+                now >= before,
+                "a zoom-in update (scale {}) shrank the hour: {before} -> {now}",
+                s.scale
+            );
+            before = now;
+        }
+        assert!(close(before, DEFAULT_HOUR_PX * 1.061_106));
+        // A second gesture begins at 1.0: the hour stays where the first left it.
+        let at_start = apply(sample(1.0, true));
+        assert!(
+            close(at_start, before),
+            "a new gesture jumped the hour: {before} -> {at_start}"
+        );
+        let after = apply(sample(1.05, false));
+        assert!(close(after, before * 1.05));
     }
 
     #[test]
