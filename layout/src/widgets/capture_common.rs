@@ -1941,6 +1941,36 @@ mod autotest_generated {
     }
 
     #[test]
+    fn a_frame_is_installed_in_its_own_format_without_a_conversion() {
+        // A BGRA capture or an NV12 camera / decoder frame goes onto the tile
+        // as it is: the old RGBA8 label made `new_rawimage` swizzle every
+        // frame (and refuse NV12 outright).
+        use azul_core::resources::{ImageData, Nv12Layout, RawImageFormat as F};
+        let bgra: Vec<u8> = [200u8, 20, 10, 255].repeat(4);
+        let nv12 = vec![90u8; Nv12Layout::new(2, 2).checked_total_len().expect("small")];
+        for (format, bytes) in [(F::BGRA8, bgra), (F::NV12Rec601Video, nv12)] {
+            let styled = dom_with_markers(Some(CAM_MARKER), None);
+            let frame = VideoFrame::with_format(2, 2, bytes.clone().into(), format);
+            let (_, changes) = with_callback_info(Some(styled), OptionGlContextPtr::None, |info| {
+                present_frame(info, CAM_MARKER.into(), None, &frame)
+            });
+            let installs = image_installs(&changes);
+            assert_eq!(installs.len(), 1, "{format:?}: one install");
+            match installs[0].2.get_data() {
+                DecodedImage::Raw((descriptor, ImageData::Raw(shared))) => {
+                    assert_eq!(descriptor.format, format);
+                    assert_eq!(
+                        shared.as_ref(),
+                        &bytes[..],
+                        "{format:?}: no swizzle, no conversion"
+                    );
+                }
+                other => panic!("{format:?}: a raw image, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
     fn present_frame_with_gl_steady_state_reinstalls_the_frame_not_a_texture() {
         // Re-installing per frame is CORRECT now: the chokepoint patches the
         // display list in place (no rebuild), and the ImageRef identity change
@@ -2116,6 +2146,11 @@ mod autotest_generated {
         inject_on_read: Option<(u32, CaptureTargets)>,
         reads: u32,
         control_tx: Option<Sender<ThreadSendMsg>>,
+        /// The format the fake delivers its frames in (`FrameIn`); `None`
+        /// delivers the legacy RGBA8 `Frame`.
+        deliver: Option<azul_core::resources::RawImageFormat>,
+        /// The format every `open` was asked for.
+        requested_formats: Vec<azul_core::resources::RawImageFormat>,
     }
     static FAKE: Mutex<Option<FakeBackend>> = Mutex::new(None);
     static LOOP_GATE: Mutex<()> = Mutex::new(());
@@ -2124,6 +2159,7 @@ mod autotest_generated {
         let mut g = FAKE.lock().unwrap_or_else(PoisonError::into_inner);
         let fake = g.as_mut().expect("fake backend installed");
         fake.opens.push((r.width, r.height));
+        fake.requested_formats.push(r.format);
         u64::from(fake.opens.len() as u32) // never 0
     }
     fn fake_read(handle: u64, out: &mut Vec<u8>) -> CaptureRead {
@@ -2146,10 +2182,33 @@ mod autotest_generated {
         let (w, h) = fake.opens.last().copied().unwrap_or((1, 1));
         let _ = handle;
         out.clear();
-        out.extend((0..w * h).flat_map(|_| [10u8, 20, 200, 255]));
-        CaptureRead::Frame {
-            width: w,
-            height: h,
+        match fake.deliver {
+            Some(format) if format.is_nv12() => {
+                let len = azul_core::resources::Nv12Layout::new(w as usize, h as usize)
+                    .checked_total_len()
+                    .expect("small");
+                out.resize(len, 90);
+                CaptureRead::FrameIn {
+                    width: w,
+                    height: h,
+                    format,
+                }
+            }
+            Some(format) => {
+                out.extend((0..w * h).flat_map(|_| [200u8, 20, 10, 255]));
+                CaptureRead::FrameIn {
+                    width: w,
+                    height: h,
+                    format,
+                }
+            }
+            None => {
+                out.extend((0..w * h).flat_map(|_| [10u8, 20, 200, 255]));
+                CaptureRead::Frame {
+                    width: w,
+                    height: h,
+                }
+            }
         }
     }
     fn fake_close(_handle: u64) {
@@ -2197,6 +2256,44 @@ mod autotest_generated {
         inject_on_read: Option<(u32, CaptureTargets)>,
         floor: Option<(u32, u32)>,
     ) -> (Vec<QueuedSummary>, Vec<(u32, u32)>, u32) {
+        let run = run_fake_loop_in(
+            initial,
+            frames,
+            inject_on_read,
+            floor,
+            None,
+            azul_core::resources::RawImageFormat::RGBA8,
+        );
+        (run.queued, run.opens, run.closes)
+    }
+
+    /// The pixel format of every queued writeback: `(preview, source,
+    /// consumers by id)`.
+    type QueuedFormats = (
+        Option<azul_core::resources::RawImageFormat>,
+        Option<azul_core::resources::RawImageFormat>,
+        Vec<(u32, azul_core::resources::RawImageFormat)>,
+    );
+
+    /// Everything one fake loop run observed.
+    struct FakeRun {
+        queued: Vec<QueuedSummary>,
+        formats: Vec<QueuedFormats>,
+        opens: Vec<(u32, u32)>,
+        closes: u32,
+        requested_formats: Vec<azul_core::resources::RawImageFormat>,
+    }
+
+    /// [`run_fake_loop`] with the backend delivering `deliver` (`None` =
+    /// legacy RGBA8 frames) and the session requesting `request_format`.
+    fn run_fake_loop_in(
+        initial: CaptureTargets,
+        frames: u32,
+        inject_on_read: Option<(u32, CaptureTargets)>,
+        floor: Option<(u32, u32)>,
+        deliver: Option<azul_core::resources::RawImageFormat>,
+        request_format: azul_core::resources::RawImageFormat,
+    ) -> FakeRun {
         let _gate = LOOP_GATE.lock().unwrap_or_else(PoisonError::into_inner);
         let (wb_tx, wb_rx) = channel::<ThreadReceiveMsg>();
         let (ctl_tx, ctl_rx) = channel::<ThreadSendMsg>();
@@ -2207,6 +2304,8 @@ mod autotest_generated {
             inject_on_read,
             reads: 0,
             control_tx: Some(ctl_tx.clone()),
+            deliver,
+            requested_formats: Vec::new(),
         });
         let mut sender = ThreadSender::new(ThreadSenderInner {
             ptr: Box::new(wb_tx),
@@ -2225,7 +2324,7 @@ mod autotest_generated {
         let session = CaptureSession {
             backend: Some(FAKE_VTABLE),
             test_pattern: test_pattern_vtable(TestPattern::ColourCycle),
-            request: CaptureRequest::new(0, 0, 0),
+            request: CaptureRequest::new(0, 0, 0).with_format(request_format),
             floor,
             fallback: (640, 480),
             writeback: loop_writeback,
@@ -2235,6 +2334,7 @@ mod autotest_generated {
         run_capture_loop(session, initial, &mut sender, &mut receiver);
 
         let mut queued = Vec::new();
+        let mut formats = Vec::new();
         while let Ok(ThreadReceiveMsg::WriteBack(mut wb)) = wb_rx.try_recv() {
             let Some(mut c) = wb.refany.downcast_mut::<CapturedFrames>() else {
                 panic!("every capture writeback carries CapturedFrames");
@@ -2246,6 +2346,14 @@ mod autotest_generated {
                 .iter()
                 .map(|x| (x.consumer.id, x.frame.width, x.frame.height))
                 .collect();
+            formats.push((
+                c.preview.as_ref().map(|f| f.format),
+                c.source.as_ref().map(|f| f.format),
+                c.consumers
+                    .iter()
+                    .map(|x| (x.consumer.id, x.frame.format))
+                    .collect(),
+            ));
             // Release the latch the way the real writeback does — the NEXT
             // test's loop must not see a stale `true`.
             c.in_flight.store(false, Ordering::Release);
@@ -2257,7 +2365,70 @@ mod autotest_generated {
             .take()
             .expect("fake backend still installed");
         drop(ctl_tx);
-        (queued, fake.opens, fake.closes)
+        FakeRun {
+            queued,
+            formats,
+            opens: fake.opens,
+            closes: fake.closes,
+            requested_formats: fake.requested_formats,
+        }
+    }
+
+    #[test]
+    fn the_widgets_pixel_format_reaches_the_backends_open_request() {
+        use azul_core::resources::RawImageFormat;
+        let run = run_fake_loop_in(
+            targets(Some((4, 4)), &[], false),
+            1,
+            None,
+            None,
+            None,
+            RawImageFormat::NV12Rec709Video,
+        );
+        assert_eq!(run.requested_formats, vec![RawImageFormat::NV12Rec709Video]);
+    }
+
+    #[test]
+    fn a_bgra_capture_reaches_the_tile_and_every_consumer_as_bgra() {
+        // AVFoundation / ScreenCaptureKit hand out BGRA: nothing between the
+        // capture and the tile or the encoder may swizzle it.
+        use azul_core::resources::RawImageFormat as F;
+        let run = run_fake_loop_in(
+            targets(Some((4, 3)), &[(7, 2, 3)], false),
+            1,
+            None,
+            None,
+            Some(F::BGRA8),
+            F::BGRA8,
+        );
+        assert_eq!(
+            run.formats,
+            vec![(None, Some(F::BGRA8), vec![(7, F::BGRA8)])],
+            "the same-size preview is the BGRA source; the consumer's cut is BGRA"
+        );
+    }
+
+    #[test]
+    fn an_nv12_capture_is_cut_for_the_tile_and_the_encoder_as_nv12() {
+        use azul_core::resources::RawImageFormat as F;
+        let run = run_fake_loop_in(
+            targets(Some((4, 4)), &[(7, 8, 6)], false),
+            1,
+            None,
+            None,
+            Some(F::NV12Rec709Video),
+            F::NV12Rec709Video,
+        );
+        assert_eq!(run.opens, vec![(8, 6)], "the covering size of the tile and Bob");
+        assert_eq!(
+            run.formats,
+            vec![(
+                Some(F::NV12Rec709Video),
+                None,
+                vec![(7, F::NV12Rec709Video)]
+            )],
+            "the 4x4 preview and Bob's 8x6 are NV12, the source stays on the worker"
+        );
     }
 
     #[test]

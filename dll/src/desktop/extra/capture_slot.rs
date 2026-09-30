@@ -215,6 +215,67 @@ mod tests {
     }
 
     #[test]
+    fn an_nv12_frame_is_packed_tight_from_its_padded_planes() {
+        use azul_core::resources::RawImageFormat;
+        // 2x2 luma with rows padded to 4 bytes; one Cb,Cr pair, row padded.
+        let y = [1u8, 2, 0xEE, 0xEE, 3, 4, 0xEE, 0xEE];
+        let uv = [100u8, 200, 0xEE, 0xEE];
+        let slot = CaptureSlot::new();
+        let first = unsafe {
+            slot.publish_nv12(
+                y.as_ptr(),
+                4,
+                uv.as_ptr(),
+                4,
+                2,
+                2,
+                RawImageFormat::NV12Rec709Video,
+            )
+        };
+        assert!(first);
+        let mut out = Vec::new();
+        let mut seq = 0;
+        let got = slot.take_newer(&mut seq, &mut out, Duration::from_millis(10));
+        assert_eq!(got, Some((2, 2, RawImageFormat::NV12Rec709Video)));
+        assert_eq!(out, vec![1, 2, 3, 4, 100, 200], "both planes, tight, no padding");
+    }
+
+    #[test]
+    fn a_bgra_frame_is_handed_over_as_it_is() {
+        use azul_core::resources::RawImageFormat;
+        let slot = CaptureSlot::new();
+        let p = plane();
+        unsafe { slot.publish_packed(p.as_ptr(), 2, 2, 12, RawImageFormat::BGRA8) };
+        let mut out = Vec::new();
+        let mut seq = 0;
+        let got = slot.take_newer(&mut seq, &mut out, Duration::from_millis(10));
+        assert_eq!(got, Some((2, 2, RawImageFormat::BGRA8)));
+        assert_eq!(&out[0..4], &[10, 20, 30, 7], "no swizzle: BGRA bytes as captured");
+        assert_eq!(out.len(), 16, "tightly packed");
+    }
+
+    #[test]
+    fn take_newer_swaps_buffers_instead_of_copying_the_frame() {
+        use azul_core::resources::RawImageFormat;
+        // The reader's buffer and the slot's trade places: the two
+        // allocations ping-pong, and no frame is ever copied a second time.
+        let slot = CaptureSlot::new();
+        let p = plane();
+        let mut seq = 0;
+        let mut out = Vec::with_capacity(64);
+        let mine = out.as_ptr();
+        unsafe { slot.publish_packed(p.as_ptr(), 2, 2, 12, RawImageFormat::BGRA8) };
+        slot.take_newer(&mut seq, &mut out, Duration::from_millis(10))
+            .expect("a frame");
+        let theirs = out.as_ptr();
+        assert_ne!(theirs, mine, "the reader got the slot's buffer");
+        unsafe { slot.publish_packed(p.as_ptr(), 2, 2, 12, RawImageFormat::BGRA8) };
+        slot.take_newer(&mut seq, &mut out, Duration::from_millis(10))
+            .expect("a frame");
+        assert_eq!(out.as_ptr(), mine, "and the slot wrote the next one into the reader's old one");
+    }
+
+    #[test]
     fn a_degenerate_plane_is_rejected() {
         let slot = CaptureSlot::new();
         let p = plane();
