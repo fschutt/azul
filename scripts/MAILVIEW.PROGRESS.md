@@ -5,13 +5,13 @@ Never compiled (house rule): the parent compiles and runs the suites.
 
 ## DONE
 - 1. E-XML-2 href: RED `2b9071aa0`, fix `589f75168`
+- 7. E-XML-4 entities: RED `a9121e604`, fix `e81a2e7cb`
+- 6. E-CSS-1 CDO/CDC: RED `e667598a2`, fix `dab0ffad1`
 
 ## IN PROGRESS
-- 7. E-XML-4 named entities
+- 3. E-UA defaults
 
 ## NEXT
-- 6. E-CSS-1 CDO/CDC at the top level of a stylesheet
-- 3. E-UA defaults (+ UA beats an inherited value on elements, slow path)
 - 4. E-BR a block holding only `<br>` is one line tall
 - 5. E-OL list markers drop on some items
 - 2. E10 inline elements get hit areas (from the text-run areas of the display list)
