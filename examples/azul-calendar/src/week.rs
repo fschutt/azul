@@ -363,6 +363,26 @@ pub fn default_day(today: NaiveDate, shown: NaiveDate) -> NaiveDate {
     }
 }
 
+/// Where the "New event" sheet opens: on today's week, the next full hour after `now` (an hour
+/// long, Google Calendar's way), or tomorrow at 09:00 when that hour would run past 23:00; on any
+/// other week, its Monday at 09:00.
+pub fn new_event_slot(
+    today: NaiveDate,
+    shown: NaiveDate,
+    now: NaiveTime,
+) -> (NaiveDate, NaiveTime, NaiveTime) {
+    let at = |h: u32| NaiveTime::from_hms_opt(h, 0, 0).unwrap_or(NaiveTime::MIN);
+    let date = default_day(today, shown);
+    if date != today {
+        return (date, at(9), at(10));
+    }
+    let next = now.hour() + 1;
+    if next > 22 {
+        return (today + Duration::days(1), at(9), at(10));
+    }
+    (today, at(next), at(next + 1))
+}
+
 /// The date a date picker shows, with the day cut to the month's length (the picker keeps its
 /// day when it turns the month); `None` for a month that does not exist.
 pub fn picked_date(year: i32, month: u32, day: u32) -> Option<NaiveDate> {

@@ -231,10 +231,6 @@ impl Press {
     }
 }
 
-fn at(hour: u32, minute: u32) -> NaiveTime {
-    NaiveTime::from_hms_opt(hour, minute, 0).unwrap_or(NaiveTime::MIN)
-}
-
 /// What the form says about an event it cannot save.
 fn form_error(e: &EventError) -> String {
     match e {
@@ -1292,8 +1288,8 @@ extern "C" fn on_new_event(mut data: RefAny, _info: CallbackInfo) -> Update {
     if s.form.is_some() {
         return Update::DoNothing;
     }
-    let date = week::default_day(s.today, s.week);
-    open_form(s, FormPlace::Sheet, date, at(9, 0), at(10, 0));
+    let (date, start, end) = week::new_event_slot(s.today, s.week, chrono::Local::now().time());
+    open_form(s, FormPlace::Sheet, date, start, end);
     Update::RefreshDom
 }
 
