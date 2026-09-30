@@ -1472,6 +1472,9 @@ define_class!(
                         // early-return there otherwise.
                         macos_window.request_redraw();
                     }
+                    // Whatever else the pass left owed (the display link no
+                    // longer polls for it).
+                    macos_window.request_frame_if_pending();
                 }
             }
             // Note: NSTimer with repeats:true automatically reschedules itself
@@ -2398,6 +2401,9 @@ define_class!(
                     if needs_redraw || macos_window.common.regeneration_pending() {
                         macos_window.request_redraw();
                     }
+                    // Whatever else the pass left owed (the display link no
+                    // longer polls for it).
+                    macos_window.request_frame_if_pending();
                 }
             }
             // Note: NSTimer with repeats:true automatically reschedules itself
@@ -4251,6 +4257,11 @@ pub struct MacOSWindow {
     /// The display link's callback context: the NSWindow behind a liveness
     /// flag. Intentionally leaked (see `retire_display_link`).
     display_link_target: Option<*const DisplayLinkTarget>,
+    /// When the display link runs: started by a frame request
+    /// ([`MacOSWindow::request_frame`]), stopped after a couple of idle
+    /// vsync ticks, off while the window shows nothing. An idle window used
+    /// to keep the link - and the main thread - waking 60 times a second.
+    frame_pacer: crate::desktop::shell2::common::frame_pacer::FramePacer,
     /// CoreVideo functions (loaded via dlopen for backward compatibility)
     cv_functions: Option<Arc<CoreVideoFunctions>>,
     /// Core Graphics functions (for display enumeration)
@@ -5059,29 +5070,41 @@ impl MacOSWindow {
                         registry::get_window(ns_window as *mut objc2::runtime::AnyObject)
                     {
                         let win = &mut *win;
-                        let pending = win.redraw_requested
-                            || win.common.display_list_dirty
-                            || win.common.regeneration_pending();
-                        if pending && win.backend == RenderBackend::CPU {
-                            // RENDER AT THE TICK, not in drawRect. The old
-                            // flow rendered frame N inside drawRect while
-                            // DISPLAYING frame N-1's marks - a one-frame-lag
-                            // self-chain that paced at ~20ms regardless of a
-                            // ~11ms frame cost. Rendering here (main queue,
-                            // outside drawing; the CPU path needs no GL
-                            // context) issues the damage marks NOW, AppKit
-                            // displays them at the end of THIS runloop
-                            // cycle, and drawRect degenerates to the pure
-                            // blit its own pending-work check already makes
-                            // it. One frame per vsync, no self-chain.
-                            pace_trace("vsync-render");
-                            let _ = win.render_and_present_in_draw_rect();
-                        } else if pending {
-                            // GL (and any backend that must render inside
-                            // drawRect): deliver the invalidation and let
-                            // drawRect do the work, still vsync-aligned.
-                            pace_trace("vsync-deliver");
-                            win.deliver_invalidation_now();
+                        let pending = win.frame_pending();
+                        // THE PACER decides: render what is owed, idle, or
+                        // stop the link after a couple of empty ticks - the
+                        // next frame request starts it again. A running
+                        // link used to wake this thread 60 times a second
+                        // for windows with nothing to draw.
+                        use crate::desktop::shell2::common::frame_pacer::TickAction;
+                        match win.frame_pacer.on_tick(pending) {
+                            TickAction::Render if win.backend == RenderBackend::CPU => {
+                                // RENDER AT THE TICK, not in drawRect. The old
+                                // flow rendered frame N inside drawRect while
+                                // DISPLAYING frame N-1's marks - a one-frame-lag
+                                // self-chain that paced at ~20ms regardless of a
+                                // ~11ms frame cost. Rendering here (main queue,
+                                // outside drawing; the CPU path needs no GL
+                                // context) issues the damage marks NOW, AppKit
+                                // displays them at the end of THIS runloop
+                                // cycle, and drawRect degenerates to the pure
+                                // blit its own pending-work check already makes
+                                // it. One frame per vsync, no self-chain.
+                                pace_trace("vsync-render");
+                                let _ = win.render_and_present_in_draw_rect();
+                            }
+                            TickAction::Render => {
+                                // GL (and any backend that must render inside
+                                // drawRect): deliver the invalidation and let
+                                // drawRect do the work, still vsync-aligned.
+                                pace_trace("vsync-deliver");
+                                win.deliver_invalidation_now();
+                            }
+                            TickAction::Idle => {}
+                            TickAction::Stop => {
+                                pace_trace("display-link-stop");
+                                win.stop_display_link();
+                            }
                         }
                     }
                     // Balance the retain taken in display_link_callback.
@@ -5138,17 +5161,18 @@ impl MacOSWindow {
             return Err(format!("CVDisplayLinkSetOutputCallback failed: {}", result));
         }
 
-        // Start the display link
-        let result = display_link.start();
-        if result != corevideo::K_CV_RETURN_SUCCESS {
-            return Err(format!("CVDisplayLinkStart failed: {}", result));
-        }
-
+        // NOT started: the link runs only while frames are wanted. The
+        // first frame request (`request_frame`) starts it, the pacer stops it
+        // after a couple of idle ticks. A link replaced by this call (a
+        // display change) was dropped - stopped - with its predecessor, so
+        // the pacer forgets it ran, and a frame still owed asks again.
         log_info!(
             LogCategory::Rendering,
-            "[CVDisplayLink] Display link started successfully"
+            "[CVDisplayLink] Display link ready (started on demand)"
         );
         self.display_link = Some(display_link);
+        self.frame_pacer.reset();
+        self.request_frame_if_pending();
 
         Ok(())
     }
@@ -6035,6 +6059,7 @@ impl MacOSWindow {
             thread_timer_running: None,
             display_link: None, // Will be initialized when VSYNC is enabled
             display_link_target: None,
+            frame_pacer: crate::desktop::shell2::common::frame_pacer::FramePacer::new(),
             cv_functions,
             cg_functions,
             current_display_id: None, // Will be set after monitor detection
@@ -6452,6 +6477,8 @@ impl MacOSWindow {
                 }
                 // DisplayLink will be dropped here
             }
+            // Whatever the pacer thought ran is gone with it.
+            self.frame_pacer.reset();
 
             // Recreate display link for new display
             if let Err(e) = self.initialize_display_link() {
@@ -7322,20 +7349,56 @@ impl MacOSWindow {
         }
     }
 
-    /// Handle a menu action from a menu item click
     /// Pause/resume the CVDisplayLink (window occluded / miniaturized —
-    /// no reason to tick vsync for an invisible window).
+    /// no reason to tick vsync for an invisible window). Paused, the pacer
+    /// runs no link and frame requests are delivered directly; resumed, the
+    /// link stays off until a frame is wanted, and one still owed from the
+    /// hidden time asks now.
     pub(super) fn set_display_link_paused(&mut self, paused: bool) {
+        if paused {
+            let _ = self.frame_pacer.suspend();
+            self.stop_display_link();
+        } else {
+            self.frame_pacer.resume();
+            self.request_frame_if_pending();
+        }
+    }
+
+    /// Stop the display link if it runs. The pacer already recorded the
+    /// stop (or never ran it); the next frame request starts it again.
+    fn stop_display_link(&mut self) {
         if let Some(ref link) = self.display_link {
-            if paused {
-                if link.is_running() {
-                    let _ = link.stop();
-                }
-            } else if !link.is_running() {
-                let _ = link.start();
+            if link.is_running() {
+                let _ = link.stop();
             }
         }
     }
+
+    /// Is a frame owed? A redraw was requested, the display list is dirty,
+    /// or a DOM regeneration is queued - the display-link tick renders
+    /// exactly when this holds.
+    fn frame_pending(&self) -> bool {
+        self.redraw_requested
+            || self.common.display_list_dirty
+            || self.common.regeneration_pending()
+    }
+
+    /// THE safety net under [`Self::request_frame`]: a frame is owed and no
+    /// link pumps one - ask for it.
+    ///
+    /// Most writers of the frame flags request a frame themselves, but the
+    /// always-on link used to poll the flags every vsync, and a path that
+    /// only raised a flag relied on that poll. The main loop calls this
+    /// before it parks, and so do the timer ticks (they also run inside
+    /// menu tracking and live resize, where the main loop does not), so no
+    /// owed frame waits for unrelated input.
+    pub fn request_frame_if_pending(&mut self) {
+        if self.frame_pending() && !self.frame_pacer.is_running() {
+            self.request_frame();
+        }
+    }
+
+    /// Handle a menu action from a menu item click
 
     fn handle_menu_action(&mut self, tag: isize) {
         use azul_core::events::ProcessEventResult;
@@ -9030,25 +9093,42 @@ impl MacOSWindow {
         // "No visual changes" early-return does not discard it (scroll offsets
         // moved by the physics timer are otherwise invisible to that check).
         self.redraw_requested = true;
+        self.request_frame();
+    }
 
-        // VSYNC INTEGRATION: with a LIVE display link the request stays a
-        // flag - the next vsync tick (mark_views_dirty_on_main) delivers the
-        // invalidation. This coalesces every request inside one refresh
-        // period into a single vsync-aligned drawRect; measured before this,
-        // the CPU scroll path rendered 10.2ms frames yet paced at ~46fps
-        // because ad-hoc setNeedsDisplay landed mid-period and slipped.
-        // Damage rects queue up in gpu_damage_rects until delivery. Without
-        // a running link (occluded window, init failure) deliver immediately
-        // as before - correctness never depends on the link.
-        if self
-            .display_link
-            .as_ref()
-            .is_some_and(corevideo::DisplayLink::is_running)
-        {
-            pace_trace("request-redraw-deferred");
-            return;
+    /// THE one door every frame request goes through: the pacer says
+    /// whether the display link must start, is already pumping, or cannot
+    /// help (the window shows nothing).
+    ///
+    /// VSYNC INTEGRATION: with a running link the request stays a flag - the
+    /// next vsync tick (mark_views_dirty_on_main) delivers the invalidation.
+    /// This coalesces every request inside one refresh period into a single
+    /// vsync-aligned drawRect; measured before this, the CPU scroll path
+    /// rendered 10.2ms frames yet paced at ~46fps because ad-hoc
+    /// setNeedsDisplay landed mid-period and slipped. Damage rects queue up
+    /// in gpu_damage_rects until delivery. Without a link (VSYNC off,
+    /// CoreVideo missing, init failure, a window that shows nothing) the
+    /// frame is delivered immediately - correctness never depends on the
+    /// link.
+    pub(super) fn request_frame(&mut self) {
+        use crate::desktop::shell2::common::frame_pacer::FrameRequest;
+        match self.frame_pacer.on_request() {
+            FrameRequest::AlreadyRunning => {
+                pace_trace("request-redraw-deferred");
+            }
+            FrameRequest::Start => {
+                let started = self.display_link.as_ref().is_some_and(|link| {
+                    link.is_running() || link.start() == corevideo::K_CV_RETURN_SUCCESS
+                });
+                if started {
+                    pace_trace("display-link-start");
+                } else {
+                    self.frame_pacer.reset();
+                    self.deliver_invalidation_now();
+                }
+            }
+            FrameRequest::DeliverNow => self.deliver_invalidation_now(),
         }
-        self.deliver_invalidation_now();
     }
 
     /// Push the pending invalidation into AppKit: damage rects via

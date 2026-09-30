@@ -1075,6 +1075,11 @@ pub fn run(
                             }
                         }
                         super::macos::drain_closed_windows();
+                        // Frames owed and not asked for: the display link
+                        // runs only while frames are wanted (`FramePacer`).
+                        for wptr in super::macos::registry::get_all_window_ptrs() {
+                            unsafe { (*wptr).request_frame_if_pending() };
+                        }
                     });
                     let timer: Retained<NSTimer> = unsafe {
                         msg_send_id![
@@ -1288,6 +1293,16 @@ pub fn run(
                         // the top of the loop).
                         crate::desktop::app_events::deliver_to_macos_windows();
                         crate::desktop::global_hotkey::pump_macos_windows();
+
+                        // --- Frames owed, BEFORE parking ---
+                        // The display link runs only while frames are wanted
+                        // (`FramePacer`); it no longer polls the frame flags
+                        // every vsync. A pass that raised one without asking
+                        // for the frame gets it asked here, the last point
+                        // before the loop sleeps.
+                        for wptr in super::macos::registry::get_all_window_ptrs() {
+                            unsafe { (*wptr).request_frame_if_pending() };
+                        }
 
                         // --- Wait for next event (blocking) ---
                         // Uses NSRunLoop.runMode:beforeDate: instead of nextEventMatchingMask

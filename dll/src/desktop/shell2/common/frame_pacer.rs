@@ -72,18 +72,42 @@ impl FramePacer {
     /// Whether the pump runs as far as the pacer knows.
     #[must_use]
     pub const fn is_running(&self) -> bool {
-        true
+        self.running
     }
 
-    /// A frame is wanted.
+    /// A frame is wanted. Every request restarts the idle count.
     pub fn on_request(&mut self) -> FrameRequest {
-        FrameRequest::AlreadyRunning
+        self.idle_ticks = 0;
+        if self.suspended {
+            return FrameRequest::DeliverNow;
+        }
+        if self.running {
+            FrameRequest::AlreadyRunning
+        } else {
+            self.running = true;
+            FrameRequest::Start
+        }
     }
 
     /// The pump ticked; `pending` says whether a frame is owed.
+    ///
+    /// A tick that arrives after the pump was stopped (the pump thread had
+    /// already queued it) renders pending work but touches nothing else.
     pub fn on_tick(&mut self, pending: bool) -> TickAction {
         if pending {
-            TickAction::Render
+            if self.running {
+                self.idle_ticks = 0;
+            }
+            return TickAction::Render;
+        }
+        if !self.running {
+            return TickAction::Idle;
+        }
+        self.idle_ticks = self.idle_ticks.saturating_add(1);
+        if self.idle_ticks >= Self::IDLE_TICKS_BEFORE_STOP {
+            self.running = false;
+            self.idle_ticks = 0;
+            TickAction::Stop
         } else {
             TickAction::Idle
         }
@@ -92,8 +116,11 @@ impl FramePacer {
     /// The window stopped showing (occluded / minimized). Returns whether
     /// the pump was running, so the caller stops it.
     pub fn suspend(&mut self) -> bool {
+        let was_running = self.running;
         self.suspended = true;
-        false
+        self.running = false;
+        self.idle_ticks = 0;
+        was_running
     }
 
     /// The window shows again. The pump stays off until the next request.
@@ -104,6 +131,7 @@ impl FramePacer {
     /// The pump could not start, or was torn down and rebuilt stopped:
     /// forget that it ran.
     pub fn reset(&mut self) {
+        self.running = false;
         self.idle_ticks = 0;
     }
 }
@@ -116,11 +144,19 @@ mod tests {
     #[test]
     fn a_pump_with_nothing_to_do_stops_after_the_idle_ticks() {
         let mut p = FramePacer::new();
-        assert_eq!(p.on_request(), FrameRequest::Start, "a stopped pump is started");
+        assert_eq!(
+            p.on_request(),
+            FrameRequest::Start,
+            "a stopped pump is started"
+        );
         assert!(p.is_running());
         assert_eq!(p.on_tick(true), TickAction::Render, "the requested frame");
         for n in 1..FramePacer::IDLE_TICKS_BEFORE_STOP {
-            assert_eq!(p.on_tick(false), TickAction::Idle, "idle tick {n} keeps pumping");
+            assert_eq!(
+                p.on_tick(false),
+                TickAction::Idle,
+                "idle tick {n} keeps pumping"
+            );
         }
         assert_eq!(
             p.on_tick(false),
@@ -181,7 +217,10 @@ mod tests {
     fn a_window_that_shows_nothing_runs_no_pump() {
         let mut p = FramePacer::new();
         let _ = p.on_request();
-        assert!(p.suspend(), "the running pump is reported, so the shell stops it");
+        assert!(
+            p.suspend(),
+            "the running pump is reported, so the shell stops it"
+        );
         assert!(!p.is_running());
         assert_eq!(
             p.on_request(),
@@ -190,7 +229,11 @@ mod tests {
         );
         assert!(!p.is_running());
         p.resume();
-        assert_eq!(p.on_request(), FrameRequest::Start, "shown again, the pump returns");
+        assert_eq!(
+            p.on_request(),
+            FrameRequest::Start,
+            "shown again, the pump returns"
+        );
     }
 
     #[test]
