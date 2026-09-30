@@ -23,11 +23,18 @@ in_flight before read, vImage no Lanczos, mic meter throttle, report WR dirty re
   PaintHidden gate (node_is_visible_in_window), stable node image keys + lightweight upload +
   one-time DL resend, NV12 YuvImage in compositor2, GC both planes, macOS WR dirty rects
 
+- cc468b11d test: capture formats (RED, capture_common fake + capture_slot)
+- 104c9c499 feat(capture): CaptureRequest.format, CaptureRead::FrameIn, slot NV12/packed/take_newer,
+  AVFoundation '420v'/BGRA passthrough, SCK pixel format + 15 fps + frame status
+- 871cee80f test(videotoolbox): NV12 in/out, scaled decode, hw settings (RED)
+- 66003d063 feat(video_codec): VT hw + low-latency encoder, pooled '420v', decoder
+  set_output_format/size, Vulkan NV12 passthrough, stream scaler dedup
+
 ## IN PROGRESS
-- C capture/codec (next: CaptureRead/CaptureRequest format, CaptureSlot NV12 + swap)
+- C8 AzMeet wiring (NV12 camera config, frame formats, decoder output size, JPEG path)
 
 ## NEXT
-- C capture/codec: CaptureRead format, CaptureRequest format, CaptureSlot NV12 + swap, in_flight
+- C8 AzMeet wiring; maybe 540 rung + mic meter throttle: CaptureRead format, CaptureRequest format, CaptureSlot NV12 + swap, in_flight
   before read, AVFoundation '420v', VT encoder NV12 via pool + low-latency HW, VT decoder NV12 +
   output size (VideoDecoder::set_output_format / set_output_size), SCK '420v' + frame status + 15fps,
   AzMeet wiring (BGRA/NV12 premultiplied, 540 rung?, mic meter throttle)
