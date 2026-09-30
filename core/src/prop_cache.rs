@@ -5097,7 +5097,7 @@ impl CssPropertyCache {
                 let Some(value) = self
                     .cascaded_props
                     .build_get(parent_index)
-                    .and_then(|v| v.iter().rev().find(|e| is_normal_of(e)))
+                    .and_then(|v| v.iter().rev().find(|e| is_normal_of(*e)))
                     .map(|e| clone_inheritable_property(&e.property))
                 else {
                     continue;
@@ -5105,7 +5105,7 @@ impl CssPropertyCache {
                 let keep = self
                     .cascaded_props
                     .build_get(node_index)
-                    .and_then(|v| v.iter().rev().find(|e| is_normal_of(e)))
+                    .and_then(|v| v.iter().rev().find(|e| is_normal_of(*e)))
                     .is_some_and(|own| (own.ua_origin && !is_text) || own.property == value);
                 if keep {
                     continue;
