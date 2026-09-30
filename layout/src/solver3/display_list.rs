@@ -7339,6 +7339,16 @@ where
         let baseline_y =
             content_box.origin.y + first.font_metrics.ascent / upem * style.font_size_px;
 
+        // The prompt is this node's paint: attribute it to the node (the
+        // display list's per-item DOM attribution - hit-testing, damage, a
+        // later patch). It is emitted between the node's two cached runs, so
+        // it cannot inherit the attribution from the background run: on a
+        // PATCHED build (the resize fast path) that run is spliced, and the
+        // splice leaves the builder's current node at whatever painted before
+        // it - AzMeet's centring div, not the join field's value `<p>`.
+        let saved_node = builder.current_node;
+        builder.set_current_node(Some(dom_id));
+
         // Split into per-font runs (fallback can mix faces).
         let mut pen_x = content_box.origin.x;
         let mut run: Vec<GlyphInstance> = Vec::with_capacity(glyphs.len());
@@ -7381,6 +7391,7 @@ where
                 None,
             );
         }
+        builder.set_current_node(saved_node);
     }
 
     #[cfg(not(feature = "text_layout"))]
