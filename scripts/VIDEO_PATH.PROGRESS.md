@@ -17,14 +17,16 @@ in_flight before read, vImage no Lanczos, mic meter throttle, report WR dirty re
   cascade fan_out, NV12 SrcImage, raster NV12 rows + 1:1 fast path, vImage crop/no swizzle
   (AzMeet VideoFrame literals NOT yet updated - phase C)
 
+- 0622e1f66 test(dll): tile damage / no layout / hidden tiles (RED, headless)
+- 3698f9396 test(dll): stable webrender key per tile, NV12 two planes (RED, wr_translate2)
+- 8f5c3e2c7 feat: Paint no longer marks DL dirty, content_repaint_pending + headless repaint_only,
+  PaintHidden gate (node_is_visible_in_window), stable node image keys + lightweight upload +
+  one-time DL resend, NV12 YuvImage in compositor2, GC both planes, macOS WR dirty rects
+
 ## IN PROGRESS
-- B1 damage only the tile (RED tests in dll headless)
+- C capture/codec (next: CaptureRead/CaptureRequest format, CaptureSlot NV12 + swap)
 
 ## NEXT
-- B1 damage only the tile: Paint tier does not mark the DL dirty, headless repaint without relayout,
-  PaintHidden tier for off-screen / minimized tiles; report WR dirty rects in the frame report
-- B2 WebRender: overlay raw images under a stable per-node key (update_image, no scene rebuild),
-  NV12 as YuvImage with two keys (Y R8 + UV RG8 sharing one buffer via offset)
 - C capture/codec: CaptureRead format, CaptureRequest format, CaptureSlot NV12 + swap, in_flight
   before read, AVFoundation '420v', VT encoder NV12 via pool + low-latency HW, VT decoder NV12 +
   output size (VideoDecoder::set_output_format / set_output_size), SCK '420v' + frame status + 15fps,
