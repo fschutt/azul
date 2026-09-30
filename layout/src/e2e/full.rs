@@ -3292,6 +3292,12 @@ pub enum DebugEvent {
         /// Device pixel ratio (default 2).
         #[serde(default)]
         dpi: Option<f32>,
+        /// Render in dark mode (the window's context with the mode dark and
+        /// the dark `system:` palette), on the dark content background - for
+        /// a page that shows its palette in dark mode. Default: light, on
+        /// white.
+        #[serde(default)]
+        dark: bool,
     },
 
     // ── AzBuilder project (layout/src/e2e/project.rs) ──
@@ -19935,6 +19941,7 @@ pub fn process_debug_event(
             name,
             width,
             dpi,
+            dark,
         } => {
             let result = {
                 let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
@@ -19945,6 +19952,7 @@ pub fn process_debug_event(
                     name,
                     *width,
                     *dpi,
+                    *dark,
                 )
             };
             match result {

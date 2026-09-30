@@ -1394,11 +1394,17 @@ impl BuilderSession {
     /// `get_component_thumbnail`: the component's default instance rendered by
     /// the CPU renderer ([`preview_styled_dom`]), cached until the component
     /// changes (the cache key is a fingerprint of its CSS, template, data
-    /// model and render fn). A builtin element with nothing to show on its
-    /// own is not rendered: it answers `empty` and its `no_visual` reason.
+    /// model and render fn, and the mode). A builtin element with nothing to
+    /// show on its own is not rendered: it answers `empty` and its
+    /// `no_visual` reason.
+    ///
+    /// `dark` renders it in dark mode ([`preview_in_dark_mode`]), for a page
+    /// that shows its palette in dark mode; otherwise it renders light, on
+    /// white.
     ///
     /// # Errors
     /// Unknown component, a failing `render_fn`, a failing render.
+    #[allow(clippy::too_many_arguments)] // one per field of the op
     pub fn thumbnail(
         &mut self,
         callback_info: &crate::callbacks::CallbackInfo,
@@ -1407,13 +1413,14 @@ impl BuilderSession {
         name: &str,
         width: Option<f32>,
         dpi: Option<f32>,
+        dark: bool,
     ) -> Result<serde_json::Value, String> {
         let def = map
             .get(library, name)
             .ok_or_else(|| format!("Component '{name}' not found in library '{library}'"))?;
         let width = width.unwrap_or(160.0).clamp(16.0, 1024.0);
         let dpi = dpi.unwrap_or(2.0).clamp(0.5, 4.0);
-        let key = thumbnail_key(def, library, width, dpi);
+        let key = thumbnail_key(def, library, width, dpi, dark);
 
         if let Some(why) = (library == "builtin")
             .then(|| azul_core::xml::builtin_no_visual(name))
@@ -1432,8 +1439,19 @@ impl BuilderSession {
         }
 
         let mut styled = preview_styled_dom(callback_info, library, def, &def.data_model, map)?;
+        let background_color = if dark {
+            preview_in_dark_mode(&mut styled, callback_info)
+        } else {
+            azul_css::props::basic::color::ColorU {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255,
+            }
+        };
         // Same as `get_component_preview`: a builtin's render_fn styles with
-        // no CSS, so the component CSS goes on afterwards.
+        // no CSS, so the component CSS goes on afterwards (cascaded under the
+        // mode's context set above).
         if !def.css.as_str().trim().is_empty() {
             styled.restyle(Css::from_string(def.css.clone()));
         }
@@ -1441,12 +1459,7 @@ impl BuilderSession {
             width: Some(width),
             height: None,
             dpi_factor: dpi,
-            background_color: azul_css::props::basic::color::ColorU {
-                r: 255,
-                g: 255,
-                b: 255,
-                a: 255,
-            },
+            background_color,
         };
         let result = crate::cpurender::render_component_preview(
             &styled,
@@ -1534,8 +1547,34 @@ pub fn preview_styled_dom(
     }
 }
 
+/// Cascade a detached preview in dark mode, the way the window cascades its
+/// own DOM when it is dark: the window's context (OS, language, app theme)
+/// with the mode dark and the `system:` palette of dark mode
+/// (`SystemStyle::colors_for_theme`). Without it a preview has no context at
+/// all: light, and no conditional rule (`prefers-color-scheme: dark`,
+/// a widget's dark twin) applies.
+///
+/// Returns the background to render it on: the dark content background
+/// (`system:background`), as white is the light one.
+fn preview_in_dark_mode(
+    styled: &mut StyledDom,
+    callback_info: &crate::callbacks::CallbackInfo,
+) -> azul_css::props::basic::color::ColorU {
+    use azul_css::{props::basic::color::SystemColorRef, system::DarkLightMode};
+
+    let window = callback_info.get_layout_window();
+    let mut context = window.dynamic_selector_context(&window.current_window_state);
+    context.mode = DarkLightMode::Dark;
+    context.system_colors = callback_info
+        .get_system_style()
+        .colors_for_theme(DarkLightMode::Dark);
+    let background = SystemColorRef::Background.resolve_for_theme(&context.system_colors, true);
+    styled.set_dynamic_selector_context(context);
+    background
+}
+
 /// Everything that changes what a component looks like.
-fn thumbnail_key(def: &ComponentDef, library: &str, width: f32, dpi: f32) -> u64 {
+fn thumbnail_key(def: &ComponentDef, library: &str, width: f32, dpi: f32, dark: bool) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     library.hash(&mut h);
     def.id.name.as_str().hash(&mut h);
@@ -1548,6 +1587,7 @@ fn thumbnail_key(def: &ComponentDef, library: &str, width: f32, dpi: f32) -> u64
     (def.render_fn as usize).hash(&mut h);
     width.to_bits().hash(&mut h);
     dpi.to_bits().hash(&mut h);
+    dark.hash(&mut h);
     h.finish()
 }
 
