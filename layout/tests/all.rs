@@ -648,3 +648,5 @@ mod mail_markup_gets_the_html_rendering_defaults;
 mod a_block_holding_only_a_line_break_is_one_line_tall;
 #[path = "a_list_marker_is_painted_inside_its_text_clip.rs"]
 mod a_list_marker_is_painted_inside_its_text_clip;
+#[path = "an_underline_covers_the_last_letter_of_its_run.rs"]
+mod an_underline_covers_the_last_letter_of_its_run;
