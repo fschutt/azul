@@ -1023,4 +1023,43 @@ mod tests {
         assert!(!rgba(&[1, 2, 3], 2, 2).is_sampleable());
         assert!(resample_rgba(&rgba(&[1, 2, 3], 2, 2), 4, 4).is_empty());
     }
+
+    #[test]
+    fn a_same_size_cut_of_an_odd_sized_nv12_frame_is_a_copy_not_a_resample() {
+        // A 641x361 screen capture shown in a 641x361 tile (odd device sizes
+        // are ordinary): the crop is the whole frame, and the frame's own
+        // NV12 layout already holds a chroma pair for its last column and
+        // its last row. The even alignment is for a crop INSIDE the frame,
+        // whose origin and size must land on chroma pairs; applied to the
+        // whole frame it cut it to 640x360, so every frame was resampled
+        // (an upscale by one pixel) instead of copied, and a column and a
+        // row of the picture were lost.
+        assert_eq!(
+            cover_crop(641, 361, 641, 361, true),
+            SrcRect::full(641, 361)
+        );
+        // A crop that keeps the whole width (odd) but not the whole height
+        // still evens what it cuts: the origin, and the height.
+        assert_eq!(
+            cover_crop(641, 480, 641, 361, true),
+            SrcRect {
+                x: 0,
+                y: 58,
+                width: 641,
+                height: 360
+            }
+        );
+        // The same-size cut of a non-uniform frame is its bytes.
+        let layout = azul_core::resources::Nv12Layout::new(641, 361);
+        let bytes: Vec<u8> = (0..layout.checked_total_len().expect("small"))
+            .map(|i| ((i * 37 + 11) % 256) as u8)
+            .collect();
+        let src = SrcImage {
+            bytes: &bytes,
+            format: RawImageFormat::NV12Rec709Video,
+            width: 641,
+            height: 361,
+        };
+        assert_eq!(cut(&src, 641, 361, resample_frame_rect), bytes);
+    }
 }
