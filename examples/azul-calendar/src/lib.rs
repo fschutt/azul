@@ -1357,11 +1357,11 @@ fn save(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
                 return Update::RefreshDom;
             }
             (true, Some(meeting), _) => {
-                save_form(s, Some(meeting));
+                save_and_reveal(s, info, Some(meeting));
                 return Update::RefreshDom;
             }
             (false, _, _) => {
-                save_form(s, None);
+                save_and_reveal(s, info, None);
                 return Update::RefreshDom;
             }
         }
@@ -1374,18 +1374,32 @@ fn save(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-/// Writes the form's event, with `meeting`, to its file; adds it to the calendar, shows its week
-/// and closes the form. On failure the form stays open with the reason (and keeps the link).
-fn save_form(s: &mut CalState, meeting: Option<Meeting>) {
-    let Some(form) = s.form.as_mut() else {
+/// `save_form`, then scrolls the week to the saved event if it is out of view (an event from
+/// the side sheet can be at any time of the day).
+fn save_and_reveal(s: &mut CalState, info: &mut CallbackInfo, meeting: Option<Meeting>) {
+    let Some(start) = save_form(s, meeting) else {
         return;
     };
+    let Some(view) = week_scroll(info) else {
+        return;
+    };
+    let minute = week::minute_of_day(start);
+    if let Some(y) = week::reveal_scroll(minute, s.hour_px, view.scroll_y, view.height) {
+        info.scroll_to(root_dom(), view.node, LogicalPosition { x: 0.0, y });
+    }
+}
+
+/// Writes the form's event, with `meeting`, to its file; adds it to the calendar, shows its week
+/// and closes the form, and answers the event's start. On failure the form stays open with the
+/// reason (and keeps the link).
+fn save_form(s: &mut CalState, meeting: Option<Meeting>) -> Option<NaiveTime> {
+    let form = s.form.as_mut()?;
     let event = match form.event(meeting.clone()) {
         Ok(event) => event,
         Err(e) => {
             form.error = form_error(&e);
             form.minted = meeting;
-            return;
+            return None;
         }
     };
     match event::save(&s.data_dir, &event) {
@@ -1404,8 +1418,10 @@ fn save_form(s: &mut CalState, meeting: Option<Meeting>) {
                 None => format!("Saved \"{}\".", event.title),
             };
             s.week = week::week_start(event.date);
+            let start = event.start;
             s.events.push(event);
             s.form = None;
+            Some(start)
         }
         Err(e) => {
             form.error = format!(
@@ -1414,6 +1430,7 @@ fn save_form(s: &mut CalState, meeting: Option<Meeting>) {
             );
             eprintln!("[azcalendar] {}", form.error);
             form.minted = event.meeting;
+            None
         }
     }
 }
@@ -1515,7 +1532,7 @@ fn mint_outcome(server: &str, result: RefAny) -> Result<Meeting, String> {
 }
 
 /// The answer to `POST /rooms`: saves the form's event with the new link.
-extern "C" fn on_minted(mut data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
+extern "C" fn on_minted(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
     let Some((mut app, serial, server)) = data
         .downcast_ref::<MintReply>()
         .map(|r| (r.app.clone(), r.serial, r.server.clone()))
@@ -1547,7 +1564,7 @@ extern "C" fn on_minted(mut data: RefAny, _info: CallbackInfo, result: RefAny) -
                     meeting.link, meeting.starts_at, meeting.ends_at
                 );
             }
-            save_form(s, Some(meeting));
+            save_and_reveal(s, &mut info, Some(meeting));
         }
         Err(message) => {
             eprintln!("[azcalendar] no link: {message}");

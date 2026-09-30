@@ -304,6 +304,18 @@ pub fn zoom_scroll(old_px: f32, new_px: f32, pointer: f32, scroll_y: f32, view_h
     target.clamp(0.0, max_scroll(new_px, view_height))
 }
 
+/// Where to scroll a view `view_height` px high, now at `scroll_y`, to show an event that starts
+/// `start` minutes after midnight: `None` while its drawn block (`MIN_BLOCK_PX` at least) is
+/// inside the view, else the offset that puts the hour before it at the top, held to the day.
+pub fn reveal_scroll(start: u32, hour_px: f32, scroll_y: f32, view_height: f32) -> Option<f32> {
+    let top = y_of_minute(start as f32, hour_px);
+    if top >= scroll_y && top + MIN_BLOCK_PX <= scroll_y + view_height {
+        return None;
+    }
+    let above = y_of_minute(start.saturating_sub(60) as f32, hour_px);
+    Some(above.min(max_scroll(hour_px, view_height)))
+}
+
 /// The minute at the top of the view when it opens: an hour before now (on the hour) when the
 /// week shows today, else `MORNING_HOUR`.
 pub fn first_minute_shown(today_shown: bool, now: NaiveTime) -> u32 {
