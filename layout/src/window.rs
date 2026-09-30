@@ -5264,6 +5264,71 @@ impl LayoutWindow {
         Some(rect)
     }
 
+    /// Whether node `node_id` of `dom_id` shows any pixel in the window right
+    /// now: the window is not minimized, and the node's box - moved into
+    /// viewport space - meets the window and every box it is clipped or
+    /// scrolled by (its [`ScrollChain`](crate::solver3::scroll_chain::ScrollChain)).
+    ///
+    /// The gate of a content update's frame request: a video frame on a tile
+    /// that is scrolled out of its box, below the window or in a minimized
+    /// window repaints nothing, so it asks for no frame. Conservative: a node
+    /// it cannot place (no layout yet, a child DOM of a virtual view) counts
+    /// as visible. (Occlusion by other windows is the platform frame pacer's
+    /// business: it stops frames for an occluded window altogether.)
+    #[must_use]
+    pub fn node_is_visible_in_window(&self, dom_id: DomId, node_id: NodeId) -> bool {
+        if self.current_window_state.flags.frame == azul_core::window::WindowFrame::Minimized {
+            return false;
+        }
+        if dom_id != DomId::ROOT_ID {
+            return true;
+        }
+        let dom_node = |node: NodeId| DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+        };
+        let Some(rect) = self.get_node_rect_in_viewport(dom_node(node_id)) else {
+            return true;
+        };
+        let size = self.current_window_state.size.dimensions;
+        let meets = |a: &LogicalRect, x0: f32, y0: f32, x1: f32, y1: f32| {
+            a.origin.x < x1
+                && a.origin.x + a.size.width > x0
+                && a.origin.y < y1
+                && a.origin.y + a.size.height > y0
+        };
+        // The visible part so far, as (x0, y0, x1, y1).
+        let (mut x0, mut y0, mut x1, mut y1) = (0.0_f32, 0.0_f32, size.width, size.height);
+        if !meets(&rect, x0, y0, x1, y1) {
+            return false;
+        }
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return true;
+        };
+        let Some(chain) = crate::solver3::scroll_chain::ScrollChain::of_node(
+            &lr.layout_tree,
+            &lr.styled_dom,
+            &lr.scroll_ids,
+            node_id,
+            Inclusivity::AncestorsOnly,
+        ) else {
+            return true;
+        };
+        for link in &chain.links {
+            let Some(clip) = self.get_node_rect_in_viewport(dom_node(link.node)) else {
+                continue;
+            };
+            x0 = x0.max(clip.origin.x);
+            y0 = y0.max(clip.origin.y);
+            x1 = x1.min(clip.origin.x + clip.size.width);
+            y1 = y1.min(clip.origin.y + clip.size.height);
+            if x1 <= x0 || y1 <= y0 || !meets(&rect, x0, y0, x1, y1) {
+                return false;
+            }
+        }
+        true
+    }
+
     /// Hand the accumulated popup diff to the backend, leaving it empty.
     pub fn take_transient_diff(&mut self) -> crate::transient::TransientDiff {
         core::mem::take(&mut self.pending_transient_diff)
@@ -8014,7 +8079,9 @@ impl LayoutWindow {
                     self.mark_pagination_dirty_everywhere();
                 }
             }
-            ContentDirtyTier::Unchanged | ContentDirtyTier::Paint => {}
+            ContentDirtyTier::Unchanged
+            | ContentDirtyTier::PaintHidden
+            | ContentDirtyTier::Paint => {}
         }
 
         result
@@ -8528,6 +8595,15 @@ impl LayoutWindow {
                 // sees the identity change and damages exactly those bounds.
                 if let Some(lr) = self.layout_results.get_mut(&dom_id) {
                     Arc::make_mut(&mut lr.display_list).patch_node_image(node_id, image);
+                }
+                // THE frame gate of a content update: a tile nobody can see
+                // (scrolled out, below the window, the window minimized)
+                // keeps its patched item for the next frame painted for any
+                // other reason, and asks for none itself.
+                if !self.node_is_visible_in_window(dom_id, node_id) {
+                    return ContentChangeResult {
+                        tier: ContentDirtyTier::PaintHidden,
+                    };
                 }
             }
             ContentDirtyTier::Relayout => {

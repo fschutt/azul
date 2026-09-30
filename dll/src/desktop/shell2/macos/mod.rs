@@ -8766,10 +8766,14 @@ impl MacOSWindow {
         // Update frame report for E2E tests
         if let Some(layout_window) = self.common.layout_window.as_mut() {
             use crate::desktop::shell2::headless::FrameDamage;
+            // WebRender's own dirty rects, not a collapse to "full": a video
+            // frame on one tile must be visible as that tile's damage. (CGL
+            // still composites the whole window on present; see the report
+            // VIDEO_PATH_2026_09_30.)
             let paint = if self.gpu_damage_rects.is_empty() {
                 FrameDamage::None
             } else {
-                FrameDamage::Full
+                FrameDamage::Rects(self.gpu_damage_rects.clone())
             };
             layout_window.record_frame(paint.clone(), paint);
         }

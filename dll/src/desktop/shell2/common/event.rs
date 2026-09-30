@@ -2956,6 +2956,11 @@ pub struct CommonWindowState {
     /// Whether the display list was updated internally (e.g. by text editing)
     /// and needs to be sent to WebRender without a full DOM rebuild.
     pub display_list_dirty: bool,
+    /// A content change patched the display list in place (a video frame on
+    /// a visible tile, `ContentDirtyTier::Paint`): a frame is owed, but no
+    /// layout and no display-list rebuild. Backends whose repaint otherwise
+    /// re-runs layout (headless) consume it to paint only.
+    pub content_repaint_pending: bool,
     /// Whether the accessibility tree needs to be rebuilt and sent to the OS.
     /// Set on focus change, DOM rebuild, text edit — NOT on every mouse move.
     pub a11y_dirty: bool,
@@ -3292,6 +3297,7 @@ impl CommonWindowState {
             regen: RegenerationState::pending_initial(),
             display_list_initialized: false,
             display_list_dirty: false,
+            content_repaint_pending: false,
             a11y_dirty: true,
             app_order: azul_layout::managers::app_target::WindowActivationOrder::for_new_window(),
             desktop_theme,
@@ -4765,8 +4771,16 @@ pub trait PlatformWindow {
     /// Mark that the display list was updated internally and needs sending to WebRender
     fn mark_display_list_dirty(&mut self);
 
-    /// The event result of a content change. A patched or rebuilt display list is also
-    /// marked dirty: the GPU backends resend only a dirty one.
+    /// The event result of a content change.
+    ///
+    /// A REBUILT display list is marked dirty (the GPU backends resend only a
+    /// dirty one). A display list PATCHED in place (`Paint`: a video frame on
+    /// a visible tile) is not: marking it made the next frame regenerate the
+    /// whole list from the layout tree and send WebRender a full transaction
+    /// for every video frame. The frame it owes is a repaint - the CPU
+    /// backends' display-list diff damages exactly the tile, and the GPU
+    /// backends' lightweight transaction uploads the frame into the tile's
+    /// stable image key. `PaintHidden` (nobody can see the tile) owes nothing.
     fn content_change_result(
         &mut self,
         tier: Option<azul_layout::overlay::ContentDirtyTier>,
@@ -4775,11 +4789,12 @@ pub trait PlatformWindow {
         let Some(tier) = tier else {
             return ProcessEventResult::DoNothing;
         };
-        if matches!(
-            tier,
-            ContentDirtyTier::Paint | ContentDirtyTier::RebuildDisplayList
-        ) {
-            self.mark_display_list_dirty();
+        match tier {
+            ContentDirtyTier::RebuildDisplayList => self.mark_display_list_dirty(),
+            ContentDirtyTier::Paint => self.get_common_mut().content_repaint_pending = true,
+            ContentDirtyTier::Unchanged
+            | ContentDirtyTier::PaintHidden
+            | ContentDirtyTier::Relayout => {}
         }
         tier.to_process_event_result()
     }

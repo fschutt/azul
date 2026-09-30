@@ -1829,6 +1829,18 @@ impl ImageKey {
             key: IMAGE_KEY.fetch_add(1, AtomicOrdering::SeqCst),
         }
     }
+
+    /// A key no image will ever derive: drawn from the never-reused
+    /// `ImageRef` id counter that registered images take their keys from
+    /// (`image_ref_hash_to_image_key`). For a slot whose pixels are replaced
+    /// in place (a video tile's frames, the chroma plane of an NV12 image).
+    #[must_use]
+    pub fn unique_image_slot(render_api_namespace: IdNamespace) -> Self {
+        Self {
+            namespace: render_api_namespace,
+            key: next_image_ref_id(),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -2395,6 +2407,17 @@ pub struct RendererResources {
     /// Direct mapping from font hash (from `FontRef`) to `FontKey`
     /// TODO: This should become part of `SharedFontRegistry`
     pub font_hash_map: OrderedMap<u64, FontKey>,
+    /// The image key of every node whose picture is REPLACED IN PLACE: a
+    /// video tile, whose frames arrive through `change_node_image` and live
+    /// in the content overlay. One key per `(DomId, NodeId)` for as long as
+    /// the node shows frames, so a new frame is `update_image` (pixels only:
+    /// no new key, no display-list or scene rebuild). Minted with
+    /// [`ImageKey::unique_image_slot`], so no image ever derives the same key.
+    pub node_image_slots: OrderedMap<(crate::dom::DomId, crate::id::NodeId), ImageKey>,
+    /// The Cb,Cr-plane key of every registered NV12 image, by its Y-plane
+    /// key: an NV12 image is TWO renderer images (an R8 luma plane and an RG8
+    /// chroma plane, views into one buffer).
+    pub nv12_chroma_keys: OrderedMap<ImageKey, ImageKey>,
 }
 
 impl fmt::Debug for RendererResources {

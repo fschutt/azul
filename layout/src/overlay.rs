@@ -205,9 +205,17 @@ pub enum ContentChange {
 pub enum ContentDirtyTier {
     /// The change was a no-op (same image re-set, unknown node).
     Unchanged,
+    /// Display-list items were patched in place, but the node shows no pixel
+    /// right now (scrolled out of its box, below the window, the window
+    /// minimized): no frame is owed. The next frame painted for any other
+    /// reason (the scroll that brings the tile back) shows the patched items.
+    /// A video tile nobody can see costs no repaint.
+    PaintHidden,
     /// Display-list items were patched in place; repaint. Damage discovery is
     /// the backend diff's job — `ImageRef` identity makes patched items
-    /// unequal to the previous frame's.
+    /// unequal to the previous frame's. The display list is NOT dirty: the
+    /// GPU backends take their lightweight path, which uploads a video
+    /// tile's new frame into the tile's stable image key.
     Paint,
     /// The display list must be rebuilt (css-id images resolve at build time).
     RebuildDisplayList,
@@ -219,15 +227,16 @@ impl ContentDirtyTier {
     /// The ONE mapping from content dirty tier to the event-loop result every
     /// host consumes. Defined here — next to the tier — so a backend cannot
     /// invent its own interpretation:
+    /// - `PaintHidden`: nothing (the patch waits for the next frame).
     /// - `Paint`: the DL was already patched in place; a re-render picks it up (CPU: the DL diff
-    ///   sees the `ImageRef` identity change and damages those bounds; GPU: the translator re-reads
-    ///   the patched DL).
+    ///   sees the `ImageRef` identity change and damages those bounds; GPU: the lightweight
+    ///   transaction uploads the new frame into the node's stable image key).
     /// - `RebuildDisplayList`: DL regeneration + re-render.
     /// - `Relayout`: incremental relayout (which rebuilds the DL).
     pub const fn to_process_event_result(self) -> azul_core::events::ProcessEventResult {
         use azul_core::events::ProcessEventResult;
         match self {
-            Self::Unchanged => ProcessEventResult::DoNothing,
+            Self::Unchanged | Self::PaintHidden => ProcessEventResult::DoNothing,
             Self::Paint => ProcessEventResult::ShouldReRenderCurrentWindow,
             Self::RebuildDisplayList => ProcessEventResult::ShouldUpdateDisplayListCurrentWindow,
             Self::Relayout => ProcessEventResult::ShouldIncrementalRelayout,

@@ -1794,54 +1794,7 @@ impl HeadlessWindow {
         // fire.
 
         // CPU-render the frame (retained compositor handles efficient resize)
-        #[cfg(feature = "cpurender")]
-        {
-            let ws = self.common.current_window_state();
-            let width = ws.size.dimensions.width;
-            let height = ws.size.dimensions.height;
-            let dpi = ws.size.dpi as f32 / 96.0;
-            // MWA-C-gpu_state/MWA-D: deliberately NO per-frame scrollbar
-            // fade refresh here (unlike the interactive backends) — the
-            // audit rated the headless relayout-only cache update adequate
-            // for snapshot rendering, and the wall-clock fade advancing
-            // BETWEEN two renders broke the fast-scroll-vs-full-render
-            // pixel-identity golden tests (the two frames must share cache
-            // state to be comparable). Content preparation (image callbacks
-            // through the chokepoint + journal clock) still runs: a canvas
-            // is content, not animation — without it every callback image
-            // rendered as the announced grey placeholder on headless.
-            //
-            // The thumb TRANSFORMS are refreshed all the same: they read no
-            // clock (pure function of layout + the current scroll offsets),
-            // so they cannot desynchronise two renders, and without them a
-            // scroll that changes nothing else leaves every thumb parked at
-            // the position of the last full layout — mis-painted, and
-            // undamaged, because the display-list items compare equal and
-            // only the GPU value diff can raise the bar's rect.
-            if let Some(lw) = self.common.layout_window.as_mut() {
-                lw.prepare_frame_content();
-                lw.refresh_scrollbar_transforms();
-            }
-            if let Some(lw) = self.common.layout_window.as_ref() {
-                self.cpu_backend.sync_window_flags(&lw.current_window_state);
-                self.cpu_backend.render_frame(
-                    lw,
-                    &self.common.renderer_resources,
-                    width,
-                    height,
-                    dpi,
-                );
-            }
-            // Publish the damage of the frame we just rendered onto the
-            // LayoutWindow, where `CallbackInfo::get_layout_window()` — and
-            // therefore an E2E assertion — can actually see it. Without this the
-            // damage machinery is invisible from outside the engine.
-            let paint = self.cpu_backend.last_frame_damage.clone();
-            let present = self.cpu_backend.last_present_damage.clone();
-            if let Some(lw) = self.common.layout_window.as_mut() {
-                lw.record_frame(paint, present);
-            }
-        }
+        self.paint_cpu_frame();
 
         // Deliberately NO request_regeneration here. This ran at the end of
         // every rendered frame ("mark that frame needs regeneration"), which
@@ -1888,13 +1841,21 @@ impl HeadlessWindow {
         // other arms below call relayout_only(), which re-lays-out the
         // existing StyledDom at the current (new) size. Consuming the latch
         // here keeps it from leaking into a later frame.
-        let _resize_relayout = self.common.take_resize_relayout();
+        let resize_relayout = self.common.take_resize_relayout();
         let regen_requested = self.common.take_regeneration();
+        let content_repaint = core::mem::take(&mut self.common.content_repaint_pending);
 
         let (res, what) = if relayout_only {
             (self.relayout_only(), "relayout")
         } else if regen_requested {
             (self.regenerate_layout().map(|_| ()), "regeneration")
+        } else if content_repaint && !resize_relayout && tier <= R::ShouldReRenderCurrentWindow {
+            // A content change patched the display list in place (a video
+            // frame on a visible tile) and nothing else asked for more: paint
+            // the frame from the layout as it stands, the way the desktop
+            // frame paths do - no layout pass, no display-list rebuild. The
+            // display-list diff damages exactly the patched items.
+            (self.repaint_only(), "content repaint")
         } else {
             // Pure repaint (request_repaint, a paint-only change): render from
             // the existing DOM. relayout_only() re-lays-out the EXISTING
@@ -1959,14 +1920,55 @@ impl HeadlessWindow {
                 .rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
         }
 
+        self.paint_cpu_frame();
+
+        // Same as regenerate_layout_inner above: a completed frame must not
+        // re-arm regeneration (see the comment there).
+        Ok(())
+    }
+
+    /// Paint one frame from the layout as it stands - the repaint a content
+    /// change owes (a video frame on a tile, whose display-list item was
+    /// patched in place), exactly what a desktop frame path does for it: no
+    /// layout pass. A display list marked dirty in the same pass (a caret
+    /// blink) is regenerated from the existing layout first.
+    fn repaint_only(&mut self) -> Result<(), String> {
+        if core::mem::take(&mut self.common.display_list_dirty) {
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                lw.regenerate_display_list_for_dom(azul_core::dom::DomId { inner: 0 });
+            }
+        }
+        self.paint_cpu_frame();
+        Ok(())
+    }
+
+    /// CPU-render the frame and publish its damage: the tail every headless
+    /// frame path shares (full regeneration, relayout, repaint).
+    fn paint_cpu_frame(&mut self) {
         #[cfg(feature = "cpurender")]
         {
             let ws = self.common.current_window_state();
             let width = ws.size.dimensions.width;
             let height = ws.size.dimensions.height;
             let dpi = ws.size.dpi as f32 / 96.0;
-            // Content preparation + clockless thumb transforms — see the
-            // fade-refresh note above.
+            // MWA-C-gpu_state/MWA-D: deliberately NO per-frame scrollbar
+            // fade refresh here (unlike the interactive backends) — the
+            // audit rated the headless relayout-only cache update adequate
+            // for snapshot rendering, and the wall-clock fade advancing
+            // BETWEEN two renders broke the fast-scroll-vs-full-render
+            // pixel-identity golden tests (the two frames must share cache
+            // state to be comparable). Content preparation (image callbacks
+            // through the chokepoint + journal clock) still runs: a canvas
+            // is content, not animation — without it every callback image
+            // rendered as the announced grey placeholder on headless.
+            //
+            // The thumb TRANSFORMS are refreshed all the same: they read no
+            // clock (pure function of layout + the current scroll offsets),
+            // so they cannot desynchronise two renders, and without them a
+            // scroll that changes nothing else leaves every thumb parked at
+            // the position of the last full layout — mis-painted, and
+            // undamaged, because the display-list items compare equal and
+            // only the GPU value diff can raise the bar's rect.
             if let Some(lw) = self.common.layout_window.as_mut() {
                 lw.prepare_frame_content();
                 lw.refresh_scrollbar_transforms();
@@ -1981,16 +1983,16 @@ impl HeadlessWindow {
                     dpi,
                 );
             }
+            // Publish the damage of the frame we just rendered onto the
+            // LayoutWindow, where `CallbackInfo::get_layout_window()` — and
+            // therefore an E2E assertion — can actually see it. Without this the
+            // damage machinery is invisible from outside the engine.
             let paint = self.cpu_backend.last_frame_damage.clone();
             let present = self.cpu_backend.last_present_damage.clone();
             if let Some(lw) = self.common.layout_window.as_mut() {
                 lw.record_frame(paint, present);
             }
         }
-
-        // Same as regenerate_layout_inner above: a completed frame must not
-        // re-arm regeneration (see the comment there).
-        Ok(())
     }
 
     // === Event injection (for tests / debug server) ===
@@ -11284,13 +11286,14 @@ mod tests {
             .with_child(video_tile("tile-far"))
     }
 
-    /// A 200x100 scroll box holding a 300 px spacer and then `tile-scrolled`:
-    /// the tile is inside the window but scrolled out of its box.
+    /// A 200x100 scroll box holding a 150 px spacer and then `tile-scrolled`:
+    /// the tile (y 150..230) is inside the 300 px window but below the fold
+    /// of its box.
     extern "C" fn scrolled_tile_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         Dom::create_body().with_css("margin: 0;").with_child(
             Dom::create_div()
                 .with_css("width: 200px; height: 100px; overflow-y: scroll;")
-                .with_child(Dom::create_div().with_css("height: 300px;"))
+                .with_child(Dom::create_div().with_css("height: 150px;"))
                 .with_child(video_tile("tile-scrolled")),
         )
     }

@@ -1355,6 +1355,12 @@ fn register_frame_resources(
         }
     }
 
+    // --- Video tiles: in-place-replaced node images, under their stable keys ---
+    // BEFORE the display-list scan, so their frames are found registered and
+    // are not added again under a per-frame key. (This is a full build: the
+    // display lists are resent anyway, so a new slot needs nothing more.)
+    let _ = upload_overlay_images(layout_window, txn);
+
     // --- Images ---
     let (image_updates, live_image_hashes) =
         collect_image_resource_updates(layout_window, &layout_window.renderer_resources);
@@ -1397,16 +1403,274 @@ fn register_frame_resources(
     }
 
     if !image_updates.is_empty() {
-        let wr_image_resources: Vec<webrender::ResourceUpdate> = image_updates
-            .into_iter()
-            .filter_map(|(_, add_image_msg)| {
-                translate_resource_update(add_image_msg.into_resource_update())
-            })
-            .collect();
+        let namespace = layout_window.id_namespace;
+        let mut wr_image_resources: Vec<webrender::ResourceUpdate> = Vec::new();
+        for (_, add_image_msg) in image_updates {
+            let add = add_image_msg.0;
+            if add.descriptor.format.is_nv12() {
+                // Two renderer images (luma + chroma), one buffer.
+                wr_image_resources.extend(nv12_add_images(
+                    &mut layout_window.renderer_resources,
+                    namespace,
+                    add,
+                ));
+            } else if let Some(update) = translate_resource_update(ResourceUpdate::AddImage(add)) {
+                wr_image_resources.push(update);
+            }
+        }
         if !wr_image_resources.is_empty() {
             txn.update_resources(wr_image_resources);
         }
     }
+}
+
+// ==== Video tiles: one renderer image per tile, updated in place ====
+
+/// The Cb,Cr plane of one [`OverlayImageUpload`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChromaPlane {
+    /// The plane's stable key (see `RendererResources::nv12_chroma_keys`).
+    pub key: ImageKey,
+    /// `update_image` (the key already holds a plane) rather than `add_image`.
+    pub update: bool,
+}
+
+/// One new frame of an in-place-replaced node image (a video tile), to hand
+/// to WebRender under the node's stable key.
+#[derive(Debug, Clone)]
+pub struct OverlayImageUpload {
+    /// The node's stable key (`RendererResources::node_image_slots`); the Y
+    /// plane of an NV12 frame.
+    pub key: ImageKey,
+    /// `update_image` (the key already holds a frame) rather than
+    /// `add_image`.
+    pub update: bool,
+    /// The frame's descriptor.
+    pub descriptor: azul_core::resources::ImageDescriptor,
+    /// The frame's bytes (shared, not copied).
+    pub data: AzImageData,
+    /// The chroma plane of an NV12 frame.
+    pub chroma: Option<ChromaPlane>,
+    /// A chroma plane the key no longer needs (the tile turned from NV12 to
+    /// a packed format): `delete_image` it.
+    pub drop_chroma: Option<ImageKey>,
+}
+
+/// Plan the uploads of this frame's in-place-replaced node images.
+///
+/// `frames` are the content overlay's images by node. Every raw frame that is
+/// not registered yet goes under its node's stable key: the node's first
+/// frame mints the key (an `add_image`), every later one UPDATES it (pixels
+/// only - no new key, so neither the display list nor the scene is rebuilt).
+/// The frame's hash resolves to the key, and the frame the key showed before
+/// is forgotten (never `DeleteImage`d: the key lives on). An NV12 frame gets
+/// a second stable key for its chroma plane.
+pub fn plan_overlay_image_uploads<'a, I>(
+    frames: I,
+    rr: &mut azul_core::resources::RendererResources,
+    namespace: azul_core::resources::IdNamespace,
+) -> Vec<OverlayImageUpload>
+where
+    I: Iterator<Item = ((DomId, NodeId), &'a ImageRef)>,
+{
+    use azul_core::resources::{DecodedImage, ResolvedImage};
+
+    let mut uploads = Vec::new();
+    for (slot, image) in frames {
+        let DecodedImage::Raw((descriptor, data)) = image.get_data() else {
+            continue;
+        };
+        let hash = image.get_hash();
+        if rr.currently_registered_images.contains_key(&hash) {
+            continue;
+        }
+        let (key, update) = match rr.node_image_slots.get(&slot) {
+            Some(&key) if rr.image_key_map.contains_key(&key) => (key, true),
+            _ => {
+                let key = ImageKey::unique_image_slot(namespace);
+                rr.node_image_slots.insert(slot, key);
+                (key, false)
+            }
+        };
+        let (chroma, drop_chroma) = if descriptor.format.is_nv12() {
+            let plane = match rr.nv12_chroma_keys.get(&key) {
+                Some(&existing) if update => ChromaPlane {
+                    key: existing,
+                    update: true,
+                },
+                _ => {
+                    let fresh = ImageKey::unique_image_slot(namespace);
+                    rr.nv12_chroma_keys.insert(key, fresh);
+                    ChromaPlane {
+                        key: fresh,
+                        update: false,
+                    }
+                }
+            };
+            (Some(plane), None)
+        } else {
+            (None, rr.nv12_chroma_keys.remove(&key))
+        };
+        if let Some(old) = rr.image_key_map.insert(key, hash) {
+            if old != hash {
+                rr.currently_registered_images.remove(&old);
+                rr.image_last_seen_epoch.remove(&old);
+            }
+        }
+        rr.currently_registered_images.insert(
+            hash,
+            ResolvedImage {
+                key,
+                descriptor: *descriptor,
+            },
+        );
+        uploads.push(OverlayImageUpload {
+            key,
+            update,
+            descriptor: *descriptor,
+            data: data.clone(),
+            chroma,
+            drop_chroma,
+        });
+    }
+    uploads
+}
+
+/// The two WebRender descriptors of an NV12 image: the R8 luma plane and the
+/// RG8 chroma plane, both views into the one buffer (the chroma plane starts
+/// at `offset = y_len`), so neither plane is copied out. `None` for a format
+/// that is not NV12 or a size WebRender cannot take.
+pub fn nv12_plane_descriptors(
+    descriptor: &azul_core::resources::ImageDescriptor,
+) -> Option<(WrImageDescriptor, WrImageDescriptor)> {
+    use azul_core::resources::Nv12Layout;
+    use webrender::api::ImageFormat;
+
+    if !descriptor.format.is_nv12() {
+        return None;
+    }
+    let layout = Nv12Layout::new(descriptor.width, descriptor.height);
+    let w = i32::try_from(layout.width).ok()?;
+    let h = i32::try_from(layout.height).ok()?;
+    let cw = i32::try_from(layout.chroma_width).ok()?;
+    let ch = i32::try_from(layout.chroma_height).ok()?;
+    let offset = i32::try_from(layout.y_len()).ok()?;
+    let flags = WrImageDescriptorFlags::IS_OPAQUE;
+    Some((
+        WrImageDescriptor {
+            format: ImageFormat::R8,
+            size: DeviceIntSize::new(w, h),
+            stride: Some(w),
+            offset: 0,
+            flags,
+        },
+        WrImageDescriptor {
+            format: ImageFormat::RG8,
+            size: DeviceIntSize::new(cw, ch),
+            stride: Some(cw.checked_mul(2)?),
+            offset,
+            flags,
+        },
+    ))
+}
+
+/// An NV12 image of a display list (not a video tile's frame): its luma
+/// plane under `add.key`, its chroma plane under a key of its own, recorded
+/// in `nv12_chroma_keys` so the display list and the image GC find it.
+fn nv12_add_images(
+    rr: &mut azul_core::resources::RendererResources,
+    namespace: azul_core::resources::IdNamespace,
+    add: AddImage,
+) -> Vec<webrender::ResourceUpdate> {
+    let Some((y_desc, uv_desc)) = nv12_plane_descriptors(&add.descriptor) else {
+        return Vec::new();
+    };
+    let chroma = *rr
+        .nv12_chroma_keys
+        .entry(add.key)
+        .or_insert_with(|| ImageKey::unique_image_slot(namespace));
+    let data = translate_image_data(add.data);
+    vec![
+        webrender::ResourceUpdate::AddImage(WrAddImage {
+            key: translate_image_key(add.key),
+            descriptor: y_desc,
+            data: data.clone(),
+            tiling: None,
+        }),
+        webrender::ResourceUpdate::AddImage(WrAddImage {
+            key: translate_image_key(chroma),
+            descriptor: uv_desc,
+            data,
+            tiling: None,
+        }),
+    ]
+}
+
+/// What [`upload_overlay_images`] put into the transaction.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct OverlayUploads {
+    /// A frame was uploaded: the transaction changes what is on screen.
+    pub changed: bool,
+    /// A tile got its key in THIS transaction, so the display list
+    /// WebRender holds does not reference it yet and must be resent once.
+    pub new_slot: bool,
+}
+
+/// Upload the content overlay's new raw frames (video tiles) into their
+/// nodes' stable keys: `add_image` the first time, `update_image` after.
+fn upload_overlay_images(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) -> OverlayUploads {
+    let namespace = layout_window.id_namespace;
+    let LayoutWindow {
+        ref content_overlay,
+        ref mut renderer_resources,
+        ..
+    } = *layout_window;
+    let uploads = plan_overlay_image_uploads(
+        content_overlay
+            .iter_images()
+            .map(|(slot, image)| (*slot, image)),
+        renderer_resources,
+        namespace,
+    );
+    let mut result = OverlayUploads::default();
+    for upload in uploads {
+        result.changed = true;
+        result.new_slot |= !upload.update;
+        let key = translate_image_key(upload.key);
+        let data = translate_image_data(upload.data);
+        match (upload.chroma, nv12_plane_descriptors(&upload.descriptor)) {
+            (Some(chroma), Some((y_desc, uv_desc))) => {
+                let chroma_key = translate_image_key(chroma.key);
+                if upload.update {
+                    txn.update_image(key, y_desc, data.clone(), &DirtyRect::All);
+                } else {
+                    txn.add_image(key, y_desc, data.clone(), None);
+                }
+                if chroma.update {
+                    txn.update_image(chroma_key, uv_desc, data, &DirtyRect::All);
+                } else {
+                    txn.add_image(chroma_key, uv_desc, data, None);
+                    // A tile whose frames turned into NV12 keeps its key, but
+                    // the display list has to name the new chroma key.
+                    result.new_slot = true;
+                }
+            }
+            _ => {
+                let desc = wr_translate_image_descriptor(&upload.descriptor);
+                if upload.update {
+                    txn.update_image(key, desc, data, &DirtyRect::All);
+                } else {
+                    txn.add_image(key, desc, data, None);
+                }
+            }
+        }
+        if let Some(stale) = upload.drop_chroma {
+            txn.delete_image(translate_image_key(stale));
+            // The display list still pushes this tile as a YUV image.
+            result.new_slot = true;
+        }
+    }
+    result
 }
 
 /// Number of frames an image may be absent from every display list before it
@@ -1458,6 +1722,10 @@ pub fn collect_stale_image_deletes(
             rr.image_key_map.remove(&resolved.key);
             rr.image_last_seen_epoch.remove(&hash);
             deletes.push(ResourceUpdate::DeleteImage(resolved.key));
+            // An NV12 image is two renderer images: its chroma plane goes too.
+            if let Some(chroma) = rr.nv12_chroma_keys.remove(&resolved.key) {
+                deletes.push(ResourceUpdate::DeleteImage(chroma));
+            }
         }
     }
     if !deletes.is_empty() {
@@ -2258,7 +2526,6 @@ pub fn build_webrender_transaction(
     let physical_size = layout_window.current_window_state.size.get_physical_size();
     let framebuffer_size =
         DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
-    let viewport_size = framebuffer_size;
     let dpi = layout_window.current_window_state.size.get_hidpi_factor();
 
     // Get root pipeline ID
@@ -2328,6 +2595,45 @@ pub fn build_webrender_transaction(
     }
 
     // Step 2: Build and add display lists for all DOMs to transaction
+    set_display_lists(txn, layout_window)?;
+
+    // Step 3: Set root pipeline
+    log_debug!(
+        LogCategory::Rendering,
+        "[build_atomic_txn] Step 3: Setting root pipeline {:?}",
+        root_pipeline_id
+    );
+    txn.set_root_pipeline(root_pipeline_id);
+
+    // Step 4: Set document view
+    let view_rect =
+        DeviceIntRect::from_origin_and_size(DeviceIntPoint::new(0, 0), framebuffer_size);
+    let hidpi_factor = layout_window.current_window_state.size.get_hidpi_factor();
+    log_debug!(
+        LogCategory::Rendering,
+        "[build_atomic_txn] Step 4: Setting document view {:?}, hidpi: {}",
+        view_rect,
+        hidpi_factor.inner.get()
+    );
+    // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels).
+    txn.set_document_view(view_rect, DevicePixelScale::new(hidpi_factor.inner.get()));
+
+    build_webrender_transaction_tail(txn, layout_window)
+}
+
+/// Translate every DOM's display list (and its nested virtual-view pipelines)
+/// and put them into `txn` at the current epoch. The display-list half of a
+/// full transaction, and what the lightweight one sends when a video tile got
+/// its stable image key and WebRender's list does not name it yet.
+fn set_display_lists(
+    txn: &mut WrTransaction,
+    layout_window: &LayoutWindow,
+) -> Result<(), &'static str> {
+    let physical_size = layout_window.current_window_state.size.get_physical_size();
+    let viewport_size =
+        DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
+    let dpi = layout_window.current_window_state.size.get_hidpi_factor();
+
     log_debug!(
         LogCategory::Rendering,
         "[build_atomic_txn] Step 2: Building display lists for {} DOMs",
@@ -2393,28 +2699,15 @@ pub fn build_webrender_transaction(
             }
         }
     }
+    Ok(())
+}
 
-    // Step 3: Set root pipeline
-    log_debug!(
-        LogCategory::Rendering,
-        "[build_atomic_txn] Step 3: Setting root pipeline {:?}",
-        root_pipeline_id
-    );
-    txn.set_root_pipeline(root_pipeline_id);
-
-    // Step 4: Set document view
-    let view_rect =
-        DeviceIntRect::from_origin_and_size(DeviceIntPoint::new(0, 0), framebuffer_size);
-    let hidpi_factor = layout_window.current_window_state.size.get_hidpi_factor();
-    log_debug!(
-        LogCategory::Rendering,
-        "[build_atomic_txn] Step 4: Setting document view {:?}, hidpi: {}",
-        view_rect,
-        hidpi_factor.inner.get()
-    );
-    // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels).
-    txn.set_document_view(view_rect, DevicePixelScale::new(hidpi_factor.inner.get()));
-
+/// Steps 5-7 of a full transaction: scroll offsets, scrollbar fades, GPU
+/// values, the frame request, and the next epoch.
+fn build_webrender_transaction_tail(
+    txn: &mut WrTransaction,
+    layout_window: &mut LayoutWindow,
+) -> Result<(), &'static str> {
     // Step 5: Add scroll offsets
     log_debug!(
         LogCategory::Rendering,
@@ -2504,10 +2797,24 @@ pub fn build_image_only_transaction(
     );
 
     // Step 1: Re-invoke image callbacks to produce updated GL textures
-    let images_changed = process_image_callback_updates(layout_window, gl_context, txn);
+    let callbacks_changed = process_image_callback_updates(layout_window, gl_context, txn);
 
-    // Step 2: Skip scene builder (display lists haven't changed)
-    txn.skip_scene_builder();
+    // Step 1.5: Video tiles. A new frame of an in-place-replaced node image
+    // (`change_node_image`, the content overlay) goes into the node's stable
+    // key: `update_image`, pixels only. After the callbacks, so a callback's
+    // raw frame is picked up in the same transaction.
+    let overlay = upload_overlay_images(layout_window, txn);
+    let images_changed = callbacks_changed || overlay.changed;
+
+    // Step 2: Skip scene builder (display lists haven't changed) - unless a
+    // tile got its key in this transaction: the display list WebRender holds
+    // names the tile's previous image, so it is resent once, at a new epoch.
+    if overlay.new_slot {
+        set_display_lists(txn, layout_window)?;
+        layout_window.epoch.increment();
+    } else {
+        txn.skip_scene_builder();
+    }
 
     // Step 3: Add scroll offsets (scroll position may have changed)
     let scroll_changed = scroll_all_nodes(layout_window, txn);

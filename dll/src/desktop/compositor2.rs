@@ -1353,14 +1353,52 @@ pub fn translate_displaylist_to_wr(
                     // ImageRendering::Auto and PremultipliedAlpha are reasonable defaults
                     use webrender::api::ImageRendering as WrImageRendering;
 
-                    builder.push_image(
-                        &info,
-                        rect,
-                        WrImageRendering::Auto,
-                        WrAlphaType::PremultipliedAlpha,
-                        wr_image_key,
-                        ColorF::WHITE, // No tint by default
-                    );
+                    // An NV12 frame (camera / decoder) is a YUV image: its two
+                    // planes (R8 luma + RG8 chroma, see
+                    // `wr_translate2::nv12_plane_descriptors`) are converted to
+                    // RGB in the shader, in the frame's own matrix and range.
+                    let format = resolved_image.descriptor.format;
+                    let chroma_key = if format.is_nv12() {
+                        renderer_resources
+                            .nv12_chroma_keys
+                            .get(&resolved_image.key)
+                            .copied()
+                    } else {
+                        None
+                    };
+                    match chroma_key {
+                        Some(chroma_key) => {
+                            use webrender::api::{
+                                ColorDepth as WrColorDepth, ColorRange as WrColorRange,
+                                YuvColorSpace as WrYuvColorSpace, YuvData as WrYuvData,
+                            };
+                            builder.push_yuv_image(
+                                &info,
+                                rect,
+                                WrYuvData::NV12(wr_image_key, translate_image_key(chroma_key)),
+                                WrColorDepth::Color8,
+                                if format.is_rec709() {
+                                    WrYuvColorSpace::Rec709
+                                } else {
+                                    WrYuvColorSpace::Rec601
+                                },
+                                if format.is_full_range() {
+                                    WrColorRange::Full
+                                } else {
+                                    WrColorRange::Limited
+                                },
+                                WrImageRendering::Auto,
+                            );
+                        }
+                        None => builder.push_image(
+                            &info,
+                            rect,
+                            WrImageRendering::Auto,
+                            WrAlphaType::PremultipliedAlpha,
+                            wr_image_key,
+                            ColorF::WHITE, // No tint by default
+                        ),
+                    }
                 } else {
                     log_debug!(
                         LogCategory::DisplayList,
