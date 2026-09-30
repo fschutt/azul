@@ -588,6 +588,14 @@ impl Titlebar {
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_height(LayoutHeight::const_px(self.height as isize)),
         ));
+        // ...and keeps it: the bar is usually the first child of a column
+        // body, and when the content below overflows, the default
+        // `flex-shrink: 1` squeezed it under the window controls.
+        props.push(CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(
+            LayoutFlexShrink {
+                inner: FloatValue::const_new(0),
+            },
+        )));
         // The look's fill (flat: the platform's titlebar colour and its
         // `:backdrop` dimming) and ink.
         props.extend(background);
@@ -1741,6 +1749,10 @@ mod autotest_generated {
         v.push(CssProperty::const_height(LayoutHeight::const_px(
             t.height as isize,
         )));
+        // ...which overflowing content below never squeezes.
+        v.push(CssProperty::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        }));
         // The line under the bar (macOS's by default), inside the bar's height.
         if let (OptionColorU::Some(line), true) = (t.separator_color, t.separator_width > 0.0) {
             v.push(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox));
