@@ -806,3 +806,10 @@ openssl-probe = "Finds the system certificate bundle for rustls-native-certs on 
 plist = "Reads macOS property lists for netdev's interface metadata."
 convert_case = "Case conversion for the derive_more macros the iroh crates use."
 unicode-xid = "Identifier validation inside derive_more's proc macro."
+
+# === AzMail example app (examples/azul-mail): IMAP sync and MIME parsing ===
+imap = "AzMail's IMAP client (3.0.0-alpha.15, no TLS feature): sync API over any Read + Write stream, so it runs on an azul Thread over azul's own rustls + rustls-rustcrypto stream. Example app only."
+imap-proto = "IMAP response parser (nom 7) under the imap crate; AzMail also names its LIST attribute type. Example app only."
+bufstream = "Buffered Read + Write wrapper the imap crate keeps its connection in. Example app only."
+mail-parser = "MIME parsing (Stalwart) for AzMail's index lines and message view: headers, RFC 2047/2231, charsets via encoding_rs, text and HTML bodies. Example app only."
+hashify = "Proc macro under mail-parser: compile-time perfect-hash tables for header names and charsets. Example app only."

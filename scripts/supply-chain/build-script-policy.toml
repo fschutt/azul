@@ -882,6 +882,13 @@ review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["0.16.1:ee89f1aef4cc5b0ad1620afef1cd3ded5646b1031534b4ef7ebd583a83e1e8b8", "0.17.1:b60a2bf087e2aefc66f9873a8976bd6f45b2d92403712076186af63463290e76"]
 
+[crate."hashify"]  # proc-macro
+allow = true
+risk = "low"
+review = "audited"
+reason = "mail-parser's header and charset lookups: expands map!/tiny_map!/set! literals into perfect-hash tables; tokens only, no fs, net, env or process"
+reviewed = ["0.2.9:224b29554aba21ab46c3c75820b07494722db00d578dbe96553295034b4ffda2"]
+
 [crate."heapless"]  # build-script
 allow = true
 risk = "low"

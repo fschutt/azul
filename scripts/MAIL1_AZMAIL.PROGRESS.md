@@ -20,9 +20,11 @@ Branch `wt/mail1-azmail`, base `a7e18f4df`. Report: `scripts/MAIL1_AZMAIL_2026_0
 - edd4890e7 imap_server.py (16/16 tests pass) + sample_mail/ + sync_e2e.py.
 - 6f8cc1f6d RED: a button goes with its label.
 
+- e0de9f33d GREEN for 6f8cc1f6d.
+
 ## IN PROGRESS
 
-- GREEN for 6f8cc1f6d (this commit).
+- Supply chain: justifications, cargo-vet exemptions, hashify's build-script policy (this commit).
 
 ## NEXT
 
