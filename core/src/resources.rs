@@ -1781,7 +1781,8 @@ pub fn yuv_to_rgb(format: RawImageFormat, y: u8, cb: u8, cr: u8) -> [u8; 3] {
 }
 
 /// A whole tightly packed NV12 image as straight RGBA8 (alpha 255). `None`
-/// when `format` is not NV12 or `bytes` is not exactly both planes. The
+/// when `format` is not NV12 or `bytes` is shorter than both planes (bytes
+/// past them are ignored: some decoders pad the buffer). The
 /// fallback for consumers that need RGB pixels (JPEG / PDF export); the
 /// display path never calls it (it converts only the rows it paints).
 #[must_use]
@@ -1793,7 +1794,7 @@ pub fn nv12_to_rgba(
 ) -> Option<Vec<u8>> {
     let coeffs = YuvCoefficients::of(format)?;
     let layout = Nv12Layout::new(width, height);
-    if bytes.len() != layout.checked_total_len()? {
+    if bytes.len() < layout.checked_total_len()? {
         return None;
     }
     let mut out = vec![0u8; width.checked_mul(height)?.checked_mul(4)?];

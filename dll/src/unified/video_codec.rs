@@ -299,6 +299,8 @@ impl VideoDecoder {
     pub fn decode(&self, _data: U8Vec) -> bool {
         false
     }
+    pub fn set_output_format(&self, _format: azul_core::resources::RawImageFormat) {}
+    pub fn set_output_size(&self, _width: u32, _height: u32) {}
     pub fn recv_frame(&mut self) -> OptionVideoFrame {
         OptionVideoFrame::None
     }

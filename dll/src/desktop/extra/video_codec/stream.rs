@@ -484,8 +484,10 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
     }
 }
 
-/// Bilinear-resize a tightly-packed RGBA8 `VideoFrame` to `tw`×`th`, on the decode
-/// thread, so the UI renderer doesn't have to interpolate (the `<img>` shows it 1:1).
+/// Resize a decoded `VideoFrame` to `tw`×`th`, on the decode thread, so the
+/// UI renderer doesn't have to interpolate (the `<img>` shows it 1:1). The
+/// one frame scaler (`image_scale::resample_frame`): the frame keeps its
+/// format, and a downscale area-averages instead of skipping pixels.
 #[cfg(feature = "video-native")]
 fn scale_frame_bilinear(
     src: &azul_core::video::VideoFrame,
@@ -493,37 +495,23 @@ fn scale_frame_bilinear(
     th: u32,
 ) -> azul_core::video::VideoFrame {
     use azul_css::U8Vec;
-    let (sw, sh) = (src.width, src.height);
-    if sw == 0 || sh == 0 || tw == 0 || th == 0 {
+    use azul_layout::image_scale::{frame_output_format, resample_frame, SrcImage};
+    let view = SrcImage {
+        bytes: src.bytes.as_ref(),
+        format: src.format,
+        width: src.width,
+        height: src.height,
+    };
+    let out = resample_frame(&view, tw, th);
+    if out.is_empty() {
         return src.clone();
     }
-    let s = src.bytes.as_ref();
-    if s.len() < (sw as usize) * (sh as usize) * 4 {
-        return src.clone();
-    }
-    let mut out = vec![0u8; (tw as usize) * (th as usize) * 4];
-    let rx = sw as f32 / tw as f32;
-    let ry = sh as f32 / th as f32;
-    for ty in 0..th {
-        let fy = ((ty as f32 + 0.5) * ry - 0.5).max(0.0);
-        let y0 = fy.floor() as u32;
-        let y1 = (y0 + 1).min(sh - 1);
-        let wy = fy - y0 as f32;
-        for tx in 0..tw {
-            let fx = ((tx as f32 + 0.5) * rx - 0.5).max(0.0);
-            let x0 = fx.floor() as u32;
-            let x1 = (x0 + 1).min(sw - 1);
-            let wx = fx - x0 as f32;
-            let o = ((ty * tw + tx) * 4) as usize;
-            for c in 0..4 {
-                let px = |x: u32, y: u32| s[(((y * sw + x) * 4) as usize) + c] as f32;
-                let top = px(x0, y0) * (1.0 - wx) + px(x1, y0) * wx;
-                let bot = px(x0, y1) * (1.0 - wx) + px(x1, y1) * wx;
-                out[o + c] = (top * (1.0 - wy) + bot * wy).round().clamp(0.0, 255.0) as u8;
-            }
-        }
-    }
-    azul_core::video::VideoFrame::new(tw, th, U8Vec::from_vec(out))
+    azul_core::video::VideoFrame::with_format(
+        tw,
+        th,
+        U8Vec::from_vec(out),
+        frame_output_format(src.format),
+    )
 }
 
 /// Fetch `url` via an HTTP **range request** (`Range: bytes=0-`). BBB is small so

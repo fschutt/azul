@@ -365,7 +365,7 @@ impl VideoEncoder {
         !self.ptr.is_null()
     }
 
-    /// Submit one `VideoFrame` (RGBA) for encoding. `force_keyframe` requests
+    /// Submit one `VideoFrame` (NV12, BGRA8 or RGBA8) for encoding. `force_keyframe` requests
     /// an IDR. Returns `true` if the frame was accepted (the encoder is open);
     /// the encoded chunks (Annex-B for H.264/H.265) come out of
     /// [`recv_packet`](Self::recv_packet), possibly several per submitted
@@ -379,7 +379,9 @@ impl VideoEncoder {
         inner.frames_encoded = inner.frames_encoded.wrapping_add(1);
         #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
         if let Some(vt) = inner.vt.as_mut() {
-            let chunk = vt.encode(frame.bytes.as_ref(), force_keyframe);
+            // NV12 goes into a pooled '420v' buffer as it is, BGRA as it is,
+            // RGBA swizzled (see `VtEncoder::encode`).
+            let chunk = vt.encode(&frame, force_keyframe);
             if !chunk.is_empty() {
                 inner.packets.push_back(U8Vec::from_vec(chunk));
             }
@@ -739,6 +741,44 @@ impl VideoDecoder {
         }
         let _ = data;
         true
+    }
+
+    /// Hand decoded frames out in `format`: an NV12 variant (the decoder's
+    /// own 4:2:0 - no conversion; a tile shows it through the GPU's YUV
+    /// shader or the CPU rasterizer's fused convert), BGRA8, or RGBA8 (the
+    /// default). A change on a running stream starts at its next keyframe.
+    /// Backends that cannot give the format hand out RGBA8; every frame says
+    /// its format (`VideoFrame::format`).
+    pub fn set_output_format(&self, format: azul_core::resources::RawImageFormat) {
+        let Some(inner) = (unsafe { (self.ptr as *mut DecoderInner).as_mut() }) else {
+            return;
+        };
+        #[cfg(az_gpu_video)]
+        if let Some(backend) = inner.backend.as_mut() {
+            backend.set_output_format(format);
+        }
+        #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+        if let Some(vt) = inner.vt.as_mut() {
+            vt.set_output_format(format);
+        }
+        let _ = (inner, format);
+    }
+
+    /// Hand decoded frames out at `width` x `height` (`0 x 0`: the stream's
+    /// own size) - the size of the tile that shows them, so a 720p stream in
+    /// a small tile is scaled once, by the decoder (in hardware with
+    /// VideoToolbox), instead of by the renderer on every paint. A change on
+    /// a running stream starts at its next keyframe. Backends that cannot
+    /// scale hand out the stream's size.
+    pub fn set_output_size(&self, width: u32, height: u32) {
+        let Some(inner) = (unsafe { (self.ptr as *mut DecoderInner).as_mut() }) else {
+            return;
+        };
+        #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+        if let Some(vt) = inner.vt.as_mut() {
+            vt.set_output_size(width, height);
+        }
+        let _ = (inner, width, height);
     }
 
     /// Pull the next decoded frame, or `None` when nothing is ready yet.
