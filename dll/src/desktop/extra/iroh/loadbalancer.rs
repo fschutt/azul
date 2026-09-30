@@ -11,7 +11,10 @@ const SHARED_FORWARDING_ROOM: u32 = 8;
 const UPLINK_HEADROOM: f64 = 0.85;
 const FANOUT_COVER: f64 = 1.5;
 const BATTERY_PENALTY: f32 = 0.3;
-const LADDER: [(u32, u32); 4] = [(90, 120), (180, 250), (360, 600), (720, 1500)];
+/// Rendition heights and the bitrates (kbit/s) the planner assumes for them. 540
+/// (960x540) covers the common 200-logical-px tile on a 2x display without
+/// jumping to 720.
+const LADDER: [(u32, u32); 5] = [(90, 120), (180, 250), (360, 600), (540, 1000), (720, 1500)];
 
 /// What a peer can contribute to forwarding, as measured or reported by that peer.
 #[repr(C)]
@@ -93,7 +96,7 @@ impl IrohTileRole {
         }
     }
 
-    /// Rendition height (90, 180, 360 or 720) to request for a tile `tile_height` logical pixels tall; 0 for a hidden tile.
+    /// Rendition height (90, 180, 360, 540 or 720) to request for a tile `tile_height` logical pixels tall; 0 for a hidden tile.
     pub fn rendition_height(&self, tile_height: f32, scale_factor: f32, room_size: u32) -> u32 {
         let needed = tile_height * scale_factor.max(1.0);
         if needed.is_nan() || needed <= 0.0 {
