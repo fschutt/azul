@@ -533,19 +533,17 @@ mod tests {
     }
 
     impl FakeServer {
-        fn with(folders: &[(&str, &[&str], &[u32])]) -> FakeServer {
-            let mut server = FakeServer::default();
-            for (name, attributes, uids) in folders {
-                server.folders.insert(
-                    name.to_string(),
-                    FakeFolder {
-                        attributes: attributes.iter().map(|a| a.to_string()).collect(),
-                        uidvalidity: 1,
-                        messages: uids.iter().map(|&u| (u, message(u))).collect(),
-                    },
-                );
-            }
-            server
+        /// Adds a folder with these attributes and messages (UIDVALIDITY 1).
+        fn with_folder(mut self, name: &str, attributes: &[&str], uids: &[u32]) -> FakeServer {
+            self.folders.insert(
+                name.to_string(),
+                FakeFolder {
+                    attributes: attributes.iter().map(|a| a.to_string()).collect(),
+                    uidvalidity: 1,
+                    messages: uids.iter().map(|&u| (u, message(u))).collect(),
+                },
+            );
+            self
         }
 
         fn folder(&self) -> &FakeFolder {
@@ -668,10 +666,9 @@ mod tests {
     fn the_first_sync_writes_every_message_its_index_and_its_state() {
         let dir = TempDir::new("sync");
         let store = LocalFolder::new(dir.0.clone());
-        let mut server = FakeServer::with(&[
-            ("INBOX", &[], &[1, 2, 3, 5, 8]),
-            ("Junk", &["\\Junk"], &[4]),
-        ]);
+        let mut server = FakeServer::default()
+            .with_folder("INBOX", &[], &[1, 2, 3, 5, 8])
+            .with_folder("Junk", &["\\Junk"], &[4]);
         let report = run(&mut server, &store).unwrap();
         assert_eq!(report.fetched(), 6);
         assert_eq!(report.reused(), 0);
@@ -711,7 +708,9 @@ mod tests {
     fn a_second_sync_fetches_nothing_twice() {
         let dir = TempDir::new("sync");
         let store = LocalFolder::new(dir.0.clone());
-        let mut server = FakeServer::with(&[("INBOX", &[], &[1, 2, 3]), ("Spam", &[], &[7])]);
+        let mut server = FakeServer::default()
+            .with_folder("INBOX", &[], &[1, 2, 3])
+            .with_folder("Spam", &[], &[7]);
         run(&mut server, &store).unwrap();
         let fetches = server.body_fetches;
         let again = run(&mut server, &store).unwrap();
@@ -726,7 +725,7 @@ mod tests {
     fn new_mail_is_fetched_alone_even_when_the_server_has_no_uidnext() {
         let dir = TempDir::new("sync");
         let store = LocalFolder::new(dir.0.clone());
-        let mut server = FakeServer::with(&[("INBOX", &[], &[1, 2])]);
+        let mut server = FakeServer::default().with_folder("INBOX", &[], &[1, 2]);
         server.hide_uid_next = true;
         run(&mut server, &store).unwrap();
         // Without UIDNEXT the folder is searched, and `3:*` answers UID 2: nothing is new.
@@ -755,7 +754,7 @@ mod tests {
     fn a_renumbered_folder_moves_aside_and_syncs_from_the_start() {
         let dir = TempDir::new("sync");
         let store = LocalFolder::new(dir.0.clone());
-        let mut server = FakeServer::with(&[("INBOX", &[], &[1, 2])]);
+        let mut server = FakeServer::default().with_folder("INBOX", &[], &[1, 2]);
         run(&mut server, &store).unwrap();
         {
             let inbox = server.folders.get_mut("INBOX").unwrap();
@@ -786,7 +785,7 @@ mod tests {
     fn a_sync_that_broke_off_is_picked_up_without_fetching_twice() {
         let dir = TempDir::new("sync");
         let store = LocalFolder::new(dir.0.clone());
-        let mut server = FakeServer::with(&[("INBOX", &[], &[1, 2, 3, 4, 5])]);
+        let mut server = FakeServer::default().with_folder("INBOX", &[], &[1, 2, 3, 4, 5]);
         // Batches of 2: the second body fetch (UIDs 3 and 4) fails.
         server.fail_body_fetch = Some(2);
         assert!(run(&mut server, &store).is_err());
@@ -818,7 +817,7 @@ mod tests {
         store
             .put(&message_key("inbox", 2026, 9, 3), b"From: a", false)
             .unwrap();
-        let mut server = FakeServer::with(&[("INBOX", &[], &[1, 2, 3])]);
+        let mut server = FakeServer::default().with_folder("INBOX", &[], &[1, 2, 3]);
         let report = run(&mut server, &store).unwrap();
         assert_eq!(report.reused(), 2);
         assert_eq!(server.fetched_uids("INBOX"), vec![3]);
@@ -835,7 +834,7 @@ mod tests {
     fn a_message_gone_before_its_body_came_is_skipped() {
         let dir = TempDir::new("sync");
         let store = LocalFolder::new(dir.0.clone());
-        let mut server = FakeServer::with(&[("INBOX", &[], &[1, 2, 3])]);
+        let mut server = FakeServer::default().with_folder("INBOX", &[], &[1, 2, 3]);
         server.vanished = vec![2];
         run(&mut server, &store).unwrap();
         assert_eq!(
@@ -852,7 +851,7 @@ mod tests {
     fn a_stopped_sync_keeps_what_it_wrote() {
         let dir = TempDir::new("sync");
         let store = LocalFolder::new(dir.0.clone());
-        let mut server = FakeServer::with(&[("INBOX", &[], &[1, 2, 3, 4, 5])]);
+        let mut server = FakeServer::default().with_folder("INBOX", &[], &[1, 2, 3, 4, 5]);
         let mut seen = Vec::new();
         let stopped = sync_account(&mut server, &store, &options(), &mut |p| {
             let go_on = !matches!(p, Progress::Messages { done: 2, .. });
@@ -875,7 +874,7 @@ mod tests {
     fn progress_counts_the_folders_new_messages() {
         let dir = TempDir::new("sync");
         let store = LocalFolder::new(dir.0.clone());
-        let mut server = FakeServer::with(&[("INBOX", &[], &[1, 2, 3])]);
+        let mut server = FakeServer::default().with_folder("INBOX", &[], &[1, 2, 3]);
         let mut seen = Vec::new();
         sync_account(&mut server, &store, &options(), &mut |p| {
             seen.push(p);
@@ -897,7 +896,9 @@ mod tests {
     fn an_empty_folder_is_still_a_synced_folder() {
         let dir = TempDir::new("sync");
         let store = LocalFolder::new(dir.0.clone());
-        let mut server = FakeServer::with(&[("INBOX", &[], &[]), ("Drafts", &["\\Drafts"], &[])]);
+        let mut server = FakeServer::default()
+            .with_folder("INBOX", &[], &[])
+            .with_folder("Drafts", &["\\Drafts"], &[]);
         run(&mut server, &store).unwrap();
         assert_eq!(server.searches, 0);
         assert_eq!(
