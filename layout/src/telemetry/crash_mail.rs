@@ -378,3 +378,218 @@ mod report_address_tests {
         assert!(config_from_report_address("x@").is_none());
     }
 }
+
+/// The crash mail against a local SMTP sink: what actually goes over the wire.
+///
+/// `micromail` delivers a `...@localhost` recipient to 127.0.0.1 on the
+/// configured ports (its `dns::get_mx_records`), so a sink on an ephemeral
+/// port sees the exact session the reporter dialog would run against a real
+/// MX. Found by the AzMail exploration
+/// (`scripts/ideas/AZMAIL_EXPLORATION_2026_09_30.md`, section 4).
+#[cfg(test)]
+mod smtp_sink_tests {
+    use std::{
+        io::{BufRead, BufReader, Read, Write},
+        net::{TcpListener, TcpStream},
+        sync::mpsc,
+        time::Duration,
+    };
+
+    use super::{send_attachments, CrashMailConfig};
+
+    /// What one SMTP session delivered to the sink.
+    #[derive(Debug, Default)]
+    struct Session {
+        /// The bytes the client sent right after the sink answered `220` to
+        /// `STARTTLS` (`None`: the client never asked for STARTTLS).
+        after_starttls: Option<Vec<u8>>,
+        /// The message as a server stores it: RFC 5321 4.5.2 transparency
+        /// applied (one leading dot of a line removed), terminator line dropped.
+        message: Option<String>,
+        /// A DATA line ended in a bare LF instead of CRLF.
+        bare_lf: bool,
+    }
+
+    /// A one-shot SMTP sink on 127.0.0.1: its port and the session it saw.
+    fn spawn_sink(offer_starttls: bool) -> (u16, mpsc::Receiver<Session>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind a local port");
+        let port = listener.local_addr().expect("the sink's address").port();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let Ok((stream, _)) = listener.accept() else {
+                return;
+            };
+            drop(stream.set_read_timeout(Some(Duration::from_secs(10))));
+            drop(tx.send(serve(stream, offer_starttls)));
+        });
+        (port, rx)
+    }
+
+    fn say(out: &mut TcpStream, line: &str) {
+        drop(out.write_all(line.as_bytes()));
+    }
+
+    fn serve(stream: TcpStream, offer_starttls: bool) -> Session {
+        let mut session = Session::default();
+        let mut out = stream.try_clone().expect("clone the sink socket");
+        let mut reader = BufReader::new(stream);
+        say(&mut out, "220 sink ESMTP\r\n");
+        loop {
+            let mut line = String::new();
+            match reader.read_line(&mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+            let upper = line.trim_end().to_ascii_uppercase();
+            if upper.starts_with("EHLO") {
+                if offer_starttls {
+                    say(&mut out, "250-sink\r\n250-STARTTLS\r\n250 OK\r\n");
+                } else {
+                    say(&mut out, "250-sink\r\n250 OK\r\n");
+                }
+            } else if upper.starts_with("HELO") {
+                say(&mut out, "250 sink\r\n");
+            } else if upper == "STARTTLS" {
+                say(&mut out, "220 ready to start TLS\r\n");
+                // A TLS client now sends its ClientHello. This sink speaks no
+                // TLS: what arrives first is the whole proof.
+                let mut buf = [0_u8; 64];
+                let n = reader.read(&mut buf).unwrap_or(0);
+                session.after_starttls = Some(buf[..n].to_vec());
+                break;
+            } else if upper.starts_with("MAIL FROM") || upper.starts_with("RCPT TO") {
+                say(&mut out, "250 OK\r\n");
+            } else if upper == "DATA" {
+                say(&mut out, "354 end with <CRLF>.<CRLF>\r\n");
+                let mut message = String::new();
+                loop {
+                    let mut l = String::new();
+                    match reader.read_line(&mut l) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => {}
+                    }
+                    if l == ".\r\n" || l == ".\n" {
+                        break;
+                    }
+                    if l.ends_with('\n') && !l.ends_with("\r\n") {
+                        session.bare_lf = true;
+                    }
+                    let stored = if l.starts_with('.') {
+                        l[1..].to_owned()
+                    } else {
+                        l
+                    };
+                    message.push_str(&stored);
+                }
+                session.message = Some(message);
+                say(&mut out, "250 queued\r\n");
+            } else if upper == "QUIT" {
+                say(&mut out, "221 bye\r\n");
+                break;
+            } else {
+                say(&mut out, "500 unrecognised\r\n");
+            }
+        }
+        session
+    }
+
+    /// The contact `config_from_report_address` would build (STARTTLS on by
+    /// default), pointed at the sink.
+    fn contact(port: u16) -> CrashMailConfig {
+        CrashMailConfig::new("crashes@localhost", "crash-reporter@localhost", "localhost")
+            .with_ports(vec![port])
+    }
+
+    fn dump() -> Vec<(String, Vec<u8>)> {
+        vec![(
+            "0-1-crash.json".to_owned(),
+            br#"{"kind":"azul-crash-dump"}"#.to_vec(),
+        )]
+    }
+
+    fn session_of(rx: &mpsc::Receiver<Session>) -> Session {
+        rx.recv_timeout(Duration::from_secs(30))
+            .expect("the crash mail reached the sink")
+    }
+
+    /// Every real MX offers STARTTLS and the reporter asks for it by default.
+    /// Built without micromail's `tls` feature (layout/Cargo.toml depends on it
+    /// with `default-features = false`), `establish_tls` answers the server's
+    /// `220` by carrying on in PLAINTEXT (`EHLO ...`), which a server that is
+    /// waiting for a ClientHello drops: the report is never delivered.
+    #[test]
+    fn a_crash_mail_never_speaks_plaintext_after_the_server_agreed_to_starttls() {
+        let (port, rx) = spawn_sink(true);
+        drop(send_attachments(&contact(port), "it crashed", &dump()));
+        let session = session_of(&rx);
+        if let Some(first) = session.after_starttls {
+            assert!(
+                first.is_empty() || first[0] == 0x16,
+                "after `220 ready to start TLS` the client must send a TLS handshake record \
+                 (0x16) or hang up, not plaintext SMTP: got {:?}",
+                String::from_utf8_lossy(&first)
+            );
+        }
+    }
+
+    /// Without `MIME-Version: 1.0` (RFC 2045 section 4) a mail client may show the
+    /// multipart body as raw text instead of a message with a `.json`
+    /// attachment. micromail's `Mail::format` writes From, To, Subject, Date,
+    /// Message-ID and Content-Type only.
+    #[test]
+    fn a_crash_mail_declares_mime_version_1_0() {
+        let (port, rx) = spawn_sink(false);
+        send_attachments(&contact(port), "it crashed", &dump()).expect("the sink accepts the mail");
+        let message = session_of(&rx)
+            .message
+            .expect("the sink received a message");
+        let headers = message.split("\r\n\r\n").next().unwrap_or_default();
+        assert!(
+            headers
+                .lines()
+                .any(|h| h.to_ascii_lowercase().replace(' ', "") == "mime-version:1.0"),
+            "the header block must carry `MIME-Version: 1.0`:\n{headers}"
+        );
+    }
+
+    /// RFC 5321 section 4.5.2: a client doubles the dot of every line that
+    /// starts with one, because the server removes it. micromail sends the
+    /// body as is, so a user message line `.config/azul was missing` arrives
+    /// as `config/azul was missing` (and a line holding only `.` ends DATA
+    /// early).
+    #[test]
+    fn a_user_message_line_that_starts_with_a_dot_arrives_intact() {
+        let (port, rx) = spawn_sink(false);
+        let user_message = "steps:\r\n.config/azul was missing\r\nthen it crashed";
+        send_attachments(&contact(port), user_message, &dump()).expect("the sink accepts the mail");
+        let message = session_of(&rx)
+            .message
+            .expect("the sink received a message");
+        assert!(
+            message.contains("\r\n.config/azul was missing\r\n"),
+            "the dot-led line must survive the SMTP transparency rule:\n{message}"
+        );
+    }
+
+    /// The reporter dialog's text box yields `\n` line ends. micromail's
+    /// `ensure_crlf` converts only a body that contains NO `\r\n` at all, and
+    /// crash_mail's MIME framing always contains some, so the user's lines go
+    /// out with bare LFs, which strict servers reject (bare-LF / SMTP
+    /// smuggling defences).
+    #[test]
+    fn a_multi_line_user_message_goes_out_with_crlf_line_ends() {
+        let (port, rx) = spawn_sink(false);
+        send_attachments(
+            &contact(port),
+            "first line\nsecond line\nthird line",
+            &dump(),
+        )
+        .expect("the sink accepts the mail");
+        let session = session_of(&rx);
+        assert!(
+            !session.bare_lf,
+            "every DATA line must end in CRLF:\n{}",
+            session.message.unwrap_or_default()
+        );
+    }
+}
