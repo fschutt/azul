@@ -4584,3 +4584,81 @@ fn on_base(
 ) -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from_vec(super::decl::on_base(base, skin))
 }
+
+// ==== accordion (groups) ====
+//
+// The flat GROUPS accordion is Explorer's group header (Windows 7's
+// "Hard Disk Drives (2)"): the title and its count in the group-header blue,
+// a #E2E2E2 hairline to the end of the row, and the indicator - a chevron
+// that points right while the group is closed and turns down when it opens.
+// No panel: the groups sit on the page. A header washes to the row-hover
+// blue under the pointer and rings inside on focus. At night the title takes
+// the desktop's link ink, the rule the separator, the wash flat's dark row
+// hover.
+
+/// The group-header blue of Explorer's groups (#1E3287).
+const GROUP_HEADER_INK: ColorU = ColorU {
+    r: 30,
+    g: 50,
+    b: 135,
+    a: 255,
+};
+
+/// The hairline after a group's title (#E2E2E2).
+const GROUP_RULE: ColorU = ColorU {
+    r: 226,
+    g: 226,
+    b: 226,
+    a: 255,
+};
+
+/// The flat groups accordion: Explorer's group headers.
+#[must_use]
+pub fn accordion_groups(a: crate::widgets::accordion::Accordion) -> Dom {
+    use super::decl;
+    use crate::widgets::accordion::AccordionLook;
+
+    let container = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            13,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+        CssPropertyWithConditions::simple(decl::ink(LIGHT_INK)),
+        system_palette::DARK_TEXT,
+    ];
+
+    let section = decl::margin(0, 0, 6, 0).to_vec();
+
+    let mut header = decl::padding(3, 4, 3, 4).to_vec();
+    header.extend(decl::radius(2));
+    header.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
+    header.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+
+    // The title hugs its text; the rule takes the rest of the row.
+    let title = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
+            0,
+        ))),
+        CssPropertyWithConditions::simple(decl::ink(GROUP_HEADER_INK)),
+        system_palette::DARK_LINK,
+    ];
+
+    let mut rule = decl::margin(0, 0, 0, 8).to_vec();
+    rule.extend(decl::border_bottom(1));
+    rule.extend(decl::themed_border_bottom_color(GROUP_RULE, DARK_SEP));
+
+    crate::widgets::accordion::build_groups(
+        a,
+        &AccordionLook {
+            container,
+            section,
+            header,
+            title,
+            chevron: crate::widgets::accordion::chevron_box(16),
+            chevron_icon: "chevron_right",
+            chevron_turn_deg: 90,
+            marker: None,
+        },
+        &rule,
+    )
+}

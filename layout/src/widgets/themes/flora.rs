@@ -6230,3 +6230,68 @@ pub(crate) fn backstage_style(
     chrome_part(&mut s.nav_item_gap_style, &e, |_| {});
     s
 }
+
+// ==== accordion (groups) ====
+//
+// A flora group is flora.css's `.fl-label` over a hairline: the title and its
+// count set bold, tracked out, in --fl-soft1 - "the small-caps label that
+// sits over every group" - then a --fl-bd rule to the end of the row and the
+// chevron, which points right while the group is closed and turns down when
+// it opens. No leaf around the groups: they sit on the page. A header takes
+// the radio row's wash under the pointer and flora's accent halo, inside, on
+// focus. At night every ink and rule takes its night value.
+
+/// The flora groups accordion: labelled groups on the page.
+#[must_use]
+pub fn accordion_groups(a: crate::widgets::accordion::Accordion) -> Dom {
+    use super::decl;
+    use crate::widgets::accordion::AccordionLook;
+
+    let mut container = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            13,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    container.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let section = decl::margin(0, 0, 8, 0).to_vec();
+
+    let mut header = decl::padding(4, 6, 4, 6).to_vec();
+    header.extend(decl::radius(3));
+    header.extend(decl::hover_fill(
+        RADIO_GROUP_HOVER_LIGHT,
+        RADIO_GROUP_HOVER_DARK,
+    ));
+    header.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+
+    // `.fl-label`: bold, tracked out, --fl-soft1; it hugs its text so the
+    // rule takes the rest of the row.
+    let mut title = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
+            0,
+        ))),
+        decl::bold(),
+        decl::letter_spacing_em(0.06),
+    ];
+    title.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut rule = decl::margin(0, 0, 0, 10).to_vec();
+    rule.extend(decl::border_bottom(1));
+    rule.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    crate::widgets::accordion::build_groups(
+        a,
+        &AccordionLook {
+            container,
+            section,
+            header,
+            title,
+            chevron: crate::widgets::accordion::chevron_box(16),
+            chevron_icon: "chevron_right",
+            chevron_turn_deg: 90,
+            marker: Some(super::style_kit::FLORA_CLASS),
+        },
+        &rule,
+    )
+}

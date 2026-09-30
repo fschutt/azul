@@ -1257,6 +1257,17 @@ mod label_convention {
                 ]))
                 .dom(),
             ),
+            (
+                "accordion (groups)",
+                Accordion::new(AccordionSectionVec::from_vec(vec![
+                    AccordionSection::new("Local", user_content())
+                        .with_count(1)
+                        .with_open(true),
+                    AccordionSection::new("Cloud / S3", user_content()).with_count(2),
+                ]))
+                .with_variant(super::accordion::AccordionVariant::Groups)
+                .dom(),
+            ),
         ]
     }
 
@@ -2075,6 +2086,7 @@ mod theme_contrast {
     /// Surfaces that hold the application's own content.
     const CONTAINERS: &[&str] = &[
         "accordion",
+        "accordion (groups)",
         "card",
         "dialog",
         "divider",

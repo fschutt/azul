@@ -678,6 +678,17 @@ impl Accordion {
     #[must_use]
     pub fn dom(self) -> Dom {
         use crate::widgets::themes::UiTheme;
+        if self.variant == AccordionVariant::Groups {
+            return match self.theme.into_option() {
+                Some(UiTheme::Flora) => crate::widgets::themes::flora::accordion_groups(self),
+                Some(UiTheme::Flat) => crate::widgets::themes::flat::accordion_groups(self),
+                None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                    self,
+                    crate::widgets::themes::flat::accordion_groups,
+                    crate::widgets::themes::flora::accordion_groups,
+                ),
+            };
+        }
         match self.theme.into_option() {
             Some(UiTheme::Flora) => crate::widgets::themes::flora::accordion(self),
             Some(UiTheme::Flat) => crate::widgets::themes::flat::accordion(self),
@@ -698,6 +709,37 @@ impl Accordion {
 /// Every part is its base (the structure, `ACCORDION_*_BASE`), then the
 /// look's skin.
 pub(crate) fn build(accordion: Accordion, look: &AccordionLook) -> Dom {
+    build_parts(accordion, look, None)
+}
+
+/// The class of a group header's rule (the `Groups` variant).
+static ACCORDION_RULE_CLASS: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-accordion-rule"))];
+
+/// A group header's rule: the rest of the row between the title and the
+/// indicator, a line with no height of its own (its skin draws the edge).
+pub(crate) static ACCORDION_RULE_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(0))),
+];
+
+/// A `Groups` accordion in `look`: [`build`], with `rule` - the skin of the
+/// line each header draws from its title to its indicator.
+pub(crate) fn build_groups(
+    accordion: Accordion,
+    look: &AccordionLook,
+    rule: &[CssPropertyWithConditions],
+) -> Dom {
+    build_parts(accordion, look, Some(rule))
+}
+
+/// [`build`] and [`build_groups`]: every header is its title, the rule when
+/// `rule` is given, then the indicator.
+fn build_parts(
+    accordion: Accordion,
+    look: &AccordionLook,
+    rule: Option<&[CssPropertyWithConditions]>,
+) -> Dom {
     // A part's declarations: its base first, then the theme's skin.
     let part = |base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
         CssPropertyWithConditionsVec::from_vec(crate::widgets::themes::decl::on_base(base, skin))
@@ -709,7 +751,7 @@ pub(crate) fn build(accordion: Accordion, look: &AccordionLook) -> Dom {
         let mut section_doms: Vec<Dom> = Vec::with_capacity(sections.as_ref().len());
 
         for (index, section) in sections.as_ref().iter().enumerate() {
-            let title = crate::widgets::widget_p_with_text(section.title.clone())
+            let title = crate::widgets::widget_p_with_text(section.header_text())
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(ACCORDION_TITLE_CLASS))
                 .with_css_props(part(ACCORDION_TITLE_BASE, look.title.as_slice()));
 
@@ -764,7 +806,21 @@ pub(crate) fn build(accordion: Accordion, look: &AccordionLook) -> Dom {
                     }]
                     .into(),
                 )
-                .with_children(DomVec::from_vec(alloc::vec![title, chevron]));
+                .with_children(DomVec::from_vec(match rule {
+                    // A group header: the rule runs from the title to the
+                    // indicator, which stays the header's LAST child (the
+                    // click handler finds it there, `chevron_of`).
+                    Some(rule) => alloc::vec![
+                        title,
+                        Dom::create_div()
+                            .with_ids_and_classes(IdOrClassVec::from_const_slice(
+                                ACCORDION_RULE_CLASS
+                            ))
+                            .with_css_props(part(ACCORDION_RULE_BASE, rule)),
+                        chevron,
+                    ],
+                    None => alloc::vec![title, chevron],
+                }));
 
             let body = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(ACCORDION_BODY_CLASS))
