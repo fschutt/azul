@@ -8,13 +8,14 @@ branch `cf-workers-meet`.
 - azul-apps `45fae88` feat(meet): rooms keep their meeting's start and end time (`node --test`: 63/63)
 - `553df4102` test(azcalendar): a minted link carries the event's times, in UTC, into the event file (RED)
   (event.rs, meeting.rs, mint-and-join.mjs)
+- `9954a4276` feat(azcalendar): minting sends the event's times in UTC, and the event file keeps them
+- `ddbfc42ac` refactor(azcalendar): event ids are azul's Uuid::from_seed of a random seed
 
 ## IN PROGRESS
-- AzCalendar fix: minting sends the window, the answer's window is stored (event file v2)
+- dry run of mint-and-join.mjs against Node stand-ins (scratchpad `m6/`)
 
 ## NEXT
-1. ids via `Uuid::from_seed` (refactor commit)
-2. Report `scripts/M6_ROOM_TIMES_2026_09_29.md`
+1. Report `scripts/M6_ROOM_TIMES_2026_09_29.md`
 
 ## Open questions
 - none yet
