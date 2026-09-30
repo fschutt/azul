@@ -257,6 +257,9 @@ pub enum DriveError {
     Protocol(String),
     /// Not built yet (access links).
     Unsupported(String),
+    /// The drive's settings cannot work (an endpoint that is not a URL, a bucket name
+    /// that cannot be in one, a keyring entry that is not credentials).
+    InvalidConfig(String),
 }
 
 impl fmt::Display for DriveError {
@@ -277,6 +280,7 @@ impl fmt::Display for DriveError {
             DriveError::Io(message) => write!(f, "file error: {message}"),
             DriveError::Protocol(message) => write!(f, "unexpected answer: {message}"),
             DriveError::Unsupported(message) => write!(f, "not supported yet: {message}"),
+            DriveError::InvalidConfig(message) => write!(f, "{message}"),
         }
     }
 }

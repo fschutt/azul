@@ -6,8 +6,10 @@ Branch `wt/drive1-azdrive` from `a7e18f4df`. Report: `scripts/DRIVE1_AZDRIVE_202
 - RED: `examples/azul-storage` skeleton (Drive trait, types, `todo!()` bodies) + unit tests
   (SigV4 vectors, keys, LocalDrive, S3Drive over a fake transport, XML, config, scope, transfer).
 
+- GREEN: the storage crate's bodies (see git log).
+
 ## IN PROGRESS
-- GREEN: the storage crate's bodies.
+- Python S3 test server.
 
 ## NEXT
 1. Python S3 test server (`examples/azul-drive/scripts/s3_server.py`) + unittest, RED first.

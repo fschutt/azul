@@ -236,7 +236,7 @@ fn the_s3_put_object_example_signs_like_the_s3_reference() {
         &[
             ("Date", "Fri, 24 May 2013 00:00:00 GMT"),
             ("Host", S3_HOST),
-            ("x-amz-content-sha256", &payload),
+            ("x-amz-content-sha256", payload.as_str()),
             ("x-amz-date", S3_DATE),
             ("x-amz-storage-class", "REDUCED_REDUNDANCY"),
         ],

@@ -11,11 +11,17 @@
 //!                   "auth": { "type": "keyring" } } } ] }
 //! ```
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Credentials, Drive, DriveError, Transport};
+use crate::{
+    local::write_atomically, sigv4::sha256_hex, Credentials, Drive, DriveError, LocalDrive,
+    S3Config, S3Drive, Transport,
+};
 
 /// The `format` of a drives file.
 pub const DRIVES_FORMAT: &str = "azul-storage.drives";
@@ -76,8 +82,59 @@ impl DriveEntry {
         credentials: Option<Credentials>,
         transport: Box<dyn Transport>,
     ) -> Result<Box<dyn Drive>, DriveError> {
-        let _ = (credentials, transport);
-        todo!("RED")
+        match &self.location {
+            DriveLocation::Local { root } => Ok(Box::new(LocalDrive::new(PathBuf::from(root)))),
+            DriveLocation::S3 { auth, .. } => match auth {
+                DriveAuth::Keyring => {
+                    let credentials = credentials.ok_or_else(|| DriveError::Denied {
+                        message: format!(
+                            "\"{}\" has no credentials (the keyring has no entry for it)",
+                            self.name
+                        ),
+                    })?;
+                    let config = self.s3_config().ok_or_else(|| {
+                        DriveError::InvalidConfig(String::from("not an S3 drive"))
+                    })?;
+                    Ok(Box::new(S3Drive::new(config, credentials, transport)?))
+                }
+                DriveAuth::AccessLink { .. } => Err(DriveError::Unsupported(String::from(
+                    "drives from access links open once the access-link server exists; it \
+                     resolves the link to short-lived credentials and a ScopedDrive",
+                ))),
+            },
+        }
+    }
+
+    /// The bucket settings of an S3 drive.
+    #[must_use]
+    pub fn s3_config(&self) -> Option<S3Config> {
+        match &self.location {
+            DriveLocation::S3 {
+                endpoint,
+                region,
+                bucket,
+                path_style,
+                ..
+            } => Some(S3Config {
+                endpoint: endpoint.clone(),
+                region: region.clone(),
+                bucket: bucket.clone(),
+                path_style: *path_style,
+            }),
+            DriveLocation::Local { .. } => None,
+        }
+    }
+
+    /// Whether opening it needs credentials from the keyring.
+    #[must_use]
+    pub fn needs_keyring(&self) -> bool {
+        matches!(
+            self.location,
+            DriveLocation::S3 {
+                auth: DriveAuth::Keyring,
+                ..
+            }
+        )
     }
 }
 
@@ -101,37 +158,61 @@ impl DrivesFile {
 
     /// Reads a drives file's text; another format or a newer version is an error.
     pub fn parse(json: &str) -> Result<Self, DriveError> {
-        let _ = json;
-        todo!("RED")
+        let file: DrivesFile = serde_json::from_str(json).map_err(|e| {
+            DriveError::InvalidConfig(format!("the drives file cannot be read: {e}"))
+        })?;
+        if file.format != DRIVES_FORMAT {
+            return Err(DriveError::InvalidConfig(format!(
+                "the drives file is \"{}\", not \"{DRIVES_FORMAT}\"",
+                file.format
+            )));
+        }
+        if file.version == 0 || file.version > DRIVES_VERSION {
+            return Err(DriveError::InvalidConfig(format!(
+                "the drives file is version {}; this app reads up to version {DRIVES_VERSION}",
+                file.version
+            )));
+        }
+        Ok(file)
     }
 
     #[must_use]
     pub fn to_json(&self) -> String {
-        todo!("RED")
+        let mut text = serde_json::to_string_pretty(self).unwrap_or_default();
+        text.push('\n');
+        text
     }
 
     /// Reads the file at `path`; a missing file is an empty list.
     pub fn load(path: &Path) -> Result<Self, DriveError> {
-        let _ = path;
-        todo!("RED")
+        match std::fs::read_to_string(path) {
+            Ok(text) => Self::parse(&text),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::empty()),
+            Err(e) => Err(DriveError::Io(format!("{}: {e}", path.display()))),
+        }
     }
 
     /// Writes the file (its folder is created), through a temporary file.
     pub fn save(&self, path: &Path) -> Result<(), DriveError> {
-        let _ = path;
-        todo!("RED")
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)?;
+        }
+        write_atomically(path, self.to_json().as_bytes())
+            .map_err(|e| DriveError::Io(format!("{}: {e}", path.display())))
     }
 
     /// Adds `entry`, or replaces the drive with its id.
     pub fn add(&mut self, entry: DriveEntry) {
-        let _ = entry;
-        todo!("RED")
+        match self.drives.iter_mut().find(|d| d.id == entry.id) {
+            Some(existing) => *existing = entry,
+            None => self.drives.push(entry),
+        }
     }
 
     /// Forgets the drive with this id.
     pub fn remove(&mut self, id: &str) -> Option<DriveEntry> {
-        let _ = id;
-        todo!("RED")
+        let index = self.drives.iter().position(|d| d.id == id)?;
+        Some(self.drives.remove(index))
     }
 
     #[must_use]
@@ -144,20 +225,47 @@ impl DrivesFile {
 /// `<config_dir>/azul-storage/drives.json`.
 #[must_use]
 pub fn drives_file(var: Option<&str>, config_dir: Option<PathBuf>) -> Option<PathBuf> {
-    let _ = (var, config_dir);
-    todo!("RED")
+    match var.map(str::trim).filter(|v| !v.is_empty()) {
+        Some(path) => Some(PathBuf::from(path)),
+        None => config_dir.map(|dir| dir.join("azul-storage").join("drives.json")),
+    }
 }
 
 /// The OS keyring entry holding a drive's credentials.
 #[must_use]
 pub fn keyring_key(drive_id: &str) -> String {
-    let _ = drive_id;
-    todo!("RED")
+    format!("azul-storage/s3/{drive_id}")
 }
 
 /// A new drive id: unique, `[0-9a-z-]`, starting with a readable slug of `name`.
 #[must_use]
 pub fn new_drive_id(name: &str) -> String {
-    let _ = name;
-    todo!("RED")
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let mut slug = String::new();
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() {
+            slug.push(c.to_ascii_lowercase());
+        } else if matches!(c, ' ' | '-' | '_' | '.') && !slug.ends_with('-') && !slug.is_empty() {
+            slug.push('-');
+        }
+        if slug.len() >= 24 {
+            break;
+        }
+    }
+    let slug = slug.trim_end_matches('-');
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let seed = format!(
+        "{name}|{nanos}|{}|{}",
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::SeqCst)
+    );
+    let hash = sha256_hex(seed.as_bytes());
+    if slug.is_empty() {
+        hash[..12].to_string()
+    } else {
+        format!("{slug}-{}", &hash[..12])
+    }
 }

@@ -8,11 +8,19 @@
 //! S3 differs from the generic suite in one place: the canonical URI is the
 //! path as sent, encoded once (no double encoding, no dot-segment removal).
 
+use std::collections::BTreeMap;
+
+use hmac::{Hmac, Mac};
+use sha2::{Digest, Sha256};
+
 /// The algorithm name in the string to sign and the `Authorization` header.
 pub const ALGORITHM: &str = "AWS4-HMAC-SHA256";
 
 /// SHA-256 of an empty body, the payload hash of every request without one.
 pub const EMPTY_SHA256: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+const HEX_LOWER: &[u8; 16] = b"0123456789abcdef";
+const HEX_UPPER: &[u8; 16] = b"0123456789ABCDEF";
 
 /// Who signs, for which region and service, at which time.
 #[derive(Clone, Copy)]
@@ -37,19 +45,49 @@ pub struct Signed {
     pub authorization: String,
 }
 
+fn hex(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        out.push(HEX_LOWER[usize::from(b >> 4)] as char);
+        out.push(HEX_LOWER[usize::from(b & 0x0f)] as char);
+    }
+    out
+}
+
+fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
+    let mut mac =
+        <Hmac<Sha256> as Mac>::new_from_slice(key).expect("HMAC takes a key of any length");
+    mac.update(data);
+    let bytes = mac.finalize().into_bytes();
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&bytes);
+    out
+}
+
 /// Lowercase hex of the SHA-256 of `data`.
 #[must_use]
 pub fn sha256_hex(data: &[u8]) -> String {
-    let _ = data;
-    todo!("RED")
+    hex(&Sha256::digest(data))
 }
 
 /// URI-encodes as SigV4 wants: `A-Z a-z 0-9 - _ . ~` stay, `/` stays unless
 /// `encode_slash`, every other byte of the UTF-8 becomes `%XX` (uppercase).
 #[must_use]
 pub fn uri_encode(input: &str, encode_slash: bool) -> String {
-    let _ = (input, encode_slash);
-    todo!("RED")
+    let mut out = String::with_capacity(input.len());
+    for &b in input.as_bytes() {
+        let keep = b.is_ascii_alphanumeric()
+            || matches!(b, b'-' | b'_' | b'.' | b'~')
+            || (b == b'/' && !encode_slash);
+        if keep {
+            out.push(b as char);
+        } else {
+            out.push('%');
+            out.push(HEX_UPPER[usize::from(b >> 4)] as char);
+            out.push(HEX_UPPER[usize::from(b & 0x0f)] as char);
+        }
+    }
+    out
 }
 
 /// The canonical query string: every name and value encoded, sorted by name
@@ -57,8 +95,38 @@ pub fn uri_encode(input: &str, encode_slash: bool) -> String {
 /// is sent is what was signed.
 #[must_use]
 pub fn canonical_query(params: &[(String, String)]) -> String {
-    let _ = params;
-    todo!("RED")
+    let mut encoded: Vec<(String, String)> = params
+        .iter()
+        .map(|(name, value)| (uri_encode(name, true), uri_encode(value, true)))
+        .collect();
+    encoded.sort();
+    encoded
+        .iter()
+        .map(|(name, value)| format!("{name}={value}"))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+/// The canonical headers block (`name:value\n` per header, lowercase names in
+/// order, values trimmed with inner runs of spaces collapsed, repeated names
+/// joined with `,`) and the signed-headers list (`host;x-amz-date`).
+fn canonical_headers(headers: &[(String, String)]) -> (String, String) {
+    let mut by_name: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (name, value) in headers {
+        by_name
+            .entry(name.trim().to_ascii_lowercase())
+            .or_default()
+            .push(value.split_whitespace().collect::<Vec<_>>().join(" "));
+    }
+    let mut block = String::new();
+    for (name, values) in &by_name {
+        block.push_str(name);
+        block.push(':');
+        block.push_str(&values.join(","));
+        block.push('\n');
+    }
+    let signed = by_name.keys().cloned().collect::<Vec<_>>().join(";");
+    (block, signed)
 }
 
 /// Signs one request. `canonical_uri` is the path as sent (already encoded);
@@ -73,6 +141,35 @@ pub fn sign(
     headers: &[(String, String)],
     payload_hash: &str,
 ) -> Signed {
-    let _ = (params, method, canonical_uri, query, headers, payload_hash);
-    todo!("RED")
+    let (header_block, signed_headers) = canonical_headers(headers);
+    let canonical_request = format!(
+        "{method}\n{canonical_uri}\n{}\n{header_block}\n{signed_headers}\n{payload_hash}",
+        canonical_query(query)
+    );
+    let date = params.amz_date.get(..8).unwrap_or(params.amz_date);
+    let scope = format!("{date}/{}/{}/aws4_request", params.region, params.service);
+    let string_to_sign = format!(
+        "{ALGORITHM}\n{}\n{scope}\n{}",
+        params.amz_date,
+        sha256_hex(canonical_request.as_bytes())
+    );
+    let date_key = hmac_sha256(
+        format!("AWS4{}", params.secret_access_key).as_bytes(),
+        date.as_bytes(),
+    );
+    let region_key = hmac_sha256(&date_key, params.region.as_bytes());
+    let service_key = hmac_sha256(&region_key, params.service.as_bytes());
+    let signing_key = hmac_sha256(&service_key, b"aws4_request");
+    let signature = hex(&hmac_sha256(&signing_key, string_to_sign.as_bytes()));
+    let authorization = format!(
+        "{ALGORITHM} Credential={}/{scope}, SignedHeaders={signed_headers}, Signature={signature}",
+        params.access_key_id
+    );
+    Signed {
+        canonical_request,
+        string_to_sign,
+        signed_headers,
+        signature,
+        authorization,
+    }
 }
