@@ -22,8 +22,9 @@ use std::path::Path;
 pub mod svg;
 
 /// Decodes XML/HTML entities in a string.
-/// Handles standard XML entities: &lt; &gt; &amp; &apos; &quot;
-/// and numeric character references: &#60; &#x3C;
+/// Handles standard XML entities: &lt; &gt; &amp; &apos; &quot;, `&nbsp;`,
+/// numeric character references: &#60; &#x3C;, and the other HTML named
+/// references (`azul_core::xml::html_named_entity`: `&copy;`, `&eacute;` ...).
 /// Returns `Cow::Borrowed` when no entities are found (zero-alloc fast path).
 fn decode_xml_entities(s: &str) -> std::borrow::Cow<'_, str> {
     // Fast path: if no ampersand, no entities to decode
@@ -94,11 +95,17 @@ fn decode_xml_entities_slow(s: &str) -> std::borrow::Cow<'_, str> {
                             result.push(';');
                         }
                     }
-                    _ => {
-                        // Unknown entity, keep original
-                        result.push('&');
-                        result.push_str(&entity);
-                        result.push(';');
+                    // The other HTML named references (`&copy;`, `&mdash;`,
+                    // `&eacute;` ...): the one table in azul-core.
+                    s => {
+                        if let Some(ch) = azul_core::xml::html_named_entity(s) {
+                            result.push(ch);
+                        } else {
+                            // Unknown entity, keep original
+                            result.push('&');
+                            result.push_str(&entity);
+                            result.push(';');
+                        }
                     }
                 }
             } else {
