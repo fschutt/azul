@@ -187,11 +187,16 @@ both:
 - **Frames** (`send_frame`, `broadcast_frame`) travel on numbered tracks, each
   frame on its own QUIC stream. They are *latest-wins* at both ends: a frame that
   has not left yet is replaced by the next frame of its track, and the receiver
-  keeps only the newest frame of each track until `recv` takes it. For video that
-  is right (a late frame is worthless). For audio, where every packet counts,
-  repeat the last few packets in every frame, so a replaced frame loses nothing.
+  keeps only the newest frame of each track until `recv` takes it. For video whose
+  every frame stands alone (JPEG) that is right: a late frame is worthless. For
+  audio, where every packet counts, repeat the last few packets in every frame, so
+  a replaced frame loses nothing.
 - **Messages** (`send_message`) are reliable and ordered: control data such as
-  "my microphone is off".
+  "my microphone is off", and video from an inter-frame codec (H.264). A P-frame
+  needs every packet since the last keyframe, and frames cannot promise that: one
+  may be replaced before it leaves, and since each frame is its own stream a large
+  keyframe loses the race to the small P-frame after it and is then dropped on
+  arrival as the older one.
 
 ```rust,ignore
 // A capture hook: encode the frame and send it to everyone on its track.
@@ -244,8 +249,48 @@ a day without announcements.
 
 ### Video
 
-Each camera or screen frame is cut to 320x180, JPEG-encoded and broadcast on
-track 1 (camera) or 2 (screen). Each peer's frames land in that peer's own tiles.
+Each camera or screen frame is cut to 320x180 and sent on track 1 (camera) or 2
+(screen); each peer's pictures land in that peer's own tiles. The rules live in
+`examples/azul-meet/src/video_wire.rs` (plain Rust with unit tests).
+
+1. **Codec.** At start AzMeet opens a `VideoEncoder`, encodes a test frame and
+   decodes the result with a `VideoDecoder`. An open handle proves nothing (where
+   no backend is built in, `open` hands out a handle that never yields a packet),
+   so only a keyframe that comes back as a picture counts. Where it does
+   (VideoToolbox on macOS and iOS), frames go out as H.264; elsewhere as JPEG. The
+   devices panel says which: `Video: H.264 (VideoToolbox)`, `Video: JPEG (no
+   encoder)`. On connecting, each side sends `[5][flags]` (bit 0: decodes H.264),
+   and a peer that cannot decode H.264 gets JPEG from a sender that encodes it:
+   `Video: H.264 (VideoToolbox); JPEG to Ben (no H.264 decoder)`.
+2. **Packets.** Every packet carries a 16-byte header:
+
+   ```text
+   [2][version 1][codec: 1 JPEG, 2 H.264][flags: bit 0 keyframe]
+   [track u32][seq u32][frame_no u32]      then a JPEG file or H.264 Annex B
+   ```
+
+   `seq` counts one codec's packets on one track, so a gap is a missing packet;
+   `frame_no` counts the frames captured and may jump. H.264 packets are sent as
+   messages; JPEG ones as latest-wins frames.
+3. **Loss.** A receiver decodes in order. After a gap in `seq` it decodes nothing
+   until the next keyframe (an IDR slice) and sends `[3][track]`, a keyframe
+   request, again after a second while it still waits. The sender forces a
+   keyframe on a request (several requests within half a second share one), for
+   every new peer, and every 3 seconds anyway. An encoder that answers a forced
+   keyframe with a P-frame is closed and opened again: a new encoder starts with a
+   keyframe.
+4. **A slow link.** Messages are never dropped, so a link slower than the video
+   would queue without end. The receiver acknowledges H.264 packets (`[4][track][seq]`,
+   every fifth and every keyframe); a sender more than 24 packets ahead of a peer
+   pauses that peer and resumes it at a keyframe once it caught up.
+5. **Decoding.** Each peer's tracks have their own `VideoDecoder`. One that is
+   given 30 packets from a keyframe on and returns no picture does not work here:
+   AzMeet tells everyone it decodes no H.264, and gets JPEG.
+
+The devices panel shows both directions: `Sending camera: 450 H.264 packets, 0
+JPEG frames, 8 keyframes, 2 on request, 5 periodic, 0 reopens, 0 dropped on
+purpose` and `Video from Ben (camera): H.264, decoded 300, keyframes 12, gaps 1,
+dropped 3, keyframe requests 1`.
 
 ### Audio
 
@@ -313,30 +358,37 @@ instead: two windows, one per participant, linked by two endpoints.
 | `AZMEET_AUTOCREATE=1`, `AZMEET_JOIN=<link>` | Start in a meeting without a click; the link is printed as `AZMEET_LINK <link>` |
 | `AZMEET_RELAY` | `off`, `default` or a relay URL (off for a meeting server on this machine) |
 | `AZMEET_TEST_TONE=1` | A 440 Hz tone replaces the microphone, unmuted from the start |
+| `AZMEET_TEST_PATTERN=1` | Moving colour bars replace the camera (on from the start) and the screen; a **Drop a video packet** button drops the next packet |
+| `AZMEET_VIDEO_CODEC=jpeg` | Send JPEG even where H.264 works |
 
 ### Test it
 
 `examples/azul-meet/scripts/two-clients.mjs` starts the mock meeting server and
 two headless AzMeet processes, then checks through each app's debug server
 (`AZ_DEBUG`) that they connect, that each counts at least a second of the other's
-audio, that a mute shows on the other side, and that **Leave** takes a participant
-off the room at once.
+audio, that each decodes two seconds of the other's test pattern with a keyframe,
+that a packet dropped on purpose (**Drop a video packet**) makes the receiver ask
+for a keyframe and decode again (with H.264; with JPEG it costs nothing), that a
+mute shows on the other side, and that **Leave** takes a participant off the room
+at once. `--require-h264` fails a run that fell back to JPEG.
 
 A headless test must never open a real device. Under `AZ_BACKEND=headless` only
 `AudioDeviceList::enumerate` is answered by the mock store (see
-[e2e-testing](../debugging/e2e-testing.md)); `MicrophoneWidget` and
-`AudioSink::open` would still reach the hardware. So AzMeet checks for itself: in
-a headless run its microphone is the test tone (no `MicrophoneWidget` is mounted)
-and received audio is drained and counted, never played. Do the same in your own
-app.
+[e2e-testing](../debugging/e2e-testing.md)); `MicrophoneWidget`, `AudioSink::open`,
+`CameraWidget` and `ScreenCaptureWidget` would still reach the hardware. So AzMeet
+checks for itself: in a headless run its microphone is the test tone (no
+`MicrophoneWidget` is mounted), received audio is drained and counted, never
+played, and the camera and the screen share are test patterns (no capture widget
+is mounted). Do the same in your own app.
 
 ### Not yet
 
 - Opus and its loss concealment; echo cancellation and noise suppression.
 - `IrohLoadBalancer`: today every participant sends to every other one (a full
   mesh), which does not scale past a handful of people.
-- Video codecs: frames are JPEG. H.264 / AV1 need keyframe requests on loss and
-  renditions per tile size.
+- Video: renditions per tile size (a simulcast ladder), bitrate that follows the
+  link, HEVC / AV1, and H.264 encode outside Apple (Media Foundation, VAAPI /
+  Vulkan Video, MediaCodec); until then those platforms send JPEG.
 - Signed announcements on the meeting server; browser participants.
 
 ## What is on-device
@@ -366,8 +418,10 @@ hardware backends are platform-specific:
   selects: **gpu-video** (Vulkan Video) on Linux/Windows desktop, **VideoToolbox**
   on Apple (Vulkan Video can't build there - no MoltenVK video), **MediaCodec**
   on Android. The handles + the selection are exposed cross-platform; the codec
-  FFI itself is the on-device part. The encoded packets are what you would send
-  as frames instead of JPEG.
+  FFI itself is the on-device part. Today only VideoToolbox encodes; elsewhere
+  `open` hands out a handle whose `recv_packet` never yields, so check with a test
+  frame before relying on it (AzMeet does). Send the packets as messages, not
+  frames (see "Sending media between apps").
 
 ## Testing without hardware
 
