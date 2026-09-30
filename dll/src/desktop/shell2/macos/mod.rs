@@ -3153,6 +3153,16 @@ define_class!(
                     let visible = occlusion & (1 << 1) != 0;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     macos_window.set_display_link_paused(!visible);
+                    // A covered window shows nothing: every animation in it
+                    // is culled (asks for no frames) until it is uncovered,
+                    // and the uncovering re-arms the ones that can be seen.
+                    if let Some(lw) = macos_window.common.layout_window.as_mut() {
+                        lw.window_occluded = !visible;
+                    }
+                    {
+                        use crate::desktop::shell2::common::event::PlatformWindow;
+                        macos_window.arm_animation_drivers_if_needed();
+                    }
                     if visible {
                         // Content may be stale after a Space switch — repaint.
                         macos_window.request_redraw();

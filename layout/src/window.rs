@@ -1050,6 +1050,9 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         pending_track_changes: _,
         tracks_sampled_since_tick: _,
         last_anim_tick: _,
+        // One id per culled live track, a subset of `live_tracks`; a bool.
+        culled_tracks: _,
+        window_occluded: _,
         // Two u64 arrays sized by node count (~16 B/node) — noise next to
         // the tree; walked nowhere, listed so the destructure stays total.
         last_dom_fingerprints: _,
@@ -1539,6 +1542,19 @@ pub struct LayoutWindow {
     /// `None` while nothing animates, which is also what keeps the clock read
     /// off the idle path — see [`Self::tick_animations_now`].
     pub last_anim_tick: Option<Instant>,
+    /// Live tracks whose node nobody can see right now: scrolled out of its
+    /// clip, laid out nowhere (`display: none`), `visibility: hidden`, under
+    /// a fully transparent group, or in a window that shows nothing. They
+    /// keep their clock but are not sampled and ask for no frames. Refreshed
+    /// by [`Self::update_animation_culling`] at every driver tick and at the
+    /// end of every pass (USER ruling 2026-09-30: "cull refreshes for
+    /// animations if the changes aren't on-screen").
+    pub culled_tracks: BTreeSet<NodeId>,
+    /// The window is fully covered (macOS `occlusionState` without the
+    /// visible bit). Set by the shell; every live track is culled while it
+    /// holds. Minimized and hidden windows need no flag - the window state
+    /// says so.
+    pub window_occluded: bool,
     /// The CSS DIFF of the most recent `begin_reconciliation`, waiting to be
     /// consumed by the NEXT layout pass of that DOM: node -> worst
     /// `RelayoutScope` across its changed properties (including `None` =
@@ -2291,6 +2307,8 @@ impl LayoutWindow {
             transition_patched: false,
             live_tracks: BTreeMap::new(),
             last_anim_tick: None,
+            culled_tracks: BTreeSet::new(),
+            window_occluded: false,
             layout_cache: Solver3LayoutCache {
                 tree: None,
                 resize_only_hint: false,
@@ -12989,9 +13007,122 @@ impl LayoutWindow {
     /// one more, exposed as a method so a shell adopts the whole feature by
     /// naming it rather than by reaching into `animations` and having to know
     /// what "in flight" means.
+    ///
+    /// A live track nobody can see ([`Self::culled_tracks`]) is not a reason
+    /// for a frame: an off-screen spinner keeps its clock but asks for
+    /// nothing, so a window whose only motion is hidden goes idle.
     #[must_use]
     pub fn needs_animation_frame(&self) -> bool {
-        !self.animations.is_empty() || self.has_track_work()
+        !self.animations.is_empty()
+            || self
+                .live_tracks
+                .keys()
+                .any(|node| !self.culled_tracks.contains(node))
+            || !self.css_transitions.is_empty()
+            || self.zombies.iter().any(|z| !z.tracks.is_empty())
+    }
+
+    /// Refresh [`Self::culled_tracks`]: which live keyframe tracks change
+    /// nothing anybody can see right now.
+    ///
+    /// A track is culled when its window cannot show anything
+    /// (`window_can_show` false - minimized or hidden - or
+    /// [`Self::window_occluded`]), when its node is laid out nowhere (a
+    /// `display: none` ancestor), when its node is `visibility: hidden`, or
+    /// when the group the display list opens for it lies outside every clip
+    /// around it and the window, or under a fully transparent group
+    /// (`cpurender::node_groups_on_screen`). A node whose group is not in
+    /// the list yet (its keys are minted by its first sample) is kept.
+    ///
+    /// Cheap enough for every pass end: nothing when no track exists, one
+    /// display-list walk otherwise.
+    pub fn update_animation_culling(&mut self, window_can_show: bool) {
+        use azul_css::props::style::effects::StyleVisibility;
+
+        if self.live_tracks.is_empty() {
+            self.culled_tracks.clear();
+            return;
+        }
+        if !window_can_show || self.window_occluded {
+            self.culled_tracks = self.live_tracks.keys().copied().collect();
+            return;
+        }
+        let mut culled = BTreeSet::new();
+        if let Some(result) = self.layout_results.get(&DomId::ROOT_ID) {
+            let styled_nodes = result.styled_dom.styled_nodes.as_container();
+            let mut laid_out = BTreeSet::new();
+            for node in self.live_tracks.keys() {
+                if self.get_node_bounds(DomId::ROOT_ID, *node).is_none() {
+                    culled.insert(*node);
+                    continue;
+                }
+                let hidden = styled_nodes.get(*node).is_some_and(|styled| {
+                    matches!(
+                        solver3::getters::get_visibility(
+                            &result.styled_dom,
+                            *node,
+                            &styled.styled_node_state,
+                        ),
+                        solver3::getters::MultiValue::Exact(
+                            StyleVisibility::Hidden | StyleVisibility::Collapse
+                        )
+                    )
+                });
+                if hidden {
+                    culled.insert(*node);
+                } else {
+                    laid_out.insert(*node);
+                }
+            }
+            #[cfg(feature = "cpurender")]
+            {
+                let scroll_offsets = self
+                    .scroll_manager
+                    .build_scroll_offset_map(DomId::ROOT_ID, &result.scroll_id_to_node_id);
+                let (transforms, opacities) = crate::cpurender::extract_gpu_values(
+                    self.gpu_state_manager.get_cache(DomId::ROOT_ID),
+                    DomId::ROOT_ID,
+                );
+                let size = self.current_window_state.size.dimensions;
+                let viewport = LogicalRect::new(
+                    LogicalPosition::zero(),
+                    LogicalSize::new(size.width, size.height),
+                );
+                let on_screen = crate::cpurender::node_groups_on_screen(
+                    &result.display_list,
+                    &scroll_offsets,
+                    &transforms,
+                    &opacities,
+                    viewport,
+                    &laid_out,
+                );
+                for (node, visible) in on_screen {
+                    if !visible {
+                        culled.insert(node);
+                    }
+                }
+            }
+        }
+        self.culled_tracks = culled;
+    }
+
+    /// The frame driver stops while live tracks remain - all of them culled.
+    /// Their clocks keep running in wall time: each remembers the instant
+    /// its clock stood at (the last tick), and the next tick after the
+    /// driver restarts fast-forwards it by the whole stop
+    /// ([`Self::tick_animations_now`]) - one frame at the right phase, no
+    /// catch-up burst. The tick stamp is dropped, so an animation that
+    /// starts in the meantime takes an ordinary first frame.
+    pub fn park_culled_tracks(&mut self) {
+        if self.live_tracks.is_empty() {
+            return;
+        }
+        let stood_at = self.last_anim_tick.take().unwrap_or_else(Instant::now);
+        for tr in self.live_tracks.values_mut() {
+            if tr.parked_at.is_none() {
+                tr.parked_at = Some(stood_at.clone());
+            }
+        }
     }
 
     /// True while any compiled keyframes track (`-azul-animation-in` on a
@@ -13085,6 +13216,16 @@ impl LayoutWindow {
         }
         let now = Instant::now();
         let dt = self.animation_step_at(&now);
+        // Tracks parked by a culled stop (`park_culled_tracks`) catch up on
+        // the wall time they spent parked, less the step every track takes
+        // below: they land on the phase they would have reached running.
+        for tr in self.live_tracks.values_mut() {
+            if let Some(since) = tr.parked_at.take() {
+                #[allow(clippy::cast_possible_truncation)] // seconds fit an f32
+                let parked_s = (now.duration_since(&since).as_nanos() as f64 / 1e9) as f32;
+                tr.tick((parked_s - dt).max(0.0));
+            }
+        }
         self.last_anim_tick = Some(now);
         let still_animating = self.tick_animations(dt);
         // The tick that settles the last animation clears the stamp itself.
@@ -15788,6 +15929,12 @@ impl LayoutWindow {
                 }
             }
             for (node, tr) in &self.live_tracks {
+                // A culled track keeps its clock (`tick_animations`) but is
+                // not sampled: its node cannot be seen, so its values stay
+                // where they are and the frame owes it no damage.
+                if self.culled_tracks.contains(node) {
+                    continue;
+                }
                 let Some(r) = self.layout_results.get(&DomId::ROOT_ID) else {
                     continue;
                 };
@@ -16890,6 +17037,7 @@ mod tests {
             opacity: vec![],
             width: vec![],
             height: vec![],
+            parked_at: None,
         };
         // Before the first stop: clamp to it, no extrapolation.
         tr.t = 0.0;
@@ -23236,6 +23384,10 @@ impl LayoutWindow {
             pending_css_dirty: _,
             // One timestamp; carries no NodeId.
             last_anim_tick: _,
+            // The culled set follows its tracks (remapped below, beside them).
+            culled_tracks,
+            // A bool about the window, no NodeId.
+            window_occluded: _,
             layout_cache: _,
             layout_results: _,
             // Content-addressed (hashes / font ids / image ids), never NodeIds:
@@ -23368,6 +23520,10 @@ impl LayoutWindow {
             *live_tracks = core::mem::take(live_tracks)
                 .into_iter()
                 .filter_map(|(n, t)| map.resolve(n).map(|nn| (nn, t)))
+                .collect();
+            *culled_tracks = core::mem::take(culled_tracks)
+                .into_iter()
+                .filter_map(|n| map.resolve(n))
                 .collect();
             css_transitions.retain_mut(|tr| match map.resolve(tr.node) {
                 Some(nn) => {
@@ -27292,6 +27448,12 @@ pub struct AnimTrack {
     pub opacity: Vec<(f32, f32)>,
     pub width: Vec<(f32, f32)>,
     pub height: Vec<(f32, f32)>,
+    /// When the frame driver stopped with this track CULLED (nobody could
+    /// see it, nothing else animating): its clock kept running in wall time
+    /// from here, and the next tick fast-forwards it by the whole stop, so a
+    /// spinner scrolled back into view shows the right phase at once.
+    /// `None` while the driver runs. See `LayoutWindow::park_culled_tracks`.
+    pub parked_at: Option<Instant>,
 }
 
 impl AnimTrack {
@@ -27436,6 +27598,7 @@ pub fn compile_keyframes_track(
         opacity: Vec::new(),
         width: Vec::new(),
         height: Vec::new(),
+        parked_at: None,
     };
     for stop in kf.stops.as_ref() {
         let t = f32::from(stop.permille) / 1000.0;
@@ -27628,6 +27791,7 @@ pub fn resolve_named_track(
                 opacity: Vec::new(),
                 width: Vec::new(),
                 height: Vec::new(),
+                parked_at: None,
             }));
         }
     }
@@ -27658,6 +27822,7 @@ pub fn reverse_out_track(current: &TrackSample, out: &AnimTrack) -> AnimTrack {
         opacity: Vec::new(),
         width: Vec::new(),
         height: Vec::new(),
+        parked_at: None,
     };
     back.override_start(current);
     back

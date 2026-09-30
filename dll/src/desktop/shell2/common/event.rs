@@ -4272,12 +4272,33 @@ pub trait PlatformWindow {
         self.arm_css_animation_timer_if_needed();
     }
 
+    /// Can this window show anything right now? Not while it is hidden or
+    /// minimized. (A fully covered window is the layout window's
+    /// `window_occluded`, set by the shell that can tell.)
+    fn window_can_show(&self) -> bool {
+        let flags = &self.get_current_window_state().flags;
+        flags.is_visible && flags.frame != azul_core::window::WindowFrame::Minimized
+    }
+
+    /// Refresh which live animations nobody can see
+    /// (`LayoutWindow::update_animation_culling`).
+    fn refresh_animation_culling(&mut self) {
+        let window_can_show = self.window_can_show();
+        if let Some(lw) = self.get_layout_window_mut() {
+            lw.update_animation_culling(window_can_show);
+        }
+    }
+
     /// Arm the CSS animation frame driver while a transition or keyframe
     /// track is in flight. Without it, only the WebRender frame path ever
     /// advanced CSS animations; on the CPU renderer a declared `animation`
     /// sat on its start value and a switch froze after its first toggle.
     fn arm_css_animation_timer_if_needed(&mut self) {
         use azul_core::task::CSS_ANIMATION_TIMER_ID;
+        // Which animations can be seen NOW: the pass that just ran may have
+        // scrolled one back into view (its next tick must step it) or
+        // minimized the window. A culled animation arms nothing.
+        self.refresh_animation_culling();
         let needs = self.get_layout_window().is_some_and(|lw| {
             lw.needs_animation_frame() && !lw.timers.contains_key(&CSS_ANIMATION_TIMER_ID)
         });
@@ -4303,6 +4324,7 @@ pub trait PlatformWindow {
     /// this frame).
     fn advance_css_animations_now(&mut self) -> ProcessEventResult {
         use azul_core::task::CSS_ANIMATION_TIMER_ID;
+        let window_can_show = self.window_can_show();
         let (had_work, dt) = {
             let Some(lw) = self.get_layout_window_mut() else {
                 return ProcessEventResult::DoNothing;
@@ -4317,6 +4339,10 @@ pub trait PlatformWindow {
             if !lw.css_animation_step_due(&now) {
                 return ProcessEventResult::DoNothing;
             }
+            // Cull first: an animation nobody can see (scrolled out of its
+            // clip, hidden, in a minimized or covered window) is no work for
+            // this frame. Its clock still advances in the tick below.
+            lw.update_animation_culling(window_can_show);
             let had_work = lw.needs_animation_frame();
             // The same step `tick_animations_now` is about to take: real time
             // since the previous tick, a 16 ms frame after an idle period.
@@ -4381,6 +4407,10 @@ pub trait PlatformWindow {
         let idle = match self.get_layout_window_mut() {
             Some(lw) if !lw.needs_animation_frame() => {
                 lw.timers.remove(&CSS_ANIMATION_TIMER_ID);
+                // Culled tracks may remain. They keep their clock, parked,
+                // until a pass finds one visible again and re-arms the
+                // driver (`arm_css_animation_timer_if_needed`).
+                lw.park_culled_tracks();
                 true
             }
             _ => false,

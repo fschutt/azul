@@ -78,11 +78,7 @@ fn spinner_window() -> HeadlessWindow {
 }
 
 fn lw(window: &HeadlessWindow) -> &LayoutWindow {
-    window
-        .common
-        .layout_window
-        .as_ref()
-        .expect("layout window")
+    window.common.layout_window.as_ref().expect("layout window")
 }
 
 fn driver_armed(window: &HeadlessWindow) -> bool {
@@ -98,11 +94,7 @@ fn spinner_node(window: &HeadlessWindow) -> NodeId {
 /// timer commits a wheel step.
 fn scroll_box_to(window: &mut HeadlessWindow, y: f32) {
     let spinner = spinner_node(window);
-    let lw = window
-        .common
-        .layout_window
-        .as_mut()
-        .expect("layout window");
+    let lw = window.common.layout_window.as_mut().expect("layout window");
     let scroller = lw
         .layout_results
         .get(&DomId::ROOT_ID)
@@ -167,15 +159,11 @@ fn an_offscreen_spinner_requests_no_frames() {
         "with only a culled animation left, the driver timer must be removed so the window can \
          go idle"
     );
-    assert!(
-        !dirty,
-        "a culled tick must not mark the display list dirty"
-    );
+    assert!(!dirty, "a culled tick must not mark the display list dirty");
 }
 
 #[test]
-fn a_spinner_scrolled_back_into_view_requests_a_frame_on_the_next_tick_at_its_wall_clock_phase()
-{
+fn a_spinner_scrolled_back_into_view_requests_a_frame_on_the_next_tick_at_its_wall_clock_phase() {
     let mut window = spinner_window();
     scroll_box_to(&mut window, 600.0);
     let (t_culled, duration_s) = looping_track(&window).expect("the ring loops");
@@ -233,6 +221,28 @@ fn a_spinner_in_a_minimized_window_requests_no_frames() {
     assert_eq!(
         requested, 0,
         "a minimized window shows nothing: its spinner asked for {requested} frames"
+    );
+    assert!(!still_armed, "and its animation driver must be removed");
+}
+
+/// macOS reports a fully covered window through `occlusionState`; the shell
+/// records it on the layout window (`window_occluded`) and every animation
+/// in it is culled.
+#[test]
+fn a_spinner_in_an_occluded_window_requests_no_frames() {
+    let mut window = spinner_window();
+    if let Some(lw) = window.common.layout_window.as_mut() {
+        lw.window_occluded = true;
+    }
+    window.arm_animation_drivers_if_needed();
+
+    let requested = frames_requested_over(&mut window, 10);
+    let still_armed = driver_armed(&window);
+    azul_core::task::reset_test_clock();
+
+    assert_eq!(
+        requested, 0,
+        "a covered window shows nothing: its spinner asked for {requested} frames"
     );
     assert!(!still_armed, "and its animation driver must be removed");
 }

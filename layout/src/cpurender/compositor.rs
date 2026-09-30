@@ -67,6 +67,18 @@ use crate::{
 
 const IDENTITY_EPSILON: f32 = 0.0001;
 
+/// Does a reference frame's matrix leave its content where it is (the 2-D
+/// part the compositor applies is the identity)? The one test the layer
+/// builder promotes by and the animation culler maps by.
+fn is_identity_2d(m: &[[f32; 4]; 4]) -> bool {
+    (m[0][0] - 1.0).abs() < IDENTITY_EPSILON
+        && m[0][1].abs() < IDENTITY_EPSILON
+        && m[1][0].abs() < IDENTITY_EPSILON
+        && (m[1][1] - 1.0).abs() < IDENTITY_EPSILON
+        && m[3][0].abs() < IDENTITY_EPSILON
+        && m[3][1].abs() < IDENTITY_EPSILON
+}
+
 // ============================================================================
 // Retained-Mode Compositor — Layer Tree
 // ============================================================================
@@ -606,12 +618,7 @@ impl CompositorState {
                     let m = live_transforms
                         .get(&transform_key.id)
                         .map_or(&initial_transform.m, |t| &t.m);
-                    let is_identity = (m[0][0] - 1.0).abs() < IDENTITY_EPSILON
-                        && m[0][1].abs() < IDENTITY_EPSILON
-                        && m[1][0].abs() < IDENTITY_EPSILON
-                        && (m[1][1] - 1.0).abs() < IDENTITY_EPSILON
-                        && m[3][0].abs() < IDENTITY_EPSILON
-                        && m[3][1].abs() < IDENTITY_EPSILON;
+                    let is_identity = is_identity_2d(m);
                     // Record the decision so the matching pop can be exact.
                     let end = find_matching_pop(&display_list.items, i, MatchKind::ReferenceFrame);
                     let promote = !is_identity && end > i + 1;
@@ -2143,6 +2150,70 @@ pub fn scroll_fast_path_eligible_in(
     rect_covered_by(clip_bounds, &backdrop_fills)
 }
 
+/// `r` mapped by the affine part of `m` ABOUT `origin` - the convention the
+/// compositor renders a reference frame with (the matrix acts in the frame's
+/// local space, whose origin is the frame's bounds origin). `None` for a
+/// non-affine matrix (perspective), whose image of a rect is not a rect.
+fn affine_rect_about(
+    m: &azul_core::transform::ComputedTransform3D,
+    origin: LogicalPosition,
+    r: LogicalRect,
+) -> Option<LogicalRect> {
+    let mm = &m.m;
+    let affine = mm[0][2] == 0.0
+        && mm[0][3] == 0.0
+        && mm[1][2] == 0.0
+        && mm[1][3] == 0.0
+        && (mm[3][3] - 1.0).abs() < f32::EPSILON;
+    if !affine {
+        return None;
+    }
+    let (mut min_x, mut min_y) = (f32::MAX, f32::MAX);
+    let (mut max_x, mut max_y) = (f32::MIN, f32::MIN);
+    for (cx, cy) in [
+        (r.origin.x, r.origin.y),
+        (r.origin.x + r.size.width, r.origin.y),
+        (r.origin.x, r.origin.y + r.size.height),
+        (r.origin.x + r.size.width, r.origin.y + r.size.height),
+    ] {
+        let (px, py) = (cx - origin.x, cy - origin.y);
+        let x = px * mm[0][0] + py * mm[1][0] + mm[3][0] + origin.x;
+        let y = px * mm[0][1] + py * mm[1][1] + mm[3][1] + origin.y;
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+    }
+    Some(LogicalRect::new(
+        LogicalPosition::new(min_x, min_y),
+        LogicalSize::new(max_x - min_x, max_y - min_y),
+    ))
+}
+
+/// What the `PushReferenceFrame` at `idx` paints, in its own untransformed
+/// space: the union of the visual bounds of everything down to its matching
+/// pop (nested frames' pixels ride along). `None` when nothing inside paints.
+fn reference_frame_content(items: &[DisplayListItem], idx: usize) -> Option<LogicalRect> {
+    let mut depth = 0usize;
+    let mut content: Option<LogicalRect> = None;
+    for it in items.get(idx..).unwrap_or(&[]) {
+        match it {
+            DisplayListItem::PushReferenceFrame { .. } => depth += 1,
+            DisplayListItem::PopReferenceFrame => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    break;
+                }
+            }
+            _ => {}
+        }
+        if let Some(b) = it.visual_bounds() {
+            content = Some(content.map_or(b, |c| union_rects(c, b)));
+        }
+    }
+    content
+}
+
 /// Result of diffing the GPU-animated values between two frames.
 #[derive(Debug, Default)]
 pub struct GpuValueDamage {
@@ -2216,48 +2287,11 @@ pub fn gpu_value_damage(
     }
 
     // A moved reference frame damages its CONTENT at both the old and the
-    // new position. The content extent is the union of the visual bounds of
-    // everything down to the matching Pop (nested frames' pixels ride along),
-    // transformed by each matrix ABOUT THE FRAME ORIGIN — the same convention
-    // the compositor renders with. Only a non-affine matrix (perspective) is
+    // new position: `reference_frame_content`, transformed by each matrix
+    // ABOUT THE FRAME ORIGIN (`affine_rect_about`) — the same convention the
+    // compositor renders with. Only a non-affine matrix (perspective) is
     // genuinely unknowable and keeps the full-repaint fallback; the previous
     // blanket needs_full made EVERY spring/move tick a full-frame repaint.
-    fn affine_rect_about(
-        m: &azul_core::transform::ComputedTransform3D,
-        origin: LogicalPosition,
-        r: LogicalRect,
-    ) -> Option<LogicalRect> {
-        let mm = &m.m;
-        let affine = mm[0][2] == 0.0
-            && mm[0][3] == 0.0
-            && mm[1][2] == 0.0
-            && mm[1][3] == 0.0
-            && (mm[3][3] - 1.0).abs() < f32::EPSILON;
-        if !affine {
-            return None;
-        }
-        let (mut min_x, mut min_y) = (f32::MAX, f32::MAX);
-        let (mut max_x, mut max_y) = (f32::MIN, f32::MIN);
-        for (cx, cy) in [
-            (r.origin.x, r.origin.y),
-            (r.origin.x + r.size.width, r.origin.y),
-            (r.origin.x, r.origin.y + r.size.height),
-            (r.origin.x + r.size.width, r.origin.y + r.size.height),
-        ] {
-            let (px, py) = (cx - origin.x, cy - origin.y);
-            let x = px * mm[0][0] + py * mm[1][0] + mm[3][0] + origin.x;
-            let y = px * mm[0][1] + py * mm[1][1] + mm[3][1] + origin.y;
-            min_x = min_x.min(x);
-            min_y = min_y.min(y);
-            max_x = max_x.max(x);
-            max_y = max_y.max(y);
-        }
-        Some(LogicalRect::new(
-            LogicalPosition::new(min_x, min_y),
-            LogicalSize::new(max_x - min_x, max_y - min_y),
-        ))
-    }
-
     let identity = azul_core::transform::ComputedTransform3D {
         m: [
             [1.0, 0.0, 0.0, 0.0],
@@ -2280,34 +2314,8 @@ pub fn gpu_value_damage(
                 bounds,
                 ..
             } if changed_t.contains(&transform_key.id) => {
-                // Content extent: union to the matching Pop.
-                let mut depth = 0usize;
-                let mut content: Option<LogicalRect> = None;
-                for it in &items[idx..] {
-                    match it {
-                        DisplayListItem::PushReferenceFrame { .. } => depth += 1,
-                        DisplayListItem::PopReferenceFrame => {
-                            depth = depth.saturating_sub(1);
-                            if depth == 0 {
-                                break;
-                            }
-                        }
-                        _ => {}
-                    }
-                    if let Some(b) = it.visual_bounds() {
-                        content = Some(content.map_or(b, |c| {
-                            let x0 = c.origin.x.min(b.origin.x);
-                            let y0 = c.origin.y.min(b.origin.y);
-                            let x1 = (c.origin.x + c.size.width).max(b.origin.x + b.size.width);
-                            let y1 = (c.origin.y + c.size.height).max(b.origin.y + b.size.height);
-                            LogicalRect::new(
-                                LogicalPosition::new(x0, y0),
-                                LogicalSize::new(x1 - x0, y1 - y0),
-                            )
-                        }));
-                    }
-                }
-                let content = content.unwrap_or_else(|| *bounds.inner());
+                let content =
+                    reference_frame_content(items, idx).unwrap_or_else(|| *bounds.inner());
                 let old_m = old_transforms.get(&transform_key.id).unwrap_or(&identity);
                 let new_m = new_transforms.get(&transform_key.id).unwrap_or(&identity);
                 match (
@@ -2349,6 +2357,157 @@ pub fn gpu_value_damage(
     }
     // A changed key bound to nothing in THIS display list (another DOM's
     // scrollbar, a stale key) is ignored — it cannot affect these pixels.
+    out
+}
+
+/// Can the user see any of what `nodes`' animations change, right now?
+///
+/// A node's GROUP is the reference frame the display list opens for it (or,
+/// without one, its opacity group): the item its animation drives. The group
+/// is on screen when its content - mapped through its own live transform and
+/// every enclosing reference frame's, about each frame's origin
+/// (`affine_rect_about`), then moved by the scroll frames around it - meets
+/// `viewport` and every clip around it (`ScrollStack::visible`, the walk the
+/// damage producers share), and no enclosing opacity group is fully
+/// transparent.
+///
+/// The node's OWN opacity is not consulted: it is what its animation drives,
+/// and a fade-in that starts at 0 must not cull itself. Clips opened INSIDE a
+/// transformed frame are in that frame's local space and are skipped, and a
+/// perspective matrix on the way out makes the answer "visible": the culler
+/// may keep a hidden animation running, never stop a visible one.
+///
+/// One entry per queried node that has a group in this list. A node missing
+/// from the map has none - its keys are not minted yet, or it paints nothing
+/// of its own - and the caller decides (the animation culler keeps it).
+#[allow(clippy::implicit_hasher)] // internal call sites all use std hasher
+#[must_use]
+pub fn node_groups_on_screen(
+    display_list: &DisplayList,
+    scroll_offsets: &ScrollOffsetMap,
+    live_transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
+    live_opacities: &HashMap<usize, f32>,
+    viewport: LogicalRect,
+    nodes: &std::collections::BTreeSet<azul_core::dom::NodeId>,
+) -> std::collections::BTreeMap<azul_core::dom::NodeId, bool> {
+    /// A reference frame open at the current item.
+    struct OpenFrame {
+        origin: LogicalPosition,
+        matrix: azul_core::transform::ComputedTransform3D,
+        /// Moves its content (not the identity).
+        transformed: bool,
+        /// How many scroll frames and clips were open OUTSIDE it: the
+        /// ones in screen space for everything painted inside it.
+        frames_outside: usize,
+        clips_outside: usize,
+    }
+
+    let mut out = std::collections::BTreeMap::new();
+    if nodes.is_empty() {
+        return out;
+    }
+    let items = &display_list.items;
+    let mut stack = ScrollStack::new(scroll_offsets);
+    let mut frames: Vec<OpenFrame> = Vec::new();
+    // One entry per open opacity group: is it fully transparent?
+    let mut transparent: Vec<bool> = Vec::new();
+
+    for (idx, item) in items.iter().enumerate() {
+        let group_node = match item {
+            DisplayListItem::PushReferenceFrame { .. } | DisplayListItem::PushOpacity { .. } => {
+                node_of(display_list, idx).filter(|n| nodes.contains(n) && !out.contains_key(n))
+            }
+            _ => None,
+        };
+        if let Some(node) = group_node {
+            // The group's content in its own space, under its own matrix.
+            let own = match item {
+                DisplayListItem::PushReferenceFrame {
+                    transform_key,
+                    initial_transform,
+                    bounds,
+                } => {
+                    let m = live_transforms
+                        .get(&transform_key.id)
+                        .unwrap_or(initial_transform);
+                    let content =
+                        reference_frame_content(items, idx).unwrap_or_else(|| *bounds.inner());
+                    affine_rect_about(m, bounds.inner().origin, content)
+                }
+                DisplayListItem::PushOpacity { bounds, .. } => Some(*bounds.inner()),
+                _ => None,
+            };
+            // Out through every enclosing frame, innermost first.
+            let on_page = own.and_then(|r| {
+                frames
+                    .iter()
+                    .rev()
+                    .try_fold(r, |r, f| affine_rect_about(&f.matrix, f.origin, r))
+            });
+            let visible = match on_page {
+                None => true,
+                Some(r) => {
+                    let on_screen = moved_by(r, stack.scrolled());
+                    let (open, clips) = frames
+                        .iter()
+                        .find(|f| f.transformed)
+                        .map_or((stack.open.len(), stack.clips.len()), |f| {
+                            (f.frames_outside, f.clips_outside)
+                        });
+                    let area = stack.open[..open.min(stack.open.len())]
+                        .iter()
+                        .map(|(_, _, clip)| *clip)
+                        .chain(stack.clips[..clips.min(stack.clips.len())].iter().copied())
+                        .fold(viewport, intersect_logical_rects);
+                    let shown = intersect_logical_rects(on_screen, area);
+                    !transparent.iter().any(|t| *t)
+                        && shown.size.width > 0.0
+                        && shown.size.height > 0.0
+                }
+            };
+            out.insert(node, visible);
+            if out.len() == nodes.len() {
+                break;
+            }
+        }
+
+        stack.step(item);
+        match item {
+            DisplayListItem::PushReferenceFrame {
+                transform_key,
+                initial_transform,
+                bounds,
+            } => {
+                let matrix = *live_transforms
+                    .get(&transform_key.id)
+                    .unwrap_or(initial_transform);
+                frames.push(OpenFrame {
+                    origin: bounds.inner().origin,
+                    transformed: !is_identity_2d(&matrix.m),
+                    matrix,
+                    frames_outside: stack.open.len(),
+                    clips_outside: stack.clips.len(),
+                });
+            }
+            DisplayListItem::PopReferenceFrame => {
+                frames.pop();
+            }
+            DisplayListItem::PushOpacity {
+                opacity,
+                opacity_key,
+                ..
+            } => {
+                let effective = opacity_key
+                    .and_then(|k| live_opacities.get(&k.id).copied())
+                    .unwrap_or(*opacity);
+                transparent.push(effective <= 0.0);
+            }
+            DisplayListItem::PopOpacity => {
+                transparent.pop();
+            }
+            _ => {}
+        }
+    }
     out
 }
 
@@ -6194,6 +6353,132 @@ mod autotest_generated {
         // NaN != NaN → the key reads as "changed"; nothing binds it, so no damage.
         let d = gpu_value_damage(&list, &t, &o.clone(), &t, &o, &ScrollOffsetMap::new());
         assert!(d.rects.is_empty() && !d.needs_full);
+    }
+
+    /// The animation culler's question (`node_groups_on_screen`, USER ruling
+    /// 2026-09-30): a node's group inside a scroll frame is on screen while
+    /// the frame shows any of it, off screen once scrolled past the clip,
+    /// off screen under a fully transparent group and when an enclosing
+    /// frame's live transform carries it out of the window.
+    #[test]
+    fn node_groups_on_screen_follows_clips_transforms_and_transparency() {
+        use std::collections::BTreeSet;
+
+        use azul_core::dom::NodeId;
+
+        let node = NodeId::new(7);
+        let nodes: BTreeSet<NodeId> = core::iter::once(node).collect();
+        let viewport = lr(0.0, 0.0, 400.0, 300.0);
+        let none_t: HashMap<usize, ComputedTransform3D> = HashMap::new();
+        let none_o: HashMap<usize, f32> = HashMap::new();
+        let mapped = |items: Vec<DisplayListItem>, group_at: usize| {
+            let mut node_mapping = vec![None; items.len()];
+            node_mapping[group_at] = Some(node);
+            DisplayList {
+                items,
+                node_mapping,
+                ..Default::default()
+            }
+        };
+
+        let in_scroller = mapped(
+            vec![
+                push_scroll(1, 0.0, 0.0, 100.0, 100.0),
+                ref_frame(3),
+                opaque_rect(0.0, 0.0, 50.0, 50.0),
+                DisplayListItem::PopReferenceFrame,
+                DisplayListItem::PopScrollFrame,
+            ],
+            1,
+        );
+        let scrolled_to = |dy: f32| {
+            let mut offsets: ScrollOffsetMap = HashMap::new();
+            offsets.insert(1, (0.0, dy));
+            node_groups_on_screen(&in_scroller, &offsets, &none_t, &none_o, viewport, &nodes)
+                .get(&node)
+                .copied()
+        };
+        assert_eq!(scrolled_to(0.0), Some(true), "unscrolled, the group shows");
+        assert_eq!(
+            scrolled_to(40.0),
+            Some(true),
+            "scrolled 40px, its bottom 10px still show"
+        );
+        assert_eq!(
+            scrolled_to(60.0),
+            Some(false),
+            "scrolled 60px, all 50px of it are above the clip"
+        );
+
+        let under_transparent = mapped(
+            vec![
+                DisplayListItem::PushOpacity {
+                    bounds: wlr(0.0, 0.0, 100.0, 100.0),
+                    opacity: 0.0,
+                    opacity_key: None,
+                },
+                ref_frame(3),
+                opaque_rect(0.0, 0.0, 50.0, 50.0),
+                DisplayListItem::PopReferenceFrame,
+                DisplayListItem::PopOpacity,
+            ],
+            1,
+        );
+        assert_eq!(
+            node_groups_on_screen(
+                &under_transparent,
+                &ScrollOffsetMap::new(),
+                &none_t,
+                &none_o,
+                viewport,
+                &nodes
+            )
+            .get(&node)
+            .copied(),
+            Some(false),
+            "an opacity-0 ancestor hides the group"
+        );
+
+        let carried_away = mapped(
+            vec![
+                ref_frame(9),
+                ref_frame(3),
+                opaque_rect(0.0, 0.0, 50.0, 50.0),
+                DisplayListItem::PopReferenceFrame,
+                DisplayListItem::PopReferenceFrame,
+            ],
+            1,
+        );
+        let mut outer: HashMap<usize, ComputedTransform3D> = HashMap::new();
+        outer.insert(9, translate(1000.0, 0.0));
+        assert_eq!(
+            node_groups_on_screen(
+                &carried_away,
+                &ScrollOffsetMap::new(),
+                &outer,
+                &none_o,
+                viewport,
+                &nodes
+            )
+            .get(&node)
+            .copied(),
+            Some(false),
+            "an enclosing frame moved 1000px right carries the group out of a 400px window"
+        );
+        assert_eq!(
+            node_groups_on_screen(
+                &carried_away,
+                &ScrollOffsetMap::new(),
+                &none_t,
+                &none_o,
+                viewport,
+                &nodes
+            )
+            .get(&node)
+            .copied(),
+            Some(true),
+            "harness: unmoved, the same group shows"
+        );
     }
 
     // ============================== display list diffing =====================
