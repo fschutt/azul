@@ -654,3 +654,7 @@ mod an_underline_covers_the_last_letter_of_its_run;
 mod a_click_on_a_link_inside_a_paragraph_reaches_the_link;
 #[path = "a_components_declared_arguments_reach_its_render_fn.rs"]
 mod a_components_declared_arguments_reach_its_render_fn;
+#[path = "a_table_cell_with_loose_text_and_a_block_paints_both.rs"]
+mod a_table_cell_with_loose_text_and_a_block_paints_both;
+#[path = "a_narrow_table_wraps_its_cells_to_fit.rs"]
+mod a_narrow_table_wraps_its_cells_to_fit;
