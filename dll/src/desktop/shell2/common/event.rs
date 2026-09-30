@@ -4353,7 +4353,8 @@ pub trait PlatformWindow {
             lw.update_animation_culling(window_can_show);
             let had_work = lw.needs_animation_frame();
             // The same step `tick_animations_now` is about to take: real time
-            // since the previous tick, a 16 ms frame after an idle period.
+            // since the previous tick, one frame of this window after an
+            // idle period.
             let dt = lw.animation_step_at(&now);
             lw.tick_animations_now();
             (had_work, dt)

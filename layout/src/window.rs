@@ -2255,8 +2255,6 @@ impl LayoutWindow {
         self.frame_report.as_of_generation(generation)
     }
 
-    /// Record the damage of a freshly rendered frame on this window's report,
-    /// applying any pending counter reset first.
     /// A frame of this window went to its renderer (see
     /// [`Self::presented_frames`]).
     pub fn note_frame_presented(&self) {
@@ -2277,6 +2275,8 @@ impl LayoutWindow {
         )
     }
 
+    /// Record the damage of a freshly rendered frame on this window's report,
+    /// applying any pending counter reset first.
     pub fn record_frame(&mut self, paint: FrameDamage, present: FrameDamage) {
         let generation = self.frame_report_reset_request.load(Ordering::SeqCst);
         self.frame_report
@@ -9725,17 +9725,19 @@ impl LayoutWindow {
     /// primary one, else the first.
     #[must_use]
     pub fn monitor_refresh_rate_hz(&self) -> Option<u32> {
-        let monitors = self.monitors.lock().ok()?;
-        let monitors = monitors.as_ref();
+        let guard = self.monitors.lock().ok()?;
+        let monitors: &[azul_core::window::Monitor] = guard.as_ref();
         let on = self.current_window_state.monitor_id.into_option();
-        on.and_then(|index| {
-            monitors
-                .iter()
-                .find(|m| m.monitor_id.index == index as usize)
-        })
-        .or_else(|| monitors.iter().find(|m| m.is_primary_monitor))
-        .or_else(|| monitors.first())
-        .and_then(azul_core::window::Monitor::refresh_rate_hz)
+        let monitor = on
+            .and_then(|index| {
+                monitors
+                    .iter()
+                    .find(|m| m.monitor_id.index == index as usize)
+            })
+            .or_else(|| monitors.iter().find(|m| m.is_primary_monitor))
+            .or_else(|| monitors.first());
+        let hz = monitor.and_then(azul_core::window::Monitor::refresh_rate_hz);
+        hz
     }
 
     /// THIS WINDOW'S frame interval, in ns - the one source of truth every

@@ -1717,7 +1717,7 @@ pub fn scroll_all_nodes(layout_window: &mut LayoutWindow, txn: &mut WrTransactio
 /// See `GpuStateManager::gpu_values_changed`.
 #[must_use]
 pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) -> bool {
-    use webrender::api::{DynamicProperties, PropertyBinding, PropertyValue};
+    use webrender::api::{DynamicProperties, PropertyValue};
 
     // Get DPI scale factor to match display list coordinate space.
     // Display list items are in logical CSS pixels scaled by DPI in compositor2.

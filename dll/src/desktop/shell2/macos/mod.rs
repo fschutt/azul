@@ -2710,8 +2710,10 @@ impl GLView {
         // during window creation; ongoing ticking is driven by the repeating
         // NSTimers that start_timer / start_thread_poll_timer create.
         use objc2::sel;
-        // One frame of the window this view belongs to.
-        let delay: f64 = (*(window_ptr as *mut MacOSWindow)).frame_interval_secs();
+        // The next run-loop turn: window creation has finished by then. (Not
+        // a frame length - this is no pacing, and the window behind
+        // `window_ptr` is still borrowed by the caller.)
+        let delay: f64 = 0.0;
         let _: () = msg_send![self, performSelector: sel!(tickTimers:), withObject: std::ptr::null::<NSObject>(), afterDelay: delay];
     }
 
@@ -2734,8 +2736,10 @@ impl CPUView {
         // during window creation; ongoing ticking is driven by the repeating
         // NSTimers that start_timer / start_thread_poll_timer create.
         use objc2::sel;
-        // One frame of the window this view belongs to.
-        let delay: f64 = (*(window_ptr as *mut MacOSWindow)).frame_interval_secs();
+        // The next run-loop turn: window creation has finished by then. (Not
+        // a frame length - this is no pacing, and the window behind
+        // `window_ptr` is still borrowed by the caller.)
+        let delay: f64 = 0.0;
         let _: () = msg_send![self, performSelector: sel!(tickTimers:), withObject: std::ptr::null::<NSObject>(), afterDelay: delay];
     }
 
@@ -7409,7 +7413,6 @@ impl MacOSWindow {
     }
 
     /// Handle a menu action from a menu item click
-
     fn handle_menu_action(&mut self, tag: isize) {
         use azul_core::events::ProcessEventResult;
 
