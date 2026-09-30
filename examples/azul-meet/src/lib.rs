@@ -2217,10 +2217,7 @@ fn take_video(
         return false;
     };
     let now = now_ms(s);
-    let me = s.me;
-    let mine = assignment(s, origin, header.track)
-        .get(&me)
-        .is_some_and(|got| got.height == header.height);
+    let mine = shows(s, origin, header.track, header.height);
     let Some(remote) = s.remotes.iter_mut().find(|r| r.key == origin) else {
         return false;
     };
@@ -2429,7 +2426,8 @@ fn video_lines(s: &MeetState) -> Vec<String> {
             let Some(codec) = input.rules.codec().or(input.seen) else {
                 continue;
             };
-            if !input.shown || stats.packets == 0 {
+            // A rendition this side no longer shows keeps no line.
+            if !input.shown || stats.packets == 0 || !shows(s, r.key, *track, *height) {
                 continue;
             }
             let mut source = rendition_label(*track, *height);
@@ -2590,6 +2588,13 @@ fn assignment_among(
 /// Which stream each participant of the plan gets of `origin`'s `track`.
 fn assignment(s: &MeetState, origin: u64, track: u32) -> BTreeMap<u64, routes::Stream> {
     assignment_among(s, s.plan.peers(), origin, track)
+}
+
+/// Whether this side gets (and shows) the `height` rendition of `origin`'s `track`.
+fn shows(s: &MeetState, origin: u64, track: u32, height: u16) -> bool {
+    assignment(s, origin, track)
+        .get(&s.me)
+        .is_some_and(|got| got.height == height)
 }
 
 /// The heights of this side's `track` someone shows, smallest first; none while the track is off.
