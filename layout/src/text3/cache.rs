@@ -4657,6 +4657,55 @@ impl Default for StyleProperties {
     }
 }
 
+impl StyleProperties {
+    /// Whether the text reads as bold to a format that has only a boolean for
+    /// it (a clipboard flavour, an editor's B button): its first font asks for
+    /// a weight of 700 or more. `FcWeight` is ordered by its CSS numeric
+    /// value, so this is that comparison.
+    #[must_use]
+    pub fn is_bold(&self) -> bool {
+        self.font_stack
+            .first_selector()
+            .is_some_and(|s| s.weight >= FcWeight::Bold)
+    }
+
+    /// Whether the text reads as italic: oblique is a slanted rendering of an
+    /// upright face, and every format this feeds collapses it into italic.
+    #[must_use]
+    pub fn is_italic(&self) -> bool {
+        self.font_stack
+            .first_selector()
+            .is_some_and(|s| matches!(s.style, FontStyle::Italic | FontStyle::Oblique))
+    }
+
+    /// This style with every font of its stack asking for `weight` - a
+    /// direct font reference (an embedded icon font) has no weight to ask for
+    /// and stays as it is.
+    #[must_use]
+    pub fn with_font_weight(&self, weight: FcWeight) -> Self {
+        let mut style = self.clone();
+        if let FontStack::Stack(selectors) = &mut style.font_stack {
+            for selector in selectors {
+                selector.weight = weight;
+            }
+        }
+        style
+    }
+
+    /// This style with every font of its stack asking for `font_style` (see
+    /// [`Self::with_font_weight`]).
+    #[must_use]
+    pub fn with_font_style(&self, font_style: FontStyle) -> Self {
+        let mut style = self.clone();
+        if let FontStack::Stack(selectors) = &mut style.font_stack {
+            for selector in selectors {
+                selector.style = font_style;
+            }
+        }
+        style
+    }
+}
+
 impl Hash for StyleProperties {
     #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn hash<H: Hasher>(&self, state: &mut H) {

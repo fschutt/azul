@@ -691,6 +691,12 @@ pub enum CallbackChange {
     SetTextChangeset {
         changeset: PendingTextEdit,
     },
+    /// Toggle a character format for the editing session in `host`
+    /// (`LayoutWindow::toggle_text_format`): an editor's B / I / U button.
+    ToggleTextFormat {
+        host: DomNodeId,
+        format: azul_core::events::TextFormat,
+    },
 
     // Cursor Movement Operations
     /// Move cursor left (arrow left)
@@ -3454,6 +3460,17 @@ impl CallbackInfo {
             node_id,
             selection,
         });
+    }
+
+    /// Toggle `format` at the caret of the editing session in the editor
+    /// `host` - what Ctrl/Cmd+B, I and U do, for an editor's toolbar button.
+    ///
+    /// On a collapsed caret the next typed text takes the format (the
+    /// editor's typing style); moving the caret drops it. A selection is the
+    /// app's to format in its own model (`get_document_selection` names its
+    /// spans). Applied after the callback returns.
+    pub fn toggle_text_format(&mut self, host: DomNodeId, format: azul_core::events::TextFormat) {
+        self.push_change(CallbackChange::ToggleTextFormat { host, format });
     }
 
     // === Multi-Cursor Operations ===

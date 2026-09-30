@@ -11818,15 +11818,117 @@ impl LayoutWindow {
     }
 
     /// Toggle `format` for the editing session in `target`'s host
-    /// (`DefaultAction::ToggleTextFormat`, Ctrl/Cmd+B / I / U). Returns
-    /// whether anything changed.
+    /// (`DefaultAction::ToggleTextFormat`, Ctrl/Cmd+B / I / U, or an app's
+    /// B button through `CallbackInfo::toggle_text_format`). Returns whether
+    /// anything changed.
+    ///
+    /// On a collapsed caret this is the execCommand spec's STATE OVERRIDE
+    /// (<https://w3c.github.io/editing/docs/execCommand/#overrides>): the
+    /// session's typing style ([`TypingStyle`]) flips `format` against what
+    /// the run under the caret has, and the next typed text takes it
+    /// (`apply_one_text_changeset`). Toggled back to what the run has, the
+    /// override goes. A selection is the app's to format (its model holds
+    /// the runs; `CallbackInfo::get_document_selection` names them): nothing
+    /// happens here, and an app that handles the key calls `prevent_default`.
+    ///
+    /// [`TypingStyle`]: crate::managers::text_edit::TypingStyle
     pub fn toggle_text_format(
         &mut self,
         target: DomNodeId,
         format: azul_core::events::TextFormat,
     ) -> bool {
-        let _ = (target, format);
-        false
+        use crate::{
+            block_content::BlockContent, managers::text_edit::TypingStyle,
+            text3::edit::FormatOverrides,
+        };
+
+        if self.text_edit_manager.get_cross_block_selection().is_some() {
+            return false;
+        }
+        let Some(target_node) = target.node.into_crate_internal() else {
+            return false;
+        };
+        let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() else {
+            return false;
+        };
+        let block = mc.block;
+        if mc.local_len() != 1
+            || block.dom() != target.dom
+            || !self.node_is_self_or_descendant(target.dom, block.first_node(), target_node)
+        {
+            return false;
+        }
+        let Some(selection) = mc.get_primary().map(|p| p.selection) else {
+            return false;
+        };
+        let Some(element) = block.element() else {
+            return false;
+        };
+        let (items, generated) = self.element_content(block.dom(), element).into_parts();
+        let caret = match selection {
+            Selection::Cursor(c) => c,
+            Selection::Range(r) => {
+                match crate::text3::edit::collapsed_range_caret(&items, &r) {
+                    Some(c) => c,
+                    None => return false,
+                }
+            }
+        };
+        let at = BlockContent::past_generated(caret, generated);
+        // The style the typed text goes into: the caret's run's - or, in a
+        // block with no text yet, the one its first keystroke is seeded with.
+        let base = match items.get(at.cluster_id.source_run as usize) {
+            Some(InlineContent::Text(run)) => run.style.clone(),
+            _ => {
+                let style_node = self.seed_style_node(block.dom(), element).unwrap_or(element);
+                self.get_text_style_for_node(block.dom(), style_node)
+            }
+        };
+        let mut formats = self
+            .text_edit_manager
+            .typing_style
+            .filter(|ts| ts.block == block && self.same_caret_position(block, ts.caret, caret))
+            .map_or_else(FormatOverrides::default, |ts| ts.formats);
+        let has = FormatOverrides::style_has(&base, format);
+        let now = !formats.get(format).unwrap_or(has);
+        formats.set(format, (now != has).then_some(now));
+        self.text_edit_manager.typing_style = (!formats.is_empty()).then_some(TypingStyle {
+            block,
+            caret,
+            formats,
+        });
+        true
+    }
+
+    /// The typing style the insertion at `selections` - the session's, in
+    /// `block`, over `content` whose first `generated` items the layout
+    /// generated - takes: the session's [`TypingStyle`] when the insertion
+    /// is one caret standing where the formats were toggled.
+    ///
+    /// [`TypingStyle`]: crate::managers::text_edit::TypingStyle
+    fn typing_formats_at(
+        &self,
+        block: Option<TextBlock>,
+        content: &[InlineContent],
+        generated: usize,
+        selections: &[Selection],
+    ) -> Option<crate::text3::edit::FormatOverrides> {
+        let style = self.text_edit_manager.typing_style?;
+        let [Selection::Cursor(caret)] = selections else {
+            return None;
+        };
+        if Some(style.block) != block {
+            return None;
+        }
+        let at = crate::block_content::BlockContent::past_generated(style.caret, generated);
+        crate::text3::edit::collapsed_range_caret(
+            content,
+            &SelectionRange {
+                start: at,
+                end: *caret,
+            },
+        )?;
+        Some(style.formats)
     }
 
     /// Apply a unified selection operation (navigation, extend, or delete).
@@ -11875,6 +11977,13 @@ impl LayoutWindow {
         let dom_id = target.dom;
         if target.node.into_crate_internal().is_none() {
             return false;
+        }
+
+        // Every key of the primary's caret moves it or edits at it: the
+        // typing style (a format toggled at the caret) is over - the
+        // execCommand overrides are unset when a boundary point changes.
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            self.text_edit_manager.typing_style = None;
         }
 
         // A plain arrow over a DOCUMENT selection collapses it: moving the
@@ -19066,10 +19175,50 @@ impl LayoutWindow {
             }),
         };
 
-        // Apply the edit using text3::edit - this is a pure function
+        // Apply the edit using text3::edit - this is a pure function.
+        //
+        // THE TYPING STYLE: formats toggled at this very caret (Ctrl+B with
+        // no selection, `toggle_text_format`) format the text typed here, in
+        // a run of its own; the caret ends inside it, so the typing that
+        // follows continues it.
+        let typed_formats = if is_primary_seat {
+            self.typing_formats_at(caret_block, &content, generated, &current_selection)
+        } else {
+            None
+        };
         let text_edit = TextEdit::Insert(changeset.inserted_text.as_str().to_string());
+        let outcome = match (typed_formats, current_selection.as_slice()) {
+            (Some(formats), [Selection::Cursor(caret)]) => {
+                let text = changeset.inserted_text.as_str();
+                let (formatted, cursor) = crate::text3::edit::insert_formatted_text(
+                    &content,
+                    caret,
+                    text,
+                    &[crate::text3::edit::FormatSpan {
+                        start: 0,
+                        end: text.len(),
+                        formats,
+                    }],
+                );
+                if formatted == content {
+                    crate::text3::edit::EditOutcome::NoOp(
+                        crate::text3::edit::EditNoOp::EverySelectionMissed,
+                    )
+                } else {
+                    crate::text3::edit::EditOutcome::Applied {
+                        content: formatted,
+                        selections: vec![Selection::Cursor(cursor)],
+                    }
+                }
+            }
+            _ => crate::text3::edit::edit_text_outcome(&content, &current_selection, &text_edit),
+        };
+        if typed_formats.is_some() {
+            // Taken: it lives in the run the caret now stands in.
+            self.text_edit_manager.typing_style = None;
+        }
         let (new_content, new_selections) =
-            match crate::text3::edit::edit_text_outcome(&content, &current_selection, &text_edit) {
+            match outcome {
                 crate::text3::edit::EditOutcome::Applied {
                     content,
                     selections,
@@ -21877,6 +22026,8 @@ impl LayoutWindow {
     ) -> Option<Vec<DomNodeId>> {
         let affected = self.place_selection_at_click(position, time_ms);
         if affected.is_some() {
+            // A click puts the caret anew: the typing style is over.
+            self.text_edit_manager.typing_style = None;
             self.request_session_reveal();
         }
         affected

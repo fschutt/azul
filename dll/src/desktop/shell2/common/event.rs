@@ -6961,6 +6961,14 @@ pub trait PlatformWindow {
                 ProcessEventResult::DoNothing
             }
 
+            CallbackChange::ToggleTextFormat { host, format } => {
+                // The toolbar's B / I / U: the typing style at the caret.
+                if let Some(lw) = self.get_layout_window_mut() {
+                    let _ = lw.toggle_text_format(*host, *format);
+                }
+                ProcessEventResult::DoNothing
+            }
+
             // === Cursor Movement ===
             CallbackChange::MoveCursorLeft { .. }
             | CallbackChange::MoveCursorRight { .. }
@@ -12752,7 +12760,16 @@ pub trait PlatformWindow {
                                     }
                                 }
 
-                                DefaultAction::ToggleTextFormat { .. } => {}
+                                DefaultAction::ToggleTextFormat { target, format } => {
+                                    // Ctrl/Cmd+B / I / U: the typing style at the
+                                    // primary's caret (nothing to repaint - the
+                                    // next typed text shows it).
+                                    if key_seat == azul_core::window::PRIMARY_POINTER_SEAT {
+                                        if let Some(lw) = self.get_layout_window_mut() {
+                                            let _ = lw.toggle_text_format(*target, *format);
+                                        }
+                                    }
+                                }
 
                                 DefaultAction::CloseModal { .. } | DefaultAction::SelectAllText => {
                                     // Placeholder for future implementation

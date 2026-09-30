@@ -695,6 +695,8 @@ impl LayoutWindow {
     ///
     /// [`TextEditManager::enter_focus_scope`]: crate::managers::text_edit::TextEditManager::enter_focus_scope
     pub fn open_session(&mut self, block: TextBlock, range: SelectionRange) {
+        // A caret placed anew: no format toggled at the old one carries over.
+        self.text_edit_manager.typing_style = None;
         let key = self.contenteditable_session_key(block.dom(), block.container());
         let scope = self.find_focusable_ancestor(block.container_dom_node());
         self.text_edit_manager.enter_focus_scope(scope);
@@ -793,6 +795,7 @@ impl LayoutWindow {
         };
         if self.names_session_block(node) {
             self.text_edit_manager.clear_cross_block_selection();
+            self.text_edit_manager.typing_style = None;
             if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
                 if range.start == range.end {
                     mc.set_single_cursor(range.start);

@@ -518,6 +518,27 @@ pub struct TextEditManager {
     /// BEFORE a typed character lands, so a model synced from `Input` is one
     /// keystroke behind).
     pub pending_text_changed: Vec<DomNodeId>,
+    /// The TYPING STYLE: formats toggled at a collapsed caret (Ctrl/Cmd+B
+    /// with no selection) that the next typed text takes
+    /// (`LayoutWindow::toggle_text_format`). Unset when the caret moves.
+    pub typing_style: Option<TypingStyle>,
+}
+
+/// Formats a toggle at a collapsed caret left for the text typed next - the
+/// execCommand spec's state overrides
+/// (<https://w3c.github.io/editing/docs/execCommand/#overrides>): set by
+/// `bold` / `italic` / ... on a collapsed selection, taken by the next
+/// insertion, and unset "whenever a boundary point of the range at a given
+/// index in the selection changes". Kept with the caret it was set at: a
+/// keystroke at any other caret does not take it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TypingStyle {
+    /// The block the caret stood in.
+    pub block: TextBlock,
+    /// The caret the formats were toggled at.
+    pub caret: TextCursor,
+    /// What the typed text sets or clears over the run it goes into.
+    pub formats: crate::text3::edit::FormatOverrides,
 }
 
 /// The colour a seat's caret and selection are drawn in (9b-ii-a-i-d-ii-a):
@@ -715,6 +736,7 @@ impl TextEditManager {
             pending_edit_notifications: Vec::new(),
             pending_text_changed: Vec::new(),
             value_at_focus: None,
+            typing_style: None,
         }
     }
 

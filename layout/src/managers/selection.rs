@@ -149,18 +149,12 @@ impl ClipboardExtract {
             font_size_px: style.font_size_px,
             color: style.color,
             // CSS `font-weight: bold` is 700; everything at or above it reads
-            // as bold to a format that only has a boolean. `FcWeight` is
-            // ordered by its CSS numeric value, so this is that comparison.
-            is_bold: selector.is_some_and(|s| s.weight >= rust_fontconfig::FcWeight::Bold),
+            // as bold to a format that only has a boolean - the one rule an
+            // editor's typing style reads too (`StyleProperties::is_bold`).
+            is_bold: style.is_bold(),
             // Oblique is a slanted rendering of an upright face; every
             // clipboard format this feeds collapses it into italic.
-            is_italic: selector.is_some_and(|s| {
-                matches!(
-                    s.style,
-                    crate::text3::cache::FontStyle::Italic
-                        | crate::text3::cache::FontStyle::Oblique
-                )
-            }),
+            is_italic: style.is_italic(),
         };
 
         match self.runs.last_mut() {

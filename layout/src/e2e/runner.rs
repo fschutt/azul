@@ -2861,6 +2861,10 @@ impl Runner {
                     .set_changeset(changeset.clone());
                 ProcessEventResult::DoNothing
             }
+            CallbackChange::ToggleTextFormat { host, format } => {
+                let _ = self.layout_window.toggle_text_format(*host, *format);
+                ProcessEventResult::DoNothing
+            }
 
             // === Cursor movement ===
             CallbackChange::MoveCursorLeft { .. }
@@ -4126,6 +4130,14 @@ impl Runner {
                 } else {
                     (ProcessEventResult::DoNothing, false)
                 }
+            }
+            // Ctrl/Cmd+B / I / U: the typing style at the caret, as the dll
+            // shell sets it.
+            DefaultAction::ToggleTextFormat { target, format } => {
+                if is_primary {
+                    let _ = self.layout_window.toggle_text_format(*target, *format);
+                }
+                (ProcessEventResult::DoNothing, false)
             }
             // ==== E1: `ScrollFocusedContainer` ====
             // PgUp / PgDn / Space / Home / End, and an arrow with nowhere to

@@ -145,6 +145,26 @@ pub fn determine_keyboard_default_action_with_env(
     let ctrl_down = keyboard_state.ctrl_down();
     let alt_down = keyboard_state.alt_down();
 
+    // The formatting keys of a RICH editing host: Ctrl+B / I / U (Cmd on
+    // macOS), `execCommand("bold" | "italic" | "underline")`. A plain-text
+    // host (a text area, a `white-space: pre*` host) has no formats.
+    if keyboard_state.primary_down() && !shift_down && !alt_down {
+        let format = match current_key {
+            VirtualKeyCode::B => Some(azul_core::events::TextFormat::Bold),
+            VirtualKeyCode::I => Some(azul_core::events::TextFormat::Italic),
+            VirtualKeyCode::U => Some(azul_core::events::TextFormat::Underline),
+            _ => None,
+        };
+        if let (Some(format), Some(focus), Some(e)) = (format, focused_node.as_ref(), editing) {
+            if e.is_contenteditable && !e.host_preserves_newlines {
+                return DefaultActionResult::new(DefaultAction::ToggleTextFormat {
+                    target: *focus,
+                    format,
+                });
+            }
+        }
+    }
+
     // Determine action based on key
     let action = match current_key {
         // Tab navigation
