@@ -42,15 +42,22 @@ fn page(content_height: f32) -> StyledDom {
     )
 }
 
-/// One layout pass of `styled` in a 400x300 window, the way the shells run
-/// one: the window state first, then the funnel, which publishes the scroll
-/// state.
-fn lay_out(lw: &mut LayoutWindow, styled: StyledDom) {
+/// One layout pass of a NEW DOM `styled` in a 400x300 window, the way the
+/// shells run one (`regenerate_layout`): the window state, then the
+/// reconciliation - which stages the CSS diff the solver needs to see a
+/// sheet change over an identical tree - then the funnel, which publishes
+/// the scroll state, then the reconciliation's completion.
+fn lay_out(lw: &mut LayoutWindow, mut styled: StyledDom) {
     let mut ws = FullWindowState::default();
     ws.size.dimensions = LogicalSize::new(400.0, 300.0);
     lw.current_window_state = ws.clone();
+    let pending = lw.begin_reconciliation(
+        DomId::ROOT_ID,
+        &mut styled,
+        azul_core::task::Instant::now(),
+    );
     let mut debug = None;
-    lw.layout_and_generate_display_list(
+    lw.layout_new_generation(
         styled,
         &ws,
         &RendererResources::default(),
@@ -58,6 +65,7 @@ fn lay_out(lw: &mut LayoutWindow, styled: StyledDom) {
         &mut debug,
     )
     .expect("the page lays out");
+    lw.finish_reconciliation(DomId::ROOT_ID, &pending);
 }
 
 /// The box's thumb as this pass's display list paints it.
@@ -88,8 +96,6 @@ fn pressed_thumb_length(lw: &LayoutWindow) -> f32 {
 }
 
 #[test]
-#[ignore = "S1 (2026-09-29, first run): harness premise fails - twice the content gives the same \
-            88px thumb, so the box does not grow as the test assumes - under investigation"]
 fn a_grown_scroll_box_paints_its_thumb_from_the_layout_that_grew_it() {
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
     lay_out(&mut lw, page(400.0));
