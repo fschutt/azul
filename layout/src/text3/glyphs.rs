@@ -47,6 +47,13 @@ pub struct SimpleGlyphRun {
     pub is_ime_preview: bool,
     /// The source DOM node that generated this text run (for hit-testing)
     pub source_node_id: Option<NodeId>,
+    /// Where the run ENDS on the inline axis, in the glyphs' space: the pen
+    /// after its last glyph (`x + advance`). A paint run does not carry
+    /// per-glyph advances (`GlyphInstance::size` is never populated), so
+    /// without this the extent of a run - its inline background and border,
+    /// its underline, its hit-test area - stopped at the LAST glyph's pen,
+    /// one letter short (`<u>W</u>` had no underline at all).
+    pub end_x: f32,
 }
 
 /// #25: the STORED form of a paint run's glyphs — 8 B/glyph instead of the
@@ -177,6 +184,8 @@ pub struct CompactGlyphRun {
     pub text_decoration: crate::text3::cache::TextDecoration,
     pub is_ime_preview: bool,
     pub source_node_id: Option<NodeId>,
+    /// See [`SimpleGlyphRun::end_x`].
+    pub end_x: f32,
 }
 
 impl From<SimpleGlyphRun> for CompactGlyphRun {
@@ -192,6 +201,7 @@ impl From<SimpleGlyphRun> for CompactGlyphRun {
             text_decoration: r.text_decoration,
             is_ime_preview: r.is_ime_preview,
             source_node_id: r.source_node_id,
+            end_x: r.end_x,
         }
     }
 }
@@ -212,6 +222,7 @@ impl CompactGlyphRun {
             text_decoration: self.text_decoration,
             is_ime_preview: self.is_ime_preview,
             source_node_id: self.source_node_id,
+            end_x: self.end_x,
         }
     }
 }
@@ -232,6 +243,10 @@ pub fn simple_runs_bit_equal(a: &SimpleGlyphRun, b: &SimpleGlyphRun) -> bool {
         && a.text_decoration == b.text_decoration
         && a.is_ime_preview == b.is_ime_preview
         && a.source_node_id == b.source_node_id
+        // The two builders reach the end pen by different sums (per-glyph
+        // advance + kerning, or the cluster's advance): equal up to float
+        // rounding, not bit for bit.
+        && ((a.end_x - b.end_x).abs() <= 1e-3 || (a.end_x.is_nan() && b.end_x.is_nan()))
         && a.glyphs.len() == b.glyphs.len()
         && a.glyphs.iter().zip(b.glyphs.iter()).all(|(g, h)| {
             g.index == h.index
@@ -318,6 +333,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                                 text_decoration,
                                 is_ime_preview: false,
                                 source_node_id,
+                                end_x: pen_x,
                             });
                         }
                     } else {
@@ -333,10 +349,15 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                             text_decoration,
                             is_ime_preview: false,
                             source_node_id,
+                            end_x: pen_x,
                         });
                     }
 
                     pen_x += glyph.advance + glyph.kerning;
+                    // The run this glyph joined now ends after it.
+                    if let Some(run) = current_run.as_mut() {
+                        run.end_x = pen_x;
+                    }
                 }
             };
 

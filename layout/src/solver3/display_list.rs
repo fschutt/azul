@@ -8166,7 +8166,9 @@ where
             {
                 // Calculate run bounds from glyph positions
                 let run_start_x = container_rect.origin.x + first_glyph.point.x;
-                let run_end_x = container_rect.origin.x + last_glyph.point.x;
+                // The pen AFTER the last glyph (`end_x`), not the last pen:
+                // a run's extent covers its last letter.
+                let run_end_x = container_rect.origin.x + glyph_run.end_x.max(last_glyph.point.x);
                 let run_width = (run_end_x - run_start_x).max(0.0);
 
                 // Skip if run has no width
@@ -8410,7 +8412,9 @@ where
                     (glyph_run.glyphs.first(), glyph_run.glyphs.last())
                 {
                     let decoration_start_x = container_rect.origin.x + first_glyph.point.x;
-                    let decoration_end_x = container_rect.origin.x + last_glyph.point.x;
+                    // Under the last letter too (`end_x`: the pen after it).
+                    let decoration_end_x =
+                        container_rect.origin.x + glyph_run.end_x.max(last_glyph.point.x);
                     let decoration_width = decoration_end_x - decoration_start_x;
 
                     // Use font metrics to determine decoration positions
@@ -8473,7 +8477,9 @@ where
                 (glyph_run.glyphs.first(), glyph_run.glyphs.last())
             {
                 let run_start_x = container_rect.origin.x + first_glyph.point.x;
-                let run_end_x = container_rect.origin.x + last_glyph.point.x;
+                // The pen AFTER the last glyph (`end_x`), not the last pen:
+                // a run's extent covers its last letter.
+                let run_end_x = container_rect.origin.x + glyph_run.end_x.max(last_glyph.point.x);
                 let run_width = (run_end_x - run_start_x).max(0.0);
 
                 // Skip if run has no width

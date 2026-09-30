@@ -1344,18 +1344,18 @@ pub fn get_glyph_runs_simple_dense(dense: &DenseText) -> Vec<SimpleGlyphRun> {
                 text_decoration: style.text_decoration,
                 is_ime_preview: false,
                 source_node_id,
+                end_x: c.x,
             });
         }
-        let out = &mut current_run
-            .as_mut()
-            .expect("opened above when absent")
-            .glyphs;
+        let open = current_run.as_mut().expect("opened above when absent");
 
+        // The run ends after this cluster (`SimpleGlyphRun::end_x`): the pen
+        // after its glyphs, as the reference walker advances it.
         match detail {
             Some(d) => {
                 let mut pen_x = c.x;
                 for dg in &dense.detail_glyphs[d.glyphs.0 as usize..d.glyphs.1 as usize] {
-                    out.push(GlyphInstance {
+                    open.glyphs.push(GlyphInstance {
                         index: u32::from(dg.glyph_id),
                         point: LogicalPosition {
                             x: pen_x + dg.offset_x,
@@ -1365,9 +1365,10 @@ pub fn get_glyph_runs_simple_dense(dense: &DenseText) -> Vec<SimpleGlyphRun> {
                     });
                     pen_x += dg.advance;
                 }
+                open.end_x = pen_x;
             }
             None => {
-                out.push(GlyphInstance {
+                open.glyphs.push(GlyphInstance {
                     index: u32::from(c.glyph_id),
                     point: LogicalPosition {
                         x: c.x,
@@ -1375,6 +1376,7 @@ pub fn get_glyph_runs_simple_dense(dense: &DenseText) -> Vec<SimpleGlyphRun> {
                     },
                     size: LogicalSize::default(),
                 });
+                open.end_x = c.x + c.advance;
             }
         }
     }
