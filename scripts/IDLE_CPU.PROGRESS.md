@@ -39,10 +39,18 @@
 - a4d939c4d test(anim): a rotate/fade animation tick repaints without a display-list rebuild (RED)
 - f7deb7d0e fix(anim): a rotate/fade tick repaints its rect without rebuilding the list
 
+- c5aef5305 test(debug-server): an unchanged window is not captured again (RED)
+- f81bd3a22 fix(debug-server): serve an unchanged window's screenshot from a cache
+- 5571a9c66 chore(idle-cpu): scripts/idle_cpu_probe.py
+- 7e53d7945 fix(idle-cpu): review pass
+- 49e3cee43 test(idle-cpu): the spinner harness consumes the dirty flag
+- report: scripts/IDLE_CPU_2026_09_30.md
+
 ## IN PROGRESS
-6. debug-server screenshot cache + builder page polling
+(none - all seven items done; parent compiles, runs the suites and the probe)
 
 ## NEXT
-see order
+Parent: compile, run the test commands in the report, run
+`python3 scripts/idle_cpu_probe.py --sample` before/after.
 
 ## Open questions
