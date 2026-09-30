@@ -16,15 +16,17 @@ UNCOMPILED (house rule): every RED is derived from reading the code.
 - E-SET: RED 5111e1865, fix 30cd5f1ab: `LayoutWindow::reset_editor_content`,
   `CallbackInfo::reset_editor_content`, `place_pending_caret`; the caret text snapshot is keyed by
   block element too (a latent shift after any session move between blocks of one host).
-- E-NESTED: RED 92ec5e88a, fix (next commit): `structural_edit_node` = the caret's block element.
+- E-NESTED: RED 92ec5e88a, fix c69a33770: `structural_edit_node` = the caret's block element.
+- Refactor: one `element_shell` clone for the block replacements.
+- Report `scripts/EDITOR_2026_09_30.md` written and committed.
 
 ## IN PROGRESS
 
-- Report `scripts/EDITOR_2026_09_30.md`.
+- (done)
 
 ## NEXT
 
-- (nothing after the report; item 7's deferred selection items were not needed to unblock 1-6)
+- (nothing; item 7's deferred selection items were not needed to unblock 1-6 - see the report)
 
 ## api.json so far
 
