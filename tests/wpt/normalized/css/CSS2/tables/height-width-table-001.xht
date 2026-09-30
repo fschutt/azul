@@ -1,0 +1,35 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<style>
+  div#overlapped-red-reference
+  {
+  background-color: red;
+  height: 100px;
+  position: absolute;
+  width: 100px;
+  z-index: -1;
+  }
+
+  div#overlapping-green-test
+  {
+  background-color: green;
+  border: green solid 25px;
+  border-collapse: separate;
+  display: table;
+  height: 50px;
+  width: 50px;
+  }
+  
+</style>
+</head>
+<body>
+
+  <p>Test passes if there is a filled green square and <strong>no red</strong>.</p>
+
+  <div id="overlapped-red-reference"></div>
+
+  <div id="overlapping-green-test"></div>
+
+ 
+</body>
+</html>

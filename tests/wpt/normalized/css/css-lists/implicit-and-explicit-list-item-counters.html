@@ -1,0 +1,29 @@
+<html>
+<head>
+<style>
+ol.with-custom-markers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+ol.with-custom-markers li {
+  list-style: none;
+}
+ol.with-custom-markers &gt; li::before {
+  content: counter(list-item) ". ";
+}
+</style>
+</head>
+<body><ol class="with-custom-markers">
+  <li>List item 1</li>
+  <li>
+    List item 2
+    <ul style="margin: 0; padding: 0;">
+      <li>With sub items</li>
+      <li>With sub items</li>
+    </ul>
+  </li>
+  <li>List item 3</li>
+</ol>
+</body>
+</html>

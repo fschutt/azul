@@ -1,0 +1,49 @@
+<html>
+<head>
+<style>
+      div.wrapper {
+        font-size: 2em;
+        position: relative;
+      }
+      sup.baseline {
+        vertical-align: baseline;
+      }
+      .hide {
+        color: transparent;
+      }
+      div {
+        white-space: nowrap;
+      }
+    
+</style>
+</head>
+<body>
+    <p>Test passes if there is a single uniform underline for all the text in each line,
+      <i>not</i> a separate underline for the superscripts:
+    </p>
+    <div class="wrapper">
+      <div style="position: absolute; top: 1em;">
+        
+        <div style="position: absolute; overflow: hidden;">Einstein said that <i>e = mc<sup>2</sup></i>.
+          <div style="position: absolute; top: 0;">
+            
+            <span style="text-decoration: underline;">
+              <span class="hide">Einstein said that e = mc2......</span></span>
+            <span class="hide"><sup>2</sup></span>
+          </div>
+        </div>
+      </div>
+      <div style="position: absolute; top: 3em;">
+        <div style="position: absolute; overflow: hidden;">Is <i>a<sup>n</sup> + b<sup>n</sup> = c<sup>n</sup></i> ever true for <i>n</i> &gt; 2.
+          <div style="position: absolute; top: 0;">
+            <span style="text-decoration: underline;">
+              <span class="hide">Is an + bn = cn ever true for n &gt; 2......</span></span>
+            <span class="hide"><sup>n</sup></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  
+
+</body>
+</html>

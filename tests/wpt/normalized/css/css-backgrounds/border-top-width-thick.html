@@ -1,0 +1,22 @@
+<html>
+<head>
+<style>
+  .red-if-too-thin { height: 5px; background: red; }
+  .cb { position: relative; }
+  .red-if-too-thick { height: 20px; background: red; }
+  .overlap-red-if-too-thick { height: 20px; background: white; position: absolute; top: 5px; width: 100%; }
+  .border-test { border-top-style: solid; border-top-width: thick; margin-top: -5px; }
+</style>
+</head>
+<body>
+  <p>There should be a black line below and no red.</p>
+  <div class="red-if-too-thin"></div>
+  <div class="cb">
+    <div class="border-test"></div>
+    <div class="red-if-too-thick"></div>
+    <div class="overlap-red-if-too-thick"></div>
+  </div>
+
+
+</body>
+</html>

@@ -1,0 +1,26 @@
+<html>
+<head>
+<style>
+.outer {
+  display: block;
+  width: 500px;
+  background: purple;
+  border: 1px solid green;
+}
+.half {
+  display: inline-block;
+  width: 50%;
+  background: blue;
+}
+.half + .half {
+  background: yellow;
+}
+</style>
+</head>
+<body><div class="outer">
+  <div class="half">A</div>
+  
+  <div class="half">B</div>
+</div>
+</body>
+</html>

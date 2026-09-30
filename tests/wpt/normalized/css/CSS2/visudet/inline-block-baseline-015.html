@@ -1,0 +1,30 @@
+<html>
+<head>
+<style>
+.wrapper {
+  width: 200px;
+  background: red;
+  line-height: 0;
+  font-size: 0;
+}
+.green {
+  width: 100px;
+  height: 200px;
+  background: green;
+}
+.inline-block {
+  display: inline-block;
+}
+</style>
+</head>
+<body><p>Test passes if there is a filled green square and <strong>no red</strong>.</p>
+
+<div class="wrapper">
+  <div class="inline-block green"></div>
+  <div class="inline-block">
+    <span></span>
+    <div class="green"></div>
+  </div>
+</div>
+</body>
+</html>

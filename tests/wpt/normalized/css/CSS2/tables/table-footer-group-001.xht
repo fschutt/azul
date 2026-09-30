@@ -1,0 +1,59 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<style>
+.table
+            {
+                background: blue;
+                border: 2px solid black;
+                display: table;
+            }
+            .footer
+            {
+                background: white;
+                display: table-footer-group;
+            }
+            .tr
+            {
+                display: table-row;
+            }
+            .td
+            {
+                display: table-cell;
+                height: 2em;
+                width: 2em;
+            }
+</style>
+</head>
+<body>
+        <p>Test passes if there is a square below, and the top half of the square is blue.</p>
+        <div class="table">
+            <div class="footer">
+                <div class="tr">
+                     <div class="td"></div>
+                     <div class="td"></div>
+                     <div class="td"></div>
+                     <div class="td"></div>
+                </div>
+                <div class="tr">
+                     <div class="td"></div>
+                     <div class="td"></div>
+                     <div class="td"></div>
+                     <div class="td"></div>
+                </div>
+            </div>
+            <div class="tr">
+                 <div class="td"></div>
+                 <div class="td"></div>
+                 <div class="td"></div>
+                 <div class="td"></div>
+            </div>
+            <div class="tr">
+                 <div class="td"></div>
+                 <div class="td"></div>
+                 <div class="td"></div>
+                 <div class="td"></div>
+            </div>
+        </div>
+    
+</body>
+</html>

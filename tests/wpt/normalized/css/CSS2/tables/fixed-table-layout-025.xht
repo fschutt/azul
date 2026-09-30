@@ -1,0 +1,38 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<style>
+  table
+  {
+  border-spacing: 0px;
+  table-layout: fixed;
+  width: 100px;
+  }
+
+  td#middle-green-cell
+  {
+  background-color: green;
+  width: 50%;
+  }
+
+  td#left-red-cell, td#right-red-cell {background-color: red;}
+
+  td {padding: 50px 25px;}
+  
+</style>
+</head>
+<body>
+
+  <p>Test passes if there is a filled green square and <strong>no red</strong>.</p>
+
+  <table>
+      <tr>
+          <td id="left-red-cell"></td>
+          <td id="middle-green-cell"></td>
+          <td id="right-red-cell"></td>
+      </tr>
+  </table>
+
+ 
+
+</body>
+</html>

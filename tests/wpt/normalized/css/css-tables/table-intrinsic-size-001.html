@@ -1,0 +1,28 @@
+<html>
+<head>
+<style>
+.outer {
+  width: min-content;
+  background: green;
+}
+.table {
+  display: table;
+  inline-size: 30px; /* Smaller than .content's inline size */
+  block-size: 100px;
+  border-inline: 10px solid green;
+  margin-inline: 10px;
+}
+.content {
+  inline-size: 60px;
+  height: 100px;
+}
+</style>
+</head>
+<body><p>Test passes if there is a filled green square.</p>
+<div class="outer">
+  <div class="table">
+    <div class="content"></div>
+  </div>
+</div>
+</body>
+</html>

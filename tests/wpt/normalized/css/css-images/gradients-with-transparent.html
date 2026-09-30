@@ -1,0 +1,25 @@
+<html>
+<head>
+<style>
+    .test {
+        width: 200px;
+        height: 100px;
+        margin-left: 90px;
+    }
+    #gradient1 {
+        background-image: linear-gradient(to left, blue 0%, blue 20%, transparent);
+    }
+    #gradient2 {
+        background-image: linear-gradient(to left, blue 0%, blue 20%, rgba(0,0,0,0));
+    }
+</style>
+</head>
+<body>
+    <p>Gradient using 'transparent'</p>
+    <div id="gradient1" class="test"></div>
+    <br/>
+    <p>Gradient using rgba(0,0,255,0)</p>
+    <div id="gradient2" class="test"></div>
+
+</body>
+</html>

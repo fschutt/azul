@@ -1,0 +1,34 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<style>
+  table
+  {
+  background-color: orange;
+  border-spacing: 0px;
+  }
+
+  col#middle {width: 80px;}
+
+  td {padding: 0px;}
+
+  td.bottom
+  {
+  background-color: white;
+  vertical-align: bottom;
+  }
+  
+</style>
+</head>
+<body>
+
+  <p>Test passes if the last line of "Filler Text" inside the orange rectangle is on the same line as the arrows "--&gt;" "&lt;--".</p>
+
+  <table>
+    <col/> <col id="middle"/> <col/>
+    <tr><td class="bottom">--&gt; </td><td>Filler Text Filler Text Filler Text Filler Text Filler Text Filler Text</td><td class="bottom"> &lt;--</td></tr>
+  </table>
+
+ 
+
+</body>
+</html>

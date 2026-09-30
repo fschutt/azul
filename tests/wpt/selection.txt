@@ -1,0 +1,264 @@
+# The curated web-platform-tests reftests azul runs (layout/tests/wpt/).
+#
+# Read by scripts/refci/vendor_wpt.py, which copies each test and its
+# references into tests/wpt/upstream/ (verbatim) and tests/wpt/normalized/
+# (strict XHTML), and writes tests/wpt/reftests.tsv.
+#
+#   [GAP-ID] text     the engine gap the following tests probe (the id goes into
+#                     reftests.tsv and into every failure the runner reports; the
+#                     ids are the table in scripts/REFCI_2026_09_30.md, which
+#                     extends scripts/ideas/AZMAIL_EXPLORATION_2026_09_30.md s.6)
+#   @area <dir>       a WPT directory whose OTHER reftests go into skipped.tsv
+#                     with the reason they do not run
+#   <path>            a WPT path (globs allowed), or local/<path> for azul's own
+#                     reftests in tests/wpt/local/ (UA defaults WPT only tests
+#                     with scripts, and the mail probes of the AzMail exploration)
+#
+# Chosen for mail and document rendering: plain HTML + CSS, no script, no web
+# font (not even Ahem), no images, no form controls.
+
+@area css/CSS2/tables
+@area css/css-tables
+@area css/css-lists
+@area css/CSS2/lists
+@area html/rendering/non-replaced-elements
+@area css/css-backgrounds
+@area css/css-images
+@area css/CSS2/linebox
+@area css/CSS2/visudet
+@area css/css-text-decor
+@area css/css-color-adjust
+
+[E-TABLE-BC] border-collapse: the collapsing border model
+css/CSS2/tables/border-collapse-005.html
+css/CSS2/tables/border-collapse-006.html
+css/CSS2/tables/border-collapse-empty-row.html
+css/CSS2/tables/border-collapse-offset-001.xht
+css/CSS2/tables/border-collapse-offset-002.xht
+css/CSS2/tables/border-conflict-element-001a.xht
+css/CSS2/tables/border-conflict-element-001b.xht
+css/CSS2/tables/border-conflict-element-001c.xht
+css/CSS2/tables/collapsing-border-model-001.xht
+css/CSS2/tables/collapsing-border-model-003.xht
+css/CSS2/tables/collapsing-border-model-004.xht
+css/CSS2/tables/collapsing-border-model-007.xht
+css/CSS2/tables/collapsing-border-model-008.xht
+css/CSS2/tables/collapsing-border-model-009.xht
+css/CSS2/tables/collapsing-border-model-011.html
+css/CSS2/tables/collapsing-border-model-012.html
+css/CSS2/tables/collapsing-border-model-013.html
+css/CSS2/tables/collapsing-border-model-014.html
+css/CSS2/tables/table-visual-layout-017.xht
+css/CSS2/tables/table-visual-layout-018.xht
+css/css-tables/border-collapse-empty-cell.html
+css/css-tables/border-collapse-rowspan-cell.html
+css/css-tables/border-conflict-resolution.html
+css/css-tables/out-of-order-elements-collapsed-border.html
+
+[E-TABLE] table sizing: colspan, column widths, row groups, cell alignment
+css/CSS2/tables/fixed-table-layout-025.xht
+css/CSS2/tables/fixed-table-layout-026.xht
+css/CSS2/tables/fixed-table-layout-027.xht
+css/CSS2/tables/border-spacing-095.html
+css/CSS2/tables/separated-border-model-003b.xht
+css/CSS2/tables/separated-border-model-004a.xht
+css/CSS2/tables/separated-border-model-004b.xht
+css/CSS2/tables/separated-border-model-007.xht
+css/CSS2/tables/separated-border-model-008.xht
+css/CSS2/tables/table-visual-layout-026a.xht
+css/CSS2/tables/table-visual-layout-026b.xht
+css/CSS2/tables/height-width-table-001.xht
+css/CSS2/tables/height-table-cell-001.xht
+css/CSS2/tables/table-header-group-001.xht
+css/CSS2/tables/table-footer-group-001.xht
+css/CSS2/tables/table-row-group-001.xht
+css/CSS2/tables/table-column-rendering-001.xht
+css/CSS2/tables/table-column-rendering-002.xht
+css/CSS2/tables/table-vertical-align-baseline-001.xht
+css/CSS2/tables/table-vertical-align-baseline-002.xht
+css/CSS2/tables/table-vertical-align-baseline-003.xht
+css/CSS2/tables/table-vertical-align-baseline-004.xht
+css/css-tables/colspan-004.html
+css/css-tables/table-colspan-percent-auto.html
+css/css-tables/table_grid_size_col_colspan.html
+css/css-tables/table-cell-width-0.html
+css/css-tables/col-definite-size-001.html
+css/css-tables/calc-percent-plus-0px-auto.html
+css/css-tables/table-intrinsic-size-001.html
+css/css-tables/th-text-align.html
+css/css-tables/whitespace-001.html
+css/css-tables/anonymous-table-ws-001.html
+css/css-tables/empty-table-height.html
+local/table/a-spanning-cell-with-a-full-width-child-renders-crash.html
+local/table/a-padded-cell-paints-its-heading-and-paragraph.html
+local/table/a-price-column-sits-beside-its-labels-under-a-spanning-rule.html
+
+[E-LEGACY] HTML presentational attributes and legacy elements (width, border, bgcolor, align, nowrap, type, size, noshade, font, center)
+html/rendering/non-replaced-elements/tables/table-border-1.html
+html/rendering/non-replaced-elements/tables/table-border-2.html
+html/rendering/non-replaced-elements/tables/table-bordercolor-001.html
+html/rendering/non-replaced-elements/tables/table-cell-width-s.html
+html/rendering/non-replaced-elements/tables/table-width-s.html
+html/rendering/non-replaced-elements/tables/table-layout.html
+html/rendering/non-replaced-elements/tables/table-row-height.html
+html/rendering/non-replaced-elements/tables/table-cell-nowrap-with-fixed-width.html
+html/rendering/non-replaced-elements/tables/table-width-150percent.html
+html/rendering/non-replaced-elements/the-hr-element-0/color.html
+html/rendering/non-replaced-elements/the-hr-element-0/size.html
+html/rendering/non-replaced-elements/the-hr-element-0/width.html
+html/rendering/non-replaced-elements/the-hr-element-0/size-with-color-or-noshade.html
+html/rendering/non-replaced-elements/lists/ol-type-supported.html
+html/rendering/non-replaced-elements/lists/ul-type-supported.html
+html/rendering/non-replaced-elements/lists/li-type-supported.html
+local/legacy/a-font-element-is-an-inline-span-with-its-attributes.html
+local/legacy/a-center-element-centres-its-content.html
+
+[E-UA] UA stylesheet defaults (HTML Rendering, section 15.3)
+html/rendering/non-replaced-elements/phrasing-content-0/b-strong-styles.html
+html/rendering/non-replaced-elements/flow-content-0/figure.html
+local/ua/em-i-cite-var-dfn-and-address-are-italic.html
+local/ua/s-del-and-strike-are-struck-through.html
+local/ua/u-and-ins-are-underlined.html
+local/ua/code-kbd-samp-and-tt-are-monospace.html
+local/ua/pre-is-monospace-and-keeps-white-space.html
+local/ua/blockquote-is-indented-40px.html
+local/ua/headings-have-their-sizes-margins-and-weight.html
+local/ua/paragraphs-have-1em-vertical-margins.html
+local/ua/ul-has-40px-padding-and-1em-margins.html
+local/ua/a-link-is-blue-and-underlined.html
+local/ua/mark-is-yellow-with-black-text.html
+local/ua/small-is-smaller.html
+local/ua/sub-and-sup-are-shifted-and-smaller.html
+local/ua/hr-is-a-grey-inset-rule.html
+
+[E-BR] a block holding only a <br> is one line tall
+local/ua/a-block-holding-only-a-br-is-one-line-tall.html
+
+[E-CSS-1] CDO/CDC (<!-- -->) around a stylesheet's rules
+local/css/cdo-and-cdc-around-rules-do-not-hide-them.html
+
+[E-OL] list markers and numbering
+css/css-lists/content-property/marker-text-matches-decimal.html
+css/css-lists/content-property/marker-text-matches-disc.html
+css/css-lists/content-property/marker-text-matches-circle.html
+css/css-lists/content-property/marker-text-matches-square.html
+css/css-lists/content-property/marker-text-matches-lower-roman.html
+css/css-lists/content-property/marker-text-matches-upper-roman.html
+css/css-lists/content-property/marker-text-matches-lower-latin.html
+css/css-lists/content-property/marker-text-matches-upper-latin.html
+css/css-lists/list-style-position-001.html
+css/css-lists/list-style-type-string-001a.html
+css/css-lists/list-marker-alignment.html
+css/css-lists/list-style-type-decimal-line-height.html
+css/css-lists/li-list-item-counter-001.html
+css/css-lists/li-list-item-counter-002.html
+css/css-lists/counter-list-item.html
+css/css-lists/implicit-and-explicit-list-item-counters.html
+css/css-lists/inline-list.html
+css/css-lists/inline-block-list.html
+css/CSS2/lists/list-style-position-018.xht
+css/CSS2/lists/list-style-position-023.xht
+css/CSS2/lists/list-style-type-applies-to-009.xht
+css/CSS2/lists/list-style-type-applies-to-010.xht
+css/CSS2/lists/counter-increment-055.xht
+css/CSS2/lists/counter-reset-055.xht
+css/CSS2/lists/increment-counter-001.xht
+css/CSS2/lists/reset-counter-001.xht
+local/ua/nested-lists-mark-disc-circle-square.html
+local/ua/an-ordered-list-numbers-every-item.html
+
+[E-GRAD] linear-gradient: direction, stop positions, hard stops
+css/css-images/linear-gradient-1.html
+css/css-images/linear-gradient-2.html
+css/css-images/linear-gradient-non-square.html
+css/css-images/gradient-move-stops.html
+css/css-images/gradients-with-transparent.html
+css/css-images/gradients-with-border.html
+css/css-images/gradient-border-box.html
+css/css-images/gradient-content-box.html
+css/css-images/multiple-position-color-stop-linear.html
+css/css-images/multiple-position-color-stop-linear-2.html
+css/css-images/normalization-linear.html
+css/css-images/normalization-linear-2.html
+css/css-images/normalization-linear-degenerate.html
+css/css-images/tiled-gradients.html
+css/css-images/color-stop-currentcolor.html
+css/css-images/gradient/gradient-single-stop-001.html
+css/css-images/gradient/gradient-single-stop-002.html
+css/css-images/gradient/gradient-single-stop-003.html
+css/css-images/gradient/gradient-to-transparent.html
+css/css-backgrounds/background-image-centered.html
+css/css-backgrounds/background-gradient-subpixel-fills-area.html
+local/gradient/90deg-runs-like-to-right.html
+local/gradient/a-hard-stop-splits-the-box-in-two.html
+local/gradient/a-stop-at-a-length-sits-at-that-length.html
+local/gradient/quote-bars-paint-each-colour-at-its-length.html
+
+[E-BG] backgrounds, borders, radius and shadows
+css/css-backgrounds/background-clip-003.html
+css/css-backgrounds/background-clip-004.html
+css/css-backgrounds/background-clip-005.html
+css/css-backgrounds/background-clip-007.html
+css/css-backgrounds/background-clip-color.html
+css/css-backgrounds/background-color-clip.html
+css/css-backgrounds/background-color-body-propagation-001.html
+css/css-backgrounds/background-color-body-propagation-002.html
+css/css-backgrounds/background-margin-root.html
+css/css-backgrounds/background-paint-order-001.html
+css/css-backgrounds/border-radius-001.xht
+css/css-backgrounds/border-radius-002.xht
+css/css-backgrounds/border-radius-003.xht
+css/css-backgrounds/border-radius-004.xht
+css/css-backgrounds/border-radius-shorthand-002.html
+css/css-backgrounds/border-top-width-medium.html
+css/css-backgrounds/border-top-width-thick.html
+css/css-backgrounds/border-top-width-thin.html
+css/css-backgrounds/box-shadow-005.html
+css/css-backgrounds/box-shadow-inset-without-border-radius.html
+css/css-backgrounds/box-shadow-outset-without-border-radius-001.html
+css/css-backgrounds/css3-background-clip-content-box.html
+
+[E-INLINE] inline formatting: line boxes, line-height, vertical-align, inline-block baselines
+css/CSS2/linebox/inline-formatting-context-001.xht
+css/CSS2/linebox/inline-formatting-context-002.xht
+css/CSS2/linebox/inline-formatting-context-004.xht
+css/CSS2/linebox/inline-formatting-context-006.xht
+css/CSS2/linebox/empty-inline-001.xht
+css/CSS2/linebox/empty-inline-003.xht
+css/CSS2/linebox/inline-box-001.xht
+css/CSS2/linebox/line-height-bleed-001.xht
+css/CSS2/linebox/fractional-line-height.html
+css/CSS2/linebox/split-inline-borders.html
+css/CSS2/linebox/anonymous-inline-inherit-001.html
+css/CSS2/linebox/vertical-align-baseline-003.xht
+css/CSS2/linebox/vertical-align-baseline-006.xht
+css/CSS2/linebox/vertical-align-baseline-007.xht
+css/CSS2/linebox/vertical-align-baseline-008.xht
+css/CSS2/linebox/vertical-align-baseline-010.xht
+css/CSS2/linebox/vertical-align-sub-001.xht
+css/CSS2/linebox/vertical-align-super-001.xht
+css/CSS2/linebox/vertical-align-top-bottom-padding.html
+css/CSS2/linebox/vertical-align-nested-top-001.html
+css/CSS2/visudet/inline-block-baseline-001.xht
+css/CSS2/visudet/inline-block-baseline-002.xht
+css/CSS2/visudet/inline-block-baseline-005.xht
+css/CSS2/visudet/inline-block-baseline-015.html
+css/CSS2/visudet/height-percentage-004.xht
+
+[E-DECOR] text-decoration lines, colours and propagation
+css/css-text-decor/text-decoration-line.html
+css/css-text-decor/text-decoration-color.html
+css/css-text-decor/text-decoration-propagation-02.html
+css/css-text-decor/text-decoration-propagation-03.html
+css/css-text-decor/text-decoration-propagation-04.html
+css/css-text-decor/text-decoration-propagation-05.html
+css/css-text-decor/text-decoration-subelements-001.html
+css/css-text-decor/text-decoration-subelements-002.html
+css/css-text-decor/text-decoration-subelements-003.html
+css/css-text-decor/text-decoration-shorthands-001.html
+css/css-text-decor/text-decoration-style-multiple.html
+
+[E-MODE] color-scheme on a subtree
+css/css-color-adjust/rendering/dark-color-scheme/color-scheme-rule-cache.html
+local/color-scheme/a-dark-subtree-paints-a-dark-canvas.html
+local/color-scheme/a-dark-subtree-writes-light-canvastext.html

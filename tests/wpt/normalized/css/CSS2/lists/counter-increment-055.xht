@@ -1,0 +1,20 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<style>
+div
+            {
+                counter-increment: ident;
+            }
+            div:before
+            {
+                font-size: 30px;
+                content: counter(ident);
+            }
+</style>
+</head>
+<body>
+        <p>Test passes if the number '1' appears below.</p>
+        <div></div>
+    
+</body>
+</html>

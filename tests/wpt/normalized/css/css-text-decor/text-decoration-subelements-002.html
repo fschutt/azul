@@ -1,0 +1,31 @@
+<html>
+<head>
+<style>
+      div.wrapper {
+        font-size: 2em;
+        position: relative;
+      }
+      div.test {
+        text-decoration: underline;
+        position: absolute;
+        white-space: nowrap;
+      }
+    
+</style>
+</head>
+<body>
+    <p>Test passes if there is a single uniform underline for all the text in each line,
+      <i>not</i> a separate underline for the superscripts:
+    </p>
+    <div class="wrapper">
+      <div style="position: absolute; top: 1em;">
+        <div class="test">Einstein said that <i>e = mc<sup>2</sup></i>.</div>
+      </div>
+      <div style="position: absolute; top: 3em;">
+        <div class="test">Is <i>a<sup>n</sup> + b<sup>n</sup> = c<sup>n</sup></i> ever true for <i>n</i> &gt; 2.</div>
+      </div>
+    </div>
+  
+
+</body>
+</html>
