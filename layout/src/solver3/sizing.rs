@@ -626,7 +626,15 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         }
 
         match node.formatting_context {
-            FormattingContext::Block { .. } => {
+            // A table cell is a block container (CSS 2.2 17.5.3): its content
+            // is measured like a block's - as an IFC root when it holds text,
+            // by its block children otherwise. Sent down the catch-all it
+            // measured its LAYOUT children only, and text is not one: a
+            // text-only `<td>` was (0, 0), the table's min-content pass laid
+            // the cell out 0 px wide and reported its max-content width as
+            // its minimum, and no column of prose ever shrank below its
+            // longest line - a 220px table ran its cells 360px wide.
+            FormattingContext::Block { .. } | FormattingContext::TableCell => {
                 // Check if this block establishes an Inline Formatting Context (IFC).
                 // Per CSS 2.2 §9.2.1.1: A block container with mixed block-level and
                 // inline-level children creates anonymous block boxes to wrap the inline
