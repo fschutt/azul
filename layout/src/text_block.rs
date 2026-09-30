@@ -274,7 +274,31 @@ impl TextTarget {
         let Some(line) = line else {
             return self.blank_line_caret();
         };
-        let on_line = clusters().find(|item| item.line_index == line)?;
+        self.caret_on_line(line, x)
+    }
+
+    /// The caret at column `x` - in the block's own (scrolled content)
+    /// space - on the line `cursor` stands on: where an Up / Down that stays
+    /// in the block lands when a run of Up / Down aims at a column the line
+    /// it came from did not have. `None` when `cursor` names no cluster of
+    /// the block.
+    #[must_use]
+    pub fn caret_on_line_of(&self, cursor: &TextCursor, x: f32) -> Option<TextCursor> {
+        let line = self.layout.items.iter().find_map(|item| match &item.item {
+            ShapedItem::Cluster(cluster) if cluster.source_cluster_id == cursor.cluster_id => {
+                Some(item.line_index)
+            }
+            _ => None,
+        })?;
+        self.caret_on_line(line, x)
+    }
+
+    /// The caret at column `x` on line `line`: a hit at the middle of the
+    /// line's first cluster's height.
+    fn caret_on_line(&self, line: usize, x: f32) -> Option<TextCursor> {
+        let on_line = self.layout.items.iter().find(|item| {
+            matches!(item.item, ShapedItem::Cluster(_)) && item.line_index == line
+        })?;
         let y = on_line.position.y + on_line.item.bounds().height / 2.0;
         self.hittest(ScrolledContentPoint::new(LogicalPosition::new(x, y)))
     }

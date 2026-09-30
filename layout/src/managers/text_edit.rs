@@ -522,6 +522,22 @@ pub struct TextEditManager {
     /// with no selection) that the next typed text takes
     /// (`LayoutWindow::toggle_text_format`). Unset when the caret moves.
     pub typing_style: Option<TypingStyle>,
+    /// The column a run of plain Up / Down aims at, and the caret the last
+    /// of them left: the next Up / Down from THAT caret keeps aiming at the
+    /// column, so a short line in between does not pull the caret to its
+    /// end for good. Any other caret starts a new run.
+    pub vertical_goal: Option<VerticalGoal>,
+}
+
+/// See [`TextEditManager::vertical_goal`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VerticalGoal {
+    /// The block the last Up / Down left the caret in.
+    pub block: TextBlock,
+    /// The caret it left there.
+    pub caret: TextCursor,
+    /// The column, in window coordinates.
+    pub x: f32,
 }
 
 /// Formats a toggle at a collapsed caret left for the text typed next - the
@@ -737,6 +753,7 @@ impl TextEditManager {
             pending_text_changed: Vec::new(),
             value_at_focus: None,
             typing_style: None,
+            vertical_goal: None,
         }
     }
 

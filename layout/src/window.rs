@@ -11681,7 +11681,7 @@ impl LayoutWindow {
 
         let blocks = self.text_blocks(anchor.0.dom(), self.selection_extent(anchor.0));
         for _ in 0..op.repeat.max(1) {
-            match self.step_document_focus(focus, op, &blocks) {
+            match self.step_document_focus(focus, op, &blocks, None) {
                 Some(next) => focus = next,
                 None => break,
             }
@@ -11730,15 +11730,24 @@ impl LayoutWindow {
         true
     }
 
-    /// One Extend step of a document selection's focus
-    /// ([`Self::extend_document_selection`]) over `blocks`, the selection's
-    /// extent in document order. `None` when the focus's block is not laid
-    /// out.
+    /// One step of a caret across the blocks of `blocks`, in document order:
+    /// a document selection's focus under Shift+arrow
+    /// ([`Self::extend_document_selection`]), the session's caret under a
+    /// plain arrow ([`Self::move_caret_through_host`]). Inside the block
+    /// while the step moves; at its edge into the neighbouring block. `None`
+    /// when the focus's block is not laid out.
+    ///
+    /// `column` is the x (window coordinates) an Up / Down aims at - the
+    /// goal column a run of them keeps; `None` aims at the caret's own x. A
+    /// step onto the generated content in front of a block's text (a list
+    /// item's marker) stands at the text's start: it is no caret position of
+    /// the text, and a Left there leaves the block.
     fn step_document_focus(
         &self,
         focus: (TextBlock, TextCursor),
         op: &azul_core::events::SelectionOp,
         blocks: &[TextBlock],
+        column: Option<f32>,
     ) -> Option<(TextBlock, TextCursor)> {
         use azul_core::events::{SelectionDirection, SelectionStep};
 
@@ -11747,7 +11756,7 @@ impl LayoutWindow {
             let edge = if forward { blocks.last() } else { blocks.first() };
             let edge = edge.copied().unwrap_or(focus.0);
             let caret = self.block_edge_caret(edge, forward)?;
-            return Some((edge, caret));
+            return Some((edge, self.caret_past_markers(edge, caret)));
         }
         let target = self.text_target(focus.0)?;
         let stepped = Self::resolve_step_with(
@@ -11757,14 +11766,23 @@ impl LayoutWindow {
             op.direction,
             op.step,
         );
+        let stepped = self.caret_past_markers(focus.0, stepped);
         let edge_caret = if forward {
             target.last_caret()
         } else {
             target.first_caret()
-        };
+        }
+        .map(|edge| self.caret_past_markers(focus.0, edge));
         let at_edge = edge_caret.is_some_and(|edge| self.same_caret_position(focus.0, focus.1, edge));
         let moved = !self.same_caret_position(focus.0, stepped, focus.1);
         if moved && !at_edge {
+            // Up / Down inside the block: the line the step found, at the
+            // column the run of Up / Down aims at.
+            if let (SelectionStep::VisualLine, Some(x)) = (op.step, column) {
+                if let Some(caret) = self.caret_at_window_column_on_line_of(&target, &stepped, x) {
+                    return Some((focus.0, caret));
+                }
+            }
             return Some((focus.0, stepped));
         }
         // At the block's edge. Home/End stay in their line.
@@ -11781,40 +11799,160 @@ impl LayoutWindow {
             return Some((focus.0, stepped));
         };
         // Down / Up: into the next block's first line / the previous one's
-        // last, at the column the focus stands in - as between two lines of
-        // one block.
+        // last, at the column the focus stands in (or the run of Up / Down
+        // aims at) - as between two lines of one block.
         if matches!(op.step, SelectionStep::VisualLine) {
-            if let Some(caret) = self.caret_at_column_in(&target, &focus.1, next, !forward) {
-                return Some((next, caret));
+            if let Some(caret) = self.caret_at_column_in(&target, &focus.1, next, !forward, column)
+            {
+                return Some((next, self.caret_past_markers(next, caret)));
             }
         }
         // Into the next block at its first caret, into the previous one at
         // its last.
         let caret = self.block_edge_caret(next, !forward)?;
-        Some((next, caret))
+        Some((next, self.caret_past_markers(next, caret)))
+    }
+
+    /// `cursor`, a caret of `block`, moved off the generated content in
+    /// front of the block's text (a list item's `::marker`) to the text's
+    /// start ([`crate::block_content::BlockContent::past_generated`]).
+    fn caret_past_markers(&self, block: TextBlock, cursor: TextCursor) -> TextCursor {
+        let generated = self.block_content(block).generated();
+        crate::block_content::BlockContent::past_generated(cursor, generated)
     }
 
     /// The caret in `block`'s first line - with `last_line` its last - at
-    /// the column on screen where `cursor`, a caret of `from`, stands.
-    /// Through the window, so two blocks in different boxes, scrolls or
-    /// DOMs agree on the column. `None` when either is not laid out.
+    /// the column on screen where `cursor`, a caret of `from`, stands, or at
+    /// window x `column` when one is given. Through the window, so two
+    /// blocks in different boxes, scrolls or DOMs agree on the column.
+    /// `None` when either is not laid out.
     fn caret_at_column_in(
         &self,
         from: &crate::text_block::TextTarget,
         cursor: &TextCursor,
         block: TextBlock,
         last_line: bool,
+        column: Option<f32>,
     ) -> Option<TextCursor> {
         let caret = from.caret_rect_on_screen(self, cursor)?.get();
         let into = self.text_target(block)?;
         let column = into.point_from_window(
             self,
             WindowPoint::new(LogicalPosition::new(
-                caret.origin.x,
+                column.unwrap_or(caret.origin.x),
                 caret.origin.y + caret.size.height / 2.0,
             )),
         )?;
         into.caret_on_edge_line(column.x(), last_line)
+    }
+
+    /// The caret of `target` on the line `cursor` stands on, at window x
+    /// `x` (see [`crate::text_block::TextTarget::caret_on_line_of`]).
+    fn caret_at_window_column_on_line_of(
+        &self,
+        target: &crate::text_block::TextTarget,
+        cursor: &TextCursor,
+        x: f32,
+    ) -> Option<TextCursor> {
+        let rect = target.caret_rect_on_screen(self, cursor)?.get();
+        let point = target.point_from_window(
+            self,
+            WindowPoint::new(LogicalPosition::new(
+                x,
+                rect.origin.y + rect.size.height / 2.0,
+            )),
+        )?;
+        target.caret_on_line_of(cursor, point.x())
+    }
+
+    /// A plain arrow (`SelectionMode::Move`) of the primary's one caret,
+    /// through the blocks of its editing host: at the edge of the caret's
+    /// block - Right at its end, Left at its start, Down on its last line, Up
+    /// on its first - into the neighbouring block of the host
+    /// ([`Self::step_document_focus`] over [`Self::selection_extent`], the
+    /// blocks a Shift+arrow extends over); Ctrl+Home / End to the host's
+    /// first / last block. Up / Down keep a goal column inside the block as
+    /// well as across: a run of them aims at the x the first one started at
+    /// ([`TextEditManager::vertical_goal`]).
+    ///
+    /// [`TextEditManager::vertical_goal`]: crate::managers::text_edit::TextEditManager::vertical_goal
+    ///
+    /// The Selection API's `modify("move", ..)` in a contenteditable host
+    /// (<https://w3c.github.io/selection-api/#dom-selection-modify>): a caret
+    /// is not confined to the paragraph it was put in.
+    ///
+    /// `false` - the caller steps inside the block - for several carets, a
+    /// selection (a character step collapses it first), Home / End, and a
+    /// step that stays in its block with no column to keep.
+    fn move_caret_through_host(&mut self, op: &azul_core::events::SelectionOp) -> bool {
+        use azul_core::events::SelectionStep;
+
+        let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() else {
+            return false;
+        };
+        if mc.local_len() != 1 {
+            return false;
+        }
+        let block = mc.block;
+        let Some(Selection::Cursor(caret)) = mc.get_primary().map(|p| p.selection) else {
+            return false;
+        };
+        if matches!(op.step, SelectionStep::Line) {
+            return false;
+        }
+        let vertical = matches!(op.step, SelectionStep::VisualLine);
+        // The column of the run of Up / Down this key continues (`column`),
+        // and the one the run goes on aiming at (`goal`): the first key's
+        // own x.
+        let (column, goal) = if vertical {
+            let Some(target) = self.text_target(block) else {
+                return false;
+            };
+            let continued = self
+                .text_edit_manager
+                .vertical_goal
+                .filter(|g| g.block == block && g.caret == caret)
+                .map(|g| g.x);
+            let own = target
+                .caret_rect_on_screen(self, &caret)
+                .map(|rect| rect.get().origin.x);
+            (continued, continued.or(own))
+        } else {
+            (None, None)
+        };
+        let blocks = self.text_blocks(block.dom(), self.selection_extent(block));
+        let mut focus = (block, caret);
+        for _ in 0..op.repeat.max(1) {
+            match self.step_document_focus(focus, op, &blocks, column) {
+                Some(next) => focus = next,
+                None => break,
+            }
+        }
+        if focus.0 == block {
+            if !vertical {
+                return false;
+            }
+            if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
+                mc.set_single_cursor(focus.1);
+            }
+            self.text_edit_manager.mark_dirty();
+        } else {
+            self.open_session(
+                focus.0,
+                SelectionRange {
+                    start: focus.1,
+                    end: focus.1,
+                },
+            );
+        }
+        self.text_edit_manager.vertical_goal =
+            goal.map(|x| crate::managers::text_edit::VerticalGoal {
+                block: focus.0,
+                caret: focus.1,
+                x,
+            });
+        self.regenerate_display_list_for_dom(block.dom());
+        true
     }
 
     /// Toggle `format` for the editing session in `target`'s host
@@ -11984,6 +12122,13 @@ impl LayoutWindow {
         // execCommand overrides are unset when a boundary point changes.
         if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
             self.text_edit_manager.typing_style = None;
+            // Only a plain Up / Down continues a run of them (and keeps its
+            // goal column); every other key starts over.
+            if !(matches!(op.mode, SelectionMode::Move)
+                && matches!(op.step, SelectionStep::VisualLine))
+            {
+                self.text_edit_manager.vertical_goal = None;
+            }
         }
 
         // A plain arrow over a DOCUMENT selection collapses it: moving the
@@ -12048,6 +12193,11 @@ impl LayoutWindow {
                     return false;
                 }
                 let extend = matches!(op.mode, SelectionMode::Extend);
+                // A plain arrow is not confined to the caret's block: at its
+                // edge it goes on into the next block of the host.
+                if !extend && self.move_caret_through_host(op) {
+                    return true;
+                }
                 // Only a CHARACTER step collapses an active range to its edge
                 // (the Left/Right rule). Word, visual-line, Home/End and
                 // document jumps are movements and must actually be performed.
