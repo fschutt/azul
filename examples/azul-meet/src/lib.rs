@@ -131,6 +131,12 @@ const MIC_RATE: u32 = 48_000;
 const TONE_HZ: f32 = 440.0;
 const FEED_W: u32 = 320;
 const FEED_H: u32 = 180;
+/// The pixel format video travels in: NV12 (4:2:0 YCbCr in two planes, the
+/// camera's own format), which the H.264 encoder takes and the decoder gives
+/// without a conversion, and which a tile shows through the GPU's YUV shader
+/// (or the CPU rasterizer's fused convert of the rows it paints). The real
+/// matrix and range travel with every frame (`VideoFrame::format`).
+const VIDEO_FORMAT: RawImageFormat = RawImageFormat::NV12Rec709Video;
 const JPEG_QUALITY: u8 = 75;
 /// The H.264 encoder's target bitrate for the 320x180 probe frame (renditions use
 /// `IrohLoadBalancer::rendition_kbps`).
@@ -181,6 +187,9 @@ struct Remote {
     path: Option<(bool, f64)>,
     /// The laid-out height of the peer's camera and screen tiles, by `track_slot`.
     tile_height: [Option<f32>; 2],
+    /// The same tiles' size in device pixels: what the decoders hand frames
+    /// out at (scaled once, by the decoder, not by the renderer every paint).
+    tile_px: [Option<(u32, u32)>; 2],
     /// How far this side ran ahead of the peer on each of its own H.264 streams, by (track,
     /// rendition height).
     sent: BTreeMap<(u32, u16), video_wire::SendWindow>,
@@ -202,6 +211,7 @@ impl Remote {
             sync: None,
             path: None,
             tile_height: [None; 2],
+            tile_px: [None; 2],
             sent: BTreeMap::new(),
             received: BTreeMap::new(),
         }
@@ -374,6 +384,9 @@ struct MeetState {
     cam_on: bool,
     screen_on: bool,
     mic_level: f32,
+    /// When (`now_ms`) the level meter last moved: it moves at most every
+    /// `METER_INTERVAL_MS`, not with every 20 ms audio chunk.
+    meter_moved_ms: Option<u64>,
     meter_bar: Option<DomNodeId>,
     mics: Vec<String>,
     speakers: Vec<String>,
@@ -447,6 +460,7 @@ impl MeetState {
             cam_on: false,
             screen_on: false,
             mic_level: 0.0,
+            meter_moved_ms: None,
             meter_bar: None,
             mics: Vec::new(),
             speakers: Vec::new(),
@@ -1014,7 +1028,10 @@ fn title_row(fill: Option<ColorU>) -> Dom {
 fn call_layout(view: &LayoutSnapshot, data: &RefAny) -> Dom {
     let self_tile = if view.cam && !view.pattern_video {
         // One consumer per rendition someone shows; none keeps the local preview only.
-        let mut camera = CameraWidget::create(CameraConfig::default());
+        let mut camera = CameraWidget::create(CameraConfig {
+            output_format: VIDEO_FORMAT,
+            ..CameraConfig::default()
+        });
         for height in &view.camera_renditions {
             camera = camera.with_consumer(feed_consumer(CAMERA_TRACK, *height));
         }
@@ -1043,7 +1060,10 @@ fn call_layout(view: &LayoutSnapshot, data: &RefAny) -> Dom {
     if view.screen && view.pattern_video {
         grid = grid.with_child(participant("Your screen · test pattern", view.self_css));
     } else if view.screen {
-        let mut screen = ScreenCaptureWidget::create(ScreenCaptureConfig::default());
+        let mut screen = ScreenCaptureWidget::create(ScreenCaptureConfig {
+            output_format: VIDEO_FORMAT,
+            ..ScreenCaptureConfig::default()
+        });
         for height in &view.screen_renditions {
             screen = screen.with_consumer(feed_consumer(SCREEN_TRACK, *height));
         }
@@ -1295,14 +1315,7 @@ extern "C" fn send_feed_frame(
 ) -> Update {
     if let Some(mut s) = data.downcast_mut::<MeetState>() {
         let (track, height) = consumer_stream(frame.consumer.id);
-        send_video(
-            &mut s,
-            track,
-            height,
-            frame.frame.width,
-            frame.frame.height,
-            &frame.frame.bytes,
-        );
+        send_video(&mut s, track, height, frame.frame);
     }
     Update::DoNothing
 }
@@ -1753,12 +1766,25 @@ fn audio_lines(s: &MeetState) -> Vec<String> {
     lines
 }
 
-/// The level meter's new value, when it moved by half a percent or more and the meter is shown.
+/// How often the level meter may move: 10 times a second reads as live, and each move repaints
+/// the meter (50 moves a second, one per audio chunk, repainted it for every chunk).
+const METER_INTERVAL_MS: u64 = 100;
+
+/// The level meter's new value, when it moved by half a percent or more, the meter is shown, and
+/// it last moved [`METER_INTERVAL_MS`] or more ago.
 fn meter_change(s: &mut MeetState, samples: &[f32]) -> Option<(DomNodeId, f32)> {
     let level = mic_level_percent(samples).round();
     if (s.mic_level - level).abs() < 0.5 {
         return None;
     }
+    let now = now_ms(s);
+    if s
+        .meter_moved_ms
+        .is_some_and(|at| now.saturating_sub(at) < METER_INTERVAL_MS)
+    {
+        return None;
+    }
+    s.meter_moved_ms = Some(now);
     s.mic_level = level;
     s.meter_bar.map(|bar| (bar, level))
 }
@@ -1853,6 +1879,8 @@ struct VideoIn {
     via: u64,
     /// This side shows the stream; else it only passes it on.
     shown: bool,
+    /// The size the decoder was last asked to hand frames out at (the tile's device pixels).
+    output_size: Option<(u32, u32)>,
 }
 
 impl VideoIn {
@@ -1863,6 +1891,7 @@ impl VideoIn {
             seen: None,
             via: 0,
             shown: false,
+            output_size: None,
         }
     }
 }
@@ -1872,14 +1901,16 @@ fn now_ms(s: &MeetState) -> u64 {
     s.clock.elapsed().as_millis() as u64
 }
 
-/// An RGBA picture as an image to encode or show.
-fn rgba_image(width: u32, height: u32, bytes: U8Vec) -> RawImage {
+/// A video frame as an image to encode or show, in its own format (NV12,
+/// BGRA8 or RGBA8). Video is opaque, for which straight == premultiplied: no
+/// per-pixel multiply when it is loaded, no conversion.
+fn frame_image(frame: VideoFrame) -> RawImage {
     RawImage {
-        pixels: RawImageData::U8(bytes),
-        width: width as usize,
-        height: height as usize,
-        premultiplied_alpha: false,
-        data_format: RawImageFormat::RGBA8,
+        pixels: RawImageData::U8(frame.bytes),
+        width: frame.width as usize,
+        height: frame.height as usize,
+        premultiplied_alpha: true,
+        data_format: frame.format,
         tag: U8Vec::create(),
     }
 }
@@ -1890,6 +1921,7 @@ fn pattern_frame(index: u32, width: u32, height: u32) -> VideoFrame {
         width,
         height,
         bytes: U8Vec::from(video_wire::test_pattern(width, height, index)),
+        format: RawImageFormat::RGBA8,
     }
 }
 
@@ -1949,6 +1981,7 @@ fn probe_decode(keyframe: &[u8]) -> bool {
     if !decoder.is_open() {
         return false;
     }
+    decoder.set_output_format(VIDEO_FORMAT);
     decoder.decode(U8Vec::from(keyframe.to_vec()));
     let decoded = decoder.recv_frame().into_option().is_some();
     decoder.close();
@@ -1998,18 +2031,14 @@ fn codec_status(s: &MeetState) -> String {
     video_wire::codec_line(s.video.encoder.as_deref().map_err(String::as_str), &jpeg_to)
 }
 
-/// Sends a captured frame (RGBA, `width` x `frame_height`) of the `rendition` of `track` to whom
-/// the plan says gets it: as H.264 to those assigned H.264 (reliable messages, so nothing between
-/// two keyframes goes missing), as JPEG to the others (a latest-wins frame each: every JPEG stands
-/// alone). A leaf sends each rendition once, to its backbone parent.
-fn send_video(
-    s: &mut MeetState,
-    track: u32,
-    rendition: u16,
-    width: u32,
-    frame_height: u32,
-    rgba: &U8Vec,
-) {
+/// Sends a captured frame (NV12 from the camera or the screen, RGBA from the test pattern) of the
+/// `rendition` of `track` to whom the plan says gets it: as H.264 to those assigned H.264
+/// (reliable messages, so nothing between two keyframes goes missing), as JPEG to the others (a
+/// latest-wins frame each: every JPEG stands alone). A leaf sends each rendition once, to its
+/// backbone parent. The frame is handed to the encoder as it is (moved, not copied, unless JPEG
+/// peers need it too).
+fn send_video(s: &mut MeetState, track: u32, rendition: u16, frame: VideoFrame) {
+    let (width, frame_height) = (frame.width, frame.height);
     if track_slot(track).is_none() || s.remotes.is_empty() {
         return;
     }
@@ -2039,14 +2068,28 @@ fn send_video(
         .entry((track, rendition))
         .or_insert_with(VideoOut::new);
     out.frame_no = out.frame_no.wrapping_add(1);
-    let size = (width, frame_height);
-    if !h264_peers.is_empty() && !send_h264(s, &endpoint, track, rendition, size, rgba, &h264_peers)
-    {
-        // No working encoder for this frame: these peers get it as JPEG.
-        jpeg_peers.extend(h264_peers);
+    // The encoder takes the frame by value: it is moved there, and copied
+    // only when JPEG peers need it as well.
+    let mut frame = Some(frame);
+    if !h264_peers.is_empty() {
+        let for_encoder = if jpeg_peers.is_empty() {
+            frame.take()
+        } else {
+            frame.clone()
+        };
+        let sent = for_encoder
+            .map(|f| send_h264(s, &endpoint, track, rendition, f, &h264_peers))
+            .unwrap_or(false);
+        if !sent {
+            // No working encoder for this frame: these peers get JPEG (from the next frame on
+            // when this one went into the encoder that just failed).
+            jpeg_peers.extend(h264_peers);
+        }
     }
     if !jpeg_peers.is_empty() {
-        send_jpeg(s, &endpoint, track, rendition, size, rgba, &jpeg_peers);
+        if let Some(frame) = frame {
+            send_jpeg(s, &endpoint, track, rendition, frame, &jpeg_peers);
+        }
     }
 }
 
@@ -2059,10 +2102,10 @@ fn send_h264(
     endpoint: &IrohEndpoint,
     track: u32,
     rendition: u16,
-    (width, height): (u32, u32),
-    rgba: &U8Vec,
+    frame: VideoFrame,
     peers: &[u64],
 ) -> bool {
+    let (width, height) = (frame.width, frame.height);
     let key = (track, rendition);
     let now = now_ms(s);
     // A new peer, or one that fell behind, starts at a keyframe.
@@ -2098,11 +2141,6 @@ fn send_h264(
             None => Some("the H.264 encoder did not open"),
             Some(encoder) => {
                 let force = out.keyframes.should_force(now);
-                let frame = VideoFrame {
-                    width,
-                    height,
-                    bytes: rgba.clone(),
-                };
                 encoder.encode(frame, force);
                 out.health.submitted();
                 while let Some(chunk) = encoder.recv_packet().into_option() {
@@ -2175,13 +2213,12 @@ fn send_jpeg(
     endpoint: &IrohEndpoint,
     track: u32,
     rendition: u16,
-    (width, height): (u32, u32),
-    rgba: &U8Vec,
+    frame: VideoFrame,
     peers: &[u64],
 ) {
     let key = (track, rendition);
-    let ResultU8VecEncodeImageError::Ok(jpeg) =
-        rgba_image(width, height, rgba.clone()).encode_jpeg(JPEG_QUALITY)
+    // `encode_jpeg` takes any frame format (NV12 is converted to RGB for it).
+    let ResultU8VecEncodeImageError::Ok(jpeg) = frame_image(frame).encode_jpeg(JPEG_QUALITY)
     else {
         return;
     };
@@ -2245,6 +2282,7 @@ fn take_video(
         return false;
     };
     let handle = remote.handle;
+    let tile_px = remote.tile_px[slot];
     let new_tile = mine && !remote.tracks[slot];
     if mine {
         remote.tracks[slot] = true;
@@ -2280,7 +2318,7 @@ fn take_video(
         ));
     }
     let picture = if mine && verdict.decode {
-        decode_picture(input, header.codec, payload)
+        decode_picture(input, header.codec, payload, tile_px)
     } else {
         None
     };
@@ -2305,17 +2343,32 @@ fn take_video(
     new_tile
 }
 
-/// Decodes one packet of a shown stream; the newest picture that came out.
-fn decode_picture(input: &mut VideoIn, codec: Codec, payload: &[u8]) -> Option<RawImage> {
+/// Decodes one packet of a shown stream; the newest picture that came out. H.264 comes out of the
+/// decoder as NV12 at the size of the tile that shows it (`tile_px`, device pixels): scaled once, by
+/// the decoder, and never converted to RGB on the CPU.
+fn decode_picture(
+    input: &mut VideoIn,
+    codec: Codec,
+    payload: &[u8],
+    tile_px: Option<(u32, u32)>,
+) -> Option<RawImage> {
     let (picture, pictures) = match codec {
         Codec::Jpeg => match RawImage::decode_image_bytes_any(U8VecRef::from(payload)) {
             ResultRawImageDecodeImageError::Ok(image) => (Some(image), 1),
             _ => (None, 0),
         },
         Codec::H264 => {
-            let decoder = input
-                .decoder
-                .get_or_insert_with(|| VideoDecoder::open(false));
+            let decoder = input.decoder.get_or_insert_with(|| {
+                let decoder = VideoDecoder::open(false);
+                decoder.set_output_format(VIDEO_FORMAT);
+                decoder
+            });
+            if input.output_size != tile_px {
+                // Applied by the decoder at the stream's next keyframe.
+                let (w, h) = tile_px.unwrap_or((0, 0));
+                decoder.set_output_size(w, h);
+                input.output_size = tile_px;
+            }
             decoder.decode(U8Vec::from(payload.to_vec()));
             let mut newest = None;
             let mut count = 0;
@@ -2323,7 +2376,7 @@ fn decode_picture(input: &mut VideoIn, codec: Codec, payload: &[u8]) -> Option<R
                 count += 1;
                 newest = Some(frame);
             }
-            let picture = newest.map(|frame| rgba_image(frame.width, frame.height, frame.bytes));
+            let picture = newest.map(frame_image);
             (picture, count)
         }
     };
@@ -2422,7 +2475,7 @@ fn pump_pattern(s: &mut MeetState) {
             // The screen's bars sit half a frame further on, so the two tiles differ.
             let shift = slot as u32 * width / 2 / video_wire::PATTERN_STEP;
             let frame = pattern_frame(index.wrapping_add(shift), width, u32::from(height));
-            send_video(s, track, height, frame.width, frame.height, &frame.bytes);
+            send_video(s, track, height, frame);
         }
     }
 }
@@ -2815,15 +2868,20 @@ fn measure_tiles(s: &mut MeetState, info: &mut CallbackInfo) {
     if dpi > 0 {
         s.scale = dpi as f32 / 96.0;
     }
+    let scale = s.scale.max(0.5);
     for r in s.remotes.iter_mut() {
         for (slot, track) in [(0usize, CAMERA_TRACK), (1, SCREEN_TRACK)] {
             let marker = tile_marker(r.handle, track);
             let node = info
                 .get_node_id_by_marker(AzString::from(marker.as_str()))
                 .into_option();
-            r.tile_height[slot] = node
-                .and_then(|node| info.get_node_size(node).into_option())
-                .map(|size| size.height);
+            let size = node.and_then(|node| info.get_node_size(node).into_option());
+            r.tile_height[slot] = size.map(|size| size.height);
+            r.tile_px[slot] = size.and_then(|size| {
+                let w = (size.width * scale).round() as u32;
+                let h = (size.height * scale).round() as u32;
+                (w > 0 && h > 0).then_some((w, h))
+            });
         }
     }
 }
@@ -4299,6 +4357,7 @@ extern "C" fn view_toggle(mut data: RefAny, _info: CallbackInfo) -> Update {
         // Until the tiles are laid out again, the new boxes' heights count.
         for r in s.remotes.iter_mut() {
             r.tile_height = [None; 2];
+            r.tile_px = [None; 2];
         }
         network_changed(s, false);
     }
