@@ -10,12 +10,15 @@ branch `cf-workers-meet`.
   (event.rs, meeting.rs, mint-and-join.mjs)
 - `9954a4276` feat(azcalendar): minting sends the event's times in UTC, and the event file keeps them
 - `ddbfc42ac` refactor(azcalendar): event ids are azul's Uuid::from_seed of a random seed
+- dry run of mint-and-join.mjs against Node stand-ins (scratchpad `m6/`): PASS; the no-times variant FAILS as it
+  should
+- report `scripts/M6_ROOM_TIMES_2026_09_29.md`
 
 ## IN PROGRESS
-- dry run of mint-and-join.mjs against Node stand-ins (scratchpad `m6/`)
+- nothing
 
 ## NEXT
-1. Report `scripts/M6_ROOM_TIMES_2026_09_29.md`
+- parent: `cargo test -p AzCalendar --lib` once `Uuid::from_seed` is merged; the E2E with real binaries
 
 ## Open questions
-- none yet
+- none (see the report's "What is left")
