@@ -41070,6 +41070,9 @@
                                 },
                                 "color": {
                                     "type": "ColorOrSystem"
+                                },
+                                "offset_px": {
+                                    "type": "FloatValue"
                                 }
                             }
                         ],
