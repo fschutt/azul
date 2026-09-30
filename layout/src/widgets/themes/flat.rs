@@ -4421,6 +4421,13 @@ pub fn date_picker(d: crate::widgets::date_picker::DatePicker) -> Dom {
     look.day_selected
         .extend(decl::focus_halo(FIELD_RING, DARK_ACC));
     look.day_other.extend(decl::focus_halo(FIELD_RING, DARK_ACC));
+    // Today: a 1px ring inside the cell in the field ring, the night accent
+    // at night.
+    look.day_today = CssPropertyWithConditions::themed(
+        decl::shadow(0, 0, 1, FIELD_RING, true),
+        decl::shadow(0, 0, 1, DARK_ACC, true),
+    )
+    .to_vec();
     crate::widgets::date_picker::build(d, &look)
 }
 
@@ -5268,4 +5275,52 @@ pub(crate) fn shell_look() -> crate::widgets::shells::ShellLook {
         bottom_tab_label,
         marker: None,
     }
+}
+// ==== info_bar ====
+//
+// The flat info bar is Outlook's: the alert palette's pastel face for the
+// kind across the width under a hairline in the kind's rule colour, its ink
+// for the text, the glyph the same ink; Bootstrap's dark alert palette at
+// night (the alert's own twins). The action is a link button.
+
+/// The flat strip for one kind: the alert's kind colours, as a strip.
+fn flat_info_bar_strip(kind: crate::widgets::alert::AlertKind) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let (bg, border, text) = kind.colors();
+    let (dark_bg, dark_border, dark_text) = kind.dark_colors();
+    let mut v = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            13,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    v.extend(decl::padding(6, 12, 6, 12));
+    v.extend(decl::border_bottom(1));
+    v.extend(decl::themed_border_bottom_color(border, dark_border));
+    v.extend(decl::themed_fill(bg, dark_bg));
+    v.extend(decl::themed_ink(text, dark_text));
+    v
+}
+
+/// Flat's info-bar look.
+#[must_use]
+pub(crate) fn info_bar_look() -> crate::widgets::info_bar::InfoBarLook {
+    use super::decl;
+    let mut icon = vec![CssPropertyWithConditions::simple(CssProperty::const_font_size(
+        StyleFontSize::const_px(18),
+    ))];
+    icon.extend(decl::margin(0, 8, 0, 0));
+    crate::widgets::info_bar::InfoBarLook {
+        strip: flat_info_bar_strip,
+        icon,
+        text: Vec::new(),
+        action: decl::margin(0, 0, 0, 12).to_vec(),
+        marker: None,
+    }
+}
+
+/// The flat info bar.
+#[must_use]
+pub fn info_bar(b: crate::widgets::info_bar::InfoBar) -> Dom {
+    crate::widgets::info_bar::build(b, &info_bar_look())
 }

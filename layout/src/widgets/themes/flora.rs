@@ -4922,6 +4922,12 @@ pub fn date_picker(d: crate::widgets::date_picker::DatePicker) -> Dom {
     ));
     other.extend(decl::focus_halo(LIGHT_ACC, DARK_GLOW));
     look.day_other = other;
+    // Today: a 1px ring inside the cell in the accent, the glow at night.
+    look.day_today = CssPropertyWithConditions::themed(
+        decl::shadow(0, 0, 1, LIGHT_ACC, true),
+        decl::shadow(0, 0, 1, DARK_GLOW, true),
+    )
+    .to_vec();
     look.marker = Some("__azul-theme-flora");
 
     crate::widgets::date_picker::build(d, &look)
@@ -5532,6 +5538,12 @@ pub(crate) fn statusbar_style(
     chrome_part(&mut s.zoom_label_style, &e, |v| {
         v.extend(kit::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
         chrome_key(v);
+    });
+    // The sync indicator's glyph when the sync failed: the clay stone, lifted
+    // to its glow at night (the alert's danger thread).
+    let e = s.resolved_sync_icon_error_style();
+    chrome_part(&mut s.sync_icon_error_style, &e, |v| {
+        v.extend(kit::themed_ink(STONE_CLAY.stone, STONE_CLAY.glow));
     });
     s
 }
@@ -6841,4 +6853,55 @@ pub(crate) fn shell_look() -> crate::widgets::shells::ShellLook {
         bottom_tab_label,
         marker: Some(super::style_kit::FLORA_CLASS),
     }
+}
+// ==== info_bar ====
+//
+// A flora info bar is the alert's leaf turned into a strip: the faintest
+// wash of the kind's stone across the width, a --fl-bd hairline under it
+// and the stone's 3px thread down its left edge; the glyph in brass, the
+// text in --fl-ink, the action a link key. At night the night surface and
+// inks, the thread lifted to the stone's glow.
+
+/// The flora strip for one kind.
+fn flora_info_bar_strip(kind: crate::widgets::alert::AlertKind) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let stone = alert_stone(kind);
+    let mut v = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            13,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    v.extend(decl::padding(6, 12, 6, 10));
+    v.extend(decl::border_bottom(1));
+    v.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+    v.extend(decl::border_left(3));
+    v.extend(decl::themed_border_left_color(stone.stone, stone.glow));
+    v.extend(decl::themed_fill(stone.soft, DARK_SUR));
+    v.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    v
+}
+
+/// Flora's info-bar look.
+#[must_use]
+pub(crate) fn info_bar_look() -> crate::widgets::info_bar::InfoBarLook {
+    use super::decl;
+    let mut icon = vec![CssPropertyWithConditions::simple(CssProperty::const_font_size(
+        StyleFontSize::const_px(18),
+    ))];
+    icon.extend(decl::margin(0, 8, 0, 0));
+    icon.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+    crate::widgets::info_bar::InfoBarLook {
+        strip: flora_info_bar_strip,
+        icon,
+        text: Vec::new(),
+        action: decl::margin(0, 0, 0, 12).to_vec(),
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}
+
+/// The flora info bar.
+#[must_use]
+pub fn info_bar(b: crate::widgets::info_bar::InfoBar) -> Dom {
+    crate::widgets::info_bar::build(b, &info_bar_look())
 }

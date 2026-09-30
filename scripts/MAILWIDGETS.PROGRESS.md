@@ -7,18 +7,25 @@ flat + flora, light + dark, keyboard, a11y, tests, showcase cards; engine gaps f
 RED-first (date_picker inline mode + today, list_view lazy-load hook never wired).
 
 ## DONE
-- (none yet)
+- `822b65c94` progress checkpoint.
+- `028879ee7` RED A: date_picker inline + today tests, list_view lazy-load wiring test, statusbar
+  sync tests, info_bar (stub dom); manifest entries "info_bar", "date_picker (inline)",
+  "statusbar (sync)".
+- (next hash) GREEN A: date_picker `inline` / `today` (+ `DatePickerLook::day_today`,
+  `CellFaces::today`, `DatePickerData::inline`), list_view `scroll_settled_hook` /
+  `scroll_window_of` + `on_lazy_load_scroll` wired, statusbar `sync_dom`, info_bar build + flat /
+  flora looks (`// ==== info_bar ====` appended in both theme files; flora `statusbar_style` and the
+  two `date_picker` theme fns edited in place - 4 lines each).
 
 ## IN PROGRESS
-- RED commit A: date_picker inline + today tests, list_view lazy-load wiring test, statusbar sync
-  tests, info_bar (stub dom).
+- RED C: message_list, reading_pane, todo_bar, module_switcher, wizard_layout (API + tests + stub
+  dom), manifest entries.
 
 ## NEXT
-1. GREEN A: date_picker `inline` / `today`, list_view `on_lazy_load_scroll` wired through a shared
-   scroll-window hook, statusbar `sync` cluster, info_bar build + flat/flora looks.
-2. RED C / GREEN D: message_list, reading_pane, todo_bar, module_switcher, wizard_layout.
-3. Manifest entries in `widgets/mod.rs`; showcase cards in `examples/azul-widgets/src/mail.rs`.
-4. Report.
+1. GREEN D: builds + `// ==== <widget> ====` looks in flat.rs / flora.rs.
+2. Showcase cards in `examples/azul-widgets/src/mail.rs` (needs api.json via autofix before it
+   compiles - say so in the report).
+3. Report `scripts/MAILWIDGETS_2026_09_30.md`.
 
 ## Open questions
 - No sibling worktree has `layout/src/widgets/shells/` or a `NavigationPane`: the ModuleSwitcher is

@@ -1074,6 +1074,7 @@ impl ListView {
         };
         let on_column_click = self.on_column_click.clone();
         let on_row_click = self.on_row_click.clone();
+        let on_lazy_load_scroll = self.on_lazy_load_scroll.clone();
         // WAI-ARIA listbox: the rows are ONE Tab stop - the selected row, or
         // the first when none is. The arrow keys move within them.
         let row_stop = crate::widgets::roving::stop_index(
@@ -1130,10 +1131,14 @@ impl ListView {
                             .into(),
                     ),
                 // rows
-                Dom::create_div()
-                    .with_css_props(CSS_MATCH_4852927511892172364)
-                    .with_ids_and_classes(ROW_CONTAINER_CLASS)
-                    .with_children(
+                lazy_rows(
+                    on_lazy_load_scroll,
+                    &state,
+                    Dom::create_div()
+                        .with_css_props(CSS_MATCH_4852927511892172364)
+                        .with_ids_and_classes(ROW_CONTAINER_CLASS),
+                )
+                .with_children(
                         self.rows
                             .into_iter()
                             .enumerate()
@@ -1328,6 +1333,93 @@ extern "C" fn on_list_view_column_click(mut refany: RefAny, info: CallbackInfo) 
         }) => callback.invoke(user_data.clone(), info, data.state.clone(), data.col_index),
         None => Update::DoNothing,
     }
+}
+
+// ---- the scroll window of a virtualised list ----
+//
+// A list that shows thousands of rows renders only the ones in view and asks
+// the app for the rest as the user scrolls. What it needs from the engine is
+// WHERE its scroll box stands once a gesture settles - never the wheel
+// itself, which stays the page's (`widgets::wheel_ownership`): the box
+// listens for `ScrollEnd`, reads its offset and size, and the app maps them
+// to rows (`ListView::visible_row_range`). Shared by every virtualised
+// list (the `ListView`'s lazy-load hook, the mail `MessageList`).
+
+/// The hook a virtualised list's scroll box registers: `cb` runs with
+/// `refany` when a scroll gesture over the box SETTLES.
+pub(crate) fn scroll_settled_hook(
+    cb: extern "C" fn(RefAny, CallbackInfo) -> Update,
+    refany: RefAny,
+) -> CoreCallbackData {
+    CoreCallbackData {
+        event: EventFilter::Hover(HoverEventFilter::ScrollEnd),
+        callback: CoreCallback {
+            cb: cb as usize,
+            ctx: OptionRefAny::None,
+        },
+        refany,
+    }
+}
+
+/// Where the scroll box `node` stands: its scroll offset and its size -
+/// zero where the engine keeps no scroll state for it yet (a box that never
+/// scrolled, a test harness), so the app still hears the settled gesture.
+#[must_use]
+pub(crate) fn scroll_window_of(
+    info: &CallbackInfo,
+    node: azul_core::dom::DomNodeId,
+) -> (LogicalPosition, LogicalSize) {
+    let offset = node
+        .node
+        .into_crate_internal()
+        .and_then(|n| info.get_scroll_offset_for_node(node.dom, n))
+        .unwrap_or_else(LogicalPosition::zero);
+    let size = info.get_node_size(node).unwrap_or_else(LogicalSize::zero);
+    (offset, size)
+}
+
+/// The row box `rows`, listening for a settled scroll when the list has a
+/// lazy-load hook.
+fn lazy_rows(hook: OptionListViewOnLazyLoadScroll, state: &ListViewState, rows: Dom) -> Dom {
+    match hook.into_option() {
+        Some(on_lazy_load_scroll) => rows.with_callbacks(
+            vec![scroll_settled_hook(
+                on_list_view_scroll_settled,
+                RefAny::new(LazyLoadData {
+                    state: state.clone(),
+                    on_lazy_load_scroll,
+                }),
+            )]
+            .into(),
+        ),
+        None => rows,
+    }
+}
+
+/// The row box's payload: the list state at build time plus the app's
+/// lazy-load hook.
+struct LazyLoadData {
+    state: ListViewState,
+    on_lazy_load_scroll: ListViewOnLazyLoadScroll,
+}
+
+/// A scroll over the row box settled: hand the app the state with the live
+/// scroll position and box size filled in.
+extern "C" fn on_list_view_scroll_settled(mut refany: RefAny, info: CallbackInfo) -> Update {
+    let (mut state, hook) = {
+        let Some(data) = refany.downcast_ref::<LazyLoadData>() else {
+            return Update::DoNothing;
+        };
+        (data.state.clone(), data.on_lazy_load_scroll.clone())
+    };
+    let (offset, size) = scroll_window_of(&info, info.get_hit_node());
+    state.current_scroll_position = offset;
+    state.current_content_height = size;
+    let ListViewOnLazyLoadScroll {
+        refany: user_data,
+        callback,
+    } = hook;
+    callback.invoke(user_data, info, state)
 }
 
 #[cfg(test)]

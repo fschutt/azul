@@ -214,9 +214,16 @@ impl InfoBar {
     /// theme picks.
     #[must_use]
     pub fn dom(self) -> Dom {
-        // RED: the strip is not built yet.
-        let _ = self;
-        Dom::create_div()
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::info_bar(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::info_bar(self),
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                crate::widgets::themes::flat::info_bar,
+                crate::widgets::themes::flora::info_bar,
+            ),
+        }
     }
 }
 

@@ -1457,6 +1457,9 @@ static CLS_ZOOM_TICK: &[IdOrClass] = &[Class(AzString::from_const_str(
 static CLS_ZOOM_LABEL: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-statusbar-zoom-label",
 ))];
+static CLS_SYNC: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-statusbar-sync",
+))];
 
 // -- Constructors / builders --
 
@@ -1618,12 +1621,12 @@ impl StatusBar {
             views,
             zoom,
             style,
-            sync: _,
+            sync,
             // The look to build is `theme`: the field is the caller's pin,
             // already resolved by `dom`.
             theme: _,
         } = self;
-        let mut children: Vec<Dom> = Vec::with_capacity(segments.len() + 3);
+        let mut children: Vec<Dom> = Vec::with_capacity(segments.len() + 4);
 
         for seg in segments.into_library_owned_vec() {
             children.push(segment_dom(seg, &style, theme));
@@ -1634,6 +1637,10 @@ impl StatusBar {
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_FILLER))
                 .with_css_props(style.resolved_filler_style()),
         );
+
+        if let Some(sync) = sync.into_option() {
+            children.push(sync_dom(sync, &style, theme));
+        }
 
         if let Some(switcher) = views.into_option() {
             children.push(views_dom(switcher, &style, theme));
@@ -1822,6 +1829,32 @@ extern "C" fn statusbar_label_render_virtual_view(
     let rect = LogicalRect::new(LogicalPosition::zero(), size);
     // A label does not scroll, so all three rects are the same box.
     VirtualViewReturn::with_dom(dom, rect, rect)
+}
+
+/// The sync indicator: a segment (a [`Button`] with the state's glyph and the
+/// label, named by the label) whose glyph turns the palette's error colour
+/// when the sync failed.
+fn sync_dom(sync: StatusBarSync, style: &StatusBarStyle, theme: UiTheme) -> Dom {
+    let StatusBarSync {
+        label,
+        on_click,
+        kind,
+    } = sync;
+    let mut b = Button::create(label.clone());
+    b.icon = AzString::from_const_str(kind.icon());
+    // The name: the label says the state ("Connected"), the glyph does not.
+    b.alt = label;
+    b.container_style = OptionCssPropertyWithConditionsVec::Some(style.resolved_segment_style());
+    b.icon_style = OptionCssPropertyWithConditionsVec::Some(if kind == StatusBarSyncKind::Error {
+        style.resolved_sync_icon_error_style()
+    } else {
+        style.resolved_segment_icon_style()
+    });
+    b.label_style = OptionCssPropertyWithConditionsVec::Some(style.resolved_segment_label_style());
+    b.on_click = on_click;
+    b.set_theme(theme);
+    b.dom()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_SYNC))
 }
 
 fn views_dom(switcher: StatusBarViewSwitcher, style: &StatusBarStyle, theme: UiTheme) -> Dom {
