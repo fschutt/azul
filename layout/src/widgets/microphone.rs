@@ -10,9 +10,11 @@
 //! all via the public API, no globals. The mic permission is the existing
 //! `Capability::Microphone`.
 //!
-//! This tick uses a self-contained **test-tone** worker (a 440 Hz sine, no
-//! platform deps); the real AVAudioEngine / AAudio / cpal capture worker
-//! (dll-side) swaps in later.
+//! The worker reads the platform capture backend the dll registers
+//! (AVAudioEngine / ALSA / cpal / AAudio); without one, or when it fails to
+//! open, it feeds a 440 Hz **test tone**. A headless / e2e run never opens the
+//! real microphone: it gets the tone if it asked for a synthetic microphone,
+//! else nothing (`capture_common::mic_backend`, `request::mock::device`).
 
 use alloc::vec::Vec;
 
@@ -26,7 +28,9 @@ use azul_core::{
 use azul_css::impl_option_inner; // for impl_widget_callback!'s impl_option!
 use azul_css::F32Vec;
 
-use super::capture_common::{mic_backend, terminate_requested};
+use super::capture_common::{
+    mic_backend, terminate_requested, test_tone_vtable, AudioCaptureVTable,
+};
 use crate::{
     callbacks::{Callback, CallbackInfo, CallbackType},
     thread::{
@@ -199,103 +203,75 @@ extern "C" fn mic_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Up
     Update::DoNothing
 }
 
-/// Background worker (test tone): a 440 Hz sine in ~20 ms chunks until the
-/// widget unmounts. The real `AVAudioEngine` / `AAudio` / cpal capture loop
-/// replaces it (dll-side).
-#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
+/// Background worker: reads the microphone backend (the platform's, or a
+/// headless run's stand-in - `capture_common::mic_backend`), else the 440 Hz
+/// test tone, in chunks until the widget unmounts or the source ends.
 extern "C" fn mic_worker(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadReceiver) {
     let (rate, channels) = init
         .downcast_ref::<MicThreadInit>()
         .map_or((48_000, 1), |i| (i.sample_rate, i.channels));
 
-    // Real platform capture if the dll registered a mic backend (ALSA on
-    // Linux); otherwise the 440 Hz test tone below.
-    if let Some(backend) = mic_backend() {
+    let (source, handle) = open_mic(rate, channels);
+    let mut buf: Vec<f32> = Vec::new();
+    loop {
+        // See `capture_common::terminate_requested`: a device read is not
+        // interruptible from the terminate channel, so the check has to
+        // happen between reads.
+        if terminate_requested(&mut recv) {
+            break;
+        }
+        let frames = (source.read)(handle, &mut buf);
+        if frames == 0 {
+            break;
+        }
+        let frame = AudioFrame {
+            sample_rate: rate,
+            channels,
+            samples: F32Vec::from_vec(buf.clone()),
+        };
+        if !sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
+            WriteBackCallback::new(mic_writeback),
+            RefAny::new(frame),
+        ))) {
+            break;
+        }
+    }
+    (source.close)(handle);
+}
+
+/// Opens the microphone backend; where none is registered, or it fails to
+/// open, the 440 Hz test tone (`capture_common::test_tone_vtable`), announced
+/// once.
+fn open_mic(rate: u32, channels: u16) -> (AudioCaptureVTable, u64) {
+    let backend = mic_backend();
+    if let Some(backend) = backend {
         let handle = (backend.open)(rate, channels);
         if handle != 0 {
-            let mut buf: Vec<f32> = Vec::new();
-            loop {
-                // See `capture_common::terminate_requested`: an ALSA read is
-                // not interruptible from the terminate channel, so the check
-                // has to happen between reads.
-                if terminate_requested(&mut recv) {
-                    break;
-                }
-                let frames = (backend.read)(handle, &mut buf);
-                if frames == 0 {
-                    break;
-                }
-                let frame = AudioFrame {
-                    sample_rate: rate,
-                    channels,
-                    samples: F32Vec::from_vec(buf.clone()),
-                };
-                if !sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
-                    WriteBackCallback::new(mic_writeback),
-                    RefAny::new(frame),
-                ))) {
-                    break;
-                }
-            }
-            (backend.close)(handle);
-            return;
+            return (backend, handle);
         }
     }
 
     // Reaching here means a MicrophoneWidget is live and about to feed a
     // synthetic 440 Hz TEST TONE instead of the microphone — the most
     // misleading fallback in the tree if unannounced. Say why, once.
-    {
-        static TEST_TONE_ANNOUNCE: std::sync::Once = std::sync::Once::new();
-        let have_backend = mic_backend().is_some();
-        TEST_TONE_ANNOUNCE.call_once(|| {
-            if have_backend {
-                eprintln!(
-                    "[azul][microphone] the platform microphone backend failed to open (device \
-                     missing/busy or libasound unavailable — see lines above) — feeding a \
-                     synthetic 440 Hz TEST TONE instead of the microphone"
-                );
-            } else {
-                eprintln!(
-                    "[azul][microphone] no microphone backend is registered in this build/OS — \
-                     feeding a synthetic 440 Hz TEST TONE instead of the microphone"
-                );
-            }
-        });
-    }
-
-    let frames_per_chunk = (rate as usize / 50).max(1); // ~20 ms
-    let step = 2.0 * core::f32::consts::PI * 440.0 / rate as f32;
-    let mut phase: f32 = 0.0;
-    loop {
-        if terminate_requested(&mut recv) {
-            break;
+    static TEST_TONE_ANNOUNCE: std::sync::Once = std::sync::Once::new();
+    let have_backend = backend.is_some();
+    TEST_TONE_ANNOUNCE.call_once(|| {
+        if have_backend {
+            eprintln!(
+                "[azul][microphone] the platform microphone backend failed to open (device \
+                 missing/busy or libasound unavailable — see lines above) — feeding a \
+                 synthetic 440 Hz TEST TONE instead of the microphone"
+            );
+        } else {
+            eprintln!(
+                "[azul][microphone] no microphone backend is registered in this build/OS — \
+                 feeding a synthetic 440 Hz TEST TONE instead of the microphone"
+            );
         }
-        let mut samples = Vec::with_capacity(frames_per_chunk * channels as usize);
-        for _ in 0..frames_per_chunk {
-            let s = phase.sin() * 0.2;
-            phase += step;
-            if phase > 2.0 * core::f32::consts::PI {
-                phase -= 2.0 * core::f32::consts::PI;
-            }
-            for _ in 0..channels {
-                samples.push(s);
-            }
-        }
-        let frame = AudioFrame {
-            sample_rate: rate,
-            channels,
-            samples: F32Vec::from_vec(samples),
-        };
-        let sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
-            WriteBackCallback::new(mic_writeback),
-            RefAny::new(frame),
-        )));
-        if !sent {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
+    });
+    let tone = test_tone_vtable();
+    (tone, (tone.open)(rate, channels))
 }
 
 /// Writeback (main thread): hand the captured frame to the user's `on_frame`

@@ -376,14 +376,28 @@ pub fn register_screen_backend(vtable: CaptureVTable) {
     let _ = SCREEN_BACKEND.set(vtable);
 }
 
-/// The registered camera backend, if the dll provided one for this platform.
+/// The camera backend `CameraWidget` opens: the one the dll registered for
+/// this platform, if any. A headless / e2e run never gets it: see
+/// `gated_backend` (the synthetic stand-in is the colour-cycle pattern).
 pub fn camera_backend() -> Option<CaptureVTable> {
-    CAMERA_BACKEND.get().copied()
+    gated_backend(
+        mock::device(DeviceKind::Camera),
+        CAMERA_BACKEND.get().copied(),
+        test_pattern_vtable(TestPattern::ColourCycle),
+        UNAVAILABLE_CAMERA,
+    )
 }
 
-/// The registered screen-capture backend, if any.
+/// The screen-capture backend `ScreenCaptureWidget` opens, if any. A
+/// headless / e2e run never gets it: see `gated_backend` (the synthetic
+/// stand-in is the moving band).
 pub fn screen_backend() -> Option<CaptureVTable> {
-    SCREEN_BACKEND.get().copied()
+    gated_backend(
+        mock::device(DeviceKind::Screen),
+        SCREEN_BACKEND.get().copied(),
+        test_pattern_vtable(TestPattern::MovingBand),
+        UNAVAILABLE_SCREEN,
+    )
 }
 
 /// A platform **audio**-capture backend (microphone), registered by the dll so
@@ -411,9 +425,16 @@ pub fn register_mic_backend(vtable: AudioCaptureVTable) {
     let _ = MIC_BACKEND.set(vtable);
 }
 
-/// The registered mic-capture backend, if the dll provided one for this platform.
+/// The microphone backend `MicrophoneWidget` opens: the one the dll registered
+/// for this platform, if any. A headless / e2e run never gets it: see
+/// `gated_backend` (the synthetic stand-in is the 440 Hz test tone).
 pub fn mic_backend() -> Option<AudioCaptureVTable> {
-    MIC_BACKEND.get().copied()
+    gated_backend(
+        mock::device(DeviceKind::Microphone),
+        MIC_BACKEND.get().copied(),
+        test_tone_vtable(),
+        UNAVAILABLE_MIC,
+    )
 }
 
 // ----------------------------------------------------------------------------
@@ -430,8 +451,11 @@ fn gated_backend<T>(
     synthetic: T,
     unavailable: T,
 ) -> Option<T> {
-    let _ = (device, registered, synthetic, unavailable);
-    todo!("RED: gate the capture backends")
+    match device {
+        MockDevice::Real => registered,
+        MockDevice::Synthetic => Some(synthetic),
+        MockDevice::Unavailable => Some(unavailable),
+    }
 }
 
 /// The handle of a source that opened nothing. Not `0`, which would make the
@@ -1020,8 +1044,28 @@ fn test_tone_open(sample_rate: u32, channels: u16) -> u64 {
 }
 
 fn test_tone_read(handle: u64, out: &mut Vec<f32>) -> u32 {
-    let _ = (handle, out);
-    todo!("RED: the test tone behind the microphone vtable")
+    // SAFETY: `handle` is a `Box<TestToneState>` from `test_tone_open`, alive
+    // until `test_tone_close`; the worker never reads after close.
+    let Some(state) = (unsafe { (handle as *mut TestToneState).as_mut() }) else {
+        return 0;
+    };
+    if state.started {
+        std::thread::sleep(TEST_TONE_CHUNK);
+    }
+    state.started = true;
+    out.clear();
+    out.reserve(state.frames * usize::from(state.channels));
+    for _ in 0..state.frames {
+        let sample = state.phase.sin() * 0.2;
+        state.phase += state.step;
+        if state.phase > 2.0 * core::f32::consts::PI {
+            state.phase -= 2.0 * core::f32::consts::PI;
+        }
+        for _ in 0..state.channels {
+            out.push(sample);
+        }
+    }
+    u32::try_from(state.frames).unwrap_or(u32::MAX)
 }
 
 fn test_tone_close(handle: u64) {

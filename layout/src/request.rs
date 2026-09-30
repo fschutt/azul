@@ -248,6 +248,10 @@ pub fn pending_count() -> usize {
 ///   documents are canned.
 /// * `FileDialog::save_bytes` never shows a dialog while armed: the bytes are recorded in
 ///   [`saved_files`] for `assert_saved_file`.
+/// * No capture or playback device (microphone, camera, screen, audio output) is opened while
+///   armed: each gets the synthetic stand-in the run asked for (`AZ_SYNTHETIC_DEVICES=camera,..`
+///   at launch, or the `mock` op), else nothing, recorded like an unmocked request
+///   ([`device`]).
 ///
 /// The JSON scenario op `{"op": "mock", "set": {...}}` fills the store; the
 /// same op is what the browser lane maps onto `window.__az_e2e_mock`.
@@ -464,8 +468,20 @@ pub mod mock {
     /// `AZ_SYNTHETIC_DEVICES`: comma-separated [`DeviceKind::name`]s, or
     /// `all`. An unknown name is reported and ignored.
     fn parse_synthetic_devices(list: &str) -> [bool; 4] {
-        let _ = list;
-        todo!("RED: parse AZ_SYNTHETIC_DEVICES")
+        let mut synthetic = [false; 4];
+        for name in list.split(',').map(str::trim).filter(|n| !n.is_empty()) {
+            if name == "all" {
+                synthetic = [true; 4];
+            } else if let Some(kind) = DeviceKind::from_name(name) {
+                synthetic[kind.index()] = true;
+            } else {
+                eprintln!(
+                    "[azul][e2e] AZ_SYNTHETIC_DEVICES: unknown device {name:?} (known: \
+                     microphone, camera, screen, audio_sink, all)"
+                );
+            }
+        }
+        synthetic
     }
 
     fn synthetic_in(s: &mut MockState) -> &mut [bool; 4] {
@@ -694,8 +710,13 @@ pub mod mock {
     }
 
     fn device_in(s: &mut MockState, kind: DeviceKind) -> MockDevice {
-        let _ = (s, kind);
-        todo!("RED: decide a device under the store")
+        if !armed_in(s) {
+            MockDevice::Real
+        } else if synthetic_in(s)[kind.index()] {
+            MockDevice::Synthetic
+        } else {
+            MockDevice::Unavailable
+        }
     }
 
     /// A headless run tried to open `kind`, which has no stand-in: say so on
@@ -706,8 +727,19 @@ pub mod mock {
     }
 
     fn record_unavailable_in(s: &mut MockState, kind: DeviceKind) {
-        let _ = (s, kind);
-        todo!("RED: record an unavailable device")
+        let reported = &mut s.devices_reported[kind.index()];
+        if !*reported {
+            *reported = true;
+            eprintln!(
+                "[azul][e2e] {}: not available in a headless run, no device is opened. A \
+                 synthetic stand-in: AZ_SYNTHETIC_DEVICES={} or the mock op {{\"{}\": \"{}\"}}",
+                kind.operation(),
+                kind.name(),
+                kind.name(),
+                kind.stand_in()
+            );
+        }
+        s.unmocked.push(String::from(kind.operation()));
     }
 
     /// Records an export while armed; `None` when not armed (show the real

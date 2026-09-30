@@ -2614,6 +2614,10 @@ pub enum DebugEvent {
     ///   "..."} | {"error": "..."}}`
     /// * `audio_devices`: `{"outputs": [".."], "inputs": [".."]}`
     /// * `video_decode`: `{"none": true}`
+    /// * `microphone`: `"tone"` (a 440 Hz test tone) or `null`; `camera` / `screen`: `"pattern"`
+    ///   or `null`; `audio_sink`: `"count"` (counts frames, plays nothing) or `null` - the
+    ///   synthetic stand-in a device opened after this step gets. A device without one opens
+    ///   nothing and is recorded like an unmocked request (e.g. `"CameraWidget capture"`)
     /// * `reset`: `true` forgets every queued answer and record first
     ///
     /// Under an e2e run a request with no answer queued resolves as cancelled
@@ -7249,6 +7253,23 @@ fn apply_mock_set(set: &serde_json::Value) -> Result<(), String> {
                     .and_then(serde_json::Value::as_bool)
                     .unwrap_or(true),
             ),
+            "microphone" | "camera" | "screen" | "audio_sink" => {
+                let Some(kind) = mock::DeviceKind::from_name(key) else {
+                    return Err(format!("mock: unknown key `{key}`"));
+                };
+                let synthetic = match value.as_str() {
+                    _ if value.is_null() => false,
+                    Some("none") => false,
+                    Some(stand_in) if stand_in == kind.stand_in() => true,
+                    _ => {
+                        return Err(format!(
+                            "mock {key}: expected \"{}\" or null",
+                            kind.stand_in()
+                        ))
+                    }
+                };
+                mock::set_synthetic_device(kind, synthetic);
+            }
             other => return Err(format!("mock: unknown key `{other}`")),
         }
     }

@@ -94,27 +94,92 @@ impl Default for AudioSink {
     }
 }
 
+impl AudioSinkInner {
+    /// No output engine: `play` only counts the frames.
+    fn counting(config: AudioConfig) -> Self {
+        AudioSinkInner {
+            config,
+            frames_played: 0,
+            #[cfg(target_os = "linux")]
+            pcm: None,
+            #[cfg(target_os = "windows")]
+            sink: None,
+            #[cfg(target_os = "android")]
+            android_sink: None,
+            #[cfg(all(
+                any(target_os = "ios", target_os = "macos"),
+                feature = "objc2-avf-audio"
+            ))]
+            ios_sink: None,
+        }
+    }
+}
+
 impl AudioSink {
     /// Open an audio output for `config` (sample rate + channels). Returns an
     /// invalid handle (`is_open()` false) on failure. The stub engine always
     /// "opens"; the real rodio / AVAudio backend may fail (no device).
+    ///
+    /// A headless / e2e run never opens the real output: it gets a sink that
+    /// counts frames and plays nothing if it asked for one
+    /// (`AZ_SYNTHETIC_DEVICES=audio_sink`, or the `mock` op), else an invalid
+    /// handle, recorded as "not available in a headless run".
     pub fn open(config: AudioConfig) -> AudioSink {
+        use azul_layout::request::mock::{self, DeviceKind, MockDevice};
+        let device = mock::device(DeviceKind::AudioSink);
+        if device == MockDevice::Unavailable {
+            mock::record_unavailable_device(DeviceKind::AudioSink);
+        }
+        Self::open_as(config, device)
+    }
+
+    /// [`open`](Self::open) once the mock store has decided what `open`
+    /// resolves to (split out so tests need not arm the process-wide store).
+    fn open_as(config: AudioConfig, device: azul_layout::request::mock::MockDevice) -> AudioSink {
+        use azul_layout::request::mock::MockDevice;
+        match device {
+            MockDevice::Real => Self::open_device(config),
+            MockDevice::Unavailable => AudioSink::default(),
+            MockDevice::Synthetic => {
+                crate::plog_info!(
+                    "[audio] headless run: a synthetic sink that counts frames, no device \
+                     ({}Hz x{}ch)",
+                    config.sample_rate,
+                    config.channels
+                );
+                Self::from_inner(AudioSinkInner::counting(config))
+            }
+        }
+    }
+
+    /// The platform output for `config`.
+    fn open_device(config: AudioConfig) -> AudioSink {
         crate::plog_info!(
             "[audio] opening sink: {}Hz x{}ch (f32 interleaved)",
             config.sample_rate,
             config.channels
         );
+        #[allow(unused_mut)] // no engine field on some targets
+        let mut inner = AudioSinkInner::counting(config);
         #[cfg(target_os = "linux")]
-        let pcm = alsa::AlsaPcm::open(config.sample_rate, config.channels as u32);
+        {
+            inner.pcm = alsa::AlsaPcm::open(config.sample_rate, config.channels as u32);
+        }
         #[cfg(target_os = "windows")]
-        let sink = cpal_sink::CpalSink::open(config.sample_rate, config.channels);
+        {
+            inner.sink = cpal_sink::CpalSink::open(config.sample_rate, config.channels);
+        }
         #[cfg(target_os = "android")]
-        let android_sink = aaudio::AAudioSink::open(config.sample_rate, config.channels);
+        {
+            inner.android_sink = aaudio::AAudioSink::open(config.sample_rate, config.channels);
+        }
         #[cfg(all(
             any(target_os = "ios", target_os = "macos"),
             feature = "objc2-avf-audio"
         ))]
-        let ios_sink = avfoundation_sink::AvfSink::open(config.sample_rate, config.channels);
+        {
+            inner.ios_sink = avfoundation_sink::AvfSink::open(config.sample_rate, config.channels);
+        }
 
         // A sink whose engine failed to open still returns a valid-looking
         // handle (is_open() = true) and play() then counts + DISCARDS every
@@ -122,16 +187,16 @@ impl AudioSink {
         // "playing but muted".
         {
             #[cfg(target_os = "linux")]
-            let engine_ok = pcm.is_some();
+            let engine_ok = inner.pcm.is_some();
             #[cfg(target_os = "windows")]
-            let engine_ok = sink.is_some();
+            let engine_ok = inner.sink.is_some();
             #[cfg(target_os = "android")]
-            let engine_ok = android_sink.is_some();
+            let engine_ok = inner.android_sink.is_some();
             #[cfg(all(
                 any(target_os = "ios", target_os = "macos"),
                 feature = "objc2-avf-audio"
             ))]
-            let engine_ok = ios_sink.is_some();
+            let engine_ok = inner.ios_sink.is_some();
             #[cfg(not(any(
                 target_os = "linux",
                 target_os = "windows",
@@ -151,32 +216,14 @@ impl AudioSink {
             }
         }
 
-        let inner = Box::new(AudioSinkInner {
-            config,
-            frames_played: 0,
-            #[cfg(target_os = "linux")]
-            pcm,
-            #[cfg(target_os = "windows")]
-            sink,
-            #[cfg(target_os = "android")]
-            android_sink,
-            #[cfg(all(
-                any(target_os = "ios", target_os = "macos"),
-                feature = "objc2-avf-audio"
-            ))]
-            ios_sink,
-        });
-        AudioSink {
-            ptr: Box::into_raw(inner) as *mut c_void,
-            run_destructor: true,
-        }
+        Self::from_inner(inner)
     }
 
-    /// [`open`](Self::open) once the mock store has decided what `open`
-    /// resolves to (split out so tests need not arm the process-wide store).
-    fn open_as(config: AudioConfig, device: azul_layout::request::mock::MockDevice) -> AudioSink {
-        let _ = (config, device);
-        todo!("RED: an audio sink under the mock store")
+    fn from_inner(inner: AudioSinkInner) -> AudioSink {
+        AudioSink {
+            ptr: Box::into_raw(Box::new(inner)) as *mut c_void,
+            run_destructor: true,
+        }
     }
 
     /// Whether the sink opened successfully.
