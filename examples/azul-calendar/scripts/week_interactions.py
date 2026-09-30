@@ -117,12 +117,21 @@ class Debug:
     def value(self, body):
         return (self.must(body).get("data") or {}).get("value") or {}
 
-    def until(self, what, check, every=0.25):
-        """Polls `check` until it answers, for at most the script's --timeout."""
+    def frames(self, n=1):
+        """Lets the app run `n` frames. The engine's timers (the wheel's scroll physics, the
+        scroll glide) run in real time and only advance frame by frame: reading state in a
+        loop does not move them, a `wait_frame` does."""
+        for _ in range(n):
+            self.must({"op": "wait_frame"})
+
+    def until(self, what, check, every=0.1):
+        """Polls `check` until it answers, a frame at a time, for at most the script's
+        --timeout."""
         last = None
         deadline = time.time() + self.timeout
         while time.time() < deadline:
             try:
+                self.frames()
                 got = check()
                 if got:
                     return got
@@ -189,21 +198,28 @@ class Week:
         _, r = self.dbg.rect(f"#day-{day}")
         return r
 
-    def scroll_to_minute(self, minute):
-        """Puts `minute` at the top of the week (or scrolls as far as the day goes), and waits
-        until the week is there."""
-        bottom = max(0.0, 24.0 * self.hour_px - self.scroll["height"])
-        y = min(minute / 60.0 * self.hour_px, bottom)
+    def max_scroll(self):
+        return max(0.0, 24.0 * self.hour_px - self.scroll["height"])
+
+    def scroll_to_y(self, y):
+        """Scrolls the week to `y` (held to its range), and waits until it is there."""
+        y = min(max(y, 0.0), self.max_scroll())
         self.dbg.must({"op": "scroll_node_to", "selector": "#week-scroll", "x": 0, "y": y})
 
         def there():
             self.refresh()
             return abs(self.scroll_y - y) < 1.0 or None
 
-        self.dbg.until(f"the week to scroll to minute {minute}", there)
+        self.dbg.until(f"the week to scroll to {y:.0f} px", there)
+
+    def scroll_to_minute(self, minute):
+        """Puts `minute` at the top of the week (or scrolls as far as the day goes), and waits
+        until the week is there."""
+        self.scroll_to_y(minute / 60.0 * self.hour_px)
 
     def point(self, day, minute):
         """The window point over `day` (0 = Monday) at `minute`, as the week is scrolled now."""
+        self.refresh()
         col = self.column(day)
         x = col["x"] + col["width"] / 2.0
         y = col["y"] + minute / 60.0 * self.hour_px - self.scroll_y
@@ -285,6 +301,10 @@ def stage_zoom(dbg, week, data, ctx):
     x, _ = week.point(2, 8 * 60 + 30)
     y = week.scroll["y"] + 100.0
     minute_before = (week.scroll_y + 100.0) * 60.0 / before_px
+    # The pointer first: the `pinch` op runs its own event pass at once, and a pinch goes to
+    # the node under the pointer (macOS's magnify centre IS the pointer).
+    dbg.must({"op": "mouse_move", "x": x, "y": y})
+    dbg.frames()
     dbg.must(
         {
             "op": "pinch",
@@ -296,8 +316,6 @@ def stage_zoom(dbg, week, data, ctx):
             "duration_ms": 0,
         }
     )
-    # The injected pinch is delivered by the next pass, with the pointer over the week.
-    dbg.must({"op": "mouse_move", "x": x, "y": y})
 
     def zoomed():
         week.refresh()
@@ -316,10 +334,40 @@ def stage_zoom(dbg, week, data, ctx):
     )
 
 
+def settle(dbg, week):
+    """Waits until the week stops moving (a wheel glides for a while; a `scroll_node_to` made
+    during the glide would be overtaken by it)."""
+    last = [None]
+
+    def still():
+        week.refresh()
+        now = week.scroll_y
+        done = last[0] is not None and abs(now - last[0]) < 0.5
+        last[0] = now
+        return done or None
+
+    dbg.until("the week to stop scrolling", still)
+
+
+def popover_labels(dbg):
+    """What the popover says the draft is: texts like "Wednesday 30 September, 10:30 - 11:30"."""
+    shape = re.compile(r"^[A-Z][a-z]+day \d{1,2} [A-Z][a-z]+, \d\d:\d\d - \d\d:\d\d$")
+    return sorted({t for t in dbg.texts() if shape.match(t)})
+
+
+def expect_label(dbg, when):
+    if not dbg.shows(when):
+        raise Failure(f"the popover does not say {when!r}; it says {popover_labels(dbg)}")
+
+
 def stage_wheel(dbg, week, data, ctx):
     """A plain wheel scrolls the week and does not zoom."""
-    week.scroll_to_minute(8 * 60)
-    x, y = week.point(2, 9 * 60)
+    # From the middle of the range, so the wheel has room either way. A negative delta_y
+    # scrolls down (the engine's traditional direction), by up to 120 px.
+    week.scroll_to_y(week.max_scroll() / 2.0)
+    column = week.column(2)
+    x = column["x"] + column["width"] / 2.0
+    y = week.scroll["y"] + week.scroll["height"] / 2.0
     start_y, start_px = week.scroll_y, week.hour_px
     dbg.must({"op": "wheel", "x": x, "y": y, "delta_x": 0, "delta_y": -120})
 
@@ -328,6 +376,7 @@ def stage_wheel(dbg, week, data, ctx):
         return abs(week.scroll_y - start_y) > 20 or None
 
     dbg.until("a plain wheel to scroll the week", scrolled)
+    settle(dbg, week)
     if abs(week.hour_px - start_px) > 0.05:
         raise Failure(f"a plain wheel zoomed the week ({start_px} -> {week.hour_px} px an hour)")
     return f"scrolled {start_y:.0f} -> {week.scroll_y:.0f} px, still {week.hour_px:.1f} px an hour"
@@ -342,8 +391,7 @@ def stage_click(dbg, week, data, ctx):
     dbg.must({"op": "click", "x": x, "y": y})
     dbg.until("the draft and its popover", lambda: popover_open(dbg))
     when = f"{wednesday.strftime('%A')} {wednesday.day} {wednesday.strftime('%B')}, 10:30 - 11:30"
-    if not dbg.shows(when):
-        raise Failure(f"the popover does not say {when!r}")
+    expect_label(dbg, when)
     if not dbg.shows(DRAFT_TITLE):
         raise Failure(f"the draft does not say {DRAFT_TITLE!r}")
     how = type_title(dbg, "Standup")
@@ -369,8 +417,7 @@ def stage_drag(dbg, week, data, ctx):
     dbg.must({"op": "mouse_up", "x": x, "y": y2})
     dbg.until("the dragged draft and its popover", lambda: popover_open(dbg))
     when = f"{thursday.strftime('%A')} {thursday.day} {thursday.strftime('%B')}, 13:00 - 15:00"
-    if not dbg.shows(when):
-        raise Failure(f"the popover does not say {when!r}")
+    expect_label(dbg, when)
     type_title(dbg, "Review")
     name, event = save_and_read(dbg, data, before, "the dragged event")
     expect_event(event, name, "Review", thursday, "13:00", "15:00")
@@ -469,7 +516,13 @@ def run(opts, logs):
             raise Failure("the data folder is not empty at the start")
         week = Week(dbg)
         ctx = {}
-        for name, stage in STAGES:
+        chosen = [
+            (name, stage)
+            for name, stage in STAGES
+            if (not opts.only or name in opts.only.split(","))
+            and name not in (opts.skip or "").split(",")
+        ]
+        for name, stage in chosen:
             try:
                 log(f"{name}: {stage(dbg, week, data, ctx)}")
             except Failure as e:
@@ -477,7 +530,7 @@ def run(opts, logs):
                 log(f"{name}: FAIL: {e}")
                 clean_up(dbg)
         if failed:
-            raise Failure(f"{len(failed)} of {len(STAGES)} stages failed: {', '.join(failed)}")
+            raise Failure(f"{len(failed)} of {len(chosen)} stages failed: {', '.join(failed)}")
         log("PASS: the week zooms around the pointer, scrolls, and makes events from a click or a drag")
         return True
     finally:
@@ -505,6 +558,8 @@ def main():
     parser.add_argument("--port", type=int, default=8769)
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("--keep-logs", action="store_true")
+    parser.add_argument("--only", help="comma-separated stages to run (default: all)")
+    parser.add_argument("--skip", help="comma-separated stages to leave out")
     opts = parser.parse_args()
     logs = tempfile.mkdtemp(prefix="azcalendar-week-interactions-")
     passed = False
