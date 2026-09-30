@@ -652,3 +652,5 @@ mod a_list_marker_is_painted_inside_its_text_clip;
 mod an_underline_covers_the_last_letter_of_its_run;
 #[path = "a_click_on_a_link_inside_a_paragraph_reaches_the_link.rs"]
 mod a_click_on_a_link_inside_a_paragraph_reaches_the_link;
+#[path = "a_light_color_scheme_card_stays_light_in_a_dark_window.rs"]
+mod a_light_color_scheme_card_stays_light_in_a_dark_window;
