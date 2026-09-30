@@ -787,9 +787,9 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         );
     if !s.inline_dialogs {
         if let Some(popup) = &s.popup {
-            let (title, content) = popup_parts(popup, s, &app, p);
+            let (title, panel) = popup_parts(popup, s, &app, p);
             body.add_child(
-                Dialog::create(content)
+                Dialog::create(panel)
                     .with_title(title.as_str())
                     .with_open(true)
                     .with_modal(true)
@@ -1256,7 +1256,7 @@ fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny, p: &Palette) -> (Str
 
 /// A dialog as a sheet right of the list (`AZDRIVE_DIALOGS=inline`).
 fn inline_sheet(popup: &Popup, s: &DriveState, app: &RefAny, p: &Palette) -> Dom {
-    let (title, content) = popup_parts(popup, s, app, p);
+    let (title, panel) = popup_parts(popup, s, app, p);
     Dom::create_div()
         .with_css(format!(
             "display: flex; flex-direction: column; width: 360px; flex-shrink: 0; padding: 16px; \
@@ -1267,7 +1267,7 @@ fn inline_sheet(popup: &Popup, s: &DriveState, app: &RefAny, p: &Palette) -> Dom
             Dom::create_span_with_text(title)
                 .with_css("font-size: 17px; font-weight: bold; margin-bottom: 6px;"),
         )
-        .with_child(content)
+        .with_child(panel)
 }
 
 // ==== Callbacks: navigation ====

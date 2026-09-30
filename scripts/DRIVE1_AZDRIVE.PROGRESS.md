@@ -3,29 +3,24 @@
 Branch `wt/drive1-azdrive` from `a7e18f4df`. Report: `scripts/DRIVE1_AZDRIVE_2026_09_30.md`.
 
 ## DONE
-- RED: `examples/azul-storage` skeleton (Drive trait, types, `todo!()` bodies) + unit tests
-  (SigV4 vectors, keys, LocalDrive, S3Drive over a fake transport, XML, config, scope, transfer).
-
-- GREEN: the storage crate's bodies (see git log).
-
-- RED + GREEN: `examples/azul-drive/scripts/s3_server.py` + `test_s3_server.py` (23 tests pass:
-  `python3 examples/azul-drive/scripts/test_s3_server.py`).
-
-- RED: `examples/azul-drive/src/browse.rs` view model tests; GREEN: browse.rs + the app
-  (`lib.rs`: sidebar, breadcrumb, ListView, dialogs, keyring, Threads). Coordinator ruling done:
-  NoTitle decorations + `Titlebar` title row in the toolbar colour.
-
-- `examples/azul-drive/scripts/browse.py` e2e (needs the built AzDrive; not run here).
+- `6f250c31f` RED: `examples/azul-storage` skeleton + unit tests.
+- `7d6900a74` GREEN: the storage crate (LocalDrive, S3Drive + SigV4, config, ScopedDrive,
+  transfer, AzulTransport).
+- `b7e22683f` RED / `39966255c` GREEN: `examples/azul-drive/scripts/s3_server.py` +
+  `test_s3_server.py` (23 tests pass).
+- `12ff29be3` RED: AzDrive view model (`browse.rs`) tests; `f8a080f84` GREEN: browse.rs + the app.
+  Coordinator ruling done: NoTitle decorations + `Titlebar` title row in the toolbar colour.
+- `5ba35f6cd` `browse.py` e2e.
+- Report committed.
 
 ## IN PROGRESS
-- Report `scripts/DRIVE1_AZDRIVE_2026_09_30.md`.
+- nothing
 
-## NEXT
-1. Python S3 test server (`examples/azul-drive/scripts/s3_server.py`) + unittest, RED first.
-2. AzDrive app (`examples/azul-drive`): RED for the pure view logic, then the app.
-3. `examples/azul-drive/scripts/browse.py` e2e.
-4. Report.
+## NEXT (for the parent)
+- Compile and run: `cargo test --release -p azul-storage`, AzDrive build + `--lib` tests,
+  `python3 examples/azul-drive/scripts/browse.py --bin target/release/AzDrive`.
 
 ## Open questions
-- `<transient-window>` dialogs are not scriptable headless (only the root window has a debug
-  timer); the e2e uses `AZDRIVE_DIALOGS=inline`.
+- `<transient-window>` dialogs under the headless debug server (only the root window has a debug
+  timer); the e2e uses `AZDRIVE_DIALOGS=inline` by default, `--window-dialogs` to try the window.
+- Optional api.json addition `HttpRequestConfig::http_request_blocking` (see the report).
