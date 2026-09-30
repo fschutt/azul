@@ -981,12 +981,14 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                         title: "What is Azul?".into(),
                         content: Dom::create_p_with_text("A cross-platform Rust GUI framework.")
                             .with_css("margin: 0px;"),
+                        count: azul::option::OptionUsize::None,
                         is_open: s.accordion_open.first().copied().unwrap_or(true),
                     },
                     AccordionSection {
                         title: "How do widgets work?".into(),
                         content: Dom::create_p_with_text("Each widget builds a styled Dom.")
                             .with_css("margin: 0px;"),
+                        count: azul::option::OptionUsize::None,
                         is_open: s.accordion_open.get(1).copied().unwrap_or(false),
                     },
                 ])

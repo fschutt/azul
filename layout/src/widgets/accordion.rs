@@ -33,6 +33,7 @@ use azul_core::{
     refany::{OptionRefAny, RefAny},
 };
 use azul_css::{
+    corety::OptionUsize,
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
     impl_vec_partialeq,
@@ -147,6 +148,9 @@ pub struct AccordionSection {
     pub title: AzString,
     /// The body content revealed when the section is open.
     pub content: Dom,
+    /// How many items the section holds, shown after the title in brackets
+    /// ("Hard Disk Drives (2)"), or `None` for no count.
+    pub count: OptionUsize,
     /// Whether this section starts open (body visible).
     pub is_open: bool,
 }
@@ -157,6 +161,7 @@ impl AccordionSection {
         Self {
             title: title.into(),
             content,
+            count: OptionUsize::None,
             is_open: false,
         }
     }
@@ -167,6 +172,44 @@ impl AccordionSection {
         self.is_open = open;
         self
     }
+
+    /// Show `count` after the title, in brackets: a group of items says how
+    /// many it holds ("Devices and drives (3)").
+    pub const fn set_count(&mut self, count: usize) {
+        self.count = OptionUsize::Some(count);
+    }
+
+    /// [`Self::set_count`] for the builder chain.
+    #[must_use]
+    pub const fn with_count(mut self, count: usize) -> Self {
+        self.set_count(count);
+        self
+    }
+
+    /// The header's text: the title, then the count in brackets when there
+    /// is one.
+    #[must_use]
+    pub fn header_text(&self) -> AzString {
+        match self.count {
+            OptionUsize::Some(n) => AzString::from(alloc::format!("{} ({n})", self.title.as_str())),
+            OptionUsize::None => self.title.clone(),
+        }
+    }
+}
+
+/// How an [`Accordion`] draws its sections.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum AccordionVariant {
+    /// Sections stacked in one bordered panel, each header a filled bar (the
+    /// Windows 11 expander, the Bootstrap accordion).
+    #[default]
+    Panel,
+    /// Borderless GROUPS on the page: each header is its title and count, a
+    /// hairline rule to the end of the row and the disclosure indicator - the
+    /// groups of a file manager ("Hard Disk Drives (2)", "Network Locations
+    /// (3)"), whose bodies hold tiles or rows.
+    Groups,
 }
 
 impl_option!(
@@ -204,6 +247,9 @@ pub struct Accordion {
     /// to follow the app theme (`AppConfig::with_theme`,
     /// `CallbackInfo::set_theme`; flat unless the app chose another).
     pub theme: crate::widgets::themes::OptionUiTheme,
+    /// How the sections are drawn: one bordered panel (the default) or
+    /// borderless groups with a rule after each title.
+    pub variant: AccordionVariant,
 }
 
 /// What a theme decides about an accordion: the SKIN of each part (its paint
@@ -561,7 +607,21 @@ impl Accordion {
             sections,
             on_toggle: None.into(),
             theme: crate::widgets::themes::OptionUiTheme::None,
+            variant: AccordionVariant::Panel,
         }
+    }
+
+    /// How the sections are drawn: one bordered panel or borderless groups
+    /// (see [`AccordionVariant`]).
+    pub const fn set_variant(&mut self, variant: AccordionVariant) {
+        self.variant = variant;
+    }
+
+    /// [`Self::set_variant`] for the builder chain.
+    #[must_use]
+    pub const fn with_variant(mut self, variant: AccordionVariant) -> Self {
+        self.set_variant(variant);
+        self
     }
 
     /// Pin the widget theme: the accordion keeps this look whatever the app
@@ -2304,5 +2364,151 @@ mod chevron_tests {
             );
             assert_eq!(header(&dom, 0).children.as_ref().len(), 2, "{theme:?}");
         }
+    }
+}
+
+/// The GROUPS variant: a file manager's groups ("Hard Disk Drives (2)") - a
+/// title with its count, a hairline rule to the end of the row, the
+/// disclosure indicator; no panel around them.
+#[cfg(test)]
+mod groups_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    fn groups() -> Accordion {
+        Accordion::new(AccordionSectionVec::from_vec(alloc::vec![
+            AccordionSection::new("Local", Dom::create_div())
+                .with_count(1)
+                .with_open(true),
+            AccordionSection::new("Cloud / S3", Dom::create_div()).with_count(2),
+        ]))
+        .with_variant(AccordionVariant::Groups)
+    }
+
+    fn has_class(node: &Dom, name: &str) -> bool {
+        node.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
+    }
+
+    /// The text of a `p > text` label.
+    fn text_of(node: &Dom) -> Option<&str> {
+        match node.children.as_ref() {
+            [only] => match only.root.get_node_type() {
+                azul_core::dom::NodeType::Text(s) => Some(s.as_ref().as_str()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Every section's header: panel > section > [header, body].
+    fn headers(dom: &Dom) -> Vec<&Dom> {
+        dom.children
+            .as_ref()
+            .iter()
+            .map(|section| &section.children.as_ref()[0])
+            .collect()
+    }
+
+    #[test]
+    fn a_section_count_follows_its_title_in_brackets() {
+        for theme in checks::BOTH {
+            let dom = groups().with_theme(theme).dom();
+            let titles: Vec<Option<&str>> = headers(&dom)
+                .iter()
+                .map(|h| text_of(&h.children.as_ref()[0]))
+                .collect();
+            assert_eq!(
+                titles,
+                vec![Some("Local (1)"), Some("Cloud / S3 (2)")],
+                "{}",
+                theme.name()
+            );
+        }
+        // A section without a count keeps its bare title, in either variant.
+        let bare = Accordion::new(AccordionSectionVec::from_vec(alloc::vec![
+            AccordionSection::new("Details", Dom::create_div())
+        ]))
+        .with_theme(UiTheme::Flat)
+        .dom();
+        assert_eq!(
+            text_of(&headers(&bare)[0].children.as_ref()[0]),
+            Some("Details")
+        );
+    }
+
+    #[test]
+    fn a_groups_header_is_its_title_a_rule_and_the_indicator() {
+        for theme in checks::BOTH {
+            let dom = groups().with_theme(theme).dom();
+            for header in headers(&dom) {
+                let parts = header.children.as_ref();
+                assert_eq!(parts.len(), 3, "{}: title, rule, indicator", theme.name());
+                assert!(
+                    has_class(&parts[0], "__azul-native-accordion-title"),
+                    "{}",
+                    theme.name()
+                );
+                assert!(
+                    has_class(&parts[1], "__azul-native-accordion-rule"),
+                    "{}: the rule sits between the title and the indicator",
+                    theme.name()
+                );
+                assert!(
+                    has_class(&parts[2], ACCORDION_CHEVRON_CLASS_NAME),
+                    "{}: the header still ends in the indicator the click turns",
+                    theme.name()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_panel_header_stays_its_title_and_the_indicator() {
+        let dom = groups()
+            .with_variant(AccordionVariant::Panel)
+            .with_theme(UiTheme::Flat)
+            .dom();
+        for header in headers(&dom) {
+            assert_eq!(header.children.as_ref().len(), 2);
+        }
+    }
+
+    #[test]
+    fn the_rule_takes_the_rest_of_the_header_row() {
+        for theme in checks::BOTH {
+            let dom = groups().with_theme(theme).dom();
+            let rule = &headers(&dom)[0].children.as_ref()[1];
+            let grows = rule.root.style.iter_inline_properties().any(|(p, c)| {
+                c.as_ref().is_empty()
+                    && matches!(p, CssProperty::FlexGrow(v)
+                        if v.get_property().is_some_and(|g| g.inner.get() > 0.0))
+            });
+            assert!(grows, "{}: the rule grows to the indicator", theme.name());
+        }
+    }
+
+    #[test]
+    fn groups_draw_no_panel_border_around_the_sections() {
+        for theme in checks::BOTH {
+            let dom = groups().with_theme(theme).dom();
+            let bordered = dom.root.style.iter_inline_properties().any(|(p, _)| {
+                matches!(p, CssProperty::BorderTopWidth(v)
+                    if v.get_property().is_some_and(|w| w.inner.number.get() > 0.0))
+            });
+            assert!(!bordered, "{}: groups sit on the page", theme.name());
+        }
+    }
+
+    #[test]
+    fn a_groups_accordion_without_a_theme_follows_the_app_theme() {
+        checks::assert_follows_the_app_theme(
+            "accordion (groups)",
+            || groups().dom(),
+            |t: UiTheme| groups().with_theme(t).dom(),
+        );
     }
 }
