@@ -3397,6 +3397,24 @@ fn text_clip_pixel_box(clip: AzRect, width: u32, height: u32) -> Option<(i32, i3
     clippy::cast_possible_wrap,
     clippy::cast_sign_loss
 )] // software rasterizer: bounded pixel/coord/colour casts
+/// The clip a text run paints under, in device pixels: its own `clip_rect`
+/// (already scroll-projected by the caller) cut to the active `clip`.
+/// `None` = nothing of the run can show.
+///
+/// ONE rule for every paint path. The pre-tiled LCD path always clipped
+/// to this intersection, as WebRender clips a text item; the batch sweep
+/// and the grayscale path clipped to the stack clip alone and only skipped
+/// a run whose clip_rect lay wholly outside it, so ink past a run's
+/// clip_rect painted on two paths and not on the third (a list marker cut
+/// by one path and painted by the other).
+fn text_run_clip(clip_rect: &LogicalRect, clip: Option<AzRect>, dpi_factor: f32) -> Option<AzRect> {
+    let own = logical_rect_to_az_rect(clip_rect, dpi_factor)?;
+    match clip {
+        Some(c) => own.clip(&c),
+        None => Some(own),
+    }
+}
+
 #[allow(clippy::too_many_arguments)] // mirrors render_text's font/metric plumbing
 fn render_glyphs_lcd(
     pixmap: &mut AzulPixmap,
@@ -4022,15 +4040,12 @@ fn render_text(
         return;
     }
 
-    // Skip text entirely if its clip_rect is outside the active clip region
-    if let Some(ref c) = clip {
-        let Some(text_rect) = logical_rect_to_az_rect(clip_rect, dpi_factor) else {
-            return;
-        };
-        if text_rect.clip(c).is_none() {
-            return; // fully clipped
-        }
-    }
+    // The run's own clip_rect cut to the active clip: the one clip the LCD
+    // sweep and the grayscale path below paint under (`text_run_clip`).
+    let Some(run_clip) = text_run_clip(clip_rect, clip, dpi_factor) else {
+        return; // fully clipped
+    };
+    let clip = Some(run_clip);
 
     let agg_color = Rgba8::new(
         u32::from(color.r),
