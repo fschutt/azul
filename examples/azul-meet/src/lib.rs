@@ -33,6 +33,7 @@
 
 mod audio;
 mod rooms;
+mod video_wire;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
