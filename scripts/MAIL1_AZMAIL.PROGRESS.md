@@ -1,37 +1,30 @@
 # MAIL1_AZMAIL progress
 
-Branch `wt/mail1-azmail`, base `a7e18f4df`. Report: `scripts/MAIL1_AZMAIL_2026_09_30.md` (at the end).
+Branch `wt/mail1-azmail`, base `a7e18f4df`. Report: `scripts/MAIL1_AZMAIL_2026_09_30.md`.
 
 ## DONE
 
 - 5bd9e7278 RED: `examples/azul-mail` (package AzMail, lib `azmail` + bin `AzMail`, link-dynamic,
-  workspace member). Pure logic stated as tests over `todo!()` bodies: account.rs, auth.rs,
-  mutf7.rs, folders.rs, store.rs, message.rs, html.rs, sync.rs (FakeServer).
-
+  workspace member). Pure logic stated as tests over `todo!()` bodies.
 - 15cbcc005 GREEN: the bodies.
-
-- 613f9d491 imap_client.rs (imap 3.0.0-alpha.15 over AzMail's own rustls stream) + lib.rs UI +
-  sync Thread + keyring flow + azul-drawn title row (NoTitle).
-- 47ab7f44c RED: tracking pixels leave no placeholder, negative margins dropped (exploration 1.4).
-
-- cb767f967 GREEN for 47ab7f44c.
+- 613f9d491 imap_client.rs + lib.rs UI + sync Thread + keyring flow + azul-drawn title row (NoTitle).
+- 47ab7f44c / cb767f967 RED / GREEN: tracking pixels, negative margins (exploration 1.4).
 - a59d917e9 RED: test_imap_server.py (16 tests over a stub).
-
-- edd4890e7 imap_server.py (16/16 tests pass) + sample_mail/ + sync_e2e.py.
-- 6f8cc1f6d RED: a button goes with its label.
-
-- e0de9f33d GREEN for 6f8cc1f6d.
+- edd4890e7 GREEN: imap_server.py (16/16 pass) + sample_mail/ + sync_e2e.py.
+- 6f8cc1f6d / e0de9f33d RED / GREEN: a button goes with its label.
+- 6f9b9cf56 supply chain: justifications, cargo-vet exemptions, hashify build-script policy.
+- fde871e37 test fixture: FakeServer built with `with_folder`.
+- Report `scripts/MAIL1_AZMAIL_2026_09_30.md` (the commit after fde871e37).
 
 ## IN PROGRESS
 
-- Supply chain: justifications, cargo-vet exemptions, hashify's build-script policy (this commit).
+(none)
 
-## NEXT
+## NEXT (for whoever resumes)
 
-3. Python IMAP test server (RED unittest first) + sample mail.
-4. sync_e2e.py (headless, debug server).
-5. dependency-justifications.toml + supply-chain exemptions for the new crates.
-6. Report.
+1. Parent: `cargo test -p AzMail --lib`, then `python3 examples/azul-mail/scripts/sync_e2e.py`; commit Cargo.lock.
+2. Swap `LocalFolder` for DRIVE1's `Drive` (store.rs; see the report).
+3. SMTP send (lettre), compose (mail-builder), OAuth flow.
 
 ## Open questions
 
@@ -39,3 +32,4 @@ Branch `wt/mail1-azmail`, base `a7e18f4df`. Report: `scripts/MAIL1_AZMAIL_2026_0
   zero-dependency allow-list sanitizer with the same policy (ammonia 4.2.0 is inside the 14-day
   cooldown today, and the legacy rewrite needs a DOM pre-pass ammonia does not offer). The swap
   point is `html::sanitize`; the tests state the policy.
+- Where an imported IMAP account sits in a user's S3 bucket (`users/<uid>/mail/` is the Azlin mailbox).
