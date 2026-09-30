@@ -213,6 +213,27 @@ impl Uuid {
     pub fn short_from_seed(seed: u64) -> AzString {
         base58(seed_bits(seed))
     }
+
+    /// A human-friendly CODE, like a meeting code: `xq4-8kdm-2np` - ten
+    /// symbols in 3-4-3 groups from the 31-symbol alphabet without the
+    /// look-alikes `0 o 1 l i` (about 49 bits), easy to read aloud and type.
+    /// Not a UUID: fewer bits, no version field, and codes can repeat long
+    /// before UUIDs would (two random codes are likely to meet after about
+    /// 30 million). Deterministic like [`Uuid::v4`]: a marker unique within one
+    /// process; for a code other devices share, use [`Uuid::code_from_seed`].
+    #[must_use]
+    pub fn code() -> AzString {
+        AzString::from(String::new())
+    }
+
+    /// [`Uuid::code`] as a pure function of `seed` (randomness from outside,
+    /// as for [`Uuid::from_seed`]): the same seed gives the same code; it never
+    /// touches the marker tick.
+    #[must_use]
+    pub fn code_from_seed(seed: u64) -> AzString {
+        let _ = seed;
+        AzString::from(String::new())
+    }
 }
 
 #[cfg(test)]
@@ -378,6 +399,56 @@ mod uuid_tests {
             assert_eq!(short.as_str().len(), 22, "{}", short.as_str());
             assert_eq!(bits_of_short(&short), bits, "{s} vs {}", short.as_str());
         }
+    }
+
+    fn is_code(code: &str) -> bool {
+        let groups: Vec<&str> = code.split('-').collect();
+        groups.iter().map(|g| g.len()).collect::<Vec<_>>() == [3, 4, 3]
+            && groups
+                .iter()
+                .flat_map(|g| g.bytes())
+                .all(|b| b"23456789abcdefghjkmnpqrstuvwxyz".contains(&b))
+    }
+
+    /// A code is three groups of 3-4-3 symbols from the alphabet without the
+    /// look-alikes `0 o 1 l i`.
+    #[test]
+    fn a_code_is_three_groups_of_unambiguous_symbols() {
+        for _ in 0..200 {
+            let c = Uuid::code();
+            assert!(is_code(c.as_str()), "{}", c.as_str());
+        }
+        for seed in [0, 1, 42, u64::MAX, 0x8000_0000_0000_0000] {
+            let c = Uuid::code_from_seed(seed);
+            assert!(is_code(c.as_str()), "{seed}: {}", c.as_str());
+        }
+    }
+
+    /// The same seed always gives the same code; nearby seeds scatter.
+    #[test]
+    fn a_seeded_code_is_a_pure_function_of_its_seed() {
+        assert_eq!(Uuid::code_from_seed(7), Uuid::code_from_seed(7));
+        let codes: HashSet<String> = (0..10_000u64)
+            .map(|s| Uuid::code_from_seed(s).as_str().to_string())
+            .collect();
+        assert_eq!(codes.len(), 10_000, "10 000 consecutive seeds, 10 000 codes");
+        let minted: HashSet<String> =
+            (0..10_000).map(|_| Uuid::code().as_str().to_string()).collect();
+        assert_eq!(minted.len(), 10_000, "10 000 minted codes, no repeats");
+    }
+
+    /// `code_from_seed` never touches the process-wide mint.
+    #[test]
+    fn code_from_seed_never_advances_the_mint_tick() {
+        use core::sync::atomic::Ordering;
+        let quiet = (0..1_000).any(|_| {
+            let before = TICK.load(Ordering::SeqCst);
+            for seed in 0..16 {
+                let _ = Uuid::code_from_seed(seed);
+            }
+            TICK.load(Ordering::SeqCst) == before
+        });
+        assert!(quiet, "code_from_seed advanced the process tick");
     }
 
     /// A seeded id never touches the process-wide mint: after any number of
