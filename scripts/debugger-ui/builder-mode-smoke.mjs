@@ -15,7 +15,11 @@
 //     (`get_component_thumbnail` `dark`), again when the mode changes, and shows
 //     them on a backdrop of that mode;
 //   * the panels that read the page's older token names (`--bg`, `--fg`, ...)
-//     get a colour, not a transparent background.
+//     get a colour, not a transparent background;
+//   * the page and the APP window are ONE setting (`get_mode` / `set_mode`):
+//     on load the page shows the app's mode, its toggle switches the app, and
+//     it follows when the app switches itself. A server without those ops (the
+//     first half of this run) leaves the page to its own remembered choice.
 //
 // `--shots` also writes the page in both modes to
 // scripts/debugger-ui/screenshots/light-dark-<mode>.png (the whole page) and
@@ -69,9 +73,22 @@ builder.ops({ op: 'builder_insert', parent: 0, component: 'p', attrs: { text: 'H
 builder.ops({ op: 'builder_insert', parent: 0, library: 'user', component: 'card', attrs: { text: 'Card' } });
 const sent = [];
 
+/** The APP's light / dark mode behind `get_mode` / `set_mode` (layout/src/e2e/full.rs). Off: the
+ *  server predates the ops and answers them with nothing, as the first half of this run needs. */
+const appMode = { enabled: false, mode: 'system', desktop: 'light' };
+const MODES = ['light', 'dark', 'system'];
+
 function handle(msg) {
     sent.push(msg);
     switch (msg.op) {
+        case 'get_mode':
+            if (!appMode.enabled) return null;
+            return { mode: appMode.mode, resolved: appMode.mode === 'system' ? appMode.desktop : appMode.mode };
+        case 'set_mode':
+            if (!appMode.enabled) return null;
+            if (!MODES.includes(msg.mode)) throw new Error(`set_mode: "${msg.mode}" is no mode (light, dark or system)`);
+            appMode.mode = msg.mode;
+            return msg.mode === 'system' ? { mode: 'system' } : { mode: msg.mode, resolved: msg.mode };
         case 'get_state': return { logical_width: 400, logical_height: 300, hidpi_factor: 1 };
         case 'get_component_registry': return clone(registry);
         case 'get_libraries':
@@ -239,6 +256,57 @@ async function main() {
         look = await cdp.eval('__t.look()');
         check('Auto follows the (light) desktop again', !look.dark && look.choice === 'auto'
             && await cdp.eval(`localStorage.getItem('azul_debugger_mode')`) === 'auto', look);
+
+        // ── ONE setting: the page and the APP window (get_mode / set_mode) ──
+        // The app pinned dark (its own toggle, `AppConfig::mode`); the page remembers Auto and
+        // the browser's desktop is light.
+        appMode.enabled = true;
+        appMode.mode = 'dark';
+        appMode.desktop = 'light';
+        mark = sent.length;
+        await cdp.send('Page.reload', {});
+        await waitFor(cdp, ready, 10000);
+        await cdp.eval(HELPERS);
+        await waitFor(cdp, `__t.look().dark`, 5000);
+        look = await cdp.eval('__t.look()');
+        check('on load the page asks the app for its mode (get_mode)',
+            sent.slice(mark).some((m) => m.op === 'get_mode'), sent.slice(mark).map((m) => m.op));
+        check('...and shows it: the app is pinned dark, so the page is dark and its toggle says Dark',
+            look.dark && look.choice === 'dark' && JSON.stringify(look.checked) === '["dark"]', look);
+
+        mark = sent.length;
+        await cdp.eval(`__t.pick('light')`);
+        await waitFor(cdp, `!__t.look().dark`, 5000);
+        await new Promise((r) => setTimeout(r, 300));
+        check('the page toggle switches the APP: Light sends set_mode "light"',
+            sent.slice(mark).some((m) => m.op === 'set_mode' && m.mode === 'light') && appMode.mode === 'light',
+            { mode: appMode.mode, sent: sent.slice(mark).filter((m) => m.op === 'set_mode') });
+        look = await cdp.eval('__t.look()');
+        check('...and the page stays light (the poll does not flip it back)', !look.dark && look.choice === 'light', look);
+
+        mark = sent.length;
+        await cdp.eval(`__t.pick('auto')`);
+        await new Promise((r) => setTimeout(r, 300));
+        check('Auto sends set_mode "system": the app follows its desktop again',
+            sent.slice(mark).some((m) => m.op === 'set_mode' && m.mode === 'system') && appMode.mode === 'system',
+            { mode: appMode.mode, sent: sent.slice(mark).filter((m) => m.op === 'set_mode') });
+
+        // The app switches ITSELF (`CallbackInfo::set_mode` in one of its callbacks).
+        appMode.mode = 'dark';
+        const followed = await waitFor(cdp, `__t.look().dark && __t.look().choice === 'dark'`, 6000);
+        check('when the app switches its mode itself, the page follows (its toggle says Dark)', followed,
+            await cdp.eval('__t.look()'));
+
+        // The app follows ITS desktop, which is dark, while the browser's is light: the page shows
+        // what the app window shows.
+        appMode.mode = 'system';
+        appMode.desktop = 'dark';
+        const followedSystem = await waitFor(cdp, `__t.look().dark && __t.look().choice === 'auto'`, 6000);
+        check('the app on "system" over a dark desktop: the page says Auto and shows dark like the app',
+            followedSystem, await cdp.eval('__t.look()'));
+        appMode.desktop = 'light';
+        const followedBack = await waitFor(cdp, `!__t.look().dark && __t.look().choice === 'auto'`, 6000);
+        check('...and light again when the app\'s desktop turns light', followedBack, await cdp.eval('__t.look()'));
 
         check('no page exceptions', cdp.exceptions.length === 0, cdp.exceptions);
         const errors = cdp.console.filter((c) => c.kind === 'error');

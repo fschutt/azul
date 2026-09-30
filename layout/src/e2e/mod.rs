@@ -59,6 +59,12 @@ mod project_tests;
 #[cfg(test)]
 mod export_tests;
 
+// The app's light / dark mode and its theme over the debug server
+// (`get_mode` / `set_mode`, `get_theme` / `set_theme`), driven through the
+// real dispatcher on a headless window.
+#[cfg(test)]
+mod mode_ops_tests;
+
 pub mod hooks {
     //! Dependency-injection seam for the three host-coupled call sites in
     //! [`super::full`]. See the module docs above.
