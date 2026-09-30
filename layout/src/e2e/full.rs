@@ -324,6 +324,52 @@ pub enum ResponseData {
     NodeDataset(NodeDatasetResponse),
     /// Generic JSON data (for endpoints that return arbitrary JSON)
     Json(serde_json::Value),
+    /// The app's light / dark mode (`get_mode` / `set_mode`)
+    Mode(ModeResponse),
+    /// The app theme (`get_theme` / `set_theme`)
+    Theme(ThemeResponse),
+}
+
+/// Response for `get_mode` / `set_mode`: the app's light / dark mode.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ModeResponse {
+    /// The app's CHOICE: `"system"` (follows the desktop), `"light"` or
+    /// `"dark"` (pinned).
+    pub mode: &'static str,
+    /// What the window shows: `"light"` or `"dark"`. Absent from
+    /// `set_mode`'s answer to `"system"`: the desktop decides when the switch
+    /// is applied, so ask `get_mode` after a `wait_frame`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved: Option<&'static str>,
+}
+
+/// Response for `get_theme` / `set_theme`: the app theme's name.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ThemeResponse {
+    /// `"flat"`, `"flora"`, or another registered theme's name.
+    pub theme: String,
+}
+
+/// The [`ModeResponse`] for the app's `choice` and the mode a window shows.
+#[cfg(feature = "std")]
+fn mode_response(
+    choice: azul_core::window::OptionDarkLightMode,
+    resolved: Option<azul_core::window::DarkLightMode>,
+) -> ModeResponse {
+    use azul_core::window::{DarkLightMode, OptionDarkLightMode};
+    let name = |mode: DarkLightMode| match mode {
+        DarkLightMode::Light => "light",
+        DarkLightMode::Dark => "dark",
+    };
+    ModeResponse {
+        mode: match choice {
+            OptionDarkLightMode::None => "system",
+            OptionDarkLightMode::Some(mode) => name(mode),
+        },
+        resolved: resolved.map(name),
+    }
 }
 
 /// Response for GetComponentPreview — CPU-rendered component image.
@@ -2406,6 +2452,35 @@ pub enum DebugEvent {
     Close,
     DpiChanged {
         dpi: u32,
+    },
+
+    // The app's light / dark MODE and its THEME
+    /// The app's light / dark mode: its CHOICE (`"system"` = follows the
+    /// desktop, or a pinned `"light"` / `"dark"`: `CallbackInfo::get_mode`)
+    /// and what this window shows (`resolved`: `get_resolved_mode`).
+    ///
+    /// `curl -s -X POST localhost:8765/ -d '{"op":"get_mode"}'`
+    GetMode,
+    /// Switch the app's mode, in every window: `"light"` / `"dark"` pin it,
+    /// `"system"` follows the desktop again (`CallbackInfo::set_mode`). A
+    /// restyle, applied when the op returns; `get_mode` after a `wait_frame`
+    /// reports what the window shows. Refuses any other name.
+    ///
+    /// `curl -s -X POST localhost:8765/ -d '{"op":"set_mode","mode":"dark"}'`
+    SetMode {
+        mode: String,
+    },
+    /// The app THEME the windows are built in (`"flat"`, `"flora"`, ...:
+    /// `CallbackInfo::get_theme`).
+    ///
+    /// `curl -s -X POST localhost:8765/ -d '{"op":"get_theme"}'`
+    GetTheme,
+    /// Switch the app theme: every window's DOM is rebuilt in it
+    /// (`CallbackInfo::set_theme`). Refuses an empty name.
+    ///
+    /// `curl -s -X POST localhost:8765/ -d '{"op":"set_theme","theme":"flora"}'`
+    SetTheme {
+        theme: String,
     },
 
     // Queries
@@ -14397,6 +14472,90 @@ pub fn process_debug_event(
             // on `process_debug_event`.
 
             send_ok(request, None, None);
+        }
+
+        // ─── The app's light / dark MODE and its THEME ─────────────────
+        //
+        // The same `CallbackInfo` calls an app's own callback makes, so the
+        // switch takes the app's path: `set_mode` restyles every window
+        // (`CallbackChange::SetMode`), `set_theme` rebuilds every window's DOM
+        // (`CallbackChange::SetTheme`). NO `needs_update`: the change is what
+        // schedules the work, as for a real toggle.
+        DebugEvent::GetMode => {
+            let response = mode_response(
+                callback_info.get_mode(),
+                Some(callback_info.get_resolved_mode()),
+            );
+            send_ok(request, None, Some(ResponseData::Mode(response)));
+        }
+
+        DebugEvent::SetMode { mode } => {
+            use azul_core::window::{DarkLightMode, OptionDarkLightMode};
+            let choice = match mode.trim().to_ascii_lowercase().as_str() {
+                "system" => Some(OptionDarkLightMode::None),
+                "light" => Some(OptionDarkLightMode::Some(DarkLightMode::Light)),
+                "dark" => Some(OptionDarkLightMode::Some(DarkLightMode::Dark)),
+                _ => None,
+            };
+            match choice {
+                None => send_err(
+                    request,
+                    format!(
+                        "set_mode: \"{mode}\" is no mode - use \"light\", \"dark\" or \"system\" \
+                         (follow the desktop)"
+                    ),
+                ),
+                Some(choice) => {
+                    log(
+                        LogLevel::Info,
+                        LogCategory::Window,
+                        format!("App mode -> {}", mode.trim()),
+                        None,
+                    );
+                    callback_info.set_mode(choice);
+                    // A pinned mode is what every window shows; "system" is
+                    // resolved against the desktop when the change applies.
+                    let resolved = match choice {
+                        OptionDarkLightMode::Some(pinned) => Some(pinned),
+                        OptionDarkLightMode::None => None,
+                    };
+                    send_ok(
+                        request,
+                        None,
+                        Some(ResponseData::Mode(mode_response(choice, resolved))),
+                    );
+                }
+            }
+        }
+
+        DebugEvent::GetTheme => {
+            let theme = callback_info.get_theme().as_str().to_string();
+            send_ok(request, None, Some(ResponseData::Theme(ThemeResponse { theme })));
+        }
+
+        DebugEvent::SetTheme { theme } => {
+            let name = theme.trim();
+            if name.is_empty() {
+                send_err(
+                    request,
+                    "set_theme: needs a theme name (\"flat\", \"flora\", ...)",
+                );
+            } else {
+                log(
+                    LogLevel::Info,
+                    LogCategory::Window,
+                    format!("App theme -> {name}"),
+                    None,
+                );
+                callback_info.set_theme(name.to_string().into());
+                send_ok(
+                    request,
+                    None,
+                    Some(ResponseData::Theme(ThemeResponse {
+                        theme: name.to_string(),
+                    })),
+                );
+            }
         }
 
         DebugEvent::MouseMove { x, y, seat } => {

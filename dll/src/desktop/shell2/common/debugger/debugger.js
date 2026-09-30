@@ -108,6 +108,10 @@ const app = {
             'blur':           { desc: 'Blur (unfocus) the window',                 examples: ['/blur'],                                     params: [] },
             'close':          { desc: 'Close the window',                          examples: ['/close'],                                    params: [] },
             'dpi_changed':    { desc: 'Simulate DPI change',                       examples: ['/dpi_changed dpi 2'],                        params: [{ name: 'dpi', type: 'number', value: 1 }] },
+            'get_mode':       { desc: 'The app\'s light / dark mode (choice + shown)', examples: ['/get_mode'],                             params: [] },
+            'set_mode':       { desc: 'Switch the app\'s mode: light, dark or system', examples: ['/set_mode mode dark', '/set_mode mode system'], params: [{ name: 'mode', type: 'text', placeholder: 'dark' }] },
+            'get_theme':      { desc: 'The app theme (flat, flora, ...)',          examples: ['/get_theme'],                                params: [] },
+            'set_theme':      { desc: 'Switch the app theme (rebuilds every window)', examples: ['/set_theme theme flora'],                 params: [{ name: 'theme', type: 'text', placeholder: 'flora' }] },
 
             // ── DOM Inspection ──
             'get_node_css_properties': { desc: 'Get computed CSS for a node',      examples: ['/get_node_css_properties node_id 3', '/get_node_css_properties selector .item'], params: [{ name: 'node_id', type: 'number', placeholder: '0' }, { name: 'selector', type: 'text', placeholder: '.item' }], variants: ['node_id', 'selector'] },
@@ -199,15 +203,31 @@ const app = {
      * Pinning rewrites that block's media condition ("all" / "not all"),
      * Auto puts the query back - so there is no second copy of the dark
      * palette. The choice is remembered in localStorage.
+     *
+     * The page and the APP are ONE setting. Connected to a debug server that
+     * knows `get_mode` / `set_mode`, the page shows the app's mode: it reads
+     * `get_mode` on load and on a poll (the app may switch itself: its own
+     * toggle, `CallbackInfo::set_mode`), and its toggle calls `set_mode`
+     * ("system" for Auto). On Auto it then shows what the app window shows
+     * (`resolved`), not the browser's desktop. A server without the ops (or
+     * the mock) leaves the page to its own remembered choice.
      */
     mode: {
         KEY: 'azul_debugger_mode',
         QUERY: '(prefers-color-scheme: dark)',
         CHOICES: ['auto', 'light', 'dark'],
+        POLL_MS: 1500,
         choice: 'auto',
         _blocks: null,      // the dark palette's @media rules, found once
         _dark: null,        // the mode last applied: true = dark
         _listeners: [],
+        // The app's mode as the server last reported it: { mode: 'system' |
+        // 'light' | 'dark', resolved: 'light' | 'dark' }; null = not known.
+        reported: null,
+        _poll: null,
+        _pulling: false,
+        _gen: 0,            // bumped by every choice made HERE: an answer to
+                            // a read that started earlier is stale
 
         /** Restore the remembered choice and apply it; follow the desktop while on Auto. */
         init: function() {
@@ -217,25 +237,94 @@ const app = {
             var self = this;
             if (window.matchMedia) {
                 var desktop = window.matchMedia(this.QUERY);
-                var follow = function() { if (self.choice === 'auto') self.apply(); };
+                var follow = function() {
+                    if (self.choice !== 'auto') return;
+                    self.apply();
+                    self.pull();
+                };
                 if (desktop.addEventListener) desktop.addEventListener('change', follow);
                 else if (desktop.addListener) desktop.addListener(follow);
             }
             this.apply();
         },
 
-        /** Pin 'light' or 'dark', or follow the desktop ('auto'); remembered. */
+        /** Pin 'light' or 'dark', or follow the desktop ('auto'); remembered, and sent to the app. */
         set: function(choice) {
             if (this.CHOICES.indexOf(choice) < 0) return;
+            this._gen++;
             this.choice = choice;
             try { localStorage.setItem(this.KEY, choice); } catch (e) { /* private mode */ }
+            if (this.reported && choice !== 'auto') this.reported = { mode: choice, resolved: choice };
             this.apply();
+            this.push(choice);
         },
 
         /** Whether the page shows its dark palette. */
         isDark: function() {
             if (this.choice !== 'auto') return this.choice === 'dark';
+            if (this.reported && this.reported.resolved) return this.reported.resolved === 'dark';
             return !!(window.matchMedia && window.matchMedia(this.QUERY).matches);
+        },
+
+        /** Take the app's mode `{ mode, resolved }` (a `get_mode` answer) as the page's. */
+        adopt: function(reported) {
+            if (!reported || ['system', 'light', 'dark'].indexOf(reported.mode) < 0) return;
+            this.reported = {
+                mode: reported.mode,
+                resolved: reported.resolved === 'dark' ? 'dark' : (reported.resolved === 'light' ? 'light' : null),
+            };
+            var choice = reported.mode === 'system' ? 'auto' : reported.mode;
+            this.choice = choice;
+            try { localStorage.setItem(this.KEY, choice); } catch (e) { /* private mode */ }
+            this.apply();
+        },
+
+        /** POST `msg` to the debug server WITHOUT the request log (the poll runs forever). */
+        _quiet: async function(msg) {
+            var res = await fetch(app.config.apiUrl, { method: 'POST', body: JSON.stringify(msg) });
+            return res.json();
+        },
+
+        /** Read the app's mode (`get_mode`) and show it. */
+        pull: async function() {
+            if (this._pulling || typeof app === 'undefined' || app.config.isMock) return;
+            this._pulling = true;
+            var gen = this._gen;
+            try {
+                var json = await this._quiet({ op: 'get_mode' });
+                if (gen === this._gen && json && json.status === 'ok' && json.data && json.data.value) {
+                    this.adopt(json.data.value);
+                }
+            } catch (e) {
+                // The app went away: keep what the page shows.
+            } finally {
+                this._pulling = false;
+            }
+        },
+
+        /** Switch the app to the page's `choice` (`set_mode`), then read back what it shows. */
+        push: async function(choice) {
+            if (typeof app === 'undefined' || app.config.isMock) return;
+            var gen = this._gen;
+            try {
+                await this._quiet({ op: 'set_mode', mode: choice === 'auto' ? 'system' : choice });
+            } catch (e) {
+                return;
+            }
+            // The switch lands on the app's next frame.
+            var self = this;
+            setTimeout(function() { if (gen === self._gen) self.pull(); }, 150);
+        },
+
+        /** Follow the app's mode from now on: read it now and on every poll while the page is visible. */
+        follow: function() {
+            var self = this;
+            this.pull();
+            if (this._poll) return;
+            this._poll = setInterval(function() {
+                if (document.visibilityState === 'hidden') return;
+                self.pull();
+            }, this.POLL_MS);
         },
 
         /** `fn(dark)` after every change of the mode the page shows. */
@@ -261,7 +350,11 @@ const app = {
         },
 
         apply: function() {
-            var condition = this.choice === 'auto' ? this.QUERY : (this.choice === 'dark' ? 'all' : 'not all');
+            // Auto shows the app's mode once the app reported one, else the desktop's.
+            var condition = this.choice !== 'auto' ? (this.choice === 'dark' ? 'all' : 'not all')
+                : (this.reported && this.reported.resolved)
+                    ? (this.reported.resolved === 'dark' ? 'all' : 'not all')
+                    : this.QUERY;
             this._darkBlocks().forEach(function(rule) {
                 if (rule.media.mediaText !== condition) rule.media.mediaText = condition;
             });
@@ -330,6 +423,8 @@ const app = {
             document.getElementById('connection-status').innerText = 'Connected';
             document.getElementById('connection-status').style.color = 'var(--success)';
             this.log('Connected to ' + this.config.apiUrl, 'info');
+            // The page's light / dark mode is the app's from here on.
+            this.mode.follow();
         } catch(e) {
             this.config.isMock = true;
             document.getElementById('connection-status').innerText = 'Mock';

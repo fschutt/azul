@@ -92,6 +92,7 @@ Each command's `op` field selects one debug event variant. Categories overlap wi
 - **Mouse.** `mouse_move`, `mouse_down`, `mouse_up`, `click`, `double_click`, `scroll` (programmatic `scroll_to` on the node under the point), `wheel` (a hardware wheel notch through the shells' hit-test + scroll-physics path).
 - **Keyboard.** `key_down`, `key_up`, `text_input`.
 - **Window.** `resize`, `move`, `focus`, `blur`, `close`, `dpi_changed`.
+- **Mode and theme.** `get_mode`, `set_mode` (`light`, `dark` or `system`), `get_theme`, `set_theme`. See [Light / dark mode and the app theme](#light--dark-mode-and-the-app-theme).
 - **Queries.** `get_state`, `get_dom_tree`, `get_node_hierarchy`, `get_layout_tree`, `get_display_list`, `get_html_string`, `hit_test`, `get_logs`.
 - **DOM mutation.** `insert_node`, `delete_node`, `set_node_text`, `set_node_classes`, `set_node_css_override`.
 - **Scrolling.** `get_scroll_states`, `get_scrollable_nodes`, `scroll_node_by`, `scroll_node_to`, `scroll_into_view`.
@@ -103,6 +104,22 @@ Each command's `op` field selects one debug event variant. Categories overlap wi
 `click` accepts whichever of `selector`, `node_id`, `text`, or `(x, y)` you pass. It resolves to a node, fires the click, and triggers a refresh if your callback returns one. This is the building block every E2E `click` step uses.
 
 `wait_frame` is a barrier: the next step runs only after the window has prepared a frame that follows the request (the frame clock is the per-window `ContentJournal::frame_seq`, bumped once per frame on every backend). After any command that mutates state (`click`, `resize`, `set_node_text`, `text_input`, …) call `wait_frame` before reading state back, otherwise queries can race the relayout pass or the virtual-view re-renders queued for the next paint. A scenario step cannot hang on it: after ~2 s without a frame the barrier logs a warning and opens.
+
+### Light / dark mode and the app theme
+
+The app's light / dark MODE and its THEME are the settings an app's own toggles switch with `CallbackInfo::set_mode` and `CallbackInfo::set_theme`, and these ops take the same path: `set_mode` restyles every window, `set_theme` rebuilds every window's DOM in the new theme. `get_mode` answers the app's choice (`system` follows the desktop, `light` / `dark` are pinned) and what the window shows (`resolved`):
+
+```bash
+curl -s -X POST http://localhost:8765/ -d '{"op":"get_mode"}' | jq '.data.value'
+# { "mode": "system", "resolved": "dark" }
+curl -s -X POST http://localhost:8765/ -d '{"op":"set_mode","mode":"light"}'
+curl -s -X POST http://localhost:8765/ -d '{"op":"set_mode","mode":"system"}'
+curl -s -X POST http://localhost:8765/ -d '{"op":"get_theme"}' | jq -r '.data.value.theme'
+# flat
+curl -s -X POST http://localhost:8765/ -d '{"op":"set_theme","theme":"flora"}'
+```
+
+A switch lands on the window's next frame: `wait_frame` before reading `get_mode` back. `set_mode` refuses any name but the three; `set_theme` refuses an empty one. The in-browser inspector (and AzBuilder's page) uses the same ops: its Auto / Light / Dark toggle IS the app's mode - it reads `get_mode` on load and on a poll, so it follows when the app switches itself, and the toggle calls `set_mode` (Auto = `system`).
 
 ## A simple driver script
 

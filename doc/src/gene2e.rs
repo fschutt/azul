@@ -499,6 +499,12 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     // removal half is a genuine leak detector.
     ("add_timer",                 None),
     ("remove_timer",              None),
+    // `CallbackInfo::set_mode` / `set_theme` - an app's own light / dark and
+    // theme toggles (AzWidgets' toolbar, AzBuilder's page through these ops).
+    // The engine then decides what the switch costs: a restyle for the mode,
+    // a DOM rebuild for the theme.
+    ("set_mode",                  None),
+    ("set_theme",                 None),
 
     // -- ALLOW: HARNESS CONTROL --------------------------------------------
     ("mount",                     None),
@@ -529,6 +535,9 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("get_node_dataset",          None),
     ("get_focus_state",           None),
     ("get_cursor_state",          None),
+    // The app's mode choice and what the window shows; the app theme.
+    ("get_mode",                  None),
+    ("get_theme",                 None),
     ("get_selection_state",       None),
     ("dump_selection_manager",    None),
     ("get_scroll_states",         None),
