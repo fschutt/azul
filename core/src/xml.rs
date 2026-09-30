@@ -41,7 +41,7 @@ use azul_css::{
 };
 
 use crate::{
-    dom::{Dom, NodeType, OptionNodeType},
+    dom::{Dom, NodeData, NodeType, OptionNodeType},
     styled_dom::StyledDom,
     window::{AzStringPair, StringPairVec},
 };

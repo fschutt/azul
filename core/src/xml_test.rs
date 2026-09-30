@@ -3208,13 +3208,22 @@ mod autotest_generated {
     }
 
     // ================================================================
-    // xml_attrs_to_data_model
+    // data_model_with_attributes
     // ================================================================
 
+    /// The test attribute map as the loaders hand it in: name / value pairs.
+    fn pairs(map: &XmlAttributeMap) -> Vec<(&str, &str)> {
+        map.inner
+            .as_ref()
+            .iter()
+            .map(|p| (p.key.as_str(), p.value.as_str()))
+            .collect()
+    }
+
     #[test]
-    fn xml_attrs_to_data_model_overrides_defaults_from_attributes() {
+    fn data_model_with_attributes_overrides_defaults_from_attributes() {
         let base = builtin_component_def("a", "Link", Some("Link text"), "").data_model;
-        let model = xml_attrs_to_data_model(&base, &attrs(&[("href", "/x")]), None);
+        let model = data_model_with_attributes(&base, pairs(&attrs(&[("href", "/x")])));
         assert_eq!(
             model.get_default_string("href").map(AzString::as_str),
             Some("/x")
@@ -3231,33 +3240,27 @@ mod autotest_generated {
         );
     }
 
+    /// Text content is the loader's, not an attribute's: the `text` field is
+    /// filled from the element's children and prepared at render
+    /// (`prepare_string`), so the attribute pass leaves it alone.
     #[test]
-    fn xml_attrs_to_data_model_text_content_is_prepared_and_empty_text_is_ignored() {
+    fn data_model_with_attributes_leaves_text_content_to_the_loader() {
         let base = builtin_component_def("a", "Link", Some("Link text"), "").data_model;
-
-        let with_text = xml_attrs_to_data_model(&base, &attrs(&[]), Some("  Hello &amp; bye  "));
+        let model = data_model_with_attributes(&base, pairs(&attrs(&[("text", "  Hello &amp; bye  ")])));
         assert_eq!(
-            with_text.get_default_string("text").map(AzString::as_str),
-            Some("Hello & bye"),
-            "text content is trimmed and entity-decoded"
-        );
-
-        let blank = xml_attrs_to_data_model(&base, &attrs(&[]), Some("   \n\t "));
-        assert_eq!(
-            blank.get_default_string("text").map(AzString::as_str),
-            Some("Link text"),
-            "whitespace-only text content leaves the default intact"
+            model.get_default_string("text").map(AzString::as_str),
+            Some("  Hello &amp; bye  "),
+            "an explicit text attribute is taken as written; content is prepared at render"
         );
     }
 
     #[test]
-    fn xml_attrs_to_data_model_ignores_unknown_attributes() {
+    fn data_model_with_attributes_ignores_unknown_attributes() {
         let base = builtin_component_def("a", "Link", Some(""), "").data_model;
         let before = base.fields.as_ref().len();
-        let model = xml_attrs_to_data_model(
+        let model = data_model_with_attributes(
             &base,
-            &attrs(&[("data-nonsense", "1"), ("", ""), ("\u{1F600}", "x")]),
-            None,
+            pairs(&attrs(&[("data-nonsense", "1"), ("", ""), ("\u{1F600}", "x")])),
         );
         assert_eq!(
             model.fields.as_ref().len(),

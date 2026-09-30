@@ -19995,6 +19995,57 @@
                                     }
                                 ],
                                 "fn_body": "object.set_node_style(node_id, style)"
+                            },
+                            "reset_editor_content": {
+                                "doc": [
+                                    "Replace the content of the editing host `host` from code: call this,",
+                                    "then return `Update::RefreshDom` with the host's new content (a mail",
+                                    "app quoting the original into the reply, inserting a signature,",
+                                    "switching between plain and rich, clearing the body after Send).",
+                                    "",
+                                    "The DOM rendered next is the truth: typing the app never synced",
+                                    "(`get_unsynced_text_edits`) is dropped instead of painting over it,",
+                                    "the host's undo history and a pending structural edit",
+                                    "(`get_document_edit_clone`) go with the old content, and the caret",
+                                    "lands at the end of the new content (`caret_at_end`) or at its start.",
+                                    "HTML's `innerHTML = ..` on a contenteditable. Applied after the",
+                                    "callback returns."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "host": "DomNodeId"
+                                    },
+                                    {
+                                        "caret_at_end": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.reset_editor_content(host, caret_at_end)"
+                            },
+                            "toggle_text_format": {
+                                "doc": [
+                                    "Toggle `format` at the caret of the editing session in the editor",
+                                    "`host` - what Ctrl/Cmd+B, I and U do, for an editor's toolbar button.",
+                                    "",
+                                    "On a collapsed caret the next typed text takes the format (the",
+                                    "editor's typing style); moving the caret drops it. A selection is the",
+                                    "app's to format in its own model (`get_document_selection` names its",
+                                    "spans). Applied after the callback returns."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "host": "DomNodeId"
+                                    },
+                                    {
+                                        "format": "TextFormat"
+                                    }
+                                ],
+                                "fn_body": "object.toggle_text_format(host, format)"
                             }
                         },
                         "repr": "C"
@@ -30311,6 +30362,9 @@
                                 },
                                 "styled_runs": {
                                     "type": "StyledTextRunVec"
+                                },
+                                "html": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -34688,6 +34742,28 @@
                                 "callable": {
                                     "type": "OptionRefAny"
                                 }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TextFormat": {
+                        "external": "azul_core::events::TextFormat",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Bold": {},
+                                "Italic": {},
+                                "Underline": {},
+                                "Strikethrough": {}
                             }
                         ],
                         "repr": "C"
