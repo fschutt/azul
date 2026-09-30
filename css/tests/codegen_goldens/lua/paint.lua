@@ -18,9 +18,9 @@ function M.style_hero()
                                 direction = C.AzDirection_angle(ffi.new('AzAngleValue', { metric = C.AzAngleMetric_Degree, number = C.AzFloatValue_create(135.0) })),
                                 extend_mode = C.AzExtendMode_Clamp,
                                 stops = C.AzNormalizedLinearColorStopVec_copyFromPtr(ffi.new('AzNormalizedLinearColorStop[3]', {
-                                    ffi.new('AzNormalizedLinearColorStop', { offset = ffi.new('AzPercentageValue', { number = C.AzFloatValue_create(0.0) }), color = C.AzColorOrSystem_color(ffi.new('AzColorU', { r = 255, g = 0, b = 0, a = 255 })) }),
-                                    ffi.new('AzNormalizedLinearColorStop', { offset = ffi.new('AzPercentageValue', { number = C.AzFloatValue_create(50.0) }), color = C.AzColorOrSystem_color(ffi.new('AzColorU', { r = 0, g = 255, b = 0, a = 255 })) }),
-                                    ffi.new('AzNormalizedLinearColorStop', { offset = ffi.new('AzPercentageValue', { number = C.AzFloatValue_create(100.0) }), color = C.AzColorOrSystem_color(ffi.new('AzColorU', { r = 0, g = 0, b = 255, a = 255 })) }),
+                                    ffi.new('AzNormalizedLinearColorStop', { offset = ffi.new('AzPercentageValue', { number = C.AzFloatValue_create(0.0) }), color = C.AzColorOrSystem_color(ffi.new('AzColorU', { r = 255, g = 0, b = 0, a = 255 })), offset_px = C.AzFloatValue_create(0.0) }),
+                                    ffi.new('AzNormalizedLinearColorStop', { offset = ffi.new('AzPercentageValue', { number = C.AzFloatValue_create(50.0) }), color = C.AzColorOrSystem_color(ffi.new('AzColorU', { r = 0, g = 255, b = 0, a = 255 })), offset_px = C.AzFloatValue_create(0.0) }),
+                                    ffi.new('AzNormalizedLinearColorStop', { offset = ffi.new('AzPercentageValue', { number = C.AzFloatValue_create(100.0) }), color = C.AzColorOrSystem_color(ffi.new('AzColorU', { r = 0, g = 0, b = 255, a = 255 })), offset_px = C.AzFloatValue_create(0.0) }),
                                 }), 3),
                             }
                         )
@@ -93,8 +93,8 @@ function M.style_halo()
                                 position = ffi.new('AzStyleBackgroundPosition', { horizontal = C.AzBackgroundPositionHorizontal_left(), vertical = C.AzBackgroundPositionVertical_top() }),
                                 extend_mode = C.AzExtendMode_Clamp,
                                 stops = C.AzNormalizedLinearColorStopVec_copyFromPtr(ffi.new('AzNormalizedLinearColorStop[2]', {
-                                    ffi.new('AzNormalizedLinearColorStop', { offset = ffi.new('AzPercentageValue', { number = C.AzFloatValue_create(0.0) }), color = C.AzColorOrSystem_color(ffi.new('AzColorU', { r = 255, g = 255, b = 255, a = 255 })) }),
-                                    ffi.new('AzNormalizedLinearColorStop', { offset = ffi.new('AzPercentageValue', { number = C.AzFloatValue_create(100.0) }), color = C.AzColorOrSystem_color(ffi.new('AzColorU', { r = 0, g = 0, b = 0, a = 255 })) }),
+                                    ffi.new('AzNormalizedLinearColorStop', { offset = ffi.new('AzPercentageValue', { number = C.AzFloatValue_create(0.0) }), color = C.AzColorOrSystem_color(ffi.new('AzColorU', { r = 255, g = 255, b = 255, a = 255 })), offset_px = C.AzFloatValue_create(0.0) }),
+                                    ffi.new('AzNormalizedLinearColorStop', { offset = ffi.new('AzPercentageValue', { number = C.AzFloatValue_create(100.0) }), color = C.AzColorOrSystem_color(ffi.new('AzColorU', { r = 0, g = 0, b = 0, a = 255 })), offset_px = C.AzFloatValue_create(0.0) }),
                                 }), 2),
                             }
                         )

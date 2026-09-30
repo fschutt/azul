@@ -15,9 +15,9 @@ static AzCssPropertyWithConditionsVec style_hero(void) {
                                     .extend_mode = AzExtendMode_Clamp,
                                     .stops = AzNormalizedLinearColorStopVec_copyFromPtr(
                                         (AzNormalizedLinearColorStop[]){
-                                            (AzNormalizedLinearColorStop){ .offset = (AzPercentageValue){ .number = AzFloatValue_create(0.0f) }, .color = AzColorOrSystem_color((AzColorU){ .r = 255, .g = 0, .b = 0, .a = 255 }) },
-                                            (AzNormalizedLinearColorStop){ .offset = (AzPercentageValue){ .number = AzFloatValue_create(50.0f) }, .color = AzColorOrSystem_color((AzColorU){ .r = 0, .g = 255, .b = 0, .a = 255 }) },
-                                            (AzNormalizedLinearColorStop){ .offset = (AzPercentageValue){ .number = AzFloatValue_create(100.0f) }, .color = AzColorOrSystem_color((AzColorU){ .r = 0, .g = 0, .b = 255, .a = 255 }) },
+                                            (AzNormalizedLinearColorStop){ .offset = (AzPercentageValue){ .number = AzFloatValue_create(0.0f) }, .color = AzColorOrSystem_color((AzColorU){ .r = 255, .g = 0, .b = 0, .a = 255 }), .offset_px = AzFloatValue_create(0.0f) },
+                                            (AzNormalizedLinearColorStop){ .offset = (AzPercentageValue){ .number = AzFloatValue_create(50.0f) }, .color = AzColorOrSystem_color((AzColorU){ .r = 0, .g = 255, .b = 0, .a = 255 }), .offset_px = AzFloatValue_create(0.0f) },
+                                            (AzNormalizedLinearColorStop){ .offset = (AzPercentageValue){ .number = AzFloatValue_create(100.0f) }, .color = AzColorOrSystem_color((AzColorU){ .r = 0, .g = 0, .b = 255, .a = 255 }), .offset_px = AzFloatValue_create(0.0f) },
                                         },
                                         3
                                     ),
@@ -99,8 +99,8 @@ static AzCssPropertyWithConditionsVec style_halo(void) {
                                     .extend_mode = AzExtendMode_Clamp,
                                     .stops = AzNormalizedLinearColorStopVec_copyFromPtr(
                                         (AzNormalizedLinearColorStop[]){
-                                            (AzNormalizedLinearColorStop){ .offset = (AzPercentageValue){ .number = AzFloatValue_create(0.0f) }, .color = AzColorOrSystem_color((AzColorU){ .r = 255, .g = 255, .b = 255, .a = 255 }) },
-                                            (AzNormalizedLinearColorStop){ .offset = (AzPercentageValue){ .number = AzFloatValue_create(100.0f) }, .color = AzColorOrSystem_color((AzColorU){ .r = 0, .g = 0, .b = 0, .a = 255 }) },
+                                            (AzNormalizedLinearColorStop){ .offset = (AzPercentageValue){ .number = AzFloatValue_create(0.0f) }, .color = AzColorOrSystem_color((AzColorU){ .r = 255, .g = 255, .b = 255, .a = 255 }), .offset_px = AzFloatValue_create(0.0f) },
+                                            (AzNormalizedLinearColorStop){ .offset = (AzPercentageValue){ .number = AzFloatValue_create(100.0f) }, .color = AzColorOrSystem_color((AzColorU){ .r = 0, .g = 0, .b = 0, .a = 255 }), .offset_px = AzFloatValue_create(0.0f) },
                                         },
                                         2
                                     ),

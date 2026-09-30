@@ -14,9 +14,9 @@ func StyleHero() azul.AzCssPropertyWithConditionsVec {
 							Direction: azul.AzDirection_Angle(azul.AzAngleValue{Metric: azul.AngleMetric_Degree, Number: azul.AzFloatValue_create(135.0)}),
 							ExtendMode: azul.ExtendMode_Clamp,
 							Stops: azul.AzNormalizedLinearColorStopVec_copyFromPtr(&[]azul.AzNormalizedLinearColorStop{
-								azul.AzNormalizedLinearColorStop{Offset: azul.AzPercentageValue{Number: azul.AzFloatValue_create(0.0)}, Color: azul.AzColorOrSystem_Color(azul.AzColorU{R: 255, G: 0, B: 0, A: 255})},
-								azul.AzNormalizedLinearColorStop{Offset: azul.AzPercentageValue{Number: azul.AzFloatValue_create(50.0)}, Color: azul.AzColorOrSystem_Color(azul.AzColorU{R: 0, G: 255, B: 0, A: 255})},
-								azul.AzNormalizedLinearColorStop{Offset: azul.AzPercentageValue{Number: azul.AzFloatValue_create(100.0)}, Color: azul.AzColorOrSystem_Color(azul.AzColorU{R: 0, G: 0, B: 255, A: 255})},
+								azul.AzNormalizedLinearColorStop{Offset: azul.AzPercentageValue{Number: azul.AzFloatValue_create(0.0)}, Color: azul.AzColorOrSystem_Color(azul.AzColorU{R: 255, G: 0, B: 0, A: 255}), OffsetPx: azul.AzFloatValue_create(0.0)},
+								azul.AzNormalizedLinearColorStop{Offset: azul.AzPercentageValue{Number: azul.AzFloatValue_create(50.0)}, Color: azul.AzColorOrSystem_Color(azul.AzColorU{R: 0, G: 255, B: 0, A: 255}), OffsetPx: azul.AzFloatValue_create(0.0)},
+								azul.AzNormalizedLinearColorStop{Offset: azul.AzPercentageValue{Number: azul.AzFloatValue_create(100.0)}, Color: azul.AzColorOrSystem_Color(azul.AzColorU{R: 0, G: 0, B: 255, A: 255}), OffsetPx: azul.AzFloatValue_create(0.0)},
 							}[0], 3),
 						},
 					),
@@ -74,8 +74,8 @@ func StyleHalo() azul.AzCssPropertyWithConditionsVec {
 							Position: azul.AzStyleBackgroundPosition{Horizontal: azul.AzBackgroundPositionHorizontal_Left(), Vertical: azul.AzBackgroundPositionVertical_Top()},
 							ExtendMode: azul.ExtendMode_Clamp,
 							Stops: azul.AzNormalizedLinearColorStopVec_copyFromPtr(&[]azul.AzNormalizedLinearColorStop{
-								azul.AzNormalizedLinearColorStop{Offset: azul.AzPercentageValue{Number: azul.AzFloatValue_create(0.0)}, Color: azul.AzColorOrSystem_Color(azul.AzColorU{R: 255, G: 255, B: 255, A: 255})},
-								azul.AzNormalizedLinearColorStop{Offset: azul.AzPercentageValue{Number: azul.AzFloatValue_create(100.0)}, Color: azul.AzColorOrSystem_Color(azul.AzColorU{R: 0, G: 0, B: 0, A: 255})},
+								azul.AzNormalizedLinearColorStop{Offset: azul.AzPercentageValue{Number: azul.AzFloatValue_create(0.0)}, Color: azul.AzColorOrSystem_Color(azul.AzColorU{R: 255, G: 255, B: 255, A: 255}), OffsetPx: azul.AzFloatValue_create(0.0)},
+								azul.AzNormalizedLinearColorStop{Offset: azul.AzPercentageValue{Number: azul.AzFloatValue_create(100.0)}, Color: azul.AzColorOrSystem_Color(azul.AzColorU{R: 0, G: 0, B: 0, A: 255}), OffsetPx: azul.AzFloatValue_create(0.0)},
 							}[0], 2),
 						},
 					),

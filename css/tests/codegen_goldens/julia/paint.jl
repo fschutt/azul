@@ -44,9 +44,9 @@ function style_hero()
                             az_vec(
                                 Azul.AzNormalizedLinearColorStopVec_copyFromPtr,
                                 Azul.AzNormalizedLinearColorStop,
-                                Azul.AzNormalizedLinearColorStop(Azul.AzPercentageValue(Azul.AzFloatValue_create(0.0f0)), Azul.AzColorOrSystem_color(Azul.AzColorU(255, 0, 0, 255))),
-                                Azul.AzNormalizedLinearColorStop(Azul.AzPercentageValue(Azul.AzFloatValue_create(50.0f0)), Azul.AzColorOrSystem_color(Azul.AzColorU(0, 255, 0, 255))),
-                                Azul.AzNormalizedLinearColorStop(Azul.AzPercentageValue(Azul.AzFloatValue_create(100.0f0)), Azul.AzColorOrSystem_color(Azul.AzColorU(0, 0, 255, 255)))
+                                Azul.AzNormalizedLinearColorStop(Azul.AzPercentageValue(Azul.AzFloatValue_create(0.0f0)), Azul.AzColorOrSystem_color(Azul.AzColorU(255, 0, 0, 255)), Azul.AzFloatValue_create(0.0f0)),
+                                Azul.AzNormalizedLinearColorStop(Azul.AzPercentageValue(Azul.AzFloatValue_create(50.0f0)), Azul.AzColorOrSystem_color(Azul.AzColorU(0, 255, 0, 255)), Azul.AzFloatValue_create(0.0f0)),
+                                Azul.AzNormalizedLinearColorStop(Azul.AzPercentageValue(Azul.AzFloatValue_create(100.0f0)), Azul.AzColorOrSystem_color(Azul.AzColorU(0, 0, 255, 255)), Azul.AzFloatValue_create(0.0f0))
                             )
                         )
                     )
@@ -122,8 +122,8 @@ function style_halo()
                             az_vec(
                                 Azul.AzNormalizedLinearColorStopVec_copyFromPtr,
                                 Azul.AzNormalizedLinearColorStop,
-                                Azul.AzNormalizedLinearColorStop(Azul.AzPercentageValue(Azul.AzFloatValue_create(0.0f0)), Azul.AzColorOrSystem_color(Azul.AzColorU(255, 255, 255, 255))),
-                                Azul.AzNormalizedLinearColorStop(Azul.AzPercentageValue(Azul.AzFloatValue_create(100.0f0)), Azul.AzColorOrSystem_color(Azul.AzColorU(0, 0, 0, 255)))
+                                Azul.AzNormalizedLinearColorStop(Azul.AzPercentageValue(Azul.AzFloatValue_create(0.0f0)), Azul.AzColorOrSystem_color(Azul.AzColorU(255, 255, 255, 255)), Azul.AzFloatValue_create(0.0f0)),
+                                Azul.AzNormalizedLinearColorStop(Azul.AzPercentageValue(Azul.AzFloatValue_create(100.0f0)), Azul.AzColorOrSystem_color(Azul.AzColorU(0, 0, 0, 255)), Azul.AzFloatValue_create(0.0f0))
                             )
                         )
                     )

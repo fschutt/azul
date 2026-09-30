@@ -68,9 +68,9 @@ module AzulStyles
                 stops: AzulCodegen.vec(
                   :az_normalized_linear_color_stop_vec_copy_from_ptr,
                   N::AzNormalizedLinearColorStop,
-                  AzulCodegen.struct(N::AzNormalizedLinearColorStop, offset: AzulCodegen.struct(N::AzPercentageValue, number: N.az_float_value_create(0.0)), color: N.az_color_or_system_color(AzulCodegen.struct(N::AzColorU, r: 255, g: 0, b: 0, a: 255))),
-                  AzulCodegen.struct(N::AzNormalizedLinearColorStop, offset: AzulCodegen.struct(N::AzPercentageValue, number: N.az_float_value_create(50.0)), color: N.az_color_or_system_color(AzulCodegen.struct(N::AzColorU, r: 0, g: 255, b: 0, a: 255))),
-                  AzulCodegen.struct(N::AzNormalizedLinearColorStop, offset: AzulCodegen.struct(N::AzPercentageValue, number: N.az_float_value_create(100.0)), color: N.az_color_or_system_color(AzulCodegen.struct(N::AzColorU, r: 0, g: 0, b: 255, a: 255)))
+                  AzulCodegen.struct(N::AzNormalizedLinearColorStop, offset: AzulCodegen.struct(N::AzPercentageValue, number: N.az_float_value_create(0.0)), color: N.az_color_or_system_color(AzulCodegen.struct(N::AzColorU, r: 255, g: 0, b: 0, a: 255)), offset_px: N.az_float_value_create(0.0)),
+                  AzulCodegen.struct(N::AzNormalizedLinearColorStop, offset: AzulCodegen.struct(N::AzPercentageValue, number: N.az_float_value_create(50.0)), color: N.az_color_or_system_color(AzulCodegen.struct(N::AzColorU, r: 0, g: 255, b: 0, a: 255)), offset_px: N.az_float_value_create(0.0)),
+                  AzulCodegen.struct(N::AzNormalizedLinearColorStop, offset: AzulCodegen.struct(N::AzPercentageValue, number: N.az_float_value_create(100.0)), color: N.az_color_or_system_color(AzulCodegen.struct(N::AzColorU, r: 0, g: 0, b: 255, a: 255)), offset_px: N.az_float_value_create(0.0))
                 )
               )
             )
@@ -147,8 +147,8 @@ module AzulStyles
                 stops: AzulCodegen.vec(
                   :az_normalized_linear_color_stop_vec_copy_from_ptr,
                   N::AzNormalizedLinearColorStop,
-                  AzulCodegen.struct(N::AzNormalizedLinearColorStop, offset: AzulCodegen.struct(N::AzPercentageValue, number: N.az_float_value_create(0.0)), color: N.az_color_or_system_color(AzulCodegen.struct(N::AzColorU, r: 255, g: 255, b: 255, a: 255))),
-                  AzulCodegen.struct(N::AzNormalizedLinearColorStop, offset: AzulCodegen.struct(N::AzPercentageValue, number: N.az_float_value_create(100.0)), color: N.az_color_or_system_color(AzulCodegen.struct(N::AzColorU, r: 0, g: 0, b: 0, a: 255)))
+                  AzulCodegen.struct(N::AzNormalizedLinearColorStop, offset: AzulCodegen.struct(N::AzPercentageValue, number: N.az_float_value_create(0.0)), color: N.az_color_or_system_color(AzulCodegen.struct(N::AzColorU, r: 255, g: 255, b: 255, a: 255)), offset_px: N.az_float_value_create(0.0)),
+                  AzulCodegen.struct(N::AzNormalizedLinearColorStop, offset: AzulCodegen.struct(N::AzPercentageValue, number: N.az_float_value_create(100.0)), color: N.az_color_or_system_color(AzulCodegen.struct(N::AzColorU, r: 0, g: 0, b: 0, a: 255)), offset_px: N.az_float_value_create(0.0))
                 )
               )
             )

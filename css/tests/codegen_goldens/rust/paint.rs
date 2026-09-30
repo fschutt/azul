@@ -16,9 +16,9 @@ pub fn style_hero() -> CssPropertyWithConditionsVec {
                             direction: Direction::Angle(AngleValue { metric: AngleMetric::Degree, number: FloatValue::create(135.0) }),
                             extend_mode: ExtendMode::Clamp,
                             stops: NormalizedLinearColorStopVec::from(vec![
-                                NormalizedLinearColorStop { offset: PercentageValue { number: FloatValue::create(0.0) }, color: ColorOrSystem::Color(ColorU { r: 255, g: 0, b: 0, a: 255 }) },
-                                NormalizedLinearColorStop { offset: PercentageValue { number: FloatValue::create(50.0) }, color: ColorOrSystem::Color(ColorU { r: 0, g: 255, b: 0, a: 255 }) },
-                                NormalizedLinearColorStop { offset: PercentageValue { number: FloatValue::create(100.0) }, color: ColorOrSystem::Color(ColorU { r: 0, g: 0, b: 255, a: 255 }) },
+                                NormalizedLinearColorStop { offset: PercentageValue { number: FloatValue::create(0.0) }, color: ColorOrSystem::Color(ColorU { r: 255, g: 0, b: 0, a: 255 }), offset_px: FloatValue::create(0.0) },
+                                NormalizedLinearColorStop { offset: PercentageValue { number: FloatValue::create(50.0) }, color: ColorOrSystem::Color(ColorU { r: 0, g: 255, b: 0, a: 255 }), offset_px: FloatValue::create(0.0) },
+                                NormalizedLinearColorStop { offset: PercentageValue { number: FloatValue::create(100.0) }, color: ColorOrSystem::Color(ColorU { r: 0, g: 0, b: 255, a: 255 }), offset_px: FloatValue::create(0.0) },
                             ]),
                         }
                     ),
@@ -76,8 +76,8 @@ pub fn style_halo() -> CssPropertyWithConditionsVec {
                             position: StyleBackgroundPosition { horizontal: BackgroundPositionHorizontal::Left, vertical: BackgroundPositionVertical::Top },
                             extend_mode: ExtendMode::Clamp,
                             stops: NormalizedLinearColorStopVec::from(vec![
-                                NormalizedLinearColorStop { offset: PercentageValue { number: FloatValue::create(0.0) }, color: ColorOrSystem::Color(ColorU { r: 255, g: 255, b: 255, a: 255 }) },
-                                NormalizedLinearColorStop { offset: PercentageValue { number: FloatValue::create(100.0) }, color: ColorOrSystem::Color(ColorU { r: 0, g: 0, b: 0, a: 255 }) },
+                                NormalizedLinearColorStop { offset: PercentageValue { number: FloatValue::create(0.0) }, color: ColorOrSystem::Color(ColorU { r: 255, g: 255, b: 255, a: 255 }), offset_px: FloatValue::create(0.0) },
+                                NormalizedLinearColorStop { offset: PercentageValue { number: FloatValue::create(100.0) }, color: ColorOrSystem::Color(ColorU { r: 0, g: 0, b: 0, a: 255 }), offset_px: FloatValue::create(0.0) },
                             ]),
                         }
                     ),

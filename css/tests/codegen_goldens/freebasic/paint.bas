@@ -12,9 +12,9 @@ Function StyleHero() As AzCssPropertyWithConditionsVec
     Dim t2(0 To 0) As AzStyleBackgroundContent
     Dim t3(0 To 3) As AzStyleTransform
     Dim t4(0 To 5) As AzCssPropertyWithConditions
-    t1(0) = Type<AzNormalizedLinearColorStop>(Type<AzPercentageValue>(AzFloatValue_create(0.0)), AzColorOrSystem_color(Type<AzColorU>(255, 0, 0, 255)))
-    t1(1) = Type<AzNormalizedLinearColorStop>(Type<AzPercentageValue>(AzFloatValue_create(50.0)), AzColorOrSystem_color(Type<AzColorU>(0, 255, 0, 255)))
-    t1(2) = Type<AzNormalizedLinearColorStop>(Type<AzPercentageValue>(AzFloatValue_create(100.0)), AzColorOrSystem_color(Type<AzColorU>(0, 0, 255, 255)))
+    t1(0) = Type<AzNormalizedLinearColorStop>(Type<AzPercentageValue>(AzFloatValue_create(0.0)), AzColorOrSystem_color(Type<AzColorU>(255, 0, 0, 255)), AzFloatValue_create(0.0))
+    t1(1) = Type<AzNormalizedLinearColorStop>(Type<AzPercentageValue>(AzFloatValue_create(50.0)), AzColorOrSystem_color(Type<AzColorU>(0, 255, 0, 255)), AzFloatValue_create(0.0))
+    t1(2) = Type<AzNormalizedLinearColorStop>(Type<AzPercentageValue>(AzFloatValue_create(100.0)), AzColorOrSystem_color(Type<AzColorU>(0, 0, 255, 255)), AzFloatValue_create(0.0))
     t2(0) = AzStyleBackgroundContent_linearGradient(Type<AzLinearGradient>(AzDirection_angle(Type<AzAngleValue>(AzAngleMetric_Degree, AzFloatValue_create(135.0))), AzExtendMode_Clamp, AzNormalizedLinearColorStopVec_copyFromPtr(@t1(0), 3)))
     t3(0) = AzStyleTransform_translate(Type<AzStyleTransformTranslate2D>(AzPixelValue_px(10.0), AzPixelValue_px(20.0)))
     t3(1) = AzStyleTransform_rotate(Type<AzAngleValue>(AzAngleMetric_Degree, AzFloatValue_create(45.0)))
@@ -34,8 +34,8 @@ Function StyleHalo() As AzCssPropertyWithConditionsVec
     Dim t1(0 To 1) As AzNormalizedLinearColorStop
     Dim t2(0 To 0) As AzStyleBackgroundContent
     Dim t3(0 To 0) As AzCssPropertyWithConditions
-    t1(0) = Type<AzNormalizedLinearColorStop>(Type<AzPercentageValue>(AzFloatValue_create(0.0)), AzColorOrSystem_color(Type<AzColorU>(255, 255, 255, 255)))
-    t1(1) = Type<AzNormalizedLinearColorStop>(Type<AzPercentageValue>(AzFloatValue_create(100.0)), AzColorOrSystem_color(Type<AzColorU>(0, 0, 0, 255)))
+    t1(0) = Type<AzNormalizedLinearColorStop>(Type<AzPercentageValue>(AzFloatValue_create(0.0)), AzColorOrSystem_color(Type<AzColorU>(255, 255, 255, 255)), AzFloatValue_create(0.0))
+    t1(1) = Type<AzNormalizedLinearColorStop>(Type<AzPercentageValue>(AzFloatValue_create(100.0)), AzColorOrSystem_color(Type<AzColorU>(0, 0, 0, 255)), AzFloatValue_create(0.0))
     t2(0) = AzStyleBackgroundContent_radialGradient(Type<AzRadialGradient>(AzShape_Circle, AzRadialGradientSize_FarthestCorner, Type<AzStyleBackgroundPosition>(AzBackgroundPositionHorizontal_left(), AzBackgroundPositionVertical_top()), AzExtendMode_Clamp, AzNormalizedLinearColorStopVec_copyFromPtr(@t1(0), 2)))
     t3(0) = AzCssPropertyWithConditions_simple(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr(@t2(0), 1)))
     Return AzCssPropertyWithConditionsVec_copyFromPtr(@t3(0), 1)

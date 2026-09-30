@@ -11,9 +11,9 @@ fn style_hero() azul.AzCssPropertyWithConditionsVec {
 	mut t4 := [3]azul.AzStyleFilter{}
 	mut t5 := [2]azul.AzStyleFilter{}
 	mut t6 := [8]azul.AzCssPropertyWithConditions{}
-	t1[0] = azul.AzNormalizedLinearColorStop{ offset: azul.AzPercentageValue{ number: C.AzFloatValue_create(0.0) }, color: C.AzColorOrSystem_color(azul.AzColorU{ r: 255, g: 0, b: 0, a: 255 }) }
-	t1[1] = azul.AzNormalizedLinearColorStop{ offset: azul.AzPercentageValue{ number: C.AzFloatValue_create(50.0) }, color: C.AzColorOrSystem_color(azul.AzColorU{ r: 0, g: 255, b: 0, a: 255 }) }
-	t1[2] = azul.AzNormalizedLinearColorStop{ offset: azul.AzPercentageValue{ number: C.AzFloatValue_create(100.0) }, color: C.AzColorOrSystem_color(azul.AzColorU{ r: 0, g: 0, b: 255, a: 255 }) }
+	t1[0] = azul.AzNormalizedLinearColorStop{ offset: azul.AzPercentageValue{ number: C.AzFloatValue_create(0.0) }, color: C.AzColorOrSystem_color(azul.AzColorU{ r: 255, g: 0, b: 0, a: 255 }), offset_px: C.AzFloatValue_create(0.0) }
+	t1[1] = azul.AzNormalizedLinearColorStop{ offset: azul.AzPercentageValue{ number: C.AzFloatValue_create(50.0) }, color: C.AzColorOrSystem_color(azul.AzColorU{ r: 0, g: 255, b: 0, a: 255 }), offset_px: C.AzFloatValue_create(0.0) }
+	t1[2] = azul.AzNormalizedLinearColorStop{ offset: azul.AzPercentageValue{ number: C.AzFloatValue_create(100.0) }, color: C.AzColorOrSystem_color(azul.AzColorU{ r: 0, g: 0, b: 255, a: 255 }), offset_px: C.AzFloatValue_create(0.0) }
 	t2[0] = C.AzStyleBackgroundContent_linearGradient(azul.AzLinearGradient{ direction: C.AzDirection_angle(azul.AzAngleValue{ metric: azul.AzAngleMetric.Degree, number: C.AzFloatValue_create(135.0) }), extend_mode: azul.AzExtendMode.Clamp, stops: C.AzNormalizedLinearColorStopVec_copyFromPtr(unsafe { &t1[0] }, 3) })
 	t3[0] = C.AzStyleTransform_translate(azul.AzStyleTransformTranslate2D{ x: C.AzPixelValue_px(10.0), y: C.AzPixelValue_px(20.0) })
 	t3[1] = C.AzStyleTransform_rotate(azul.AzAngleValue{ metric: azul.AzAngleMetric.Degree, number: C.AzFloatValue_create(45.0) })
@@ -40,8 +40,8 @@ fn style_halo() azul.AzCssPropertyWithConditionsVec {
 	mut t1 := [2]azul.AzNormalizedLinearColorStop{}
 	mut t2 := [1]azul.AzStyleBackgroundContent{}
 	mut t3 := [1]azul.AzCssPropertyWithConditions{}
-	t1[0] = azul.AzNormalizedLinearColorStop{ offset: azul.AzPercentageValue{ number: C.AzFloatValue_create(0.0) }, color: C.AzColorOrSystem_color(azul.AzColorU{ r: 255, g: 255, b: 255, a: 255 }) }
-	t1[1] = azul.AzNormalizedLinearColorStop{ offset: azul.AzPercentageValue{ number: C.AzFloatValue_create(100.0) }, color: C.AzColorOrSystem_color(azul.AzColorU{ r: 0, g: 0, b: 0, a: 255 }) }
+	t1[0] = azul.AzNormalizedLinearColorStop{ offset: azul.AzPercentageValue{ number: C.AzFloatValue_create(0.0) }, color: C.AzColorOrSystem_color(azul.AzColorU{ r: 255, g: 255, b: 255, a: 255 }), offset_px: C.AzFloatValue_create(0.0) }
+	t1[1] = azul.AzNormalizedLinearColorStop{ offset: azul.AzPercentageValue{ number: C.AzFloatValue_create(100.0) }, color: C.AzColorOrSystem_color(azul.AzColorU{ r: 0, g: 0, b: 0, a: 255 }), offset_px: C.AzFloatValue_create(0.0) }
 	t2[0] = C.AzStyleBackgroundContent_radialGradient(azul.AzRadialGradient{ shape: azul.AzShape.Circle, size: azul.AzRadialGradientSize.FarthestCorner, position: azul.AzStyleBackgroundPosition{ horizontal: C.AzBackgroundPositionHorizontal_left(), vertical: C.AzBackgroundPositionVertical_top() }, extend_mode: azul.AzExtendMode.Clamp, stops: C.AzNormalizedLinearColorStopVec_copyFromPtr(unsafe { &t1[0] }, 2) })
 	t3[0] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundContent(C.AzStyleBackgroundContentVec_copyFromPtr(unsafe { &t2[0] }, 1)))
 	return C.AzCssPropertyWithConditionsVec_copyFromPtr(unsafe { &t3[0] }, 1)

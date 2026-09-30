@@ -12,9 +12,9 @@ public func styleHero() -> [CssPropertyWithConditions] {
                             direction: Direction.angle(AngleValue(metric: AngleMetric.degree, number: FloatValue(135.0))),
                             extendMode: ExtendMode.clamp,
                             stops: [
-                                NormalizedLinearColorStop(offset: PercentageValue(number: FloatValue(0.0)), color: ColorOrSystem.color(ColorU(r: 255, g: 0, b: 0, a: 255))),
-                                NormalizedLinearColorStop(offset: PercentageValue(number: FloatValue(50.0)), color: ColorOrSystem.color(ColorU(r: 0, g: 255, b: 0, a: 255))),
-                                NormalizedLinearColorStop(offset: PercentageValue(number: FloatValue(100.0)), color: ColorOrSystem.color(ColorU(r: 0, g: 0, b: 255, a: 255))),
+                                NormalizedLinearColorStop(offset: PercentageValue(number: FloatValue(0.0)), color: ColorOrSystem.color(ColorU(r: 255, g: 0, b: 0, a: 255)), offsetPx: FloatValue(0.0)),
+                                NormalizedLinearColorStop(offset: PercentageValue(number: FloatValue(50.0)), color: ColorOrSystem.color(ColorU(r: 0, g: 255, b: 0, a: 255)), offsetPx: FloatValue(0.0)),
+                                NormalizedLinearColorStop(offset: PercentageValue(number: FloatValue(100.0)), color: ColorOrSystem.color(ColorU(r: 0, g: 0, b: 255, a: 255)), offsetPx: FloatValue(0.0)),
                             ]
                         )
                     ),
@@ -72,8 +72,8 @@ public func styleHalo() -> [CssPropertyWithConditions] {
                             position: StyleBackgroundPosition(horizontal: BackgroundPositionHorizontal.left, vertical: BackgroundPositionVertical.top),
                             extendMode: ExtendMode.clamp,
                             stops: [
-                                NormalizedLinearColorStop(offset: PercentageValue(number: FloatValue(0.0)), color: ColorOrSystem.color(ColorU(r: 255, g: 255, b: 255, a: 255))),
-                                NormalizedLinearColorStop(offset: PercentageValue(number: FloatValue(100.0)), color: ColorOrSystem.color(ColorU(r: 0, g: 0, b: 0, a: 255))),
+                                NormalizedLinearColorStop(offset: PercentageValue(number: FloatValue(0.0)), color: ColorOrSystem.color(ColorU(r: 255, g: 255, b: 255, a: 255)), offsetPx: FloatValue(0.0)),
+                                NormalizedLinearColorStop(offset: PercentageValue(number: FloatValue(100.0)), color: ColorOrSystem.color(ColorU(r: 0, g: 0, b: 0, a: 255)), offsetPx: FloatValue(0.0)),
                             ]
                         )
                     ),

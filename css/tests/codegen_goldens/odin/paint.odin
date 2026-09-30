@@ -18,9 +18,9 @@ style_hero :: proc() -> azul.AzCssPropertyWithConditionsVec {
 							direction = azul.AzDirection_angle(azul.AzAngleValue{metric = azul.AzAngleMetric.Degree, number = azul.AzFloatValue_create(135.0)}),
 							extend_mode = azul.AzExtendMode.Clamp,
 							stops = azul.AzNormalizedLinearColorStopVec_copyFromPtr(&[]azul.AzNormalizedLinearColorStop{
-								azul.AzNormalizedLinearColorStop{offset = azul.AzPercentageValue{number = azul.AzFloatValue_create(0.0)}, color = azul.AzColorOrSystem_color(azul.AzColorU{r = 255, g = 0, b = 0, a = 255})},
-								azul.AzNormalizedLinearColorStop{offset = azul.AzPercentageValue{number = azul.AzFloatValue_create(50.0)}, color = azul.AzColorOrSystem_color(azul.AzColorU{r = 0, g = 255, b = 0, a = 255})},
-								azul.AzNormalizedLinearColorStop{offset = azul.AzPercentageValue{number = azul.AzFloatValue_create(100.0)}, color = azul.AzColorOrSystem_color(azul.AzColorU{r = 0, g = 0, b = 255, a = 255})},
+								azul.AzNormalizedLinearColorStop{offset = azul.AzPercentageValue{number = azul.AzFloatValue_create(0.0)}, color = azul.AzColorOrSystem_color(azul.AzColorU{r = 255, g = 0, b = 0, a = 255}), offset_px = azul.AzFloatValue_create(0.0)},
+								azul.AzNormalizedLinearColorStop{offset = azul.AzPercentageValue{number = azul.AzFloatValue_create(50.0)}, color = azul.AzColorOrSystem_color(azul.AzColorU{r = 0, g = 255, b = 0, a = 255}), offset_px = azul.AzFloatValue_create(0.0)},
+								azul.AzNormalizedLinearColorStop{offset = azul.AzPercentageValue{number = azul.AzFloatValue_create(100.0)}, color = azul.AzColorOrSystem_color(azul.AzColorU{r = 0, g = 0, b = 255, a = 255}), offset_px = azul.AzFloatValue_create(0.0)},
 							}[0], 3),
 						}
 					),
@@ -84,8 +84,8 @@ style_halo :: proc() -> azul.AzCssPropertyWithConditionsVec {
 							position = azul.AzStyleBackgroundPosition{horizontal = azul.AzBackgroundPositionHorizontal_left(), vertical = azul.AzBackgroundPositionVertical_top()},
 							extend_mode = azul.AzExtendMode.Clamp,
 							stops = azul.AzNormalizedLinearColorStopVec_copyFromPtr(&[]azul.AzNormalizedLinearColorStop{
-								azul.AzNormalizedLinearColorStop{offset = azul.AzPercentageValue{number = azul.AzFloatValue_create(0.0)}, color = azul.AzColorOrSystem_color(azul.AzColorU{r = 255, g = 255, b = 255, a = 255})},
-								azul.AzNormalizedLinearColorStop{offset = azul.AzPercentageValue{number = azul.AzFloatValue_create(100.0)}, color = azul.AzColorOrSystem_color(azul.AzColorU{r = 0, g = 0, b = 0, a = 255})},
+								azul.AzNormalizedLinearColorStop{offset = azul.AzPercentageValue{number = azul.AzFloatValue_create(0.0)}, color = azul.AzColorOrSystem_color(azul.AzColorU{r = 255, g = 255, b = 255, a = 255}), offset_px = azul.AzFloatValue_create(0.0)},
+								azul.AzNormalizedLinearColorStop{offset = azul.AzPercentageValue{number = azul.AzFloatValue_create(100.0)}, color = azul.AzColorOrSystem_color(azul.AzColorU{r = 0, g = 0, b = 0, a = 255}), offset_px = azul.AzFloatValue_create(0.0)},
 							}[0], 2),
 						}
 					),

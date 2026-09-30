@@ -32,9 +32,9 @@ package body Styles is
       t5 : aliased array (0 .. 1) of Az_StyleFilter;
       t6 : aliased array (0 .. 7) of Az_CssPropertyWithConditions;
    begin
-      t1 (0) := Az_NormalizedLinearColorStop'(Offset => Az_PercentageValue'(Number => Az_FloatValue_Create (0.0)), Color => Az_ColorOrSystem_Color (Az_ColorU'(R => 255, G => 0, B => 0, A => 255)));
-      t1 (1) := Az_NormalizedLinearColorStop'(Offset => Az_PercentageValue'(Number => Az_FloatValue_Create (50.0)), Color => Az_ColorOrSystem_Color (Az_ColorU'(R => 0, G => 255, B => 0, A => 255)));
-      t1 (2) := Az_NormalizedLinearColorStop'(Offset => Az_PercentageValue'(Number => Az_FloatValue_Create (100.0)), Color => Az_ColorOrSystem_Color (Az_ColorU'(R => 0, G => 0, B => 255, A => 255)));
+      t1 (0) := Az_NormalizedLinearColorStop'(Offset => Az_PercentageValue'(Number => Az_FloatValue_Create (0.0)), Color => Az_ColorOrSystem_Color (Az_ColorU'(R => 255, G => 0, B => 0, A => 255)), Offset_Px => Az_FloatValue_Create (0.0));
+      t1 (1) := Az_NormalizedLinearColorStop'(Offset => Az_PercentageValue'(Number => Az_FloatValue_Create (50.0)), Color => Az_ColorOrSystem_Color (Az_ColorU'(R => 0, G => 255, B => 0, A => 255)), Offset_Px => Az_FloatValue_Create (0.0));
+      t1 (2) := Az_NormalizedLinearColorStop'(Offset => Az_PercentageValue'(Number => Az_FloatValue_Create (100.0)), Color => Az_ColorOrSystem_Color (Az_ColorU'(R => 0, G => 0, B => 255, A => 255)), Offset_Px => Az_FloatValue_Create (0.0));
       t2 (0) := Az_StyleBackgroundContent_Linear_Gradient (Az_LinearGradient'(Direction => Az_Direction_Angle (Az_AngleValue'(Metric => Az_AngleMetric'(Degree), Number => Az_FloatValue_Create (135.0))), Extend_Mode => Az_ExtendMode'(Clamp), Stops => Az_NormalizedLinearColorStopVec_Copy_From_Ptr (t1 (0)'Address, 3)));
       t3 (0) := Az_StyleTransform_Translate (Az_StyleTransformTranslate2D'(X => Az_PixelValue_Px (10.0), Y => Az_PixelValue_Px (20.0)));
       t3 (1) := Az_StyleTransform_Rotate (Az_AngleValue'(Metric => Az_AngleMetric'(Degree), Number => Az_FloatValue_Create (45.0)));
@@ -62,8 +62,8 @@ package body Styles is
       t2 : aliased array (0 .. 0) of Az_StyleBackgroundContent;
       t3 : aliased array (0 .. 0) of Az_CssPropertyWithConditions;
    begin
-      t1 (0) := Az_NormalizedLinearColorStop'(Offset => Az_PercentageValue'(Number => Az_FloatValue_Create (0.0)), Color => Az_ColorOrSystem_Color (Az_ColorU'(R => 255, G => 255, B => 255, A => 255)));
-      t1 (1) := Az_NormalizedLinearColorStop'(Offset => Az_PercentageValue'(Number => Az_FloatValue_Create (100.0)), Color => Az_ColorOrSystem_Color (Az_ColorU'(R => 0, G => 0, B => 0, A => 255)));
+      t1 (0) := Az_NormalizedLinearColorStop'(Offset => Az_PercentageValue'(Number => Az_FloatValue_Create (0.0)), Color => Az_ColorOrSystem_Color (Az_ColorU'(R => 255, G => 255, B => 255, A => 255)), Offset_Px => Az_FloatValue_Create (0.0));
+      t1 (1) := Az_NormalizedLinearColorStop'(Offset => Az_PercentageValue'(Number => Az_FloatValue_Create (100.0)), Color => Az_ColorOrSystem_Color (Az_ColorU'(R => 0, G => 0, B => 0, A => 255)), Offset_Px => Az_FloatValue_Create (0.0));
       t2 (0) := Az_StyleBackgroundContent_Radial_Gradient (Az_RadialGradient'(Shape => Az_Shape'(Circle), Size => Az_RadialGradientSize'(FarthestCorner), Position => Az_StyleBackgroundPosition'(Horizontal => Az_BackgroundPositionHorizontal_Left, Vertical => Az_BackgroundPositionVertical_Top), Extend_Mode => Az_ExtendMode'(Clamp), Stops => Az_NormalizedLinearColorStopVec_Copy_From_Ptr (t1 (0)'Address, 2)));
       t3 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Content (Az_StyleBackgroundContentVec_Copy_From_Ptr (t2 (0)'Address, 1)));
       return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t3 (0)'Address, 1);

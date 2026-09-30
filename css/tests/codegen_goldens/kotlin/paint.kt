@@ -19,9 +19,9 @@ fun styleHero(): AzCssPropertyWithConditionsVec.ByValue {
                             extend_mode = ExtendMode.Clamp.value;
                             stops = azVec(
                                 AzulNativeVec::AzNormalizedLinearColorStopVec_copyFromPtr,
-                                AzNormalizedLinearColorStop.ByValue().apply { offset = AzPercentageValue.ByValue().apply { number = AzulNativeCss.AzFloatValue_create(0.0f) }; color = AzulNativeCss.AzColorOrSystem_color(AzColorU.ByValue().apply { r = 255.toByte(); g = 0.toByte(); b = 0.toByte(); a = 255.toByte() }) },
-                                AzNormalizedLinearColorStop.ByValue().apply { offset = AzPercentageValue.ByValue().apply { number = AzulNativeCss.AzFloatValue_create(50.0f) }; color = AzulNativeCss.AzColorOrSystem_color(AzColorU.ByValue().apply { r = 0.toByte(); g = 255.toByte(); b = 0.toByte(); a = 255.toByte() }) },
-                                AzNormalizedLinearColorStop.ByValue().apply { offset = AzPercentageValue.ByValue().apply { number = AzulNativeCss.AzFloatValue_create(100.0f) }; color = AzulNativeCss.AzColorOrSystem_color(AzColorU.ByValue().apply { r = 0.toByte(); g = 0.toByte(); b = 255.toByte(); a = 255.toByte() }) }
+                                AzNormalizedLinearColorStop.ByValue().apply { offset = AzPercentageValue.ByValue().apply { number = AzulNativeCss.AzFloatValue_create(0.0f) }; color = AzulNativeCss.AzColorOrSystem_color(AzColorU.ByValue().apply { r = 255.toByte(); g = 0.toByte(); b = 0.toByte(); a = 255.toByte() }); offset_px = AzulNativeCss.AzFloatValue_create(0.0f) },
+                                AzNormalizedLinearColorStop.ByValue().apply { offset = AzPercentageValue.ByValue().apply { number = AzulNativeCss.AzFloatValue_create(50.0f) }; color = AzulNativeCss.AzColorOrSystem_color(AzColorU.ByValue().apply { r = 0.toByte(); g = 255.toByte(); b = 0.toByte(); a = 255.toByte() }); offset_px = AzulNativeCss.AzFloatValue_create(0.0f) },
+                                AzNormalizedLinearColorStop.ByValue().apply { offset = AzPercentageValue.ByValue().apply { number = AzulNativeCss.AzFloatValue_create(100.0f) }; color = AzulNativeCss.AzColorOrSystem_color(AzColorU.ByValue().apply { r = 0.toByte(); g = 0.toByte(); b = 255.toByte(); a = 255.toByte() }); offset_px = AzulNativeCss.AzFloatValue_create(0.0f) }
                             )
                         }
                     )
@@ -89,8 +89,8 @@ fun styleHalo(): AzCssPropertyWithConditionsVec.ByValue {
                             extend_mode = ExtendMode.Clamp.value;
                             stops = azVec(
                                 AzulNativeVec::AzNormalizedLinearColorStopVec_copyFromPtr,
-                                AzNormalizedLinearColorStop.ByValue().apply { offset = AzPercentageValue.ByValue().apply { number = AzulNativeCss.AzFloatValue_create(0.0f) }; color = AzulNativeCss.AzColorOrSystem_color(AzColorU.ByValue().apply { r = 255.toByte(); g = 255.toByte(); b = 255.toByte(); a = 255.toByte() }) },
-                                AzNormalizedLinearColorStop.ByValue().apply { offset = AzPercentageValue.ByValue().apply { number = AzulNativeCss.AzFloatValue_create(100.0f) }; color = AzulNativeCss.AzColorOrSystem_color(AzColorU.ByValue().apply { r = 0.toByte(); g = 0.toByte(); b = 0.toByte(); a = 255.toByte() }) }
+                                AzNormalizedLinearColorStop.ByValue().apply { offset = AzPercentageValue.ByValue().apply { number = AzulNativeCss.AzFloatValue_create(0.0f) }; color = AzulNativeCss.AzColorOrSystem_color(AzColorU.ByValue().apply { r = 255.toByte(); g = 255.toByte(); b = 255.toByte(); a = 255.toByte() }); offset_px = AzulNativeCss.AzFloatValue_create(0.0f) },
+                                AzNormalizedLinearColorStop.ByValue().apply { offset = AzPercentageValue.ByValue().apply { number = AzulNativeCss.AzFloatValue_create(100.0f) }; color = AzulNativeCss.AzColorOrSystem_color(AzColorU.ByValue().apply { r = 0.toByte(); g = 0.toByte(); b = 0.toByte(); a = 255.toByte() }); offset_px = AzulNativeCss.AzFloatValue_create(0.0f) }
                             )
                         }
                     )

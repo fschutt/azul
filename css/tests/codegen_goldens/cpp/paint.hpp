@@ -17,9 +17,9 @@ inline AzCssPropertyWithConditionsVec style_hero() {
                                     AzExtendMode_Clamp,
                                     AzNormalizedLinearColorStopVec_copyFromPtr(
                                         std::vector<AzNormalizedLinearColorStop>{
-                                            AzNormalizedLinearColorStop{ AzPercentageValue{ AzFloatValue_create(0.0f) }, AzColorOrSystem_color(AzColorU{ 255, 0, 0, 255 }) },
-                                            AzNormalizedLinearColorStop{ AzPercentageValue{ AzFloatValue_create(50.0f) }, AzColorOrSystem_color(AzColorU{ 0, 255, 0, 255 }) },
-                                            AzNormalizedLinearColorStop{ AzPercentageValue{ AzFloatValue_create(100.0f) }, AzColorOrSystem_color(AzColorU{ 0, 0, 255, 255 }) },
+                                            AzNormalizedLinearColorStop{ AzPercentageValue{ AzFloatValue_create(0.0f) }, AzColorOrSystem_color(AzColorU{ 255, 0, 0, 255 }), AzFloatValue_create(0.0f) },
+                                            AzNormalizedLinearColorStop{ AzPercentageValue{ AzFloatValue_create(50.0f) }, AzColorOrSystem_color(AzColorU{ 0, 255, 0, 255 }), AzFloatValue_create(0.0f) },
+                                            AzNormalizedLinearColorStop{ AzPercentageValue{ AzFloatValue_create(100.0f) }, AzColorOrSystem_color(AzColorU{ 0, 0, 255, 255 }), AzFloatValue_create(0.0f) },
                                         }.data(),
                                         3
                                     ),
@@ -97,8 +97,8 @@ inline AzCssPropertyWithConditionsVec style_halo() {
                                     AzExtendMode_Clamp,
                                     AzNormalizedLinearColorStopVec_copyFromPtr(
                                         std::vector<AzNormalizedLinearColorStop>{
-                                            AzNormalizedLinearColorStop{ AzPercentageValue{ AzFloatValue_create(0.0f) }, AzColorOrSystem_color(AzColorU{ 255, 255, 255, 255 }) },
-                                            AzNormalizedLinearColorStop{ AzPercentageValue{ AzFloatValue_create(100.0f) }, AzColorOrSystem_color(AzColorU{ 0, 0, 0, 255 }) },
+                                            AzNormalizedLinearColorStop{ AzPercentageValue{ AzFloatValue_create(0.0f) }, AzColorOrSystem_color(AzColorU{ 255, 255, 255, 255 }), AzFloatValue_create(0.0f) },
+                                            AzNormalizedLinearColorStop{ AzPercentageValue{ AzFloatValue_create(100.0f) }, AzColorOrSystem_color(AzColorU{ 0, 0, 0, 255 }), AzFloatValue_create(0.0f) },
                                         }.data(),
                                         2
                                     ),

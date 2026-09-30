@@ -15,9 +15,9 @@ CssPropertyWithConditions[] styleHero()
                             Direction.angle(AngleValue(AngleMetric.degree, FloatValue(135.0f))),
                             ExtendMode.clamp,
                             [
-                                NormalizedLinearColorStop(PercentageValue(FloatValue(0.0f)), ColorOrSystem.color(ColorU(255, 0, 0, 255))),
-                                NormalizedLinearColorStop(PercentageValue(FloatValue(50.0f)), ColorOrSystem.color(ColorU(0, 255, 0, 255))),
-                                NormalizedLinearColorStop(PercentageValue(FloatValue(100.0f)), ColorOrSystem.color(ColorU(0, 0, 255, 255))),
+                                NormalizedLinearColorStop(PercentageValue(FloatValue(0.0f)), ColorOrSystem.color(ColorU(255, 0, 0, 255)), FloatValue(0.0f)),
+                                NormalizedLinearColorStop(PercentageValue(FloatValue(50.0f)), ColorOrSystem.color(ColorU(0, 255, 0, 255)), FloatValue(0.0f)),
+                                NormalizedLinearColorStop(PercentageValue(FloatValue(100.0f)), ColorOrSystem.color(ColorU(0, 0, 255, 255)), FloatValue(0.0f)),
                             ]
                         )
                     ),
@@ -76,8 +76,8 @@ CssPropertyWithConditions[] styleHalo()
                             StyleBackgroundPosition(BackgroundPositionHorizontal.left(), BackgroundPositionVertical.top()),
                             ExtendMode.clamp,
                             [
-                                NormalizedLinearColorStop(PercentageValue(FloatValue(0.0f)), ColorOrSystem.color(ColorU(255, 255, 255, 255))),
-                                NormalizedLinearColorStop(PercentageValue(FloatValue(100.0f)), ColorOrSystem.color(ColorU(0, 0, 0, 255))),
+                                NormalizedLinearColorStop(PercentageValue(FloatValue(0.0f)), ColorOrSystem.color(ColorU(255, 255, 255, 255)), FloatValue(0.0f)),
+                                NormalizedLinearColorStop(PercentageValue(FloatValue(100.0f)), ColorOrSystem.color(ColorU(0, 0, 0, 255)), FloatValue(0.0f)),
                             ]
                         )
                     ),

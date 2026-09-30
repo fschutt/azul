@@ -20,9 +20,9 @@ proc styleHero*(): AzCssPropertyWithConditionsVec =
               direction: AzDirection_angle(AzAngleValue(metric: AzAngleMetric.Degree, number: AzFloatValue_create(135.0))),
               extend_mode: AzExtendMode.Clamp,
               stops: azVec(AzNormalizedLinearColorStopVec_copyFromPtr, [
-                AzNormalizedLinearColorStop(offset: AzPercentageValue(number: AzFloatValue_create(0.0)), color: AzColorOrSystem_color(AzColorU(r: 255'u8, g: 0'u8, b: 0'u8, a: 255'u8))),
-                AzNormalizedLinearColorStop(offset: AzPercentageValue(number: AzFloatValue_create(50.0)), color: AzColorOrSystem_color(AzColorU(r: 0'u8, g: 255'u8, b: 0'u8, a: 255'u8))),
-                AzNormalizedLinearColorStop(offset: AzPercentageValue(number: AzFloatValue_create(100.0)), color: AzColorOrSystem_color(AzColorU(r: 0'u8, g: 0'u8, b: 255'u8, a: 255'u8))),
+                AzNormalizedLinearColorStop(offset: AzPercentageValue(number: AzFloatValue_create(0.0)), color: AzColorOrSystem_color(AzColorU(r: 255'u8, g: 0'u8, b: 0'u8, a: 255'u8)), offset_px: AzFloatValue_create(0.0)),
+                AzNormalizedLinearColorStop(offset: AzPercentageValue(number: AzFloatValue_create(50.0)), color: AzColorOrSystem_color(AzColorU(r: 0'u8, g: 255'u8, b: 0'u8, a: 255'u8)), offset_px: AzFloatValue_create(0.0)),
+                AzNormalizedLinearColorStop(offset: AzPercentageValue(number: AzFloatValue_create(100.0)), color: AzColorOrSystem_color(AzColorU(r: 0'u8, g: 0'u8, b: 255'u8, a: 255'u8)), offset_px: AzFloatValue_create(0.0)),
               ])
             )
           ),
@@ -85,8 +85,8 @@ proc styleHalo*(): AzCssPropertyWithConditionsVec =
               position: AzStyleBackgroundPosition(horizontal: AzBackgroundPositionHorizontal_left(), vertical: AzBackgroundPositionVertical_top()),
               extend_mode: AzExtendMode.Clamp,
               stops: azVec(AzNormalizedLinearColorStopVec_copyFromPtr, [
-                AzNormalizedLinearColorStop(offset: AzPercentageValue(number: AzFloatValue_create(0.0)), color: AzColorOrSystem_color(AzColorU(r: 255'u8, g: 255'u8, b: 255'u8, a: 255'u8))),
-                AzNormalizedLinearColorStop(offset: AzPercentageValue(number: AzFloatValue_create(100.0)), color: AzColorOrSystem_color(AzColorU(r: 0'u8, g: 0'u8, b: 0'u8, a: 255'u8))),
+                AzNormalizedLinearColorStop(offset: AzPercentageValue(number: AzFloatValue_create(0.0)), color: AzColorOrSystem_color(AzColorU(r: 255'u8, g: 255'u8, b: 255'u8, a: 255'u8)), offset_px: AzFloatValue_create(0.0)),
+                AzNormalizedLinearColorStop(offset: AzPercentageValue(number: AzFloatValue_create(100.0)), color: AzColorOrSystem_color(AzColorU(r: 0'u8, g: 0'u8, b: 0'u8, a: 255'u8)), offset_px: AzFloatValue_create(0.0)),
               ])
             )
           ),

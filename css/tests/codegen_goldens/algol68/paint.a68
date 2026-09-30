@@ -34,9 +34,9 @@ BEGIN
    number OF t1 := az float value create (0.0);
    number OF t2 := az float value create (50.0);
    number OF t3 := az float value create (100.0);
-   t4[1] := AZNORMALIZEDLINEARCOLORSTOP (t1, az color or system color (AZCOLORU (REPR 255, REPR 0, REPR 0, REPR 255)));
-   t4[2] := AZNORMALIZEDLINEARCOLORSTOP (t2, az color or system color (AZCOLORU (REPR 0, REPR 255, REPR 0, REPR 255)));
-   t4[3] := AZNORMALIZEDLINEARCOLORSTOP (t3, az color or system color (AZCOLORU (REPR 0, REPR 0, REPR 255, REPR 255)));
+   t4[1] := AZNORMALIZEDLINEARCOLORSTOP (t1, az color or system color (AZCOLORU (REPR 255, REPR 0, REPR 0, REPR 255)), az float value create (0.0));
+   t4[2] := AZNORMALIZEDLINEARCOLORSTOP (t2, az color or system color (AZCOLORU (REPR 0, REPR 255, REPR 0, REPR 255)), az float value create (0.0));
+   t4[3] := AZNORMALIZEDLINEARCOLORSTOP (t3, az color or system color (AZCOLORU (REPR 0, REPR 0, REPR 255, REPR 255)), az float value create (0.0));
    t5[1] := az style background content linear gradient (AZLINEARGRADIENT (az direction angle (AZANGLEVALUE (angle metric degree, az float value create (135.0))), extend mode clamp, az normalized linear color stop vec copy from ptr (t4[1], LENG 3)));
    inner OF t6 := az pixel value px (0.0);
    inner OF t7 := az pixel value px (4.0);
@@ -77,8 +77,8 @@ BEGIN
    [1] AZCSSPROPERTYWITHCONDITIONS t5;
    number OF t1 := az float value create (0.0);
    number OF t2 := az float value create (100.0);
-   t3[1] := AZNORMALIZEDLINEARCOLORSTOP (t1, az color or system color (AZCOLORU (REPR 255, REPR 255, REPR 255, REPR 255)));
-   t3[2] := AZNORMALIZEDLINEARCOLORSTOP (t2, az color or system color (AZCOLORU (REPR 0, REPR 0, REPR 0, REPR 255)));
+   t3[1] := AZNORMALIZEDLINEARCOLORSTOP (t1, az color or system color (AZCOLORU (REPR 255, REPR 255, REPR 255, REPR 255)), az float value create (0.0));
+   t3[2] := AZNORMALIZEDLINEARCOLORSTOP (t2, az color or system color (AZCOLORU (REPR 0, REPR 0, REPR 0, REPR 255)), az float value create (0.0));
    t4[1] := az style background content radial gradient (AZRADIALGRADIENT (shape circle, radial gradient size farthest corner, AZSTYLEBACKGROUNDPOSITION (az background position horizontal left, az background position vertical top), extend mode clamp, az normalized linear color stop vec copy from ptr (t3[1], LENG 2)));
    t5[1] := az css property with conditions simple (az css property background content (az style background content vec copy from ptr (t4[1], LENG 1)));
    az css property with conditions vec copy from ptr (t5[1], LENG 1)

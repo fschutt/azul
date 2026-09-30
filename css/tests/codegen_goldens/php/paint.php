@@ -67,9 +67,9 @@ function style_hero()
                                             'AzNormalizedLinearColorStopVec_copyFromPtr',
                                             'AzNormalizedLinearColorStop',
                                             [
-                                                azul_struct('AzNormalizedLinearColorStop', ['offset' => azul_struct('AzPercentageValue', ['number' => $L->AzFloatValue_create(0.0)]), 'color' => $L->AzColorOrSystem_color(azul_struct('AzColorU', ['r' => 255, 'g' => 0, 'b' => 0, 'a' => 255]))]),
-                                                azul_struct('AzNormalizedLinearColorStop', ['offset' => azul_struct('AzPercentageValue', ['number' => $L->AzFloatValue_create(50.0)]), 'color' => $L->AzColorOrSystem_color(azul_struct('AzColorU', ['r' => 0, 'g' => 255, 'b' => 0, 'a' => 255]))]),
-                                                azul_struct('AzNormalizedLinearColorStop', ['offset' => azul_struct('AzPercentageValue', ['number' => $L->AzFloatValue_create(100.0)]), 'color' => $L->AzColorOrSystem_color(azul_struct('AzColorU', ['r' => 0, 'g' => 0, 'b' => 255, 'a' => 255]))]),
+                                                azul_struct('AzNormalizedLinearColorStop', ['offset' => azul_struct('AzPercentageValue', ['number' => $L->AzFloatValue_create(0.0)]), 'color' => $L->AzColorOrSystem_color(azul_struct('AzColorU', ['r' => 255, 'g' => 0, 'b' => 0, 'a' => 255])), 'offset_px' => $L->AzFloatValue_create(0.0)]),
+                                                azul_struct('AzNormalizedLinearColorStop', ['offset' => azul_struct('AzPercentageValue', ['number' => $L->AzFloatValue_create(50.0)]), 'color' => $L->AzColorOrSystem_color(azul_struct('AzColorU', ['r' => 0, 'g' => 255, 'b' => 0, 'a' => 255])), 'offset_px' => $L->AzFloatValue_create(0.0)]),
+                                                azul_struct('AzNormalizedLinearColorStop', ['offset' => azul_struct('AzPercentageValue', ['number' => $L->AzFloatValue_create(100.0)]), 'color' => $L->AzColorOrSystem_color(azul_struct('AzColorU', ['r' => 0, 'g' => 0, 'b' => 255, 'a' => 255])), 'offset_px' => $L->AzFloatValue_create(0.0)]),
                                             ]
                                         ),
                                     ]
@@ -162,8 +162,8 @@ function style_halo()
                                             'AzNormalizedLinearColorStopVec_copyFromPtr',
                                             'AzNormalizedLinearColorStop',
                                             [
-                                                azul_struct('AzNormalizedLinearColorStop', ['offset' => azul_struct('AzPercentageValue', ['number' => $L->AzFloatValue_create(0.0)]), 'color' => $L->AzColorOrSystem_color(azul_struct('AzColorU', ['r' => 255, 'g' => 255, 'b' => 255, 'a' => 255]))]),
-                                                azul_struct('AzNormalizedLinearColorStop', ['offset' => azul_struct('AzPercentageValue', ['number' => $L->AzFloatValue_create(100.0)]), 'color' => $L->AzColorOrSystem_color(azul_struct('AzColorU', ['r' => 0, 'g' => 0, 'b' => 0, 'a' => 255]))]),
+                                                azul_struct('AzNormalizedLinearColorStop', ['offset' => azul_struct('AzPercentageValue', ['number' => $L->AzFloatValue_create(0.0)]), 'color' => $L->AzColorOrSystem_color(azul_struct('AzColorU', ['r' => 255, 'g' => 255, 'b' => 255, 'a' => 255])), 'offset_px' => $L->AzFloatValue_create(0.0)]),
+                                                azul_struct('AzNormalizedLinearColorStop', ['offset' => azul_struct('AzPercentageValue', ['number' => $L->AzFloatValue_create(100.0)]), 'color' => $L->AzColorOrSystem_color(azul_struct('AzColorU', ['r' => 0, 'g' => 0, 'b' => 0, 'a' => 255])), 'offset_px' => $L->AzFloatValue_create(0.0)]),
                                             ]
                                         ),
                                     ]

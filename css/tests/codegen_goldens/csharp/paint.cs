@@ -23,9 +23,9 @@ namespace AzulStyles
                                     extend_mode = ExtendMode.Clamp,
                                     stops = AzulCodegen.Vec<AzNormalizedLinearColorStop, AzNormalizedLinearColorStopVec>(
                                         NativeMethods.AzNormalizedLinearColorStopVec_copyFromPtr,
-                                        new AzNormalizedLinearColorStop { offset = new AzPercentageValue { number = NativeMethods.AzFloatValue_create(0.0f) }, color = NativeMethods.AzColorOrSystem_color(new AzColorU { r = 255, g = 0, b = 0, a = 255 }) },
-                                        new AzNormalizedLinearColorStop { offset = new AzPercentageValue { number = NativeMethods.AzFloatValue_create(50.0f) }, color = NativeMethods.AzColorOrSystem_color(new AzColorU { r = 0, g = 255, b = 0, a = 255 }) },
-                                        new AzNormalizedLinearColorStop { offset = new AzPercentageValue { number = NativeMethods.AzFloatValue_create(100.0f) }, color = NativeMethods.AzColorOrSystem_color(new AzColorU { r = 0, g = 0, b = 255, a = 255 }) }
+                                        new AzNormalizedLinearColorStop { offset = new AzPercentageValue { number = NativeMethods.AzFloatValue_create(0.0f) }, color = NativeMethods.AzColorOrSystem_color(new AzColorU { r = 255, g = 0, b = 0, a = 255 }), offset_px = NativeMethods.AzFloatValue_create(0.0f) },
+                                        new AzNormalizedLinearColorStop { offset = new AzPercentageValue { number = NativeMethods.AzFloatValue_create(50.0f) }, color = NativeMethods.AzColorOrSystem_color(new AzColorU { r = 0, g = 255, b = 0, a = 255 }), offset_px = NativeMethods.AzFloatValue_create(0.0f) },
+                                        new AzNormalizedLinearColorStop { offset = new AzPercentageValue { number = NativeMethods.AzFloatValue_create(100.0f) }, color = NativeMethods.AzColorOrSystem_color(new AzColorU { r = 0, g = 0, b = 255, a = 255 }), offset_px = NativeMethods.AzFloatValue_create(0.0f) }
                                     ),
                                 }
                             )
@@ -96,8 +96,8 @@ namespace AzulStyles
                                     extend_mode = ExtendMode.Clamp,
                                     stops = AzulCodegen.Vec<AzNormalizedLinearColorStop, AzNormalizedLinearColorStopVec>(
                                         NativeMethods.AzNormalizedLinearColorStopVec_copyFromPtr,
-                                        new AzNormalizedLinearColorStop { offset = new AzPercentageValue { number = NativeMethods.AzFloatValue_create(0.0f) }, color = NativeMethods.AzColorOrSystem_color(new AzColorU { r = 255, g = 255, b = 255, a = 255 }) },
-                                        new AzNormalizedLinearColorStop { offset = new AzPercentageValue { number = NativeMethods.AzFloatValue_create(100.0f) }, color = NativeMethods.AzColorOrSystem_color(new AzColorU { r = 0, g = 0, b = 0, a = 255 }) }
+                                        new AzNormalizedLinearColorStop { offset = new AzPercentageValue { number = NativeMethods.AzFloatValue_create(0.0f) }, color = NativeMethods.AzColorOrSystem_color(new AzColorU { r = 255, g = 255, b = 255, a = 255 }), offset_px = NativeMethods.AzFloatValue_create(0.0f) },
+                                        new AzNormalizedLinearColorStop { offset = new AzPercentageValue { number = NativeMethods.AzFloatValue_create(100.0f) }, color = NativeMethods.AzColorOrSystem_color(new AzColorU { r = 0, g = 0, b = 0, a = 255 }), offset_px = NativeMethods.AzFloatValue_create(0.0f) }
                                     ),
                                 }
                             )

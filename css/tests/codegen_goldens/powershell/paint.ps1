@@ -44,9 +44,9 @@ function Get-StyleHero {
                             direction = [Azul.NativeMethods]::AzDirection_angle([Azul.AzAngleValue]@{ metric = [Azul.AngleMetric]::Degree; number = [Azul.NativeMethods]::AzFloatValue_create([float]135.0) });
                             extend_mode = [Azul.ExtendMode]::Clamp;
                             stops = (New-CssVec 'AzNormalizedLinearColorStopVec_copyFromPtr' ([Azul.AzNormalizedLinearColorStop]) @(
-                                [Azul.AzNormalizedLinearColorStop]@{ offset = [Azul.AzPercentageValue]@{ number = [Azul.NativeMethods]::AzFloatValue_create([float]0.0) }; color = [Azul.NativeMethods]::AzColorOrSystem_color([Azul.AzColorU]@{ r = [byte]255; g = [byte]0; b = [byte]0; a = [byte]255 }) },
-                                [Azul.AzNormalizedLinearColorStop]@{ offset = [Azul.AzPercentageValue]@{ number = [Azul.NativeMethods]::AzFloatValue_create([float]50.0) }; color = [Azul.NativeMethods]::AzColorOrSystem_color([Azul.AzColorU]@{ r = [byte]0; g = [byte]255; b = [byte]0; a = [byte]255 }) },
-                                [Azul.AzNormalizedLinearColorStop]@{ offset = [Azul.AzPercentageValue]@{ number = [Azul.NativeMethods]::AzFloatValue_create([float]100.0) }; color = [Azul.NativeMethods]::AzColorOrSystem_color([Azul.AzColorU]@{ r = [byte]0; g = [byte]0; b = [byte]255; a = [byte]255 }) }
+                                [Azul.AzNormalizedLinearColorStop]@{ offset = [Azul.AzPercentageValue]@{ number = [Azul.NativeMethods]::AzFloatValue_create([float]0.0) }; color = [Azul.NativeMethods]::AzColorOrSystem_color([Azul.AzColorU]@{ r = [byte]255; g = [byte]0; b = [byte]0; a = [byte]255 }); offset_px = [Azul.NativeMethods]::AzFloatValue_create([float]0.0) },
+                                [Azul.AzNormalizedLinearColorStop]@{ offset = [Azul.AzPercentageValue]@{ number = [Azul.NativeMethods]::AzFloatValue_create([float]50.0) }; color = [Azul.NativeMethods]::AzColorOrSystem_color([Azul.AzColorU]@{ r = [byte]0; g = [byte]255; b = [byte]0; a = [byte]255 }); offset_px = [Azul.NativeMethods]::AzFloatValue_create([float]0.0) },
+                                [Azul.AzNormalizedLinearColorStop]@{ offset = [Azul.AzPercentageValue]@{ number = [Azul.NativeMethods]::AzFloatValue_create([float]100.0) }; color = [Azul.NativeMethods]::AzColorOrSystem_color([Azul.AzColorU]@{ r = [byte]0; g = [byte]0; b = [byte]255; a = [byte]255 }); offset_px = [Azul.NativeMethods]::AzFloatValue_create([float]0.0) }
                             ))
                         }
                     )
@@ -110,8 +110,8 @@ function Get-StyleHalo {
                             position = [Azul.AzStyleBackgroundPosition]@{ horizontal = [Azul.NativeMethods]::AzBackgroundPositionHorizontal_left(); vertical = [Azul.NativeMethods]::AzBackgroundPositionVertical_top() };
                             extend_mode = [Azul.ExtendMode]::Clamp;
                             stops = (New-CssVec 'AzNormalizedLinearColorStopVec_copyFromPtr' ([Azul.AzNormalizedLinearColorStop]) @(
-                                [Azul.AzNormalizedLinearColorStop]@{ offset = [Azul.AzPercentageValue]@{ number = [Azul.NativeMethods]::AzFloatValue_create([float]0.0) }; color = [Azul.NativeMethods]::AzColorOrSystem_color([Azul.AzColorU]@{ r = [byte]255; g = [byte]255; b = [byte]255; a = [byte]255 }) },
-                                [Azul.AzNormalizedLinearColorStop]@{ offset = [Azul.AzPercentageValue]@{ number = [Azul.NativeMethods]::AzFloatValue_create([float]100.0) }; color = [Azul.NativeMethods]::AzColorOrSystem_color([Azul.AzColorU]@{ r = [byte]0; g = [byte]0; b = [byte]0; a = [byte]255 }) }
+                                [Azul.AzNormalizedLinearColorStop]@{ offset = [Azul.AzPercentageValue]@{ number = [Azul.NativeMethods]::AzFloatValue_create([float]0.0) }; color = [Azul.NativeMethods]::AzColorOrSystem_color([Azul.AzColorU]@{ r = [byte]255; g = [byte]255; b = [byte]255; a = [byte]255 }); offset_px = [Azul.NativeMethods]::AzFloatValue_create([float]0.0) },
+                                [Azul.AzNormalizedLinearColorStop]@{ offset = [Azul.AzPercentageValue]@{ number = [Azul.NativeMethods]::AzFloatValue_create([float]100.0) }; color = [Azul.NativeMethods]::AzColorOrSystem_color([Azul.AzColorU]@{ r = [byte]0; g = [byte]0; b = [byte]0; a = [byte]255 }); offset_px = [Azul.NativeMethods]::AzFloatValue_create([float]0.0) }
                             ))
                         }
                     )

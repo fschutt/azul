@@ -51,9 +51,9 @@
                     #'azul-internal::%az-normalized-linear-color-stop-vec-copy-from-ptr
                     'azul-internal::az-normalized-linear-color-stop
                     (list
-                      (list 'azul-internal::offset (list 'azul-internal::number (azul-internal::%az-float-value-create 0.0)) 'azul-internal::color (azul-internal::%az-color-or-system-color (list 'azul-internal::r 255 'azul-internal::g 0 'azul-internal::b 0 'azul-internal::a 255)))
-                      (list 'azul-internal::offset (list 'azul-internal::number (azul-internal::%az-float-value-create 50.0)) 'azul-internal::color (azul-internal::%az-color-or-system-color (list 'azul-internal::r 0 'azul-internal::g 255 'azul-internal::b 0 'azul-internal::a 255)))
-                      (list 'azul-internal::offset (list 'azul-internal::number (azul-internal::%az-float-value-create 100.0)) 'azul-internal::color (azul-internal::%az-color-or-system-color (list 'azul-internal::r 0 'azul-internal::g 0 'azul-internal::b 255 'azul-internal::a 255)))
+                      (list 'azul-internal::offset (list 'azul-internal::number (azul-internal::%az-float-value-create 0.0)) 'azul-internal::color (azul-internal::%az-color-or-system-color (list 'azul-internal::r 255 'azul-internal::g 0 'azul-internal::b 0 'azul-internal::a 255)) 'azul-internal::offset-px (azul-internal::%az-float-value-create 0.0))
+                      (list 'azul-internal::offset (list 'azul-internal::number (azul-internal::%az-float-value-create 50.0)) 'azul-internal::color (azul-internal::%az-color-or-system-color (list 'azul-internal::r 0 'azul-internal::g 255 'azul-internal::b 0 'azul-internal::a 255)) 'azul-internal::offset-px (azul-internal::%az-float-value-create 0.0))
+                      (list 'azul-internal::offset (list 'azul-internal::number (azul-internal::%az-float-value-create 100.0)) 'azul-internal::color (azul-internal::%az-color-or-system-color (list 'azul-internal::r 0 'azul-internal::g 0 'azul-internal::b 255 'azul-internal::a 255)) 'azul-internal::offset-px (azul-internal::%az-float-value-create 0.0))
                     )
                   )
                 )
@@ -110,8 +110,8 @@
                     #'azul-internal::%az-normalized-linear-color-stop-vec-copy-from-ptr
                     'azul-internal::az-normalized-linear-color-stop
                     (list
-                      (list 'azul-internal::offset (list 'azul-internal::number (azul-internal::%az-float-value-create 0.0)) 'azul-internal::color (azul-internal::%az-color-or-system-color (list 'azul-internal::r 255 'azul-internal::g 255 'azul-internal::b 255 'azul-internal::a 255)))
-                      (list 'azul-internal::offset (list 'azul-internal::number (azul-internal::%az-float-value-create 100.0)) 'azul-internal::color (azul-internal::%az-color-or-system-color (list 'azul-internal::r 0 'azul-internal::g 0 'azul-internal::b 0 'azul-internal::a 255)))
+                      (list 'azul-internal::offset (list 'azul-internal::number (azul-internal::%az-float-value-create 0.0)) 'azul-internal::color (azul-internal::%az-color-or-system-color (list 'azul-internal::r 255 'azul-internal::g 255 'azul-internal::b 255 'azul-internal::a 255)) 'azul-internal::offset-px (azul-internal::%az-float-value-create 0.0))
+                      (list 'azul-internal::offset (list 'azul-internal::number (azul-internal::%az-float-value-create 100.0)) 'azul-internal::color (azul-internal::%az-color-or-system-color (list 'azul-internal::r 0 'azul-internal::g 0 'azul-internal::b 0 'azul-internal::a 255)) 'azul-internal::offset-px (azul-internal::%az-float-value-create 0.0))
                     )
                   )
                 )

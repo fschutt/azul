@@ -41,9 +41,9 @@
                     normalized-linear-color-stop-vec-copy-from-ptr
                     _AzNormalizedLinearColorStop
                     (list
-                      (make-AzNormalizedLinearColorStop (make-AzPercentageValue (float-value-create 0.0)) (color-or-system-color (make-AzColorU 255 0 0 255)))
-                      (make-AzNormalizedLinearColorStop (make-AzPercentageValue (float-value-create 50.0)) (color-or-system-color (make-AzColorU 0 255 0 255)))
-                      (make-AzNormalizedLinearColorStop (make-AzPercentageValue (float-value-create 100.0)) (color-or-system-color (make-AzColorU 0 0 255 255)))
+                      (make-AzNormalizedLinearColorStop (make-AzPercentageValue (float-value-create 0.0)) (color-or-system-color (make-AzColorU 255 0 0 255)) (float-value-create 0.0))
+                      (make-AzNormalizedLinearColorStop (make-AzPercentageValue (float-value-create 50.0)) (color-or-system-color (make-AzColorU 0 255 0 255)) (float-value-create 0.0))
+                      (make-AzNormalizedLinearColorStop (make-AzPercentageValue (float-value-create 100.0)) (color-or-system-color (make-AzColorU 0 0 255 255)) (float-value-create 0.0))
                     )
                   )
                 )
@@ -134,8 +134,8 @@
                     normalized-linear-color-stop-vec-copy-from-ptr
                     _AzNormalizedLinearColorStop
                     (list
-                      (make-AzNormalizedLinearColorStop (make-AzPercentageValue (float-value-create 0.0)) (color-or-system-color (make-AzColorU 255 255 255 255)))
-                      (make-AzNormalizedLinearColorStop (make-AzPercentageValue (float-value-create 100.0)) (color-or-system-color (make-AzColorU 0 0 0 255)))
+                      (make-AzNormalizedLinearColorStop (make-AzPercentageValue (float-value-create 0.0)) (color-or-system-color (make-AzColorU 255 255 255 255)) (float-value-create 0.0))
+                      (make-AzNormalizedLinearColorStop (make-AzPercentageValue (float-value-create 100.0)) (color-or-system-color (make-AzColorU 0 0 0 255)) (float-value-create 0.0))
                     )
                   )
                 )

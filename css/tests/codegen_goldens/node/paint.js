@@ -14,9 +14,9 @@ function styleHero() {
                             direction: lib.AzDirection_angle({ metric: azul.AngleMetric.Degree, number: lib.AzFloatValue_create(135.0) }),
                             extend_mode: azul.ExtendMode.Clamp,
                             stops: lib.AzNormalizedLinearColorStopVec_copyFromPtr([
-                                { offset: { number: lib.AzFloatValue_create(0.0) }, color: lib.AzColorOrSystem_color({ r: 255, g: 0, b: 0, a: 255 }) },
-                                { offset: { number: lib.AzFloatValue_create(50.0) }, color: lib.AzColorOrSystem_color({ r: 0, g: 255, b: 0, a: 255 }) },
-                                { offset: { number: lib.AzFloatValue_create(100.0) }, color: lib.AzColorOrSystem_color({ r: 0, g: 0, b: 255, a: 255 }) },
+                                { offset: { number: lib.AzFloatValue_create(0.0) }, color: lib.AzColorOrSystem_color({ r: 255, g: 0, b: 0, a: 255 }), offset_px: lib.AzFloatValue_create(0.0) },
+                                { offset: { number: lib.AzFloatValue_create(50.0) }, color: lib.AzColorOrSystem_color({ r: 0, g: 255, b: 0, a: 255 }), offset_px: lib.AzFloatValue_create(0.0) },
+                                { offset: { number: lib.AzFloatValue_create(100.0) }, color: lib.AzColorOrSystem_color({ r: 0, g: 0, b: 255, a: 255 }), offset_px: lib.AzFloatValue_create(0.0) },
                             ], 3),
                         }
                     ),
@@ -80,8 +80,8 @@ function styleHalo() {
                             position: { horizontal: lib.AzBackgroundPositionHorizontal_left(), vertical: lib.AzBackgroundPositionVertical_top() },
                             extend_mode: azul.ExtendMode.Clamp,
                             stops: lib.AzNormalizedLinearColorStopVec_copyFromPtr([
-                                { offset: { number: lib.AzFloatValue_create(0.0) }, color: lib.AzColorOrSystem_color({ r: 255, g: 255, b: 255, a: 255 }) },
-                                { offset: { number: lib.AzFloatValue_create(100.0) }, color: lib.AzColorOrSystem_color({ r: 0, g: 0, b: 0, a: 255 }) },
+                                { offset: { number: lib.AzFloatValue_create(0.0) }, color: lib.AzColorOrSystem_color({ r: 255, g: 255, b: 255, a: 255 }), offset_px: lib.AzFloatValue_create(0.0) },
+                                { offset: { number: lib.AzFloatValue_create(100.0) }, color: lib.AzColorOrSystem_color({ r: 0, g: 0, b: 0, a: 255 }), offset_px: lib.AzFloatValue_create(0.0) },
                             ], 2),
                         }
                     ),
