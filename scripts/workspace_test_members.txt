@@ -30,6 +30,8 @@ tested: AzWriter             # dll_tests (ditto)
 tested: AzReview             # dll_tests (the WAV writer: header/sample-count and clipping)
 tested: AzMeet               # dll_tests (room dialing, the video wire, the audio jitter buffer, routes)
 tested: AzCalendar           # dll_tests (event files, the week grid, meeting links)
+tested: AzDrive              # dll_tests (the drive list, browse state, sizes and paths)
+tested: azul-storage         # dll_tests (Drive trait, LocalDrive, S3Drive, SigV4 vectors)
 
 # ── members with genuinely no tests. The script verifies the claim by grepping
 #    for #[test]; if any of these grows one, it fails until it is moved up and
