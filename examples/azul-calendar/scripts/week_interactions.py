@@ -28,12 +28,16 @@ app's DOM (the popup shows a subtree of it): `focus_node` + `text_input` on #dra
 the accessibility default action (the click a screen reader sends) on Save / Cancel. Enter and
 Escape in the popover run the same code as Save and as a dismissal; they need a real window.
 
+Each stage runs even when one before it failed (a draft it left open is cancelled first), and
+the run names every stage that failed; "existing" needs the "Standup" event "click" makes.
+
 Usage (from the azul repository, after building AzCalendar and a libazul with the debug server):
   python3 examples/azul-calendar/scripts/week_interactions.py
-      [--bin target/release/AzCalendar] [--port 8769] [--timeout 60] [--keep-logs]
+      [--bin target/release/AzCalendar] [--port 8769] [--timeout 30] [--keep-logs]
 
-Also read from the environment: AZCAL_BIN. Logs and the data folder go to a temporary directory
-that is printed at the end (kept on failure, or always with --keep-logs).
+--timeout is how long each wait may take, in seconds. Also read from the environment: AZCAL_BIN.
+Logs and the data folder go to a temporary directory that is printed at the end (kept on
+failure, or always with --keep-logs).
 """
 
 import argparse
@@ -94,9 +98,9 @@ def find_binary(explicit):
 class Debug:
     """AzCalendar's debug server: one op per POST, answered once the app processed it."""
 
-    def __init__(self, port, deadline):
+    def __init__(self, port, timeout):
         self.url = f"http://127.0.0.1:{port}/"
-        self.deadline = deadline
+        self.timeout = timeout
 
     def op(self, body):
         data = json.dumps(body).encode()
@@ -114,8 +118,10 @@ class Debug:
         return (self.must(body).get("data") or {}).get("value") or {}
 
     def until(self, what, check, every=0.25):
+        """Polls `check` until it answers, for at most the script's --timeout."""
         last = None
-        while time.time() < self.deadline:
+        deadline = time.time() + self.timeout
+        while time.time() < deadline:
             try:
                 got = check()
                 if got:
@@ -184,8 +190,10 @@ class Week:
         return r
 
     def scroll_to_minute(self, minute):
-        """Puts `minute` at the top of the week, and waits until the week is there."""
-        y = minute / 60.0 * self.hour_px
+        """Puts `minute` at the top of the week (or scrolls as far as the day goes), and waits
+        until the week is there."""
+        bottom = max(0.0, 24.0 * self.hour_px - self.scroll["height"])
+        y = min(minute / 60.0 * self.hour_px, bottom)
         self.dbg.must({"op": "scroll_node_to", "selector": "#week-scroll", "x": 0, "y": y})
 
         def there():
@@ -224,11 +232,12 @@ def read_event(data, name):
 
 
 def popover_open(dbg):
-    return dbg.exists("#draft-title") and dbg.shows(DRAFT_TITLE)
+    """The draft (#draft) is in the week, with its popover's title field (#draft-title)."""
+    return dbg.exists("#draft") and dbg.exists("#draft-title")
 
 
 def popover_gone(dbg):
-    return not dbg.exists("#draft-title") and not dbg.shows(DRAFT_TITLE)
+    return not dbg.exists("#draft") and not dbg.exists("#draft-title")
 
 
 def type_title(dbg, title):
@@ -257,7 +266,6 @@ def save_and_read(dbg, data, before, what):
     )
     if len(files) != 1:
         raise Failure(f"expected one new event file, found {files}")
-    dbg.until("the draft and its popover to close after Save", lambda: popover_gone(dbg))
     return files[0], read_event(data, files[0])
 
 
@@ -268,6 +276,176 @@ def expect_event(event, name, title, date, start, end):
         raise Failure(f"{name} holds {got}, expected {want}: {json.dumps(event)}")
     if f"{event.get('id')}.json" != name:
         raise Failure(f"{name} is not named by its event id {event.get('id')}")
+
+
+def stage_zoom(dbg, week, data, ctx):
+    """A pinch over Wednesday keeps the time under the pointer."""
+    week.scroll_to_minute(8 * 60)
+    before_px = week.hour_px
+    x, _ = week.point(2, 8 * 60 + 30)
+    y = week.scroll["y"] + 100.0
+    minute_before = (week.scroll_y + 100.0) * 60.0 / before_px
+    dbg.must(
+        {
+            "op": "pinch",
+            "scale": 1.5,
+            "center_x": x,
+            "center_y": y,
+            "initial_distance": 100.0,
+            "current_distance": 150.0,
+            "duration_ms": 0,
+        }
+    )
+    # The injected pinch is delivered by the next pass, with the pointer over the week.
+    dbg.must({"op": "mouse_move", "x": x, "y": y})
+
+    def zoomed():
+        week.refresh()
+        return abs(week.hour_px - before_px * 1.5) < 0.05 or None
+
+    dbg.until(f"the hour to grow from {before_px} px to {before_px * 1.5} px", zoomed)
+    minute_after = (week.scroll_y + 100.0) * 60.0 / week.hour_px
+    if abs(minute_after - minute_before) > 1.0:
+        raise Failure(
+            f"after the pinch the pointer is over minute {minute_after:.1f}, "
+            f"not {minute_before:.1f}"
+        )
+    return (
+        f"{before_px:.1f} -> {week.hour_px:.1f} px an hour, minute {minute_before:.1f} stayed "
+        f"under the pointer ({minute_after:.1f})"
+    )
+
+
+def stage_wheel(dbg, week, data, ctx):
+    """A plain wheel scrolls the week and does not zoom."""
+    week.scroll_to_minute(8 * 60)
+    x, y = week.point(2, 9 * 60)
+    start_y, start_px = week.scroll_y, week.hour_px
+    dbg.must({"op": "wheel", "x": x, "y": y, "delta_x": 0, "delta_y": -120})
+
+    def scrolled():
+        week.refresh()
+        return abs(week.scroll_y - start_y) > 20 or None
+
+    dbg.until("a plain wheel to scroll the week", scrolled)
+    if abs(week.hour_px - start_px) > 0.05:
+        raise Failure(f"a plain wheel zoomed the week ({start_px} -> {week.hour_px} px an hour)")
+    return f"scrolled {start_y:.0f} -> {week.scroll_y:.0f} px, still {week.hour_px:.1f} px an hour"
+
+
+def stage_click(dbg, week, data, ctx):
+    """Click Wednesday 10:36: a draft 10:30 - 11:30 with its popover; a title, Save."""
+    wednesday = this_week(2)
+    week.scroll_to_minute(9 * 60)
+    before = event_files(data)
+    x, y = week.point(2, 10 * 60 + 36)
+    dbg.must({"op": "click", "x": x, "y": y})
+    dbg.until("the draft and its popover", lambda: popover_open(dbg))
+    when = f"{wednesday.strftime('%A')} {wednesday.day} {wednesday.strftime('%B')}, 10:30 - 11:30"
+    if not dbg.shows(when):
+        raise Failure(f"the popover does not say {when!r}")
+    if not dbg.shows(DRAFT_TITLE):
+        raise Failure(f"the draft does not say {DRAFT_TITLE!r}")
+    how = type_title(dbg, "Standup")
+    name, event = save_and_read(dbg, data, before, "the clicked event")
+    expect_event(event, name, "Standup", wednesday, "10:30", "11:30")
+    dbg.until("the draft and its popover to close after Save", lambda: popover_gone(dbg))
+    dbg.until("the week to show Standup", lambda: dbg.shows("Standup"))
+    ctx["standup"] = True
+    return f"the popover said {when!r}; typed ({how}), saved {name}: Standup, 10:30 - 11:30"
+
+
+def stage_drag(dbg, week, data, ctx):
+    """Drag Thursday 13:05 -> 14:50: 13:00 - 15:00."""
+    thursday = this_week(3)
+    week.scroll_to_minute(12 * 60)
+    before = event_files(data)
+    x, y0 = week.point(3, 13 * 60 + 5)
+    _, y1 = week.point(3, 13 * 60 + 40)
+    _, y2 = week.point(3, 14 * 60 + 50)
+    dbg.must({"op": "mouse_down", "x": x, "y": y0})
+    dbg.must({"op": "mouse_move", "x": x, "y": y1})
+    dbg.must({"op": "mouse_move", "x": x, "y": y2})
+    dbg.must({"op": "mouse_up", "x": x, "y": y2})
+    dbg.until("the dragged draft and its popover", lambda: popover_open(dbg))
+    when = f"{thursday.strftime('%A')} {thursday.day} {thursday.strftime('%B')}, 13:00 - 15:00"
+    if not dbg.shows(when):
+        raise Failure(f"the popover does not say {when!r}")
+    type_title(dbg, "Review")
+    name, event = save_and_read(dbg, data, before, "the dragged event")
+    expect_event(event, name, "Review", thursday, "13:00", "15:00")
+    dbg.until("the draft and its popover to close after Save", lambda: popover_gone(dbg))
+    return f"saved {name}: Review, {thursday}, 13:00 - 15:00"
+
+
+def friday_draft(dbg, week):
+    week.scroll_to_minute(15 * 60)
+    x, y = week.point(4, 16 * 60)
+    # A press right after the popover closed by a click outside is that click (the app ignores
+    # it for a moment); wait that moment out.
+    time.sleep(0.5)
+    dbg.must({"op": "click", "x": x, "y": y})
+    dbg.until("the Friday draft and its popover", lambda: popover_open(dbg))
+
+
+def stage_outside(dbg, week, data, ctx):
+    """A click outside closes the popover and drops the draft."""
+    before = event_files(data)
+    friday_draft(dbg, week)
+    dbg.must({"op": "click", "text": "AzCalendar"})
+    dbg.until("a click outside to close the popover and drop the draft", lambda: popover_gone(dbg))
+    if event_files(data) != before:
+        raise Failure("a click outside the popover wrote an event")
+    return "a click on the toolbar dropped the draft, nothing written"
+
+
+def stage_cancel(dbg, week, data, ctx):
+    """Cancel closes the popover and drops the draft."""
+    before = event_files(data)
+    friday_draft(dbg, week)
+    press(dbg, "#draft-cancel")
+    dbg.until("Cancel to close the popover and drop the draft", lambda: popover_gone(dbg))
+    if event_files(data) != before:
+        raise Failure("Cancel wrote an event")
+    return "Cancel dropped the draft, nothing written"
+
+
+def stage_existing(dbg, week, data, ctx):
+    """A click on an existing event opens no draft."""
+    if not ctx.get("standup"):
+        raise Failure("skipped: the click stage made no Standup event to click")
+    before = event_files(data)
+    week.scroll_to_minute(9 * 60)
+    x, y = week.point(2, 10 * 60 + 50)
+    time.sleep(0.5)
+    dbg.must({"op": "click", "x": x, "y": y})
+    time.sleep(1.0)
+    if dbg.exists("#draft") or dbg.exists("#draft-title"):
+        raise Failure("a click on the Standup event opened a draft")
+    if event_files(data) != before:
+        raise Failure("a click on an event wrote an event")
+    return "a click on Standup opened no draft"
+
+
+STAGES = [
+    ("zoom", stage_zoom),
+    ("wheel", stage_wheel),
+    ("click", stage_click),
+    ("drag", stage_drag),
+    ("outside", stage_outside),
+    ("cancel", stage_cancel),
+    ("existing", stage_existing),
+]
+
+
+def clean_up(dbg):
+    """After a failed stage: drop a draft it left open, so the next stage starts clean."""
+    try:
+        if dbg.exists("#draft-cancel"):
+            press(dbg, "#draft-cancel")
+            dbg.until("a left-over draft to close", lambda: popover_gone(dbg))
+    except (Failure, OSError, urllib.error.URLError, ValueError):
+        pass
 
 
 def run(opts, logs):
@@ -283,132 +461,23 @@ def run(opts, logs):
     out = open(os.path.join(logs, "azcalendar.out"), "w")
     err = open(os.path.join(logs, "azcalendar.err"), "w")
     app = subprocess.Popen([binary], env=env, stdout=out, stderr=err, stdin=subprocess.DEVNULL)
+    failed = []
     try:
-        dbg = Debug(opts.port, time.time() + opts.timeout)
+        dbg = Debug(opts.port, opts.timeout)
         dbg.until("the week view", lambda: dbg.shows("This week"))
         if event_files(data):
             raise Failure("the data folder is not empty at the start")
-
-        # 1. Zoom: a pinch over Wednesday keeps the time under the pointer.
         week = Week(dbg)
-        week.scroll_to_minute(8 * 60)
-        before_px = week.hour_px
-        x, _ = week.point(2, 8 * 60 + 30)
-        y = week.scroll["y"] + 100.0
-        minute_before = (week.scroll_y + 100.0) * 60.0 / before_px
-        dbg.must(
-            {
-                "op": "pinch",
-                "scale": 1.5,
-                "center_x": x,
-                "center_y": y,
-                "initial_distance": 100.0,
-                "current_distance": 150.0,
-                "duration_ms": 0,
-            }
-        )
-        # The injected pinch is delivered by the next pass, with the pointer over the week.
-        dbg.must({"op": "mouse_move", "x": x, "y": y})
-
-        def zoomed():
-            week.refresh()
-            return abs(week.hour_px - before_px * 1.5) < 0.05 or None
-
-        dbg.until(f"the hour to grow from {before_px} px to {before_px * 1.5} px", zoomed)
-        minute_after = (week.scroll_y + 100.0) * 60.0 / week.hour_px
-        if abs(minute_after - minute_before) > 1.0:
-            raise Failure(
-                f"after the pinch the pointer is over minute {minute_after:.1f}, "
-                f"not {minute_before:.1f}"
-            )
-        log(f"pinch: {before_px:.1f} -> {week.hour_px:.1f} px an hour, minute {minute_before:.1f} "
-            f"stayed under the pointer ({minute_after:.1f})")
-
-        # 2. A plain wheel scrolls the week and does not zoom.
-        start_y, start_px = week.scroll_y, week.hour_px
-        dbg.must({"op": "wheel", "x": x, "y": y, "delta_x": 0, "delta_y": -120})
-
-        def scrolled():
-            week.refresh()
-            return abs(week.scroll_y - start_y) > 20 or None
-
-        dbg.until("a plain wheel to scroll the week", scrolled)
-        if abs(week.hour_px - start_px) > 0.05:
-            raise Failure(f"a plain wheel zoomed the week ({start_px} -> {week.hour_px} px an hour)")
-        log(f"wheel: scrolled {start_y:.0f} -> {week.scroll_y:.0f} px, still {week.hour_px:.1f} px an hour")
-
-        # 3. Click Wednesday 10:36: a draft 10:30 - 11:30 with its popover; title, Save.
-        wednesday = this_week(2)
-        week.scroll_to_minute(9 * 60)
-        before = event_files(data)
-        cx, cy = week.point(2, 10 * 60 + 36)
-        dbg.must({"op": "click", "x": cx, "y": cy})
-        dbg.until("the draft and its popover", lambda: popover_open(dbg))
-        when = f"{wednesday.strftime('%A')} {wednesday.day} {wednesday.strftime('%B')}, 10:30 - 11:30"
-        if not dbg.shows(when):
-            raise Failure(f"the popover does not say {when!r}")
-        log(f"click: the draft shows, and its popover says {when!r}")
-        how = type_title(dbg, "Standup")
-        name, event = save_and_read(dbg, data, before, "the clicked event")
-        expect_event(event, name, "Standup", wednesday, "10:30", "11:30")
-        dbg.until("the week to show Standup", lambda: dbg.shows("Standup"))
-        log(f"click: typed ({how}), saved {name}: Standup, {wednesday}, 10:30 - 11:30")
-
-        # 4. Drag Thursday 13:05 -> 14:50: 13:00 - 15:00.
-        thursday = this_week(3)
-        week.scroll_to_minute(12 * 60)
-        before = event_files(data)
-        dx, y0 = week.point(3, 13 * 60 + 5)
-        _, y1 = week.point(3, 13 * 60 + 40)
-        _, y2 = week.point(3, 14 * 60 + 50)
-        dbg.must({"op": "mouse_down", "x": dx, "y": y0})
-        dbg.must({"op": "mouse_move", "x": dx, "y": y1})
-        dbg.must({"op": "mouse_move", "x": dx, "y": y2})
-        dbg.must({"op": "mouse_up", "x": dx, "y": y2})
-        dbg.until("the dragged draft and its popover", lambda: popover_open(dbg))
-        when = f"{thursday.strftime('%A')} {thursday.day} {thursday.strftime('%B')}, 13:00 - 15:00"
-        if not dbg.shows(when):
-            raise Failure(f"the popover does not say {when!r}")
-        type_title(dbg, "Review")
-        name, event = save_and_read(dbg, data, before, "the dragged event")
-        expect_event(event, name, "Review", thursday, "13:00", "15:00")
-        log(f"drag: saved {name}: Review, {thursday}, 13:00 - 15:00")
-
-        # 5. A click outside closes the popover and drops the draft.
-        week.scroll_to_minute(15 * 60)
-        before = event_files(data)
-        fx, fy = week.point(4, 16 * 60)
-        time.sleep(0.5)
-        dbg.must({"op": "click", "x": fx, "y": fy})
-        dbg.until("the Friday draft and its popover", lambda: popover_open(dbg))
-        dbg.must({"op": "click", "text": "AzCalendar"})
-        dbg.until("a click outside to close the popover and drop the draft", lambda: popover_gone(dbg))
-        if event_files(data) != before:
-            raise Failure("a click outside the popover wrote an event")
-        log("outside: a click outside dropped the draft, nothing written")
-
-        # 6. Cancel does the same.
-        time.sleep(0.5)
-        dbg.must({"op": "click", "x": fx, "y": fy})
-        dbg.until("the Friday draft again", lambda: popover_open(dbg))
-        press(dbg, "#draft-cancel")
-        dbg.until("Cancel to close the popover and drop the draft", lambda: popover_gone(dbg))
-        if event_files(data) != before:
-            raise Failure("Cancel wrote an event")
-        log("cancel: Cancel dropped the draft, nothing written")
-
-        # 7. A click on an existing event opens no draft.
-        week.scroll_to_minute(9 * 60)
-        ex, ey = week.point(2, 10 * 60 + 50)
-        time.sleep(0.5)
-        dbg.must({"op": "click", "x": ex, "y": ey})
-        time.sleep(1.0)
-        if dbg.exists("#draft-title") or dbg.shows(DRAFT_TITLE):
-            raise Failure("a click on the Standup event opened a draft")
-        if event_files(data) != before:
-            raise Failure("a click on an event wrote an event")
-        log("existing: a click on Standup opened no draft")
-
+        ctx = {}
+        for name, stage in STAGES:
+            try:
+                log(f"{name}: {stage(dbg, week, data, ctx)}")
+            except Failure as e:
+                failed.append(name)
+                log(f"{name}: FAIL: {e}")
+                clean_up(dbg)
+        if failed:
+            raise Failure(f"{len(failed)} of {len(STAGES)} stages failed: {', '.join(failed)}")
         log("PASS: the week zooms around the pointer, scrolls, and makes events from a click or a drag")
         return True
     finally:
@@ -434,7 +503,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--bin")
     parser.add_argument("--port", type=int, default=8769)
-    parser.add_argument("--timeout", type=float, default=60.0)
+    parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("--keep-logs", action="store_true")
     opts = parser.parse_args()
     logs = tempfile.mkdtemp(prefix="azcalendar-week-interactions-")
