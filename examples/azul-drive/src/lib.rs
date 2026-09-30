@@ -454,8 +454,8 @@ fn show_folder(
     remember: bool,
 ) {
     if remember && prefix != s.prefix {
-        let leaving = s.prefix.clone();
-        s.history.visit(&leaving);
+        let leaving = browse::Place::folder(&s.slot().entry.id, &s.prefix);
+        s.history.visit(leaving);
     }
     s.prefix = prefix;
     s.error.clear();
@@ -1307,7 +1307,8 @@ extern "C" fn on_drive_clicked(mut data: RefAny, mut info: CallbackInfo) -> Upda
 
 extern "C" fn on_back(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |info, app, s| {
-        if let Some(prefix) = s.history.back() {
+        let current = browse::Place::folder(&s.slot().entry.id, &s.prefix);
+        if let Some(browse::Place::Folder { prefix, .. }) = s.history.back(current) {
             show_folder(info, app, s, prefix, false);
         }
     })

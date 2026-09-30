@@ -189,36 +189,99 @@ where
         .unwrap_or_default()
 }
 
-/// The folders visited before, for "Back".
+/// Where the window is: the "This PC" overview of the drives, or a folder of
+/// one drive (`prefix` `""` = its root).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Place {
+    ThisPc,
+    Folder { drive: String, prefix: String },
+}
+
+impl Place {
+    #[must_use]
+    pub fn folder(drive: &str, prefix: &str) -> Place {
+        Place::Folder {
+            drive: drive.to_string(),
+            prefix: prefix.to_string(),
+        }
+    }
+}
+
+/// The places visited, as a browser keeps them: Back walks the trail, Forward
+/// returns along it until a new place is visited.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct History {
-    visited: Vec<String>,
+    back: Vec<Place>,
+    forward: Vec<Place>,
 }
 
 impl History {
-    /// Leaving the folder `from` for another one.
-    pub fn visit(&mut self, from: &str) {
-        const KEEP: usize = 100;
-        self.visited.push(from.to_string());
-        if self.visited.len() > KEEP {
-            self.visited.remove(0);
-        }
+    /// Leaving `from` for a new place: Forward has nothing to return to.
+    pub fn visit(&mut self, from: Place) {
+        let _ = from;
     }
 
-    /// The folder to go back to, forgotten here.
-    pub fn back(&mut self) -> Option<String> {
-        self.visited.pop()
+    /// Back from `current`: the place before it, `current` kept for Forward.
+    pub fn back(&mut self, current: Place) -> Option<Place> {
+        let _ = current;
+        None
+    }
+
+    /// Forward from `current`: where Back came from, `current` kept for Back.
+    pub fn forward(&mut self, current: Place) -> Option<Place> {
+        let _ = current;
+        None
     }
 
     #[must_use]
     pub fn can_go_back(&self) -> bool {
-        !self.visited.is_empty()
+        !self.back.is_empty()
     }
 
-    /// Another drive: nothing to go back to.
-    pub fn clear(&mut self) {
-        self.visited.clear();
+    #[must_use]
+    pub fn can_go_forward(&self) -> bool {
+        !self.forward.is_empty()
     }
+
+    /// Nothing to go back or forward to.
+    pub fn clear(&mut self) {
+        self.back.clear();
+        self.forward.clear();
+    }
+}
+
+/// Whether `entry` stays in a listing filtered by `search` (a case-insensitive
+/// part of the name; an empty search keeps everything).
+#[must_use]
+pub fn matches_search(entry: &Entry, search: &str) -> bool {
+    let _ = (entry, search);
+    false
+}
+
+/// The address bar's editable text for `place`: `This PC`, `Home`,
+/// `Home/mail/inbox`.
+#[must_use]
+pub fn path_text(place: &Place, drive_name: Option<&str>) -> String {
+    let _ = (place, drive_name);
+    String::new()
+}
+
+/// The place a typed path names: `This PC`; `Home`, `Home/mail`,
+/// `This PC/Home/mail/` or with backslashes - the drive by name, without case;
+/// `None` for an unknown drive. `drives` are `(id, name)`.
+#[must_use]
+pub fn parse_path(text: &str, drives: &[(String, String)]) -> Option<Place> {
+    let _ = (text, drives);
+    None
+}
+
+/// The address bar's trail for `place`, each crumb with the place it goes
+/// to: `This PC`; then the drive (its root) and every folder down to the
+/// open one.
+#[must_use]
+pub fn crumbs_of(place: &Place, drive_name: &str) -> Vec<(String, Place)> {
+    let _ = (place, drive_name);
+    Vec::new()
 }
 
 /// The folder above `prefix`; `None` at the root.
@@ -531,15 +594,86 @@ mod tests {
     }
 
     #[test]
-    fn back_returns_to_the_folders_visited_before() {
+    fn back_returns_to_the_places_visited_before_and_forward_returns_along_them() {
+        let root = Place::folder("home", "");
+        let mail = Place::folder("home", "mail/");
+        let inbox = Place::folder("home", "mail/inbox/");
         let mut history = History::default();
-        assert!(!history.can_go_back());
-        history.visit("");
-        history.visit("mail/");
+        assert!(!history.can_go_back() && !history.can_go_forward());
+        // This PC -> Home -> mail -> inbox
+        history.visit(Place::ThisPc);
+        history.visit(root.clone());
+        history.visit(mail.clone());
         assert!(history.can_go_back());
-        assert_eq!(history.back().as_deref(), Some("mail/"));
-        assert_eq!(history.back().as_deref(), Some(""));
-        assert_eq!(history.back(), None);
+        assert_eq!(history.back(inbox.clone()), Some(mail.clone()));
+        assert!(history.can_go_forward(), "inbox waits ahead");
+        assert_eq!(history.back(mail.clone()), Some(root.clone()));
+        assert_eq!(history.forward(root.clone()), Some(mail.clone()));
+        assert_eq!(history.forward(mail.clone()), Some(inbox.clone()));
+        assert_eq!(history.forward(inbox.clone()), None, "nothing ahead");
+        assert_eq!(history.back(inbox.clone()), Some(mail.clone()));
+        // A new visit from mail drops what was ahead.
+        history.visit(mail.clone());
+        assert!(!history.can_go_forward());
+        assert_eq!(history.back(Place::folder("home", "docs/")), Some(mail));
+        assert_eq!(history.back(root.clone()), Some(root.clone()));
+        assert_eq!(history.back(root), Some(Place::ThisPc));
+        assert_eq!(history.back(Place::ThisPc), None);
+        history.clear();
+        assert!(!history.can_go_back() && !history.can_go_forward());
+    }
+
+    #[test]
+    fn the_search_keeps_the_names_that_contain_it_without_case() {
+        assert!(matches_search(&file("Report.PDF", 1, 0), ""));
+        assert!(matches_search(&file("Report.PDF", 1, 0), "pdf"));
+        assert!(matches_search(&folder("Mail"), "MA"));
+        assert!(!matches_search(&file("notes.txt", 1, 0), "pdf"));
+        assert!(matches_search(&file("a b", 1, 0), " b "), "the search is trimmed");
+    }
+
+    #[test]
+    fn the_path_text_names_the_place_and_a_typed_path_finds_it_again() {
+        let drives = vec![
+            ("home".to_string(), "Home".to_string()),
+            ("s3-1".to_string(), "S3 Drive".to_string()),
+        ];
+        assert_eq!(path_text(&Place::ThisPc, None), "This PC");
+        assert_eq!(path_text(&Place::folder("home", ""), Some("Home")), "Home");
+        assert_eq!(
+            path_text(&Place::folder("home", "mail/inbox/"), Some("Home")),
+            "Home/mail/inbox"
+        );
+        assert_eq!(parse_path("This PC", &drives), Some(Place::ThisPc));
+        assert_eq!(parse_path("  this pc ", &drives), Some(Place::ThisPc));
+        assert_eq!(parse_path("Home", &drives), Some(Place::folder("home", "")));
+        assert_eq!(
+            parse_path("home/mail/inbox", &drives),
+            Some(Place::folder("home", "mail/inbox/"))
+        );
+        assert_eq!(
+            parse_path("This PC\\S3 Drive\\mail\\", &drives),
+            Some(Place::folder("s3-1", "mail/"))
+        );
+        assert_eq!(parse_path("Photos/2024", &drives), None, "an unknown drive");
+        assert_eq!(parse_path("", &drives), None);
+    }
+
+    #[test]
+    fn the_trail_starts_at_this_pc_then_the_drive_then_the_folders() {
+        assert_eq!(
+            crumbs_of(&Place::ThisPc, ""),
+            vec![("This PC".to_string(), Place::ThisPc)]
+        );
+        assert_eq!(
+            crumbs_of(&Place::folder("s3-1", "mail/inbox/"), "S3 Drive"),
+            vec![
+                ("This PC".to_string(), Place::ThisPc),
+                ("S3 Drive".to_string(), Place::folder("s3-1", "")),
+                ("mail".to_string(), Place::folder("s3-1", "mail/")),
+                ("inbox".to_string(), Place::folder("s3-1", "mail/inbox/")),
+            ]
+        );
     }
 
     #[test]
