@@ -4,7 +4,14 @@ Branch `wt/fb3-scroll-damage` from `5bab5dfa2`. Never compiles; runs prebuilt ap
 `scratchpad/run_capped.sh` (one at a time, killed when done).
 
 ## DONE
-- (none committed yet besides this checkpoint)
+- b42dcdc04 progress checkpoint (findings before the reboot)
+- 7358f2c49 RED item 1: `layout/tests/a_scrolled_virtual_view_is_repainted_where_its_content_moved.rs`
+  (item comparison + backends recipe over 11 steps vs a full render; S1 `Raster` gains
+  `full_state`/`repaint_state`) and dll headless
+  `a_virtual_view_scrolled_on_the_lightweight_path_paints_where_its_content_moved` (real ScrollTo
+  through apply_user_change + service_frame, 10 steps; `full_repaint_of` split out of
+  `incremental_vs_full`, `pixel_of` out of `sample_px`).
+- 6df297b21 FIX item 1: `DisplayListItem::is_visually_equal` compares `VirtualView::content_offset`.
 
 ## FINDINGS SO FAR (2026-09-30, before the 18:15 reboot)
 - AzReview headless (1400x900): the sheet strip is a `VirtualView` (node 424, horizontal,
@@ -29,7 +36,14 @@ Branch `wt/fb3-scroll-damage` from `5bab5dfa2`. Never compiles; runs prebuilt ap
   an animation the mounted node never had.
 
 ## IN PROGRESS
-- Item 1: pin the VirtualView scroll damage with `AZ_PATCH_DEBUG=1` (HLDMG lines) and a RED test.
+- Item 3(b): `render_text` (sweep + grayscale) clips to the STACK clip only; the pre-tiled LCD path
+  clips to `clip_rect` ∩ stack. Fix: one `text_run_clip` helper in `render_text`. RED test in
+  raster.rs next to `a_clip_thinner_than_a_pixel_paints_nothing`.
+- Item 3(a): AzWidgets at rest holds 476 FLIP moves (`get_animations` active=476) whose GPU values
+  never change over 40 frames (tx-57.17 constant) while its 21 enter tracks do converge; a `mount`
+  matches the new `<p>` (node 4) to an old node by structural key and the stale FLIP puts it
+  off-screen at 760x400 (at 760x800 no reference frame). Reading tick_animations to see why FLIPs
+  do not advance.
 
 ## NEXT
 1. RED test for item 1 (headless `dll/src/desktop/shell2/headless/mod.rs` tests or a
