@@ -1836,11 +1836,15 @@ impl HeadlessWindow {
         }
 
         let relayout_only = self.common.take_relayout_only();
-        // The resize fast path folds into headless's existing arms: a full
-        // regeneration (boundary crossed) lays out at the new size, and BOTH
-        // other arms below call relayout_only(), which re-lays-out the
-        // existing StyledDom at the current (new) size. Consuming the latch
-        // here keeps it from leaking into a later frame.
+        // The resize fast path, exactly as the desktop shells take it (macOS
+        // `build_atomic_txn`, X11, Wayland, Windows `WM_PAINT`): a latched
+        // resize with no DOM rebuild owed re-lays-out the EXISTING StyledDom
+        // with `IncrementalRelayout::Resize` - the retained tree, its warm
+        // per-node caches, a patched display list. A full regeneration
+        // (boundary crossed) lays out at the new size itself. Folding the
+        // latch into the RESTYLE relayout, as this did, laid out every
+        // headless resize (debug server, AZ_E2E) on a path no desktop window
+        // takes, so resize bugs of the shells never reproduced here.
         let resize_relayout = self.common.take_resize_relayout();
         let regen_requested = self.common.take_regeneration();
         let content_repaint = core::mem::take(&mut self.common.content_repaint_pending);
@@ -1849,6 +1853,11 @@ impl HeadlessWindow {
             (self.relayout_only(), "relayout")
         } else if regen_requested {
             (self.regenerate_layout().map(|_| ()), "regeneration")
+        } else if resize_relayout {
+            (
+                self.relayout_existing_dom(event::IncrementalRelayout::Resize),
+                "resize",
+            )
         } else if content_repaint && !resize_relayout && tier <= R::ShouldReRenderCurrentWindow {
             // A content change patched the display list in place (a video
             // frame on a visible tile) and nothing else asked for more: paint
@@ -1885,6 +1894,13 @@ impl HeadlessWindow {
     /// "new" are the same DOM — so layout was skipped and the frame kept the
     /// pre-mutation shaped text and geometry forever (the stale screen).
     pub fn relayout_only(&mut self) -> Result<(), String> {
+        self.relayout_existing_dom(event::IncrementalRelayout::Restyle)
+    }
+
+    /// [`Self::relayout_only`] as `kind` asks: `Restyle` for a restyle /
+    /// runtime edit, `Resize` for the latched resize fast path (see
+    /// `service_frame`). Both re-lay-out the EXISTING StyledDom and render.
+    fn relayout_existing_dom(&mut self, kind: event::IncrementalRelayout) -> Result<(), String> {
         let debug_enabled = debug_server::is_debug_enabled();
         let mut debug_messages = if debug_enabled {
             Some(Vec::new())
@@ -1895,10 +1911,7 @@ impl HeadlessWindow {
         // The common method owns the finalize tail (the CPU hit-tester
         // rebuild) and the trait wrapper delivers the lifecycle events the
         // pass produced — see `PlatformWindow::incremental_relayout_dispatching`.
-        self.incremental_relayout_dispatching(
-            event::IncrementalRelayout::Restyle,
-            &mut debug_messages,
-        )?;
+        self.incremental_relayout_dispatching(kind, &mut debug_messages)?;
 
         if let Some(msgs) = debug_messages {
             for msg in msgs {
