@@ -3671,6 +3671,13 @@ impl LayoutWindow {
             return None;
         }
 
+        // The block the SEAT's caret is in (the primary's session block for
+        // seat 0): what the edit acts on.
+        let caret_block = if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            self.text_edit_manager.get_editing_block()
+        } else {
+            self.text_edit_manager.seat_caret(seat_id).map(|c| c.block)
+        };
         let (target, operation) = match action {
             DefaultAction::SplitBlockAtCursor { target } => {
                 let node_id = target.node.into_crate_internal()?;
@@ -3678,11 +3685,11 @@ impl LayoutWindow {
                 // the edit acts on the caret's BLOCK: Enter in
                 // `div[contenteditable] > p > text` splits the <p>, and the
                 // apply side (`apply_split`) is specified against exactly
-                // that shape — `host.children[i]` split at a position INSIDE
-                // it. Recording the host here made every Enter split block 0
-                // at boundary 0: a silent empty paragraph prepended, the
-                // caret unmoved (the AzWriter symptom).
-                let node_id = self.structural_edit_node(target.dom, node_id);
+                // that shape — the parent's `children[i]` split at a position
+                // INSIDE it. Recording the host here made every Enter split
+                // block 0 at boundary 0: a silent empty paragraph prepended,
+                // the caret unmoved (the AzWriter symptom).
+                let node_id = self.structural_edit_node(target.dom, node_id, caret_block);
                 let target = DomNodeId {
                     dom: target.dom,
                     node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
@@ -3703,7 +3710,7 @@ impl LayoutWindow {
                 // Same re-targeting as the split: Backspace at the start of a
                 // paragraph merges the caret's BLOCK with its previous
                 // sibling, not the host with whatever sits beside the host.
-                let node_id = self.structural_edit_node(target.dom, node_id);
+                let node_id = self.structural_edit_node(target.dom, node_id, caret_block);
                 let target = DomNodeId {
                     dom: target.dom,
                     node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
@@ -3724,7 +3731,7 @@ impl LayoutWindow {
             }
             DefaultAction::MergeWithNext { target } => {
                 let node_id = target.node.into_crate_internal()?;
-                let node_id = self.structural_edit_node(target.dom, node_id);
+                let node_id = self.structural_edit_node(target.dom, node_id, caret_block);
                 let target = DomNodeId {
                     dom: target.dom,
                     node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
@@ -3754,51 +3761,37 @@ impl LayoutWindow {
         Some(self.record_document_edit(changeset))
     }
 
-    /// The node a keyboard structural edit acts on: the DIRECT child of
-    /// `host` on the caret's ancestor chain, when that child is an ELEMENT
-    /// (the caret's block — the `<p>` of `div[contenteditable] > p > text`).
-    /// A flat host (its direct child at the caret IS a text leaf) and an
-    /// element-level caret keep the host itself: there the host's own child
-    /// list is the thing being split/merged.
-    fn structural_edit_node(&self, dom_id: DomId, host: NodeId) -> NodeId {
-        let Some(lr) = self.layout_results.get(&dom_id) else {
-            return host;
-        };
-        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
-        let node_data = lr.styled_dom.node_data.as_container();
-        let Some(caret) = self
-            .text_edit_manager
-            .multi_cursor
-            .as_ref()
-            .filter(|mc| mc.block.dom() == dom_id)
-            .map(|mc| mc.block.container())
+    /// The node a keyboard structural edit acts on: the ELEMENT of the
+    /// caret's block (`caret_block`) - the INNERMOST block container the
+    /// caret's text is in, the `<p>` of `host > blockquote > blockquote > p
+    /// > text` and the `<li>` of a list - when it lies inside `host`. That
+    /// is the execCommand spec's "editable block": `insertParagraph` splits
+    /// it, `delete` at its start merges it with the block before it, inside
+    /// any number of containers. A flat host (the caret's block IS the host),
+    /// a caret in an anonymous block (loose text beside a block - no element
+    /// of its own to split) and a caret outside the host keep the host
+    /// itself: there the host's own child list is the thing being split /
+    /// merged.
+    ///
+    /// The host's DIRECT child on the caret's path, which this used to
+    /// return, is the outer quote of a nested one: Enter cloned the whole
+    /// quote and Backspace merged all of it into the block before it.
+    fn structural_edit_node(
+        &self,
+        dom_id: DomId,
+        host: NodeId,
+        caret_block: Option<TextBlock>,
+    ) -> NodeId {
+        let Some(element) = caret_block
+            .filter(|block| block.dom() == dom_id)
+            .and_then(|block| block.element())
         else {
             return host;
         };
-        if caret == host {
+        if element == host || !self.node_is_self_or_descendant(dom_id, element, host) {
             return host;
         }
-        // Walk the caret up to the direct child of `host`; a caret outside
-        // the host's subtree keeps the host.
-        let mut direct = caret;
-        loop {
-            match hierarchy
-                .get(direct)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
-            {
-                Some(p) if p == host => break,
-                Some(p) => direct = p,
-                None => return host,
-            }
-        }
-        let is_element = node_data
-            .get(direct)
-            .is_some_and(|n| !matches!(n.get_node_type(), NodeType::Text(_)));
-        if is_element {
-            direct
-        } else {
-            host
-        }
+        element
     }
 
     /// The layout node whose inline layout an edit of `node_id` re-shapes:
