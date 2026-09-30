@@ -89,7 +89,7 @@ use azul::{
         CallbackInfo, CallbackType, TimerCallbackInfo, TimerCallbackReturn, UpdateImageType,
     },
     camera::CameraConfig,
-    css::{LogicalSize, PhysicalPositionI32, Srgb, WindowPosition},
+    css::{LogicalSize, PhysicalPositionI32, Srgb, WindowDecorations, WindowPosition},
     dom::{Callback, ClipboardContent, DomNodeId, NodeId, VirtualKeyCode},
     error::{HttpError, ResultRawImageDecodeImageError, ResultU8VecEncodeImageError},
     file::FilePath,
@@ -112,6 +112,7 @@ use azul::{
     widgets::{
         ButtonType, CameraWidget, ConsumerFrame, FrameConsumer, MicrophoneWidget,
         OnTextInputReturn, ProgressBar, ScreenCaptureWidget, TextInputState, TextInputValid,
+        Titlebar,
     },
     window::{HwAcceleration, PlatformCapability, Vsync},
 };
@@ -982,10 +983,31 @@ fn start_layout(view: &LayoutSnapshot, room: &RoomView, data: &RefAny) -> Dom {
     );
     Dom::create_body()
         .with_css(
-            "display: flex; align-items: center; justify-content: center; height: 100%; margin: \
-             0; background: #0e0e14; font-family: sans-serif; color: #e6e6f0;",
+            "display: flex; flex-direction: column; height: 100%; margin: 0; background: \
+             #0e0e14; font-family: sans-serif; color: #e6e6f0;",
         )
-        .with_child(card)
+        .with_child(title_row(None))
+        .with_child(
+            Dom::create_div()
+                .with_css(
+                    "display: flex; align-items: center; justify-content: center; flex-grow: 1; \
+                     min-height: 0px;",
+                )
+                .with_child(card),
+        )
+}
+
+/// The window's title row, drawn by azul (every AzMeet window is `NoTitle`, so
+/// macOS draws only the traffic lights). `fill` is the colour of the bar right
+/// below it, so the two read as one; `None` lets the page show through. No line
+/// under it, and the title in the page's light ink.
+fn title_row(fill: Option<ColorU>) -> Dom {
+    let mut bar = Titlebar::create("AzMeet").without_border_bottom();
+    if let Some(fill) = fill {
+        bar = bar.with_background(fill);
+    }
+    bar.title_color = ColorU::rgb(0xe6, 0xe6, 0xf0);
+    bar.dom()
 }
 
 /// The call: header, invite link and people (in a room), tiles, controls, devices and network.
@@ -1131,6 +1153,7 @@ fn call_layout(view: &LayoutSnapshot, data: &RefAny) -> Dom {
         "display: flex; flex-direction: column; height: 100%; margin: 0; background: #0e0e14; \
          font-family: sans-serif; color: #e6e6f0;",
     );
+    body = body.with_child(title_row(Some(ColorU::rgb(0x15, 0x15, 0x1c))));
     body = body.with_child(
         Dom::create_span_with_text(view.header.as_str())
             .with_css("padding: 12px; font-size: 18px; background: #15151c;"),
@@ -4496,6 +4519,7 @@ fn start_demo(notice: &str) {
 fn run(peers: Vec<RefAny>, linked: bool) {
     let mut app = App::create(RefAny::new(Room { peers }), AppConfig::create());
     let mut first = WindowCreateOptions::create(layout_first);
+    first.window_state.flags.decorations = WindowDecorations::NoTitle;
     first.create_callback = Some(Callback::create(startup_first)).into();
     if linked {
         first.window_state.size.dimensions = LogicalSize::create(740.0, 640.0);
@@ -4504,6 +4528,7 @@ fn run(peers: Vec<RefAny>, linked: bool) {
             WindowPosition::Initialized(PhysicalPositionI32 { x: 20, y: 40 });
         first.renderer = renderer(HwAcceleration::Disabled);
         let mut second = WindowCreateOptions::create(layout_second);
+        second.window_state.flags.decorations = WindowDecorations::NoTitle;
         second.create_callback = Some(Callback::create(startup_second)).into();
         second.window_state.size.dimensions = LogicalSize::create(740.0, 640.0);
         second.window_state.title = AzString::from("AzMeet · Ben (GPU)");

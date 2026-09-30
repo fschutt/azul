@@ -1,6 +1,6 @@
 use azul::{
     callbacks::{CallbackType, RenderImageCallbackInfo},
-    css::PhysicalSizeU32,
+    css::{PhysicalSizeU32, WindowDecorations},
     dialog::{FileDialog, FileOpenResult, SaveTargetResult},
     dom::RenderImageCallback,
     error::{ResultRawImageDecodeImageError, ResultU8VecEncodeImageError, ResultU8VecFileError},
@@ -10,6 +10,7 @@ use azul::{
     option::OptionFileTypeList,
     prelude::*,
     vec::{F32VecRef, StringVec, U8VecRef},
+    widgets::Titlebar,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -1118,8 +1119,20 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .with_css(ROOT)
         .with_menu_bar(menu)
         .with_context_menu(ctx_menu)
+        .with_child(title_row())
         .with_child(header)
         .with_child(canvas)
+}
+
+/// The window's title row, drawn by azul (the window is `NoTitle`, so macOS
+/// draws only the traffic lights): the header's colour and no line under it,
+/// so the title row and the header read as one bar.
+fn title_row() -> Dom {
+    let mut bar = Titlebar::create("AzPaint")
+        .with_background(ColorU::rgb(0x2b, 0x2b, 0x2b))
+        .without_border_bottom();
+    bar.title_color = ColorU::rgb(0xff, 0xff, 0xff);
+    bar.dom()
 }
 
 fn extract_point(info: &CallbackInfo) -> Option<(StrokePoint, bool)> {
@@ -1494,7 +1507,9 @@ pub fn start() {
     let data = RefAny::new(PaintState::new());
     let config = AppConfig::create();
     let app = App::create(data, config);
-    let window = WindowCreateOptions::create(layout);
+    let mut window = WindowCreateOptions::create(layout);
+    window.window_state.title = "AzPaint".into();
+    window.window_state.flags.decorations = WindowDecorations::NoTitle;
     app.run(window);
 }
 

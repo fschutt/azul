@@ -5,6 +5,7 @@ use azul::{
     menu::{Menu, MenuItem, StringMenuItem},
     prelude::*,
     vec::{IdOrClassVec, MenuItemVec, U8VecRef},
+    widgets::Titlebar,
 };
 
 use crate::{code, ink, model::Semantic, AppState};
@@ -77,10 +78,16 @@ pub extern "C" fn layout(data: RefAny, _: LayoutCallbackInfo) -> Dom {
         return Dom::create_body();
     };
 
+    // The window is `NoTitle`: azul draws the title row (no fill, so the
+    // page colour runs up under the traffic lights), then the app below it.
     let mut root = Dom::create_body().with_css(
-        "display: flex; flex-direction: row; background: #e9e7e2; font-family: sans-serif;",
+        "display: flex; flex-direction: column; height: 100%; background: #e9e7e2; \
+         font-family: sans-serif;",
     );
-    root.add_child(sidebar(&s, &data));
+    root.add_child(Titlebar::create("AzReview").dom());
+    let mut row = Dom::create_div()
+        .with_css("display: flex; flex-direction: row; flex-grow: 1; min-height: 0px;");
+    row.add_child(sidebar(&s, &data));
 
     let mut center = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-width: 0px;");
@@ -88,7 +95,8 @@ pub extern "C" fn layout(data: RefAny, _: LayoutCallbackInfo) -> Dom {
     center.add_child(page_rail(&s, &data));
     center.add_child(sheet(&s, &data));
     center.add_child(status_bar(&s));
-    root.add_child(center);
+    row.add_child(center);
+    root.add_child(row);
     root.with_menu_bar(menu_bar(&data))
 }
 

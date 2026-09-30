@@ -37,6 +37,7 @@ use std::{
 };
 
 use azul::{
+    css::WindowDecorations,
     dom::ClipboardContent,
     error::HttpError,
     file::FilePath,
@@ -47,7 +48,7 @@ use azul::{
     vec::{StyledTextRunVec, U8Vec},
     widgets::{
         ButtonType, CheckBoxState, DatePicker, DatePickerState, OnTextInputReturn, TextInputState,
-        TextInputValid, TimePicker, TimePickerState,
+        TextInputValid, TimePicker, TimePickerState, Titlebar,
     },
 };
 use chrono::{Datelike, NaiveDate, NaiveTime};
@@ -229,6 +230,16 @@ fn view_of(s: &CalState) -> View {
     }
 }
 
+/// The window's title row, drawn by azul (the window is `NoTitle`, so macOS
+/// draws only the traffic lights): white like the toolbar below it and with no
+/// line of its own, so the two read as one bar.
+fn title_row() -> Dom {
+    Titlebar::create("AzCalendar")
+        .with_background(ColorU::rgb(0xff, 0xff, 0xff))
+        .without_border_bottom()
+        .dom()
+}
+
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let Some(view) = data.downcast_ref::<CalState>().map(|s| view_of(&s)) else {
         return Dom::create_body();
@@ -241,6 +252,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     }
     let mut body = Dom::create_body()
         .with_css(BODY)
+        .with_child(title_row())
         .with_child(toolbar(&view, &data));
     if !view.notice.is_empty() {
         body.add_child(Dom::create_span_with_text(view.notice.as_str()).with_css(NOTICE));
@@ -1035,5 +1047,6 @@ pub fn start() {
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.size.dimensions = LogicalSize::create(1200.0, 980.0);
     window.window_state.title = AzString::from("AzCalendar");
+    window.window_state.flags.decorations = WindowDecorations::NoTitle;
     app.run(window);
 }

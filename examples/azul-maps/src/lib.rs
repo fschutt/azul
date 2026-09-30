@@ -1,9 +1,10 @@
 use azul::{
+    css::WindowDecorations,
     dom::GeolocationProbeConfig,
     prelude::*,
     sensor::SensorKind,
     task::TerminateTimer,
-    widgets::{MapLatLon, MapTileLayer, MapViewport, MapWidget},
+    widgets::{MapLatLon, MapTileLayer, MapViewport, MapWidget, Titlebar},
 };
 
 struct MapState {
@@ -431,8 +432,20 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
 
     Dom::create_body()
         .with_css(ROOT)
+        .with_child(title_row())
         .with_child(header)
         .with_child(map_container)
+}
+
+/// The window's title row, drawn by azul (the window is `NoTitle`, so macOS
+/// draws only the traffic lights): the header's colour and no line under it,
+/// so the title row and the header read as one bar.
+fn title_row() -> Dom {
+    let mut bar = Titlebar::create("AzMaps")
+        .with_background(ColorU::rgb(0x2b, 0x2b, 0x2b))
+        .without_border_bottom();
+    bar.title_color = ColorU::rgb(0xff, 0xff, 0xff);
+    bar.dom()
 }
 
 extern "C" fn on_zoom_in(mut data: RefAny, _info: CallbackInfo) -> Update {
@@ -605,6 +618,8 @@ pub fn start() {
     let config = AppConfig::create();
     let app = App::create(data, config);
     let mut window = WindowCreateOptions::create(layout);
+    window.window_state.title = "AzMaps".into();
+    window.window_state.flags.decorations = WindowDecorations::NoTitle;
     window.create_callback = Some(Callback::create(startup)).into();
     app.run(window);
 }
