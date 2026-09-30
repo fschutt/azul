@@ -7,7 +7,7 @@ audience: external
 maturity: beta
 guide_order: 124
 topic_only: false
-short_desc: Camera/mic capture, audio playback, and media between apps over iroh (AzMeet - rooms, audio, leave)
+short_desc: Camera/mic capture, audio playback, and media between apps over iroh (AzMeet - rooms, audio, leave, forwarding and renditions for rooms of three and more)
 prerequisites: [events/callbacks, data/background-tasks]
 tracked_files:
   - layout/src/widgets/capture_common.rs
@@ -16,10 +16,15 @@ tracked_files:
   - core/src/video.rs
   - dll/src/desktop/extra/audio/mod.rs
   - dll/src/desktop/extra/iroh/engine.rs
+  - dll/src/desktop/extra/iroh/loadbalancer.rs
   - examples/azul-meet/src/lib.rs
   - examples/azul-meet/src/audio.rs
   - examples/azul-meet/src/rooms.rs
+  - examples/azul-meet/src/routes.rs
+  - examples/azul-meet/src/video_wire.rs
+  - examples/azul-meet/scripts/meet-e2e.mjs
   - examples/azul-meet/scripts/two-clients.mjs
+  - examples/azul-meet/scripts/three-clients.mjs
 last_generated_rev: 754b7f00e088960c14db598f64fa200dacc28bf1
 generated_at: 2026-05-21T00:00:00Z
 default-search-keys:
@@ -37,6 +42,10 @@ default-search-keys:
   - send_message
   - AzMeet
   - jitter buffer
+  - IrohLoadBalancer
+  - IrohTileRole
+  - simulcast
+  - backbone
 ---
 
 # Realtime Media
@@ -232,7 +241,8 @@ Nothing arrives unless you poll `recv`; AzMeet does it every 15 ms.
 `examples/azul-meet` is a meeting app on the public API. Started with a meeting
 server it shows **New meeting** and **Join with a link**; in a meeting it shows the
 invite link, the people, a tile per camera or screen, and the buttons **Mute**,
-**Deafen**, **Start video**, **Share screen** and **Leave**.
+**Deafen**, **Start video**, **Share screen**, **Speaker view** / **Grid view** and
+**Leave**.
 
 ### Rooms
 
@@ -254,10 +264,24 @@ runs on an azul `Thread` and resumes on the UI thread, so no callback waits on t
 network. A participant that stops announcing drops off after 120 s, a room after
 a day without announcements.
 
+The start screen has a **Meeting server** field, prefilled with the address saved
+last time, else `AZMEET_WORKER`, else the built-in default (`PRODUCTION_WORKER`,
+baked in with `AZMEET_DEFAULT_WORKER=<url>` at build time, else the local mock at
+`http://127.0.0.1:8787`). Pressing Enter or leaving the field makes its address the
+meeting server for every request from then on, checks it with `GET /health`, and
+saves it (`AzMeet/settings.txt` in the per-user config folder,
+`FilePath::get_config_dir`; written to a temporary file and renamed) once it
+answers. The line under the field says whether it answers. The in-process demo
+opens only when nothing is saved or set and the built-in default does not answer.
+A headless run (`AZ_BACKEND=headless`) neither reads nor writes the saved address,
+so `AZMEET_WORKER` always wins in tests.
+
 ### Video
 
-Each camera or screen frame is cut to 320x180 and sent on track 1 (camera) or 2
-(screen); each peer's pictures land in that peer's own tiles. The rules live in
+Each camera or screen frame is sent on track 1 (camera) or 2 (screen), in the
+renditions the viewers' tiles ask for (see *Rooms of three and more*: 90, 180, 360
+or 720 lines, 16:9, at most two per track); each peer's pictures land in that
+peer's own tiles. The rules live in
 `examples/azul-meet/src/video_wire.rs` (plain Rust with unit tests).
 
 1. **Codec.** At start AzMeet opens a `VideoEncoder`, encodes a test frame and
@@ -266,38 +290,43 @@ Each camera or screen frame is cut to 320x180 and sent on track 1 (camera) or 2
    so only a keyframe that comes back as a picture counts. Where it does
    (VideoToolbox on macOS and iOS), frames go out as H.264; elsewhere as JPEG. The
    devices panel says which: `Video: H.264 (VideoToolbox)`, `Video: JPEG (no
-   encoder)`. On connecting, each side sends `[5][flags]` (bit 0: decodes H.264),
-   and a peer that cannot decode H.264 gets JPEG from a sender that encodes it:
+   encoder)`. On connecting, each side sends `[5][flags]` (bit 0: decodes H.264,
+   bit 1: encodes it), and a peer that cannot decode H.264 gets JPEG from a sender
+   that encodes it:
    `Video: H.264 (VideoToolbox); JPEG to Ben (no H.264 decoder)`.
-2. **Packets.** Every packet carries a 16-byte header:
+2. **Packets.** Every packet carries a 20-byte header:
 
    ```text
-   [2][version 1][codec: 1 JPEG, 2 H.264][flags: bit 0 keyframe]
-   [track u32][seq u32][frame_no u32]      then a JPEG file or H.264 Annex B
+   [2][version 2][codec: 1 JPEG, 2 H.264][flags: bit 0 keyframe]
+   [track u32][seq u32][frame_no u32][height u16][0 u16]
+   then a JPEG file or H.264 Annex B
    ```
 
-   `seq` counts one codec's packets on one track, so a gap is a missing packet;
-   `frame_no` counts the frames captured and may jump. H.264 packets are sent as
-   messages; JPEG ones as latest-wins frames.
+   `height` names the rendition: each rendition of a track is a stream of its own,
+   with its own encoder, numbers and keyframes. `seq` counts one codec's packets on
+   one rendition, so a gap is a missing packet; `frame_no` counts the frames
+   captured and may jump. H.264 packets are sent as messages; JPEG ones as
+   latest-wins frames, each rendition on its own frame track.
 3. **Loss.** A receiver decodes in order. After a gap in `seq` it decodes nothing
-   until the next keyframe (an IDR slice) and sends `[3][track]`, a keyframe
-   request, again after a second while it still waits. The sender forces a
+   until the next keyframe (an IDR slice) and sends `[3][track][height]`, a
+   keyframe request, again after a second while it still waits. The sender forces a
    keyframe on a request (several requests within half a second share one), for
    every new peer, and every 3 seconds anyway. An encoder that answers a forced
    keyframe with a P-frame is closed and opened again: a new encoder starts with a
    keyframe.
 4. **A slow link.** Messages are never dropped, so a link slower than the video
-   would queue without end. The receiver acknowledges H.264 packets (`[4][track][seq]`,
-   every fifth and every keyframe); a sender more than 24 packets ahead of a peer
+   would queue without end. The receiver acknowledges H.264 packets
+   (`[4][track][seq][height]`, every fifth and every keyframe); a sender more than 24 packets ahead of a peer
    pauses that peer and resumes it at a keyframe once it caught up.
 5. **Decoding.** Each peer's tracks have their own `VideoDecoder`. One that is
    given 30 packets from a keyframe on and returns no picture does not work here:
    AzMeet tells everyone it decodes no H.264, and gets JPEG.
 
-The devices panel shows both directions: `Sending camera: 450 H.264 packets, 0
-JPEG frames, 8 keyframes, 2 on request, 5 periodic, 0 reopens, 0 dropped on
-purpose` and `Video from Ben (camera): H.264, decoded 300, keyframes 12, gaps 1,
-dropped 3, keyframe requests 1`.
+The devices panel shows both directions, per rendition: `Sending camera 360p: 450
+H.264 packets, 0 JPEG frames, 8 keyframes, 2 on request, 5 periodic, 0 reopens, 0
+dropped on purpose` and `Video from Ben (camera 360p): H.264, decoded 300,
+keyframes 12, gaps 1, dropped 3, keyframe requests 1` (`camera 90p via Ben` when a
+forwarder passes it on).
 
 ### Audio
 
@@ -343,6 +372,70 @@ The devices panel shows what is sent and what arrived, per peer:
   that still dials afterwards is refused, and the answer to a request sent before
   leaving is ignored.
 
+### Rooms of three and more
+
+Sending everything to everyone (a full mesh) costs every participant one upload
+per person. AzMeet follows the routes design (azul-apps
+`planning/engines/iroh-routes.md`): cull what nobody shows, then route the rest
+over the room's best connections. The rules live in
+`examples/azul-meet/src/routes.rs` (plain Rust with unit tests); the choice of
+forwarders is azul's `IrohLoadBalancer`.
+
+1. **Reports.** Every participant sends everyone a `ConnectionSync` (kind 6) on
+   connect, on every change and every 2 seconds: its uplink (estimated from
+   `IrohEndpoint::peer_stats`: the bytes sent per second, or what one path's
+   congestion window allows per round trip, reported in steps and only after
+   three intervals in a row), its stability (intervals without a loss spike or an
+   RTT jump), whether it is relay-only, on battery or opted out of forwarding,
+   whether it sends audio, camera and screen, and the rendition each of its tiles
+   asks for.
+2. **The plan.** Every side feeds the same reports to the load balancer and so
+   gets the same plan:
+
+   ```rust
+   let mut balancer = IrohLoadBalancer::create();
+   balancer.set_mesh_cap(mesh_cap); // AZMEET_MESH_CAP, default 4 (the design says 8)
+   for (key, report) in reports {
+       let mut capacity = IrohPeerCapacity::create(key, report.uplink_kbps);
+       capacity.stability = report.stability;
+       balancer.set_peer(capacity);
+   }
+   let n = balancer.select_backbone(fanout_kbps); // grows until it carries 1.5x
+   let backbone: Vec<u64> = (0..n)
+       .filter_map(|i| balancer.backbone_peer(i).into_option())
+       .collect();
+   ```
+
+   Up to the mesh cap everyone forwards, so the plan is the full mesh. Above it
+   `max(ceil(sqrt N), ceil(N / 8))` peers, best score first, form the backbone;
+   every other participant is a leaf attached to a backbone peer (round robin in
+   key order). A leaf uploads its media once, to its parent, and receives
+   everything through it; the parent passes a leaf's media to the other backbone
+   peers, and every backbone peer passes what it gets to its own leaves.
+3. **Renditions.** Each tile asks for `IrohTileRole::rendition_height` of its role
+   (grid tile: `Gallery`, the speaker view's stage: `Stage`, its thumbnails:
+   `Filmstrip`), its laid-out height (`CallbackInfo::get_node_size` of the tile)
+   and the window's scale. A sender encodes the smallest and the largest height
+   asked for, one `VideoEncoder` each at `IrohLoadBalancer::rendition_kbps`, and
+   the camera widget gets one capture consumer per rendition; each viewer gets the
+   smallest encoded rendition at least as tall as its tile, in H.264 where both
+   ends do it. Nothing nobody shows is encoded (**Stop video (not shown to anyone,
+   not being sent)**).
+4. **Forwarding.** A forwarder passes each child only the streams someone at or
+   below that child gets. Passed-on items travel in an envelope (kind 7:
+   `[7][1][track u32][origin u64][from u64]` then the original bytes): audio and
+   JPEG as frames, one frame track per origin; H.264 as messages, through a
+   window per child like the sender's own. Acknowledgements and keyframe requests
+   go back the way a stream came, and a forwarder passes a request on toward the
+   origin: `Ben: passing Cleo's keyframe request for Ada's camera 90p on to Ada`,
+   then `Ada: Cleo asked for a keyframe (camera 90p, via Ben)`.
+5. **Network panel.** The devices panel's *Network* column shows the plan
+   (`Network: 3 people, mesh cap 2: backbone Ben, Cleo; Ada uploads to Ben`),
+   every origin's route (`Routes: Ada: Ada>Ben, Ben>Cleo | ...`), this side's part
+   (`You: leaf, uploading once to Ben`) and report, what it passed on
+   (`Forwarded: ...`), and a line per peer: direct or relayed and the RTT, backbone
+   or leaf, its reported uplink, what this side sends it and gets through it.
+
 ### Run it
 
 ```sh
@@ -360,13 +453,17 @@ instead: two windows, one per participant, linked by two endpoints.
 
 | Variable | Meaning |
 |---|---|
-| `AZMEET_WORKER` | The meeting server, e.g. `http://127.0.0.1:8787` |
+| `AZMEET_WORKER` | The meeting server when none was saved from the start screen, e.g. `http://127.0.0.1:8787` |
 | `AZMEET_NAME` | The name the others see |
 | `AZMEET_AUTOCREATE=1`, `AZMEET_JOIN=<link>` | Start in a meeting without a click; the link is printed as `AZMEET_LINK <link>` |
 | `AZMEET_RELAY` | `off`, `default` or a relay URL (off for a meeting server on this machine) |
 | `AZMEET_TEST_TONE=1` | A 440 Hz tone replaces the microphone, unmuted from the start |
 | `AZMEET_TEST_PATTERN=1` | Moving colour bars replace the camera (on from the start) and the screen; a **Drop a video packet** button drops the next packet |
 | `AZMEET_VIDEO_CODEC=jpeg` | Send JPEG even where H.264 works |
+| `AZMEET_MESH_CAP=<n>` | Rooms of up to n people send everything directly (default 4) |
+| `AZMEET_UPLINK_KBPS=<kbit/s>` | Report this uplink instead of the estimate |
+| `AZMEET_NO_FORWARD=1`, `AZMEET_ON_BATTERY=1` | Never forward for others; report running on battery |
+| `AZMEET_LAYOUT=speaker`, `AZMEET_STAGE=<name>` | Start in speaker view with that participant on the stage |
 
 ### Test it
 
@@ -378,6 +475,17 @@ that a packet dropped on purpose (**Drop a video packet**) makes the receiver as
 for a keyframe and decode again (with H.264; with JPEG it costs nothing), that a
 mute shows on the other side, and that **Leave** takes a participant off the room
 at once. `--require-h264` fails a run that fell back to JPEG.
+
+`examples/azul-meet/scripts/three-clients.mjs` runs three headless participants
+with `AZMEET_MESH_CAP=2` and pinned uplinks (Ada 1 Mbps, Ben 50, Cleo 10; Cleo in
+speaker view with Ben on the stage), so the backbone is Ben and Cleo and Ada is
+Ben's leaf. It checks that every window shows the same plan and routes, that
+everyone hears and sees both others at the planned renditions (360p for grid and
+stage tiles, 90p for Cleo's thumbnail of Ada) and through the planned forwarder,
+that Ada sends two renditions and Ben passes only the 90p on to Cleo, that a
+keyframe request of Cleo's reaches Ada through Ben, and that the two left are
+back in the full mesh when Cleo leaves. Both scripts share their helpers in
+`meet-e2e.mjs`.
 
 A headless test must never open a real device. Under `AZ_BACKEND=headless` only
 `AudioDeviceList::enumerate` is answered by the mock store (see
@@ -391,11 +499,14 @@ is mounted). Do the same in your own app.
 ### Not yet
 
 - Opus and its loss concealment; echo cancellation and noise suppression.
-- `IrohLoadBalancer`: today every participant sends to every other one (a full
-  mesh), which does not scale past a handful of people.
-- Video: renditions per tile size (a simulcast ladder), bitrate that follows the
-  link, HEVC / AV1, and H.264 encode outside Apple (Media Foundation, VAAPI /
-  Vulkan Video, MediaCodec); until then those platforms send JPEG.
+- Routing: the plan is computed on every side from direct reports, not by one
+  planner over gossip; there is no backup parent, no per-hop budget, and no
+  hysteresis beyond the sticky uplink steps (a rendition switch costs a keyframe).
+  Uplink fitting (a weak publisher stepping its top rendition down) and
+  "active speaker" audio culling are not done.
+- Video: bitrate that follows the link, HEVC / AV1, and H.264 encode outside Apple
+  (Media Foundation, VAAPI / Vulkan Video, MediaCodec); until then those
+  platforms send JPEG.
 - Signed announcements on the meeting server; browser participants.
 
 ## What is on-device
