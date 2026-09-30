@@ -12,6 +12,8 @@
 - Report scripts/FB1_FEEDBACK_2026_09_30.md.
 - Follow-up: 8e56c4400 red on the parent's build (3/3) -> 43c226479 engine fix
   (`NodeCache::final_layout_current`: a memoised final layout only while its subtree holds what it wrote).
+- Round 3: 9b2939de8 (test: 0.02 px tolerance, GPU key ids normalised) + 5b51d6d79 (placeholder prompt
+  attributed to its own node on a patched display list).
 
 ## IN PROGRESS
 - (none)

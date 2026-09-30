@@ -20,7 +20,20 @@ claim marked "run" was run against the parent's prebuilt binaries (`target/relea
 | 8e56c4400 | test(layout): the resize fast path paints what a relayout paints - AzMeet's lobby and statistics |
 | ba8f50102 | docs(fb1): report and progress |
 | 43c226479 | fix(layout): a memoised final layout is served only while its subtree holds what it wrote (the ENGINE fix for items 1 and 2; RED = 8e56c4400) |
-| (last) | docs(fb1): report + progress (follow-up) |
+| 293d7d4b7 | docs(fb1): report + progress (follow-up) |
+| 9b2939de8 | test(layout): the fast-path comparison tolerates float noise (0.02 px) and GPU key ids, nothing else |
+| 5b51d6d79 | fix(layout): a placeholder prompt is attributed to its own node on a patched display list |
+| (last) | docs(fb1): report + progress (round 3) |
+
+Round 3 (after 43c226479 fixed the widths): the lobby's item 41, the join field's placeholder
+prompt, was attributed to NodeId(2) on the fast path vs NodeId(20) (its value `<p>`) on a
+relayout. `maybe_paint_placeholder_prompt` pushed its runs under whatever
+`DisplayListBuilder::current_node` was left; on a patched build the node's background run is
+spliced (`try_copy_cached_run` restores the node current before it - the centring div, re-emitted
+because it resized), so the prompt inherited the wrong owner. It now names its own node
+(5b51d6d79). The other two differences were the test's: glyph float noise (53.29 vs 53.28) and
+GPU key allocation ids (the fast path keeps its keys) - now 0.02 px tolerance and key ids
+normalised, owners / words / colours still exact (9b2939de8).
 
 ## Item 3 - AzCalendar buttons in light / dark: ROOT CAUSE IN THE APP (fixed)
 
