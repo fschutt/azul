@@ -101,26 +101,60 @@ const DISMISSING_PRESS: std::time::Duration = std::time::Duration::from_millis(2
 /// The `id` of the week's scroll area.
 const WEEK_SCROLL_ID: &str = "week-scroll";
 
+// Light and dark: the page follows the mode the window is in, like the widgets on it (a
+// Button, a TextInput, a DatePicker paint the desktop's palette of that mode). Surfaces, text
+// and rules are `system:` colours, resolved in whichever mode the window is in: the chrome (the
+// page, the toolbar and the title row above it, the footer, the side sheet, the popover) is
+// `system:window-background`, the week's days are `system:control-background`, text is
+// `system:text` / `system:secondary-text`, rules are `system:separator`. The few colours of the
+// app's own (the accent tints of events and the draft, the notice, the error red) carry a dark
+// twin under `@media (prefers-color-scheme: dark)`.
 const BODY: &str = "display: flex; flex-direction: column; height: 100%; margin: 0; font-family: \
-                    sans-serif; font-size: 14px; color: #1d2330; background: #f4f5f8;";
+                    sans-serif; font-size: 14px; color: system:text; background: \
+                    system:window-background;";
 const TOOLBAR: &str = "display: flex; flex-direction: row; align-items: center; padding: 10px \
-                       16px; background: #ffffff; border-bottom: 1px solid #d9dce3;";
-const NOTICE: &str = "padding: 6px 16px; font-size: 13px; color: #2c4a7a; background: #e6eefc;";
-const FOOTER: &str = "padding: 4px 16px; font-size: 12px; color: #6b7385; background: #ffffff; \
-                      border-top: 1px solid #d9dce3;";
-const LINE: &str = "#d9dce3";
-const LABEL: &str = "font-size: 12px; color: #4a5468; margin-top: 12px; margin-bottom: 4px;";
+                       16px; background: system:window-background; border-bottom: 1px solid \
+                       system:separator;";
+const NOTICE: &str = "padding: 6px 16px; font-size: 13px; color: #2c4a7a; background: #e6eefc; \
+                      @media (prefers-color-scheme: dark) { color: #c4d7ff; background: \
+                      #1f2d45; }";
+const FOOTER: &str = "padding: 4px 16px; font-size: 12px; color: system:secondary-text; \
+                      background: system:window-background; border-top: 1px solid \
+                      system:separator;";
+const LINE: &str = "system:separator";
+const LABEL: &str = "font-size: 12px; color: system:secondary-text; margin-top: 12px; \
+                     margin-bottom: 4px;";
+/// A day's surface; today's is tinted with the accent.
+const DAY_PAINT: &str = "background: system:control-background;";
+const TODAY_PAINT: &str =
+    "background: #f7faff; @media (prefers-color-scheme: dark) { background: #1b2433; }";
+/// An event's box: a pale accent tint with an accent edge (a deep tint in dark mode).
+const EVENT_PAINT: &str = "background: #dbe7ff; border-left: 3px solid #2f6db0; @media \
+                           (prefers-color-scheme: dark) { background: #233a5e; border-left: 3px \
+                           solid #6ea8ff; }";
+/// The draft's box: paler than an event, with a dashed accent edge.
+const DRAFT_PAINT: &str = "background: #eef4ff; border: 2px dashed #2f6db0; @media \
+                           (prefers-color-scheme: dark) { background: #1a2c4d; border: 2px dashed \
+                           #6ea8ff; }";
+/// The draft's title, in the accent.
+const DRAFT_TITLE: &str =
+    "font-weight: bold; color: #2f6db0; @media (prefers-color-scheme: dark) { color: #8dbbff; }";
+/// Secondary lines: an event's time, what a form line means.
+const SECONDARY: &str = "color: system:secondary-text;";
+/// A form's error line.
+const ERROR: &str = "font-size: 13px; color: #b3261e; margin-top: 12px; @media \
+                     (prefers-color-scheme: dark) { color: #f2b8b5; }";
 /// A block's title: one line, cut with an ellipsis at the block's edge.
 const CLIPPED_TITLE: &str = "font-weight: bold; white-space: nowrap; overflow: hidden; \
                              text-overflow: ellipsis;";
 /// A block's other lines, the same way.
-const CLIPPED_LINE: &str = "color: #4a5468; white-space: nowrap; overflow: hidden; \
+const CLIPPED_LINE: &str = "color: system:secondary-text; white-space: nowrap; overflow: hidden; \
                             text-overflow: ellipsis;";
 /// The popover's card: the whole of its window.
 const POPOVER: &str = "display: flex; flex-direction: column; width: 320px; padding: 16px; \
-                       box-sizing: border-box; background: #ffffff; border: 1px solid #c9cdd6; \
-                       border-radius: 8px; font-family: sans-serif; font-size: 14px; color: \
-                       #1d2330;";
+                       box-sizing: border-box; background: system:window-background; border: 1px \
+                       solid system:separator; border-radius: 8px; font-family: sans-serif; \
+                       font-size: 14px; color: system:text;";
 
 /// The app.
 struct CalState {
@@ -438,13 +472,12 @@ fn view_of(s: &CalState) -> View {
 }
 
 /// The window's title row, drawn by azul (the window is `NoTitle`, so macOS
-/// draws only the traffic lights): white like the toolbar below it and with no
-/// line of its own, so the two read as one bar.
+/// draws only the traffic lights): no fill of its own, so the page's
+/// `system:window-background` shows through - the toolbar's surface, in light
+/// and in dark - and no line of its own, so the two read as one bar. The
+/// title's default ink has a dark twin.
 fn title_row() -> Dom {
-    Titlebar::create("AzCalendar")
-        .with_background(ColorU::rgb(0xff, 0xff, 0xff))
-        .without_border_bottom()
-        .dom()
+    Titlebar::create("AzCalendar").without_border_bottom().dom()
 }
 
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
@@ -521,7 +554,7 @@ fn week_grid(view: &View, data: &RefAny) -> Dom {
     let hour = view.hour_px;
     let mut header = Dom::create_div()
         .with_css(format!(
-            "display: flex; flex-direction: row; flex-shrink: 0; background: #ffffff; \
+            "display: flex; flex-direction: row; flex-shrink: 0; {DAY_PAINT} \
              border-bottom: 1px solid {LINE};"
         ))
         .with_child(Dom::create_div().with_css(gutter.as_str()));
@@ -530,7 +563,7 @@ fn week_grid(view: &View, data: &RefAny) -> Dom {
         hours.add_child(
             Dom::create_div()
                 .with_css(format!(
-                    "height: {hour:.3}px; padding-right: 6px; font-size: 11px; color: #6b7385; \
+                    "height: {hour:.3}px; padding-right: 6px; font-size: 11px; {SECONDARY} \
                      text-align: right; box-sizing: border-box;"
                 ))
                 .with_child(Dom::create_span_with_text(week::hour_label(h))),
@@ -585,7 +618,7 @@ fn week_grid(view: &View, data: &RefAny) -> Dom {
 
 fn day_header(day: &DayView) -> Dom {
     let colour = if day.today {
-        "color: #2f6db0; font-weight: bold;"
+        "color: system:accent; font-weight: bold;"
     } else {
         ""
     };
@@ -607,7 +640,7 @@ fn day_column(
     data: &RefAny,
 ) -> Dom {
     let hour = view.hour_px;
-    let background = if day.today { "#f7faff" } else { "#ffffff" };
+    let paint = if day.today { TODAY_PAINT } else { DAY_PAINT };
     let target = RefAny::new(DayRef {
         app: data.clone(),
         day: index,
@@ -616,7 +649,7 @@ fn day_column(
         .with_id(format!("day-{index}"))
         .with_css(format!(
             "position: relative; flex-grow: 1; flex-basis: 0px; height: {:.3}px; border-left: \
-             1px solid {LINE}; background: {background};",
+             1px solid {LINE}; {paint}",
             week::day_height(hour)
         ))
         .with_callback(
@@ -636,7 +669,7 @@ fn day_column(
         );
     for _ in 0..24 {
         column.add_child(Dom::create_div().with_css(format!(
-            "height: {hour:.3}px; border-top: 1px solid #e8eaf0; box-sizing: border-box;"
+            "height: {hour:.3}px; border-top: 1px solid {LINE}; box-sizing: border-box;"
         )));
     }
     for block in &day.blocks {
@@ -665,8 +698,8 @@ fn event_block(block: &BlockView, hour_px: f32, data: &RefAny) -> Dom {
         .with_css(format!(
             "position: absolute; top: {top:.3}px; left: {left:.3}%; width: {width:.3}%; height: \
              {height:.3}px; box-sizing: border-box; display: flex; flex-direction: column; \
-             padding: 3px 6px; background: #dbe7ff; border-left: 3px solid #2f6db0; \
-             border-radius: 4px; font-size: 12px; overflow: hidden;"
+             padding: 3px 6px; {EVENT_PAINT} border-radius: 4px; font-size: 12px; \
+             overflow: hidden;"
         ))
         .with_child(Dom::create_span_with_text(block.title.as_str()).with_css(CLIPPED_TITLE))
         .with_child(Dom::create_span_with_text(block.time.as_str()).with_css(CLIPPED_LINE));
@@ -713,8 +746,7 @@ fn draft_block(draft: &DraftView, view: &View, data: &RefAny) -> Dom {
         .with_css(format!(
             "position: absolute; top: {top:.3}px; left: 0px; width: 100%; height: \
              {height:.3}px; box-sizing: border-box; display: flex; flex-direction: column; \
-             padding: 3px 6px; background: #eef4ff; border: 2px dashed #2f6db0; border-radius: \
-             4px; font-size: 12px;"
+             padding: 3px 6px; {DRAFT_PAINT} border-radius: 4px; font-size: 12px;"
         ))
         .with_child(
             // The text is clipped in a box of its own: the popover is the draft's child too.
@@ -725,7 +757,7 @@ fn draft_block(draft: &DraftView, view: &View, data: &RefAny) -> Dom {
                 )
                 .with_child(
                     Dom::create_span_with_text(title)
-                        .with_css(format!("{CLIPPED_TITLE} color: #2f6db0;")),
+                        .with_css(format!("{CLIPPED_TITLE} {DRAFT_TITLE}")),
                 )
                 .with_child(Dom::create_span_with_text(time).with_css(CLIPPED_LINE)),
         );
@@ -777,14 +809,11 @@ fn popover_panel(form: &FormView, data: &RefAny) -> Dom {
         .with_child(
             Dom::create_span_with_text(week::draft_label(form.date, form.start, form.end))
                 .with_id("draft-when")
-                .with_css("font-size: 13px; color: #4a5468; margin-top: 10px;"),
+                .with_css("font-size: 13px; color: system:secondary-text; margin-top: 10px;"),
         )
         .with_child(meet_toggle(form, data));
     if !form.error.is_empty() {
-        panel.add_child(
-            Dom::create_span_with_text(form.error.as_str())
-                .with_css("font-size: 13px; color: #b3261e; margin-top: 12px;"),
-        );
+        panel.add_child(Dom::create_span_with_text(form.error.as_str()).with_css(ERROR));
     }
     panel.with_child(
         Dom::create_div()
@@ -832,7 +861,7 @@ fn meet_toggle(form: &FormView, data: &RefAny) -> Dom {
     if form.add_meet {
         part.add_child(
             Dom::create_span_with_text(WILL_MINT)
-                .with_css("font-size: 12px; color: #4a5468; margin-top: 4px;"),
+                .with_css("font-size: 12px; color: system:secondary-text; margin-top: 4px;"),
         );
     }
     part
@@ -844,7 +873,8 @@ fn form_panel(form: &FormView, data: &RefAny) -> Dom {
     let mut panel = Dom::create_div()
         .with_css(format!(
             "width: 340px; flex-shrink: 0; display: flex; flex-direction: column; padding: 16px; \
-             background: #ffffff; border-left: 1px solid {LINE}; overflow-y: auto;"
+             background: system:window-background; border-left: 1px solid {LINE}; overflow-y: \
+             auto;"
         ))
         .with_child(
             Dom::create_span_with_text("Create an event")
@@ -875,10 +905,7 @@ fn form_panel(form: &FormView, data: &RefAny) -> Dom {
         .with_child(time_picker(form.end, data, on_end))
         .with_child(meet_toggle(form, data));
     if !form.error.is_empty() {
-        panel.add_child(
-            Dom::create_span_with_text(form.error.as_str())
-                .with_css("font-size: 13px; color: #b3261e; margin-top: 12px;"),
-        );
+        panel.add_child(Dom::create_span_with_text(form.error.as_str()).with_css(ERROR));
     }
     panel.with_child(
         Dom::create_div()
@@ -1870,7 +1897,7 @@ fn settings_panel(settings: &SettingsView, data: &RefAny) -> Dom {
     let label = |text: &str| Dom::create_span_with_text(text).with_css(LABEL);
     let note = |text: &str| {
         Dom::create_span_with_text(text)
-            .with_css("font-size: 12px; color: #4a5468; margin-top: 6px;")
+            .with_css("font-size: 12px; color: system:secondary-text; margin-top: 6px;")
     };
     let status = match (settings.pending, settings.sync_error.is_empty()) {
         (0, _) => String::from("Every meeting link is on the meeting server."),
@@ -1882,7 +1909,7 @@ fn settings_panel(settings: &SettingsView, data: &RefAny) -> Dom {
     let mut panel = Dom::create_div()
         .with_css(format!(
             "width: 340px; flex-shrink: 0; display: flex; flex-direction: column; padding: 16px; \
-             background: #ffffff; border-left: 1px solid {LINE}; overflow-y: auto;"
+             background: system:window-background; border-left: 1px solid {LINE}; overflow-y: auto;"
         ))
         .with_child(
             Dom::create_span_with_text("Settings").with_css("font-size: 18px; font-weight: bold;"),
@@ -1904,7 +1931,7 @@ fn settings_panel(settings: &SettingsView, data: &RefAny) -> Dom {
     if !settings.error.is_empty() {
         panel.add_child(
             Dom::create_span_with_text(settings.error.as_str())
-                .with_css("font-size: 13px; color: #b3261e; margin-top: 12px;"),
+                .with_css(ERROR),
         );
     }
     panel.with_child(
@@ -2133,5 +2160,36 @@ mod mode_tests {
                  (a `system:` colour): {css}"
             );
         }
+    }
+
+    /// A colour of the app's own (an accent tint, the notice, the error red) is chosen for a
+    /// light page; each carries the twin it takes on a dark one.
+    #[test]
+    fn every_colour_of_the_apps_own_has_a_dark_twin() {
+        for (name, css) in [
+            ("NOTICE", NOTICE),
+            ("TODAY_PAINT", TODAY_PAINT),
+            ("EVENT_PAINT", EVENT_PAINT),
+            ("DRAFT_PAINT", DRAFT_PAINT),
+            ("DRAFT_TITLE", DRAFT_TITLE),
+            ("ERROR", ERROR),
+        ] {
+            assert!(
+                !fixed_colours(css).is_empty(),
+                "{name} names a colour of its own: {css}"
+            );
+            assert!(
+                css.contains("@media (prefers-color-scheme: dark) {"),
+                "{name} has no dark twin: {css}"
+            );
+        }
+        assert!(
+            fixed_colours(DAY_PAINT).is_empty(),
+            "a day is the desktop's surface"
+        );
+        assert!(
+            fixed_colours(SECONDARY).is_empty(),
+            "secondary ink is the desktop's"
+        );
     }
 }
