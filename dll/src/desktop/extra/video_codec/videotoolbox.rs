@@ -1082,4 +1082,91 @@ mod vt_tests {
             decoded
         );
     }
+
+    /// A 320x240 NV12 frame: a luma ramp moving with `f`, neutral chroma.
+    fn nv12_frame(f: u32, w: u32, h: u32) -> VideoFrame {
+        use azul_core::resources::{Nv12Layout, RawImageFormat};
+        let layout = Nv12Layout::new(w as usize, h as usize);
+        let mut bytes = Vec::with_capacity(layout.checked_total_len().expect("small"));
+        for i in 0..layout.y_len() {
+            bytes.push(((i as u32 + f * 7) % 219 + 16) as u8);
+        }
+        bytes.resize(bytes.len() + layout.uv_len(), 128);
+        VideoFrame::with_format(w, h, U8Vec::from_vec(bytes), RawImageFormat::NV12Rec709Video)
+    }
+
+    /// NV12 end to end: the camera's frame goes into the encoder without a
+    /// conversion (a pooled '420v' buffer), and the decoder hands NV12 back
+    /// for a YUV tile.
+    #[test]
+    fn an_nv12_frame_encodes_without_a_conversion_and_decodes_back_as_nv12() {
+        use azul_core::resources::RawImageFormat;
+        if VtLib::get().is_none() {
+            eprintln!("VideoToolbox unavailable — skipping");
+            return;
+        }
+        let (w, h) = (320u32, 240u32);
+        let mut enc = VtEncoder::open(w, h, 800).expect("encoder open");
+        let mut dec = VtDecoder::open_h264().expect("decoder open");
+        dec.set_output_format(RawImageFormat::NV12Rec709Video);
+        let mut decoded = Vec::new();
+        for f in 0..30u32 {
+            let chunk = enc.encode(&nv12_frame(f, w, h), f == 0);
+            if !chunk.is_empty() {
+                decoded.extend(dec.decode(&chunk));
+            }
+        }
+        decoded.extend(dec.flush());
+        assert!(decoded.len() >= 20, "{} frames decoded", decoded.len());
+        for frame in &decoded {
+            assert!(frame.format.is_nv12(), "decoded as {:?}", frame.format);
+            assert_eq!((frame.width, frame.height), (w, h));
+            assert_eq!(Some(frame.bytes.as_ref().len()), frame.expected_len());
+        }
+    }
+
+    /// The decoder scales in hardware to the size the tile needs, so a
+    /// 720p stream in a 300x200 tile never reaches the CPU at 720p.
+    #[test]
+    fn the_decoder_hands_frames_out_at_the_asked_size() {
+        use azul_core::resources::RawImageFormat;
+        if VtLib::get().is_none() {
+            eprintln!("VideoToolbox unavailable — skipping");
+            return;
+        }
+        let (w, h) = (320u32, 240u32);
+        let mut enc = VtEncoder::open(w, h, 800).expect("encoder open");
+        let mut dec = VtDecoder::open_h264().expect("decoder open");
+        dec.set_output_format(RawImageFormat::NV12Rec709Video);
+        dec.set_output_size(160, 120);
+        let mut sizes = Vec::new();
+        for f in 0..10u32 {
+            let chunk = enc.encode(&nv12_frame(f, w, h), f == 0);
+            if !chunk.is_empty() {
+                sizes.extend(dec.decode(&chunk).iter().map(|fr| (fr.width, fr.height)));
+            }
+        }
+        assert!(!sizes.is_empty());
+        assert!(sizes.iter().all(|s| *s == (160, 120)), "{sizes:?}");
+    }
+
+    /// Encode runs in hardware with the realtime, no-reordering settings,
+    /// and says what it got (the log line AzMeet's report quotes).
+    #[test]
+    fn the_encoder_says_it_runs_in_hardware_in_realtime() {
+        if VtLib::get().is_none() {
+            eprintln!("VideoToolbox unavailable — skipping");
+            return;
+        }
+        let enc = VtEncoder::open(640, 360, 800).expect("encoder open");
+        let settings = enc.settings();
+        eprintln!("VideoToolbox encoder settings: {settings:?}");
+        assert!(settings.realtime);
+        assert!(!settings.frame_reordering);
+        assert_ne!(
+            settings.hardware,
+            Some(false),
+            "a software H.264 encoder on this Mac"
+        );
+    }
 }
