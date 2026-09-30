@@ -66,6 +66,34 @@ pub struct MethodDef {
     pub is_public: bool,
 }
 
+impl MethodDef {
+    /// The signature as the console shows it: the receiver, every argument
+    /// with its reference kind, the return type -
+    /// `(&mut self, host: DomNodeId, format: &TextFormat) -> ()`. The
+    /// summaries of `autofix add`, `discover` and `debug api` all print this;
+    /// they used to show the receiver alone, which read as "the tool dropped
+    /// the arguments" although the patch it generated carried them.
+    pub fn signature(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        match self.self_kind {
+            None => {}
+            Some(SelfKind::Value) => parts.push("self".to_string()),
+            Some(SelfKind::Ref) => parts.push("&self".to_string()),
+            Some(SelfKind::RefMut) => parts.push("&mut self".to_string()),
+        }
+        for arg in &self.args {
+            parts.push(format!("{}: {}{}", arg.name, arg.ref_kind.as_prefix(), arg.ty));
+        }
+        let ret = self.return_type.as_deref().unwrap_or("()");
+        format!(
+            "({}) -> {}{}",
+            parts.join(", "),
+            self.return_ref_kind.as_prefix(),
+            ret
+        )
+    }
+}
+
 /// A type definition discovered from parsing source files.
 /// This is NOT created for `use` re-exports - only actual definitions.
 #[derive(Debug, Clone)]

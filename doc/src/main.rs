@@ -647,17 +647,7 @@ fn main() -> anyhow::Result<()> {
                 for type_def in type_defs {
                     for method in &type_def.methods {
                         if method.is_public {
-                            let self_str = match &method.self_kind {
-                                None => "static",
-                                Some(autofix::type_index::SelfKind::Value) => "self",
-                                Some(autofix::type_index::SelfKind::Ref) => "&self",
-                                Some(autofix::type_index::SelfKind::RefMut) => "&mut self",
-                            };
-                            let ret_str = method.return_type.as_deref().unwrap_or("()");
-                            println!(
-                                "{}.{} ({}) -> {}",
-                                type_name, method.name, self_str, ret_str
-                            );
+                            println!("{}.{} {}", type_name, method.name, method.signature());
                         }
                     }
                 }
@@ -684,17 +674,7 @@ fn main() -> anyhow::Result<()> {
                 for type_def in type_defs {
                     for method in &type_def.methods {
                         if method.is_public {
-                            let self_str = match &method.self_kind {
-                                None => "static",
-                                Some(autofix::type_index::SelfKind::Value) => "self",
-                                Some(autofix::type_index::SelfKind::Ref) => "&self",
-                                Some(autofix::type_index::SelfKind::RefMut) => "&mut self",
-                            };
-                            let ret_str = method.return_type.as_deref().unwrap_or("()");
-                            println!(
-                                "{}.{} ({}) -> {}",
-                                type_name, method.name, self_str, ret_str
-                            );
+                            println!("{}.{} {}", type_name, method.name, method.signature());
                         }
                     }
                 }
@@ -1151,19 +1131,12 @@ fn main() -> anyhow::Result<()> {
 
             // Show what will be added
             for m in &methods {
-                let self_str = match &m.self_kind {
-                    None => "static",
-                    Some(autofix::type_index::SelfKind::Value) => "self",
-                    Some(autofix::type_index::SelfKind::Ref) => "&self",
-                    Some(autofix::type_index::SelfKind::RefMut) => "&mut self",
-                };
-                let ret_str = m.return_type.as_deref().unwrap_or("()");
                 let ctor_str = if m.is_constructor {
                     " [constructor]"
                 } else {
                     ""
                 };
-                println!("  + fn {}({}) -> {}{}", m.name, self_str, ret_str, ctor_str);
+                println!("  + fn {}{}{}", m.name, m.signature(), ctor_str);
             }
 
             // Generate the patch
