@@ -147766,28 +147766,16 @@
                         "struct_fields": [
                             {
                                 "connected": {
-                                    "type": "bool",
-                                    "doc": [
-                                        "Whether the connection is still open."
-                                    ]
+                                    "type": "bool"
                                 },
                                 "direct": {
-                                    "type": "bool",
-                                    "doc": [
-                                        "Whether traffic flows over a direct UDP path rather than a relay."
-                                    ]
+                                    "type": "bool"
                                 },
                                 "rtt_us": {
-                                    "type": "u64",
-                                    "doc": [
-                                        "Smoothed round-trip time of the selected path, in microseconds."
-                                    ]
+                                    "type": "u64"
                                 },
                                 "cwnd_bytes": {
-                                    "type": "u64",
-                                    "doc": [
-                                        "Congestion window of the selected path, in bytes."
-                                    ]
+                                    "type": "u64"
                                 },
                                 "bytes_sent": {
                                     "type": "u64"
@@ -147805,10 +147793,13 @@
                                     "type": "u64"
                                 },
                                 "frames_skipped": {
-                                    "type": "u64",
-                                    "doc": [
-                                        "Outbound frames replaced by a newer frame of the same track before they left."
-                                    ]
+                                    "type": "u64"
+                                },
+                                "messages_queued": {
+                                    "type": "u64"
+                                },
+                                "message_bytes_queued": {
+                                    "type": "u64"
                                 }
                             }
                         ],
@@ -148081,6 +148072,43 @@
                                     }
                                 ],
                                 "fn_body": "object.close()"
+                            },
+                            "set_track_priority": {
+                                "doc": [
+                                    "Sends the frames of `track`, to every peer, at `priority` from the next frame on. Higher goes first when the link cannot carry everything; frames start at 0, messages at 1, so an audio track set to 2 outranks video sent as messages. False when not bound."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "track": "u32"
+                                    },
+                                    {
+                                        "priority": "i32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.set_track_priority(track, priority)"
+                            },
+                            "set_message_priority": {
+                                "doc": [
+                                    "Sends messages, to every peer, at `priority` from the next message on (default 1, above frames at 0). False when not bound."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "priority": "i32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.set_message_priority(priority)"
                             }
                         },
                         "repr": "C"
