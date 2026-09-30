@@ -2664,6 +2664,12 @@ mod touch_session_tests {
     /// so they express time in the same unit the thresholds use.
     /// `duration_to_millis_*` still pins the conversion itself.
     fn ts(n: u64) -> CoreInstant {
+        ts_us(n * 1000)
+    }
+
+    /// A timestamp `n` MICROSECONDS from the origin - frame spacing at a
+    /// refresh rate that is not a whole number of milliseconds.
+    fn ts_us(n: u64) -> CoreInstant {
         // `Instant::System` wraps a real std Instant, so "n ms from the origin"
         // needs a STABLE origin — a fresh `now()` per call would make ts(0) and
         // ts(20) differ by however long the test took, not by 20 ms. One
@@ -2671,7 +2677,41 @@ mod touch_session_tests {
         use std::sync::OnceLock;
         static BASE: OnceLock<std::time::Instant> = OnceLock::new();
         let base = *BASE.get_or_init(std::time::Instant::now);
-        (base + core::time::Duration::from_millis(n)).into()
+        (base + core::time::Duration::from_micros(n)).into()
+    }
+
+    /// USER RULING 2026-09-30 ("ready for 120fps"): gesture thresholds are
+    /// TIME, never frames. A motionless hold sampled once per frame becomes a
+    /// long press on the first frame at or past the 500 ms threshold, at
+    /// 60 Hz and at 120 Hz alike.
+    #[test]
+    fn a_long_press_takes_the_same_milliseconds_at_60_and_120_hz() {
+        let first_long_press_at_us = |frame_us: u64| -> Option<u64> {
+            let mut m = GestureAndDragManager::new();
+            let at = pos(10.0, 10.0);
+            m.start_input_session(at, ts_us(0), 0x01, WindowPosition::Uninitialized, at);
+            let mut t_us = 0;
+            while t_us < 2_000_000 {
+                t_us += frame_us;
+                let _ = m.record_hold_sample(ts_us(t_us));
+                if m.detect_long_press().is_some() {
+                    return Some(t_us);
+                }
+            }
+            None
+        };
+        let threshold_us = GestureAndDragManager::new()
+            .config
+            .long_press_time_threshold_ms
+            * 1000;
+        for frame_us in [16_667, 8_333] {
+            let at = first_long_press_at_us(frame_us);
+            assert!(
+                at.is_some_and(|t| t >= threshold_us && t < threshold_us + frame_us + 1000),
+                "a hold sampled every {frame_us} us became a long press at {at:?} us; the \
+                 threshold is {threshold_us} us whatever the frame rate"
+            );
+        }
     }
 
     fn pos(x: f32, y: f32) -> LogicalPosition {

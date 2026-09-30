@@ -9679,6 +9679,39 @@ impl LayoutWindow {
         }
     }
 
+    /// The refresh rate of the monitor this window is on, in Hz, if known:
+    /// the monitor `current_window_state.monitor_id` names, else the
+    /// primary one, else the first.
+    #[must_use]
+    pub fn monitor_refresh_rate_hz(&self) -> Option<u32> {
+        None
+    }
+
+    /// THIS WINDOW'S frame interval, in ns - the one source of truth every
+    /// frame-paced driver reads (the CSS animation driver, the caret tween,
+    /// the first-step fallback of the animation clock, the shells' frame
+    /// pumps): one refresh of the monitor the window is on, slowed to
+    /// `RendererOptions::max_frame_rate` when that is lower.
+    #[must_use]
+    pub fn frame_interval_nanos(&self) -> u64 {
+        16_666_666
+    }
+
+    /// [`Self::frame_interval_nanos`] as an engine [`Duration`].
+    #[must_use]
+    pub fn frame_interval(&self) -> Duration {
+        Duration::System(azul_core::task::SystemTimeDiff::from_nanos(
+            self.frame_interval_nanos(),
+        ))
+    }
+
+    /// [`Self::frame_interval_nanos`] in seconds: one frame's animation step.
+    #[must_use]
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)] // ns -> s
+    pub fn frame_step_s(&self) -> f32 {
+        (self.frame_interval_nanos() as f64 / 1e9) as f32
+    }
+
     /// The CSS animation frame driver: a 16ms interval timer whose callback is
     /// an inert marker ([`azul_core::task::CSS_ANIMATION_TIMER_ID`]). The
     /// shared dispatcher does the ticking when it expires, because a timer

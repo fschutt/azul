@@ -4178,6 +4178,7 @@ fn renderer(hw_accel: HwAcceleration) -> OptionRendererOptions {
         vsync: Vsync::Enabled,
         srgb: Srgb::DontCare,
         hw_accel,
+        ..RendererOptions::default()
     })
 }
 

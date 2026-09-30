@@ -632,3 +632,5 @@ mod a_receipts_price_column_sits_beside_its_labels_under_a_full_width_rule;
 mod a_heading_and_paragraph_in_an_indented_table_cell_paint_their_text;
 #[path = "quote_bars_from_one_gradient_paint_each_colour_at_its_length.rs"]
 mod quote_bars_from_one_gradient_paint_each_colour_at_its_length;
+#[path = "a_window_paces_at_its_monitors_refresh_rate.rs"]
+mod a_window_paces_at_its_monitors_refresh_rate;

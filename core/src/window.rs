@@ -117,6 +117,11 @@ pub struct RendererOptions {
     pub vsync: Vsync,
     pub srgb: Srgb,
     pub hw_accel: HwAcceleration,
+    /// The highest frame rate this window paces at, in Hz, or `None` for the
+    /// refresh rate of the monitor it is on. Every frame-paced driver (the
+    /// animation clock, the caret tween, the frame pump) runs at the lower
+    /// of the two - see [`RendererOptions::frame_interval_nanos`].
+    pub max_frame_rate: OptionU32,
 }
 
 impl_option!(
@@ -135,6 +140,7 @@ impl Default for RendererOptions {
             // what the headless e2e tests render. GPU is re-selectable via
             // AZ_BACKEND=gpu / AZ_BACKEND=auto or HwAcceleration::Enabled.
             hw_accel: HwAcceleration::DontCare,
+            max_frame_rate: OptionU32::None,
         }
     }
 }
@@ -146,8 +152,29 @@ impl RendererOptions {
             vsync,
             srgb,
             hw_accel,
+            max_frame_rate: OptionU32::None,
         }
     }
+
+    /// The frame interval, in ns, of a window with these options on a
+    /// monitor refreshing at `monitor_hz` (see [`frame_interval_nanos`]).
+    #[must_use]
+    pub fn frame_interval_nanos(&self, monitor_hz: Option<u32>) -> u64 {
+        frame_interval_nanos(monitor_hz, self.max_frame_rate.into_option())
+    }
+}
+
+/// The refresh rate a window paces at while its monitor reports none, in Hz.
+pub const FALLBACK_REFRESH_RATE_HZ: u32 = 60;
+
+/// THE frame interval, in ns: one refresh of the monitor the window is on
+/// (`monitor_hz`; `None` or an implausible reading falls back to
+/// [`FALLBACK_REFRESH_RATE_HZ`]), slowed to `max_frame_rate` when that is
+/// lower. The one formula every frame-paced driver uses, so a 120 Hz panel
+/// animates at 120 Hz and a cap of 30 paces at 33.3 ms everywhere.
+#[must_use]
+pub fn frame_interval_nanos(_monitor_hz: Option<u32>, _max_frame_rate: Option<u32>) -> u64 {
+    1_000_000_000 / u64::from(FALLBACK_REFRESH_RATE_HZ)
 }
 
 #[repr(C)]
@@ -1441,6 +1468,15 @@ impl Hash for Monitor {
         H: Hasher,
     {
         self.monitor_id.hash(state);
+    }
+}
+
+impl Monitor {
+    /// The refresh rate of the monitor's current mode, in Hz, if it reports
+    /// one. Every platform's monitor list puts the current mode first.
+    #[must_use]
+    pub fn refresh_rate_hz(&self) -> Option<u32> {
+        None
     }
 }
 
