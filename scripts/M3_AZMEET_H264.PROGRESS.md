@@ -8,16 +8,20 @@ Branch `wt/m3-azmeet-h264` from `c1dbc55a1` (tip of `fix/input-bugs-2026-09-19`)
 - `2dda5629b` feat(azmeet): packet header, keyframe requests and send window for video
 - `07739df02` test(azmeet): two AzMeet processes see each other's video and recover from a lost packet (RED)
 - `d7174cbfc` feat(azmeet): H.264 video where an encoder works, keyframe requests on loss
+- `f6133079c` docs(guide): AzMeet video is H.264 with keyframe requests, JPEG where no encoder works
+- `aad5711dc` docs(m3): the M3 AzMeet H.264 report (`scripts/M3_AZMEET_H264_2026_09_29.md`)
 
 ## IN PROGRESS
 
-- Guide (realtime-media.md) commit, then the report.
+- none: the task is complete; the parent compiles and runs the suites (commands in the report).
 
 ## NEXT
 
-4. Guide + Cargo description, report `scripts/M3_AZMEET_H264_2026_09_29.md`.
+- (parent) `cargo test -p AzMeet --lib`; `node examples/azul-meet/scripts/two-clients.mjs --worker-dir
+  /Users/fschutt/Development/azul-apps-m1/cf-workers/meet --require-h264` on macOS.
+- Follow-ups are listed in the report ("What is left", "Recommended library follow-ups").
 
-## Findings so far
+## Findings
 
 - `send_message` is the reliable, ordered path (one uni stream per direction, priority 1 > frames' 0, unbounded
   queue). Frames are latest-wins at both ends AND each frame is its own stream, so a big keyframe loses the race
@@ -27,6 +31,7 @@ Branch `wt/m3-azmeet-h264` from `c1dbc55a1` (tip of `fix/input-bugs-2026-09-19`)
   watches (encoder: 8 frames without a packet; decoder: 30 packets without a frame).
 - VideoToolbox: synchronous encode (one Annex-B chunk per frame, SPS/PPS in-band ahead of IDRs),
   `force_keyframe` honoured (`kVTEncodeFrameOptionKey_ForceKeyFrame`), MaxKeyFrameInterval 60, no B-frames.
+- Gap detection is on `seq` (consecutive per codec and track), not `frame_no` (may jump); both are in the header.
 
 ## Open questions
 
