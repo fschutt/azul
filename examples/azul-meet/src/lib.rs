@@ -5,8 +5,18 @@
 //! that link. Either way the app announces its iroh ticket to the room every 20 seconds, reads
 //! everyone else's every 2 seconds, and dials the peers whose endpoint id is higher than its own.
 //! Every HTTP request runs on an azul `Thread` and resumes on the UI thread, so no callback waits
-//! on the network. Once connected, every captured frame is JPEG-encoded and sent to each peer as
-//! one QUIC stream, and each peer's frames are decoded into its own tiles.
+//! on the network.
+//!
+//! Video (see `video_wire.rs`): each captured camera or screen frame (320x180) goes through an
+//! H.264 `VideoEncoder` where one works (VideoToolbox on Apple; found out at start by encoding a
+//! test frame and decoding it back), else it is JPEG-encoded; the window says which ("Video:
+//! H.264 (VideoToolbox)" / "Video: JPEG (no encoder)"). H.264 packets go to every peer that
+//! decodes H.264 as reliable, ordered iroh messages, since a P-frame needs every packet since the
+//! last keyframe; JPEG frames go to the others on the latest-wins frame path. Each peer's tracks
+//! have their own `VideoDecoder`: after a missing packet it decodes nothing until the next
+//! keyframe and asks the sender for one, which the sender forces (at most twice a second, and
+//! every 3 seconds anyway, and for every new peer). A peer whose link falls 24 packets behind is
+//! paused and resumes at a keyframe.
 //!
 //! Audio (see `audio.rs`): the microphone's chunks are cut into 20 ms mono 16-bit PCM packets and
 //! sent on their own track, three packets to a frame (iroh frames are latest-wins, so a skipped
@@ -28,8 +38,13 @@
 //! - `AZMEET_RELAY`: `off`, `default` or a relay URL (default: off for a meeting server on this
 //!   machine, the public iroh relays otherwise).
 //! - `AZMEET_TEST_TONE=1`: a 440 Hz tone replaces the microphone, which starts unmuted.
-//! - `AZ_BACKEND=headless`: no audio device is opened: the microphone is the tone (muted until
-//!   switched on, unless `AZMEET_TEST_TONE=1`), and received audio is counted, not played.
+//! - `AZMEET_TEST_PATTERN=1`: moving colour bars replace the camera (and the screen share), the
+//!   camera starts on, and a "Drop a video packet" button drops the next packet before it leaves.
+//! - `AZMEET_VIDEO_CODEC=jpeg`: send JPEG even where H.264 works.
+//! - `AZ_BACKEND=headless`: no audio device, camera or screen is opened: the microphone is the
+//!   tone (muted until switched on, unless `AZMEET_TEST_TONE=1`), received audio is counted, not
+//!   played, and the camera and the screen share are test patterns (off until switched on, unless
+//!   `AZMEET_TEST_PATTERN=1`).
 
 mod audio;
 mod rooms;
@@ -51,7 +66,7 @@ use azul::{
     dom::{Callback, ClipboardContent, DomNodeId, NodeId},
     error::{HttpError, ResultRawImageDecodeImageError, ResultU8VecEncodeImageError},
     http::{HttpGetResult, HttpMethod, HttpRequestConfig},
-    image::{ImageRef, RawImage, RawImageData, RawImageFormat},
+    image::{ImageRef, RawImage, RawImageData, RawImageFormat, VideoDecoder, VideoEncoder},
     iroh::{IrohConfig, IrohEndpoint, IrohEvent, IrohEventKind, IrohRelayMode},
     json::{Json, JsonKeyValue},
     option::{OptionRendererOptions, OptionString},
@@ -62,15 +77,18 @@ use azul::{
     time::{Duration, SystemTimeDiff},
     url::Url,
     vec::{F32Vec, StyledTextRunVec, U8Vec, U8VecRef},
+    video::VideoFrame,
     widgets::{
         ButtonType, CameraWidget, ConsumerFrame, FrameConsumer, MicrophoneWidget,
         OnTextInputReturn, ProgressBar, ScreenCaptureWidget, TextInputState, TextInputValid,
     },
-    window::{HwAcceleration, Vsync},
+    window::{HwAcceleration, PlatformCapability, Vsync},
 };
 use rooms::{Dialed, PeerRecord, Relay, RoomKey};
+use video_wire::{Codec, Control, Message};
 
-const ALPN: &str = "azmeet/mjpeg/1";
+/// The protocol name: peers of an older wire format (M2's MJPEG frames) cannot connect.
+const ALPN: &str = "azmeet/2";
 const CAMERA_TRACK: u32 = 1;
 const SCREEN_TRACK: u32 = 2;
 /// The audio track: 20 ms PCM packets, three to a frame (`audio.rs`).
@@ -81,6 +99,10 @@ const TONE_HZ: f32 = 440.0;
 const FEED_W: u32 = 320;
 const FEED_H: u32 = 180;
 const JPEG_QUALITY: u8 = 75;
+/// The H.264 encoder's target bitrate for a 320x180 feed.
+const VIDEO_KBPS: u32 = 400;
+/// What the camera and the screen tracks are called in the window, by `track_slot`.
+const SOURCES: [&str; 2] = ["camera", "screen"];
 const PUMP_MS: u64 = 15;
 const STATS_EVERY_TICKS: u32 = 130;
 
@@ -109,6 +131,27 @@ struct Remote {
     tracks: [bool; 2],
     /// Muted and deafened, from the peer's last control message; `None` until the first.
     state: Option<audio::PeerState>,
+    /// Whether the peer decodes H.264, from its caps message; `None` until that arrives, and the
+    /// peer gets JPEG until then.
+    h264: Option<bool>,
+    /// How far this side ran ahead of the peer on each local video track (H.264), by `track_slot`.
+    sent: [video_wire::SendWindow; 2],
+    /// The peer's camera and screen tracks as they arrive, by `track_slot`.
+    received: [VideoIn; 2],
+}
+
+impl Remote {
+    fn new(handle: u64, node_id: String) -> Self {
+        Remote {
+            handle,
+            node_id,
+            tracks: [false; 2],
+            state: None,
+            h264: None,
+            sent: [video_wire::SendWindow::new(), video_wire::SendWindow::new()],
+            received: [VideoIn::new(), VideoIn::new()],
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -278,6 +321,22 @@ struct MeetState {
     playout: Option<Arc<Mutex<Playout>>>,
     /// Received audio may be played on a device (false in a headless run).
     play_audio: bool,
+    /// This participant's clock for the video rules (keyframe spacing, keyframe requests).
+    clock: std::time::Instant,
+    /// What this machine does with H.264 (`probe_video`); the encoder turns to `Err` when it stops
+    /// working.
+    video: VideoSupport,
+    /// The sending side of the camera and screen tracks, by `track_slot`.
+    video_out: [VideoOut; 2],
+    /// The camera and the screen share are test patterns (`AZMEET_TEST_PATTERN=1`, and every
+    /// headless run).
+    pattern_video: bool,
+    /// When each test pattern's next frame is due, by `track_slot`.
+    pattern_clocks: [video_wire::PatternClock; 2],
+    /// Shows the "Drop a video packet" button (`AZMEET_TEST_PATTERN=1`).
+    video_debug: bool,
+    /// The next video packet is dropped instead of sent (the button).
+    drop_next_video: bool,
 }
 
 impl MeetState {
@@ -308,6 +367,19 @@ impl MeetState {
             packetizer: audio::Packetizer::new(),
             playout: None,
             play_audio: true,
+            clock: std::time::Instant::now(),
+            video: VideoSupport {
+                encoder: Err(String::from("not probed")),
+                decodes_h264: false,
+            },
+            video_out: [VideoOut::new(), VideoOut::new()],
+            pattern_video: false,
+            pattern_clocks: [
+                video_wire::PatternClock::new(video_wire::PATTERN_FPS),
+                video_wire::PatternClock::new(video_wire::PATTERN_FPS),
+            ],
+            video_debug: false,
+            drop_next_video: false,
         }
     }
 }
@@ -480,6 +552,14 @@ struct LayoutSnapshot {
     audio_lines: Vec<String>,
     /// Audio packets sent since the start.
     packets_sent: u32,
+    /// "Video: H.264 (VideoToolbox)" or "Video: JPEG (no encoder)".
+    codec_line: String,
+    /// "Sending camera: ..." per local track, "Video from Ben (camera): ..." per peer track.
+    video_lines: Vec<String>,
+    /// The camera and the screen share are test patterns, so no capture widget is mounted.
+    pattern_video: bool,
+    /// Show the "Drop a video packet" button.
+    video_debug: bool,
 }
 
 fn short_id(id: &str) -> &str {
@@ -587,6 +667,10 @@ fn snapshot(s: &MeetState) -> LayoutSnapshot {
         tone_mic: s.tone_mic,
         audio_lines: audio_lines(s),
         packets_sent: s.packetizer.next_sequence(),
+        codec_line: codec_status(s),
+        video_lines: video_lines(s),
+        pattern_video: s.pattern_video,
+        video_debug: s.video_debug,
     }
 }
 
@@ -684,7 +768,7 @@ fn start_layout(view: &LayoutSnapshot, room: &RoomView, data: &RefAny) -> Dom {
 
 /// The call: header, invite link and people (in a room), tiles, controls, devices.
 fn call_layout(view: &LayoutSnapshot, data: &RefAny) -> Dom {
-    let self_tile = if view.cam {
+    let self_tile = if view.cam && !view.pattern_video {
         Dom::create_div().with_css(TILE).with_child(
             CameraWidget::create(CameraConfig::default())
                 .with_consumer(feed_consumer(CAMERA_TRACK))
@@ -692,10 +776,10 @@ fn call_layout(view: &LayoutSnapshot, data: &RefAny) -> Dom {
                 .dom()
                 .with_css("width: 100%; height: 100%;"),
         )
+    } else if view.cam {
+        participant("You · test pattern")
     } else {
-        Dom::create_div()
-            .with_css(TILE)
-            .with_child(Dom::create_span_with_text("You · camera off"))
+        participant("You · camera off")
     };
 
     let mut grid = Dom::create_div().with_css(
@@ -703,7 +787,9 @@ fn call_layout(view: &LayoutSnapshot, data: &RefAny) -> Dom {
          justify-content: center; padding: 12px;",
     );
     grid = grid.with_child(self_tile);
-    if view.screen {
+    if view.screen && view.pattern_video {
+        grid = grid.with_child(participant("Your screen · test pattern"));
+    } else if view.screen {
         grid = grid.with_child(
             Dom::create_div().with_css(TILE).with_child(
                 ScreenCaptureWidget::create(ScreenCaptureConfig::default())
@@ -764,15 +850,25 @@ fn call_layout(view: &LayoutSnapshot, data: &RefAny) -> Dom {
             data,
             screen_toggle,
         ));
+    if view.video_debug {
+        toolbar = toolbar.with_child(toolbar_button(
+            "Drop a video packet",
+            BTN,
+            data,
+            on_drop_video_packet,
+        ));
+    }
     if view.room.is_some() {
         toolbar = toolbar.with_child(toolbar_button("Leave", BTN_LEAVE, data, on_leave));
     }
 
     let link_line = if view.linked {
-        format!("{FEED_W}x{FEED_H} JPEG over iroh · {}", view.link_status)
+        format!("{FEED_W}x{FEED_H} over iroh · {}", view.link_status)
     } else {
         view.link_status.clone()
     };
+    let mut video_col = vec![view.codec_line.clone(), link_line];
+    video_col.extend(view.video_lines.iter().cloned());
     let devices_panel = Dom::create_div()
         .with_css(
             "display: flex; justify-content: center; padding: 10px 12px 16px 12px; background: \
@@ -780,7 +876,7 @@ fn call_layout(view: &LayoutSnapshot, data: &RefAny) -> Dom {
         )
         .with_child(device_col("Microphones", &view.mics))
         .with_child(device_col("Speakers", &view.speakers))
-        .with_child(device_col("Video link", &[link_line]))
+        .with_child(device_col("Video", &video_col))
         .with_child(device_col("Audio", &audio_col(view)));
 
     let mut body = Dom::create_body().with_css(
@@ -919,32 +1015,20 @@ extern "C" fn meter_unmounted(mut data: RefAny, _info: CallbackInfo) -> Update {
     Update::DoNothing
 }
 
+/// A frame the camera or the screen widget cut for its consumer: sent to every peer.
 extern "C" fn send_feed_frame(
     mut data: RefAny,
     _info: CallbackInfo,
     frame: ConsumerFrame,
 ) -> Update {
-    let track = frame.consumer.id;
-    if track_slot(track).is_none() {
-        return Update::DoNothing;
-    }
-    let Some(endpoint) = data
-        .downcast_ref::<MeetState>()
-        .filter(|s| !s.remotes.is_empty())
-        .and_then(|s| s.endpoint.clone())
-    else {
-        return Update::DoNothing;
-    };
-    let image = RawImage {
-        pixels: RawImageData::U8(frame.frame.bytes.clone()),
-        width: frame.frame.width as usize,
-        height: frame.frame.height as usize,
-        premultiplied_alpha: false,
-        data_format: RawImageFormat::RGBA8,
-        tag: U8Vec::create(),
-    };
-    if let ResultU8VecEncodeImageError::Ok(jpeg) = image.encode_jpeg(JPEG_QUALITY) {
-        endpoint.broadcast_frame(track, jpeg);
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        send_video(
+            &mut s,
+            frame.consumer.id,
+            frame.frame.width,
+            frame.frame.height,
+            &frame.frame.bytes,
+        );
     }
     Update::DoNothing
 }
@@ -979,14 +1063,15 @@ fn apply_link_event(s: &mut MeetState, event: &IrohEvent) -> bool {
             eprintln!("[azmeet] {}: connected to {}", s.name, short_id(&node_id));
             s.link_status = format!("connected to {}", short_id(&node_id));
             if !s.remotes.iter().any(|r| r.handle == event.peer) {
-                s.remotes.push(Remote {
-                    handle: event.peer,
-                    node_id,
-                    tracks: [false; 2],
-                    state: None,
-                });
+                s.remotes.push(Remote::new(event.peer, node_id));
             }
             send_state(s, &[event.peer]);
+            // What this side decodes; until the peer's answer arrives it gets JPEG.
+            send_message_to(
+                s,
+                &[event.peer],
+                &video_wire::encode_caps(s.video.decodes_h264),
+            );
             true
         }
         IrohEventKind::PeerDisconnected => {
@@ -1045,36 +1130,19 @@ fn accepts_peers(s: &MeetState) -> bool {
     })
 }
 
-fn show_remote_frame(data: &mut RefAny, info: &mut TimerCallbackInfo, frame: &IrohEvent) -> bool {
-    let Some(slot) = track_slot(frame.track) else {
-        return false;
+/// Shows `picture` in the tile of `track` of the peer behind connection `peer`, once that tile
+/// exists (it is laid out after the track's first packet).
+fn show_picture(info: &mut TimerCallbackInfo, peer: u64, track: u32, picture: RawImage) {
+    let Some(image) = ImageRef::create_rawimage(picture).into_option() else {
+        return;
     };
-    let Some(shown) = data.downcast_mut::<MeetState>().and_then(|mut s| {
-        let remote = s.remotes.iter_mut().find(|r| r.handle == frame.peer)?;
-        let shown = remote.tracks[slot];
-        remote.tracks[slot] = true;
-        Some(shown)
-    }) else {
-        return false;
-    };
-    if !shown {
-        return true;
-    }
-    let ResultRawImageDecodeImageError::Ok(decoded) =
-        RawImage::decode_image_bytes_any(U8VecRef::from(frame.data.as_ref()))
-    else {
-        return false;
-    };
-    let Some(image) = ImageRef::create_rawimage(decoded).into_option() else {
-        return false;
-    };
-    let marker = tile_marker(frame.peer, frame.track);
+    let marker = tile_marker(peer, track);
     let Some(node) = info
         .callback_info
         .get_node_id_by_marker(AzString::from(marker.as_str()))
         .into_option()
     else {
-        return false;
+        return;
     };
     let index = node.node.into_raw();
     if index > 0 {
@@ -1085,7 +1153,6 @@ fn show_remote_frame(data: &mut RefAny, info: &mut TimerCallbackInfo, frame: &Ir
             UpdateImageType::Content,
         );
     }
-    false
 }
 
 extern "C" fn pump_link(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
@@ -1096,20 +1163,43 @@ extern "C" fn pump_link(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
         return TimerCallbackReturn::continue_unchanged();
     };
     let mut refresh = false;
-    let mut frames = Vec::new();
+    // The newest picture of each (peer, track), shown once every event is taken in.
+    let mut pictures: BTreeMap<(u64, u32), RawImage> = BTreeMap::new();
     while let Some(event) = endpoint.recv().into_option() {
+        let Some(mut s) = data.downcast_mut::<MeetState>() else {
+            continue;
+        };
         if event.kind == IrohEventKind::Frame && event.track == AUDIO_TRACK {
-            if let Some(mut s) = data.downcast_mut::<MeetState>() {
-                receive_audio(&mut s, &event);
+            receive_audio(&mut s, &event);
+            continue;
+        }
+        let video = match event.kind {
+            IrohEventKind::Frame | IrohEventKind::Message => {
+                video_wire::decode_message(event.data.as_slice())
             }
-        } else if event.kind == IrohEventKind::Frame {
-            frames.push(event);
-        } else if let Some(mut s) = data.downcast_mut::<MeetState>() {
-            refresh |= apply_link_event(&mut s, &event);
+            _ => None,
+        };
+        match video {
+            Some(Message::Packet(header, payload)) => {
+                let (new_tile, picture) = receive_video(&mut s, event.peer, &header, payload);
+                refresh |= new_tile;
+                if let Some(picture) = picture {
+                    pictures.insert((event.peer, header.track), picture);
+                }
+            }
+            Some(Message::Control(control)) => {
+                refresh |= apply_video_control(&mut s, event.peer, control);
+            }
+            // A frame of no known track, or a malformed one.
+            None if event.kind == IrohEventKind::Frame => {}
+            None => refresh |= apply_link_event(&mut s, &event),
         }
     }
-    for frame in &frames {
-        refresh |= show_remote_frame(&mut data, &mut info, frame);
+    for ((peer, track), picture) in pictures {
+        show_picture(&mut info, peer, track, picture);
+    }
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        pump_pattern(&mut s);
     }
     pump_tone(&mut data, &mut info);
     if let Some(mut s) = data.downcast_mut::<MeetState>() {
@@ -1133,6 +1223,9 @@ extern "C" fn pump_link(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
                 .collect();
             s.link_status = lines.join("; ");
             eprintln!("[azmeet] {}: {}", s.name, s.link_status);
+            for line in video_log_lines(&s) {
+                eprintln!("[azmeet] {}: {line}", s.name);
+            }
             refresh = true;
         }
     }
@@ -1238,9 +1331,9 @@ fn playout_loop(shared: Weak<Mutex<Playout>>) {
     }
 }
 
-/// Whether this run may open audio devices: not under `AZ_BACKEND=headless`, where a test must
-/// never capture or play real audio.
-fn audio_devices_allowed() -> bool {
+/// Whether this run may open devices (microphone, speakers, camera, screen): not under
+/// `AZ_BACKEND=headless`, where a test must never capture or play anything real.
+fn devices_allowed() -> bool {
     std::env::var("AZ_BACKEND").map_or(true, |backend| {
         !backend.trim().eq_ignore_ascii_case("headless")
     })
@@ -1249,7 +1342,7 @@ fn audio_devices_allowed() -> bool {
 /// The audio settings of this run: `AZMEET_TEST_TONE=1` makes the microphone a tone and starts
 /// it unmuted; a headless run uses the tone too (muted until switched on) and plays nothing.
 fn configure_audio(s: &mut MeetState) {
-    let devices = audio_devices_allowed();
+    let devices = devices_allowed();
     let tone = std::env::var("AZMEET_TEST_TONE").is_ok_and(|v| v.trim() == "1");
     s.tone_mic = tone || !devices;
     s.play_audio = devices;
@@ -1344,20 +1437,28 @@ fn my_state(s: &MeetState) -> audio::PeerState {
     }
 }
 
-/// Tells the peers behind `handles` this participant's audio state.
-fn send_state(s: &MeetState, handles: &[u64]) {
+/// Sends `message` to the peers behind `handles`, reliably and in order.
+fn send_message_to(s: &MeetState, handles: &[u64], message: &[u8]) {
     let Some(endpoint) = s.endpoint.as_ref() else {
         return;
     };
-    let message = audio::encode_state(my_state(s));
     for handle in handles {
-        endpoint.send_message(*handle, message.clone());
+        endpoint.send_message(*handle, message.to_vec());
     }
 }
 
+/// The connection handles of every connected peer.
+fn all_peers(s: &MeetState) -> Vec<u64> {
+    s.remotes.iter().map(|r| r.handle).collect()
+}
+
+/// Tells the peers behind `handles` this participant's audio state.
+fn send_state(s: &MeetState, handles: &[u64]) {
+    send_message_to(s, handles, &audio::encode_state(my_state(s)));
+}
+
 fn send_state_to_all(s: &MeetState) {
-    let handles: Vec<u64> = s.remotes.iter().map(|r| r.handle).collect();
-    send_state(s, &handles);
+    send_state(s, &all_peers(s));
 }
 
 /// One line per connected peer whose audio arrived: what its jitter buffer took in and played,
@@ -1418,6 +1519,603 @@ fn pump_tone(data: &mut RefAny, info: &mut TimerCallbackInfo) {
     if let Some((bar, level)) = meter {
         show_level(info.callback_info, bar, level);
     }
+}
+
+// ==== Video: H.264 where an encoder works, JPEG otherwise (the rules are in video_wire.rs) ====
+
+/// What this machine does with H.264, found once at start by [`probe_video`].
+#[derive(Clone)]
+struct VideoSupport {
+    /// The H.264 encoder's backend ("VideoToolbox") when it encodes here; else why JPEG is sent.
+    encoder: Result<String, String>,
+    /// This machine decodes H.264: tested with a keyframe where it also encodes, else the
+    /// platform's word, judged again on the first stream (`ReceiveTrack::decoder_is_inert`).
+    decodes_h264: bool,
+}
+
+/// The sending side of one local video track (the camera or the screen share).
+struct VideoOut {
+    /// The H.264 encoder, opened with the first frame some peer takes as H.264.
+    encoder: Option<VideoEncoder>,
+    /// The frame size the encoder was opened for.
+    size: (u32, u32),
+    health: video_wire::EncoderHealth,
+    keyframes: video_wire::KeyframePolicy,
+    /// The `seq` of the last H.264 packet and of the last JPEG frame; the `frame_no` of the last
+    /// frame captured while someone listened. They go on across a stop, so a peer sees one stream.
+    h264_seq: u32,
+    jpeg_seq: u32,
+    frame_no: u32,
+    h264_packets: u64,
+    jpeg_frames: u64,
+    /// Packets dropped with the "Drop a video packet" button.
+    dropped: u64,
+}
+
+impl VideoOut {
+    fn new() -> Self {
+        VideoOut {
+            encoder: None,
+            size: (0, 0),
+            health: video_wire::EncoderHealth::default(),
+            keyframes: video_wire::KeyframePolicy::new(),
+            h264_seq: 0,
+            jpeg_seq: 0,
+            frame_no: 0,
+            h264_packets: 0,
+            jpeg_frames: 0,
+            dropped: 0,
+        }
+    }
+
+    /// The track stopped (camera or share off, or Leave): the encoder closes, and the next start
+    /// opens a fresh one, which begins with a keyframe.
+    fn stop(&mut self) {
+        self.encoder = None;
+        self.health = video_wire::EncoderHealth::default();
+    }
+}
+
+/// The receiving side of one of a peer's video tracks.
+struct VideoIn {
+    rules: video_wire::ReceiveTrack,
+    /// Opened with the first H.264 packet to decode.
+    decoder: Option<VideoDecoder>,
+    /// The codec of the packet that arrived last.
+    seen: Option<Codec>,
+}
+
+impl VideoIn {
+    fn new() -> Self {
+        VideoIn {
+            rules: video_wire::ReceiveTrack::new(),
+            decoder: None,
+            seen: None,
+        }
+    }
+}
+
+/// Milliseconds on this participant's clock.
+fn now_ms(s: &MeetState) -> u64 {
+    s.clock.elapsed().as_millis() as u64
+}
+
+/// An RGBA picture as an image to encode or show.
+fn rgba_image(width: u32, height: u32, bytes: U8Vec) -> RawImage {
+    RawImage {
+        pixels: RawImageData::U8(bytes),
+        width: width as usize,
+        height: height as usize,
+        premultiplied_alpha: false,
+        data_format: RawImageFormat::RGBA8,
+        tag: U8Vec::create(),
+    }
+}
+
+/// Frame `index` of the test pattern at the feed size.
+fn pattern_frame(index: u32) -> VideoFrame {
+    VideoFrame {
+        width: FEED_W,
+        height: FEED_H,
+        bytes: U8Vec::from(video_wire::test_pattern(FEED_W, FEED_H, index)),
+    }
+}
+
+/// Finds out once, at start, what this machine does with H.264: an encoder that opens must turn
+/// a test frame into a keyframe, and a decoder must turn that keyframe back into a picture.
+/// `AZMEET_VIDEO_CODEC=jpeg` switches H.264 off.
+fn probe_video() -> VideoSupport {
+    if std::env::var("AZMEET_VIDEO_CODEC").is_ok_and(|v| v.trim().eq_ignore_ascii_case("jpeg")) {
+        return VideoSupport {
+            encoder: Err(String::from("H.264 switched off")),
+            decodes_h264: false,
+        };
+    }
+    let backend = VideoEncoder::backend_name().as_str().to_string();
+    let keyframe = if backend == "none" {
+        None
+    } else {
+        probe_encode()
+    };
+    let decodes_h264 = match &keyframe {
+        Some(keyframe) => probe_decode(keyframe),
+        None => PlatformCapability::video_codec().available,
+    };
+    VideoSupport {
+        encoder: keyframe
+            .map(|_| backend)
+            .ok_or_else(|| String::from("no encoder")),
+        decodes_h264,
+    }
+}
+
+/// A keyframe of the test pattern from a fresh H.264 encoder; `None` where nothing, or no
+/// keyframe, comes out. `VideoEncoder::open` hands out an open handle that never yields a packet
+/// where no backend is built in, so opening proves nothing.
+fn probe_encode() -> Option<Vec<u8>> {
+    let mut encoder = VideoEncoder::open(FEED_W, FEED_H, false, VIDEO_KBPS);
+    if !encoder.is_open() {
+        return None;
+    }
+    let mut chunk = Vec::new();
+    for index in 0..3 {
+        encoder.encode(pattern_frame(index), true);
+        while let Some(packet) = encoder.recv_packet().into_option() {
+            chunk.extend_from_slice(packet.as_slice());
+        }
+        if !chunk.is_empty() {
+            break;
+        }
+    }
+    encoder.close();
+    video_wire::h264_is_keyframe(&chunk).then_some(chunk)
+}
+
+/// Whether a fresh decoder turns `keyframe` back into a picture.
+fn probe_decode(keyframe: &[u8]) -> bool {
+    let mut decoder = VideoDecoder::open(false);
+    if !decoder.is_open() {
+        return false;
+    }
+    decoder.decode(U8Vec::from(keyframe.to_vec()));
+    let decoded = decoder.recv_frame().into_option().is_some();
+    decoder.close();
+    decoded
+}
+
+/// The video settings of this run: `AZMEET_TEST_PATTERN=1` makes the camera a test pattern,
+/// switches it on, and shows the "Drop a video packet" button; a headless run uses test patterns
+/// too (off until switched on), so it never opens a camera or a screen.
+fn configure_video(s: &mut MeetState, support: &VideoSupport) {
+    let pattern = std::env::var("AZMEET_TEST_PATTERN").is_ok_and(|v| v.trim() == "1");
+    let devices = devices_allowed();
+    s.video = support.clone();
+    s.pattern_video = pattern || !devices;
+    s.video_debug = pattern;
+    if pattern {
+        s.cam_on = true;
+    }
+    eprintln!(
+        "[azmeet] {}: {}; decodes H.264: {}",
+        s.name,
+        codec_status(s),
+        if s.video.decodes_h264 { "yes" } else { "no" }
+    );
+    if !devices {
+        eprintln!(
+            "[azmeet] {}: no camera or screen is opened: both are test patterns",
+            s.name
+        );
+    } else if pattern {
+        eprintln!(
+            "[azmeet] {}: the camera is a test pattern (AZMEET_TEST_PATTERN=1)",
+            s.name
+        );
+    }
+}
+
+/// The codec line: H.264 and its backend (and JPEG to the peers that cannot decode it), or why
+/// JPEG.
+fn codec_status(s: &MeetState) -> String {
+    let jpeg_to: Vec<String> = s
+        .remotes
+        .iter()
+        .filter(|r| r.h264 == Some(false))
+        .map(|r| remote_name(s, &r.node_id))
+        .collect();
+    video_wire::codec_line(s.video.encoder.as_deref().map_err(String::as_str), &jpeg_to)
+}
+
+/// Sends a captured frame (RGBA, `width` x `height`) of `track` to every connected peer: as H.264
+/// to the peers that decode it (reliable messages, so nothing between two keyframes goes
+/// missing), as JPEG to the others (a latest-wins frame each: every JPEG stands alone).
+fn send_video(s: &mut MeetState, track: u32, width: u32, height: u32, rgba: &U8Vec) {
+    let Some(slot) = track_slot(track) else {
+        return;
+    };
+    if s.remotes.is_empty() {
+        return;
+    }
+    let Some(endpoint) = s.endpoint.clone() else {
+        return;
+    };
+    let out = &mut s.video_out[slot];
+    out.frame_no = out.frame_no.wrapping_add(1);
+    // H.264 wants even sides; 16 pixels is the smallest VideoToolbox takes.
+    let fits = width % 2 == 0 && height % 2 == 0 && width >= 16 && height >= 16;
+    let h264 = fits && s.video.encoder.is_ok();
+    let mut h264_peers = Vec::new();
+    let mut jpeg_peers = Vec::new();
+    for r in &s.remotes {
+        if h264 && r.h264 == Some(true) {
+            h264_peers.push(r.handle);
+        } else {
+            jpeg_peers.push(r.handle);
+        }
+    }
+    if !h264_peers.is_empty() && !send_h264(s, &endpoint, track, (width, height), rgba, &h264_peers)
+    {
+        // No working encoder for this frame: these peers get it as JPEG.
+        jpeg_peers.extend(h264_peers);
+    }
+    if !jpeg_peers.is_empty() {
+        send_jpeg(s, &endpoint, track, (width, height), rgba, &jpeg_peers);
+    }
+}
+
+/// Encodes the frame with the track's H.264 encoder and sends each packet to those of `peers`
+/// whose window has room ([`video_wire::SendWindow`]). False when no encoder works (it did not
+/// open, gives nothing back, or ignores keyframe requests): H.264 is given up, the frame goes as
+/// JPEG.
+fn send_h264(
+    s: &mut MeetState,
+    endpoint: &IrohEndpoint,
+    track: u32,
+    (width, height): (u32, u32),
+    rgba: &U8Vec,
+    peers: &[u64],
+) -> bool {
+    let Some(slot) = track_slot(track) else {
+        return false;
+    };
+    let now = now_ms(s);
+    // A new peer, or one that fell behind, starts at a keyframe.
+    let resync = s
+        .remotes
+        .iter()
+        .any(|r| peers.contains(&r.handle) && r.sent[slot].wants_keyframe());
+    let (packets, failure) = {
+        let out = &mut s.video_out[slot];
+        if resync {
+            out.keyframes.request();
+        }
+        let resized = out.encoder.is_some() && out.size != (width, height);
+        if out.keyframes.must_reopen() || resized {
+            out.encoder = None;
+            out.keyframes.reopened();
+        }
+        if out.encoder.is_none() {
+            let encoder = VideoEncoder::open(width, height, false, VIDEO_KBPS);
+            if encoder.is_open() {
+                out.encoder = Some(encoder);
+                out.size = (width, height);
+                out.health = video_wire::EncoderHealth::default();
+                // A new encoder begins with a keyframe.
+                out.keyframes.request();
+            }
+        }
+        let frame_no = out.frame_no;
+        let mut packets = Vec::new();
+        let failure = match out.encoder.as_mut() {
+            None => Some("the H.264 encoder did not open"),
+            Some(encoder) => {
+                let force = out.keyframes.should_force(now);
+                let frame = VideoFrame {
+                    width,
+                    height,
+                    bytes: rgba.clone(),
+                };
+                encoder.encode(frame, force);
+                out.health.submitted();
+                while let Some(chunk) = encoder.recv_packet().into_option() {
+                    out.health.produced();
+                    let keyframe = video_wire::h264_is_keyframe(chunk.as_slice());
+                    out.keyframes.on_output(keyframe, now);
+                    out.h264_seq = out.h264_seq.wrapping_add(1);
+                    let header = video_wire::Header {
+                        codec: Codec::H264,
+                        keyframe,
+                        track,
+                        seq: out.h264_seq,
+                        frame_no,
+                    };
+                    packets.push((header, video_wire::encode_packet(&header, chunk.as_slice())));
+                }
+                if out.health.is_inert() {
+                    Some("the H.264 encoder gives no packets back")
+                } else if out.keyframes.is_broken() {
+                    Some("the H.264 encoder ignores keyframe requests")
+                } else {
+                    None
+                }
+            }
+        };
+        if failure.is_some() {
+            out.encoder = None;
+        }
+        (packets, failure)
+    };
+    if let Some(why) = failure {
+        eprintln!("[azmeet] {}: {why}: sending JPEG from now on", s.name);
+        s.video.encoder = Err(String::from(why));
+        return false;
+    }
+    for (header, packet) in packets {
+        if s.drop_next_video && !header.keyframe {
+            s.drop_next_video = false;
+            s.video_out[slot].dropped += 1;
+            eprintln!(
+                "[azmeet] {}: dropped H.264 packet {} of the {} on purpose",
+                s.name, header.seq, SOURCES[slot]
+            );
+            continue;
+        }
+        s.video_out[slot].h264_packets += 1;
+        for r in s.remotes.iter_mut().filter(|r| peers.contains(&r.handle)) {
+            if r.sent[slot].offer(header.seq, header.keyframe) {
+                endpoint.send_message(r.handle, packet.clone());
+            }
+        }
+    }
+    true
+}
+
+/// Sends the frame as JPEG to `peers`, a latest-wins frame each.
+fn send_jpeg(
+    s: &mut MeetState,
+    endpoint: &IrohEndpoint,
+    track: u32,
+    (width, height): (u32, u32),
+    rgba: &U8Vec,
+    peers: &[u64],
+) {
+    let Some(slot) = track_slot(track) else {
+        return;
+    };
+    let ResultU8VecEncodeImageError::Ok(jpeg) =
+        rgba_image(width, height, rgba.clone()).encode_jpeg(JPEG_QUALITY)
+    else {
+        return;
+    };
+    let out = &mut s.video_out[slot];
+    out.jpeg_seq = out.jpeg_seq.wrapping_add(1);
+    let header = video_wire::Header {
+        codec: Codec::Jpeg,
+        keyframe: true,
+        track,
+        seq: out.jpeg_seq,
+        frame_no: out.frame_no,
+    };
+    if s.drop_next_video {
+        s.drop_next_video = false;
+        s.video_out[slot].dropped += 1;
+        eprintln!(
+            "[azmeet] {}: dropped JPEG frame {} of the {} on purpose",
+            s.name, header.seq, SOURCES[slot]
+        );
+        return;
+    }
+    s.video_out[slot].jpeg_frames += 1;
+    let packet = video_wire::encode_packet(&header, jpeg.as_slice());
+    for handle in peers {
+        endpoint.send_frame(*handle, track, packet.clone());
+    }
+}
+
+/// A video packet from the peer behind connection `peer`: through the track's rules (which may
+/// acknowledge it or ask for a keyframe), then its decoder. Returns whether the track just got
+/// its tile, and the newest picture to show in it.
+fn receive_video(
+    s: &mut MeetState,
+    peer: u64,
+    header: &video_wire::Header,
+    payload: &[u8],
+) -> (bool, Option<RawImage>) {
+    let Some(slot) = track_slot(header.track) else {
+        return (false, None);
+    };
+    let Some(endpoint) = s.endpoint.clone() else {
+        return (false, None);
+    };
+    let now = now_ms(s);
+    let Some(remote) = s.remotes.iter_mut().find(|r| r.handle == peer) else {
+        return (false, None);
+    };
+    let new_tile = !remote.tracks[slot];
+    remote.tracks[slot] = true;
+    let input = &mut remote.received[slot];
+    input.seen = Some(header.codec);
+    let verdict = input.rules.on_packet(header, now);
+    if verdict.restart {
+        input.decoder = None;
+    }
+    if let Some(seq) = verdict.ack {
+        endpoint.send_message(peer, video_wire::encode_received(header.track, seq));
+    }
+    if verdict.request_keyframe {
+        endpoint.send_message(peer, video_wire::encode_keyframe_request(header.track));
+    }
+    if !verdict.decode {
+        return (new_tile, None);
+    }
+    let (picture, pictures) = match header.codec {
+        Codec::Jpeg => match RawImage::decode_image_bytes_any(U8VecRef::from(payload)) {
+            ResultRawImageDecodeImageError::Ok(image) => (Some(image), 1),
+            _ => (None, 0),
+        },
+        Codec::H264 => {
+            let decoder = input
+                .decoder
+                .get_or_insert_with(|| VideoDecoder::open(false));
+            decoder.decode(U8Vec::from(payload.to_vec()));
+            let mut newest = None;
+            let mut count = 0;
+            while let Some(frame) = decoder.recv_frame().into_option() {
+                count += 1;
+                newest = Some(frame);
+            }
+            let picture = newest.map(|frame| rgba_image(frame.width, frame.height, frame.bytes));
+            (picture, count)
+        }
+    };
+    input.rules.decoded(pictures);
+    let inert = input.rules.decoder_is_inert();
+    if inert {
+        input.decoder = None;
+    }
+    if inert && s.video.decodes_h264 {
+        s.video.decodes_h264 = false;
+        eprintln!(
+            "[azmeet] {}: the H.264 decoder gives no pictures back: asking everyone for JPEG",
+            s.name
+        );
+        send_message_to(s, &all_peers(s), &video_wire::encode_caps(false));
+    }
+    (new_tile, picture)
+}
+
+/// A video control message from the peer behind connection `peer`. True when the window changes.
+fn apply_video_control(s: &mut MeetState, peer: u64, control: Control) -> bool {
+    match control {
+        Control::KeyframeRequest { track } => {
+            let Some(slot) = track_slot(track) else {
+                return false;
+            };
+            s.video_out[slot].keyframes.request();
+            let node_id = s
+                .remotes
+                .iter()
+                .find(|r| r.handle == peer)
+                .map(|r| r.node_id.clone())
+                .unwrap_or_default();
+            let who = remote_name(s, &node_id);
+            eprintln!(
+                "[azmeet] {}: {who} asked for a keyframe ({})",
+                s.name, SOURCES[slot]
+            );
+            false
+        }
+        Control::Received { track, seq } => {
+            let slot = track_slot(track);
+            let remote = s.remotes.iter_mut().find(|r| r.handle == peer);
+            if let (Some(slot), Some(remote)) = (slot, remote) {
+                remote.sent[slot].acked(seq);
+            }
+            false
+        }
+        Control::Caps { h264 } => {
+            let Some(remote) = s.remotes.iter_mut().find(|r| r.handle == peer) else {
+                return false;
+            };
+            if remote.h264 == Some(h264) {
+                return false;
+            }
+            remote.h264 = Some(h264);
+            // The peer's H.264 starts afresh, at a keyframe.
+            remote.sent = [video_wire::SendWindow::new(), video_wire::SendWindow::new()];
+            let node_id = remote.node_id.clone();
+            eprintln!(
+                "[azmeet] {}: {} decodes H.264: {}",
+                s.name,
+                remote_name(s, &node_id),
+                if h264 { "yes" } else { "no" }
+            );
+            true
+        }
+    }
+}
+
+/// Every pump while the camera or the screen share is a test pattern: the frame due now, sent like
+/// a captured one.
+fn pump_pattern(s: &mut MeetState) {
+    if !s.pattern_video || s.remotes.is_empty() {
+        return;
+    }
+    let elapsed = now_ms(s);
+    for (slot, track, on) in [(0, CAMERA_TRACK, s.cam_on), (1, SCREEN_TRACK, s.screen_on)] {
+        if !on {
+            continue;
+        }
+        let Some(index) = s.pattern_clocks[slot].next(elapsed) else {
+            continue;
+        };
+        // The screen's bars sit half a frame further on, so the two tiles differ.
+        let frame =
+            pattern_frame(index.wrapping_add(slot as u32 * FEED_W / 2 / video_wire::PATTERN_STEP));
+        send_video(s, track, frame.width, frame.height, &frame.bytes);
+    }
+}
+
+/// The devices panel's video lines: what each local track sent, and what arrived on each peer's
+/// tracks.
+fn video_lines(s: &MeetState) -> Vec<String> {
+    let mut lines = Vec::new();
+    for (slot, out) in s.video_out.iter().enumerate() {
+        if out.h264_packets + out.jpeg_frames + out.dropped > 0 {
+            lines.push(video_wire::send_line(
+                SOURCES[slot],
+                out.h264_packets,
+                out.jpeg_frames,
+                &out.keyframes.stats(),
+                out.dropped,
+            ));
+        }
+    }
+    for r in &s.remotes {
+        for (slot, input) in r.received.iter().enumerate() {
+            let stats = input.rules.stats();
+            let Some(codec) = input.rules.codec().or(input.seen) else {
+                continue;
+            };
+            if stats.packets > 0 {
+                let name = remote_name(s, &r.node_id);
+                lines.push(video_wire::video_line(&name, SOURCES[slot], codec, &stats));
+            }
+        }
+    }
+    lines
+}
+
+/// The periodic log: the video lines, and per peer and track how far this side runs ahead and
+/// what arrived late.
+fn video_log_lines(s: &MeetState) -> Vec<String> {
+    let mut lines = vec![codec_status(s)];
+    lines.extend(video_lines(s));
+    for r in &s.remotes {
+        let name = remote_name(s, &r.node_id);
+        for slot in 0..SOURCES.len() {
+            let window = &r.sent[slot];
+            let late = r.received[slot].rules.stats().late;
+            if window.in_flight() + window.skipped() as usize + late as usize > 0 {
+                lines.push(format!(
+                    "{} to {name}: {} in flight, {} not sent; from {name}: {late} late",
+                    SOURCES[slot],
+                    window.in_flight(),
+                    window.skipped()
+                ));
+            }
+        }
+    }
+    lines
+}
+
+/// The "Drop a video packet" button (`AZMEET_TEST_PATTERN=1`): the next packet is not sent, so
+/// the others see a gap.
+extern "C" fn on_drop_video_packet(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        s.drop_next_video = true;
+    }
+    Update::DoNothing
 }
 
 // ==== Meeting server: requests on an azul Thread, answers on the UI thread ====
@@ -2109,6 +2807,10 @@ fn leave_meeting(s: &mut MeetState) -> Option<HttpJob> {
     s.remotes.clear();
     drop_audio(s, None);
     s.packetizer.reset();
+    for out in s.video_out.iter_mut() {
+        out.stop();
+    }
+    s.drop_next_video = false;
     s.link_status = String::from("not in a meeting");
     s.notice = String::from("You left the meeting.");
     let room = s.room.as_mut()?;
@@ -2134,14 +2836,22 @@ extern "C" fn on_leave(mut data: RefAny, mut info: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 extern "C" fn cam_toggle(mut data: RefAny, _info: CallbackInfo) -> Update {
-    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+    if let Some(mut guard) = data.downcast_mut::<MeetState>() {
+        let s = &mut *guard;
         s.cam_on = !s.cam_on;
+        if let (false, Some(slot)) = (s.cam_on, track_slot(CAMERA_TRACK)) {
+            s.video_out[slot].stop();
+        }
     }
     Update::RefreshDom
 }
 extern "C" fn screen_toggle(mut data: RefAny, _info: CallbackInfo) -> Update {
-    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+    if let Some(mut guard) = data.downcast_mut::<MeetState>() {
+        let s = &mut *guard;
         s.screen_on = !s.screen_on;
+        if let (false, Some(slot)) = (s.screen_on, track_slot(SCREEN_TRACK)) {
+            s.video_out[slot].stop();
+        }
     }
     Update::RefreshDom
 }
@@ -2288,6 +2998,7 @@ fn start_rooms(worker: String) {
     }
     me.room = Some(room);
     configure_audio(&mut me);
+    configure_video(&mut me, &probe_video());
     run(vec![RefAny::new(me)], false);
 }
 
@@ -2297,6 +3008,7 @@ fn start_demo(notice: &str) {
     let meeting = gen_link();
     let notice = notice.to_string();
     eprintln!("[azmeet] {notice}");
+    let video = probe_video();
     let ada_link = bind_endpoint(&Relay::Off);
     let ben_link = bind_endpoint(&Relay::Off);
     let peers = if ada_link.is_bound() && ben_link.is_bound() {
@@ -2316,6 +3028,8 @@ fn start_demo(notice: &str) {
         ben.screen_on = true;
         configure_audio(&mut ada);
         configure_audio(&mut ben);
+        configure_video(&mut ada, &video);
+        configure_video(&mut ben, &video);
         vec![RefAny::new(ada), RefAny::new(ben)]
     } else {
         let failure = bind_failure(&ada_link);
@@ -2325,6 +3039,7 @@ fn start_demo(notice: &str) {
         solo.notice = notice;
         solo.link_status = failure;
         configure_audio(&mut solo);
+        configure_video(&mut solo, &video);
         vec![RefAny::new(solo)]
     };
     let linked = peers.len() == 2;

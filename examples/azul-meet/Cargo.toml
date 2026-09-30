@@ -8,8 +8,9 @@ description = """
     azul-meet - a Google-Meet-style app on the public azul API. With a meeting
     server (the `meet` Worker, AZMEET_WORKER) it starts a meeting or joins one
     by its link, and connects to every participant over azul.iroh: every
-    captured frame is JPEG-encoded, sent as one QUIC stream, and decoded into
-    that participant's tile. Without a reachable meeting server it opens the
+    captured frame is H.264-encoded where an encoder works (VideoToolbox on
+    macOS; keyframe requests on loss) and JPEG-encoded otherwise, and decoded
+    into that participant's tile. Without a reachable meeting server it opens the
     in-process demo: Ada in a CPU-rendered window with her camera and Ben in a
     GPU-rendered window sharing his screen.
 """
