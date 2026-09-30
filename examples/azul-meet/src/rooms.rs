@@ -242,7 +242,20 @@ pub enum ServerSource {
 /// http or https address with a host, printable ASCII without spaces, a query or a fragment, and at
 /// most 2048 characters.
 pub fn normalize_server(input: &str) -> Option<String> {
-    todo!()
+    let s = input.trim().trim_end_matches('/');
+    if s.is_empty() || s.len() > MAX_SERVER_CHARS || !s.bytes().all(|b| b.is_ascii_graphic()) {
+        return None;
+    }
+    if s.contains(|c: char| c == '?' || c == '#') {
+        return None;
+    }
+    let rest = strip_prefix_ignore_case(s, "https://")
+        .or_else(|| strip_prefix_ignore_case(s, "http://"))?;
+    let host = rest.split('/').next().unwrap_or("");
+    if host.is_empty() || host.starts_with(':') {
+        return None;
+    }
+    Some(s.to_string())
 }
 
 /// The meeting server the start screen's field shows at start, and where it came from: the one
@@ -253,25 +266,38 @@ pub fn server_prefill(
     env: Option<&str>,
     built_in: &str,
 ) -> (String, ServerSource) {
-    todo!()
+    if let Some(server) = saved.and_then(normalize_server) {
+        return (server, ServerSource::Saved);
+    }
+    if let Some(server) = env.and_then(normalize_server) {
+        return (server, ServerSource::Environment);
+    }
+    let server = normalize_server(built_in).unwrap_or_else(|| LOCAL_WORKER.to_string());
+    (server, ServerSource::BuiltIn)
 }
 
 /// Whether AzMeet opens its in-process demo instead of the start screen: only when nothing was
 /// configured (the built-in default) and nothing answers there. A saved or configured server that
 /// does not answer gets the start screen, which says so next to the field.
 pub fn opens_demo(source: ServerSource, answers: bool) -> bool {
-    todo!()
+    source == ServerSource::BuiltIn && !answers
 }
 
 /// The settings file's text remembering `server`.
 pub fn encode_settings(server: &str) -> String {
-    todo!()
+    format!("{SETTINGS_KEY}{server}\n")
 }
 
 /// The meeting server a settings file's text remembers; `None` for a file that is too long, has no
 /// such line, or names no meeting server address. Other lines are ignored.
 pub fn decode_settings(text: &str) -> Option<String> {
-    todo!()
+    if text.len() > MAX_SETTINGS_BYTES {
+        return None;
+    }
+    text.lines()
+        .filter_map(|line| line.trim().strip_prefix(SETTINGS_KEY))
+        .last()
+        .and_then(normalize_server)
 }
 
 #[cfg(test)]

@@ -5,7 +5,10 @@
 //! that link. Either way the app announces its iroh ticket to the room every 20 seconds, reads
 //! everyone else's every 2 seconds, and dials the peers whose endpoint id is higher than its own.
 //! Every HTTP request runs on an azul `Thread` and resumes on the UI thread, so no callback waits
-//! on the network.
+//! on the network. The start screen's "Meeting server" field holds the Worker's address: prefilled
+//! with the one saved last time, else `AZMEET_WORKER`, else the built-in default; a new address
+//! is used for every request from Enter or leaving the field on, checked with `GET /health`, and
+//! saved (in the per-user config folder, `AzMeet/settings.txt`) once it answers.
 //!
 //! Video (see `video_wire.rs`): each captured camera or screen frame, in every rendition someone
 //! shows, goes through an H.264 `VideoEncoder` where one works (VideoToolbox on Apple; found out at start by encoding a
@@ -42,8 +45,12 @@
 //! CPU-rendered window and Ben in a GPU-rendered one, linked by two iroh endpoints.
 //!
 //! Environment:
-//! - `AZMEET_WORKER`: the meeting server, e.g. `http://127.0.0.1:8787` (the local mock); else the
-//!   `PRODUCTION_WORKER` constant, set at build time with `AZMEET_DEFAULT_WORKER=<url>`.
+//! - `AZMEET_WORKER`: the meeting server when none was saved from the start screen, e.g.
+//!   `http://127.0.0.1:8787` (the local mock); else the `PRODUCTION_WORKER` constant, set at build
+//!   time with `AZMEET_DEFAULT_WORKER=<url>`, else `http://127.0.0.1:8787`. A headless run
+//!   (`AZ_BACKEND=headless`) neither reads nor writes the saved one, so the variable always wins
+//!   there. Only when nothing is saved or set and the built-in default does not answer does the
+//!   in-process demo open.
 //! - `AZMEET_NAME`: the name others see (default: `$USER`).
 //! - `AZMEET_AUTOCREATE=1`: create a meeting at start and print `AZMEET_LINK <link>` on stdout.
 //! - `AZMEET_JOIN=<link>`: join that meeting at start.
@@ -83,8 +90,9 @@ use azul::{
     },
     camera::CameraConfig,
     css::{LogicalSize, PhysicalPositionI32, Srgb, WindowPosition},
-    dom::{Callback, ClipboardContent, DomNodeId, NodeId},
+    dom::{Callback, ClipboardContent, DomNodeId, NodeId, VirtualKeyCode},
     error::{HttpError, ResultRawImageDecodeImageError, ResultU8VecEncodeImageError},
+    file::FilePath,
     http::{HttpGetResult, HttpMethod, HttpRequestConfig},
     image::{ImageRef, RawImage, RawImageData, RawImageFormat, VideoDecoder, VideoEncoder},
     iroh::{
@@ -237,12 +245,28 @@ struct RoomSession {
     /// Counts the meetings entered and left. A request carries the session it was sent in, and
     /// an answer from an earlier session (a meeting since left) is ignored.
     session: u32,
+    /// The meeting server field as typed; `worker` takes it on Enter or when the field loses
+    /// focus.
+    server_text: String,
+    /// Under the field: whether the meeting server answers.
+    server_status: String,
+    /// The meeting server answered its last check.
+    server_ok: bool,
+    /// Counts the checks of the meeting server; the answer to an older one is ignored.
+    checks: u32,
+    /// Where the iroh endpoint relays, chosen for the meeting server's host.
+    relay: Relay,
 }
 
 impl RoomSession {
-    fn new(worker: String, name: String) -> Self {
+    fn new(worker: String, name: String, relay: Relay) -> Self {
         RoomSession {
             session: 0,
+            server_text: worker.clone(),
+            server_status: String::new(),
+            server_ok: false,
+            checks: 0,
+            relay,
             worker,
             name,
             stage: Stage::Start,
@@ -515,6 +539,9 @@ const BTN_LEAVE: &str = "padding: 10px 18px; margin: 0 6px 0 24px; border-radius
                          background: #b03a3a; color: #ffffff; font-size: 14px; white-space: \
                          nowrap; flex-shrink: 0;";
 const NOTICE: &str = "padding: 6px 12px; font-size: 13px; color: #f0b060; background: #15151c;";
+/// The line under the meeting server field: it answers, or it does not.
+const SERVER_OK: &str = "font-size: 12px; color: #7fbf7f; margin-bottom: 22px;";
+const SERVER_TROUBLE: &str = "font-size: 12px; color: #f0b060; margin-bottom: 22px;";
 /// The speaker view's stage and its thumbnails. A tile's height is what it asks for until it is
 /// laid out (`IrohTileRole::rendition_height`); each sits well inside its rendition step.
 const STAGE: &str = "width: 568px; height: 320px; margin: 8px; border-radius: 10px; background: \
@@ -659,7 +686,10 @@ fn tile_kind(view: ViewMode, on_stage: bool, track: u32) -> (IrohTileRole, f32, 
 /// What the room parts of the window show.
 struct RoomView {
     stage: Stage,
-    worker: String,
+    /// The meeting server field and the line under it.
+    server_text: String,
+    server_status: String,
+    server_ok: bool,
     join_text: String,
     link: String,
     copied: bool,
@@ -830,7 +860,9 @@ fn snapshot(s: &MeetState) -> LayoutSnapshot {
         speakers: s.speakers.clone(),
         room: s.room.as_ref().map(|room| RoomView {
             stage: room.stage,
-            worker: room.worker.clone(),
+            server_text: room.server_text.clone(),
+            server_status: room.server_status.clone(),
+            server_ok: room.server_ok,
             join_text: room.join_text.clone(),
             link: room.link.clone(),
             copied: room.copied,
@@ -884,8 +916,25 @@ fn start_layout(view: &LayoutSnapshot, room: &RoomView, data: &RefAny) -> Dom {
             .with_css("font-size: 26px; font-weight: bold; margin-bottom: 4px;"),
     );
     card = card.with_child(
-        Dom::create_span_with_text(format!("Meeting server {}", room.worker).as_str())
-            .with_css("font-size: 13px; color: #8890a8; margin-bottom: 22px;"),
+        Dom::create_span_with_text("Meeting server")
+            .with_css("font-size: 13px; color: #8890a8; margin-bottom: 6px;"),
+    );
+    card = card.with_child(
+        TextInput::create()
+            .with_text(room.server_text.as_str())
+            .with_placeholder(rooms::LOCAL_WORKER)
+            .with_on_text_input(data.clone(), on_server_text)
+            .with_on_virtual_key_down(data.clone(), on_server_key)
+            .with_on_focus_lost(data.clone(), on_server_blur)
+            .dom()
+            .with_css("margin-bottom: 4px;"),
+    );
+    card = card.with_child(
+        Dom::create_span_with_text(room.server_status.as_str()).with_css(if room.server_ok {
+            SERVER_OK
+        } else {
+            SERVER_TROUBLE
+        }),
     );
     card = card.with_child(
         Button::with_type(
@@ -3321,6 +3370,18 @@ impl HttpJob {
         }
     }
 
+    /// Whether the meeting server answers (`GET /health`); the answer is matched to the check by
+    /// `session`, which holds the check's number here.
+    fn health(room: &RoomSession) -> Self {
+        HttpJob {
+            verb: Verb::Get,
+            url: format!("{}/health", room.worker),
+            body: String::new(),
+            on_result: on_health,
+            session: room.checks,
+        }
+    }
+
     /// Takes this participant off the room's list (Leave).
     fn leave(room: &RoomSession) -> Self {
         HttpJob {
@@ -3689,6 +3750,214 @@ extern "C" fn on_peers(data: RefAny, _info: CallbackInfo, result: RefAny) -> Upd
             Update::RefreshDom
         }
     }
+}
+
+// ==== The meeting server field (start screen) ====
+
+/// The meeting server field as typed.
+extern "C" fn on_server_text(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        if let Some(room) = s.room.as_mut() {
+            room.server_text = state.get_text().as_str().to_string();
+        }
+    }
+    OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: TextInputValid::Yes,
+    }
+}
+
+/// Enter in the meeting server field takes its address.
+extern "C" fn on_server_key(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
+    let key = info
+        .get_current_keyboard_state()
+        .current_virtual_keycode
+        .into_option();
+    let update = match key {
+        Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter) => {
+            let text = state.get_text().as_str().to_string();
+            commit_server(&mut data, &mut info, &text)
+        }
+        _ => Update::DoNothing,
+    };
+    OnTextInputReturn {
+        update,
+        valid: TextInputValid::Yes,
+    }
+}
+
+/// Leaving the meeting server field takes its address.
+extern "C" fn on_server_blur(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    state: TextInputState,
+) -> Update {
+    let text = state.get_text().as_str().to_string();
+    commit_server(&mut data, &mut info, &text)
+}
+
+/// The meeting server field was left with `text` (Enter, or it lost focus): a new address is the
+/// meeting server for every request from now on, and is checked (`GET /health`); it is saved once
+/// it answers. The same address is checked again only when its last check failed.
+fn commit_server(data: &mut RefAny, info: &mut CallbackInfo, text: &str) -> Update {
+    let job = {
+        let Some(mut guard) = data.downcast_mut::<MeetState>() else {
+            return Update::DoNothing;
+        };
+        let s = &mut *guard;
+        let Some(room) = s.room.as_mut() else {
+            return Update::DoNothing;
+        };
+        if room.stage != Stage::Start {
+            return Update::DoNothing;
+        }
+        room.server_text = text.to_string();
+        let Some(server) = rooms::normalize_server(text) else {
+            room.server_ok = false;
+            room.server_status = String::from(
+                "That is no meeting server address: it starts with http:// or https://.",
+            );
+            return Update::RefreshDom;
+        };
+        if server == room.worker && room.server_ok {
+            return Update::DoNothing;
+        }
+        room.server_text = server.clone();
+        room.worker = server;
+        room.checks = room.checks.wrapping_add(1);
+        room.server_ok = false;
+        room.server_status = format!("Asking {} ...", room.worker);
+        let job = HttpJob::health(room);
+        rebind_for_server(s);
+        job
+    };
+    spawn_http(info, data.clone(), job);
+    Update::RefreshDom
+}
+
+/// A meeting server on another host may need other relays (none for one on this machine, the
+/// public ones otherwise): the endpoint is bound again when that choice changes. Only on the start
+/// screen, so no peer is connected.
+fn rebind_for_server(s: &mut MeetState) {
+    let Some(room) = s.room.as_ref() else {
+        return;
+    };
+    let relay = relay_for(&room.worker);
+    if relay == room.relay {
+        return;
+    }
+    let endpoint = bind_endpoint(&relay);
+    if !endpoint.is_bound() {
+        let reason = bind_failure(&endpoint);
+        eprintln!(
+            "[azmeet] {}: no iroh endpoint with relays {relay:?}: {reason}",
+            s.name
+        );
+        return;
+    }
+    let node_id = endpoint.endpoint_id().as_str().to_string();
+    eprintln!(
+        "[azmeet] {}: endpoint {} (relays {relay:?}) for the meeting server {}",
+        s.name,
+        short_id(&node_id),
+        room.worker
+    );
+    s.me = routes::peer_key(&node_id);
+    s.endpoint = Some(endpoint);
+    if let Some(room) = s.room.as_mut() {
+        room.node_id = node_id;
+        // The new endpoint's ticket arrives with its `Ready` event.
+        room.ticket.clear();
+        room.relay = relay;
+    }
+}
+
+/// The answer to a meeting server check: the line under the field says whether it answers, and a
+/// server that answers is remembered (not in a headless run: a test never touches the user's
+/// settings).
+extern "C" fn on_health(data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
+    let Some((mut data, check)) = reply_parts(data) else {
+        return Update::DoNothing;
+    };
+    let answer = http_answer(result);
+    let Some(mut guard) = data.downcast_mut::<MeetState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let Some(room) = s.room.as_mut() else {
+        return Update::DoNothing;
+    };
+    if room.checks != check {
+        // The answer to an address typed over since.
+        return Update::DoNothing;
+    }
+    if !matches!(answer, Ok((200, _))) {
+        room.server_ok = false;
+        room.server_status = server_trouble(&room.worker, &answer);
+        return Update::RefreshDom;
+    }
+    room.server_ok = true;
+    room.server_status = String::from("The meeting server answers.");
+    if devices_allowed() {
+        match save_server(&room.worker) {
+            Ok(()) => eprintln!(
+                "[azmeet] {}: remembered the meeting server {}",
+                s.name, room.worker
+            ),
+            Err(e) => {
+                room.server_status =
+                    format!("The meeting server answers, but it could not be remembered: {e}");
+            }
+        }
+    }
+    Update::RefreshDom
+}
+
+/// The file the meeting server is remembered in: `AzMeet/settings.txt` in the per-user config
+/// folder (`FilePath::get_config_dir`).
+fn settings_path() -> Option<std::path::PathBuf> {
+    let dir = FilePath::get_config_dir().into_option()?;
+    let dir = dir.as_string().as_str().to_string();
+    if dir.is_empty() {
+        return None;
+    }
+    Some(
+        std::path::Path::new(&dir)
+            .join("AzMeet")
+            .join("settings.txt"),
+    )
+}
+
+/// The meeting server saved last time; `None` without a settings file, or with one that cannot be
+/// read, is too long, or names no meeting server.
+fn saved_server() -> Option<String> {
+    use std::io::Read;
+    let file = std::fs::File::open(settings_path()?).ok()?;
+    let mut text = String::new();
+    file.take(rooms::MAX_SETTINGS_BYTES as u64 + 1)
+        .read_to_string(&mut text)
+        .ok()?;
+    rooms::decode_settings(&text)
+}
+
+/// Remembers `server`: written to a temporary file next to the settings file, then renamed over
+/// it, so the settings file is never half written.
+fn save_server(server: &str) -> Result<(), String> {
+    let path = settings_path().ok_or_else(|| String::from("there is no per-user config folder"))?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let temp = path.with_extension("txt.tmp");
+    std::fs::write(&temp, rooms::encode_settings(server)).map_err(|e| e.to_string())?;
+    std::fs::rename(&temp, &path).map_err(|e| e.to_string())
 }
 
 /// The answer to the leave request; nothing waits on it.
@@ -4094,45 +4363,63 @@ fn probe(url: &str) -> Result<(), String> {
         .unwrap_or_else(|_| Err(String::from("no answer")))
 }
 
-/// The meeting server to use, or the line the demo shows instead.
-fn meeting_server() -> Result<String, String> {
-    let configured = std::env::var("AZMEET_WORKER")
-        .ok()
-        .map(|url| url.trim().to_string())
-        .filter(|url| !url.is_empty())
-        .or_else(|| (!PRODUCTION_WORKER.is_empty()).then(|| PRODUCTION_WORKER.to_string()));
-    let Some(url) = configured else {
-        return Err(String::from(
-            "Local demo: no meeting server is set. Start AzMeet with AZMEET_WORKER=<url> to meet \
-             other people.",
-        ));
+/// The meeting server at start (`rooms::server_prefill`: the one saved last time, else
+/// `AZMEET_WORKER`, else the built-in default), where it came from, and whether it accepts a
+/// connection. A headless run never reads the user's settings, so `AZMEET_WORKER` wins there.
+fn meeting_server() -> (String, rooms::ServerSource, Result<(), String>) {
+    let saved = if devices_allowed() {
+        saved_server()
+    } else {
+        None
     };
-    let url = url.trim_end_matches('/').to_string();
-    match probe(&url) {
-        Ok(()) => Ok(url),
-        Err(e) => Err(format!(
-            "Local demo: the meeting server at {url} does not answer ({e})."
-        )),
-    }
+    let env = std::env::var("AZMEET_WORKER").ok();
+    let built_in = if PRODUCTION_WORKER.is_empty() {
+        rooms::LOCAL_WORKER
+    } else {
+        PRODUCTION_WORKER
+    };
+    let (url, source) = rooms::server_prefill(saved.as_deref(), env.as_deref(), built_in);
+    let answer = probe(&url);
+    (url, source, answer)
 }
 
 pub fn start() {
-    match meeting_server() {
-        Ok(worker) => start_rooms(worker),
-        Err(reason) => start_demo(&reason),
+    let (worker, source, answer) = meeting_server();
+    if rooms::opens_demo(source, answer.is_ok()) {
+        let why = answer.err().unwrap_or_default();
+        start_demo(&format!(
+            "Local demo: no meeting server is set, and none answers at {worker} ({why}). Start the \
+             meet Worker's dev server, or AzMeet with AZMEET_WORKER=<url>, to meet other people."
+        ));
+    } else {
+        start_rooms(worker, answer);
     }
 }
 
-/// One window with the start screen, talking to the meeting server at `worker`.
-fn start_rooms(worker: String) {
-    let host = server_address(&worker)
+/// The relays for a meeting server at `worker`: `AZMEET_RELAY`, else none for one on this machine.
+fn relay_for(worker: &str) -> Relay {
+    let host = server_address(worker)
         .map(|(host, _)| host)
         .unwrap_or_default();
-    let relay = rooms::relay_choice(std::env::var("AZMEET_RELAY").ok().as_deref(), &host);
+    rooms::relay_choice(std::env::var("AZMEET_RELAY").ok().as_deref(), &host)
+}
+
+/// One window with the start screen, talking to the meeting server at `worker`; `answer` says
+/// whether it accepted a connection at start.
+fn start_rooms(worker: String, answer: Result<(), String>) {
+    let relay = relay_for(&worker);
     let name = display_name();
     let endpoint = bind_endpoint(&relay);
     let mut me = MeetState::new(&name, "", "");
-    let mut room = RoomSession::new(worker.clone(), name.clone());
+    let mut room = RoomSession::new(worker.clone(), name.clone(), relay.clone());
+    room.server_ok = answer.is_ok();
+    room.server_status = match &answer {
+        Ok(()) => String::from("The meeting server answers."),
+        Err(e) => format!(
+            "The meeting server at {worker} does not answer ({e}). Type another one and press \
+             Enter."
+        ),
+    };
     if endpoint.is_bound() {
         room.node_id = endpoint.endpoint_id().as_str().to_string();
         eprintln!(
