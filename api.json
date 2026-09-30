@@ -9267,34 +9267,22 @@
                         "struct_fields": [
                             {
                                 "scale": {
-                                    "type": "f32",
-                                    "doc": [
-                                        "Scale factor (< 1.0 for pinch in, > 1.0 for pinch out)"
-                                    ]
+                                    "type": "f32"
                                 },
                                 "center": {
-                                    "type": "LogicalPosition",
-                                    "doc": [
-                                        "Center point of the pinch gesture"
-                                    ]
+                                    "type": "LogicalPosition"
                                 },
                                 "initial_distance": {
-                                    "type": "f32",
-                                    "doc": [
-                                        "Distance between touch points when the pinch started, in logical px"
-                                    ]
+                                    "type": "f32"
                                 },
                                 "current_distance": {
-                                    "type": "f32",
-                                    "doc": [
-                                        "Current distance between touch points, in logical px"
-                                    ]
+                                    "type": "f32"
                                 },
                                 "duration_ms": {
-                                    "type": "u64",
-                                    "doc": [
-                                        "Duration of the pinch so far, in milliseconds"
-                                    ]
+                                    "type": "u64"
+                                },
+                                "began": {
+                                    "type": "bool"
                                 }
                             }
                         ],
