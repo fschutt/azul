@@ -411,4 +411,14 @@ mod tests {
         assert_eq!(IrohTileRole::Stage.rendition_height(0.0, 1.0, 4), 0);
         assert_eq!(IrohLoadBalancer::rendition_kbps(180), 250);
     }
+
+    #[test]
+    fn a_tile_of_400_device_pixels_asks_for_540_not_720() {
+        // The common gallery tile: 200 logical px tall on a 2x display. 720
+        // rows are 1.8x what it shows (and 1.8x the pixels in every capture,
+        // encode, decode and upload pass); the 960x540 rung covers it.
+        assert_eq!(IrohTileRole::Gallery.rendition_height(200.0, 2.0, 4), 540);
+        assert_eq!(IrohTileRole::Gallery.rendition_height(280.0, 2.0, 4), 720);
+        assert_eq!(IrohLoadBalancer::rendition_kbps(540), 1000);
+    }
 }
