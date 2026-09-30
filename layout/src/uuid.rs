@@ -1,4 +1,5 @@
-//! UUID string generation - the intended mint for MARKER strings.
+//! UUID string generation - the intended mint for MARKER strings, and a seeded
+//! mint for ids that leave the process.
 //!
 //! Markers (`Dom::with_marker` + `CallbackInfo::get_node_id_by_marker`) are
 //! app-chosen strings created at `layout()` time; what makes them work is that
@@ -21,8 +22,9 @@
 //! Every id is a pure function of a process-local counter, so run the same
 //! program twice and you get the same sequence of ids. That is all a marker
 //! needs - it has to be unique among the strings alive in ONE process, and it
-//! is: the mixing function is a bijection, so 2^63 mints collide zero times,
-//! exactly rather than probabilistically.
+//! is: the mixing function is a bijection and its whole output survives the
+//! version / variant stamp, so 2^63 mints collide zero times, exactly rather
+//! than probabilistically.
 //!
 //! What it is NOT: unpredictable, or unique across processes and machines. Do
 //! not use these to identify a client to a server, as a security token, or as
@@ -30,6 +32,22 @@
 //! carries no randomness source on purpose - `uuid`'s `v4` needs one, and on
 //! `wasm32-unknown-unknown` there isn't one without pulling in `getrandom`'s
 //! JS shim, which broke every wasm consumer of azul-layout 0.0.15.
+//!
+//! # Ids that other processes share: [`Uuid::from_seed`]
+//!
+//! A file name, an S3 key or a record that two devices write must not depend
+//! on how many ids this process minted before (the first [`Uuid::v4`] in every
+//! process is `00000000-0000-4000-...`). [`Uuid::from_seed`] and
+//! [`Uuid::short_from_seed`] take the randomness from the CALLER: the id is a
+//! pure function of a `u64` seed the app draws from wherever it has one - the
+//! OS, a hardware RNG, a server. So they stay deterministic (same seed, same
+//! id, on every platform and in every release; distinct seeds, distinct ids,
+//! exactly) and never touch the marker tick.
+//!
+//! 64 bits of seed are enough for app ids: two random seeds are likely to
+//! meet only after about 2^32 ids. They are not a security token: the mix is
+//! invertible, so the seed can be read back from the id. Never seed one with
+//! a secret, and never treat knowing an id as proof of anything.
 
 use core::sync::atomic::{AtomicU64, Ordering};
 
@@ -42,6 +60,10 @@ const BASE58: &[u8; 58] = b"123456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRST
 /// same on every run — deterministic, not random.
 static TICK: AtomicU64 = AtomicU64::new(0);
 
+/// splitmix64's increment (2^64 divided by the golden ratio, made odd): a
+/// seeded id is the first two splitmix64 outputs for its seed.
+const GAMMA: u64 = 0x9E37_79B9_7F4A_7C15;
+
 /// The splitmix64 finalizer. Every step (xor-shift-right, multiply by an odd
 /// constant) is invertible, so the whole function is a BIJECTION on `u64`:
 /// distinct ticks give distinct outputs, which is what makes the no-collision
@@ -52,27 +74,77 @@ const fn mix64(mut z: u64) -> u64 {
     z ^ (z >> 31)
 }
 
-/// 128 fresh bits: one tick spread over two disjoint `mix64` inputs.
-///
-/// `hi` alone is `mix64` of an injective function of the tick, so two mints
-/// can only repeat once the tick wraps at 2^63.
-fn next_bits() -> [u8; 16] {
-    let tick = TICK.fetch_add(1, Ordering::Relaxed);
-    let hi = mix64(tick.wrapping_mul(2));
-    let lo = mix64(tick.wrapping_mul(2).wrapping_add(1));
-    let mut out = [0u8; 16];
-    out[..8].copy_from_slice(&hi.to_be_bytes());
-    out[8..].copy_from_slice(&lo.to_be_bytes());
-    // RFC 4122: version 4 in the high nibble of byte 6, variant 0b10 in the
-    // top two bits of byte 8. Stamped after the mix so the shape is exact.
-    out[6] = (out[6] & 0x0F) | 0x40;
-    out[8] = (out[8] & 0x3F) | 0x80;
-    out
+/// Lays two mixed words out as an RFC 4122 version-4 UUID. The version nibble
+/// (bits 79..76) and the variant (bits 63..62) are INSERTED between payload
+/// bits, not written over them: all 64 bits of `hi` survive (the low 6 bits of
+/// `lo` make room), so an injective `hi` gives an injective id, exactly.
+const fn v4_shape(hi: u64, lo: u64) -> u128 {
+    // The 122 payload bits: all of `hi`, then the top 58 bits of `lo`.
+    let p = ((hi as u128) << 58) | ((lo >> 6) as u128);
+    ((p >> 74) << 80) // 48 bits: time_low + time_mid
+        | (0x4_u128 << 76) // version 4
+        | (((p >> 62) & 0xFFF) << 64) // 12 bits: the rest of time_hi
+        | (0b10_u128 << 62) // the RFC 4122 variant
+        | (p & ((1_u128 << 62) - 1)) // 62 bits: clock_seq + node
+}
+
+/// A marker's 128 bits: `tick` spread over two disjoint `mix64` inputs
+/// (`2 * tick`, `2 * tick + 1`). `hi` alone is `mix64` of an injective function
+/// of the tick and survives [`v4_shape`] whole, so two mints can only repeat
+/// once the tick wraps at 2^63.
+const fn tick_bits(tick: u64) -> u128 {
+    let even = tick.wrapping_mul(2);
+    v4_shape(mix64(even), mix64(even.wrapping_add(1)))
+}
+
+/// The next marker's 128 bits (advances the process tick).
+fn next_bits() -> u128 {
+    tick_bits(TICK.fetch_add(1, Ordering::Relaxed))
+}
+
+/// A seeded id's 128 bits: the first two outputs of splitmix64 seeded with
+/// `seed`. `hi` is a bijection of the seed and survives [`v4_shape`] whole, so
+/// distinct seeds give distinct ids, exactly. Reads and writes no state.
+const fn seed_bits(seed: u64) -> u128 {
+    v4_shape(
+        mix64(seed.wrapping_add(GAMMA)),
+        mix64(seed.wrapping_add(GAMMA.wrapping_mul(2))),
+    )
+}
+
+/// The canonical hyphenated lowercase spelling of 128 UUID bits (36 chars).
+fn hex(bits: u128) -> AzString {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(36);
+    for (i, byte) in bits.to_be_bytes().iter().enumerate() {
+        // 4-2-2-2-6 bytes, so the hyphens fall after bytes 4, 6, 8 and 10.
+        if matches!(i, 4 | 6 | 8 | 10) {
+            out.push('-');
+        }
+        out.push(HEX[usize::from(byte >> 4)] as char);
+        out.push(HEX[usize::from(byte & 0x0F)] as char);
+    }
+    out.into()
+}
+
+/// The 22-character flickrBase58 spelling of 128 UUID bits: big-endian,
+/// left-padded to the fixed 22 characters `short-uuid` emits (a value with
+/// leading zero bytes still has to spell 22 characters or the width stops
+/// being a contract).
+fn base58(mut n: u128) -> AzString {
+    let mut buf = [BASE58[0]; 22];
+    let mut i = 22;
+    while n > 0 && i > 0 {
+        i -= 1;
+        buf[i] = BASE58[(n % 58) as usize];
+        n /= 58;
+    }
+    String::from_utf8_lossy(&buf).into_owned().into()
 }
 
 /// Static-method namespace for UUID string generation ([`Uuid::v4`],
-/// [`Uuid::short`]). The struct only exists so the FFI layer can hang static
-/// methods off it.
+/// [`Uuid::short`], [`Uuid::from_seed`], [`Uuid::short_from_seed`]). The
+/// struct only exists so the FFI layer can hang static methods off it.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(C)]
 #[allow(clippy::pub_underscore_fields)] // FFI/api.json static-namespace placeholder field
@@ -99,21 +171,10 @@ impl Uuid {
     ///
     /// Deterministic, not random - the value depends only on how many ids this
     /// process has already minted. See the module docs before using one as
-    /// anything but a marker.
+    /// anything but a marker; [`Uuid::from_seed`] is the id to share.
     #[must_use]
     pub fn v4() -> AzString {
-        const HEX: &[u8; 16] = b"0123456789abcdef";
-        let b = next_bits();
-        let mut out = String::with_capacity(36);
-        for (i, byte) in b.iter().enumerate() {
-            // 4-2-2-2-6 bytes, so the hyphens fall after bytes 4, 6, 8 and 10.
-            if matches!(i, 4 | 6 | 8 | 10) {
-                out.push('-');
-            }
-            out.push(HEX[usize::from(byte >> 4)] as char);
-            out.push(HEX[usize::from(byte & 0x0F)] as char);
-        }
-        out.into()
+        hex(next_bits())
     }
 
     /// A fresh version-4-shaped UUID as a 22-character flickrBase58 string,
@@ -123,33 +184,34 @@ impl Uuid {
     /// Deterministic, not random - see [`Uuid::v4`] and the module docs.
     #[must_use]
     pub fn short() -> AzString {
-        // Big-endian base58 of the same 128 bits, left-padded to the fixed 22
-        // characters `short-uuid` emits (a value with leading zero bytes still
-        // has to spell 22 characters or the width stops being a contract).
-        let mut n = u128::from_be_bytes(next_bits());
-        let mut buf = [BASE58[0]; 22];
-        let mut i = 22;
-        while n > 0 && i > 0 {
-            i -= 1;
-            buf[i] = BASE58[(n % 58) as usize];
-            n /= 58;
-        }
-        String::from_utf8_lossy(&buf).into_owned().into()
+        base58(next_bits())
     }
 
     /// The version-4-shaped UUID that is a pure function of `seed`, in
-    /// canonical hyphenated lowercase form (36 characters).
+    /// canonical hyphenated lowercase form (36 characters): the id for a file
+    /// name, an S3 key or a record that other processes and devices share,
+    /// where the process-local sequence of [`Uuid::v4`] would collide.
+    ///
+    /// The randomness comes from the caller: draw `seed` from the OS, a
+    /// hardware RNG or a server. The same seed gives the same id on every
+    /// platform and in every release; distinct seeds give distinct ids,
+    /// exactly. It never touches the marker tick, so [`Uuid::v4`] and
+    /// [`Uuid::short`] return what they would have returned anyway.
+    ///
+    /// 64 bits of seed are enough for app ids (two random seeds are likely to
+    /// meet only after about 2^32 ids), but the id is not a security token:
+    /// the seed can be read back from it, so never seed it with a secret.
     #[must_use]
     pub fn from_seed(seed: u64) -> AzString {
-        let _ = seed;
-        todo!("RED: a UUID that is a pure function of its seed")
+        hex(seed_bits(seed))
     }
 
-    /// [`Uuid::from_seed`] as a 22-character flickrBase58 string.
+    /// [`Uuid::from_seed`] as a 22-character flickrBase58 string: the same
+    /// 128 bits, spelled like [`Uuid::short`]. Same seed, same id; see
+    /// [`Uuid::from_seed`] for where the seed comes from.
     #[must_use]
     pub fn short_from_seed(seed: u64) -> AzString {
-        let _ = seed;
-        todo!("RED: a short UUID that is a pure function of its seed")
+        base58(seed_bits(seed))
     }
 }
 
@@ -211,9 +273,6 @@ mod uuid_tests {
         assert_eq!(Uuid::new(), Uuid::default());
         assert_eq!(Uuid::new()._reserved, 0);
     }
-
-    /// splitmix64's increment; `from_seed`'s high word is `mix64(seed + GAMMA)`.
-    const GAMMA: u64 = 0x9E37_79B9_7F4A_7C15;
 
     /// The 128 bits a canonical hyphenated id spells.
     fn bits_of(id: &AzString) -> u128 {
