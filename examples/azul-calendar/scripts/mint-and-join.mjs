@@ -113,6 +113,16 @@ const launched = [];
 const TITLE = 'Team sync';
 const ROOM_LINK = /^azlin:\/\/meet\/([0-9a-z]{26})$/;
 const EVENT_FILE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/;
+/** How AzCalendar's form says an event was not saved (lib.rs: form_error, mint_failure, ...). */
+const FORM_ERRORS = [
+  'Give the event a title',
+  'The event must end after',
+  'This event cannot be saved',
+  'The meeting server',
+  'Too many new meetings',
+  'Could not write',
+  'No meeting server',
+];
 
 function log(line) {
   console.log(`[mint-and-join] ${line}`);
@@ -218,7 +228,8 @@ async function mustOp(debugPort, op) {
   const answer = await debugOp(debugPort, op);
   const shown = JSON.stringify(answer).slice(0, 160);
   if (answer?.status === 'error') throw new Error(`${JSON.stringify(op)} failed: ${shown}`);
-  log(`${op.op ?? op} on :${debugPort}: ${shown}`);
+  const target = op.text ?? op.selector;
+  log(`${op.op ?? op}${target ? ` "${target}"` : ''} on :${debugPort}: ${shown}`);
   return answer;
 }
 
@@ -282,9 +293,14 @@ try {
   await until('the form to say a link will be minted', () => shows(debugCal, 'A new AzMeet link is made'));
   await click(debugCal, 'Save event');
 
-  const link = await until('AzCalendar to save the event (AZCAL_LINK on stdout)', async () =>
-    printed(cal.out, 'AZCAL_LINK'),
-  );
+  const link = await until('AzCalendar to save the event (AZCAL_LINK on stdout)', async () => {
+    const minted = printed(cal.out, 'AZCAL_LINK');
+    if (minted) return minted;
+    // Asking the window also wakes the app's loop; a form error says why nothing was saved.
+    const problem = (await texts(debugCal)).find((t) => FORM_ERRORS.some((e) => t.startsWith(e)));
+    if (problem) throw new Error(`the form says: ${problem}`);
+    return null;
+  });
   const saved = printed(cal.out, 'AZCAL_SAVED');
   log(`AzCalendar saved ${saved} with ${link}`);
 
