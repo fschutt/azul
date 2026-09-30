@@ -148540,6 +148540,20 @@
                                     "type": "u32"
                                 },
                                 "fn_body": "azul_dll::unified::iroh::loadbalancer::IrohLoadBalancer::rendition_kbps(height)"
+                            },
+                            "set_mesh_cap": {
+                                "doc": [
+                                    "Rooms of up to `room_size` people let every peer forward (8 unless set); a larger room picks max(ceil(sqrt N), ceil(N / 8)) forwarders, grown by capacity. Applies from the next `select_backbone`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "room_size": "u32"
+                                    }
+                                ],
+                                "fn_body": "object.set_mesh_cap(room_size)"
                             }
                         },
                         "repr": "C"
