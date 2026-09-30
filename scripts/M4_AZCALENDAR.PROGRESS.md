@@ -3,15 +3,16 @@
 Branch `wt/m4-azcalendar` (base `8e9a0a683`). Report: `scripts/M4_AZCALENDAR_2026_09_29.md`.
 
 ## DONE
-- (this commit) RED: crate `examples/azul-calendar` (package AzCalendar, lib `azcalendar` + bin), workspace
+- `0cc765f17` RED: crate `examples/azul-calendar` (package AzCalendar, lib `azcalendar` + bin), workspace
   member, Cargo.lock entry; `event.rs` / `week.rs` / `meeting.rs` signatures with `todo!()` and their tests;
   AzMeet's `rooms.rs` compiled in as `meet_rooms` (`#[path]`).
+- `960137a1d` feat: event.rs / week.rs / meeting.rs implemented (type-checked lib + tests with rustc
+  --emit=metadata, scratchpad `m4/check_pure.sh`; not run).
 
 ## IN PROGRESS
-- pure logic: event file format, file names, store; week math and overlap lanes; the Worker's answer.
+- e2e script.
 
 ## NEXT
-1. feat: implement event.rs / week.rs / meeting.rs (type-check with scratchpad `m4/check_pure.sh`).
 2. RED: `examples/azul-calendar/scripts/mint-and-join.mjs` (headless e2e).
 3. feat: lib.rs UI (week view, New event form, Save -> mint -> file, Join meeting).
 4. report.
