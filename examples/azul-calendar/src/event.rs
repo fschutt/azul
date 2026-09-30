@@ -28,7 +28,12 @@
 //! Times are wall-clock times on the event's day (no time zones in the event itself); an event
 //! ends on the day it starts. `meeting.starts_at` / `ends_at` are the times the meeting server
 //! keeps the room for, in UTC, as it answered them: the event's times read in the zone of the
-//! AzCalendar that minted the link.
+//! AzCalendar that made the link.
+//!
+//! AzCalendar makes a meeting's link itself (a room id drawn here, the same shape as the server's),
+//! so making one works offline, and registers the room with the meeting server as soon as it
+//! answers. Until then the meeting has `"pending": true` (and no `code`, `expires` or times); the
+//! registered meeting leaves `pending` out, as every file from before it does.
 //!
 //! Version 1 is the same without `meeting.starts_at` / `ends_at` (links minted before meeting
 //! times); it is still read, and written as version 2 when saved again. A file with a higher
@@ -89,6 +94,16 @@ pub struct Meeting {
     pub starts_at: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub ends_at: String,
+    /// The link was made here and its room is not registered with `server` yet (made offline, or
+    /// the registration is on its way): AzCalendar sends it again until the server has it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pending: bool,
+}
+
+/// For `skip_serializing_if`: a `false` flag is left out of the file.
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde passes a reference
+fn is_false(flag: &bool) -> bool {
+    !*flag
 }
 
 /// Why an event cannot be made or read.
@@ -373,7 +388,7 @@ pub fn new_event_id() -> String {
 /// 64 random bits: `std`'s `RandomState` (SipHash keys the OS seeds per
 /// thread, stepped on every call) hashed with the time, the process id and a
 /// counter; no extra dependency.
-fn random_seed() -> u64 {
+pub(crate) fn random_seed() -> u64 {
     use std::{
         collections::hash_map::RandomState,
         hash::{BuildHasher, Hasher},

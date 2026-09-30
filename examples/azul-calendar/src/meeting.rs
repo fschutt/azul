@@ -1,10 +1,14 @@
-//! AzCalendar's side of AzMeet: which meeting server mints the links (the same setting as
-//! AzMeet's), what AzCalendar asks it for (a room kept for the event's times, in UTC), what the
-//! server's answer to `POST /rooms` means, what to tell the user when minting fails, and which
-//! AzMeet program "Join meeting" opens. Link formats are AzMeet's own (`meet_rooms`, AzMeet's
-//! `rooms.rs`), not repeated here.
+//! AzCalendar's side of AzMeet: which meeting server registers the links (the saved setting, else
+//! AzMeet's), the links AzCalendar makes itself (so making one works offline), what it sends to
+//! register a room (`POST /rooms {room, starts_at, ends_at}`, the event's times in UTC), what the
+//! server's answer means, what to tell the user when registering fails and whether to try again,
+//! and which AzMeet program "Join meeting" opens. Link formats and the settings format are
+//! AzMeet's own (`meet_rooms`, AzMeet's `rooms.rs`), not repeated here.
 
-use std::path::{Path, PathBuf};
+use std::{
+    io::Read,
+    path::{Path, PathBuf},
+};
 
 use chrono::{DateTime, NaiveDate, NaiveTime, SecondsFormat, TimeDelta, TimeZone, Utc};
 use serde::Deserialize;
@@ -30,14 +34,93 @@ pub const BUILT_IN_WORKER: &str = match option_env!("AZMEET_DEFAULT_WORKER") {
     None => "",
 };
 
-/// The meeting server: `setting` (`AZMEET_WORKER`), else the built-in one, without a trailing
-/// slash; `None` when neither is set.
-pub fn worker(setting: Option<&str>, built_in: &str) -> Option<String> {
-    [setting.unwrap_or_default(), built_in]
-        .into_iter()
-        .map(|url| url.trim().trim_end_matches('/'))
-        .find(|url| !url.is_empty())
-        .map(str::to_string)
+/// The meeting server: the one in the settings file's text `saved` (AzMeet's settings format),
+/// else `env` (`AZMEET_WORKER`), else `built_in`, else AzMeet's local development server - the
+/// order AzMeet itself uses (`meet_rooms::server_prefill`). There always is one: links are made
+/// here and registered with it once it answers.
+pub fn server_setting(saved: Option<&str>, env: Option<&str>, built_in: &str) -> String {
+    let saved = saved.and_then(meet_rooms::decode_settings);
+    meet_rooms::server_prefill(saved.as_deref(), env, built_in).0
+}
+
+/// The file the meeting server is saved in: `settings.txt` in the data folder.
+pub fn settings_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("settings.txt")
+}
+
+/// The settings file's text, if there is a file of a sensible size.
+pub fn read_settings_text(path: &Path) -> Option<String> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut text = String::new();
+    file.take(meet_rooms::MAX_SETTINGS_BYTES as u64 + 1)
+        .read_to_string(&mut text)
+        .ok()?;
+    Some(text)
+}
+
+/// The meeting server saved at `path`; `None` without a file, or with one that names none.
+pub fn read_saved_server(path: &Path) -> Option<String> {
+    meet_rooms::decode_settings(&read_settings_text(path)?)
+}
+
+/// Saves `server` at `path`: written next to it, then renamed over it, so the file is never half
+/// written.
+pub fn save_server(path: &Path, server: &str) -> std::io::Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let temp = path.with_extension("txt.tmp");
+    std::fs::write(&temp, meet_rooms::encode_settings(server))?;
+    if let Err(e) = std::fs::rename(&temp, path) {
+        let _ = std::fs::remove_file(&temp);
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// The alphabet of room ids: lower-case Crockford base32, as the meeting server mints them and
+/// AzMeet reads them (`meet_rooms::parse_room_key`, whose tests pin the two together).
+const ROOM_ID_ALPHABET: &[u8; 32] = b"0123456789abcdefghjkmnpqrstvwxyz";
+
+/// A room id made here, from 130 of `entropy`'s bits (all of the first two words, the two lowest
+/// of the third): 26 characters of the room-id alphabet, the same shape and strength as the ids
+/// the meeting server mints, so the server can register it as it is.
+pub fn new_room_id(entropy: [u64; 3]) -> String {
+    let mut bits = (u128::from(entropy[0]) << 64) | u128::from(entropy[1]);
+    (0..26)
+        .map(|i| {
+            let value = if i < 25 {
+                let v = (bits & 31) as usize;
+                bits >>= 5;
+                v
+            } else {
+                // 125 bits used: the last three of the pair and two of the third word.
+                (bits & 7) as usize | (((entropy[2] & 3) as usize) << 3)
+            };
+            char::from(ROOM_ID_ALPHABET[value])
+        })
+        .collect()
+}
+
+/// A meeting AzCalendar made for `room_id`, to be registered with `server`: pending until it is.
+pub fn pending_meeting(server: &str, room_id: &str) -> Meeting {
+    Meeting {
+        link: format!("{}{room_id}", meet_rooms::APP_LINK_PREFIX),
+        server: server.to_string(),
+        code: String::new(),
+        expires: String::new(),
+        starts_at: String::new(),
+        ends_at: String::new(),
+        pending: true,
+    }
+}
+
+/// The room id a meeting's link names, if it names one.
+pub fn room_id_of(meeting: &Meeting) -> Option<String> {
+    match meet_rooms::parse_room_link(&meeting.link)? {
+        RoomKey::Id(id) => Some(id),
+        RoomKey::Code(_) => None,
+    }
 }
 
 /// When an event on `date` from `start` to `end` (wall-clock times in `zone`, the user's zone in
@@ -64,12 +147,17 @@ pub fn utc_window<Tz: TimeZone>(
     (utc(start), utc(end))
 }
 
-/// The body of `POST /rooms` for a meeting from `starts` to `ends`:
-/// `{"starts_at": "2026-10-06T07:00:00Z", "ends_at": "2026-10-06T08:00:00Z"}` (RFC 3339, UTC). The
-/// server keeps the room until a while after `ends`, not only a day after it was minted.
-pub fn mint_body(starts: DateTime<Utc>, ends: DateTime<Utc>) -> String {
+/// The body of `POST /rooms` registering the room `room_id` for a meeting from `starts` to
+/// `ends`: `{"room": "<id>", "starts_at": "2026-10-06T07:00:00Z", "ends_at": "..."}` (RFC 3339,
+/// UTC). The server keeps the room until a while after `ends`, not only a day after it was made.
+pub fn register_body(room_id: &str, starts: DateTime<Utc>, ends: DateTime<Utc>) -> String {
     let rfc3339 = |t: DateTime<Utc>| t.to_rfc3339_opts(SecondsFormat::Secs, true);
-    serde_json::json!({ "starts_at": rfc3339(starts), "ends_at": rfc3339(ends) }).to_string()
+    serde_json::json!({
+        "room": room_id,
+        "starts_at": rfc3339(starts),
+        "ends_at": rfc3339(ends),
+    })
+    .to_string()
 }
 
 /// What `POST /rooms` answers: `{room, code, link, url, expires, starts_at, ends_at}`
@@ -102,10 +190,36 @@ pub fn minted_meeting(server: &str, body: &str) -> Result<Meeting, String> {
             expires: answer.expires.unwrap_or_default(),
             starts_at: answer.starts_at.unwrap_or_default(),
             ends_at: answer.ends_at.unwrap_or_default(),
+            pending: false,
         }),
         _ => Err(format!(
             "The meeting server sent a link that is not the AzMeet room it made: {link}"
         )),
+    }
+}
+
+/// The meeting `server` registered for the room `room_id`, read from its answer. The answer must
+/// be that room: a server that makes rooms of its own and ignores the one sent (one from before
+/// links made in the app) is refused.
+pub fn registered_meeting(server: &str, room_id: &str, body: &str) -> Result<Meeting, String> {
+    let meeting = minted_meeting(server, body)?;
+    if room_id_of(&meeting).as_deref() == Some(room_id) {
+        Ok(meeting)
+    } else {
+        Err(format!(
+            "The meeting server at {server} made a room of its own instead of registering the \
+             link made here; it needs an update to register links made in AzCalendar."
+        ))
+    }
+}
+
+/// Whether a registration that failed with `status` (`None`: the server was not reached) is sent
+/// again later: yes when unreachable, rate limited or failing itself, no when it read the
+/// request and refused it.
+pub fn sync_again(status: Option<u16>) -> bool {
+    match status {
+        None => true,
+        Some(status) => status == 429 || status >= 500,
     }
 }
 

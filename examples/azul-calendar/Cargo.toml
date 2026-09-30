@@ -5,13 +5,14 @@ edition = "2021"
 authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = """
-    AzCalendar - a small calendar on the public azul API that mints AzMeet
-    links. A week view (08:00 - 20:00) lists the events of the shown week;
-    "New event" saves one JSON file per event (<data dir>/events/<id>.json,
-    the same layout as an object store's keys) and, with "Add AzMeet link",
-    first asks the meeting server (the `meet` Worker, AZMEET_WORKER) for a
-    room and keeps its link in the file. "Join meeting" opens AzMeet with
-    AZMEET_JOIN=<link>.
+    AzCalendar - a small calendar on the public azul API that makes AzMeet
+    links, online or not. A week view (the whole day, scrolling and zooming)
+    lists the events of the shown week; a click or a drag, or "New event",
+    saves one JSON file per event (<data dir>/events/<id>.json, the same
+    layout as an object store's keys) and, with "Add AzMeet link", a link
+    made in the app, registered with the meeting server (the `meet` Worker,
+    Settings > Meeting server) as soon as it answers. "Join meeting" opens
+    AzMeet with AZMEET_JOIN=<link>.
 """
 publish = false
 

@@ -130,7 +130,6 @@ const FORM_ERRORS = [
   'The meeting server',
   'Too many new meetings',
   'Could not write',
-  'No meeting server',
 ];
 
 function log(line) {

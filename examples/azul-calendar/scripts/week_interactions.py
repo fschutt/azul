@@ -503,7 +503,7 @@ def run(opts, logs):
     log(f"logs and data: {logs}")
     env = dict(os.environ)
     env.update({"AZ_BACKEND": "headless", "AZ_DEBUG": str(opts.port), "AZCAL_DATA": data})
-    # No meeting server: this test makes no links, and must not reach one.
+    # This test makes no meeting links, so AzCalendar's default meeting server is never reached.
     env.pop("AZMEET_WORKER", None)
     out = open(os.path.join(logs, "azcalendar.out"), "w")
     err = open(os.path.join(logs, "azcalendar.err"), "w")
