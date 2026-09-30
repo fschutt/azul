@@ -291,3 +291,32 @@ fn a_visible_spinners_frame_damages_only_its_own_rect() {
         ),
     }
 }
+
+/// USER RULING: "we should remove the timer if we don't have any timer
+/// running". A window with no animation, no caret tween, no focused editable
+/// and no user timer registers no timer at all and asks for no frames: the
+/// caret tween and blink timers exist only while they have work, the CSS
+/// driver only while something visible moves.
+#[test]
+fn an_idle_window_registers_no_timers_and_requests_no_frames() {
+    azul_core::task::reset_test_clock();
+    azul_core::task::freeze_test_clock();
+    let state = Arc::new(RefCell::new(RefAny::new(UiState {
+        label: "nothing moves here".to_string(),
+    })));
+    let mut window = make_harness_window(&state);
+    window.regenerate_layout().expect("initial layout");
+    window.arm_animation_drivers_if_needed();
+    let timers: Vec<usize> = lw(&window).timers.keys().map(|t| t.id).collect();
+    let requested = frames_requested_over(&mut window, 10);
+    azul_core::task::reset_test_clock();
+
+    assert!(
+        timers.is_empty(),
+        "an idle window must register no timer, it registered {timers:x?}"
+    );
+    assert_eq!(
+        requested, 0,
+        "an idle window asked for {requested} frames over 10 periods"
+    );
+}

@@ -20263,6 +20263,115 @@ pub fn process_debug_event(
     needs_update
 }
 
+/// Timer id of the debug server's poll timer, per window. One constant for
+/// every registration site (window creation and `StartHttpServer`).
+pub const DEBUG_TIMER_ID: usize = 0xDEBE;
+
+/// The debug server's poll rate while requests arrive or a scenario is
+/// suspended, in ms.
+pub const DEBUG_POLL_BUSY_MS: u64 = 16;
+/// The poll rate once nothing has arrived for [`DEBUG_POLL_SETTLE_MS`].
+pub const DEBUG_POLL_IDLE_MS: u64 = 250;
+/// Quiet time at the busy rate before the timer drops to the idle rate.
+pub const DEBUG_POLL_SETTLE_MS: u64 = 1000;
+
+/// How often the debug server's poll timer fires (USER ruling 2026-09-30:
+/// no internal timer may keep a window busy that has nothing to do).
+///
+/// The requests arrive on the server thread and the timer drains them on
+/// the UI thread, so something has to look. It looks at
+/// [`DEBUG_POLL_BUSY_MS`] while requests keep coming or a scenario is
+/// suspended between ticks, and drops to [`DEBUG_POLL_IDLE_MS`] after
+/// [`DEBUG_POLL_SETTLE_MS`] of quiet: an AzBuilder nobody drives no longer
+/// wakes 60 times a second. The first request after a quiet spell waits at
+/// most one idle period.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugPollPace {
+    busy: bool,
+    quiet_ms: u64,
+}
+
+impl Default for DebugPollPace {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DebugPollPace {
+    /// A freshly registered timer polls at the busy rate: a debugger
+    /// usually connects right after the app starts.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            busy: true,
+            quiet_ms: 0,
+        }
+    }
+
+    /// The interval the timer runs at now, in ms.
+    #[must_use]
+    pub const fn interval_ms(&self) -> u64 {
+        DEBUG_POLL_BUSY_MS
+    }
+
+    /// One tick. `worked`: a request was served or a scenario is still
+    /// suspended. Returns the new interval when the timer must be re-armed
+    /// at a different rate.
+    pub fn on_tick(&mut self, _worked: bool) -> Option<u64> {
+        None
+    }
+}
+
+#[cfg(test)]
+mod debug_poll_pace_tests {
+    use super::*;
+
+    fn ticks_until_idle(p: &mut DebugPollPace) -> Option<u64> {
+        let mut elapsed = 0;
+        while elapsed <= DEBUG_POLL_SETTLE_MS {
+            let step = p.interval_ms();
+            elapsed += step;
+            if let Some(ms) = p.on_tick(false) {
+                return (ms == DEBUG_POLL_IDLE_MS).then_some(elapsed);
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn a_debug_server_nobody_talks_to_drops_to_the_idle_rate() {
+        let mut p = DebugPollPace::new();
+        assert_eq!(p.interval_ms(), DEBUG_POLL_BUSY_MS);
+        let after = ticks_until_idle(&mut p);
+        assert!(
+            after.is_some_and(|ms| ms >= DEBUG_POLL_SETTLE_MS),
+            "a quiet debug server must fall back to the idle rate after {DEBUG_POLL_SETTLE_MS} \
+             ms, not before (re-armed after {after:?} ms)"
+        );
+        assert_eq!(p.interval_ms(), DEBUG_POLL_IDLE_MS);
+        assert_eq!(p.on_tick(false), None, "idle stays idle without re-arming");
+    }
+
+    #[test]
+    fn a_request_brings_the_poll_back_to_the_busy_rate() {
+        let mut p = DebugPollPace::new();
+        let _ = ticks_until_idle(&mut p);
+        assert_eq!(p.on_tick(true), Some(DEBUG_POLL_BUSY_MS));
+        assert_eq!(p.interval_ms(), DEBUG_POLL_BUSY_MS);
+        assert_eq!(p.on_tick(true), None, "busy stays busy without re-arming");
+    }
+
+    #[test]
+    fn steady_requests_never_drop_to_the_idle_rate() {
+        let mut p = DebugPollPace::new();
+        for _ in 0..1000 {
+            assert_eq!(p.on_tick(false), None);
+            assert_eq!(p.on_tick(true), None);
+        }
+        assert_eq!(p.interval_ms(), DEBUG_POLL_BUSY_MS);
+    }
+}
+
 /// Create a Timer for the debug server polling.
 ///
 /// # Arguments
