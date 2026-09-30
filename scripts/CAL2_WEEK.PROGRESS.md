@@ -1,34 +1,37 @@
 # CAL2_WEEK progress (AzCalendar week interactions)
 
-Branch `wt/cal2-week-interactions`, base `8812e832c`. Nothing is compiled here (house rule).
+Branch `wt/cal2-week-interactions`, base `8812e832c`. Nothing is compiled here (house rule); the
+E2E may be run against the parent's build (coordinator, 2026-09-30).
 
-## DONE
-- `4e6f11855` RED: week.rs tests (whole day, y <-> time, click / drag ranges, press on an event,
-  zoom: limits, wheel, pinch, anchor; first hour shown; draft label), layout pin test
-  `layout/tests/a_scroll_area_under_a_fixed_header_reaches_its_whole_content.rs` (+ all.rs),
-  E2E `examples/azul-calendar/scripts/week_interactions.py`.
-- `1d4736f8b` feat: week.rs math, lib.rs scroll area / zoom / click + drag drafts with a
-  `<transient-window>` popover.
-- `f225eee5b` E2E: independent stages, id-based draft checks, per-wait timeout (dry-run PASS against
-  a stand-in; FAIL modes checked).
-- `5b401249d` RED / `398033831` feat: a saved event out of view scrolls the week to it (keeps
-  mint-and-join's "Join meeting" click on screen).
-- Report `scripts/CAL2_WEEK_2026_09_30.md`.
+## DONE (round 1)
+- `4e6f11855` RED / `1d4736f8b` feat: whole-day scroll area, zoom, click / drag drafts with a
+  `<transient-window>` popover; layout pin test; E2E script.
+- `f225eee5b` E2E stages; `5b401249d` RED / `398033831` feat: a saved event out of view is revealed.
+- `24a0218e8` report `scripts/CAL2_WEEK_2026_09_30.md` (round 1).
+
+## DONE (round 2: the parent ran the E2E, 7/7 failed)
+- `de3b31ef6` RED / `5feb67d2b` fix(engine):
+  1. `is_layout_equivalent` ignored `Dom::with_css` sheets (they live in the cascade's
+     `retained_author_css`, not `NodeData::style`): a with_css-only rebuild (the zoom) kept the
+     old layout. The pinch DID reach the app (its scroll_to was in the log).
+  2. `dispatch_accessibility_events` skipped the Default action's `Click` filter: a screen
+     reader's press (and the E2E `accessibility_action default` on Save / Cancel) ran nothing.
+- `58680e715` E2E: `wait_frame` while waiting, wheel from the middle with the right sign, settle
+  after the wheel, pointer before `pinch`, --only / --skip. Against the parent's current build:
+  wheel + outside PASS; drag reaches the right draft; saves need the engine fix above.
+- `260701fb4` RED / `aa9eabfdc` fix(gesture): DetectedPinch is CUMULATIVE since the gesture began,
+  new last field `began` (api.json!); macOS accumulates magnify deltas over the NSEvent phase
+  (`trackpad_magnify`), touch `began` edge (`note_pinch_dispatched`), iOS / Android / Wayland /
+  X11 / Windows fixed; map + AzCalendar zoom by successive cumulative ratios.
 
 ## IN PROGRESS
-- nothing
+- User requests (mid-turn): clip event titles; drop "No meeting server is set"; default meeting
+  server + Settings menu; offline-first links (client-generated room ids, synced when the server
+  is reachable). The Worker lives in `../azul-apps` (a patch file, since this agent cannot commit
+  there).
 
 ## NEXT
-- Parent: compile, run the suites and the E2E (commands in the report).
-
-## Findings
-- Why the day was not reachable: the view only ever held 08:00 - 20:00, nothing in the window
-  scrolled, and the flex chain had no `min-height: 0`. App cause, not engine (the layout pin test
-  asks the engine for exactly the new structure; expected GREEN).
-- Headless E2E limit: a `<transient-window>` popup is a separate window that the headless run loop
-  never runs; keys the parent receives while it is open are forwarded to it and spent. Enter /
-  Escape cannot reach the popover headless; the E2E drives the popover's nodes in DOM 0 instead.
-  Engine follow-up proposed in the report.
+- Report round 2 in `scripts/CAL2_WEEK_2026_09_30.md`.
 
 ## Open questions
 - none
