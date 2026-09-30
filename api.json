@@ -136303,6 +136303,9 @@
                                 },
                                 "hw_accel": {
                                     "type": "HwAcceleration"
+                                },
+                                "max_frame_rate": {
+                                    "type": "OptionU32"
                                 }
                             }
                         ],
