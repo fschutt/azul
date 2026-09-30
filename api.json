@@ -144395,6 +144395,9 @@
                                     "type": "c_void",
                                     "ref_kind": "mutptr"
                                 },
+                                "error": {
+                                    "type": "OptionString"
+                                },
                                 "run_destructor": {
                                     "type": "bool"
                                 }
@@ -144472,6 +144475,23 @@
                                     }
                                 ],
                                 "fn_body": "object.close()"
+                            },
+                            "error_message": {
+                                "doc": [
+                                    "Why this sink is not open, readable enough to show the user: no output",
+                                    "device, no audio backend in this build, the device refused the",
+                                    "format, or a headless run without the synthetic sink. `None` while the",
+                                    "sink is open, after an explicit `close`, and on a default handle."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionString"
+                                },
+                                "fn_body": "object.error_message()"
                             }
                         },
                         "repr": "C"
@@ -145007,8 +145027,13 @@
                         "functions": {
                             "v4": {
                                 "doc": [
-                                    "A fresh random (version 4) UUID in canonical hyphenated lowercase form,",
-                                    "e.g. \"550e8400-e29b-41d4-a716-446655440000\" (36 characters)."
+                                    "A fresh version-4-shaped UUID in canonical hyphenated lowercase form,",
+                                    "e.g. \"550e8400-e29b-41d4-a716-446655440000\" (36 characters).",
+                                    "",
+                                    "Deterministic, not random - the value depends only on how many ids this",
+                                    "process has already minted: a MARKER, unique within one process. For an id",
+                                    "that other processes or devices share (a file name, an S3 key), use",
+                                    "`from_seed` with randomness from outside."
                                 ],
                                 "priority": 90.0,
                                 "fn_args": [],
@@ -145019,9 +145044,11 @@
                             },
                             "short": {
                                 "doc": [
-                                    "A fresh random (version 4) UUID as a 22-character flickrBase58 string -",
-                                    "the short-uuid encoding of the same 128 bits `v4` would print. The compact",
-                                    "spelling for markers, log lines and URLs."
+                                    "A fresh version-4-shaped UUID as a 22-character flickrBase58 string,",
+                                    "e.g. \"mhvXdrZT4jP5T8vBxuvm75\" - the same encoding short-uuid used to print.",
+                                    "The compact spelling for markers, log lines and URLs.",
+                                    "",
+                                    "Deterministic, not random - see `v4`; for a shared id use `short_from_seed`."
                                 ],
                                 "priority": 90.0,
                                 "fn_args": [],
@@ -145029,6 +145056,81 @@
                                     "type": "String"
                                 },
                                 "fn_body": "azul_layout::uuid::Uuid::short()"
+                            },
+                            "from_seed": {
+                                "doc": [
+                                    "The version-4-shaped UUID that is a pure function of `seed`, in",
+                                    "canonical hyphenated lowercase form (36 characters): the id for a file",
+                                    "name, an S3 key or a record that other processes and devices share,",
+                                    "where the process-local sequence of [`Uuid::v4`] would collide.",
+                                    "",
+                                    "The randomness comes from the caller: draw `seed` from the OS, a",
+                                    "hardware RNG or a server. The same seed gives the same id on every",
+                                    "platform and in every release; distinct seeds give distinct ids,",
+                                    "exactly. It never touches the marker tick, so [`Uuid::v4`] and",
+                                    "[`Uuid::short`] return what they would have returned anyway.",
+                                    "",
+                                    "64 bits of seed are enough for app ids (two random seeds are likely to",
+                                    "meet only after about 2^32 ids), but the id is not a security token:",
+                                    "the seed can be read back from it, so never seed it with a secret."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "seed": "u64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "azul_layout::uuid::Uuid::from_seed(seed).into()"
+                            },
+                            "short_from_seed": {
+                                "doc": [
+                                    "[`Uuid::from_seed`] as a 22-character flickrBase58 string: the same",
+                                    "128 bits, spelled like [`Uuid::short`]. Same seed, same id; see",
+                                    "[`Uuid::from_seed`] for where the seed comes from."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "seed": "u64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "azul_layout::uuid::Uuid::short_from_seed(seed).into()"
+                            },
+                            "code": {
+                                "doc": [
+                                    "A human-friendly CODE, like a meeting code: `xq4-8kdm-2np` - ten",
+                                    "symbols in 3-4-3 groups from the 31-symbol alphabet without the",
+                                    "look-alikes `0 o 1 l i` (about 49 bits), easy to read aloud and type.",
+                                    "Not a UUID: fewer bits, no version field, and codes can repeat long",
+                                    "before UUIDs would (two random codes are likely to meet after about",
+                                    "30 million). Deterministic like [`Uuid::v4`]: a marker unique within one",
+                                    "process; for a code other devices share, use [`Uuid::code_from_seed`]."
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "azul_layout::uuid::Uuid::code().into()"
+                            },
+                            "code_from_seed": {
+                                "doc": [
+                                    "[`Uuid::code`] as a pure function of `seed` (randomness from outside,",
+                                    "as for [`Uuid::from_seed`]): the same seed gives the same code; it never",
+                                    "touches the marker tick."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "seed": "u64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "azul_layout::uuid::Uuid::code_from_seed(seed).into()"
                             }
                         },
                         "repr": "C"

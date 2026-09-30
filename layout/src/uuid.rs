@@ -142,6 +142,24 @@ fn base58(mut n: u128) -> AzString {
     String::from_utf8_lossy(&buf).into_owned().into()
 }
 
+/// The code alphabet: digits and lowercase letters without the look-alikes
+/// `0 o 1 l i` - 31 symbols, easy to read aloud and type.
+const CODE_ALPHABET: &[u8; 31] = b"23456789abcdefghjkmnpqrstuvwxyz";
+
+/// Ten code symbols from `bits` (31^10 < 2^64, about 49.5 bits used), in
+/// 3-4-3 groups: `xq4-8kdm-2np`.
+fn code_of(mut bits: u64) -> AzString {
+    let mut out = String::with_capacity(12);
+    for i in 0..10 {
+        if i == 3 || i == 7 {
+            out.push('-');
+        }
+        out.push(CODE_ALPHABET[(bits % 31) as usize] as char);
+        bits /= 31;
+    }
+    out.into()
+}
+
 /// Static-method namespace for UUID string generation ([`Uuid::v4`],
 /// [`Uuid::short`], [`Uuid::from_seed`], [`Uuid::short_from_seed`]). The
 /// struct only exists so the FFI layer can hang static methods off it.
@@ -223,7 +241,8 @@ impl Uuid {
     /// process; for a code other devices share, use [`Uuid::code_from_seed`].
     #[must_use]
     pub fn code() -> AzString {
-        AzString::from(String::new())
+        // The mixed high half of the tick's bits: `v4_shape` leaves it whole.
+        code_of((next_bits() >> 64) as u64)
     }
 
     /// [`Uuid::code`] as a pure function of `seed` (randomness from outside,
@@ -231,8 +250,7 @@ impl Uuid {
     /// touches the marker tick.
     #[must_use]
     pub fn code_from_seed(seed: u64) -> AzString {
-        let _ = seed;
-        AzString::from(String::new())
+        code_of(mix64(seed.wrapping_add(GAMMA)))
     }
 }
 
