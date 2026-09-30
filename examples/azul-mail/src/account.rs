@@ -166,89 +166,154 @@ pub struct Secret(String);
 
 impl Secret {
     pub fn new(secret: String) -> Secret {
-        todo!()
+        Secret(secret)
     }
 
     /// The secret itself, for the sign-in and the keyring only.
     pub fn expose(&self) -> &str {
-        todo!()
+        &self.0
     }
 
     pub fn is_empty(&self) -> bool {
-        todo!()
+        self.0.is_empty()
     }
 }
 
 impl std::fmt::Debug for Secret {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        f.write_str("Secret(..)")
     }
 }
 
 impl Drop for Secret {
-    fn drop(&mut self) {}
+    fn drop(&mut self) {
+        // Best effort: overwrite the bytes before the allocation is freed.
+        let mut bytes = std::mem::take(&mut self.0).into_bytes();
+        bytes.fill(0);
+        std::hint::black_box(&bytes);
+    }
 }
 
 /// The domain of an address, in lower case, if the address has the shape `local@domain`.
 pub fn email_domain(email: &str) -> Option<String> {
-    todo!()
+    is_email(email).then(|| {
+        let email = email.trim();
+        email[email.rfind('@').unwrap_or(0) + 1..].to_ascii_lowercase()
+    })
 }
 
 /// Whether `email` looks like an address: one `@`, something on both sides, a dot-free or
 /// dotted domain without spaces.
 pub fn is_email(email: &str) -> bool {
-    todo!()
+    let email = email.trim();
+    let mut parts = email.split('@');
+    let (Some(local), Some(domain), None) = (parts.next(), parts.next(), parts.next()) else {
+        return false;
+    };
+    !local.is_empty()
+        && !domain.is_empty()
+        && !email.chars().any(|c| c.is_whitespace() || c.is_control())
+        && !domain.starts_with('.')
+        && !domain.ends_with('.')
+        && !domain.contains("..")
 }
 
 /// The provider serving the address's domain, if AzMail knows it.
 pub fn provider_for(email: &str) -> Option<&'static Provider> {
-    todo!()
+    let domain = email_domain(email)?;
+    PROVIDERS
+        .iter()
+        .find(|p| p.domains.contains(&domain.as_str()))
 }
 
 /// The IMAP and SMTP servers to prefill for an address: the provider's, else `imap.<domain>`
 /// on 993 and `smtp.<domain>` on 465; `None` while the address has no domain yet.
 pub fn guess_servers(email: &str) -> Option<(Server, Server)> {
-    todo!()
+    let server = |host: &str, port: u16| Server {
+        host: host.to_string(),
+        port,
+    };
+    if let Some(p) = provider_for(email) {
+        return Some((server(p.imap.0, p.imap.1), server(p.smtp.0, p.smtp.1)));
+    }
+    let domain = email_domain(email)?;
+    Some((
+        server(&format!("imap.{domain}"), IMAPS_PORT),
+        server(&format!("smtp.{domain}"), SMTPS_PORT),
+    ))
 }
 
 /// The account id for an address: the address in lower case, trimmed, where every character
 /// other than `a-z 0-9 . _ + - @` becomes `_` and a leading dot becomes `_`; `None` when the
 /// address is not one.
 pub fn account_id(email: &str) -> Option<String> {
-    todo!()
+    if !is_email(email) {
+        return None;
+    }
+    let mut id: String = email
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| match c {
+            'a'..='z' | '0'..='9' | '.' | '_' | '+' | '-' | '@' => c,
+            _ => '_',
+        })
+        .collect();
+    if id.starts_with('.') {
+        id.replace_range(0..1, "_");
+    }
+    Some(id)
 }
 
 /// The name the secret is stored under in the OS keyring (every azul app shares one keyring
 /// service, so the name says which app and which account).
 pub fn keyring_key(id: &str) -> String {
-    todo!()
+    format!("{APP_DIR}/{id}/imap")
 }
 
 /// Whether `host` is this computer: `localhost`, `127.x.x.x` or `::1`.
 pub fn is_loopback_host(host: &str) -> bool {
-    todo!()
+    let host = host.trim();
+    let host = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host);
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    host.parse::<std::net::IpAddr>()
+        .is_ok_and(|ip| ip.is_loopback())
 }
 
 /// The secret for a headless test run: `value` (`AZMAIL_TEST_PASSWORD`) when the backend
 /// (`AZ_BACKEND`) is `headless`, never otherwise.
 pub fn test_secret(backend: Option<&str>, value: Option<&str>) -> Option<Secret> {
-    todo!()
+    match (backend, value) {
+        (Some("headless"), Some(v)) if !v.is_empty() => Some(Secret::new(v.to_string())),
+        _ => None,
+    }
 }
 
 /// The AzMail folder: `setting` (`AZMAIL_DATA`), else `AzMail` in the user's data folder, else
 /// `AzMail` in the current folder.
 pub fn data_root(setting: Option<&str>, user_data: Option<PathBuf>) -> PathBuf {
-    todo!()
+    match setting.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(dir) => PathBuf::from(dir),
+        None => user_data.unwrap_or_default().join(APP_DIR),
+    }
 }
 
 /// The account's own folder: `<AzMail folder>/<account id>`.
 pub fn account_dir(root: &Path, id: &str) -> PathBuf {
-    todo!()
+    root.join(id)
 }
 
 /// Where the account's mail is synced to: its `folder`, else its own folder.
 pub fn mail_root(root: &Path, account: &Account) -> PathBuf {
-    todo!()
+    account
+        .folder
+        .clone()
+        .unwrap_or_else(|| account_dir(root, &account.id))
 }
 
 /// Why an account file cannot be read.
@@ -280,25 +345,103 @@ impl std::fmt::Display for AccountError {
     }
 }
 
+/// The account file on disk.
+#[derive(Serialize, Deserialize)]
+struct AccountFile {
+    format: String,
+    version: u64,
+    email: String,
+    username: String,
+    imap: Server,
+    smtp: Server,
+    security: Security,
+    auth: AuthKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    folder: Option<String>,
+}
+
 /// The account file's contents (pretty JSON, ending in a newline).
 pub fn to_json(account: &Account) -> String {
-    todo!()
+    let file = AccountFile {
+        format: FORMAT.to_string(),
+        version: VERSION,
+        email: account.email.clone(),
+        username: account.username.clone(),
+        imap: account.imap.clone(),
+        smtp: account.smtp.clone(),
+        security: account.security,
+        auth: account.auth,
+        folder: account
+            .folder
+            .as_ref()
+            .map(|f| f.to_string_lossy().into_owned()),
+    };
+    // Strings and numbers only: serializing cannot fail.
+    let mut text = serde_json::to_string_pretty(&file).unwrap_or_default();
+    text.push('\n');
+    text
 }
 
 /// Reads an account file.
 pub fn from_json(text: &str) -> Result<Account, AccountError> {
-    todo!()
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| AccountError::NotJson(e.to_string()))?;
+    if value.get("format").and_then(|f| f.as_str()) != Some(FORMAT) {
+        return Err(AccountError::NotAnAccount);
+    }
+    match value.get("version").and_then(|v| v.as_u64()) {
+        Some(v) if v > VERSION => return Err(AccountError::NewerVersion(v)),
+        Some(v) if v >= 1 => {}
+        _ => return Err(AccountError::Malformed(String::from("no version"))),
+    }
+    let file: AccountFile =
+        serde_json::from_value(value).map_err(|e| AccountError::Malformed(e.to_string()))?;
+    let id = account_id(&file.email).ok_or_else(|| AccountError::BadEmail(file.email.clone()))?;
+    Ok(Account {
+        id,
+        email: file.email,
+        username: file.username,
+        imap: file.imap,
+        smtp: file.smtp,
+        security: file.security,
+        auth: file.auth,
+        folder: file
+            .folder
+            .filter(|f| !f.trim().is_empty())
+            .map(PathBuf::from),
+    })
 }
 
 /// Writes the account file (atomically) and returns its path.
 pub fn save(root: &Path, account: &Account) -> std::io::Result<PathBuf> {
-    todo!()
+    let path = account_dir(root, &account.id).join(ACCOUNT_FILE);
+    crate::store::write_atomic(&path, to_json(account).as_bytes(), true)?;
+    Ok(path)
 }
 
 /// Every account in the AzMail folder, in order of address, and the account files that could
 /// not be read, with why.
 pub fn load_all(root: &Path) -> (Vec<Account>, Vec<(PathBuf, String)>) {
-    todo!()
+    let mut accounts = Vec::new();
+    let mut skipped = Vec::new();
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return (accounts, skipped);
+    };
+    for entry in entries.flatten() {
+        let path = entry.path().join(ACCOUNT_FILE);
+        if !path.is_file() {
+            continue;
+        }
+        let read = std::fs::read_to_string(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|text| from_json(&text).map_err(|e| e.to_string()));
+        match read {
+            Ok(account) => accounts.push(account),
+            Err(reason) => skipped.push((path, reason)),
+        }
+    }
+    accounts.sort_by(|a, b| a.id.cmp(&b.id));
+    (accounts, skipped)
 }
 
 /// The setup form's fields as typed. The secret is not one of them: the form is printed in
@@ -364,17 +507,97 @@ impl std::fmt::Display for FormError {
 impl AccountForm {
     /// The form for an existing account.
     pub fn from_account(account: &Account) -> AccountForm {
-        todo!()
+        AccountForm {
+            email: account.email.clone(),
+            username: account.username.clone(),
+            imap_host: account.imap.host.clone(),
+            imap_port: account.imap.port.to_string(),
+            smtp_host: account.smtp.host.clone(),
+            smtp_port: account.smtp.port.to_string(),
+            folder: account
+                .folder
+                .as_ref()
+                .map(|f| f.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            plain: account.security == Security::Plain,
+            xoauth2: account.auth == AuthKind::Xoauth2,
+        }
     }
 
     /// What the empty fields stand for, from the address.
     pub fn defaults(&self) -> FormDefaults {
-        todo!()
+        let Some((imap, smtp)) = guess_servers(&self.email) else {
+            return FormDefaults {
+                imap_port: IMAPS_PORT.to_string(),
+                smtp_port: SMTPS_PORT.to_string(),
+                ..FormDefaults::default()
+            };
+        };
+        FormDefaults {
+            username: self.email.trim().to_string(),
+            imap_host: imap.host,
+            imap_port: imap.port.to_string(),
+            smtp_host: smtp.host,
+            smtp_port: smtp.port.to_string(),
+            note: provider_for(&self.email)
+                .map(|p| p.note.to_string())
+                .unwrap_or_default(),
+        }
     }
 
     /// The account the form describes: typed values, else the defaults.
     pub fn to_account(&self) -> Result<Account, FormError> {
-        todo!()
+        let id = account_id(&self.email).ok_or(FormError::BadEmail)?;
+        let defaults = self.defaults();
+        let pick = |typed: &str, default: &str| {
+            let typed = typed.trim();
+            if typed.is_empty() {
+                default.to_string()
+            } else {
+                typed.to_string()
+            }
+        };
+        let port = |field: &'static str, typed: &str, default: &str| {
+            let value = pick(typed, default);
+            match value.parse::<u16>() {
+                Ok(port) if port > 0 => Ok(port),
+                _ => Err(FormError::BadPort { field, value }),
+            }
+        };
+        let imap_host = pick(&self.imap_host, &defaults.imap_host);
+        if imap_host.is_empty() {
+            return Err(FormError::NoImapHost);
+        }
+        let imap_port = port("IMAP", &self.imap_port, &defaults.imap_port)?;
+        let smtp_port = port("SMTP", &self.smtp_port, &defaults.smtp_port)?;
+        if self.plain && !is_loopback_host(&imap_host) {
+            return Err(FormError::PlainNotLocal(imap_host));
+        }
+        let folder = self.folder.trim();
+        Ok(Account {
+            id,
+            email: self.email.trim().to_string(),
+            username: pick(&self.username, &defaults.username),
+            imap: Server {
+                host: imap_host,
+                port: imap_port,
+            },
+            smtp: Server {
+                host: pick(&self.smtp_host, &defaults.smtp_host),
+                port: smtp_port,
+            },
+            security: if self.plain {
+                Security::Plain
+            } else {
+                Security::Tls
+            },
+            auth: if self.xoauth2 {
+                AuthKind::Xoauth2
+            } else {
+                AuthKind::Password
+            },
+            folder: (!folder.is_empty()).then(|| PathBuf::from(folder)),
+        })
     }
 }
 

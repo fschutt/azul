@@ -19,9 +19,12 @@
 //!    have, and the index keeps one line per UID, so a run that stops anywhere is picked up by
 //!    the next one.
 
+use std::collections::{BTreeMap, HashMap};
+
 use crate::{
     folders::{self, LocalMailbox, ServerMailbox},
-    store::{FolderState, IndexEntry, LocalFolder},
+    message,
+    store::{self, FolderState, IndexEntry, LocalFolder},
 };
 
 /// What `SELECT` reports.
@@ -166,17 +169,59 @@ pub struct FolderPlan {
 
 /// See [`FolderPlan`].
 pub fn plan_folder(state: Option<&FolderState>, selected: &Selected) -> FolderPlan {
-    todo!()
+    let empty = selected.exists == 0;
+    match state {
+        Some(s) if s.uidvalidity == selected.uidvalidity => FolderPlan {
+            renumbered: None,
+            last_uid: s.last_uid,
+            nothing_new: empty
+                || selected
+                    .uid_next
+                    .is_some_and(|next| next <= s.last_uid.saturating_add(1)),
+        },
+        Some(s) => FolderPlan {
+            renumbered: Some(s.uidvalidity),
+            last_uid: 0,
+            nothing_new: empty,
+        },
+        None => FolderPlan {
+            renumbered: None,
+            last_uid: 0,
+            nothing_new: empty,
+        },
+    }
 }
 
 /// The UIDs of `found` above `last`, ascending, once each.
 pub fn new_uids(found: &[u32], last: u32) -> Vec<u32> {
-    todo!()
+    let mut uids: Vec<u32> = found.iter().copied().filter(|&uid| uid > last).collect();
+    uids.sort_unstable();
+    uids.dedup();
+    uids
 }
 
 /// A UID set for a command: ascending runs as `a:b`, joined with commas (`1:3,7,9:10`).
 pub fn uid_set(uids: &[u32]) -> String {
-    todo!()
+    let mut sorted = uids.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    let mut parts = Vec::new();
+    let mut i = 0;
+    while i < sorted.len() {
+        let start = sorted[i];
+        let mut end = start;
+        while i + 1 < sorted.len() && sorted[i + 1] == end + 1 {
+            i += 1;
+            end = sorted[i];
+        }
+        parts.push(if start == end {
+            start.to_string()
+        } else {
+            format!("{start}:{end}")
+        });
+        i += 1;
+    }
+    parts.join(",")
 }
 
 /// Consecutive batches of `metas` (in their order), each with at most `max_count` messages and,
@@ -188,14 +233,36 @@ pub fn batches(
     max_count: usize,
     max_bytes: u64,
 ) -> Vec<std::ops::Range<usize>> {
-    todo!()
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut count = 0usize;
+    let mut bytes = 0u64;
+    for (i, meta) in metas.iter().enumerate() {
+        let size = if to_fetch.get(i).copied().unwrap_or(true) {
+            meta.size.unwrap_or(0)
+        } else {
+            0
+        };
+        if count > 0 && (count >= max_count.max(1) || bytes.saturating_add(size) > max_bytes) {
+            out.push(start..i);
+            start = i;
+            count = 0;
+            bytes = 0;
+        }
+        count += 1;
+        bytes = bytes.saturating_add(size);
+    }
+    if count > 0 {
+        out.push(start..metas.len());
+    }
+    out
 }
 
 /// Whether the index and state are due to be written, `since` messages after the last time,
 /// for an index of `index_len` lines: every 200 messages, or every tenth of the index when that
 /// is more, so a big folder's index is not rewritten over and over.
 pub fn checkpoint_due(since: u64, index_len: usize) -> bool {
-    todo!()
+    since >= 200u64.max(index_len as u64 / 10)
 }
 
 /// Syncs every folder of `source` into `store`. `progress` is told what is happening; when it
@@ -206,7 +273,23 @@ pub fn sync_account(
     options: &SyncOptions,
     progress: &mut dyn FnMut(Progress) -> bool,
 ) -> Result<SyncReport, SyncError> {
-    todo!()
+    let listed = source.list()?;
+    let mailboxes = folders::local_mailboxes(&listed);
+    let count = mailboxes.len();
+    let mut report = SyncReport::default();
+    for (index, mailbox) in mailboxes.iter().enumerate() {
+        if !progress(Progress::Folder {
+            index,
+            count,
+            display: mailbox.display.clone(),
+        }) {
+            return Err(SyncError::Stopped);
+        }
+        report
+            .folders
+            .push(sync_folder(source, store, mailbox, options, progress)?);
+    }
+    Ok(report)
 }
 
 /// Syncs one folder (see the module documentation).
@@ -217,7 +300,190 @@ pub fn sync_folder(
     options: &SyncOptions,
     progress: &mut dyn FnMut(Progress) -> bool,
 ) -> Result<FolderReport, SyncError> {
-    todo!()
+    let key = mailbox.key.as_str();
+    let selected = source.select(&mailbox.server_name)?;
+    let old_state = store
+        .get(&store::state_key(key))
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .and_then(|text| FolderState::from_json(&text));
+    let plan = plan_folder(old_state.as_ref(), &selected);
+    if let Some(old) = plan.renumbered {
+        store
+            .move_prefix(&store::folder_prefix(key), &store::stale_prefix(key, old))
+            .map_err(storage)?;
+    }
+    let mut index = if plan.renumbered.is_some() {
+        BTreeMap::new()
+    } else {
+        read_index(store, key)
+    };
+    // A folder without an index file (new, or renumbered) gets one even when it is empty.
+    let mut index_dirty = store.size_of(&store::index_key(key)).is_none();
+    let mut state =
+        FolderState::create(&mailbox.server_name, &mailbox.display, selected.uidvalidity);
+    state.last_uid = plan.last_uid;
+    let mut report = FolderReport {
+        key: key.to_string(),
+        display: mailbox.display.clone(),
+        renumbered: plan.renumbered,
+        ..FolderReport::default()
+    };
+
+    let result = (|| -> Result<(), SyncError> {
+        let new = if plan.nothing_new {
+            Vec::new()
+        } else {
+            new_uids(
+                &source.search_from(plan.last_uid.saturating_add(1))?,
+                plan.last_uid,
+            )
+        };
+        let mut metas = Vec::with_capacity(new.len());
+        for chunk in new.chunks(options.meta_chunk.max(1)) {
+            metas.extend(source.fetch_meta(chunk)?);
+        }
+        metas.sort_by_key(|m| m.uid);
+        metas.dedup_by_key(|m| m.uid);
+        let total = metas.len() as u64;
+        let paths: Vec<String> = metas.iter().map(|m| message_path(key, m)).collect();
+        let to_fetch: Vec<bool> = metas
+            .iter()
+            .zip(&paths)
+            .map(|(m, path)| !already_written(store, path, m.size))
+            .collect();
+        if total > 0
+            && !progress(Progress::Messages {
+                display: mailbox.display.clone(),
+                done: 0,
+                total,
+            })
+        {
+            return Err(SyncError::Stopped);
+        }
+        let mut done = 0u64;
+        let mut since_checkpoint = 0u64;
+        for range in batches(
+            &metas,
+            &to_fetch,
+            options.batch_messages,
+            options.batch_bytes,
+        ) {
+            let wanted: Vec<u32> = range
+                .clone()
+                .filter(|&i| to_fetch[i])
+                .map(|i| metas[i].uid)
+                .collect();
+            let mut bodies: HashMap<u32, Vec<u8>> = if wanted.is_empty() {
+                HashMap::new()
+            } else {
+                source.fetch_bodies(&wanted)?.into_iter().collect()
+            };
+            for i in range.clone() {
+                let meta = &metas[i];
+                let path = &paths[i];
+                let bytes = if to_fetch[i] {
+                    // A message expunged since the metadata came has no body: it is gone.
+                    let Some(bytes) = bodies.remove(&meta.uid) else {
+                        continue;
+                    };
+                    store.put(path, &bytes, false).map_err(storage)?;
+                    report.fetched += 1;
+                    bytes
+                } else {
+                    let bytes = store.get(path).map_err(storage)?;
+                    report.reused += 1;
+                    bytes
+                };
+                index.insert(
+                    meta.uid,
+                    message::index_entry(meta.uid, &bytes, &meta.flags, meta.internal_date, path),
+                );
+                index_dirty = true;
+            }
+            if let Some(last) = range.clone().last() {
+                state.last_uid = state.last_uid.max(metas[last].uid);
+            }
+            done += range.len() as u64;
+            since_checkpoint += range.len() as u64;
+            if checkpoint_due(since_checkpoint, index.len()) {
+                write_checkpoint(store, key, &index, &mut state, options.now, true)?;
+                index_dirty = false;
+                since_checkpoint = 0;
+            }
+            if !progress(Progress::Messages {
+                display: mailbox.display.clone(),
+                done,
+                total,
+            }) {
+                return Err(SyncError::Stopped);
+            }
+        }
+        Ok(())
+    })();
+
+    // However the batches ended, what was written is recorded, so the next run picks up here.
+    let recorded = write_checkpoint(store, key, &index, &mut state, options.now, index_dirty);
+    result?;
+    recorded?;
+    report.messages = index.len() as u64;
+    Ok(report)
+}
+
+fn storage(e: std::io::Error) -> SyncError {
+    SyncError::Storage(e.to_string())
+}
+
+/// The `.eml` key of a message: the month the server received it.
+fn message_path(folder: &str, meta: &MessageMeta) -> String {
+    let (year, month) = meta.internal_date.map_or((0, 0), message::year_month);
+    store::message_key(folder, year, month, meta.uid)
+}
+
+/// Whether the message's file is there whole: not empty, and as big as the server says.
+fn already_written(store: &LocalFolder, path: &str, size: Option<u64>) -> bool {
+    match store.size_of(path) {
+        Some(len) if len > 0 => size.is_none_or(|size| size == len),
+        _ => false,
+    }
+}
+
+/// The folder's index, by UID; empty when there is none.
+fn read_index(store: &LocalFolder, folder: &str) -> BTreeMap<u32, IndexEntry> {
+    store
+        .get(&store::index_key(folder))
+        .map(|bytes| store::index_from_jsonl(&String::from_utf8_lossy(&bytes)))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|entry| (entry.uid, entry))
+        .collect()
+}
+
+/// Writes the index (when `with_index`) and then the state: the state never names a UID the
+/// index file does not have.
+fn write_checkpoint(
+    store: &LocalFolder,
+    folder: &str,
+    index: &BTreeMap<u32, IndexEntry>,
+    state: &mut FolderState,
+    now: i64,
+    with_index: bool,
+) -> Result<(), SyncError> {
+    if with_index {
+        let entries: Vec<IndexEntry> = index.values().cloned().collect();
+        store
+            .put(
+                &store::index_key(folder),
+                store::index_to_jsonl(&entries).as_bytes(),
+                true,
+            )
+            .map_err(storage)?;
+    }
+    state.messages = index.len() as u64;
+    state.synced_at = message::rfc3339_utc(now);
+    store
+        .put(&store::state_key(folder), state.to_json().as_bytes(), true)
+        .map_err(storage)
 }
 
 #[cfg(test)]

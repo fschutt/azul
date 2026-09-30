@@ -10,6 +10,8 @@
 //! file system or an object key could trip on replaced; a key that another folder already has
 //! (case-insensitively, as macOS compares names) gets `-2`, `-3`, ...
 
+use std::collections::HashSet;
+
 use crate::mutf7;
 
 /// A mailbox as the server lists it.
@@ -40,17 +42,82 @@ pub enum Role {
 impl Role {
     /// The fixed key of a special folder; `None` for `Other`.
     pub fn key(self) -> Option<&'static str> {
-        todo!()
+        Some(match self {
+            Role::Inbox => "inbox",
+            Role::Sent => "sent",
+            Role::Drafts => "drafts",
+            Role::Archive => "archive",
+            Role::Spam => "spam",
+            Role::Trash => "trash",
+            Role::All => "all",
+            Role::Flagged => "flagged",
+            Role::Other => return None,
+        })
     }
 
     /// The folder's name in the sidebar.
     pub fn label(self) -> Option<&'static str> {
-        todo!()
+        Some(match self {
+            Role::Inbox => "Inbox",
+            Role::Sent => "Sent",
+            Role::Drafts => "Drafts",
+            Role::Archive => "Archive",
+            Role::Spam => "Spam",
+            Role::Trash => "Trash",
+            Role::All => "All Mail",
+            Role::Flagged => "Flagged",
+            Role::Other => return None,
+        })
     }
 
     /// The role of a folder synced under `key` (what the sidebar sorts by).
     pub fn of_key(key: &str) -> Role {
-        todo!()
+        SPECIAL
+            .iter()
+            .copied()
+            .find(|role| role.key() == Some(key))
+            .unwrap_or(Role::Other)
+    }
+}
+
+/// The special roles, in the order the sidebar shows them.
+const SPECIAL: [Role; 8] = [
+    Role::Inbox,
+    Role::Sent,
+    Role::Drafts,
+    Role::Archive,
+    Role::Spam,
+    Role::Trash,
+    Role::All,
+    Role::Flagged,
+];
+
+/// The role a special-use attribute (RFC 6154) gives.
+fn attribute_role(attribute: &str) -> Option<Role> {
+    match attribute.to_ascii_lowercase().as_str() {
+        "\\junk" => Some(Role::Spam),
+        "\\sent" => Some(Role::Sent),
+        "\\drafts" => Some(Role::Drafts),
+        "\\trash" => Some(Role::Trash),
+        "\\archive" => Some(Role::Archive),
+        "\\all" => Some(Role::All),
+        "\\flagged" => Some(Role::Flagged),
+        _ => None,
+    }
+}
+
+/// The role the usual folder names give (the last hierarchy level, lower case), for servers
+/// without special-use attributes.
+fn name_role(name: &str) -> Option<Role> {
+    match name {
+        "spam" | "junk" | "junk e-mail" | "junk email" | "junk mail" | "bulk mail" => {
+            Some(Role::Spam)
+        }
+        "sent" | "sent items" | "sent messages" | "sent mail" => Some(Role::Sent),
+        "drafts" | "draft" => Some(Role::Drafts),
+        "trash" | "deleted items" | "deleted messages" | "bin" => Some(Role::Trash),
+        "archive" | "archives" => Some(Role::Archive),
+        _ => None,
     }
 }
 
@@ -70,13 +137,143 @@ pub struct LocalMailbox {
 /// control characters become `_`, surrounding spaces and trailing dots go, a leading dot becomes
 /// `_`, nothing becomes `_`, and it is cut to 120 bytes.
 pub fn safe_segment(name: &str) -> String {
-    todo!()
+    let replaced: String = name
+        .chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let trimmed = replaced
+        .trim()
+        .trim_end_matches(|c: char| c == '.' || c == ' ');
+    let mut out = match trimmed.strip_prefix('.') {
+        Some(rest) => format!("_{rest}"),
+        None => trimmed.to_string(),
+    };
+    if out.is_empty() {
+        out.push('_');
+    }
+    if out.len() > 120 {
+        let mut cut = 120;
+        while !out.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        out.truncate(cut);
+    }
+    out
 }
 
 /// The local folders for a server's mailboxes, inbox first, then the other special folders,
 /// then the rest by name. Mailboxes that cannot be selected are left out.
 pub fn local_mailboxes(listed: &[ServerMailbox]) -> Vec<LocalMailbox> {
-    todo!()
+    let has = |mailbox: &ServerMailbox, attribute: &str| {
+        mailbox
+            .attributes
+            .iter()
+            .any(|a| a.eq_ignore_ascii_case(attribute))
+    };
+    let mut boxes: Vec<&ServerMailbox> = listed
+        .iter()
+        .filter(|m| !has(*m, "\\Noselect") && !has(*m, "\\NonExistent"))
+        .collect();
+    boxes.sort_by(|a, b| a.name.cmp(&b.name));
+    boxes.dedup_by(|a, b| a.name == b.name);
+
+    // The decoded name, with the hierarchy as `/` for the sidebar, and its last level.
+    let delimiter = |m: &ServerMailbox| m.delimiter.clone().filter(|d| !d.is_empty());
+    let decoded: Vec<String> = boxes.iter().map(|m| mutf7::decode(&m.name)).collect();
+
+    // Roles: the inbox by name, then special-use attributes, then the usual names for the roles
+    // no attribute claims. The first mailbox (by server name) to claim a role has it.
+    let mut roles = vec![Role::Other; boxes.len()];
+    let mut taken: HashSet<Role> = HashSet::new();
+    for (i, m) in boxes.iter().enumerate() {
+        if m.name.eq_ignore_ascii_case("INBOX") && taken.insert(Role::Inbox) {
+            roles[i] = Role::Inbox;
+        }
+    }
+    let claimed: HashSet<Role> = boxes
+        .iter()
+        .flat_map(|m| m.attributes.iter().filter_map(|a| attribute_role(a)))
+        .collect();
+    for (i, m) in boxes.iter().enumerate() {
+        if roles[i] != Role::Other {
+            continue;
+        }
+        if let Some(role) = m.attributes.iter().find_map(|a| attribute_role(a)) {
+            if taken.insert(role) {
+                roles[i] = role;
+            }
+        }
+    }
+    for (i, m) in boxes.iter().enumerate() {
+        if roles[i] != Role::Other || m.attributes.iter().any(|a| attribute_role(a).is_some()) {
+            continue;
+        }
+        let last = match delimiter(boxes[i]) {
+            Some(d) => decoded[i].rsplit(d.as_str()).next().unwrap_or_default(),
+            None => decoded[i].as_str(),
+        };
+        if let Some(role) = name_role(&last.to_lowercase()) {
+            if !claimed.contains(&role) && taken.insert(role) {
+                roles[i] = role;
+            }
+        }
+    }
+
+    let displays: Vec<String> = boxes
+        .iter()
+        .enumerate()
+        .map(|(i, _)| match roles[i].label() {
+            Some(label) => label.to_string(),
+            None => match delimiter(boxes[i]) {
+                Some(d) => decoded[i].replace(d.as_str(), "/"),
+                None => decoded[i].clone(),
+            },
+        })
+        .collect();
+
+    // Keys: the special ones are reserved (whether or not a folder has them), every other key
+    // is unique in any case.
+    let mut used: HashSet<String> = SPECIAL
+        .iter()
+        .filter_map(|role| role.key())
+        .map(str::to_string)
+        .collect();
+    let mut order: Vec<usize> = (0..boxes.len()).collect();
+    order.sort_by(|&a, &b| (roles[a], &displays[a]).cmp(&(roles[b], &displays[b])));
+    let mut out = Vec::with_capacity(boxes.len());
+    for i in order {
+        let key = match roles[i].key() {
+            Some(key) => key.to_string(),
+            None => {
+                let flat = match delimiter(boxes[i]) {
+                    Some(d) => decoded[i].replace(d.as_str(), "."),
+                    None => decoded[i].clone(),
+                };
+                let base = safe_segment(&flat);
+                let mut key = base.clone();
+                let mut n = 2;
+                while used.contains(&key.to_lowercase()) {
+                    key = format!("{base}-{n}");
+                    n += 1;
+                }
+                used.insert(key.to_lowercase());
+                key
+            }
+        };
+        out.push(LocalMailbox {
+            server_name: boxes[i].name.clone(),
+            key,
+            display: displays[i].clone(),
+            role: roles[i],
+        });
+    }
+    out
 }
 
 #[cfg(test)]

@@ -1,16 +1,23 @@
 //! What AzMail reads out of a message (with `mail-parser`): the index line, the message view,
 //! quoted lines, and dates.
 
+use mail_parser::{Address, Message, MessageParser, MimeHeaders};
+
 use crate::store::IndexEntry;
 
 /// `secs` since 1970 as RFC 3339 in UTC (`2026-09-30T08:42:00Z`); empty when out of range.
 pub fn rfc3339_utc(secs: i64) -> String {
-    todo!()
+    chrono::DateTime::<chrono::Utc>::from_timestamp(secs, 0)
+        .map(|d| d.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+        .unwrap_or_default()
 }
 
 /// The year and month of `secs` since 1970, in UTC; `(0, 0)` when out of range.
 pub fn year_month(secs: i64) -> (i32, u32) {
-    todo!()
+    use chrono::Datelike;
+
+    chrono::DateTime::<chrono::Utc>::from_timestamp(secs, 0)
+        .map_or((0, 0), |d| (d.year(), d.month()))
 }
 
 /// An RFC 3339 date as `2026-09-30 10:42` in `tz`; the text as it is when it is not a date.
@@ -18,7 +25,10 @@ pub fn short_date_in<Tz: chrono::TimeZone>(rfc3339: &str, tz: &Tz) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    todo!()
+    match chrono::DateTime::parse_from_rfc3339(rfc3339) {
+        Ok(date) => date.with_timezone(tz).format("%Y-%m-%d %H:%M").to_string(),
+        Err(_) => rfc3339.to_string(),
+    }
 }
 
 /// The message's index line. `internal_date` is when the server received it (seconds since
@@ -30,7 +40,56 @@ pub fn index_entry(
     internal_date: Option<i64>,
     path: &str,
 ) -> IndexEntry {
-    todo!()
+    let parsed = MessageParser::default().parse(bytes);
+    let message = parsed.as_ref();
+    let date = message
+        .and_then(header_date)
+        .or(internal_date)
+        .map(rfc3339_utc)
+        .unwrap_or_default();
+    IndexEntry {
+        uid,
+        message_id: message
+            .and_then(|m| m.message_id())
+            .unwrap_or_default()
+            .to_string(),
+        date,
+        from: message.map(|m| addresses(m.from())).unwrap_or_default(),
+        to: message.map(|m| addresses(m.to())).unwrap_or_default(),
+        subject: message
+            .and_then(|m| m.subject())
+            .unwrap_or_default()
+            .to_string(),
+        flags: flags.to_vec(),
+        size: bytes.len() as u64,
+        path: path.to_string(),
+    }
+}
+
+/// The Date header, in seconds since 1970, when it is a date.
+fn header_date(message: &Message<'_>) -> Option<i64> {
+    message
+        .date()
+        .filter(|d| d.is_valid())
+        .map(|d| d.to_timestamp())
+}
+
+/// An address header as `Name <address>, address, ...`.
+fn addresses(address: Option<&Address<'_>>) -> String {
+    let Some(address) = address else {
+        return String::new();
+    };
+    address
+        .iter()
+        .map(|a| match (a.name().map(str::trim), a.address()) {
+            (Some(name), Some(addr)) if !name.is_empty() => format!("{name} <{addr}>"),
+            (_, Some(addr)) => addr.to_string(),
+            (Some(name), None) => name.to_string(),
+            (None, None) => String::new(),
+        })
+        .filter(|a| !a.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// An attachment's name and size.
@@ -58,7 +117,36 @@ pub struct MessageView {
 
 /// The message view of a message's bytes; `None` when they are not a message.
 pub fn parse_view(bytes: &[u8]) -> Option<MessageView> {
-    todo!()
+    let message = MessageParser::default().parse(bytes)?;
+    // A plain-text message lists its text part as its HTML body too (converted); only a real
+    // text/html part is HTML.
+    let has_html = message.html_bodies().any(|part| part.is_text_html());
+    let text = message
+        .body_text(0)
+        .map(|t| t.into_owned())
+        .unwrap_or_default();
+    let html = if has_html {
+        message.body_html(0).map(|h| h.into_owned())
+    } else {
+        None
+    };
+    let attachments = message
+        .attachments()
+        .map(|part| Attachment {
+            name: part.attachment_name().unwrap_or("attachment").to_string(),
+            size: part.len(),
+        })
+        .collect();
+    Some(MessageView {
+        subject: message.subject().unwrap_or_default().to_string(),
+        from: addresses(message.from()),
+        to: addresses(message.to()),
+        cc: addresses(message.cc()),
+        date: header_date(&message).map(rfc3339_utc).unwrap_or_default(),
+        text,
+        html,
+        attachments,
+    })
 }
 
 /// A line of plain text and how deeply it is quoted (`> ` marks, spaces between them allowed).
@@ -70,7 +158,41 @@ pub struct QuotedLine {
 
 /// The text's lines, each with its quote level and without its quote marks.
 pub fn quote_lines(text: &str) -> Vec<QuotedLine> {
-    todo!()
+    let body = text.strip_suffix('\n').unwrap_or(text);
+    if body.is_empty() {
+        return Vec::new();
+    }
+    body.split('\n')
+        .map(|raw| {
+            let line = raw.strip_suffix('\r').unwrap_or(raw);
+            let mut level = 0;
+            let mut rest = line;
+            loop {
+                if let Some(after) = rest.strip_prefix('>') {
+                    level += 1;
+                    rest = after;
+                    continue;
+                }
+                // `> > text`: one space between marks.
+                if level > 0 {
+                    if let Some(after) = rest.strip_prefix(' ') {
+                        if after.starts_with('>') {
+                            rest = after;
+                            continue;
+                        }
+                    }
+                }
+                break;
+            }
+            if level > 0 {
+                rest = rest.strip_prefix(' ').unwrap_or(rest);
+            }
+            QuotedLine {
+                level,
+                text: rest.to_string(),
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

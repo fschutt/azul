@@ -28,25 +28,42 @@ pub enum AuthMethod {
 
 /// The method for the account's kind of secret, or why there is none.
 pub fn choose(kind: AuthKind, caps: ServerCaps) -> Result<AuthMethod, String> {
-    todo!()
+    match kind {
+        AuthKind::Xoauth2 => Ok(AuthMethod::Xoauth2),
+        AuthKind::Password if caps.auth_plain => Ok(AuthMethod::Plain),
+        AuthKind::Password if !caps.login_disabled => Ok(AuthMethod::Login),
+        AuthKind::Password => Err(String::from(
+            "the server offers neither AUTHENTICATE PLAIN nor LOGIN (it says LOGINDISABLED): it \
+             may only take OAuth, or want STARTTLS on another port",
+        )),
+    }
 }
 
 /// The `AUTHENTICATE PLAIN` response before base64: `\0<user>\0<password>`.
 pub fn plain_response(user: &str, password: &str) -> Vec<u8> {
-    todo!()
+    let mut out = Vec::with_capacity(user.len() + password.len() + 2);
+    out.push(0);
+    out.extend_from_slice(user.as_bytes());
+    out.push(0);
+    out.extend_from_slice(password.as_bytes());
+    out
 }
 
 /// The `AUTHENTICATE XOAUTH2` response before base64:
 /// `user=<user>\x01auth=Bearer <token>\x01\x01`.
 pub fn xoauth2_response(user: &str, token: &str) -> Vec<u8> {
-    todo!()
+    format!("user={user}\x01auth=Bearer {token}\x01\x01").into_bytes()
 }
 
 /// What to answer a SASL challenge: the response to the server's first (empty) challenge; a
 /// non-empty challenge is the server's error report (XOAUTH2 sends one before it says NO), which
 /// is answered with an empty line so the server ends the exchange.
 pub fn answer(challenge: &[u8], response: &[u8]) -> Vec<u8> {
-    todo!()
+    if challenge.is_empty() {
+        response.to_vec()
+    } else {
+        Vec::new()
+    }
 }
 
 #[cfg(test)]

@@ -36,39 +36,65 @@ pub const STATE_VERSION: u64 = 1;
 /// Whether `key` is a relative `/`-separated path with no empty, `.` or `..` segment, no
 /// backslash and no NUL: the keys AzMail writes, and nothing that could leave the folder.
 pub fn is_valid_key(key: &str) -> bool {
-    todo!()
+    !key.is_empty()
+        && !key.contains('\\')
+        && !key.contains('\0')
+        && key
+            .split('/')
+            .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
 }
 
 /// `mail/<folder>/<yyyy>/<mm>/<uid>.eml`. A year or month of 0 (no date) is `0000/00`.
 pub fn message_key(folder: &str, year: i32, month: u32, uid: u32) -> String {
-    todo!()
+    format!("{MAIL_PREFIX}/{folder}/{year:04}/{month:02}/{uid}.eml")
 }
 
 /// `mail/<folder>`
 pub fn folder_prefix(folder: &str) -> String {
-    todo!()
+    format!("{MAIL_PREFIX}/{folder}")
 }
 
 /// `mail/<folder>/index.jsonl`
 pub fn index_key(folder: &str) -> String {
-    todo!()
+    format!("{MAIL_PREFIX}/{folder}/{INDEX_FILE}")
 }
 
 /// `mail/<folder>/state.json`
 pub fn state_key(folder: &str) -> String {
-    todo!()
+    format!("{MAIL_PREFIX}/{folder}/{STATE_FILE}")
 }
 
 /// `stale/<folder>/<uidvalidity>`
 pub fn stale_prefix(folder: &str, uidvalidity: u32) -> String {
-    todo!()
+    format!("{STALE_PREFIX}/{folder}/{uidvalidity}")
 }
 
 /// Writes `bytes` to `path` whole or not at all: a temporary dot file next to it, then a rename
 /// over it. Creates the folder. `durable` also flushes the file to the disk first (for the index
 /// and state files; a message whose write was lost is fetched again, its size tells).
 pub fn write_atomic(path: &Path, bytes: &[u8], durable: bool) -> std::io::Result<()> {
-    todo!()
+    use std::io::Write;
+
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(dir)?;
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    // A dot name that no reader takes for a message, an index or a state file.
+    let temp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
+    let written = std::fs::File::create(&temp).and_then(|mut file| {
+        file.write_all(bytes)?;
+        if durable {
+            file.sync_all()?;
+        }
+        Ok(())
+    });
+    if let Err(e) = written.and_then(|()| std::fs::rename(&temp, path)) {
+        let _ = std::fs::remove_file(&temp);
+        return Err(e);
+    }
+    Ok(())
 }
 
 /// The synced files of one account, under one folder on this computer.
@@ -88,33 +114,70 @@ impl LocalFolder {
 
     /// The file a key names; an error for a key that is not valid.
     pub fn path_of(&self, key: &str) -> std::io::Result<PathBuf> {
-        todo!()
+        if !is_valid_key(key) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("{key:?} is not a key AzMail writes"),
+            ));
+        }
+        Ok(key
+            .split('/')
+            .fold(self.root.clone(), |path, segment| path.join(segment)))
     }
 
     /// Writes the object `key` whole (see [`write_atomic`]).
     pub fn put(&self, key: &str, bytes: &[u8], durable: bool) -> std::io::Result<()> {
-        todo!()
+        write_atomic(&self.path_of(key)?, bytes, durable)
     }
 
     /// Reads the object `key`.
     pub fn get(&self, key: &str) -> std::io::Result<Vec<u8>> {
-        todo!()
+        std::fs::read(self.path_of(key)?)
     }
 
     /// The size of the object `key`, or `None` when there is none.
     pub fn size_of(&self, key: &str) -> Option<u64> {
-        todo!()
+        let meta = std::fs::metadata(self.path_of(key).ok()?).ok()?;
+        meta.is_file().then(|| meta.len())
     }
 
     /// Moves every object under `from` to the same place under `to` (on an object store: copy,
     /// then delete). A missing `from` moves nothing.
     pub fn move_prefix(&self, from: &str, to: &str) -> std::io::Result<()> {
-        todo!()
+        let from = self.path_of(from)?;
+        let to = self.path_of(to)?;
+        if !from.exists() {
+            return Ok(());
+        }
+        if to.exists() {
+            // Moved aside before under the same UIDVALIDITY: keep that, add a new one next to it.
+            let mut n = 2;
+            let base = to.clone();
+            let mut target = to;
+            while target.exists() {
+                target = PathBuf::from(format!("{}-{n}", base.display()));
+                n += 1;
+            }
+            return std::fs::rename(&from, &target);
+        }
+        if let Some(parent) = to.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::rename(&from, &to)
     }
 
     /// The synced folders: every `mail/<folder>` holding a state file, by name.
     pub fn folders(&self) -> Vec<String> {
-        todo!()
+        let Ok(entries) = std::fs::read_dir(self.root.join(MAIL_PREFIX)) else {
+            return Vec::new();
+        };
+        let mut folders: Vec<String> = entries
+            .flatten()
+            .filter(|e| e.path().join(STATE_FILE).is_file())
+            .filter_map(|e| e.file_name().to_str().map(str::to_string))
+            .collect();
+        folders.sort();
+        folders
     }
 }
 
@@ -145,13 +208,32 @@ pub struct IndexEntry {
 
 /// The index file: one JSON object per line, by UID, one line per UID (the later entry wins).
 pub fn index_to_jsonl(entries: &[IndexEntry]) -> String {
-    todo!()
+    let mut by_uid: std::collections::BTreeMap<u32, &IndexEntry> =
+        std::collections::BTreeMap::new();
+    for entry in entries {
+        by_uid.insert(entry.uid, entry);
+    }
+    let mut text = String::new();
+    for entry in by_uid.values() {
+        // Strings and numbers only: serializing cannot fail.
+        if let Ok(line) = serde_json::to_string(entry) {
+            text.push_str(&line);
+            text.push('\n');
+        }
+    }
+    text
 }
 
 /// Reads an index file. Lines that are not an entry (a line cut short by a crash, an empty line)
 /// are left out.
 pub fn index_from_jsonl(text: &str) -> Vec<IndexEntry> {
-    todo!()
+    let mut by_uid: std::collections::BTreeMap<u32, IndexEntry> = std::collections::BTreeMap::new();
+    for line in text.lines() {
+        if let Ok(entry) = serde_json::from_str::<IndexEntry>(line.trim()) {
+            by_uid.insert(entry.uid, entry);
+        }
+    }
+    by_uid.into_values().collect()
 }
 
 /// What AzMail knows of a folder it synced.
@@ -192,12 +274,16 @@ impl FolderState {
 
     /// The state file's contents (pretty JSON, ending in a newline).
     pub fn to_json(&self) -> String {
-        todo!()
+        let mut text = serde_json::to_string_pretty(self).unwrap_or_default();
+        text.push('\n');
+        text
     }
 
     /// Reads a state file; `None` for anything that is not one this AzMail reads.
     pub fn from_json(text: &str) -> Option<FolderState> {
-        todo!()
+        let state: FolderState = serde_json::from_str(text).ok()?;
+        (state.format == STATE_FORMAT && (1..=STATE_VERSION).contains(&state.version))
+            .then_some(state)
     }
 }
 
