@@ -91,12 +91,18 @@ fn lay_out(lw: &mut LayoutWindow, styled: StyledDom, ws: &FullWindowState) {
 
 /// A light desktop, the app following it, the red / blue box laid out.
 pub(crate) fn window() -> LayoutWindow {
+    window_with(
+        Dom::create_body()
+            .with_css("margin: 0;")
+            .with_child(Dom::create_div().with_style(box_style(40, RED, BLUE))),
+    )
+}
+
+/// A light desktop, the app following it, `dom` laid out.
+pub(crate) fn window_with(dom: Dom) -> LayoutWindow {
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
     lw.set_system_style(Arc::new(defaults::macos_modern_light()));
     lw.mode = OptionDarkLightMode::None;
-    let dom = Dom::create_body()
-        .with_css("margin: 0;")
-        .with_child(Dom::create_div().with_style(box_style(40, RED, BLUE)));
     lay_out(&mut lw, StyledDom::create_from_dom(dom), &window_state(DarkLightMode::Light));
     lw
 }
