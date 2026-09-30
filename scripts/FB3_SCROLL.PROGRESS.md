@@ -20,6 +20,10 @@ Branch `wt/fb3-scroll-damage` from `5bab5dfa2`. Never compiles; runs prebuilt ap
   `remap_node_ids_moves_the_animation_channel_with_its_node_and_drops_the_unmounted` + headless
   `a_node_that_inherits_the_id_of_an_animated_node_is_not_painted_through_its_transform`.
 - b1bd7d9d5 FIX item 3(a): `GpuStateManager::remap_node_ids` remaps the four `anim_*` maps.
+- 58f2b0eee report + progress.
+- 2af1e228d FIX item 3(b), second half (parent's suite: the tile path's pass-2a sweep got the stack
+  clip alone; now the combined `run_clip`). VirtualView scroll and anim-map tests passed on the
+  parent's run.
 - Item 2 (viewport leftovers): all five are S1's, integrated in the base (their tests are registered
   in all.rs, none ignored). Verified by reading; nothing to change. See the report.
 
