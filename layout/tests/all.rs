@@ -664,3 +664,5 @@ mod editing_harness;
 mod a_format_toggle_at_a_caret_styles_what_is_typed_next;
 #[path = "a_plain_arrow_crosses_the_blocks_of_its_editing_host.rs"]
 mod a_plain_arrow_crosses_the_blocks_of_its_editing_host;
+#[path = "a_delete_across_blocks_keeps_the_surviving_runs.rs"]
+mod a_delete_across_blocks_keeps_the_surviving_runs;
