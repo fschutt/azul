@@ -2897,6 +2897,23 @@ mod autotest_generated {
     }
 
     #[test]
+    fn build_container_style_keeps_the_bar_from_shrinking_under_overflowing_content() {
+        // A titlebar is the platform's height whatever the content below it
+        // does. In a column body whose content overflows (AzCalendar's week
+        // grid), a flex item's default `flex-shrink: 1` squeezed the 28px bar
+        // to 15px, under the traffic lights.
+        for show_buttons in [false, true] {
+            let style = tb("x").build_container_style(show_buttons);
+            assert!(
+                properties(&style).contains(&CssProperty::const_flex_shrink(LayoutFlexShrink {
+                    inner: FloatValue::const_new(0),
+                })),
+                "show_buttons {show_buttons}: the bar must declare flex-shrink: 0"
+            );
+        }
+    }
+
+    #[test]
     fn build_container_style_truncates_the_height_toward_zero() {
         // `height as isize` truncates; a 30.9px titlebar is encoded as 30px.
         for (h, expected) in [
