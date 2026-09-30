@@ -13,17 +13,16 @@ Added mid-task by the coordinator (user request): a meeting-server URL field on 
 - `9f914b564` feat(azmeet): routing plan, rendition assignment, sync and relay wire, uplink estimate
 - `cadcfc4e8` test(azmeet): three AzMeet processes route over a backbone and a far keyframe request reaches its origin (RED)
 - `f7b404f5e` feat(azmeet): rooms of three and more forward over a backbone, each tile gets its rendition
+- `71279a53f` test(azmeet): the meeting server is the saved one, else AZMEET_WORKER, else the built-in default (RED)
+- `a27770933` feat(azmeet): a meeting server field on the start screen, remembered once it answers
 
 ## IN PROGRESS
 
-- Meeting-server field (start screen): prefill saved > AZMEET_WORKER > built-in (pure `rooms::server_prefill`,
-  RED unit test first), save on Enter / blur after a `GET /health` answers, status next to the field, demo only
-  when nothing is configured and nothing answers; headless runs neither read nor write the settings file.
+- Guide section (doc/guide/en/system/realtime-media.md) and the report.
 
 ## NEXT
 
-1. Server field: RED (rooms.rs tests + stubs), GREEN (rooms.rs + lib.rs glue), type-check with the harness.
-2. Guide section, report `scripts/M5_AZMEET_LB_2026_09_29.md`.
+1. Report `scripts/M5_AZMEET_LB_2026_09_29.md`, commit.
 
 ## Type-check harness (scratchpad m5/, rebuilt after the power loss)
 
