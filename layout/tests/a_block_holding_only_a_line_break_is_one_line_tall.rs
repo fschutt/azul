@@ -91,43 +91,58 @@ fn close(a: f32, b: f32) -> bool {
     (a - b).abs() < 0.5
 }
 
+/// "One line tall": at least the `line-height` (20px, what the blank line's
+/// band is), and no taller than a line of TEXT measures - which is a little
+/// more than the line-height in azul, where a line with glyphs is as tall as
+/// its font's natural line box when that exceeds `line-height` (20.6px for
+/// this font at 16px; browsers say 20). That quirk is not this test's
+/// subject; a blank line between those two bounds is one line, not zero and
+/// not two.
+fn one_line(height: f32, text_line: f32) -> bool {
+    height >= LINE - 0.5 && height <= text_line + 0.5
+}
+
 #[test]
 fn a_div_holding_only_a_br_is_one_line_tall() {
     let lw = laid_out();
     let (_, text_line) = top_and_height(&lw, "a");
     assert!(
-        close(text_line, LINE),
-        "a line of text is {LINE}px: {text_line}"
+        text_line >= LINE - 0.5 && text_line < 1.5 * LINE,
+        "a line of text is about {LINE}px: {text_line}"
     );
     let (blank_top, blank) = top_and_height(&lw, "blank");
     assert!(
-        close(blank, LINE),
-        "`<div><br></div>` is one line tall ({LINE}px), got {blank}"
+        one_line(blank, text_line),
+        "`<div><br></div>` is one line tall ({LINE}px, a text line is {text_line}px), got {blank}"
     );
     let (b_top, _) = top_and_height(&lw, "b");
     assert!(
-        close(b_top, blank_top + LINE),
-        "the next line sits one blank line below: {b_top} vs {blank_top} + {LINE}"
+        close(b_top, blank_top + blank),
+        "the next line sits one blank line below: {b_top} vs {blank_top} + {blank}"
     );
 }
 
 #[test]
 fn a_br_inside_a_span_is_one_line_tall_too() {
     let lw = laid_out();
+    let (_, text_line) = top_and_height(&lw, "a");
     let (_, blank) = top_and_height(&lw, "span_blank");
     assert!(
-        close(blank, LINE),
-        "`<div><span><br></span></div>` is one line tall ({LINE}px), got {blank}"
+        one_line(blank, text_line),
+        "`<div><span><br></span></div>` is one line tall ({LINE}px, a text line is \
+         {text_line}px), got {blank}"
     );
 }
 
 #[test]
 fn two_brs_between_words_still_make_one_blank_line() {
     let lw = laid_out();
+    let (_, text_line) = top_and_height(&lw, "a");
     let (_, p) = top_and_height(&lw, "p");
     assert!(
-        close(p, 3.0 * LINE),
-        "`one<br><br>two` is three lines ({}px), got {p}",
-        3.0 * LINE
+        p >= 3.0 * LINE - 0.5 && p <= 3.0 * text_line + 0.5,
+        "`one<br><br>two` is three lines ({}px to {}px), got {p}",
+        3.0 * LINE,
+        3.0 * text_line
     );
 }

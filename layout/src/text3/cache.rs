@@ -11059,8 +11059,10 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         None
     };
 
-    // The bottom of the lowest line box of any column (horizontal modes):
-    // what the IFC's height is measured to, see below.
+    // The bottom of the lowest line box that holds NO item with a height (a
+    // line a lone `<br>` ends), in any column, horizontal modes: what the
+    // IFC's height is measured to, see below. A line with glyphs or an atomic
+    // inline keeps measuring by its items, as it always did.
     let mut line_box_extent = 0.0_f32;
     'column_loop: while current_column < num_columns {
         if let Some(msgs) = debug_messages {
@@ -11342,7 +11344,12 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             let band_height = line_height.max(fragment_constraints.resolved_line_height());
             line_bands.push((line_index, line_top_y, band_height));
             line_top_y += band_height;
-            line_box_extent = line_box_extent.max(line_top_y);
+            if !line_pos_items
+                .iter()
+                .any(|item| item.item.bounds().height > 0.0)
+            {
+                line_box_extent = line_box_extent.max(line_top_y);
+            }
             line_index += 1;
             positioned_items.extend(line_pos_items);
         }
@@ -11388,8 +11395,15 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     // items' bounds miss a line box that holds no glyph: the line a lone `<br>`
     // ends (`<div><br></div>`, Gmail's blank line) is one line-height tall in
     // every browser (a line ending in a forced break is not a zero-height line
-    // box, 9.4.2), and measured 0 here because a break has no geometry. The
-    // vertical modes stack their line boxes along x and keep the item bounds.
+    // box, 9.4.2), and measured 0 here because a break has no geometry. Only
+    // such lines reach down here (`line_box_extent`): a line with glyphs or an
+    // atomic inline is measured by its items as before - an `<svg>` alone on a
+    // line keeps its box's height, and a text line its glyphs' (a line box
+    // pinned to the strut band would have grown every one of them). The top is
+    // that of the items WITH a height; a break positioned inside a `<span>`
+    // has none and sits at the baseline, and measuring from it left
+    // `<div><span><br></span></div>` a quarter of a line tall. The vertical
+    // modes stack their line boxes along x and keep the item bounds.
     let horizontal = !matches!(
         fragment_constraints.writing_mode,
         Some(
@@ -11400,12 +11414,23 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         )
     );
     if horizontal && line_box_extent > 0.0 {
-        let top = if layout.items.is_empty() {
-            0.0
-        } else {
-            calculated_bounds.y
-        };
-        calculated_bounds.height = calculated_bounds.height.max(line_box_extent - top);
+        let top = layout
+            .items
+            .iter()
+            .filter(|item| item.item.bounds().height > 0.0)
+            .map(|item| item.position.y)
+            .fold(None, |acc: Option<f32>, y| {
+                Some(acc.map_or(y, |a| a.min(y)))
+            });
+        match top {
+            Some(top) => {
+                calculated_bounds.height = calculated_bounds.height.max(line_box_extent - top);
+            }
+            None => {
+                calculated_bounds.y = 0.0;
+                calculated_bounds.height = calculated_bounds.height.max(line_box_extent);
+            }
+        }
     }
 
     // Record the unclipped content bounds. `overflow_items` stays empty by

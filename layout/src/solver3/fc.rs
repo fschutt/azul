@@ -3587,6 +3587,32 @@ fn editing_host_strut_height<T: ParsedFontTrait>(
     )
 }
 
+/// The extent of a laid-out IFC: its `overflow_size` - the ONE computation
+/// every exit of [`layout_ifc`] reports, the fresh layout and the cache-reuse
+/// path alike, so two layouts of unchanged content cannot drift (a textarea
+/// measured 13.0 px tall once and 12.999999 px after a slider drag when the
+/// reuse exit took `bounds()` alone).
+///
+/// The UNCLIPPED content bounds, not `bounds()` alone. `bounds()` maxes over
+/// `layout.items`, which under dense-text retention is an empty sentinel (the
+/// real clusters live in the dense view) - so `bounds()` collapses to 0 and a
+/// horizontal scroll container's overflow was never detected
+/// (`overflow_size.width == 0` → `needs_horizontal == false` → the value `<p>`
+/// of a single-line field never became a scroll box the caret-reveal could
+/// shift: the append-only caret bug). `unclipped_bounds` is captured during
+/// line breaking to enclose every positioned item - and the line box a lone
+/// `<br>` ends, which no item spans - and survives the sentinel swap. The max
+/// of the two, so a path that leaves `unclipped_bounds` at its default still
+/// gets the fragment's own bounds.
+fn ifc_extent(main_frag: &text3::cache::UnifiedLayout) -> LogicalSize {
+    let frag_bounds = main_frag.bounds();
+    let unclipped = main_frag.overflow.unclipped_bounds;
+    LogicalSize::new(
+        frag_bounds.width.max(unclipped.width),
+        frag_bounds.height.max(unclipped.height),
+    )
+}
+
 fn layout_ifc<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     text_cache: &mut TextLayoutCache,
@@ -4051,9 +4077,8 @@ fn layout_ifc<T: ParsedFontTrait>(
                     // reuse path's overflow_size (scrollbars vanished on
                     // every GlyphSwap reuse).
                     let main_frag = cached.materialized();
-                    let frag_bounds = main_frag.bounds();
                     let mut output = LayoutOutput {
-                        overflow_size: LogicalSize::new(frag_bounds.width, frag_bounds.height),
+                        overflow_size: ifc_extent(&main_frag),
                         baseline: main_frag.last_baseline(),
                         ..Default::default()
                     };
@@ -4299,21 +4324,10 @@ fn layout_ifc<T: ParsedFontTrait>(
         // bottommost line box +spec:display-property:a63b8f - baseline-source defaults to
         // auto (last baseline for inline-block/IFC)
         //
-        // Use the UNCLIPPED content bounds, not `bounds()`. `bounds()` maxes over
-        // `layout.items`, which under dense-text retention is an empty sentinel
-        // (the real clusters live in the dense view) — so `bounds()` collapses to
-        // 0 and a horizontal scroll container's overflow was never detected
-        // (`overflow_size.width == 0` → `needs_horizontal == false` → the value
-        // `<p>` of a single-line field never became a scroll box the caret-reveal
-        // could shift: the append-only caret bug). `unclipped_bounds` is captured
-        // during line breaking to enclose every positioned item and survives the
-        // sentinel swap. Take the max so a path that leaves `unclipped_bounds`
-        // at its default still gets the fragment's own bounds.
-        let unclipped = main_frag.overflow.unclipped_bounds;
-        output.overflow_size = LogicalSize::new(
-            frag_bounds.width.max(unclipped.width),
-            frag_bounds.height.max(unclipped.height),
-        );
+        // The ONE measure of an IFC's extent (`ifc_extent`): the cache-reuse
+        // exit above reports the same, so two layouts of unchanged content
+        // agree to the bit.
+        output.overflow_size = ifc_extent(main_frag);
         output.baseline = main_frag.last_baseline();
         warm_node.baseline = output.baseline;
 
