@@ -1467,6 +1467,12 @@ extern "C" fn pump_link(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
             _ => apply_link_event(&mut s, &event),
         };
     }
+    // The codecs work on their own threads: what they finished since the last pump comes out
+    // here - packets to send, pictures to show.
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        drain_decoders(&mut s, &mut pictures);
+        drain_encoders(&mut s, &endpoint);
+    }
     for ((peer, track), picture) in pictures {
         show_picture(&mut info, peer, track, picture);
     }
@@ -1846,6 +1852,9 @@ struct VideoOut {
     jpeg_frames: u64,
     /// Packets dropped with the "Drop a video packet" button.
     dropped: u64,
+    /// The `frame_no` of every frame in the encoder whose packet has not come out yet, oldest
+    /// first (the encoder works on its own thread).
+    in_encoder: std::collections::VecDeque<u32>,
 }
 
 impl VideoOut {
@@ -1861,6 +1870,7 @@ impl VideoOut {
             h264_packets: 0,
             jpeg_frames: 0,
             dropped: 0,
+            in_encoder: std::collections::VecDeque::new(),
         }
     }
 
@@ -1868,6 +1878,7 @@ impl VideoOut {
     /// opens a fresh one, which begins with a keyframe.
     fn stop(&mut self) {
         self.encoder = None;
+        self.in_encoder.clear();
         self.health = video_wire::EncoderHealth::default();
     }
 }
@@ -1968,6 +1979,8 @@ fn probe_encode() -> Option<Vec<u8>> {
     let mut chunk = Vec::new();
     for index in 0..3 {
         encoder.encode(pattern_frame(index, FEED_W, FEED_H), true);
+        // The encoder works on its own thread: wait for this frame's packets.
+        encoder.flush();
         while let Some(packet) = encoder.recv_packet().into_option() {
             chunk.extend_from_slice(packet.as_slice());
         }
@@ -1987,7 +2000,8 @@ fn probe_decode(keyframe: &[u8]) -> bool {
     }
     decoder.set_output_format(VIDEO_FORMAT);
     decoder.decode(U8Vec::from(keyframe.to_vec()));
-    let decoded = decoder.recv_frame().into_option().is_some();
+    // The decoder works on its own thread: `flush` waits for the picture.
+    let decoded = decoder.flush().into_option().is_some();
     decoder.close();
     decoded
 }
@@ -2097,10 +2111,12 @@ fn send_video(s: &mut MeetState, track: u32, rendition: u16, frame: VideoFrame) 
     }
 }
 
-/// Encodes the frame with the H.264 encoder of the `rendition` of `track` and sends each packet to
-/// those of `peers` (connection handles) whose window has room ([`video_wire::SendWindow`]). False
-/// when no encoder works (it did not open, gives nothing back, or ignores keyframe requests): H.264
-/// is given up, the frame goes as JPEG, and everyone hears that this side no longer encodes it.
+/// Hands the frame to the H.264 encoder of the `rendition` of `track` (it encodes on its own
+/// thread) and sends whatever packets it has ready to the peers that get the stream
+/// ([`drain_h264`]). `peers` (connection handles) are this frame's H.264 receivers: a new one, or
+/// one that fell behind, makes the frame a keyframe. False when no encoder works (it did not
+/// open, gives nothing back, or ignores keyframe requests): H.264 is given up, the frame goes as
+/// JPEG, and everyone hears that this side no longer encodes it.
 fn send_h264(
     s: &mut MeetState,
     endpoint: &IrohEndpoint,
@@ -2116,7 +2132,7 @@ fn send_h264(
     let resync = s.remotes.iter().any(|r| {
         peers.contains(&r.handle) && r.sent.get(&key).map_or(true, |w| w.wants_keyframe())
     });
-    let (packets, failure) = {
+    let opened = {
         let Some(out) = s.video_out.get_mut(&key) else {
             return false;
         };
@@ -2126,6 +2142,7 @@ fn send_h264(
         let resized = out.encoder.is_some() && out.size != (width, height);
         if out.keyframes.must_reopen() || resized {
             out.encoder = None;
+            out.in_encoder.clear();
             out.keyframes.reopened();
         }
         if out.encoder.is_none() {
@@ -2140,48 +2157,78 @@ fn send_h264(
             }
         }
         let frame_no = out.frame_no;
-        let mut packets = Vec::new();
-        let failure = match out.encoder.as_mut() {
-            None => Some("the H.264 encoder did not open"),
+        match out.encoder.as_ref() {
+            None => false,
             Some(encoder) => {
                 let force = out.keyframes.should_force(now);
-                encoder.encode(frame, force);
-                out.health.submitted();
-                while let Some(chunk) = encoder.recv_packet().into_option() {
-                    out.health.produced();
-                    let keyframe = video_wire::h264_is_keyframe(chunk.as_slice());
-                    out.keyframes.on_output(keyframe, now);
-                    out.h264_seq = out.h264_seq.wrapping_add(1);
-                    let header = video_wire::Header {
-                        codec: Codec::H264,
-                        keyframe,
-                        track,
-                        seq: out.h264_seq,
-                        frame_no,
-                        height: rendition,
-                    };
-                    packets.push((header, video_wire::encode_packet(&header, chunk.as_slice())));
-                }
-                if out.health.is_inert() {
-                    Some("the H.264 encoder gives no packets back")
-                } else if out.keyframes.is_broken() {
-                    Some("the H.264 encoder ignores keyframe requests")
+                if encoder.encode(frame, force) {
+                    out.health.submitted();
+                    out.in_encoder.push_back(frame_no);
                 } else {
-                    None
+                    // The encoder still works on earlier frames: this one is dropped, and a
+                    // keyframe it was to carry is forced on the next frame it takes.
+                    out.keyframes.not_taken();
                 }
+                true
             }
-        };
-        if failure.is_some() {
-            out.encoder = None;
         }
+    };
+    if !opened {
+        give_up_h264(s, "the H.264 encoder did not open");
+        return false;
+    }
+    drain_h264(s, endpoint, key)
+}
+
+/// Sends the packets the encoder of `key` (track, rendition height) has ready to the peers that
+/// get that stream as H.264 now (each through its [`video_wire::SendWindow`]), numbered in the
+/// order they come out. Called after every frame handed to it, and on every pump: the encoder
+/// works on its own thread, so a frame's packets come out a little later. False when the
+/// encoder turned out not to work (see [`send_h264`]).
+fn drain_h264(s: &mut MeetState, endpoint: &IrohEndpoint, key: (u32, u16)) -> bool {
+    let (track, rendition) = key;
+    let now = now_ms(s);
+    let (packets, failure) = {
+        let Some(out) = s.video_out.get_mut(&key) else {
+            return true;
+        };
+        let Some(encoder) = out.encoder.as_mut() else {
+            return true;
+        };
+        let mut packets = Vec::new();
+        while let Some(chunk) = encoder.recv_packet().into_option() {
+            out.health.produced();
+            let keyframe = video_wire::h264_is_keyframe(chunk.as_slice());
+            out.keyframes.on_output(keyframe, now);
+            out.h264_seq = out.h264_seq.wrapping_add(1);
+            let frame_no = out.in_encoder.pop_front().unwrap_or(out.frame_no);
+            let header = video_wire::Header {
+                codec: Codec::H264,
+                keyframe,
+                track,
+                seq: out.h264_seq,
+                frame_no,
+                height: rendition,
+            };
+            packets.push((header, video_wire::encode_packet(&header, chunk.as_slice())));
+        }
+        let failure = if out.health.is_inert() {
+            Some("the H.264 encoder gives no packets back")
+        } else if out.keyframes.is_broken() {
+            Some("the H.264 encoder ignores keyframe requests")
+        } else {
+            None
+        };
         (packets, failure)
     };
     if let Some(why) = failure {
-        eprintln!("[azmeet] {}: {why}: sending JPEG from now on", s.name);
-        s.video.encoder = Err(String::from(why));
-        send_caps(s, &all_peers(s));
+        give_up_h264(s, why);
         return false;
     }
+    if packets.is_empty() {
+        return true;
+    }
+    let peers = stream_targets(s, track, rendition, true);
     for (header, packet) in packets {
         if !header.keyframe && s.drop_video.remove(&key) {
             if let Some(out) = s.video_out.get_mut(&key) {
@@ -2209,6 +2256,42 @@ fn send_h264(
         }
     }
     true
+}
+
+/// Every pump: the packets every encoder made since the last one go out.
+fn drain_encoders(s: &mut MeetState, endpoint: &IrohEndpoint) {
+    let keys: Vec<(u32, u16)> = s
+        .video_out
+        .iter()
+        .filter(|(_, out)| out.encoder.is_some())
+        .map(|(key, _)| *key)
+        .collect();
+    for key in keys {
+        drain_h264(s, endpoint, key);
+    }
+}
+
+/// No H.264 encoder works here (`why`): every encoder closes, JPEG from now on, and every peer
+/// hears that this side no longer encodes H.264.
+fn give_up_h264(s: &mut MeetState, why: &str) {
+    eprintln!("[azmeet] {}: {why}: sending JPEG from now on", s.name);
+    for out in s.video_out.values_mut() {
+        out.stop();
+    }
+    s.video.encoder = Err(String::from(why));
+    send_caps(s, &all_peers(s));
+}
+
+/// The connection handles that get this side's `rendition` of `track` as H.264 (`h264`) or as
+/// JPEG, by the current plan: everyone assigned that stream in the full mesh, the backbone parent
+/// for a leaf.
+fn stream_targets(s: &MeetState, track: u32, rendition: u16, h264: bool) -> Vec<u64> {
+    let assigned = assignment(s, s.me, track);
+    let stream = routes::Stream {
+        height: rendition,
+        h264,
+    };
+    handles_of(s, &s.plan.next_hops(s.me, s.me, stream, &assigned))
 }
 
 /// Sends the frame as JPEG to `peers`, a latest-wins frame each, on the rendition's own frame track.
@@ -2347,9 +2430,10 @@ fn take_video(
     new_tile
 }
 
-/// Decodes one packet of a shown stream; the newest picture that came out. H.264 comes out of the
-/// decoder as NV12 at the size of the tile that shows it (`tile_px`, device pixels): scaled once, by
-/// the decoder, and never converted to RGB on the CPU.
+/// Decodes one packet of a shown stream: a JPEG's picture at once; an H.264 packet goes to the
+/// stream's decoder, whose picture comes out on a later pump ([`drain_decoders`]), as NV12 at the
+/// size of the tile that shows it (`tile_px`, device pixels): scaled once, on the GPU, and never
+/// converted to RGB on the CPU.
 fn decode_picture(
     input: &mut VideoIn,
     codec: Codec,
@@ -2379,19 +2463,42 @@ fn decode_picture(
                 decoder.set_output_size(w, h);
                 input.output_size = tile_px;
             }
+            // Decoded on the decoder's own thread: the picture comes out on a later pump
+            // (`drain_decoders`).
             decoder.decode(U8Vec::from(payload.to_vec()));
+            (None, 0)
+        }
+    };
+    input.rules.decoded(pictures);
+    picture
+}
+
+/// Every pump: the pictures every decoder finished since the last one (they decode on their own
+/// threads); the newest of each shown stream goes onto its tile.
+fn drain_decoders(s: &mut MeetState, pictures: &mut BTreeMap<(u64, u32), RawImage>) {
+    for r in s.remotes.iter_mut() {
+        let handle = r.handle;
+        for ((track, _), input) in r.received.iter_mut() {
+            if !input.shown {
+                continue;
+            }
+            let Some(decoder) = input.decoder.as_mut() else {
+                continue;
+            };
             let mut newest = None;
             let mut count = 0;
             while let Some(frame) = decoder.recv_frame().into_option() {
                 count += 1;
                 newest = Some(frame);
             }
-            let picture = newest.map(frame_image);
-            (picture, count)
+            if count > 0 {
+                input.rules.decoded(count);
+            }
+            if let Some(frame) = newest {
+                pictures.insert((handle, *track), frame_image(frame));
+            }
         }
-    };
-    input.rules.decoded(pictures);
-    picture
+    }
 }
 
 /// A control about this side's own stream, from the peer with key `requester`, arriving on
