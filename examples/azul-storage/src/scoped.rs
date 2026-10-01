@@ -5,8 +5,11 @@
 //! whether writing is allowed; [`ScopedDrive`] enforces the last two whatever
 //! the backend does.
 
+use std::path::PathBuf;
+
 use crate::{
     key::{check_path_key, check_path_prefix},
+    ops::check_folder,
     ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo,
 };
 
@@ -51,6 +54,17 @@ impl<D: Drive> ScopedDrive<D> {
     fn full_key(&self, key: &str) -> Result<String, DriveError> {
         check_path_key(key)?;
         Ok(format!("{}{key}", self.prefix))
+    }
+
+    /// A key or a folder name (ending in `/`) of the inner drive.
+    fn full_name(&self, name: &str) -> Result<String, DriveError> {
+        if name.ends_with('/') {
+            check_folder(name)?;
+            check_path_prefix(name)?;
+            Ok(format!("{}{name}", self.prefix))
+        } else {
+            self.full_key(name)
+        }
     }
 
     fn check_writable(&self) -> Result<(), DriveError> {
@@ -115,5 +129,29 @@ impl<D: Drive> Drive for ScopedDrive<D> {
         let mut info = self.inner.head(&self.full_key(key)?)?;
         info.key = key.to_string();
         Ok(info)
+    }
+
+    fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        self.check_writable()?;
+        self.inner.create_folder(&self.full_name(prefix)?)
+    }
+
+    fn rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        self.check_writable()?;
+        self.inner
+            .rename(&self.full_name(from)?, &self.full_name(to)?)
+    }
+
+    fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        self.check_writable()?;
+        self.inner.delete_folder(&self.full_name(prefix)?)
+    }
+
+    fn local_path(&self, key: &str) -> Option<PathBuf> {
+        self.inner.local_path(&self.full_name(key).ok()?)
+    }
+
+    fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
+        self.inner.metadata(&self.full_key(key)?)
     }
 }

@@ -11,6 +11,7 @@ use std::{
 
 use crate::{
     key::{check_path_key, check_path_prefix, folder_of},
+    ops::check_folder,
     ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo,
 };
 
@@ -122,6 +123,23 @@ impl LocalDrive {
             path.push(segment);
         }
         path
+    }
+
+    /// The directory of a folder name (`docs/sub/`), checked: not the root,
+    /// ending in `/`, inside the root.
+    fn folder_path(&self, prefix: &str) -> Result<PathBuf, DriveError> {
+        check_folder(prefix)?;
+        check_path_prefix(prefix)?;
+        Ok(self.dir_of(prefix))
+    }
+
+    /// The file or directory of a key or folder name, checked.
+    fn any_path(&self, key: &str) -> Result<PathBuf, DriveError> {
+        if key.ends_with('/') {
+            self.folder_path(key)
+        } else {
+            self.path_of(key)
+        }
     }
 
     /// The folders and files directly in `folder` whose keys start with `prefix`.
@@ -318,5 +336,91 @@ impl Drive for LocalDrive {
             });
         }
         Ok(object_info(key.to_string(), &meta))
+    }
+
+    fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        let dir = self.folder_path(prefix)?;
+        if dir.is_file() {
+            return Err(DriveError::InvalidKey {
+                key: prefix.to_string(),
+                reason: "a file has this name",
+            });
+        }
+        fs::create_dir_all(&dir).map_err(|e| DriveError::Io(format!("{prefix}: {e}")))
+    }
+
+    /// One `rename` on disk: a file, or a directory with everything in it.
+    fn rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        if from.ends_with('/') != to.ends_with('/') {
+            return Err(DriveError::InvalidKey {
+                key: to.to_string(),
+                reason: "a file and a folder cannot trade places",
+            });
+        }
+        if from.ends_with('/') && to.starts_with(from) {
+            return Err(DriveError::InvalidKey {
+                key: to.to_string(),
+                reason: "a folder cannot move into itself",
+            });
+        }
+        let source = self.any_path(from)?;
+        let target = self.any_path(to)?;
+        if fs::symlink_metadata(&source).is_err() {
+            return Err(DriveError::NotFound {
+                key: from.to_string(),
+            });
+        }
+        if fs::symlink_metadata(&target).is_ok() {
+            return Err(DriveError::InvalidKey {
+                key: to.to_string(),
+                reason: "something has this name already",
+            });
+        }
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::rename(&source, &target).map_err(|e| DriveError::Io(format!("{from}: {e}")))
+    }
+
+    fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        let dir = self.folder_path(prefix)?;
+        match fs::symlink_metadata(&dir) {
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(DriveError::Io(format!("{prefix}: {e}"))),
+            Ok(meta) if !meta.is_dir() => Err(DriveError::InvalidKey {
+                key: prefix.to_string(),
+                reason: "it is a file",
+            }),
+            Ok(_) => fs::remove_dir_all(&dir).map_err(|e| DriveError::Io(format!("{prefix}: {e}"))),
+        }
+    }
+
+    fn local_path(&self, key: &str) -> Option<PathBuf> {
+        self.any_path(key).ok()
+    }
+
+    fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
+        let path = self.any_path(key)?;
+        let meta = fs::metadata(&path).map_err(|e| not_found_or_io(key, e))?;
+        let mut pairs = vec![(
+            String::from("Location"),
+            path.to_string_lossy().into_owned(),
+        )];
+        if let Some(created) = meta
+            .created()
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        {
+            pairs.push((String::from("Created"), created.as_secs().to_string()));
+        }
+        pairs.push((
+            String::from("Read-only"),
+            String::from(if meta.permissions().readonly() {
+                "Yes"
+            } else {
+                "No"
+            }),
+        ));
+        Ok(pairs)
     }
 }

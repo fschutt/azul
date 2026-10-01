@@ -552,4 +552,41 @@ impl Drive for S3Drive {
                 .filter(|e| !e.is_empty()),
         })
     }
+
+    /// One HEAD: the headers that describe the object (not the request), by
+    /// readable names; `x-amz-meta-<name>` as `<name>`.
+    fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
+        let reply = self.object_call(Method::Head, key, Vec::new(), Vec::new())?;
+        if !reply.is_success() {
+            return Err(failure(&reply, Some(key)));
+        }
+        let mut pairs = Vec::new();
+        for (name, value) in &reply.headers {
+            let lower = name.to_ascii_lowercase();
+            let shown = match lower.as_str() {
+                "content-type" => "Content-Type".to_string(),
+                "content-encoding" => "Content-Encoding".to_string(),
+                "content-disposition" => "Content-Disposition".to_string(),
+                "content-language" => "Content-Language".to_string(),
+                "cache-control" => "Cache-Control".to_string(),
+                "expires" => "Expires".to_string(),
+                "etag" => "ETag".to_string(),
+                "x-amz-storage-class" => "Storage class".to_string(),
+                "x-amz-server-side-encryption" => "Encryption".to_string(),
+                "x-amz-version-id" => "Version".to_string(),
+                "x-amz-website-redirect-location" => "Redirect".to_string(),
+                other => match other.strip_prefix("x-amz-meta-") {
+                    Some(user) if !user.is_empty() => user.to_string(),
+                    _ => continue,
+                },
+            };
+            let value = if lower == "etag" {
+                xml::strip_quotes(value)
+            } else {
+                value.trim().to_string()
+            };
+            pairs.push((shown, value));
+        }
+        Ok(pairs)
+    }
 }

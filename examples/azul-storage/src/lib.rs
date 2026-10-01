@@ -29,6 +29,7 @@
 pub mod config;
 pub mod key;
 pub mod local;
+pub mod ops;
 pub mod s3;
 pub mod scoped;
 pub mod sigv4;
@@ -43,7 +44,7 @@ pub mod azul_transport;
 #[cfg(test)]
 mod tests;
 
-use std::fmt;
+use std::{fmt, path::PathBuf};
 
 pub use local::LocalDrive;
 pub use s3::{Credentials, S3Config, S3Drive};
@@ -308,6 +309,40 @@ pub trait Drive: Send + Sync {
     fn delete(&self, key: &str) -> Result<(), DriveError>;
     /// The object's size, date and tag, without its bytes.
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError>;
+
+    /// Creates the folder `prefix` (not empty, ending in `/`); an existing one is
+    /// fine. A bucket has no folders, so by default this puts an empty "folder
+    /// marker" object named `prefix`, as the S3 consoles do.
+    fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        ops::check_folder(prefix)?;
+        self.put(prefix, &[])
+    }
+
+    /// Moves the object `from` to `to`, or (both ending in `/`) the folder `from`
+    /// with everything under it. Never over something that is there, never a
+    /// folder into itself. By default every object is copied, then deleted.
+    fn rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        ops::rename_by_copy(self, from, to)
+    }
+
+    /// Removes the folder `prefix` (not the root) with everything under it.
+    fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        ops::delete_by_listing(self, prefix)
+    }
+
+    /// The file (or, for a folder prefix, the directory) on this computer that
+    /// holds `key`, when the drive is a folder on disk; `None` otherwise.
+    fn local_path(&self, key: &str) -> Option<PathBuf> {
+        let _ = key;
+        None
+    }
+
+    /// What the backend knows about the object beyond [`Drive::head`], as
+    /// `(name, value)` pairs to show: an S3 object's Content-Type, storage class,
+    /// encryption and user metadata; a local file's location. Empty by default.
+    fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
+        self.head(key).map(|_| Vec::new())
+    }
 }
 
 impl<D: Drive + ?Sized> Drive for Box<D> {
@@ -329,6 +364,21 @@ impl<D: Drive + ?Sized> Drive for Box<D> {
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
         (**self).head(key)
     }
+    fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        (**self).create_folder(prefix)
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        (**self).rename(from, to)
+    }
+    fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        (**self).delete_folder(prefix)
+    }
+    fn local_path(&self, key: &str) -> Option<PathBuf> {
+        (**self).local_path(key)
+    }
+    fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
+        (**self).metadata(key)
+    }
 }
 
 impl<D: Drive + ?Sized> Drive for std::sync::Arc<D> {
@@ -349,5 +399,20 @@ impl<D: Drive + ?Sized> Drive for std::sync::Arc<D> {
     }
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
         (**self).head(key)
+    }
+    fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        (**self).create_folder(prefix)
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        (**self).rename(from, to)
+    }
+    fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        (**self).delete_folder(prefix)
+    }
+    fn local_path(&self, key: &str) -> Option<PathBuf> {
+        (**self).local_path(key)
+    }
+    fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
+        (**self).metadata(key)
     }
 }
