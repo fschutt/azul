@@ -190,7 +190,7 @@ struct ExportState {
 }
 
 /// Everything the window shows and its jobs share.
-pub struct App {
+pub struct VideoCut {
     drive: Arc<dyn Drive>,
     /// Where the drive is, for the settings.
     drive_root: String,
@@ -232,7 +232,7 @@ pub struct App {
     encoder: String,
 }
 
-impl App {
+impl VideoCut {
     fn fps(&self) -> u32 {
         self.project.as_ref().map_or(25, |p| p.sequence.fps)
     }
@@ -552,7 +552,7 @@ extern "C" fn job_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: 
 }
 
 /// Starts `job` on a worker.
-fn spawn(info: &mut CallbackInfo, app_ref: &RefAny, app: &App, job: Job) {
+fn spawn(info: &mut CallbackInfo, app_ref: &RefAny, app: &VideoCut, job: Job) {
     info.add_thread(
         ThreadId::unique(),
         Thread::create(
@@ -568,7 +568,7 @@ fn spawn(info: &mut CallbackInfo, app_ref: &RefAny, app: &App, job: Job) {
 }
 
 /// Saves the project (after an edit).
-fn save(info: &mut CallbackInfo, app_ref: &RefAny, app: &App) {
+fn save(info: &mut CallbackInfo, app_ref: &RefAny, app: &VideoCut) {
     if let Some(project) = app.project.clone() {
         spawn(info, app_ref, app, Job::Save { project });
     }
@@ -580,7 +580,7 @@ extern "C" fn on_job_done(mut data: RefAny, mut msg: RefAny, mut info: CallbackI
     let Some(outcome) = msg.downcast_mut::<Done>().and_then(|mut d| d.outcome.take()) else {
         return Update::DoNothing;
     };
-    let Some(mut guard) = data.downcast_mut::<App>() else {
+    let Some(mut guard) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     let app = &mut *guard;
@@ -752,7 +752,7 @@ fn show_in_place(info: &mut CallbackInfo, marker: &str, c: &Canvas) {
 /// Shows the program picture at the playhead: from the last one when it is
 /// that frame, else from a render job (one at a time; while one runs, the
 /// newest request waits).
-fn request_program_frame(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App) {
+fn request_program_frame(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut) {
     if app.project.is_none() || app.playback.is_some() {
         return;
     }
@@ -767,7 +767,7 @@ fn request_program_frame(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut Ap
     start_program_render(info, app_ref, app, frame);
 }
 
-fn start_program_render(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App, frame: Frame) {
+fn start_program_render(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut, frame: Frame) {
     let Some(project) = app.project.clone() else {
         return;
     };
@@ -790,7 +790,7 @@ fn start_program_render(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App
 
 /// Shows the source monitor's picture at its position (coalesced like the
 /// program's).
-fn request_source_frame(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App) {
+fn request_source_frame(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut) {
     let Some(marks) = app.source else {
         return;
     };
@@ -808,7 +808,7 @@ fn request_source_frame(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App
     start_source_render(info, app_ref, app, marks.position);
 }
 
-fn start_source_render(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App, frame: Frame) {
+fn start_source_render(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut, frame: Frame) {
     let Some(marks) = app.source else {
         return;
     };
@@ -902,7 +902,7 @@ fn monitor_interval_ms(info: &CallbackInfo) -> u64 {
 
 /// Plays from the playhead at `speed` (frames per frame: 1, 2, 4 forward,
 /// negative backward).
-fn start_playback(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App, speed: i64) {
+fn start_playback(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut, speed: i64) {
     stop_playback(app);
     let Some(project) = app.project.clone() else {
         return;
@@ -959,7 +959,7 @@ fn start_playback(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App, spee
 }
 
 /// Stops playback; its job ends by itself, its timer ends at its next tick.
-fn stop_playback(app: &mut App) {
+fn stop_playback(app: &mut VideoCut) {
     if let Some(pb) = app.playback.take() {
         pb.shared.stop.store(true, Ordering::Relaxed);
         pb.shared.room.notify_all();
@@ -972,7 +972,7 @@ fn stop_playback(app: &mut App) {
 /// A tick of the monitor's frame interval while playing: shows the frame
 /// that is due, moves the timeline a few times a second, ends at the end.
 extern "C" fn playback_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
-    let Some(mut guard) = data.downcast_mut::<App>() else {
+    let Some(mut guard) = data.downcast_mut::<VideoCut>() else {
         return TimerCallbackReturn::terminate_unchanged();
     };
     let app = &mut *guard;
@@ -1117,7 +1117,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let width = info.get_window_width();
     let theme = info.get_theme();
     let app_ref = data.clone();
-    let Some(mut guard) = data.downcast_mut::<App>() else {
+    let Some(mut guard) = data.downcast_mut::<VideoCut>() else {
         return Dom::create_body();
     };
     let app = &mut *guard;
@@ -1178,7 +1178,7 @@ fn empty_state(app_ref: &RefAny) -> Dom {
 }
 
 /// The editor: the S3 shell, the menu row, the meters, the status bar.
-fn editor(app: &App, app_ref: &RefAny) -> Dom {
+fn editor(app: &VideoCut, app_ref: &RefAny) -> Dom {
     TimelineShell::create(
         media_pane(app, app_ref),
         source_pane(app, app_ref),
@@ -1194,7 +1194,7 @@ fn editor(app: &App, app_ref: &RefAny) -> Dom {
 }
 
 /// The title row (the window is `NoTitle`) over the tools.
-fn menu_row(app: &App, app_ref: &RefAny) -> Dom {
+fn menu_row(app: &VideoCut, app_ref: &RefAny) -> Dom {
     let name = app.project.as_ref().map_or("", |p| p.name.as_str());
     let tools: Vec<AzString> = Tool::ALL.iter().map(|t| AzString::from(t.label())).collect();
     let undo = app
@@ -1235,12 +1235,12 @@ fn menu_row(app: &App, app_ref: &RefAny) -> Dom {
 }
 
 /// "00:00:04:00 - 640 x 360 - H.264" for the bin.
-fn media_line(app: &App, m: &MediaItem) -> String {
+fn media_line(app: &VideoCut, m: &MediaItem) -> String {
     format!("{} - {} x {} - {}", app.timecode(m.frames), m.width, m.height, m.codec)
 }
 
 /// The media bin.
-fn media_pane(app: &App, app_ref: &RefAny) -> Dom {
+fn media_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
     let Some(project) = app.project.as_ref() else {
         return pane("Project", Vec::new());
     };
@@ -1305,7 +1305,7 @@ fn media_pane(app: &App, app_ref: &RefAny) -> Dom {
 }
 
 /// The source monitor: the media's picture, its position, its marks.
-fn source_pane(app: &App, app_ref: &RefAny) -> Dom {
+fn source_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
     let media = app
         .source
         .and_then(|marks| app.project.as_ref().and_then(|p| p.media(marks.media)));
@@ -1368,7 +1368,7 @@ fn source_pane(app: &App, app_ref: &RefAny) -> Dom {
 }
 
 /// The program monitor: the sequence at the playhead and the transport.
-fn program_pane(app: &App, app_ref: &RefAny) -> Dom {
+fn program_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
     let name = app.project.as_ref().map_or("", |p| p.sequence.name.as_str());
     let picture = app.program_frame.as_ref().map(|(_, c)| c);
     let playing = app.playback.is_some();
@@ -1434,7 +1434,7 @@ fn effect_field(app_ref: &RefAny, clip: u64, field: EffectField, value: f32) -> 
 }
 
 /// The effect controls of the selected clip.
-fn inspector_pane(app: &App, app_ref: &RefAny) -> Dom {
+fn inspector_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
     let clip = app.selected.first().and_then(|id| {
         app.project
             .as_ref()
@@ -1500,7 +1500,7 @@ fn inspector_pane(app: &App, app_ref: &RefAny) -> Dom {
 /// The timeline: azul's Timeline widget over the sequence. The wheel over
 /// it is the app's (the widget leaves it to the page): it scrolls the view,
 /// with Ctrl / Cmd it zooms.
-fn timeline_pane(app: &App, app_ref: &RefAny) -> Dom {
+fn timeline_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
     let Some(project) = app.project.as_ref() else {
         return Dom::create_div();
     };
@@ -1586,7 +1586,7 @@ fn meters() -> Dom {
 }
 
 /// The status bar: the last message, the tool, the snapping, the format.
-fn status_bar(app: &App) -> Dom {
+fn status_bar(app: &VideoCut) -> Dom {
     let format = app.project.as_ref().map_or_else(String::new, |p| {
         format!("{} x {} at {} fps", p.sequence.width, p.sequence.height, p.sequence.fps)
     });
@@ -1601,7 +1601,7 @@ fn status_bar(app: &App) -> Dom {
 }
 
 /// The export dialog: size, bitrate, range, progress.
-fn export_dialog(app: &App, app_ref: &RefAny) -> Dom {
+fn export_dialog(app: &VideoCut, app_ref: &RefAny) -> Dom {
     let progress = app
         .export
         .shared
@@ -1669,7 +1669,7 @@ fn export_dialog(app: &App, app_ref: &RefAny) -> Dom {
 }
 
 /// The settings: playback, export, storage, about.
-fn settings_dialog(app: &App, app_ref: &RefAny) -> Dom {
+fn settings_dialog(app: &VideoCut, app_ref: &RefAny) -> Dom {
     let root = app.drive_root.clone();
     let sections = vec![
         ShellSettingsSection::create(
@@ -1786,7 +1786,7 @@ struct EffectInput {
 }
 
 /// Applies `edit`: the model changes, the picture and the file follow.
-fn apply_edit(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App, edit: Edit) -> Update {
+fn apply_edit(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut, edit: Edit) -> Update {
     let label = edit.label();
     let Some(result) = app.project.as_mut().map(|p| p.edit(edit)) else {
         return Update::DoNothing;
@@ -1798,7 +1798,7 @@ fn apply_edit(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App, edit: Ed
 fn after_change(
     info: &mut CallbackInfo,
     app_ref: &RefAny,
-    app: &mut App,
+    app: &mut VideoCut,
     label: &str,
     result: Result<(), model::EditError>,
 ) -> Update {
@@ -1827,7 +1827,7 @@ fn after_change(
 }
 
 /// Moves the playhead to `f` (kept in view) and shows its picture.
-fn seek(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App, f: Frame) -> Update {
+fn seek(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut, f: Frame) -> Update {
     let end = app.end();
     app.playhead = f.clamp(0, end.max(0));
     let t = app.seconds(app.playhead);
@@ -1841,13 +1841,13 @@ fn seek(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App, f: Frame) -> U
 }
 
 /// The first selected clip.
-fn selected_clip(app: &App) -> Option<model::Clip> {
+fn selected_clip(app: &VideoCut) -> Option<model::Clip> {
     let id = *app.selected.first()?;
     app.project.as_ref()?.sequence.clip(id).cloned()
 }
 
 /// The selected clips lifted (or ripple-deleted with `ripple`).
-fn delete_selected(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App, ripple: bool) -> Update {
+fn delete_selected(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut, ripple: bool) -> Update {
     let ids = app.selected.clone();
     if ids.is_empty() {
         app.status = String::from("Select a clip to delete.");
@@ -1870,7 +1870,7 @@ fn delete_selected(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App, rip
 fn open_in_source(
     info: &mut CallbackInfo,
     app_ref: &RefAny,
-    app: &mut App,
+    app: &mut VideoCut,
     media: u64,
     range: Option<(Frame, Frame)>,
 ) -> Update {
@@ -1887,7 +1887,7 @@ fn open_in_source(
 }
 
 /// Puts the source monitor's marked range on V1 at the playhead.
-fn source_to_timeline(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App, insert: bool) -> Update {
+fn source_to_timeline(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut, insert: bool) -> Update {
     let Some(marks) = app.source else {
         app.status = String::from("Open a clip in the source monitor first.");
         return Update::RefreshDom;
@@ -1910,7 +1910,7 @@ fn source_to_timeline(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App, 
 }
 
 /// Toggles playback at normal speed.
-fn toggle_play(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App) -> Update {
+fn toggle_play(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut) -> Update {
     if app.playback.is_some() {
         stop_playback(app);
         announce(&format!("PLAYHEAD {}", app.playhead));
@@ -1921,7 +1921,7 @@ fn toggle_play(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App) -> Upda
 }
 
 /// J / L: faster in their direction, or reversed.
-fn shuttle(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App, forward: bool) -> Update {
+fn shuttle(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut, forward: bool) -> Update {
     let speed = app.playback.as_ref().map_or(0, |p| p.speed);
     let next = match (forward, speed) {
         (true, s) if s > 0 => (s * 2).min(4),
@@ -1934,7 +1934,7 @@ fn shuttle(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App, forward: bo
 }
 
 /// Zooms the timeline by `factor` about `anchor` seconds.
-fn zoom_about(app: &mut App, factor: f32, anchor: f64) {
+fn zoom_about(app: &mut VideoCut, factor: f32, anchor: f64) {
     let pps = (app.pps * factor).clamp(0.5, 2000.0);
     let x = (anchor - app.view_start) * f64::from(app.pps);
     app.view_start = (anchor - x / f64::from(pps)).max(0.0);
@@ -1966,7 +1966,7 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     }
     let timeline_focused = focus_has_class(&info, "__azul-native-timeline-lanes");
-    let Some(mut guard) = data.downcast_mut::<App>() else {
+    let Some(mut guard) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     let app = &mut *guard;
@@ -2083,13 +2083,13 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     update
 }
 
-fn set_tool(app: &mut App, tool: Tool) -> Update {
+fn set_tool(app: &mut VideoCut, tool: Tool) -> Update {
     app.tool = tool;
     app.status = format!("Tool: {}", tool.label());
     Update::RefreshDom
 }
 
-fn undo(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App) -> Update {
+fn undo(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut) -> Update {
     let label = app.project.as_ref().and_then(Project::undo_label).unwrap_or("");
     let done = app.project.as_mut().is_some_and(Project::undo);
     if !done {
@@ -2099,7 +2099,7 @@ fn undo(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App) -> Update {
     after_change(info, app_ref, app, &format!("Undo {label}"), Ok(()))
 }
 
-fn redo(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App) -> Update {
+fn redo(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut) -> Update {
     let label = app.project.as_ref().and_then(Project::redo_label).unwrap_or("");
     let done = app.project.as_mut().is_some_and(Project::redo);
     if !done {
@@ -2112,7 +2112,7 @@ fn redo(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App) -> Update {
 /// What the timeline widget asks for.
 extern "C" fn on_timeline(mut data: RefAny, mut info: CallbackInfo, event: TimelineEvent) -> Update {
     let app_ref = data.clone();
-    let Some(mut guard) = data.downcast_mut::<App>() else {
+    let Some(mut guard) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     let app = &mut *guard;
@@ -2277,7 +2277,7 @@ extern "C" fn on_timeline_wheel(mut data: RefAny, mut info: CallbackInfo) -> Upd
         return Update::DoNothing;
     };
     let m = info.get_key_modifiers();
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     if delta.x == 0.0 && delta.y == 0.0 {
@@ -2295,14 +2295,14 @@ extern "C" fn on_timeline_wheel(mut data: RefAny, mut info: CallbackInfo) -> Upd
 }
 
 extern "C" fn on_tool(mut data: RefAny, _info: CallbackInfo, state: SegmentedState) -> Update {
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     set_tool(&mut app, Tool::ALL[state.selected_index.min(Tool::ALL.len() - 1)])
 }
 
 extern "C" fn on_snap(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     app.snapping = !app.snapping;
@@ -2311,7 +2311,7 @@ extern "C" fn on_snap(mut data: RefAny, _info: CallbackInfo) -> Update {
 
 extern "C" fn on_undo(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let app_ref = data.clone();
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     undo(&mut info, &app_ref, &mut app)
@@ -2319,7 +2319,7 @@ extern "C" fn on_undo(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
 extern "C" fn on_redo(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let app_ref = data.clone();
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     redo(&mut info, &app_ref, &mut app)
@@ -2359,7 +2359,7 @@ extern "C" fn on_import_picked(mut data: RefAny, mut info: CallbackInfo, result:
         return Update::DoNothing;
     }
     let app_ref = data.clone();
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     if app.project.is_none() {
@@ -2375,7 +2375,7 @@ extern "C" fn on_bin_click(mut data: RefAny, _info: CallbackInfo) -> Update {
     let Some((mut app_ref, media)) = data.downcast_ref::<BinItem>().map(|b| (b.app.clone(), b.media)) else {
         return Update::DoNothing;
     };
-    let Some(mut app) = app_ref.downcast_mut::<App>() else {
+    let Some(mut app) = app_ref.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     app.selected_media = Some(media);
@@ -2387,7 +2387,7 @@ extern "C" fn on_bin_open(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     let handle = app_ref.clone();
-    let Some(mut app) = app_ref.downcast_mut::<App>() else {
+    let Some(mut app) = app_ref.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     app.selected_media = Some(media);
@@ -2396,7 +2396,7 @@ extern "C" fn on_bin_open(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
 extern "C" fn on_bin_open_selected(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let app_ref = data.clone();
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     let Some(media) = app.selected_media.or_else(|| app.project.as_ref().and_then(|p| p.media.first().map(|m| m.id))) else {
@@ -2407,7 +2407,7 @@ extern "C" fn on_bin_open_selected(mut data: RefAny, mut info: CallbackInfo) -> 
 
 extern "C" fn on_source_slider(mut data: RefAny, mut info: CallbackInfo, state: SliderState) -> Update {
     let app_ref = data.clone();
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     #[allow(clippy::cast_possible_truncation)]
@@ -2421,7 +2421,7 @@ extern "C" fn on_source_slider(mut data: RefAny, mut info: CallbackInfo, state: 
 }
 
 extern "C" fn on_activate_source(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     if app.active == Monitor::Source {
@@ -2432,7 +2432,7 @@ extern "C" fn on_activate_source(mut data: RefAny, _info: CallbackInfo) -> Updat
 }
 
 extern "C" fn on_activate_program(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     if app.active == Monitor::Program {
@@ -2444,7 +2444,7 @@ extern "C" fn on_activate_program(mut data: RefAny, _info: CallbackInfo) -> Upda
 
 /// Sets the source monitor's in (`is_in`) or out mark at its position.
 fn source_mark(data: &mut RefAny, is_in: bool) -> Update {
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     if let Some(marks) = app.source.as_mut() {
@@ -2468,7 +2468,7 @@ extern "C" fn on_source_out(mut data: RefAny, _info: CallbackInfo) -> Update {
 
 extern "C" fn on_insert(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let app_ref = data.clone();
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     source_to_timeline(&mut info, &app_ref, &mut app, true)
@@ -2476,7 +2476,7 @@ extern "C" fn on_insert(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
 extern "C" fn on_overwrite(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let app_ref = data.clone();
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     source_to_timeline(&mut info, &app_ref, &mut app, false)
@@ -2485,7 +2485,7 @@ extern "C" fn on_overwrite(mut data: RefAny, mut info: CallbackInfo) -> Update {
 /// Moves the playhead by `delta` frames, or to `to`.
 fn transport(data: &mut RefAny, info: &mut CallbackInfo, delta: Frame, to: Option<Frame>) -> Update {
     let app_ref = data.clone();
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     stop_playback(&mut app);
@@ -2499,7 +2499,7 @@ extern "C" fn on_go_start(mut data: RefAny, mut info: CallbackInfo) -> Update {
 }
 
 extern "C" fn on_go_end(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let end = data.downcast_ref::<App>().map_or(0, |a| a.end());
+    let end = data.downcast_ref::<VideoCut>().map_or(0, |a| a.end());
     transport(&mut data, &mut info, 0, Some(end))
 }
 
@@ -2513,7 +2513,7 @@ extern "C" fn on_step_forward(mut data: RefAny, mut info: CallbackInfo) -> Updat
 
 extern "C" fn on_play_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let app_ref = data.clone();
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     toggle_play(&mut info, &app_ref, &mut app)
@@ -2521,7 +2521,7 @@ extern "C" fn on_play_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update
 
 /// Sets the program monitor's in (`is_in`) or out mark at the playhead.
 fn program_mark(data: &mut RefAny, is_in: bool) -> Update {
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     let at = app.playhead;
@@ -2550,7 +2550,7 @@ extern "C" fn on_effect_value(mut data: RefAny, mut info: CallbackInfo, state: N
         return Update::DoNothing;
     };
     let handle = app_ref.clone();
-    let Some(mut app) = app_ref.downcast_mut::<App>() else {
+    let Some(mut app) = app_ref.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     let Some(clip) = app.project.as_ref().and_then(|p| p.sequence.clip(clip_id).cloned()) else {
@@ -2603,7 +2603,7 @@ extern "C" fn on_effect_value(mut data: RefAny, mut info: CallbackInfo, state: N
 
 extern "C" fn on_transition_kind(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
     let app_ref = data.clone();
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     let Some(clip) = selected_clip(&app) else {
@@ -2620,7 +2620,7 @@ extern "C" fn on_transition_kind(mut data: RefAny, mut info: CallbackInfo, state
 
 extern "C" fn on_toggle_enabled(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let app_ref = data.clone();
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     let Some(clip) = selected_clip(&app) else {
@@ -2639,7 +2639,7 @@ extern "C" fn on_toggle_enabled(mut data: RefAny, mut info: CallbackInfo) -> Upd
 
 extern "C" fn on_reset_effects(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let app_ref = data.clone();
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     let Some(clip) = selected_clip(&app) else {
@@ -2657,7 +2657,7 @@ extern "C" fn on_reset_effects(mut data: RefAny, mut info: CallbackInfo) -> Upda
 }
 
 extern "C" fn on_export_open(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     app.export.open = true;
@@ -2665,7 +2665,7 @@ extern "C" fn on_export_open(mut data: RefAny, _info: CallbackInfo) -> Update {
 }
 
 extern "C" fn on_export_close(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     app.export.open = false;
@@ -2675,7 +2675,7 @@ extern "C" fn on_export_close(mut data: RefAny, _info: CallbackInfo) -> Update {
 /// A dialog's own close button (or Escape in it): the dialogs close; an
 /// export runs on.
 extern "C" fn on_dialog_close(mut data: RefAny, _info: CallbackInfo, _state: DialogState) -> Update {
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     app.export.open = false;
@@ -2686,7 +2686,7 @@ extern "C" fn on_dialog_close(mut data: RefAny, _info: CallbackInfo, _state: Dia
 
 /// One of the export dialog's choices.
 fn export_choice(data: &mut RefAny, set: impl FnOnce(&mut ExportState)) -> Update {
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     set(&mut app.export);
@@ -2709,7 +2709,7 @@ extern "C" fn on_export_range(mut data: RefAny, _info: CallbackInfo, state: Segm
 /// progress until it ends.
 extern "C" fn on_export_start(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let app_ref = data.clone();
-    let Some(mut guard) = data.downcast_mut::<App>() else {
+    let Some(mut guard) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     let app = &mut *guard;
@@ -2750,7 +2750,7 @@ extern "C" fn on_export_start(mut data: RefAny, mut info: CallbackInfo) -> Updat
 
 /// The export's progress on screen, five times a second, until it ends.
 extern "C" fn export_tick(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackReturn {
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return TimerCallbackReturn::terminate_unchanged();
     };
     let Some(progress) = app
@@ -2776,7 +2776,7 @@ extern "C" fn export_tick(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCa
 }
 
 extern "C" fn on_export_cancel(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     if let Some(s) = app.export.shared.as_ref() {
@@ -2787,7 +2787,7 @@ extern "C" fn on_export_cancel(mut data: RefAny, _info: CallbackInfo) -> Update 
 }
 
 extern "C" fn on_settings_open(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     app.settings_open = true;
@@ -2795,7 +2795,7 @@ extern "C" fn on_settings_open(mut data: RefAny, _info: CallbackInfo) -> Update 
 }
 
 extern "C" fn on_about_open(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     app.settings_open = false;
@@ -2804,7 +2804,7 @@ extern "C" fn on_about_open(mut data: RefAny, _info: CallbackInfo) -> Update {
 }
 
 extern "C" fn on_about_close(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     app.about_open = false;
@@ -2812,13 +2812,13 @@ extern "C" fn on_about_close(mut data: RefAny, _info: CallbackInfo) -> Update {
 }
 
 extern "C" fn on_theme_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let flora = data.downcast_ref::<App>().is_some_and(|a| a.flora);
+    let flora = data.downcast_ref::<VideoCut>().is_some_and(|a| a.flora);
     info.set_theme(AzString::from(if flora { "flat" } else { "flora" }));
     Update::DoNothing
 }
 
 extern "C" fn on_mode_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let dark = data.downcast_ref::<App>().is_some_and(|a| a.dark);
+    let dark = data.downcast_ref::<VideoCut>().is_some_and(|a| a.dark);
     info.set_mode(OptionDarkLightMode::Some(if dark {
         DarkLightMode::Light
     } else {
@@ -2830,7 +2830,7 @@ extern "C" fn on_mode_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update
 /// Makes the sample project (a job: it may encode two clips).
 extern "C" fn on_make_sample(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let app_ref = data.clone();
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     app.loading = true;
@@ -2850,7 +2850,7 @@ extern "C" fn on_make_sample(mut data: RefAny, mut info: CallbackInfo) -> Update
 /// Starts an empty project.
 extern "C" fn on_new_project(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let app_ref = data.clone();
-    let Some(mut app) = data.downcast_mut::<App>() else {
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     let id = Uuid::v4().as_str().to_string();
@@ -2861,4 +2861,115 @@ extern "C" fn on_new_project(mut data: RefAny, mut info: CallbackInfo) -> Update
     Update::RefreshDom
 }
 
-// ==== PIECE F: start ====
+// ==== start ====
+
+/// The window is up: open the project (or make the sample) on a worker.
+extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app_ref = data.clone();
+    let Some(mut app) = data.downcast_mut::<VideoCut>() else {
+        return Update::DoNothing;
+    };
+    let sample_id = app.args.sample.then(|| Uuid::v4().as_str().to_string());
+    let project = app.args.project.clone();
+    app.loading = true;
+    spawn(&mut info, &app_ref, &app, Job::Load { sample_id, project });
+    Update::RefreshDom
+}
+
+/// What this machine's video stack can do, for the status bar.
+fn encoder_line() -> String {
+    let encoder = VideoEncoder::open(64, 64, false, 500);
+    let decoder = VideoDecoder::open(false);
+    let backend = VideoEncoder::backend_name().as_str().to_string();
+    match (encoder.is_open(), decoder.is_open()) {
+        (true, true) => format!("{backend} H.264"),
+        (true, false) => format!("{backend} H.264 encode only"),
+        (false, true) => format!("{backend} decode only, exports Y4M"),
+        (false, false) => String::from("none (generated media, Y4M export)"),
+    }
+}
+
+/// Starts AzVideoCut (`--help` for the switches).
+pub fn start() {
+    let args = match Args::parse(std::env::args().skip(1)) {
+        Ok(a) => a,
+        Err(message) => {
+            let help = message.contains("USAGE");
+            if help {
+                println!("{message}");
+            } else {
+                eprintln!("{message}");
+            }
+            std::process::exit(if help { 0 } else { 2 });
+        }
+    };
+    let data_dir = FilePath::get_data_dir()
+        .into_option()
+        .map(|d| PathBuf::from(d.inner.as_str()))
+        .filter(|p| !p.as_os_str().is_empty());
+    let root = store::data_root(std::env::var(store::DATA_VAR).ok(), data_dir);
+    let drive: Arc<dyn Drive> = Arc::new(LocalDrive::new(&root));
+    let encoder = encoder_line();
+    eprintln!("[azvideocut] data root {}; video: {encoder}", root.display());
+    let flora = args.theme.as_deref() == Some("flora");
+    let state = VideoCut {
+        drive,
+        drive_root: root.display().to_string(),
+        files: Arc::new(MediaFiles::default()),
+        project: None,
+        revision: 0,
+        loading: true,
+        status: String::from("Ready."),
+        tool: Tool::Select,
+        snapping: true,
+        playhead: 0,
+        view_start: 0.0,
+        pps: 40.0,
+        selected: Vec::new(),
+        selected_media: None,
+        source: None,
+        program_in: None,
+        program_out: None,
+        active: Monitor::Program,
+        program_frame: None,
+        source_frame: None,
+        program_job: Coalesce::default(),
+        source_job: Coalesce::default(),
+        thumbs: HashMap::new(),
+        playback: None,
+        export: ExportState {
+            open: args.screen == Screen::Export,
+            size: 2,
+            bitrate: 1,
+            range: 0,
+            shared: None,
+            timer: None,
+            last_line: String::new(),
+        },
+        settings_open: args.screen == Screen::Settings,
+        about_open: args.screen == Screen::About,
+        window_width: 1280.0,
+        dark: args.mode == Some(Mode::Dark),
+        flora,
+        encoder,
+        args: args.clone(),
+    };
+    let mut config = AppConfig::create();
+    if let Some(theme) = args.theme.as_deref() {
+        config = config.with_theme(theme);
+    }
+    let app = App::create(RefAny::new(state), config);
+    let mut window = WindowCreateOptions::create(layout);
+    let (w, h) = args.size.unwrap_or((1280.0, 800.0));
+    window.window_state.size.dimensions = LogicalSize::create(w, h);
+    window.window_state.title = AzString::from("AzVideoCut");
+    window.window_state.flags.decorations = WindowDecorations::NoTitle;
+    if let Some(mode) = args.mode {
+        window.mode = OptionDarkLightMode::Some(match mode {
+            Mode::Light => DarkLightMode::Light,
+            Mode::Dark => DarkLightMode::Dark,
+        });
+    }
+    window.create_callback = Some(Callback::create(startup)).into();
+    app.run(window);
+}
