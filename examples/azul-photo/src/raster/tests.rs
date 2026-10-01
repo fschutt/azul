@@ -335,3 +335,228 @@ fn an_adjustment_layer_changes_the_composite_but_not_the_pixels_below() {
     e.take_dirty();
     assert_px(e.sample(1, 1), [51, 102, 153, 255]);
 }
+
+// ==== Selections: masks ====
+
+#[test]
+fn rect_selections_add_subtract_and_intersect() {
+    let a = Mask::from_shape(20, 20, &Shape::Rect(IRect::new(0, 0, 10, 10)));
+    let b = Mask::from_shape(20, 20, &Shape::Rect(IRect::new(5, 5, 10, 10)));
+    let count = |m: &Mask| m.data.iter().filter(|v| **v >= 128).count();
+    assert_eq!(count(&a), 100);
+    assert_eq!(count(&a.combine(&b, SelectMode::Add)), 175);
+    assert_eq!(count(&a.combine(&b, SelectMode::Subtract)), 75);
+    assert_eq!(count(&a.combine(&b, SelectMode::Intersect)), 25);
+    assert_eq!(count(&a.combine(&b, SelectMode::Replace)), 100);
+    assert_eq!(a.combine(&b, SelectMode::Intersect).bounds(), Some(IRect::new(5, 5, 5, 5)));
+    assert_eq!(count(&a.invert()), 300);
+}
+
+#[test]
+fn an_ellipse_selection_covers_its_area_with_soft_edges() {
+    let m = Mask::from_shape(100, 100, &Shape::Ellipse(IRect::new(10, 10, 80, 60)));
+    let area: f32 = m.data.iter().map(|v| *v as f32 / 255.0).sum();
+    let expected = std::f32::consts::PI * 40.0 * 30.0;
+    assert!((area - expected).abs() / expected < 0.02, "area {area} vs {expected}");
+    assert_eq!(m.get(50, 40), 255, "the centre is in");
+    assert_eq!(m.get(10, 10), 0, "the bounding box corner is out");
+    assert!(m.data.iter().any(|v| *v > 0 && *v < 255), "the rim is anti-aliased");
+}
+
+#[test]
+fn a_lasso_polygon_selects_its_inside() {
+    // A right triangle with legs of 40: area 800.
+    let tri = Shape::Polygon(vec![(10.0, 10.0), (50.0, 10.0), (10.0, 50.0)]);
+    let m = Mask::from_shape(64, 64, &tri);
+    let area: f32 = m.data.iter().map(|v| *v as f32 / 255.0).sum();
+    assert!((area - 800.0).abs() < 20.0, "area {area}");
+    assert_eq!(m.get(15, 15), 255);
+    assert_eq!(m.get(45, 45), 0);
+}
+
+#[test]
+fn feathering_softens_a_hard_edge_but_keeps_the_inside() {
+    let hard = Mask::from_shape(64, 64, &Shape::Rect(IRect::new(16, 16, 32, 32)));
+    let soft = hard.feather(4.0);
+    assert_eq!(soft.get(32, 32), 255, "deep inside stays selected");
+    assert_eq!(soft.get(2, 2), 0, "far outside stays unselected");
+    let edge = soft.get(16, 32);
+    assert!(edge > 60 && edge < 200, "the edge is half selected: {edge}");
+}
+
+#[test]
+fn the_magic_wand_selects_similar_connected_pixels_within_its_tolerance() {
+    // Left half: reds that differ by 10, right half: blue; a red island far right.
+    let (w, h) = (40u32, 10u32);
+    let mut rgba = solid(w, h, BLUE);
+    for y in 0..h {
+        for x in 0..w {
+            let i = ((y * w + x) * 4) as usize;
+            if x < 20 {
+                rgba[i..i + 4].copy_from_slice(&[(240 + (x % 2) * 10) as u8, 0, 0, 255]);
+            } else if x >= 36 {
+                rgba[i..i + 4].copy_from_slice(&[245, 0, 0, 255]);
+            }
+        }
+    }
+    let grid = TileGrid::from_rgba(w, h, &rgba);
+    let count = |m: &Mask| m.data.iter().filter(|v| **v >= 128).count();
+    let tight = Mask::magic_wand(&grid, 0, 0, 5, true);
+    assert_eq!(count(&tight), 10, "tolerance 5 keeps the seed column: its neighbours differ by 10");
+    let loose = Mask::magic_wand(&grid, 0, 0, 12, true);
+    assert_eq!(count(&loose), 200, "tolerance 12 spans the whole red half");
+    let global = Mask::magic_wand(&grid, 0, 0, 12, false);
+    assert_eq!(count(&global), 240, "not contiguous: the far island too");
+}
+
+#[test]
+fn a_selection_confines_fills_and_paint() {
+    let mut e = white_engine(32, 32);
+    let bg = e.active_layer().unwrap();
+    e.apply(Op::Select(Shape::Rect(IRect::new(0, 0, 16, 32)), SelectMode::Replace)).unwrap();
+    e.apply(Op::FillSelection(RED)).unwrap();
+    assert_eq!(layer_pixel(&e, bg, 4, 4), RED);
+    assert_eq!(layer_pixel(&e, bg, 20, 4), WHITE);
+    e.begin_stroke(brush(BLUE, 10.0), pt(16.0, 20.0)).unwrap();
+    e.end_stroke();
+    assert_px(layer_pixel(&e, bg, 14, 20), BLUE);
+    assert_eq!(layer_pixel(&e, bg, 18, 20), WHITE, "outside the selection");
+    e.apply(Op::InvertSelection).unwrap();
+    e.apply(Op::FillSelection(GREEN)).unwrap();
+    assert_eq!(layer_pixel(&e, bg, 20, 4), GREEN);
+    assert_eq!(layer_pixel(&e, bg, 4, 4), RED);
+    e.apply(Op::Deselect).unwrap();
+    assert!(e.document().selection.is_none());
+}
+
+#[test]
+fn the_bucket_fills_the_connected_region_under_the_click() {
+    let mut e = white_engine(20, 20);
+    let bg = e.active_layer().unwrap();
+    e.apply(Op::DrawShape { shape: Shape::Rect(IRect::new(0, 9, 20, 2)), color: BLUE }).unwrap();
+    e.apply(Op::FloodFill { x: 5, y: 2, color: RED, tolerance: 10, contiguous: true }).unwrap();
+    assert_eq!(layer_pixel(&e, bg, 5, 2), RED);
+    assert_eq!(layer_pixel(&e, bg, 19, 0), RED);
+    assert_eq!(layer_pixel(&e, bg, 5, 9), BLUE, "the line stops the fill");
+    assert_eq!(layer_pixel(&e, bg, 5, 15), WHITE, "the other side is not connected");
+}
+
+// ==== Brush engine ====
+
+#[test]
+fn a_hard_dab_paints_its_disc_and_nothing_else() {
+    let mut e = white_engine(64, 64);
+    let bg = e.active_layer().unwrap();
+    e.begin_stroke(brush(RED, 10.0), pt(20.0, 20.0)).unwrap();
+    e.end_stroke();
+    assert_px(layer_pixel(&e, bg, 20, 20), RED);
+    assert_px(layer_pixel(&e, bg, 22, 18), RED);
+    assert_eq!(layer_pixel(&e, bg, 27, 20), WHITE, "outside the radius");
+    assert_eq!(layer_pixel(&e, bg, 40, 40), WHITE);
+}
+
+#[test]
+fn a_stroke_never_builds_up_past_its_opacity() {
+    let mut e = white_engine(64, 64);
+    e.apply(Op::NewLayer { name: "Glaze".into() }).unwrap();
+    let glaze = e.active_layer().unwrap();
+    let mut settings = brush(BLUE, 12.0);
+    settings.opacity = 0.5;
+    e.begin_stroke(settings, pt(10.0, 32.0)).unwrap();
+    e.stroke_to(pt(50.0, 32.0));
+    e.stroke_to(pt(10.0, 32.0)); // back over the same pixels
+    e.end_stroke();
+    let a = layer_pixel(&e, glaze, 30, 32)[3];
+    assert!(a.abs_diff(128) <= 2, "one stroke caps at its opacity: alpha {a}");
+    // A second stroke builds up.
+    e.begin_stroke(settings, pt(30.0, 32.0)).unwrap();
+    e.end_stroke();
+    let a2 = layer_pixel(&e, glaze, 30, 32)[3];
+    assert!(a2.abs_diff(191) <= 3, "a new stroke paints over the first: alpha {a2}");
+}
+
+#[test]
+fn a_low_flow_builds_up_within_one_stroke() {
+    let mut e = white_engine(64, 64);
+    e.apply(Op::NewLayer { name: "Airbrush".into() }).unwrap();
+    let id = e.active_layer().unwrap();
+    let mut settings = brush(BLUE, 12.0);
+    settings.flow = 0.2;
+    e.begin_stroke(settings, pt(32.0, 32.0)).unwrap();
+    e.end_stroke();
+    let once = layer_pixel(&e, id, 32, 32)[3];
+    e.apply(Op::DeleteLayer(id)).unwrap();
+    e.apply(Op::NewLayer { name: "Airbrush 2".into() }).unwrap();
+    let id = e.active_layer().unwrap();
+    e.begin_stroke(settings, pt(32.0, 32.0)).unwrap();
+    for _ in 0..10 {
+        e.stroke_to(pt(33.0, 32.0));
+        e.stroke_to(pt(32.0, 32.0));
+    }
+    e.end_stroke();
+    let many = layer_pixel(&e, id, 32, 32)[3];
+    assert!(once.abs_diff(51) <= 3, "one dab at flow 0.2: alpha {once}");
+    assert!(many > 200, "dabs over the same spot add up to the opacity: alpha {many}");
+}
+
+#[test]
+fn the_eraser_takes_alpha_away() {
+    let mut e = white_engine(32, 32);
+    let bg = e.active_layer().unwrap();
+    let mut eraser = brush(RED, 10.0);
+    eraser.tool = BrushTool::Eraser;
+    e.begin_stroke(eraser, pt(16.0, 16.0)).unwrap();
+    e.end_stroke();
+    assert_eq!(layer_pixel(&e, bg, 16, 16)[3], 0, "erased to transparent");
+    assert_eq!(layer_pixel(&e, bg, 2, 2), WHITE);
+    e.take_dirty();
+    // The composite shows the transparency (the canvas draws its checkerboard there).
+    assert_eq!(e.sample(16, 16)[3], 0);
+}
+
+#[test]
+fn pen_pressure_scales_the_dab_when_asked_to() {
+    let mut e = white_engine(64, 64);
+    let bg = e.active_layer().unwrap();
+    let mut settings = brush(RED, 20.0);
+    settings.pressure_size = true;
+    e.begin_stroke(settings, StrokePoint { x: 32.0, y: 32.0, pressure: 0.25 }).unwrap();
+    e.end_stroke();
+    assert_px(layer_pixel(&e, bg, 32, 32), RED);
+    assert_eq!(layer_pixel(&e, bg, 32 + 6, 32), WHITE, "a quarter pressure is a quarter size");
+    settings.pressure_size = false;
+    e.begin_stroke(settings, StrokePoint { x: 10.0, y: 10.0, pressure: 0.25 }).unwrap();
+    e.end_stroke();
+    assert_px(layer_pixel(&e, bg, 10 + 6, 10), RED, "without the mapping the size stays");
+}
+
+#[test]
+fn the_pencil_paints_hard_pixels_without_anti_aliasing() {
+    let mut e = white_engine(32, 32);
+    let bg = e.active_layer().unwrap();
+    let mut pencil = brush(BLUE, 5.0);
+    pencil.tool = BrushTool::Pencil;
+    pencil.hardness = 0.0; // ignored: a pencil is always hard
+    e.begin_stroke(pencil, pt(16.0, 16.0)).unwrap();
+    e.end_stroke();
+    for y in 10..22 {
+        for x in 10..22 {
+            let p = layer_pixel(&e, bg, x, y);
+            assert!(p == WHITE || p == BLUE, "pencil pixel ({x},{y}) is {p:?}");
+        }
+    }
+    assert_eq!(layer_pixel(&e, bg, 16, 16), BLUE);
+}
+
+#[test]
+fn the_clone_stamp_copies_from_its_source_offset() {
+    let mut e = white_engine(64, 32);
+    let bg = e.active_layer().unwrap();
+    e.apply(Op::DrawShape { shape: Shape::Rect(IRect::new(0, 0, 16, 32)), color: GREEN }).unwrap();
+    let mut stamp = brush(RED, 8.0);
+    stamp.tool = BrushTool::Clone { dx: -40.0, dy: 0.0 };
+    e.begin_stroke(stamp, pt(48.0, 16.0)).unwrap();
+    e.end_stroke();
+    assert_px(layer_pixel(&e, bg, 48, 16), GREEN);
+    assert_eq!(layer_pixel(&e, bg, 30, 16), WHITE);
+}
