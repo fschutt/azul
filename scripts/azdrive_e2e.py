@@ -15,8 +15,8 @@ node layout, AzDrive's stdout markers and the files on disk:
      9. Ctrl+C / Ctrl+V into the new folder, again: the conflict dialog, "Keep both files";
     10. Delete: into the trash folder (on disk), Ctrl+Z brings it back;
     11. Backspace (up), Alt+Left (back), Alt+Right (forward);
-    12. the panes: Preview pane (a text and an image preview), Navigation pane off / on,
-        Details pane off / on;
+    12. the panes: Preview pane (a text and an image preview), a thumbnail in Large icons,
+        Navigation pane off / on, Details pane off / on;
     13. Properties (Alt+Enter) in the in-window sheet, OK;
     14. FILE: the backstage with the Options, Escape;
     15. flora + dark: a screenshot.
@@ -480,6 +480,13 @@ def run(args, logs):
                   lambda: app.click_exact("gradient.png"))
         app.until("the image in the preview", lambda: app.has("#preview-image"))
         app.screenshot(os.path.join(out, "12-preview.png"))
+        # Large icons show the picture as a thumbnail.
+        app.after("a thumbnail", "AZDRIVE_THUMBNAIL", r"Pictures/gradient\.png",
+                  lambda: app.key("2", ctrl=True, shift=True))
+        app.until("the thumbnail drawn", lambda: "azdrive-thumbnail" in app.classes())
+        app.screenshot(os.path.join(out, "12-thumbnails.png"))
+        app.after("back to Details", "AZDRIVE_LAYOUT", r"details",
+                  lambda: app.key("6", ctrl=True, shift=True))
         app.after("the navigation pane off", "AZDRIVE_PANES", r"false true true",
                   lambda: app.click_exact("Navigation pane"))
         app.until("no tree", lambda: not app.has("#shell-tree"))
