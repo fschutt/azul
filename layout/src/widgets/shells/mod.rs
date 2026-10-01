@@ -830,6 +830,13 @@ pub(crate) mod fixtures {
                     .with_devices(slot())
                     .dom()
             ),
+            (
+                "call_shell_stage",
+                CallShell::create(DomVec::from_vec(alloc::vec![slot(), slot()]), slot())
+                    .with_stage(slot())
+                    .with_side_panel(slot())
+                    .dom()
+            ),
             ("mobile_shell", mobile_shell().dom()),
         ]
     }

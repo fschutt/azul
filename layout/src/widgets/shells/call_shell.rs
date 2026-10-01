@@ -35,7 +35,10 @@ use azul_css::{
     dynamic_selector::CssPropertyWithConditions,
     props::{
         basic::pixel::PixelValue,
-        layout::{LayoutDisplay, LayoutFlexDirection, LayoutFlexShrink, LayoutMinWidth, LayoutOverflow, LayoutWidth},
+        layout::{
+            LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow, LayoutFlexShrink, LayoutMinHeight,
+            LayoutMinWidth, LayoutOverflow, LayoutWidth,
+        },
         property::CssProperty,
         basic::length::FloatValue,
     },
@@ -297,6 +300,97 @@ static CELL_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
 ];
 
+/// The speaker layout: a column of the stage over the filmstrip.
+static SPEAKER_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(0))),
+];
+
+/// The stage's cell: takes the room the filmstrip leaves, clips its stream.
+static STAGE_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+];
+
+/// The filmstrip: a row that keeps its height and scrolls sideways when the
+/// tiles do not fit.
+static FILMSTRIP_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Auto)),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+];
+
+/// The tiles as an even gallery: `gallery_columns` columns, each cell its
+/// share of the row.
+fn gallery(tiles: Vec<Dom>, look: &ShellLook) -> Dom {
+    let columns = gallery_columns(tiles.len());
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+    let share = (100.0 / columns as f32).floor() as isize;
+    let cells: Vec<Dom> = tiles
+        .into_iter()
+        .map(|t| tile_cell(t, LayoutWidth::Px(PixelValue::const_percent(share)), look))
+        .collect();
+    Dom::create_div()
+        .with_class(AzString::from_const_str(GRID_CLASS))
+        .with_css_props(part(WRAP_ROW_BASE, &look.tiles_grid))
+        .with_children(DomVec::from_vec(cells))
+}
+
+/// The stage large, the tiles in a filmstrip of fixed-width cells under it
+/// (none when there are no tiles).
+fn speaker_layout(stage: Dom, tiles: Vec<Dom>, look: &ShellLook) -> Dom {
+    let mut column = Dom::create_div()
+        .with_class(AzString::from_const_str(SPEAKER_CLASS))
+        .with_css_props(part(SPEAKER_BASE, &look.tiles_grid))
+        .with_child(
+            Dom::create_div()
+                .with_class(AzString::from_const_str(STAGE_CLASS))
+                .with_css_props(part(STAGE_BASE, &look.tile_cell))
+                .with_child(stage),
+        );
+    if !tiles.is_empty() {
+        let cells: Vec<Dom> = tiles
+            .into_iter()
+            .map(|t| tile_cell(t, LayoutWidth::Px(PixelValue::const_px(FILMSTRIP_CELL_PX)), look))
+            .collect();
+        column = column.with_child(
+            Dom::create_div()
+                .with_class(AzString::from_const_str(FILMSTRIP_CLASS))
+                .with_css_props(part(FILMSTRIP_BASE, &[]))
+                .with_children(DomVec::from_vec(cells)),
+        );
+    }
+    column
+}
+
+/// One tile's cell, `width` wide.
+fn tile_cell(tile: Dom, width: LayoutWidth, look: &ShellLook) -> Dom {
+    let mut base: Vec<CssPropertyWithConditions> = CELL_BASE.to_vec();
+    base.push(CssPropertyWithConditions::simple(CssProperty::const_width(width)));
+    Dom::create_div()
+        .with_class(AzString::from_const_str(TILE_CLASS))
+        .with_css_props(part(&base, &look.tile_cell))
+        .with_child(tile)
+}
+
 /// The [`OfficeShell`] this shell is, in `look`, built once.
 pub(crate) fn build(shell: CallShell, look: &ShellLook) -> Dom {
     let CallShell {
@@ -307,31 +401,15 @@ pub(crate) fn build(shell: CallShell, look: &ShellLook) -> Dom {
         controls,
         on_pane_focus,
         on_pane_resize,
-        stage: _,
+        stage,
         tiles_ratio,
         theme,
     } = shell;
     let tiles = tiles.into_library_owned_vec();
-    let columns = gallery_columns(tiles.len());
-    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-    let share = (100.0 / columns as f32).floor() as isize;
-    let cells: Vec<Dom> = tiles
-        .into_iter()
-        .map(|t| {
-            let mut base: Vec<CssPropertyWithConditions> = CELL_BASE.to_vec();
-            base.push(CssPropertyWithConditions::simple(CssProperty::const_width(
-                LayoutWidth::Px(PixelValue::const_percent(share)),
-            )));
-            Dom::create_div()
-                .with_class(AzString::from_const_str(TILE_CLASS))
-                .with_css_props(part(&base, &look.tile_cell))
-                .with_child(t)
-        })
-        .collect();
-    let grid = Dom::create_div()
-        .with_class(AzString::from_const_str(GRID_CLASS))
-        .with_css_props(part(WRAP_ROW_BASE, &look.tiles_grid))
-        .with_children(DomVec::from_vec(cells));
+    let main = match stage.into_option() {
+        Some(stage) => speaker_layout(stage, tiles, look),
+        None => gallery(tiles, look),
+    };
 
     let mut office = OfficeShell {
         title_row: header,
@@ -348,7 +426,7 @@ pub(crate) fn build(shell: CallShell, look: &ShellLook) -> Dom {
         ..OfficeShell::create()
     }
     .with_pane(
-        ShellPane::create(AzString::from_const_str(TILES_ID), grid)
+        ShellPane::create(AzString::from_const_str(TILES_ID), main)
             .with_kind(ShellPaneKind::Main)
             .with_label(AzString::from_const_str("Participants"))
             .with_ratio(tiles_ratio),

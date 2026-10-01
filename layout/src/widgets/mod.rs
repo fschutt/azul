@@ -2718,6 +2718,7 @@ mod theme_contrast {
         "timeline",
         "selection_adorner",
         "thumbnail_strip",
+        "call_shell_stage",
     ];
 
     /// A widget added to the manifest must land in a group, or it is simply
