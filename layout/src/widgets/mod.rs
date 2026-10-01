@@ -1416,6 +1416,11 @@ mod label_convention {
                 DatePicker::create(2026, 9, 12)
                     .with_inline(true)
                     .with_today(2026, 9, 30)
+                    // The lit range (a calendar's week): the lints read its wash too.
+                    .with_range(
+                        super::date_picker::DatePickerState { year: 2026, month: 9, day: 28 },
+                        super::date_picker::DatePickerState { year: 2026, month: 10, day: 4 },
+                    )
                     .with_accessibility_name("Calendar")
                     .dom(),
             ),

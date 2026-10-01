@@ -137,6 +137,13 @@ static DAY_TODAY_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
 ))];
 /// The class string of [`DAY_TODAY_CLASS`], for a repaint to find today.
 const DAY_TODAY_CLASS_NAME: &str = "__azul-native-date-picker-today";
+/// A day of the lit range (`DatePicker::range_start`), whichever face it
+/// wears.
+static DAY_IN_RANGE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-date-picker-in-range",
+))];
+/// The class string of [`DAY_IN_RANGE_CLASS`], for a repaint to find the range.
+const DAY_IN_RANGE_CLASS_NAME: &str = "__azul-native-date-picker-in-range";
 /// An inline picker's root: the calendar itself.
 static DATE_PICKER_INLINE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-date-picker-inline",
@@ -269,6 +276,9 @@ pub(crate) struct DatePickerLook {
     /// Added to today's cell, whichever face it wears: the ring that marks
     /// today (a spread shadow inside the cell, so it moves nothing).
     pub day_today: Vec<CssPropertyWithConditions>,
+    /// Added to a day of the lit range that is not the picked one, after
+    /// its face and under today's ring: a wash of the accent.
+    pub day_in_range: Vec<CssPropertyWithConditions>,
     /// The theme's marker class on the field, if it has one.
     pub marker: Option<&'static str>,
 }
@@ -287,6 +297,8 @@ pub(crate) struct CellFaces {
     pub other: CssPropertyWithConditionsVec,
     /// Added to today's cell after its face: the ring.
     pub today: CssPropertyWithConditionsVec,
+    /// Added to a lit day's face (not the picked one's): the wash.
+    pub in_range: CssPropertyWithConditionsVec,
 }
 
 impl DatePickerLook {
@@ -307,6 +319,7 @@ impl DatePickerLook {
             day_selected: day_cell_style(true).into_library_owned_vec(),
             day_other: day_cell_style(false).into_library_owned_vec(),
             day_today: day_today_style(),
+            day_in_range: day_in_range_style(),
             marker: None,
         }
     }
@@ -324,6 +337,7 @@ impl DatePickerLook {
             selected: face(&self.day_selected),
             other: face(&self.day_other),
             today: CssPropertyWithConditionsVec::from_vec(self.day_today.clone()),
+            in_range: CssPropertyWithConditionsVec::from_vec(self.day_in_range.clone()),
         }
     }
 }
@@ -980,6 +994,63 @@ fn day_today_style() -> Vec<CssPropertyWithConditions> {
     )]
 }
 
+/// The wash of a lit day (a day of `DatePicker::range_start`'s range): the
+/// accent at a seventh in light mode, the night accent at a fifth in dark
+/// mode - a wash both themes' faces keep their ink readable on.
+fn day_in_range_style() -> Vec<CssPropertyWithConditions> {
+    crate::widgets::themes::decl::themed_fill(
+        ColorU {
+            r: 47,
+            g: 109,
+            b: 176,
+            a: 36,
+        },
+        ColorU {
+            r: 110,
+            g: 168,
+            b: 255,
+            a: 52,
+        },
+    )
+    .to_vec()
+}
+
+/// The days of the range `start` - `end` (either way round) that the month
+/// `year`-`month` has, as `(first, last)` day numbers; `None` when it has
+/// none or there is no range.
+fn range_in_month(
+    start: OptionDatePickerState,
+    end: OptionDatePickerState,
+    year: u32,
+    month: u32,
+) -> Option<(u32, u32)> {
+    let (Some(a), Some(b)) = (start.into_option(), end.into_option()) else {
+        return None;
+    };
+    let key = |d: DatePickerState| (d.year, d.month, d.day);
+    let (first, last) = if key(a) <= key(b) { (a, b) } else { (b, a) };
+    let dim = days_in_month(year, month);
+    let from = match (first.year, first.month).cmp(&(year, month)) {
+        core::cmp::Ordering::Less => 1,
+        core::cmp::Ordering::Equal => first.day.max(1),
+        core::cmp::Ordering::Greater => return None,
+    };
+    let to = match (last.year, last.month).cmp(&(year, month)) {
+        core::cmp::Ordering::Greater => dim,
+        core::cmp::Ordering::Equal => last.day.min(dim),
+        core::cmp::Ordering::Less => return None,
+    };
+    (from <= to).then_some((from, to))
+}
+
+/// What a day grid marks besides the pick: today's day number, and the lit
+/// range's first and last day numbers, when the displayed month has them.
+#[derive(Debug, Clone, Copy, Default)]
+struct DayMarks {
+    today: Option<u32>,
+    lit: Option<(u32, u32)>,
+}
+
 /// Per-day-cell callback payload: the cell's day number + a clone of the shared
 /// state handle (so the handler can update `state.day` + fire `on_change`).
 struct DayCellData {
@@ -1235,12 +1306,16 @@ pub(crate) fn build(picker: DatePicker, look: &DatePickerLook) -> Dom {
             mode,
             inline,
         });
-        // Today's day number when today falls in the displayed month.
-        let today = picker
-            .today
-            .into_option()
-            .filter(|t| t.year == year && t.month == month)
-            .map(|t| t.day);
+        // Today's day number when today falls in the displayed month, and the
+        // days of the lit range the month has.
+        let marks = DayMarks {
+            today: picker
+                .today
+                .into_option()
+                .filter(|t| t.year == year && t.month == month)
+                .map(|t| t.day),
+            lit: range_in_month(picker.range_start, picker.range_end, year, month),
+        };
 
         // One popup, the calendar each mode needs: the twelve months of the
         // year for `month`, the day grid (Monday-first, whole week lit) for
@@ -1257,7 +1332,7 @@ pub(crate) fn build(picker: DatePicker, look: &DatePickerLook) -> Dom {
                     year,
                     month,
                     sel_day,
-                    today,
+                    marks,
                     shared.clone(),
                     WeekStart::Monday,
                     true,
@@ -1271,7 +1346,7 @@ pub(crate) fn build(picker: DatePicker, look: &DatePickerLook) -> Dom {
                     year,
                     month,
                     sel_day,
-                    today,
+                    marks,
                     shared.clone(),
                     WeekStart::Sunday,
                     false,
@@ -1489,7 +1564,7 @@ fn build_grid(year: u32, month: u32, sel_day: u32, shared: RefAny) -> Dom {
         year,
         month,
         sel_day,
-        None,
+        DayMarks::default(),
         shared,
         WeekStart::Sunday,
         false,
@@ -1504,7 +1579,7 @@ fn build_grid_with(
     year: u32,
     month: u32,
     sel_day: u32,
-    today: Option<u32>,
+    marks: DayMarks,
     shared: RefAny,
     start: WeekStart,
     whole_week: bool,
@@ -1545,7 +1620,8 @@ fn build_grid_with(
                 } else {
                     TabIndex::NoKeyboardFocus
                 };
-                let is_today = today == Some(day);
+                let is_today = marks.today == Some(day);
+                let in_range = marks.lit.is_some_and(|(from, to)| (from..=to).contains(&day));
                 // Today says so in its name: the ring is not a name.
                 let name = if is_today {
                     AzString::from(format!(
@@ -1560,7 +1636,16 @@ fn build_grid_with(
                 // instead of handing its focus to whatever day now sits in
                 // its slot.
                 let mut cell =
-                    build_day_cell_in(day, is_selected(day), is_today, shared.clone(), look)
+                    build_day_cell_in(
+                        day,
+                        is_selected(day),
+                        DayMarks {
+                            today: is_today.then_some(day),
+                            lit: in_range.then_some((day, day)),
+                        },
+                        shared.clone(),
+                        look,
+                    )
                         .with_accessibility_name(name)
                         .with_tab_index(tab_index)
                         .with_key((DAY_CELL_KEY, year, month, day));
@@ -1951,7 +2036,13 @@ fn build_blank_cell_in(look: &DatePickerLook) -> Dom {
 /// [`build_day_cell_in`] in the established look.
 #[cfg(test)]
 fn build_day_cell(day: u32, selected: bool, shared: RefAny) -> Dom {
-    build_day_cell_in(day, selected, false, shared, &DatePickerLook::established())
+    build_day_cell_in(
+        day,
+        selected,
+        DayMarks::default(),
+        shared,
+        &DatePickerLook::established(),
+    )
 }
 
 /// `face` with the ring of today after it.
@@ -1961,15 +2052,24 @@ fn ringed(face: &CssPropertyWithConditionsVec, faces: &CellFaces) -> CssProperty
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
+/// `face` with the wash of the lit range after it.
+fn washed(face: &CssPropertyWithConditionsVec, faces: &CellFaces) -> CssPropertyWithConditionsVec {
+    let mut v = face.as_ref().to_vec();
+    v.extend_from_slice(faces.in_range.as_ref());
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
 /// One day of the grid: the click picks it, the arrow keys move focus from it
 /// (both share the cell's payload). The Tab index is `build_grid_with`'s to
 /// set - only the grid knows which day holds its one Tab stop. Today wears
 /// the look's ring over its face and carries the today class, so a repaint
-/// can find it again.
+/// can find it again; a day of the lit range (`marks.lit` holds it) wears the
+/// wash under the ring, unless it is the picked one, and carries the
+/// in-range class.
 fn build_day_cell_in(
     day: u32,
     selected: bool,
-    is_today: bool,
+    marks: DayMarks,
     shared: RefAny,
     look: &DatePickerLook,
 ) -> Dom {
@@ -1984,15 +2084,22 @@ fn build_day_cell_in(
     } else {
         faces.other.clone()
     };
-    let face = if is_today { ringed(&face, &faces) } else { face };
-    let classes = if is_today {
-        IdOrClassVec::from_vec(alloc::vec![
-            DAY_CELL_CLASS[0].clone(),
-            DAY_TODAY_CLASS[0].clone()
-        ])
+    let is_today = marks.today == Some(day);
+    let in_range = marks.lit.is_some_and(|(from, to)| (from..=to).contains(&day));
+    let face = if in_range && !selected {
+        washed(&face, &faces)
     } else {
-        IdOrClassVec::from_const_slice(DAY_CELL_CLASS)
+        face
     };
+    let face = if is_today { ringed(&face, &faces) } else { face };
+    let mut classes: Vec<IdOrClass> = DAY_CELL_CLASS.to_vec();
+    if is_today {
+        classes.push(DAY_TODAY_CLASS[0].clone());
+    }
+    if in_range {
+        classes.push(DAY_IN_RANGE_CLASS[0].clone());
+    }
+    let classes = IdOrClassVec::from_vec(classes);
     let data = RefAny::new(DayCellData {
         day,
         state: shared,
@@ -2268,6 +2375,14 @@ fn restyle_grid(
                     faces.selected.clone()
                 } else {
                     faces.other.clone()
+                };
+                // A lit day keeps its wash unless it is the pick.
+                let face = if !selected
+                    && crate::widgets::roving::has_class(info, cell, DAY_IN_RANGE_CLASS_NAME)
+                {
+                    washed(&face, faces)
+                } else {
+                    face
                 };
                 // Today keeps its ring, whichever face it now wears.
                 let face = if crate::widgets::roving::has_class(info, cell, DAY_TODAY_CLASS_NAME) {
