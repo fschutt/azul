@@ -1092,3 +1092,90 @@ mod navigation_pane_tests {
         );
     }
 }
+
+/// A drop on a row of a group's tree is the pane's `NodeDropped`, with the
+/// group and the tree's node (a task dropped on a list in AzTasks).
+#[cfg(test)]
+mod drop_tests {
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        callbacks::Update,
+        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, IdOrClass, NodeType},
+        refany::RefAny,
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+    use azul_css::AzString;
+
+    use super::{
+        ShellNavigationGroup, ShellNavigationPane, ShellNavigationPaneEvent,
+        ShellNavigationPaneEventKind, ShellNavigationPaneOnEventCallbackType,
+    };
+    use crate::{
+        callbacks::CallbackInfo,
+        widgets::{roving::test_support as rv, themes::UiTheme, tree_view::TreeViewNode},
+    };
+
+    type Log = Arc<Mutex<Vec<ShellNavigationPaneEvent>>>;
+
+    extern "C" fn record(mut data: RefAny, _info: CallbackInfo, event: ShellNavigationPaneEvent) -> Update {
+        if let Some(log) = data.downcast_ref::<Log>() {
+            log.lock().expect("log").push(event);
+        }
+        Update::RefreshDom
+    }
+
+    /// The tree row whose label reads `label`.
+    fn row(styled: &StyledDom, label: &str) -> DomNodeId {
+        let data = styled.node_data.as_ref();
+        let hierarchy = styled.node_hierarchy.as_ref();
+        for (i, nd) in data.iter().enumerate() {
+            let NodeType::Text(t) = nd.get_node_type() else {
+                continue;
+            };
+            if t.as_ref().as_str() != label {
+                continue;
+            }
+            let mut at = hierarchy[i].parent_id();
+            while let Some(n) = at {
+                let is_row = data[n.index()].get_ids_and_classes().as_ref().iter().any(
+                    |c| matches!(c, IdOrClass::Class(s) if s.as_str() == "__azul-native-tree-view-row"),
+                );
+                if is_row {
+                    return DomNodeId {
+                        dom: DomId::ROOT_ID,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+                    };
+                }
+                at = hierarchy[n.index()].parent_id();
+            }
+        }
+        panic!("no tree row reads {label:?}");
+    }
+
+    #[test]
+    fn a_drop_on_a_tree_row_reports_its_group_and_node() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let lists = TreeViewNode::new("On this computer")
+            .with_expanded(true)
+            .with_child(TreeViewNode::new("Work"))
+            .with_child(TreeViewNode::new("Home"));
+        let dom = ShellNavigationPane::create()
+            .with_group(ShellNavigationGroup::create(
+                AzString::from_const_str("My Tasks"),
+                TreeViewNode::new("All tasks"),
+            ))
+            .with_group(ShellNavigationGroup::create(AzString::from_const_str("My Lists"), lists))
+            .with_on_event(RefAny::new(log.clone()), record as ShellNavigationPaneOnEventCallbackType)
+            .with_theme(UiTheme::Flat)
+            .dom();
+        let styled = StyledDom::create_from_dom(dom);
+        let (update, _) = rv::fire(&styled, row(&styled, "Home"), EventFilter::Hover(HoverEventFilter::Drop))
+            .expect("a tree row of the pane takes drops");
+        assert_eq!(update, Update::RefreshDom);
+        let events = log.lock().expect("log").clone();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, ShellNavigationPaneEventKind::NodeDropped);
+        assert_eq!((events[0].group, events[0].index), (1, 2));
+    }
+}

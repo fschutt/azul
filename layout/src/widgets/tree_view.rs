@@ -3479,3 +3479,113 @@ mod badge_tests {
         assert_eq!(TreeViewNode::new("Inbox").badge.as_str(), "", "no badge by default");
     }
 }
+
+/// A tree with a drop hook (`with_on_node_drop`) is a drop target: every row
+/// accepts a drag over it and reports the node a drop lands on - a task
+/// dropped on a list, a message on a folder, a file on a folder.
+#[cfg(test)]
+mod drop_tests {
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        callbacks::Update,
+        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, IdOrClass, NodeType},
+        refany::RefAny,
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+
+    use super::{TreeView, TreeViewNode, TreeViewOnNodeDropCallbackType, TREE_ROW_CLASS_NAME};
+    use crate::{
+        callbacks::{CallbackChange, CallbackInfo},
+        widgets::{roving::test_support as rv, themes::UiTheme},
+    };
+
+    type Dropped = Arc<Mutex<Vec<usize>>>;
+
+    extern "C" fn record_drop(mut data: RefAny, _info: CallbackInfo, node: usize) -> Update {
+        if let Some(log) = data.downcast_ref::<Dropped>() {
+            log.lock().expect("drop log").push(node);
+        }
+        Update::RefreshDom
+    }
+
+    /// Lists > Work, Azlin > Design: depth-first 0, 1, 2, 3.
+    fn tree() -> TreeViewNode {
+        TreeViewNode::new("Lists")
+            .with_expanded(true)
+            .with_child(TreeViewNode::new("Work"))
+            .with_child(
+                TreeViewNode::new("Azlin")
+                    .with_expanded(true)
+                    .with_child(TreeViewNode::new("Design")),
+            )
+    }
+
+    /// The tree row whose label reads `label`.
+    fn row(styled: &StyledDom, label: &str) -> DomNodeId {
+        let data = styled.node_data.as_ref();
+        let hierarchy = styled.node_hierarchy.as_ref();
+        for (i, nd) in data.iter().enumerate() {
+            let NodeType::Text(t) = nd.get_node_type() else {
+                continue;
+            };
+            if t.as_ref().as_str() != label {
+                continue;
+            }
+            let mut at = hierarchy[i].parent_id();
+            while let Some(n) = at {
+                let is_row = data[n.index()]
+                    .get_ids_and_classes()
+                    .as_ref()
+                    .iter()
+                    .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == TREE_ROW_CLASS_NAME));
+                if is_row {
+                    return DomNodeId {
+                        dom: DomId::ROOT_ID,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+                    };
+                }
+                at = hierarchy[n.index()].parent_id();
+            }
+        }
+        panic!("no tree row reads {label:?}");
+    }
+
+    fn droppable(log: &Dropped) -> StyledDom {
+        StyledDom::create_from_dom(
+            TreeView::new(tree())
+                .with_theme(UiTheme::Flat)
+                .with_on_node_drop(RefAny::new(log.clone()), record_drop as TreeViewOnNodeDropCallbackType)
+                .dom(),
+        )
+    }
+
+    #[test]
+    fn a_drop_on_a_row_reports_the_rows_node() {
+        let log: Dropped = Arc::new(Mutex::new(Vec::new()));
+        let styled = droppable(&log);
+        let (update, _) = rv::fire(&styled, row(&styled, "Design"), EventFilter::Hover(HoverEventFilter::Drop))
+            .expect("the row takes drops");
+        assert_eq!(update, Update::RefreshDom, "the app's answer is the drop's");
+        rv::fire(&styled, row(&styled, "Work"), EventFilter::Hover(HoverEventFilter::Drop))
+            .expect("every row takes drops");
+        assert_eq!(*log.lock().expect("drop log"), vec![3, 1]);
+    }
+
+    #[test]
+    fn a_drag_over_a_row_is_accepted() {
+        let log: Dropped = Arc::new(Mutex::new(Vec::new()));
+        let styled = droppable(&log);
+        let (_, changes) = rv::fire(&styled, row(&styled, "Azlin"), EventFilter::Hover(HoverEventFilter::DragOver))
+            .expect("a drag over a row");
+        assert!(changes.iter().any(|c| matches!(c, CallbackChange::AcceptDrop)));
+        assert!(log.lock().expect("drop log").is_empty(), "a drag over is no drop");
+    }
+
+    #[test]
+    fn a_tree_without_a_drop_hook_takes_no_drops() {
+        let styled = StyledDom::create_from_dom(TreeView::new(tree()).with_theme(UiTheme::Flat).dom());
+        assert!(rv::fire(&styled, row(&styled, "Work"), EventFilter::Hover(HoverEventFilter::DragOver)).is_none());
+        assert!(rv::fire(&styled, row(&styled, "Work"), EventFilter::Hover(HoverEventFilter::Drop)).is_none());
+    }
+}
