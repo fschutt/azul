@@ -221,11 +221,21 @@ pub fn mint_failure(server: &str, status: Option<u16>, body: &str) -> String {
 
 /// The AzMeet program: `setting` (`AZMEET_BIN`), else `AzMeet` next to `this_program`.
 pub fn azmeet_program(setting: Option<&str>, this_program: Option<&Path>) -> Option<PathBuf> {
+    sibling_program(setting, this_program, AZMEET_PROGRAM)
+}
+
+/// Another azul app's program: `setting` (its `..._BIN` variable), else the program `name`
+/// next to `this_program` (the apps are built into one folder).
+pub fn sibling_program(
+    setting: Option<&str>,
+    this_program: Option<&Path>,
+    name: &str,
+) -> Option<PathBuf> {
     if let Some(path) = setting.map(str::trim).filter(|s| !s.is_empty()) {
         return Some(PathBuf::from(path));
     }
     let dir = this_program?.parent()?;
-    Some(dir.join(format!("{AZMEET_PROGRAM}{}", std::env::consts::EXE_SUFFIX)))
+    Some(dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX)))
 }
 
 /// The environment AzMeet is started with to join `meeting`: the link, and the server that
@@ -520,6 +530,14 @@ mod tests {
             Some(PathBuf::from("/usr/local/bin/AzMeet"))
         );
         assert_eq!(azmeet_program(None, None), None);
+        // The module switcher's Mail is AzMail, found the same way.
+        assert_eq!(
+            sibling_program(None, Some(exe), "AzMail"),
+            Some(PathBuf::from(format!(
+                "/opt/azul/bin/AzMail{}",
+                std::env::consts::EXE_SUFFIX
+            )))
+        );
     }
 
     #[test]
