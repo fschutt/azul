@@ -13934,6 +13934,16 @@ impl LayoutWindow {
             }
         }
 
+        // A move or enter whose node is not in the rebuilt tree has nothing to
+        // composite against; it would only keep the window asking for frames
+        // until it settled (exits stay - their zombie holds the node). Only
+        // the root DOM's identities are in `anim_key_to_node`, and only the
+        // root DOM seeds FLIPs.
+        if dom_id == DomId::ROOT_ID {
+            let placed = &self.anim_key_to_node;
+            let _dropped = self.animations.drop_unplaced(|key| placed.contains_key(&key));
+        }
+
         // Publish the STARTING values immediately, with a zero-length step.
         //
         // The GPU keys are minted here, not on the first real tick, and the
