@@ -10,16 +10,15 @@ thread, monitor change re-reads the frame interval); dark "Dark" segment.
 - 3a. FLIP settle: RED ee3c8f0fc, GREEN cead23ffb (energy criterion in
   SpringCurve::is_settled); RED 147c624e4, GREEN b53b691f8 (drop Move/Enter
   anims whose node left the tree)
+- 3b. RenderImageCallback memo: RED 104fa4da4, GREEN b84a61c82
 
 ## IN PROGRESS
-- 3b. RenderImageCallback whose inputs did not change must not request a
-  frame (AzReview: new ImageRef every frame in prepare_frame_content).
-  Last commit: b53b691f8. NEXT STEP: find prepare_frame_content /
-  RenderImageCallback invocation in layout/dll, see why each frame mints a
-  new ImageRef, write RED test, fix.
+- 3c. debug-server poll event-driven + PNG encode off the UI thread.
+  Last commit: b84a61c82. NEXT STEP: read DebugPollPace / DEBUG_TIMER_ID in
+  layout/src/e2e/full.rs + dll debug_server; design a wake from the server
+  thread (shell loop waker) instead of the 250 ms timer.
 
 ## NEXT
-- 3c. debug-server poll event-driven + PNG encode off the UI thread
 - 3d. monitor change re-reads the frame interval
 - 4. Segmented dark pair
 
