@@ -471,6 +471,12 @@ fn apply(info: &mut CallbackInfo, app: &RefAny, state: &mut AppState, outcome: O
                     println!("AZNOTES_SAVED {id} {key}");
                     let dirty = state.library.notes.iter().any(|n| n.dirty);
                     state.status = if dirty { Status::Editing } else { Status::Saved };
+                    // An edit that came in while this save ran (or a note the
+                    // autosave skipped because its save was on the way) is
+                    // saved on the next pause.
+                    if dirty && state.last_edit.is_none() {
+                        state.last_edit = Some(std::time::Instant::now());
+                    }
                     if state.closing {
                         // Edits that came in meanwhile are saved too; the
                         // window closes once nothing is on the way.
