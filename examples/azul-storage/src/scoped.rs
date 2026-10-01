@@ -131,6 +131,11 @@ impl<D: Drive> Drive for ScopedDrive<D> {
         Ok(info)
     }
 
+    fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        self.check_writable()?;
+        self.inner.copy(&self.full_key(from)?, &self.full_key(to)?)
+    }
+
     fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
         self.check_writable()?;
         self.inner.create_folder(&self.full_name(prefix)?)

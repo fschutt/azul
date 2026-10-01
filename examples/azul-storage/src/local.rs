@@ -338,6 +338,38 @@ impl Drive for LocalDrive {
         Ok(object_info(key.to_string(), &meta))
     }
 
+    /// A file copy on disk, through a temporary file next to the target.
+    fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        let source = self.path_of(from)?;
+        let target = self.path_of(to)?;
+        match fs::metadata(&source) {
+            Err(e) => return Err(not_found_or_io(from, e)),
+            Ok(meta) if !meta.is_file() => {
+                return Err(DriveError::InvalidKey {
+                    key: from.to_string(),
+                    reason: "it is a folder",
+                })
+            }
+            Ok(_) => {}
+        }
+        if target.is_dir() {
+            return Err(DriveError::InvalidKey {
+                key: to.to_string(),
+                reason: "a folder has this name",
+            });
+        }
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let tmp = temp_sibling(&target);
+        let copied = fs::copy(&source, &tmp).and_then(|_| fs::rename(&tmp, &target));
+        if let Err(e) = copied {
+            let _ = fs::remove_file(&tmp);
+            return Err(DriveError::Io(format!("{from}: {e}")));
+        }
+        Ok(())
+    }
+
     fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
         let dir = self.folder_path(prefix)?;
         if dir.is_file() {

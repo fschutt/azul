@@ -310,6 +310,22 @@ pub trait Drive: Send + Sync {
     /// The object's size, date and tag, without its bytes.
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError>;
 
+    /// Copies the object `from` to `to` within this drive (replacing `to`
+    /// when it is there; conflicts are the caller's). A folder is not one
+    /// object: refused. By default one get and one put; a folder on disk
+    /// copies the file, a bucket asks the service (CopyObject), so nothing
+    /// passes through this process.
+    fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        if from.ends_with('/') || to.ends_with('/') {
+            return Err(DriveError::InvalidKey {
+                key: from.to_string(),
+                reason: "a folder is copied object by object",
+            });
+        }
+        let bytes = self.get(from)?;
+        self.put(to, &bytes)
+    }
+
     /// Creates the folder `prefix` (not empty, ending in `/`); an existing one is
     /// fine. A bucket has no folders, so by default this puts an empty "folder
     /// marker" object named `prefix`, as the S3 consoles do.
@@ -364,6 +380,9 @@ impl<D: Drive + ?Sized> Drive for Box<D> {
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
         (**self).head(key)
     }
+    fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        (**self).copy(from, to)
+    }
     fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
         (**self).create_folder(prefix)
     }
@@ -399,6 +418,9 @@ impl<D: Drive + ?Sized> Drive for std::sync::Arc<D> {
     }
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
         (**self).head(key)
+    }
+    fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        (**self).copy(from, to)
     }
     fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
         (**self).create_folder(prefix)

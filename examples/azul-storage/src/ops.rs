@@ -95,8 +95,13 @@ pub fn rename_by_copy<D: Drive + ?Sized>(
         }
         for object in &objects {
             let rest = &object.key[from.len()..];
-            let bytes = drive.get(&object.key)?;
-            drive.put(&format!("{to}{rest}"), &bytes)?;
+            let target = format!("{to}{rest}");
+            if object.key.ends_with('/') {
+                // A folder marker: an empty object of its own.
+                drive.put(&target, &[])?;
+            } else {
+                drive.copy(&object.key, &target)?;
+            }
         }
         for object in &objects {
             drive.delete(&object.key)?;
@@ -106,8 +111,7 @@ pub fn rename_by_copy<D: Drive + ?Sized>(
     if exists(drive, to)? {
         return Err(taken(to));
     }
-    let bytes = drive.get(from)?;
-    drive.put(to, &bytes)?;
+    drive.copy(from, to)?;
     drive.delete(from)
 }
 

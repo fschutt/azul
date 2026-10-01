@@ -553,6 +553,33 @@ impl Drive for S3Drive {
         })
     }
 
+    /// One CopyObject: the service copies, nothing passes through here (an
+    /// object up to 5 GB). A 200 answer can still carry an error body.
+    fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        check_s3_key(from)?;
+        if from.ends_with('/') || to.ends_with('/') {
+            return Err(DriveError::InvalidKey {
+                key: from.to_string(),
+                reason: "a folder is copied object by object",
+            });
+        }
+        let source = format!("/{}/{}", self.config.bucket, sigv4::uri_encode(from, false));
+        let reply = self.object_call(
+            Method::Put,
+            to,
+            vec![(String::from("x-amz-copy-source"), source)],
+            Vec::new(),
+        )?;
+        if !reply.is_success() {
+            return Err(failure(&reply, Some(from)));
+        }
+        let body = String::from_utf8_lossy(&reply.body);
+        if body.contains("<Error>") {
+            return Err(DriveError::Service(xml::parse_error(500, &body)));
+        }
+        Ok(())
+    }
+
     /// One HEAD: the headers that describe the object (not the request), by
     /// readable names; `x-amz-meta-<name>` as `<name>`.
     fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
