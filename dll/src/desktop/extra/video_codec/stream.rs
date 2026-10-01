@@ -318,7 +318,10 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
         }
 
         // 2. Open the platform decoder and stream-decode, presenting by the media clock.
-        let decoder = super::VideoDecoder::open(false /* h264 */);
+        // On this worker thread (already off the UI thread): each chunk's
+        // pictures come back from `decode` at once, which the media clock
+        // below places by the chunk's presentation time.
+        let decoder = super::VideoDecoder::open_on_this_thread(false /* h264 */);
         if !decoder.is_open() {
             let message = "The H.264 decoder did not open on this machine.";
             if log {

@@ -107,7 +107,9 @@ pub fn decode_mp4_h264_file(path: &str) -> Result<DecodedVideo, String> {
 /// Demux + decode an in-memory MP4.
 pub fn decode_mp4_h264_bytes(mp4: &[u8]) -> Result<DecodedVideo, String> {
     let demuxed = demux_mp4_h264(mp4)?;
-    let decoder = VideoDecoder::open(false /* h264 */);
+    // The whole clip is decoded before this returns: on this thread, as it
+    // always was, not on a codec thread of its own.
+    let decoder = VideoDecoder::open_on_this_thread(false /* h264 */);
 
     let mut frames = Vec::new();
     let mut access_units_fed = 0usize;
