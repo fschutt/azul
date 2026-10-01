@@ -899,3 +899,633 @@ pub(crate) fn activate(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState
         },
     );
 }
+
+// ==== Clipboard ====
+
+/// Ctrl+C / Ctrl+X: the selected items wait for a paste.
+fn copy_selected(s: &mut DriveState, cut: bool) {
+    let Some(drive) = s.current_drive_id() else {
+        return;
+    };
+    let items = s.selected_items();
+    if items.is_empty() {
+        return;
+    }
+    println!(
+        "AZDRIVE_CLIPBOARD {} {}",
+        if cut { "cut" } else { "copy" },
+        items.len()
+    );
+    s.info(format!(
+        "{} {} item(s): Ctrl+V pastes them into the open folder.",
+        if cut { "Cut" } else { "Copied" },
+        items.len()
+    ));
+    s.clipboard = Some(ClipboardItems { drive, items, cut });
+}
+
+/// Ctrl+V: the clipboard's items into the open folder (a cut moves them).
+fn paste(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let Some(clip) = s.clipboard.clone() else {
+        return;
+    };
+    let Some(target_id) = s.current_drive_id() else {
+        return;
+    };
+    let prefix = s.prefix().to_string();
+    let kind = if clip.cut {
+        TransferKind::Move
+    } else {
+        TransferKind::Copy
+    };
+    enqueue_transfer(info, app, s, kind, &clip.drive, clip.items, &target_id, &prefix, None);
+    if clip.cut {
+        // Explorer: what was cut is pasted once.
+        s.clipboard = None;
+    }
+}
+
+/// Where an item is, as text: the file's path on this computer, or the
+/// `s3://bucket/key` of a cloud object.
+pub(crate) fn item_location(s: &DriveState, drive_id: &str, item_key: &str) -> String {
+    let Some(index) = s.slot_index(drive_id) else {
+        return item_key.to_string();
+    };
+    match &s.slots[index].entry.location {
+        DriveLocation::Local { root } => {
+            let mut path = PathBuf::from(root);
+            for segment in item_key.split('/').filter(|p| !p.is_empty()) {
+                path.push(segment);
+            }
+            path.display().to_string()
+        }
+        DriveLocation::S3 { bucket, .. } => format!("s3://{bucket}/{item_key}"),
+    }
+}
+
+/// Copy path: the selected items' locations on the system clipboard.
+fn copy_path(info: &mut CallbackInfo, s: &mut DriveState) {
+    let Some(drive_id) = s.current_drive_id() else {
+        return;
+    };
+    let text = s
+        .selected_entries()
+        .iter()
+        .map(|e| item_location(s, &drive_id, &e.key))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let lines = text.lines().count();
+    info.set_clipboard_content(ClipboardContent {
+        plain_text: AzString::from(text),
+        styled_runs: StyledTextRunVec::create(),
+        html: OptionString::None,
+    });
+    println!("AZDRIVE_DONE copied-path {lines}");
+    s.info(format!("Copied the path of {lines} item(s)."));
+}
+
+// ==== The transfer queue ====
+
+/// "Copying 3 items to docs".
+fn transfer_label(kind: TransferKind, items: &[SourceItem], target: &str) -> String {
+    let what = match items {
+        [one] => format!("\"{}\"", key::last_segment(&one.key)),
+        many => format!("{} items", many.len()),
+    };
+    format!("{} {what} to {target}", kind.verb())
+}
+
+/// Queues copying (or moving) `items` of drive `source_id` into
+/// `target_prefix` of drive `target_id`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn enqueue_transfer(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    kind: TransferKind,
+    source_id: &str,
+    items: Vec<SourceItem>,
+    target_id: &str,
+    target_prefix: &str,
+    auto: Option<ConflictChoice>,
+) {
+    let Some(source) = open_drive(s, source_id) else {
+        s.error("The items' drive is gone.");
+        return;
+    };
+    let Some(target) = open_drive(s, target_id) else {
+        return;
+    };
+    let target_name = s.place_title(&Place::folder(target_id, target_prefix));
+    enqueue_with(
+        info,
+        app,
+        s,
+        kind,
+        (source_id.to_string(), source),
+        items,
+        (target_id.to_string(), target),
+        target_prefix,
+        &target_name,
+        auto,
+    );
+}
+
+/// Queues a transfer between two opened drives (an OS folder for uploads
+/// and downloads).
+#[allow(clippy::too_many_arguments)]
+fn enqueue_with(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    kind: TransferKind,
+    source: (String, Arc<dyn Drive>),
+    items: Vec<SourceItem>,
+    target: (String, Arc<dyn Drive>),
+    target_prefix: &str,
+    target_name: &str,
+    auto: Option<ConflictChoice>,
+) {
+    if items.is_empty() {
+        return;
+    }
+    let label = transfer_label(kind, &items, target_name);
+    let id = s.queue.push(label.clone());
+    let same_drive = source.0 == target.0;
+    s.transfers.insert(
+        id,
+        TransferJob {
+            kind,
+            source_id: source.0,
+            target_id: target.0,
+            source: source.1,
+            target: target.1,
+            items,
+            target_prefix: target_prefix.to_string(),
+            same_drive,
+            plan: None,
+            cancel: Arc::new(AtomicBool::new(false)),
+            auto,
+        },
+    );
+    s.info(format!("{label}..."));
+    pump_queue(info, app, s);
+}
+
+/// Starts the next transfer when none runs: its plan first.
+pub(crate) fn pump_queue(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let Some(id) = s.queue.next_to_start() else {
+        return;
+    };
+    let Some(job) = s.transfers.get(&id) else {
+        s.queue.finish(id, Some(String::from("the transfer was lost")));
+        return;
+    };
+    let plan_job = Job::Plan {
+        id,
+        source: job.source.clone(),
+        items: job.items.clone(),
+        target: job.target.clone(),
+        target_prefix: job.target_prefix.clone(),
+        same_drive: job.same_drive,
+        kind: job.kind,
+    };
+    s.queue.start(id);
+    spawn(info, app, s, plan_job);
+}
+
+/// Whether transfer `id` was cancelled.
+fn is_cancelled(s: &DriveState, id: u64) -> bool {
+    s.queue
+        .jobs()
+        .iter()
+        .any(|j| j.id == id && j.state == fileops::JobState::Cancelled)
+}
+
+/// A transfer's plan is back: ask about the conflicts, or run it.
+pub(crate) fn transfer_planned(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    id: u64,
+    result: Result<Plan, DriveError>,
+) {
+    if is_cancelled(s, id) {
+        s.transfers.remove(&id);
+        pump_queue(info, app, s);
+        return;
+    }
+    let mut plan = match result {
+        Ok(plan) => plan,
+        Err(e) => {
+            s.transfers.remove(&id);
+            s.queue.finish(id, Some(e.to_string()));
+            println!("AZDRIVE_TRANSFER {id} failed 0");
+            s.error(format!("The transfer cannot start: {e}"));
+            pump_queue(info, app, s);
+            return;
+        }
+    };
+    let Some(job) = s.transfers.get_mut(&id) else {
+        return;
+    };
+    if let Some(choice) = job.auto {
+        for i in plan.conflicts() {
+            plan.choose(i, choice);
+        }
+    }
+    println!(
+        "AZDRIVE_TRANSFER {id} planned {}",
+        plan.files.len() + plan.moves.len()
+    );
+    let empty = plan.is_empty();
+    let conflicts = plan.unresolved_count();
+    job.plan = Some(plan);
+    if empty {
+        s.transfers.remove(&id);
+        s.queue.finish(id, None);
+        println!("AZDRIVE_TRANSFER {id} done 0");
+        s.info("Nothing to do: the items are where they would go.");
+        pump_queue(info, app, s);
+    } else if conflicts > 0 {
+        println!("AZDRIVE_TRANSFER {id} conflict {conflicts}");
+        s.popups_opened += 1;
+        s.popup = Some(Popup::Conflict {
+            id,
+            apply_all: false,
+        });
+    } else {
+        run_planned(info, app, s, id);
+    }
+}
+
+/// Runs transfer `id`'s (decided) plan on a thread.
+fn run_planned(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, id: u64) {
+    let Some(job) = s.transfers.get(&id) else {
+        return;
+    };
+    let Some(plan) = job.plan.clone() else {
+        return;
+    };
+    let run = Job::Run {
+        id,
+        plan,
+        source: job.source.clone(),
+        target: job.target.clone(),
+        kind: job.kind,
+        cancel: job.cancel.clone(),
+    };
+    spawn(info, app, s, run);
+}
+
+/// The conflict dialog's answer for the next conflict (or all of them).
+pub(crate) fn resolve_conflict(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    choice: ConflictChoice,
+) {
+    let Some(Popup::Conflict { id, apply_all }) = s.popup.take() else {
+        return;
+    };
+    let mut done = true;
+    if let Some(plan) = s.transfers.get_mut(&id).and_then(|job| job.plan.as_mut()) {
+        if apply_all {
+            while let Some(i) = plan.unresolved() {
+                plan.choose(i, choice);
+            }
+        } else if let Some(i) = plan.unresolved() {
+            plan.choose(i, choice);
+        }
+        done = plan.unresolved().is_none();
+    }
+    if done {
+        run_planned(info, app, s, id);
+    } else {
+        s.popup = Some(Popup::Conflict { id, apply_all });
+    }
+}
+
+/// Cancel: a waiting transfer never starts, a running one stops before its
+/// next file, one waiting for a conflict answer ends now.
+pub(crate) fn cancel_transfer(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    id: u64,
+) {
+    if let Some(job) = s.transfers.get(&id) {
+        job.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+    let asking = matches!(s.popup, Some(Popup::Conflict { id: asked, .. }) if asked == id);
+    let waiting = s
+        .queue
+        .jobs()
+        .iter()
+        .any(|j| j.id == id && j.state == fileops::JobState::Waiting);
+    s.queue.cancel(id);
+    if asking || waiting {
+        if asking {
+            s.popup = None;
+        }
+        s.transfers.remove(&id);
+        println!("AZDRIVE_TRANSFER {id} cancelled 0");
+        s.info("The transfer was cancelled.");
+        pump_queue(info, app, s);
+    }
+}
+
+/// A transfer ended: say how, refresh what changed, select what arrived,
+/// remember a move for Ctrl+Z, start the next one.
+pub(crate) fn transfer_ran(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    id: u64,
+    report: TransferReport,
+) {
+    let job = s.transfers.remove(&id);
+    let failed = report.failed.first().map(|(what, why)| {
+        format!(
+            "{} item(s) failed; \"{}\": {why}",
+            report.failed.len(),
+            key::last_segment(what)
+        )
+    });
+    if !report.cancelled {
+        s.queue.finish(id, failed.clone());
+    }
+    let state = if report.cancelled {
+        "cancelled"
+    } else if failed.is_some() {
+        "failed"
+    } else {
+        "done"
+    };
+    println!("AZDRIVE_TRANSFER {id} {state} {}", report.done);
+    match (&failed, report.cancelled) {
+        (_, true) => s.info(format!("Cancelled after {} item(s).", report.done)),
+        (Some(text), _) => s.error(text.clone()),
+        (None, _) if report.skipped > 0 => s.success(format!(
+            "Done: {} item(s), {} skipped.",
+            report.done, report.skipped
+        )),
+        (None, _) => s.success(format!("Done: {} item(s).", report.done)),
+    }
+    if let Some(job) = job {
+        crate::changed(info, app, s, &job.target_id, &job.target_prefix);
+        if job.kind.removes_source() {
+            let mut parents: Vec<String> = job
+                .items
+                .iter()
+                .map(|item| fileops::parent_of(&item.key))
+                .collect();
+            parents.dedup();
+            for parent in parents {
+                crate::changed(info, app, s, &job.source_id, &parent);
+            }
+        }
+        if let Some(plan) = &job.plan {
+            if crate::showing(s, &job.target_id, &job.target_prefix) {
+                s.selection.set(plan.tops.clone());
+            }
+            if job.kind == TransferKind::Move
+                && job.same_drive
+                && !plan.moves.is_empty()
+                && plan.files.is_empty()
+            {
+                s.undo.push(UndoOp::Move {
+                    drive: job.source_id.clone(),
+                    pairs: plan
+                        .moves
+                        .iter()
+                        .map(|(from, to)| (to.clone(), from.clone()))
+                        .collect(),
+                });
+            }
+        }
+        if job.kind == TransferKind::Download && !report.cancelled && failed.is_none() {
+            let folder = s.downloads.display().to_string();
+            s.success(format!("Downloaded {} item(s) to {folder}.", report.done));
+        }
+    }
+    if s.queue.is_idle() && s.queue.failed().is_empty() {
+        s.queue.clear_finished();
+    }
+    pump_queue(info, app, s);
+}
+
+/// Move to / Copy to: Quick access's pins, the drives, "Choose location".
+fn destination_menu(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    kind: TransferKind,
+) {
+    let wrap = |place: Place| match kind {
+        TransferKind::Move => Action::MoveTo(place),
+        _ => Action::CopyTo(place),
+    };
+    let mut items: Vec<MenuItem> = s
+        .settings
+        .pinned
+        .iter()
+        .map(|pin| {
+            menu_item(
+                app,
+                &pin.name,
+                wrap(Place::folder(&pin.drive, &pin.prefix)),
+                false,
+            )
+        })
+        .collect();
+    if !items.is_empty() {
+        items.push(MenuItem::Separator);
+    }
+    for slot in &s.slots {
+        items.push(menu_item(
+            app,
+            &slot.entry.name,
+            wrap(Place::folder(&slot.entry.id, "")),
+            false,
+        ));
+    }
+    items.push(MenuItem::Separator);
+    items.push(menu_item(
+        app,
+        "Choose location...",
+        Action::ChooseLocation(kind),
+        false,
+    ));
+    info.open_menu_for_hit_node(Menu::create(items));
+}
+
+/// The selected items into the folder `place`.
+pub(crate) fn transfer_selection_to(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    kind: TransferKind,
+    place: Place,
+) {
+    let Place::Folder { drive, prefix } = place else {
+        s.warn("Choose a folder of a drive.");
+        return;
+    };
+    let Some(source_id) = s.current_drive_id() else {
+        return;
+    };
+    let items = s.selected_items();
+    enqueue_transfer(info, app, s, kind, &source_id, items, &drive, &prefix, None);
+}
+
+/// The items dragged in the window, dropped on the folder `target_prefix`
+/// of the open drive (Ctrl copies, else a move).
+pub(crate) fn drop_on_folder(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    target_prefix: &str,
+    copy: bool,
+) {
+    let Some((source_id, items)) = s.dragging.take() else {
+        return;
+    };
+    let Some(target_id) = s.current_drive_id() else {
+        return;
+    };
+    // A folder never lands on itself.
+    let items: Vec<SourceItem> = items
+        .into_iter()
+        .filter(|item| !(source_id == target_id && item.key == target_prefix))
+        .collect();
+    let kind = if copy || source_id != target_id {
+        TransferKind::Copy
+    } else {
+        TransferKind::Move
+    };
+    enqueue_transfer(info, app, s, kind, &source_id, items, &target_id, target_prefix, None);
+}
+
+// ==== Upload and download ====
+
+/// Uploads files and folders of this computer into the open folder: one
+/// transfer per folder they sit in (a `LocalDrive` on it is the source).
+pub(crate) fn upload_paths(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    paths: Vec<PathBuf>,
+) {
+    let Some(target_id) = s.current_drive_id() else {
+        s.warn("Open a folder of a drive to upload into.");
+        return;
+    };
+    let Some(target) = open_current(s) else {
+        return;
+    };
+    let target_prefix = s.prefix().to_string();
+    let target_name = s.place_name();
+    let mut groups: Vec<(PathBuf, Vec<SourceItem>)> = Vec::new();
+    for path in paths {
+        let Some(parent) = path.parent().map(PathBuf::from) else {
+            continue;
+        };
+        let Some(name) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+            continue;
+        };
+        if let Err(why) = fileops::check_name(&name) {
+            s.error(format!("\"{name}\" cannot be uploaded: {why}"));
+            continue;
+        }
+        let is_folder = path.is_dir();
+        let item = SourceItem {
+            key: if is_folder { format!("{name}/") } else { name },
+            is_folder,
+            size: std::fs::metadata(&path)
+                .ok()
+                .filter(|m| m.is_file())
+                .map(|m| m.len()),
+        };
+        match groups.iter_mut().find(|(p, _)| *p == parent) {
+            Some((_, items)) => items.push(item),
+            None => groups.push((parent, vec![item])),
+        }
+    }
+    for (parent, items) in groups {
+        let source: Arc<dyn Drive> = Arc::new(LocalDrive::new(parent.clone()));
+        enqueue_with(
+            info,
+            app,
+            s,
+            TransferKind::Upload,
+            (format!("os:{}", parent.display()), source),
+            items,
+            (target_id.clone(), target.clone()),
+            &target_prefix,
+            &target_name,
+            None,
+        );
+    }
+}
+
+/// The OS's file dialog picked files to upload.
+extern "C" fn on_upload_picked(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    let Some(picked) = FileOpenMultiResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let paths: Vec<PathBuf> = picked
+        .paths
+        .as_slice()
+        .iter()
+        .map(|p| PathBuf::from(p.inner.as_str()))
+        .collect();
+    if paths.is_empty() {
+        return Update::DoNothing; // cancelled
+    }
+    with_state(&mut data, &mut info, |info, app, s| {
+        upload_paths(info, app, s, paths)
+    })
+}
+
+/// Files dropped from the OS onto the window: uploaded into the open folder.
+pub(crate) extern "C" fn on_dropped_file(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let paths: Vec<PathBuf> = info
+        .get_dropped_files()
+        .as_slice()
+        .iter()
+        .map(|p| PathBuf::from(p.as_str()))
+        .collect();
+    if paths.is_empty() {
+        return Update::DoNothing;
+    }
+    with_state(&mut data, &mut info, |info, app, s| {
+        upload_paths(info, app, s, paths)
+    })
+}
+
+/// Download: the selected items into the Downloads folder (a taken name
+/// keeps both, as a browser does).
+fn download_selected(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let Some(source_id) = s.current_drive_id() else {
+        return;
+    };
+    let Some(source) = open_current(s) else {
+        return;
+    };
+    let items = s.selected_items();
+    let folder = s.downloads.clone();
+    let target: Arc<dyn Drive> = Arc::new(LocalDrive::new(folder.clone()));
+    enqueue_with(
+        info,
+        app,
+        s,
+        TransferKind::Download,
+        (source_id, source),
+        items,
+        (String::from("os:downloads"), target),
+        "",
+        &folder.display().to_string(),
+        Some(ConflictChoice::KeepBoth),
+    );
+}
