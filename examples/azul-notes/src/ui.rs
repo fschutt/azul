@@ -1766,3 +1766,282 @@ extern "C" fn on_palette_run(mut data: RefAny, mut info: CallbackInfo, index: us
     }
     update
 }
+
+// ==== Settings ====
+
+/// Which setting a segmented control sets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Setting {
+    Theme,
+    Mode,
+    TextSize,
+    Autosave,
+    Versions,
+}
+
+/// The payload of a setting's control.
+struct SettingRef {
+    app: RefAny,
+    setting: Setting,
+}
+
+const MODES: [&str; 3] = ["system", "light", "dark"];
+const AUTOSAVE_MS: [u64; 3] = [500, 2000, 5000];
+const VERSION_MINUTES: [u64; 4] = [0, 5, 15, 60];
+
+/// A segmented control for `setting`.
+fn choice(app: &RefAny, setting: Setting, labels: &[&str], selected: usize, id: &str) -> Dom {
+    Segmented::create(strs(labels))
+        .with_selected_index(selected)
+        .with_on_change(
+            RefAny::new(SettingRef {
+                app: app.clone(),
+                setting,
+            }),
+            on_setting as SegmentedOnChangeCallbackType,
+        )
+        .dom()
+        .with_id(id)
+}
+
+/// A paragraph of a settings section.
+fn info_text(text: &str, look: &Look) -> Dom {
+    text_line(text, &format!("font-size: 13px; color: {}; margin-bottom: 6px;", look.text))
+}
+
+/// The sections of category `category`.
+fn settings_sections(s: &AppState, app: &RefAny, look: &Look, category: usize) -> Vec<ShellSettingsSection> {
+    let section = |title: &str, content: Dom| ShellSettingsSection::create(title, content);
+    match category {
+        0 => vec![
+            section(
+                "Theme",
+                choice(
+                    app,
+                    Setting::Theme,
+                    &["Flat", "Flora"],
+                    usize::from(s.settings.theme == "flora"),
+                    "setting-theme",
+                ),
+            ),
+            section(
+                "Mode",
+                choice(
+                    app,
+                    Setting::Mode,
+                    &["Follow the system", "Light", "Dark"],
+                    MODES.iter().position(|m| *m == s.settings.mode).unwrap_or(0),
+                    "setting-mode",
+                ),
+            ),
+        ],
+        SETTINGS_EDITOR => vec![
+            section(
+                "Text size",
+                choice(
+                    app,
+                    Setting::TextSize,
+                    &["Small", "Medium", "Large"],
+                    TextSize::ALL.iter().position(|t| *t == s.settings.text_size).unwrap_or(1),
+                    "setting-text-size",
+                ),
+            ),
+            section(
+                "Save after a pause of",
+                choice(
+                    app,
+                    Setting::Autosave,
+                    &["0.5 s", "2 s", "5 s"],
+                    AUTOSAVE_MS.iter().position(|m| *m == s.settings.autosave_ms).unwrap_or(0),
+                    "setting-autosave",
+                ),
+            ),
+            section(
+                "Keep a version",
+                choice(
+                    app,
+                    Setting::Versions,
+                    &["Every save", "Every 5 minutes", "Every 15 minutes", "Every hour"],
+                    VERSION_MINUTES
+                        .iter()
+                        .position(|m| *m == s.settings.version_minutes)
+                        .unwrap_or(1),
+                    "setting-versions",
+                ),
+            ),
+            section(
+                "Markdown shortcuts",
+                info_text(
+                    "Type # , ## , ### , - , 1. , [ ] , > or ``` at the start of a line to make it a \
+                     heading, a list item, a check item, a quote or a code block.",
+                    look,
+                ),
+            ),
+        ],
+        SETTINGS_STORAGE => {
+            let folder = s.root.join("notes");
+            let content = Dom::create_div()
+                .with_css("display: flex; flex-direction: column;")
+                .with_child(info_text(&format!("Notes folder: {}", folder.display()), look).with_id("setting-folder"))
+                .with_child(info_text(
+                    "Every note is a Markdown file, notes/<notebook>/<id>.md, with its title, tags, \
+                     pin and dates in a front matter; its images sit in notes/<notebook>/<id>/assets/, \
+                     its versions in notes/.history/<id>/, deleted notes in notes/.trash/. Edit them \
+                     with any editor: AzNotes reads them again when its window gets the focus.",
+                    look,
+                ))
+                .with_child(
+                    Button::create("Read the folder again")
+                        .with_icon("refresh")
+                        .with_on_click(app.clone(), on_reload as ButtonOnClickCallbackType)
+                        .dom()
+                        .with_id("setting-reload"),
+                );
+            vec![section("Files", content)]
+        }
+        SETTINGS_SHORTCUTS => {
+            let mut table = Dom::create_div().with_id("shortcuts").with_css("display: flex; flex-direction: column;");
+            for (what, keys) in SHORTCUTS {
+                table.add_child(
+                    Dom::create_div()
+                        .with_css(format!(
+                            "display: flex; flex-direction: row; padding: 4px 0px; border-bottom: 1px solid {};",
+                            look.line
+                        ))
+                        .with_child(text_line(what, "flex-grow: 1; font-size: 13px;"))
+                        .with_child(text_line(keys, &format!("font-size: 13px; color: {};", look.muted))),
+                );
+            }
+            vec![section("Keyboard shortcuts", table)]
+        }
+        _ => {
+            let counts = s.library.counts();
+            let content = Dom::create_div()
+                .with_id("about")
+                .with_css("display: flex; flex-direction: column;")
+                .with_child(text_line(
+                    &format!("AzNotes {}", env!("CARGO_PKG_VERSION")),
+                    "font-size: 18px; font-weight: bold; margin-bottom: 8px;",
+                ))
+                .with_child(info_text(
+                    "Notes as plain Markdown files, with notebooks, tags, pinning, search and a \
+                     rich-text editor. Built on azul.",
+                    look,
+                ))
+                .with_child(info_text(
+                    &format!(
+                        "{} notes in {} notebooks, {} pinned, {} in the Trash.",
+                        counts.all,
+                        s.library.notebook_paths().len(),
+                        counts.pinned,
+                        counts.trash
+                    ),
+                    look,
+                ))
+                .with_child(info_text("MIT licensed.", look));
+            vec![section("About AzNotes", content)]
+        }
+    }
+}
+
+fn settings_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
+    // Searching looks through every category; otherwise the chosen one.
+    let sections: Vec<ShellSettingsSection> = if s.settings_search.trim().is_empty() {
+        settings_sections(s, app, look, s.settings_category)
+    } else {
+        (0..SETTINGS_CATEGORIES.len())
+            .flat_map(|c| settings_sections(s, app, look, c))
+            .collect()
+    };
+    let back = Dom::create_div()
+        .with_css("display: flex; flex-direction: row; align-items: center; padding: 6px 12px; flex-shrink: 0;")
+        .with_child(
+            Button::create("Back to notes")
+                .with_icon("arrow_back")
+                .with_on_click(app.clone(), on_settings_back as ButtonOnClickCallbackType)
+                .dom()
+                .with_id("settings-back"),
+        );
+    Dom::create_div()
+        .with_id("settings")
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+        .with_child(back)
+        .with_child(
+            ShellSettingsLayout::create(strs(&SETTINGS_CATEGORIES))
+                .with_sections(sections)
+                .with_search(s.settings_search.as_str())
+                .with_search_placeholder("Search settings")
+                .with_active_category(s.settings_category)
+                .with_on_category(app.clone(), on_settings_category as ShellSettingsLayoutOnCategoryCallbackType)
+                .with_on_search(app.clone(), on_settings_search as ShellSettingsLayoutOnSearchCallbackType)
+                .dom(),
+        )
+}
+
+extern "C" fn on_settings_back(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |s, _, _| {
+        s.screen = Screen::Notes;
+        println!("AZNOTES_SCREEN notes");
+        Update::RefreshDom
+    })
+}
+
+extern "C" fn on_settings_category(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    with_state(&mut data, &mut info, |s, _, _| {
+        s.settings_category = index.min(SETTINGS_CATEGORIES.len() - 1);
+        s.settings_search.clear();
+        Update::RefreshDom
+    })
+}
+
+extern "C" fn on_settings_search(mut data: RefAny, mut info: CallbackInfo, text: AzString) -> Update {
+    let text = text.as_str().to_string();
+    with_state(&mut data, &mut info, |s, _, _| {
+        s.settings_search = text;
+        Update::RefreshDom
+    })
+}
+
+extern "C" fn on_setting(mut data: RefAny, mut info: CallbackInfo, control: SegmentedState) -> Update {
+    let (mut app, setting) = match data.downcast_ref::<SettingRef>() {
+        Some(r) => (r.app.clone(), r.setting),
+        None => return Update::DoNothing,
+    };
+    let handle = app.clone();
+    let Some(mut guard) = app.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let i = control.selected_index;
+    match setting {
+        Setting::Theme => set_look(&mut info, &handle, s, Some(if i == 1 { "flora" } else { "flat" }), None),
+        Setting::Mode => set_look(&mut info, &handle, s, None, Some(MODES.get(i).copied().unwrap_or("system"))),
+        Setting::TextSize => {
+            s.settings.text_size = TextSize::ALL.get(i).copied().unwrap_or_default();
+            save_settings(&mut info, &handle, s);
+        }
+        Setting::Autosave => {
+            s.settings.autosave_ms = AUTOSAVE_MS.get(i).copied().unwrap_or(500);
+            save_settings(&mut info, &handle, s);
+        }
+        Setting::Versions => {
+            s.settings.version_minutes = VERSION_MINUTES.get(i).copied().unwrap_or(5);
+            save_settings(&mut info, &handle, s);
+        }
+    }
+    Update::RefreshDom
+}
+
+extern "C" fn on_reload(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |s, info, app| {
+        let known = s
+            .library
+            .notes
+            .iter()
+            .filter(|n| !n.saved.is_empty())
+            .map(|n| (n.key(), n.file_modified))
+            .collect();
+        jobs::spawn(info, app, s, Job::Rescan { known });
+        Update::DoNothing
+    })
+}
