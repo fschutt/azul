@@ -14,14 +14,13 @@ details panes, a Properties dialog, Settings on ShellSettingsLayout, and a headl
   AddressBar recent chevron + dimmed arrows, BrowserShell `tree_visible`.
 
 ## IN PROGRESS
-- Last commit: `45b65f046`. Since the last checkpoint: `a9c40e212` (undo of a new item only when
-  empty; --screen settings), `7bf5766d9` (renaming item not draggable), `1ca701292` report draft,
-  `e8242da19` RED / `5e5b35266` GREEN tree drop hook + NodeDropped (AzShells arm added),
-  `45b65f046` AzDrive drops onto the navigation pane.
-- WAITING: two read-only review agents (core: lib/jobs/actions; UI: ui_*/model/fileops/...).
+- Last commit: `958da8cd9`. Since the last checkpoint: `92492e8a9` RED / `11df978f5` GREEN
+  image_scale::fit_within + thumbnail (api: RawImage::thumbnail -> OptionRawImage);
+  `ea18d5e7a` AzDrive thumbnails in Medium/Large/XL icons; `958da8cd9` E2E thumbnail step.
+- WAITING: two read-only review agents (core and UI).
 - NEXT STEP: apply their findings ("fix(azul-drive): ..."), then finish the report sections 5 and 7
-  (+ api.json: TreeView.on_node_drop + set/with_on_node_drop; ShellNavigationPaneEventKind::NodeDropped)
-  and commit.
+  (api.json adds: TreeView.on_node_drop + set/with_on_node_drop; ShellNavigationPaneEventKind::
+  NodeDropped; RawImage::thumbnail) and commit.
 
 ## NEXT
 - report; final progress update.
