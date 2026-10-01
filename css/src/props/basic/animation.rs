@@ -122,18 +122,37 @@ impl SpringCurve {
     /// Longest step handed to the integrator, in seconds (~3 frames at 60 Hz).
     pub const MAX_STEP_SECS: f32 = 0.05;
 
-    /// Whether the spring has effectively arrived.
+    /// Whether the spring has effectively arrived: it can never again move
+    /// further than [`Self::EPSILON_VALUE`] from the target.
     ///
-    /// Both conditions are required: near the target AND barely moving. Position
-    /// alone would settle at the peak of an overshoot, mid-flight.
+    /// Position AND velocity decide, through the spring's energy: the
+    /// displacement `x` and velocity `v` hold `k x^2 / 2 + m v^2 / 2`, damping
+    /// only ever removes energy, so the spring's future excursion is bounded
+    /// by `sqrt(x^2 + (m / k) v^2)`. Settled is that bound under the epsilon.
+    /// Position alone would settle at a zero crossing, mid-flight.
+    ///
+    /// The previous test, `|x| < 0.06 && |v| < 0.06`, put the two epsilons on
+    /// unrelated scales: on a spring's tail `|v| ~ omega |x|` (omega = 13 for
+    /// SMOOTH), so the velocity term demanded `|x| < 0.005` and a converged,
+    /// invisible state such as `(0.016, -0.2)` counted as moving - AzWidgets
+    /// held 476 such FLIP moves at rest and never went idle (PR #476 ledger).
     #[must_use]
     pub fn is_settled(&self, value: f32, target: f32, velocity: f32) -> bool {
-        (value - target).abs() < Self::EPSILON_VALUE && velocity.abs() < Self::EPSILON_VELOCITY
+        let x = value - target;
+        if self.stiffness <= 0.0 || self.mass <= 0.0 {
+            // No restoring force (or degenerate inertia): no energy bound.
+            return x.abs() < Self::EPSILON_VALUE && velocity.abs() < Self::EPSILON_VELOCITY;
+        }
+        // Explicit FP for bit-reproducibility, as in `step`.
+        #[allow(clippy::suboptimal_flops)]
+        let reach_sq = x * x + (self.mass / self.stiffness) * velocity * velocity;
+        reach_sq < Self::EPSILON_VALUE * Self::EPSILON_VALUE
     }
 
     /// Distance below which a spring counts as arrived (~a sixteenth of a device px).
     pub const EPSILON_VALUE: f32 = 0.06;
-    /// Speed below which a spring counts as stopped, in units/second.
+    /// Speed below which a spring WITHOUT a restoring force (stiffness or mass
+    /// not positive) counts as stopped, in units/second.
     pub const EPSILON_VELOCITY: f32 = 0.06;
 }
 
