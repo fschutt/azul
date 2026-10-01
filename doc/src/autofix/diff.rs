@@ -443,6 +443,15 @@ fn resolve_api_type_name(
     }
 }
 
+/// Whether an api.json class's `external` path needs a path fix to the
+/// workspace path. A MISSING path is a fix too: the codegen then refers to
+/// `crate::<Type>` and the dll does not build (four shell Vec classes lost
+/// their path while the scan moved them between modules, 2026-10-01; the
+/// scan used to skip empty paths, so nothing ever repaired them).
+fn needs_path_fix(api_path: &str, workspace_path: &str) -> bool {
+    api_path.is_empty() || !paths_are_equivalent(api_path, workspace_path)
+}
+
 /// Check if two paths denote the same type.
 ///
 /// Equivalent when the paths are identical, OR when they share a crate root and
@@ -1143,9 +1152,7 @@ fn generate_diff_v2(
 
             // Check if path matches
             if let Some(api_info) = current_api_types.get(matched_api_name) {
-                if !api_info.path.is_empty()
-                    && !paths_are_equivalent(&api_info.path, &resolved.full_path)
-                {
+                if needs_path_fix(&api_info.path, &resolved.full_path) {
                     diff.path_fixes.push(PathFix {
                         type_name: matched_api_name.to_string(),
                         old_path: api_info.path.clone(),
@@ -1312,8 +1319,7 @@ fn generate_diff_v2(
 
             if let Some(typedef) = workspace_typedef {
                 // Found in workspace - check if path matches
-                if !api_info.path.is_empty()
-                    && !paths_are_equivalent(&api_info.path, &typedef.full_path)
+                if needs_path_fix(&api_info.path, &typedef.full_path)
                 {
                     // Path mismatch - need to fix
                     let already_has_fix = diff.path_fixes.iter().any(|f| f.type_name == *api_name);
@@ -3055,5 +3061,17 @@ mod no_byte_level_trait_impls {
                  still satisfied, but by emitting nothing rather than by delegating.",
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod path_fix_tests {
+    use super::needs_path_fix;
+
+    #[test]
+    fn a_missing_external_path_is_fixed_and_an_equal_one_is_not() {
+        let p = "azul_layout::widgets::shells::office_shell::ShellPaneVec";
+        assert!(needs_path_fix("", p), "a class without `external` gets the workspace path");
+        assert!(!needs_path_fix(p, p));
     }
 }
