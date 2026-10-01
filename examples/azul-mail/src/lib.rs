@@ -27,6 +27,7 @@
 //! `AZMAIL_KEYRING <outcome>`. The secret is never printed.
 
 pub mod account;
+pub mod args;
 pub mod auth;
 pub mod compose;
 pub mod folders;
