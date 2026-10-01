@@ -2,6 +2,7 @@
 //! the following commits).
 
 pub mod raster;
+pub mod view;
 
 /// Starts the app.
 pub fn start() {}
