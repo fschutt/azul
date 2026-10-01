@@ -19,8 +19,15 @@ here (house rule); Rust files are parse-checked with `rustfmt --check` / `--emit
 
 - `3afed65ca` RED / `ea75727cb` feat: CallbackInfo::is_node_visible (new API) for tile culling.
 
-## IN PROGRESS
-- CallShell: a stage (speaker / screen share) over a filmstrip (new field `stage`).
+- `1f48ff658` RED / `b6e144d2e` feat: CallShell `stage` (speaker layout: stage over a filmstrip).
+
+## IN PROGRESS (last commit: b6e144d2e)
+- next: AzMeet pure modules, each RED then GREEN, committed one by one:
+  1. `examples/azul-meet/src/chat.rs` (wire kind 8 + ChatLog), 2. `speaker.rs` (active speaker),
+  3. video_wire KeyframePolicy with output lag + `wire_codec` (no JPEG before caps),
+  4. tile model (stage choice, culling of hidden / tiny tiles).
+  Then lib.rs integration (async codec drain in pump, chat, speaker, culling via
+  is_node_visible, adaptive pump), then `src/ui.rs` on CallShell, then scripts/azmeet_e2e.py.
 - AzMeet: async codec (drain encoders / decoders in the pump, keyframe policy with lag), no JPEG
   to a peer whose caps have not arrived (macOS never defaults to JPEG), probe with flush.
 
