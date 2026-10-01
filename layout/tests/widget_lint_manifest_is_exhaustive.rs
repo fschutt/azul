@@ -110,6 +110,10 @@ fn manifest_body() -> &'static str {
 fn is_registered(body: &str, module: &str) -> bool {
     body.contains(format!("\"{module}\"").as_str())
         || body.contains(format!("\"{module} ").as_str())
+        // A module with many widgets of its own (the app shells) hands the
+        // manifest its entries through a fixtures function:
+        // `all.extend(super::shells::fixtures::every_shell())`.
+        || body.contains(format!("super::{module}::fixtures::").as_str())
 }
 
 #[test]
