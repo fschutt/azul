@@ -11,12 +11,17 @@ thread, monitor change re-reads the frame interval); dark "Dark" segment.
   SpringCurve::is_settled); RED 147c624e4, GREEN b53b691f8 (drop Move/Enter
   anims whose node left the tree)
 - 3b. RenderImageCallback memo: RED 104fa4da4, GREEN b84a61c82
+- e2e manager accounting for thread_owner: ea93eb0bf
+- 3c part 1 debug wake: RED 44199da3b, GREEN 91800c36b (layout) +
+  52450b5ec (dll loops) + 4a7ee6d5a (headless children guard)
 
 ## IN PROGRESS
-- 3c. debug-server poll event-driven + PNG encode off the UI thread.
-  Last commit: b84a61c82. NEXT STEP: read DebugPollPace / DEBUG_TIMER_ID in
-  layout/src/e2e/full.rs + dll debug_server; design a wake from the server
-  thread (shell loop waker) instead of the 250 ms timer.
+- 3c part 2: PNG encode of the CPU `screenshot` op off the UI thread.
+  Last commit: 4a7ee6d5a. NEXT STEP: DebugResponseData gets a pending-PNG
+  form; `into_ready()` encodes on the receiving thread (HTTP thread for
+  wire requests; scenario steps / run.rs / runner.rs call it inline).
+  Consumers: full.rs ~5370 (HTTP), ~12263 (scenario), runner.rs 4612,
+  dll run.rs 430. RED test first (encode runs on the receiver thread).
 
 ## NEXT
 - 3d. monitor change re-reads the frame interval
