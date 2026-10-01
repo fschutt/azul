@@ -51,6 +51,8 @@ pub(crate) enum PreviewContent {
     Text(String),
     /// A local file the video widget plays.
     Video(PathBuf),
+    /// A WAV file's samples, for azul's AudioSink.
+    Audio(preview::WavSamples),
     /// Why there is nothing to show.
     Message(String),
 }
@@ -338,6 +340,21 @@ fn make_preview(
     kind: PreviewKind,
     temp_dir: &std::path::Path,
 ) -> PreviewContent {
+    if kind == PreviewKind::Audio && preview::is_playable_audio(key) {
+        if !size.is_some_and(|s| s <= preview::AUDIO_PREVIEW_MAX_BYTES) {
+            return PreviewContent::Message(String::from(
+                "No preview: the WAV file is too big to fetch for a preview.",
+            ));
+        }
+        return match drive
+            .get(key)
+            .map_err(|e| e.to_string())
+            .and_then(|bytes| preview::wav_samples(&bytes).map_err(String::from))
+        {
+            Ok(wav) => PreviewContent::Audio(wav),
+            Err(why) => PreviewContent::Message(format!("No preview: {why}.")),
+        };
+    }
     if let Some(reason) = preview::no_preview_reason(kind) {
         return PreviewContent::Message(reason.to_string());
     }

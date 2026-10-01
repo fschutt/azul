@@ -413,6 +413,8 @@ pub(crate) struct DriveState {
     pub thumbnails: HashMap<String, Option<azul::image::ImageRef>>,
     /// The pictures whose thumbnails are being made.
     pub thumbnails_pending: HashSet<String>,
+    /// The preview's sound while it plays (dropping it stops it).
+    pub audio: Option<azul::audio::AudioSink>,
 }
 
 impl DriveState {
@@ -764,6 +766,7 @@ pub(crate) fn go(
     s.selection = Selection::default();
     s.selected_pin = None;
     s.preview = None;
+    s.audio = None;
     s.thumbnails.clear();
     s.thumbnails_pending.clear();
     s.loading = false;
@@ -1203,6 +1206,7 @@ pub(crate) extern "C" fn on_job_done(
                     PreviewContent::Image { .. } => "image",
                     PreviewContent::Text(_) => "text",
                     PreviewContent::Video(_) => "video",
+                    PreviewContent::Audio(_) => "audio",
                     PreviewContent::Message(_) => "none",
                 };
                 println!("AZDRIVE_PREVIEW {kind} {key}");
@@ -1560,6 +1564,7 @@ pub fn start() {
         window_width: 1200.0,
         thumbnails: HashMap::new(),
         thumbnails_pending: HashSet::new(),
+        audio: None,
     };
     refresh_disks(&mut state);
 

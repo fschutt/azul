@@ -1841,8 +1841,12 @@ pub(crate) fn open_properties(
 pub(crate) fn request_preview(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     let Some(entry) = s.single_selected().cloned() else {
         s.preview = None;
+        s.audio = None;
         return;
     };
+    if s.preview.as_ref().is_some_and(|p| p.key != entry.key) {
+        s.audio = None;
+    }
     let local = s
         .current_drive_id()
         .is_some_and(|id| s.is_local_drive(&id));
@@ -1876,7 +1880,8 @@ pub(crate) fn request_preview(info: &mut CallbackInfo, app: &RefAny, s: &mut Dri
         return;
     }
     let kind = preview::preview_kind(&entry.name);
-    if let Some(reason) = preview::no_preview_reason(kind) {
+    let playable = preview::is_playable_audio(&entry.name);
+    if let Some(reason) = preview::no_preview_reason(kind).filter(|_| !playable) {
         println!("AZDRIVE_PREVIEW none {}", entry.key);
         s.preview = Some(PreviewState {
             key: entry.key.clone(),

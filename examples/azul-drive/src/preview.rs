@@ -107,13 +107,114 @@ pub fn text_preview(bytes: &[u8], truncated: bool) -> Result<String, &'static st
     Ok(text)
 }
 
+/// Bigger WAV files are not fetched for a preview.
+pub const AUDIO_PREVIEW_MAX_BYTES: u64 = 64 * 1024 * 1024;
+
+/// A WAV file's samples, ready for azul's `AudioSink` (which plays raw f32
+/// samples; azul decodes no audio format, but a WAV file IS samples).
+#[derive(Debug, Clone, PartialEq)]
+pub struct WavSamples {
+    pub sample_rate: u32,
+    pub channels: u16,
+    /// Interleaved, in -1..1.
+    pub samples: Vec<f32>,
+}
+
+impl WavSamples {
+    /// How long the sound plays.
+    #[must_use]
+    pub fn seconds(&self) -> f64 {
+        if self.sample_rate == 0 || self.channels == 0 {
+            return 0.0;
+        }
+        self.samples.len() as f64 / f64::from(self.channels) / f64::from(self.sample_rate)
+    }
+}
+
+/// Whether the preview pane can play the file (a WAV file).
+#[must_use]
+pub fn is_playable_audio(name: &str) -> bool {
+    browse::extension_of(name).is_some_and(|e| e.eq_ignore_ascii_case("wav"))
+}
+
+/// The samples of a RIFF WAVE file: 8-, 16-, 24- and 32-bit PCM and 32-bit
+/// float (also inside WAVE_FORMAT_EXTENSIBLE), as f32 in -1..1. A
+/// compressed WAV (ADPCM, ...) or another file is refused, with the reason.
+pub fn wav_samples(bytes: &[u8]) -> Result<WavSamples, &'static str> {
+    if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        return Err("not a WAV file");
+    }
+    let mut at = 12usize;
+    let mut format: Option<(u16, u16, u32, u16)> = None;
+    while at + 8 <= bytes.len() {
+        let id = &bytes[at..at + 4];
+        let len = u32::from_le_bytes([bytes[at + 4], bytes[at + 5], bytes[at + 6], bytes[at + 7]])
+            as usize;
+        let body_start = at + 8;
+        let body_end = body_start.saturating_add(len).min(bytes.len());
+        let body = &bytes[body_start..body_end];
+        if id == b"fmt " {
+            if body.len() < 16 {
+                return Err("a broken format chunk");
+            }
+            let tag = u16::from_le_bytes([body[0], body[1]]);
+            let channels = u16::from_le_bytes([body[2], body[3]]);
+            let rate = u32::from_le_bytes([body[4], body[5], body[6], body[7]]);
+            let bits = u16::from_le_bytes([body[14], body[15]]);
+            // WAVE_FORMAT_EXTENSIBLE: the sub-format GUID starts with the tag.
+            let tag = if tag == 0xFFFE && body.len() >= 26 {
+                u16::from_le_bytes([body[24], body[25]])
+            } else {
+                tag
+            };
+            format = Some((tag, channels, rate, bits));
+        } else if id == b"data" {
+            let Some((tag, channels, rate, bits)) = format else {
+                return Err("no format chunk before the samples");
+            };
+            if channels == 0 || rate == 0 {
+                return Err("no channels or no sample rate");
+            }
+            let samples: Vec<f32> = match (tag, bits) {
+                (1, 8) => body.iter().map(|b| (f32::from(*b) - 128.0) / 128.0).collect(),
+                (1, 16) => body
+                    .chunks_exact(2)
+                    .map(|c| f32::from(i16::from_le_bytes([c[0], c[1]])) / 32_768.0)
+                    .collect(),
+                (1, 24) => body
+                    .chunks_exact(3)
+                    .map(|c| (i32::from_le_bytes([0, c[0], c[1], c[2]]) >> 8) as f32 / 8_388_608.0)
+                    .collect(),
+                (1, 32) => body
+                    .chunks_exact(4)
+                    .map(|c| i32::from_le_bytes([c[0], c[1], c[2], c[3]]) as f32 / 2_147_483_648.0)
+                    .collect(),
+                (3, 32) => body
+                    .chunks_exact(4)
+                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect(),
+                _ => return Err("its samples are compressed, not PCM or float"),
+            };
+            return Ok(WavSamples {
+                sample_rate: rate,
+                channels,
+                samples,
+            });
+        }
+        // Chunks are padded to an even size.
+        at = body_start.saturating_add(len).saturating_add(len & 1);
+    }
+    Err("no samples in the file")
+}
+
 /// Why the pane shows no preview for a kind (a sentence), or `None`.
 #[must_use]
 pub fn no_preview_reason(kind: PreviewKind) -> Option<&'static str> {
     match kind {
-        PreviewKind::Audio => {
-            Some("No preview: azul plays raw PCM samples and has no audio decoder for this format.")
-        }
+        PreviewKind::Audio => Some(
+            "No preview: azul plays raw samples and has no decoder for this audio format (a WAV \
+             file plays).",
+        ),
         PreviewKind::None => Some("No preview available."),
         PreviewKind::Image | PreviewKind::Pdf | PreviewKind::Text | PreviewKind::Video => None,
     }

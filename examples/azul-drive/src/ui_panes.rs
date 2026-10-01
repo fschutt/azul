@@ -3,9 +3,10 @@
 //! status bar.
 
 use azul::{
+    audio::{AudioConfig, AudioFrame, AudioSink},
     callbacks::{
-        AddressBarOnEventCallbackType, ShellNavigationPaneOnEventCallbackType,
-        StatusBarOnViewSelectCallbackType,
+        AddressBarOnEventCallbackType, ButtonOnClickCallbackType,
+        ShellNavigationPaneOnEventCallbackType, StatusBarOnViewSelectCallbackType,
     },
     image::RawImageFormat,
     menu::{Menu, MenuItem},
@@ -15,7 +16,7 @@ use azul::{
         ShellNavigationPaneEventKind,
     },
     str::String as AzString,
-    vec::{StatusBarSegmentVec, StatusBarViewVec, StringVec},
+    vec::{F32Vec, StatusBarSegmentVec, StatusBarViewVec, StringVec},
     video::{VideoConfig, VideoSource},
     widgets::{
         AddressBar, AddressBarEvent, AddressBarEventKind, DetailsPane, StatusBar,
@@ -409,7 +410,42 @@ fn note(text: &str) -> Dom {
 }
 
 /// The preview pane: the selected file's picture, text or video.
-pub(crate) fn preview_pane(s: &DriveState, _app: &RefAny, _dark: bool) -> Dom {
+/// Play / Stop of a WAV preview: its samples into azul's AudioSink.
+extern "C" fn on_play_audio(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |_info, _app, s| {
+        if let Some(mut sink) = s.audio.take() {
+            sink.close();
+            return;
+        }
+        let Some(PreviewContent::Audio(wav)) =
+            s.preview.as_ref().and_then(|p| p.content.clone())
+        else {
+            return;
+        };
+        let sink = AudioSink::open(AudioConfig {
+            sample_rate: wav.sample_rate,
+            channels: wav.channels,
+        });
+        if !sink.is_open() {
+            let why = sink
+                .error_message()
+                .into_option()
+                .map(|e| e.as_str().to_string())
+                .unwrap_or_else(|| String::from("no audio output"));
+            s.error(format!("The sound cannot play: {why}"));
+            return;
+        }
+        sink.play(AudioFrame {
+            sample_rate: wav.sample_rate,
+            channels: wav.channels,
+            samples: F32Vec::from(wav.samples),
+        });
+        println!("AZDRIVE_DONE playing {}", wav.sample_rate);
+        s.audio = Some(sink);
+    })
+}
+
+pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
     let body = match &s.preview {
         None => note("Select a file to preview."),
         Some(preview) => {
@@ -444,6 +480,43 @@ pub(crate) fn preview_pane(s: &DriveState, _app: &RefAny, _dark: bool) -> Dom {
                         )))
                         .with_css("margin-top: 8px; font-size: 12px; opacity: 0.75;"),
                     ),
+                Some(PreviewContent::Audio(wav)) => {
+                    let seconds = wav.seconds();
+                    let minutes = (seconds / 60.0).floor() as u64;
+                    let rest = seconds - minutes as f64 * 60.0;
+                    let channels = match wav.channels {
+                        1 => String::from("mono"),
+                        2 => String::from("stereo"),
+                        n => format!("{n} channels"),
+                    };
+                    let playing = s.audio.is_some();
+                    Dom::create_div()
+                        .with_id("preview-audio")
+                        .with_css("display: flex; flex-direction: column; padding: 16px;")
+                        .with_child(
+                            Dom::create_icon(AzString::from("music_note"))
+                                .with_css("font-size: 64px; opacity: 0.6;"),
+                        )
+                        .with_child(Dom::create_span_with_text(AzString::from(format!(
+                            "{name} - {minutes}:{rest:04.1} ({:.1} kHz, {channels})",
+                            f64::from(wav.sample_rate) / 1000.0
+                        ))))
+                        .with_child(
+                            Button::create(AzString::from(if playing { "Stop" } else { "Play" }))
+                                .with_icon(AzString::from(if playing {
+                                    "stop"
+                                } else {
+                                    "play_arrow"
+                                }))
+                                .with_on_click(
+                                    app.clone(),
+                                    on_play_audio as ButtonOnClickCallbackType,
+                                )
+                                .dom()
+                                .with_id("preview-play")
+                                .with_css("margin-top: 12px; align-self: flex-start;"),
+                        )
+                }
                 Some(PreviewContent::Video(path)) => {
                     let config = VideoConfig {
                         source: VideoSource::File(AzString::from(path.display().to_string())),
