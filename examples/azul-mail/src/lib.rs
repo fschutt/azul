@@ -370,12 +370,17 @@ impl MailApp {
         };
         println!("AZMAIL_OPEN {folder} {uid}");
         let was_read = self.flags.is_read(&entry);
+        // The HTML part on its paper, pictures off until the reader asks for them.
+        let sanitized = view
+            .as_ref()
+            .and_then(|v| v.html.as_deref())
+            .map(html::sanitize);
         self.open = Some(OpenMessage {
             folder,
             entry,
             view,
             error,
-            sanitized: None,
+            sanitized,
             pictures: false,
         });
         if was_read {
