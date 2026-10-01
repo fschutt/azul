@@ -14,7 +14,8 @@ parse-checked with `rustfmt --edition 2021 --check`. Report: `scripts/TASKS_2026
 
 ## IN PROGRESS
 
-- NEXT STEP: write `list.rs` (quick add + chips, list header, sections, task rows, drag, row callbacks), commit; then `detail.rs`, `chrome.rs`, `lib.rs`.
+- DONE so far (not yet declared in lib.rs): state.rs, jobs.rs, nav.rs, list.rs (`5acb8c983`), detail.rs (`f4886366a`), listedit.rs (`eb13dce20`).
+- NEXT STEP: write `chrome.rs` (title row, ribbon + FILE backstage with Settings on ShellSettingsLayout / Shortcuts / About, status bar with sync, To-Do bar, command palette, confirm dialog), commit; then `lib.rs` (modules, with_tasks, start, layout, window keys, reminder timer, notifications).
 
 - App UI on PimShell, one module per file, each committed when written:
   `state.rs` (the app state + mutations) -> `jobs.rs` (Thread jobs, the write queue pump)
