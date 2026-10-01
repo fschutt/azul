@@ -14,14 +14,14 @@ details panes, a Properties dialog, Settings on ShellSettingsLayout, and a headl
   AddressBar recent chevron + dimmed arrows, BrowserShell `tree_visible`.
 
 ## IN PROGRESS
-- Last commit: `dfdc437f6`. Reviews done and applied (`677c72032`); WAV preview `65ca3ee97` /
-  `b81e10937`; sample sound `555daabed`; report sections 5 and 7 written.
-- NOW: server-side copies: `Drive::copy` (default get + put; LocalDrive file copy; S3 CopyObject;
-  ScopedDrive forwards), `ops::rename_by_copy` through it, fileops same-drive copies through it.
-  RED tests in azul-storage tests/ops.rs + tests/s3.rs, then GREEN.
+- Last commit: `1d6992947`. Done since: `23362a4d5`/`5af413502` Drive::copy (storage),
+  `211f455dd`/`2cc494582` AzDrive same-drive copies; report updated.
+- NOW: a third read-only review agent checks the delta `a25c10912..HEAD` (thumbnails, PDF, WAV,
+  copies, tree drop, image_scale) for compile errors.
+- NEXT STEP: apply its findings; final report touch (commit list), final progress.
 
 ## NEXT
-- report: add the copy commits; final progress update.
+- done after that.
 
 ## Decisions (unattended run)
 - Details view: ListView is single-select with fixed column widths and the table code belongs to
