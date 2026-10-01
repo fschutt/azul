@@ -7,18 +7,17 @@ parse-checked with `rustfmt --edition 2021 --check`. Report: `scripts/TASKS_2026
 
 ## DONE (commit hashes)
 
-- (none yet)
+- `8a1582114` progress file
+- `7f1da5f98` model RED (crate scaffolding, registration: workspace member, test members, CI step)
+- `446a1411e` model GREEN (recur, model, parse, views, reminders, store, sample, args)
 
 ## IN PROGRESS
 
-- plan + progress file
+- App UI (`lib.rs`) on PimShell
 
 ## NEXT (in order)
 
-1. Model RED (`todo!()` bodies + tests) then GREEN: `model.rs` (task / list / settings files,
-   keys), `recur.rs` (repeat rules: month end, leap years), `parse.rs` (quick add, EN + DE),
-   `views.rs` (smart lists, sections, sort, counts, reorder), `reminders.rs`, `store.rs` (load
-   from a Drive, the write-behind queue), `sample.rs`, `args.rs`.
+1. (done) Model RED then GREEN.
 2. App UI on PimShell (`lib.rs`): navigation pane (smart lists, my lists tree, tags), task list
    (quick add + parse chips, sections, rows, selection, drag reorder), detail pane, ribbon,
    backstage (Settings on ShellSettingsLayout, Shortcuts, About), To-Do bar, status bar with
