@@ -30,20 +30,28 @@ use azul_core::{
     callbacks::Update,
     dom::{Dom, DomVec, TabIndex},
     refany::RefAny,
-    window::StringPairVec,
+    window::{StringPairVec, VirtualKeyCode},
 };
 use azul_css::{AzString, StringVec};
 
 use crate::{
     callbacks::CallbackInfo,
     widgets::{
+        alert::AlertKind,
         button::{ButtonOnClickCallbackType, ButtonType},
         check_box::{CheckBoxOnToggleCallbackType, CheckBoxState},
         dialog_kit::{
             self, DialogKitLook, BUTTON_BOX_BASE, BUTTON_BOX_CLASS, BUTTON_ROW_BASE, FIXED_BASE,
             HELD_CLASS, ROW_MIDDLE_BASE, ROW_TOP_BASE, SCROLL_BOX_BASE, SPACER_BASE,
         },
+        info_bar::InfoBar,
+        progressbar::ProgressBar,
         shells::{COLUMN_BASE, GROW_COLUMN_BASE, GROW_LABEL_BASE},
+        spinner::Spinner,
+        text_input::{
+            OnTextInputReturn, TextInput, TextInputOnTextInputCallbackType,
+            TextInputOnVirtualKeyDownCallbackType, TextInputState, TextInputValid,
+        },
         themes::{OptionUiTheme, UiTheme},
     },
 };
@@ -802,6 +810,743 @@ fn build_about(a: AboutDialog, look: &DialogKitLook) -> Dom {
     body(ABOUT_CLASS, a11y, content, buttons, look)
 }
 
+// ---------------------------------------------------------------------------
+// Fields (the login and find / replace dialogs)
+// ---------------------------------------------------------------------------
+
+extern "C" fn on_field_text(
+    mut data: RefAny,
+    info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
+    let update = match data.downcast_ref::<Report>() {
+        Some(r) => {
+            let mut event =
+                StandardDialogEvent::create(StandardDialogEventKind::FieldChanged, r.index, false);
+            event.text = AzString::from(state.get_text());
+            emit(&r.on_event, info, event)
+        }
+        None => Update::DoNothing,
+    };
+    OnTextInputReturn {
+        update,
+        valid: TextInputValid::Yes,
+    }
+}
+
+/// Enter in a field asks what the field's `enter` says (sign in, find next).
+extern "C" fn on_field_key(
+    mut data: RefAny,
+    info: CallbackInfo,
+    _state: TextInputState,
+) -> OnTextInputReturn {
+    let key = info
+        .get_current_keyboard_state()
+        .current_virtual_keycode
+        .into_option();
+    let update = match data.downcast_ref::<Report>() {
+        Some(r) if key == Some(VirtualKeyCode::Return) => match r.enter {
+            Some(kind) => emit(
+                &r.on_event,
+                info,
+                StandardDialogEvent::create(kind, r.index, false),
+            ),
+            None => Update::DoNothing,
+        },
+        _ => Update::DoNothing,
+    };
+    OnTextInputReturn {
+        update,
+        valid: TextInputValid::Yes,
+    }
+}
+
+/// A labelled field: the label over the text input (named by the label),
+/// reporting `FieldChanged` at `index` and, on Enter, `enter`.
+#[allow(clippy::too_many_arguments)]
+fn field(
+    label: &AzString,
+    text: &AzString,
+    index: usize,
+    password: bool,
+    enter: Option<StandardDialogEventKind>,
+    on_event: &OptionStandardDialogOnEvent,
+    theme: Option<UiTheme>,
+    look: &DialogKitLook,
+) -> Dom {
+    let data = RefAny::new(Report {
+        on_event: on_event.clone(),
+        kind: StandardDialogEventKind::FieldChanged,
+        index,
+        checked: false,
+        enter,
+    });
+    let mut input = if password {
+        TextInput::create_password()
+    } else {
+        TextInput::create()
+    }
+    .with_text(text.clone())
+    .with_accessibility_name(label.clone())
+    .with_on_text_input(
+        data.clone(),
+        on_field_text as TextInputOnTextInputCallbackType,
+    )
+    .with_on_virtual_key_down(data, on_field_key as TextInputOnVirtualKeyDownCallbackType);
+    if let Some(t) = theme {
+        input = input.with_theme(t);
+    }
+    Dom::create_div()
+        .with_css_props(dialog_kit::part(COLUMN_BASE, &look.block))
+        .with_children(DomVec::from_vec(alloc::vec![
+            dialog_kit::line(label.clone(), &[], &look.label),
+            input.dom(),
+        ]))
+}
+
+// ---------------------------------------------------------------------------
+// ProgressDialog
+// ---------------------------------------------------------------------------
+
+/// A progress dialog: what is being done, a bar (or a spinner while the end
+/// is unknown), the current item, Cancel.
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct ProgressDialog {
+    /// The title ("Copying 12 files").
+    pub title: AzString,
+    /// The status line under it, or empty.
+    pub text: AzString,
+    /// The current item in the secondary ink ("report.docx"), or empty.
+    pub detail: AzString,
+    /// Cancel's label, or empty for no Cancel.
+    pub cancel_label: AzString,
+    /// Hears `Cancel`.
+    pub on_event: OptionStandardDialogOnEvent,
+    /// How far along, 0 to 100 (unused while `indeterminate`).
+    pub percent: f32,
+    /// The widget theme this dialog is PINNED to, or `None` to follow.
+    pub theme: OptionUiTheme,
+    /// Whether the end is unknown (a spinner in the bar's place).
+    pub indeterminate: bool,
+    /// Whether Cancel does anything (unset, it is inert).
+    pub can_cancel: bool,
+}
+
+impl ProgressDialog {
+    /// A progress dialog titled `title` at `percent`, cancellable.
+    #[must_use]
+    pub fn create(title: AzString, percent: f32) -> Self {
+        Self {
+            title,
+            text: AzString::from_const_str(""),
+            detail: AzString::from_const_str(""),
+            cancel_label: AzString::from_const_str("Cancel"),
+            on_event: None.into(),
+            percent,
+            theme: OptionUiTheme::None,
+            indeterminate: false,
+            can_cancel: true,
+        }
+    }
+
+    /// The status line.
+    pub fn set_text(&mut self, text: AzString) {
+        self.text = text;
+    }
+
+    /// [`Self::set_text`] for the builder chain.
+    #[must_use]
+    pub fn with_text(mut self, text: AzString) -> Self {
+        self.set_text(text);
+        self
+    }
+
+    /// The current item.
+    pub fn set_detail(&mut self, detail: AzString) {
+        self.detail = detail;
+    }
+
+    /// [`Self::set_detail`] for the builder chain.
+    #[must_use]
+    pub fn with_detail(mut self, detail: AzString) -> Self {
+        self.set_detail(detail);
+        self
+    }
+
+    /// How far along.
+    pub const fn set_percent(&mut self, percent: f32) {
+        self.percent = percent;
+    }
+
+    /// [`Self::set_percent`] for the builder chain.
+    #[must_use]
+    pub const fn with_percent(mut self, percent: f32) -> Self {
+        self.set_percent(percent);
+        self
+    }
+
+    /// Whether the end is unknown.
+    pub const fn set_indeterminate(&mut self, indeterminate: bool) {
+        self.indeterminate = indeterminate;
+    }
+
+    /// [`Self::set_indeterminate`] for the builder chain.
+    #[must_use]
+    pub const fn with_indeterminate(mut self, indeterminate: bool) -> Self {
+        self.set_indeterminate(indeterminate);
+        self
+    }
+
+    /// Cancel: its label (empty: none) and whether it does anything.
+    pub fn set_cancel(&mut self, label: AzString, can_cancel: bool) {
+        self.cancel_label = label;
+        self.can_cancel = can_cancel;
+    }
+
+    /// [`Self::set_cancel`] for the builder chain.
+    #[must_use]
+    pub fn with_cancel(mut self, label: AzString, can_cancel: bool) -> Self {
+        self.set_cancel(label, can_cancel);
+        self
+    }
+}
+
+dialog_theme_and_dom!(
+    ProgressDialog,
+    build_progress_dialog,
+    ProgressDialog::create(AzString::from_const_str(""), 0.0)
+);
+
+fn build_progress_dialog(p: ProgressDialog, look: &DialogKitLook) -> Dom {
+    if true {
+        return Dom::create_div();
+    } // RED stub
+    let theme = dialog_kit::inner_theme(p.theme);
+    let mut content: Vec<Dom> = alloc::vec![dialog_kit::line(p.title.clone(), &[], &{
+        let mut v = look.heading.clone();
+        v.extend_from_slice(&look.block);
+        v
+    })];
+    content.extend(paragraphs(&p.text, &look.text, look));
+    let gauge = if p.indeterminate {
+        let mut spinner = Spinner::create();
+        if let Some(t) = theme {
+            spinner = spinner.with_theme(t);
+        }
+        spinner.dom()
+    } else {
+        let mut bar = ProgressBar::create(p.percent.clamp(0.0, 100.0))
+            .with_accessibility_name(p.title.clone());
+        if let Some(t) = theme {
+            bar = bar.with_theme(t);
+        }
+        Dom::create_div()
+            .with_css_props(dialog_kit::part(ROW_MIDDLE_BASE, &[]))
+            .with_children(DomVec::from_vec(alloc::vec![
+                Dom::create_div()
+                    .with_css_props(dialog_kit::part(GROW_COLUMN_BASE, &[]))
+                    .with_child(bar.dom()),
+                dialog_kit::line(dialog_kit::percent_text(p.percent), FIXED_BASE, &look.unit),
+            ]))
+    };
+    content.push(
+        Dom::create_div()
+            .with_css_props(dialog_kit::part(COLUMN_BASE, &look.block))
+            .with_child(gauge),
+    );
+    if !p.detail.as_str().is_empty() {
+        content.push(dialog_kit::line(p.detail.clone(), &[], &look.hint));
+    }
+    let mut buttons: Vec<Dom> = Vec::new();
+    if !p.cancel_label.as_str().is_empty() {
+        buttons.push(button(
+            &p.cancel_label,
+            false,
+            StandardDialogEventKind::Cancel,
+            0,
+            p.can_cancel,
+            &p.on_event,
+            theme,
+            look,
+        ));
+    }
+    // Busy until the end: a group named by the title.
+    let a11y = AccessibilityInfo {
+        states: azul_core::a11y::AccessibilityStateVec::from_vec(alloc::vec![
+            azul_core::a11y::AccessibilityState::Busy
+        ]),
+        ..AccessibilityInfo::named(p.title.clone(), AccessibilityRole::Grouping)
+    };
+    body(PROGRESS_DIALOG_CLASS, a11y, content, buttons, look)
+}
+
+// ---------------------------------------------------------------------------
+// LoginDialog
+// ---------------------------------------------------------------------------
+
+/// A login dialog: a message, the user name and password, "Remember me",
+/// an error line, Sign in / Cancel. It STORES nothing: the app keeps the
+/// two texts from the `FieldChanged` reports, hands them on at `Submit`
+/// (to the server, to the OS keyring when "Remember me" is ticked) and
+/// clears the password.
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct LoginDialog {
+    /// The title ("Sign in to AzOffice").
+    pub title: AzString,
+    /// A line under the title, or empty.
+    pub message: AzString,
+    /// "User name".
+    pub user_label: AzString,
+    /// "Password".
+    pub password_label: AzString,
+    /// The user name typed so far.
+    pub user: AzString,
+    /// The password typed so far (shown as dots).
+    pub password: AzString,
+    /// "Remember me", or empty for no checkbox.
+    pub remember_label: AzString,
+    /// Why the last attempt failed, or empty.
+    pub error: AzString,
+    /// "Sign in".
+    pub submit_label: AzString,
+    /// "Cancel".
+    pub cancel_label: AzString,
+    /// Hears `FieldChanged` (0 user, 1 password), `OptionToggled` (0
+    /// remember), `Submit` and `Cancel`.
+    pub on_event: OptionStandardDialogOnEvent,
+    /// The widget theme this dialog is PINNED to, or `None` to follow.
+    pub theme: OptionUiTheme,
+    /// Whether "Remember me" is ticked.
+    pub remember: bool,
+}
+
+impl LoginDialog {
+    /// A login dialog titled `title`, empty.
+    #[must_use]
+    pub fn create(title: AzString) -> Self {
+        Self {
+            title,
+            message: AzString::from_const_str(""),
+            user_label: AzString::from_const_str("User name"),
+            password_label: AzString::from_const_str("Password"),
+            user: AzString::from_const_str(""),
+            password: AzString::from_const_str(""),
+            remember_label: AzString::from_const_str(""),
+            error: AzString::from_const_str(""),
+            submit_label: AzString::from_const_str("Sign in"),
+            cancel_label: AzString::from_const_str("Cancel"),
+            on_event: None.into(),
+            theme: OptionUiTheme::None,
+            remember: false,
+        }
+    }
+
+    /// The line under the title.
+    pub fn set_message(&mut self, message: AzString) {
+        self.message = message;
+    }
+
+    /// [`Self::set_message`] for the builder chain.
+    #[must_use]
+    pub fn with_message(mut self, message: AzString) -> Self {
+        self.set_message(message);
+        self
+    }
+
+    /// The texts typed so far.
+    pub fn set_credentials(&mut self, user: AzString, password: AzString) {
+        self.user = user;
+        self.password = password;
+    }
+
+    /// [`Self::set_credentials`] for the builder chain.
+    #[must_use]
+    pub fn with_credentials(mut self, user: AzString, password: AzString) -> Self {
+        self.set_credentials(user, password);
+        self
+    }
+
+    /// "Remember me": its label (empty: none) and whether it is ticked.
+    pub fn set_remember(&mut self, label: AzString, checked: bool) {
+        self.remember_label = label;
+        self.remember = checked;
+    }
+
+    /// [`Self::set_remember`] for the builder chain.
+    #[must_use]
+    pub fn with_remember(mut self, label: AzString, checked: bool) -> Self {
+        self.set_remember(label, checked);
+        self
+    }
+
+    /// Why the last attempt failed (empty: no error).
+    pub fn set_error(&mut self, error: AzString) {
+        self.error = error;
+    }
+
+    /// [`Self::set_error`] for the builder chain.
+    #[must_use]
+    pub fn with_error(mut self, error: AzString) -> Self {
+        self.set_error(error);
+        self
+    }
+
+    /// The labels: the two fields, Sign in, Cancel.
+    pub fn set_labels(
+        &mut self,
+        user_label: AzString,
+        password_label: AzString,
+        submit_label: AzString,
+        cancel_label: AzString,
+    ) {
+        self.user_label = user_label;
+        self.password_label = password_label;
+        self.submit_label = submit_label;
+        self.cancel_label = cancel_label;
+    }
+
+    /// [`Self::set_labels`] for the builder chain.
+    #[must_use]
+    pub fn with_labels(
+        mut self,
+        user_label: AzString,
+        password_label: AzString,
+        submit_label: AzString,
+        cancel_label: AzString,
+    ) -> Self {
+        self.set_labels(user_label, password_label, submit_label, cancel_label);
+        self
+    }
+
+    /// Whether Sign in does anything: a user name and a password.
+    #[must_use]
+    pub fn can_submit(&self) -> bool {
+        if true {
+            return false;
+        } // RED stub
+        !self.user.as_str().trim().is_empty() && !self.password.as_str().is_empty()
+    }
+}
+
+dialog_theme_and_dom!(
+    LoginDialog,
+    build_login,
+    LoginDialog::create(AzString::from_const_str(""))
+);
+
+fn build_login(l: LoginDialog, look: &DialogKitLook) -> Dom {
+    if true {
+        return Dom::create_div();
+    } // RED stub
+    let theme = dialog_kit::inner_theme(l.theme);
+    let submit = Some(StandardDialogEventKind::Submit);
+    let mut content: Vec<Dom> = alloc::vec![dialog_kit::line(l.title.clone(), &[], &{
+        let mut v = look.heading.clone();
+        v.extend_from_slice(&look.block);
+        v
+    })];
+    content.extend(paragraphs(&l.message, &look.text, look));
+    if !l.error.as_str().is_empty() {
+        let mut bar = InfoBar::create(l.error.clone())
+            .with_kind(AlertKind::Danger)
+            .with_icon(AzString::from_const_str("error"));
+        if let Some(t) = theme {
+            bar = bar.with_theme(t);
+        }
+        content.push(
+            Dom::create_div()
+                .with_css_props(dialog_kit::part(COLUMN_BASE, &look.block))
+                .with_child(bar.dom()),
+        );
+    }
+    content.push(field(
+        &l.user_label,
+        &l.user,
+        0,
+        false,
+        submit,
+        &l.on_event,
+        theme,
+        look,
+    ));
+    content.push(field(
+        &l.password_label,
+        &l.password,
+        1,
+        true,
+        submit,
+        &l.on_event,
+        theme,
+        look,
+    ));
+    if !l.remember_label.as_str().is_empty() {
+        content.push(check(
+            &l.remember_label,
+            l.remember,
+            StandardDialogEventKind::OptionToggled,
+            0,
+            &l.on_event,
+            theme,
+            look,
+        ));
+    }
+    let buttons = alloc::vec![
+        button(
+            &l.cancel_label,
+            false,
+            StandardDialogEventKind::Cancel,
+            0,
+            true,
+            &l.on_event,
+            theme,
+            look
+        ),
+        button(
+            &l.submit_label,
+            true,
+            StandardDialogEventKind::Submit,
+            0,
+            l.can_submit(),
+            &l.on_event,
+            theme,
+            look,
+        ),
+    ];
+    let a11y = AccessibilityInfo::named(l.title.clone(), AccessibilityRole::Grouping);
+    body(LOGIN_CLASS, a11y, content, buttons, look)
+}
+
+// ---------------------------------------------------------------------------
+// FindReplaceDialog
+// ---------------------------------------------------------------------------
+
+/// A find / replace dialog: the text to find (and its replacement), match
+/// case, whole word, the result ("3 of 12"), the buttons.
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct FindReplaceDialog {
+    /// The text to find.
+    pub find: AzString,
+    /// The replacement.
+    pub replace: AzString,
+    /// The result line ("3 of 12", "No matches"), or empty.
+    pub status: AzString,
+    /// "Find what:".
+    pub find_label: AzString,
+    /// "Replace with:".
+    pub replace_label: AzString,
+    /// "Match case".
+    pub match_case_label: AzString,
+    /// "Whole word".
+    pub whole_word_label: AzString,
+    /// "Find next".
+    pub find_next_label: AzString,
+    /// "Find previous".
+    pub find_previous_label: AzString,
+    /// "Replace".
+    pub replace_button_label: AzString,
+    /// "Replace all".
+    pub replace_all_label: AzString,
+    /// "Close".
+    pub close_label: AzString,
+    /// Hears `FieldChanged` (0 find, 1 replace), `OptionToggled` (0 match
+    /// case, 1 whole word), `FindNext`, `FindPrevious`, `Replace`,
+    /// `ReplaceAll` and `Cancel`.
+    pub on_event: OptionStandardDialogOnEvent,
+    /// The widget theme this dialog is PINNED to, or `None` to follow.
+    pub theme: OptionUiTheme,
+    /// Whether the replace field and buttons show.
+    pub show_replace: bool,
+    /// Whether "Match case" is ticked.
+    pub match_case: bool,
+    /// Whether "Whole word" is ticked.
+    pub whole_word: bool,
+}
+
+impl FindReplaceDialog {
+    /// A find dialog for `find` (replace hidden).
+    #[must_use]
+    pub fn create(find: AzString) -> Self {
+        Self {
+            find,
+            replace: AzString::from_const_str(""),
+            status: AzString::from_const_str(""),
+            find_label: AzString::from_const_str("Find what:"),
+            replace_label: AzString::from_const_str("Replace with:"),
+            match_case_label: AzString::from_const_str("Match case"),
+            whole_word_label: AzString::from_const_str("Whole word"),
+            find_next_label: AzString::from_const_str("Find next"),
+            find_previous_label: AzString::from_const_str("Find previous"),
+            replace_button_label: AzString::from_const_str("Replace"),
+            replace_all_label: AzString::from_const_str("Replace all"),
+            close_label: AzString::from_const_str("Close"),
+            on_event: None.into(),
+            theme: OptionUiTheme::None,
+            show_replace: false,
+            match_case: false,
+            whole_word: false,
+        }
+    }
+
+    /// The replacement, and the replace field and buttons shown.
+    pub fn set_replace(&mut self, replace: AzString) {
+        self.replace = replace;
+        self.show_replace = true;
+    }
+
+    /// [`Self::set_replace`] for the builder chain.
+    #[must_use]
+    pub fn with_replace(mut self, replace: AzString) -> Self {
+        self.set_replace(replace);
+        self
+    }
+
+    /// The result line.
+    pub fn set_status(&mut self, status: AzString) {
+        self.status = status;
+    }
+
+    /// [`Self::set_status`] for the builder chain.
+    #[must_use]
+    pub fn with_status(mut self, status: AzString) -> Self {
+        self.set_status(status);
+        self
+    }
+
+    /// The options: match case, whole word.
+    pub const fn set_options(&mut self, match_case: bool, whole_word: bool) {
+        self.match_case = match_case;
+        self.whole_word = whole_word;
+    }
+
+    /// [`Self::set_options`] for the builder chain.
+    #[must_use]
+    pub const fn with_options(mut self, match_case: bool, whole_word: bool) -> Self {
+        self.set_options(match_case, whole_word);
+        self
+    }
+}
+
+dialog_theme_and_dom!(
+    FindReplaceDialog,
+    build_find_replace,
+    FindReplaceDialog::create(AzString::from_const_str(""))
+);
+
+fn build_find_replace(f: FindReplaceDialog, look: &DialogKitLook) -> Dom {
+    if true {
+        return Dom::create_div();
+    } // RED stub
+    let theme = dialog_kit::inner_theme(f.theme);
+    let can_find = !f.find.as_str().is_empty();
+    let mut content: Vec<Dom> = alloc::vec![field(
+        &f.find_label,
+        &f.find,
+        0,
+        false,
+        Some(StandardDialogEventKind::FindNext),
+        &f.on_event,
+        theme,
+        look,
+    )];
+    if f.show_replace {
+        content.push(field(
+            &f.replace_label,
+            &f.replace,
+            1,
+            false,
+            None,
+            &f.on_event,
+            theme,
+            look,
+        ));
+    }
+    content.push(check(
+        &f.match_case_label,
+        f.match_case,
+        StandardDialogEventKind::OptionToggled,
+        0,
+        &f.on_event,
+        theme,
+        look,
+    ));
+    content.push(check(
+        &f.whole_word_label,
+        f.whole_word,
+        StandardDialogEventKind::OptionToggled,
+        1,
+        &f.on_event,
+        theme,
+        look,
+    ));
+    if !f.status.as_str().is_empty() {
+        content.push(dialog_kit::line(f.status.clone(), &[], &look.hint));
+    }
+    let mut buttons = alloc::vec![
+        button(
+            &f.find_previous_label,
+            false,
+            StandardDialogEventKind::FindPrevious,
+            0,
+            can_find,
+            &f.on_event,
+            theme,
+            look,
+        ),
+        button(
+            &f.find_next_label,
+            true,
+            StandardDialogEventKind::FindNext,
+            0,
+            can_find,
+            &f.on_event,
+            theme,
+            look
+        ),
+    ];
+    if f.show_replace {
+        buttons.push(button(
+            &f.replace_button_label,
+            false,
+            StandardDialogEventKind::Replace,
+            0,
+            can_find,
+            &f.on_event,
+            theme,
+            look,
+        ));
+        buttons.push(button(
+            &f.replace_all_label,
+            false,
+            StandardDialogEventKind::ReplaceAll,
+            0,
+            can_find,
+            &f.on_event,
+            theme,
+            look,
+        ));
+    }
+    buttons.push(button(
+        &f.close_label,
+        false,
+        StandardDialogEventKind::Cancel,
+        0,
+        true,
+        &f.on_event,
+        theme,
+        look,
+    ));
+    let name = if f.show_replace {
+        "Find and replace"
+    } else {
+        "Find"
+    };
+    let a11y = AccessibilityInfo::named(name, AccessibilityRole::Grouping);
+    body(FIND_REPLACE_CLASS, a11y, content, buttons, look)
+}
+
 #[cfg(test)]
 mod standard_dialog_tests {
     use std::sync::{Arc, Mutex};
@@ -1007,5 +1752,242 @@ mod standard_dialog_tests {
             log.lock().expect("log")[0].kind,
             StandardDialogEventKind::Button
         );
+    }
+
+    #[test]
+    fn the_progress_dialog_shows_a_bar_or_a_spinner_and_cancel() {
+        let log = new_log();
+        let progress = || {
+            ProgressDialog::create(AzString::from("Copying 12 files"), 42.0)
+                .with_text(AzString::from("From Downloads to Documents"))
+                .with_detail(AzString::from("report.docx"))
+                .with_on_event(
+                    RefAny::new(log.clone()),
+                    record as StandardDialogOnEventCallbackType,
+                )
+        };
+        for theme in checks::BOTH {
+            let dom = progress().with_theme(theme).dom();
+            assert_eq!(
+                texts(&dom),
+                vec![
+                    "Copying 12 files",
+                    "From Downloads to Documents",
+                    "42 %",
+                    "report.docx",
+                    "Cancel"
+                ],
+                "{}",
+                theme.name()
+            );
+            let spinning = progress().with_indeterminate(true).with_theme(theme).dom();
+            assert!(
+                !texts(&spinning).iter().any(|t| t == "42 %"),
+                "no percentage without an end"
+            );
+            assert!(!tc::nodes(&spinning).into_iter().any(|(_, n)| n
+                .root
+                .get_accessibility_info()
+                .is_some_and(|i| i.role == AccessibilityRole::ProgressBar)));
+        }
+        click(progress().with_theme(UiTheme::Flat).dom(), "Cancel").expect("Cancel");
+        assert_eq!(
+            log.lock().expect("log")[0].kind,
+            StandardDialogEventKind::Cancel
+        );
+        assert!(
+            click(
+                progress()
+                    .with_cancel(AzString::from("Cancel"), false)
+                    .with_theme(UiTheme::Flat)
+                    .dom(),
+                "Cancel"
+            )
+            .is_none(),
+            "a held Cancel is inert"
+        );
+    }
+
+    #[test]
+    fn the_login_dialog_signs_in_only_with_both_fields_and_stores_nothing() {
+        let log = new_log();
+        let login = || {
+            LoginDialog::create(AzString::from("Sign in to AzOffice"))
+                .with_remember(AzString::from("Remember me"), false)
+                .with_on_event(
+                    RefAny::new(log.clone()),
+                    record as StandardDialogOnEventCallbackType,
+                )
+        };
+        assert!(!login().can_submit());
+        assert!(!login()
+            .with_credentials(AzString::from("  "), AzString::from("pw"))
+            .can_submit());
+        let ready = login().with_credentials(AzString::from("felix"), AzString::from("pw"));
+        assert!(ready.can_submit());
+        for theme in checks::BOTH {
+            let dom = login().with_theme(theme).dom();
+            let all = texts(&dom);
+            for want in [
+                "Sign in to AzOffice",
+                "User name",
+                "Password",
+                "Remember me",
+                "Cancel",
+                "Sign in",
+            ] {
+                assert!(
+                    all.iter().any(|t| t == want),
+                    "{}: {want} in {all:?}",
+                    theme.name()
+                );
+            }
+            let failed = login()
+                .with_error(AzString::from("The password is wrong."))
+                .with_theme(theme)
+                .dom();
+            assert!(tc::nodes(&failed).into_iter().any(|(_, n)| n
+                .root
+                .get_accessibility_info()
+                .is_some_and(|i| i.role == AccessibilityRole::Alert)));
+        }
+        assert!(
+            click(login().with_theme(UiTheme::Flat).dom(), "Sign in").is_none(),
+            "Sign in is inert while a field is empty"
+        );
+        click(ready.with_theme(UiTheme::Flat).dom(), "Sign in").expect("Sign in");
+        click(login().with_theme(UiTheme::Flat).dom(), "Remember me").expect("the label");
+        let got = log.lock().expect("log").clone();
+        assert_eq!(got[0].kind, StandardDialogEventKind::Submit);
+        assert_eq!(
+            (got[1].kind, got[1].index, got[1].checked),
+            (StandardDialogEventKind::OptionToggled, 0, true)
+        );
+    }
+
+    #[test]
+    fn the_find_dialog_finds_only_with_a_text_and_shows_replace_on_request() {
+        let log = new_log();
+        let find = |text: &str| {
+            FindReplaceDialog::create(AzString::from(text))
+                .with_status(AzString::from("3 of 12"))
+                .with_on_event(
+                    RefAny::new(log.clone()),
+                    record as StandardDialogOnEventCallbackType,
+                )
+        };
+        for theme in checks::BOTH {
+            let all = texts(&find("azul").with_theme(theme).dom());
+            for want in [
+                "Find what:",
+                "Match case",
+                "Whole word",
+                "3 of 12",
+                "Find previous",
+                "Find next",
+                "Close",
+            ] {
+                assert!(all.iter().any(|t| t == want), "{}: {want}", theme.name());
+            }
+            assert!(!all.iter().any(|t| t == "Replace all"), "replace is hidden");
+            let replacing = texts(
+                &find("azul")
+                    .with_replace(AzString::from("Azul"))
+                    .with_theme(theme)
+                    .dom(),
+            );
+            for want in ["Replace with:", "Replace", "Replace all"] {
+                assert!(
+                    replacing.iter().any(|t| t == want),
+                    "{}: {want}",
+                    theme.name()
+                );
+            }
+        }
+        assert!(click(find("").with_theme(UiTheme::Flat).dom(), "Find next").is_none());
+        click(find("azul").with_theme(UiTheme::Flat).dom(), "Find next").expect("Find next");
+        click(find("azul").with_theme(UiTheme::Flat).dom(), "Whole word").expect("the label");
+        click(find("").with_theme(UiTheme::Flat).dom(), "Close").expect("Close");
+        let got = log.lock().expect("log").clone();
+        let kinds: Vec<StandardDialogEventKind> = got.iter().map(|e| e.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                StandardDialogEventKind::FindNext,
+                StandardDialogEventKind::OptionToggled,
+                StandardDialogEventKind::Cancel
+            ]
+        );
+        assert_eq!((got[1].index, got[1].checked), (1, true));
+    }
+
+    fn pinned<T>(mut dialog: T, theme: OptionUiTheme, set: fn(&mut T, UiTheme)) -> T {
+        if let OptionUiTheme::Some(t) = theme {
+            set(&mut dialog, t);
+        }
+        dialog
+    }
+
+    fn message_dom(t: OptionUiTheme) -> Dom {
+        pinned(message(&new_log()), t, MessageBox::set_theme).dom()
+    }
+
+    fn about_dom(t: OptionUiTheme) -> Dom {
+        pinned(
+            AboutDialog::create(AzString::from("AzOffice"), AzString::from("1.0"))
+                .with_icon(AzString::from("apps"))
+                .with_credit(AzString::from("azul"), AzString::from("MIT")),
+            t,
+            AboutDialog::set_theme,
+        )
+        .dom()
+    }
+
+    fn progress_dom(t: OptionUiTheme) -> Dom {
+        pinned(
+            ProgressDialog::create(AzString::from("Copying"), 30.0),
+            t,
+            ProgressDialog::set_theme,
+        )
+        .dom()
+    }
+
+    fn login_dom(t: OptionUiTheme) -> Dom {
+        pinned(
+            LoginDialog::create(AzString::from("Sign in"))
+                .with_error(AzString::from("Wrong password."))
+                .with_remember(AzString::from("Remember me"), true),
+            t,
+            LoginDialog::set_theme,
+        )
+        .dom()
+    }
+
+    fn find_dom(t: OptionUiTheme) -> Dom {
+        pinned(
+            FindReplaceDialog::create(AzString::from("azul")).with_replace(AzString::from("Azul")),
+            t,
+            FindReplaceDialog::set_theme,
+        )
+        .dom()
+    }
+
+    type DialogFn = fn(OptionUiTheme) -> Dom;
+
+    #[test]
+    fn every_standard_dialog_follows_the_app_theme() {
+        for (name, dialog) in [
+            ("message_box", message_dom as DialogFn),
+            ("about_dialog", about_dom as DialogFn),
+            ("progress_dialog", progress_dom as DialogFn),
+            ("login_dialog", login_dom as DialogFn),
+            ("find_replace_dialog", find_dom as DialogFn),
+        ] {
+            checks::assert_follows_the_app_theme(
+                name,
+                || dialog(OptionUiTheme::None),
+                |t: UiTheme| dialog(OptionUiTheme::Some(t)),
+            );
+        }
     }
 }

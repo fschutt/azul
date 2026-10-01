@@ -1652,6 +1652,48 @@ mod label_convention {
                     .with_recording(true)
                     .dom(),
             ),
+            (
+                "message_box",
+                super::standard_dialogs::MessageBox::create(
+                    super::standard_dialogs::MessageBoxKind::Warning,
+                    AzString::from("Replace the existing file?"),
+                    AzString::from("A file named Report.docx already exists."),
+                )
+                .with_buttons(labels(&["Replace", "Cancel"]), 1)
+                .with_dont_ask(AzString::from("Don't ask again"), false)
+                .dom(),
+            ),
+            (
+                "about_dialog",
+                super::standard_dialogs::AboutDialog::create(
+                    AzString::from("AzOffice"),
+                    AzString::from("Version 1.0.0"),
+                )
+                .with_icon(AzString::from("apps"))
+                .with_copyright(AzString::from("Copyright 2026 Azul contributors"))
+                .with_credit(AzString::from("azul"), AzString::from("MIT"))
+                .dom(),
+            ),
+            (
+                "progress_dialog",
+                super::standard_dialogs::ProgressDialog::create(AzString::from("Copying 12 files"), 42.0)
+                    .with_detail(AzString::from("report.docx"))
+                    .dom(),
+            ),
+            (
+                "login_dialog",
+                super::standard_dialogs::LoginDialog::create(AzString::from("Sign in to AzOffice"))
+                    .with_error(AzString::from("The password is wrong."))
+                    .with_remember(AzString::from("Remember me"), false)
+                    .dom(),
+            ),
+            (
+                "find_replace_dialog",
+                super::standard_dialogs::FindReplaceDialog::create(AzString::from("azul"))
+                    .with_replace(AzString::from("Azul"))
+                    .with_status(AzString::from("3 of 12"))
+                    .dom(),
+            ),
         ];
         // The app shells, each with placeholder content (`shells::fixtures`).
         all.extend(super::shells::fixtures::every_shell());
@@ -2495,6 +2537,11 @@ mod theme_contrast {
         "wizard summary page",
         "wizard progress page",
         "wizard finish page",
+        "message_box",
+        "about_dialog",
+        "progress_dialog",
+        "login_dialog",
+        "find_replace_dialog",
     ];
     /// Controls a user types into, picks from or toggles.
     const INPUTS: &[&str] = &[
