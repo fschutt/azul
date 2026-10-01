@@ -48,6 +48,10 @@ pub(crate) struct AppEvents {
     /// `AZ_RICING=watch` saw a rice file change (`azul_css::rice::poll_watch`,
     /// on the watcher thread): every window rebuilds with the reloaded rice.
     rice_reloaded: bool,
+    /// The debug server queued a request (`azul_layout::e2e::
+    /// announce_debug_request` woke the loop): the window re-arms its debug
+    /// poll at the busy rate instead of waiting for the idle safety net.
+    debug_request: bool,
 }
 
 impl AppEvents {
@@ -65,6 +69,10 @@ impl AppEvents {
             tray: crate::desktop::tray::take_tray_deliveries(),
             notifications: crate::desktop::notifications::pump_notifications(),
             rice_reloaded: azul_css::rice::take_reload_signal(),
+            #[cfg(feature = "debug-server")]
+            debug_request: azul_layout::e2e::take_debug_request_wake(),
+            #[cfg(not(feature = "debug-server"))]
+            debug_request: false,
         }
     }
 
@@ -74,6 +82,7 @@ impl AppEvents {
             && self.tray.is_empty()
             && self.notifications.is_empty()
             && !self.rice_reloaded
+            && !self.debug_request
     }
 
     #[must_use]
@@ -82,6 +91,7 @@ impl AppEvents {
             + self.tray.len()
             + self.notifications.len()
             + usize::from(self.rice_reloaded)
+            + usize::from(self.debug_request)
     }
 
     /// Run everything against `window`, in the order the sources were
@@ -92,7 +102,11 @@ impl AppEvents {
             tray,
             notifications,
             rice_reloaded,
+            debug_request,
         } = self;
+        if debug_request {
+            window.rearm_debug_poll();
+        }
         let mut result = ProcessEventResult::DoNothing;
         if rice_reloaded {
             // The app-theme rebuild: this window now, the others through the
@@ -155,11 +169,14 @@ fn candidate<K: Copy>(key: K, common: &CommonWindowState) -> AppTargetCandidate<
 fn report_undelivered(events: AppEvents) {
     // A rice reload with no window to rebuild needs nothing: a window built
     // later styles with the rice as it stands then.
+    // A debug request with no window has no poll to re-arm either: the
+    // window created later registers its own, busy from the start.
     let AppEvents {
         tray_menu,
         tray,
         notifications,
         rice_reloaded: _,
+        debug_request: _,
     } = events;
     if !notifications.is_empty() {
         crate::desktop::notifications::defer_deliveries(notifications);

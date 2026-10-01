@@ -13161,8 +13161,53 @@ pub trait PlatformWindow {
     ///     self.trigger_platform_redraw(); // setNeedsDisplay / InvalidateRect / etc.
     /// }
     /// ```
+    /// Re-arm this window's debug-server poll (`DEBUG_TIMER_ID`) at the busy
+    /// rate, now: a request was queued (`azul_layout::e2e::
+    /// announce_debug_request` woke the loop) and must not wait for the idle
+    /// safety net. The timer keeps its `RefAny` (session, pace, receiver) -
+    /// the same re-registration the poll's own callback does. Nothing to do
+    /// without a registered poll.
+    fn rearm_debug_poll(&mut self) {
+        #[cfg(feature = "debug-server")]
+        {
+            use azul_core::task::{Duration, SystemTimeDiff, TimerId};
+            let id = TimerId {
+                id: azul_layout::e2e::DEBUG_TIMER_ID,
+            };
+            let Some(timer) = self
+                .get_layout_window()
+                .and_then(|lw| lw.timers.get(&id))
+                .cloned()
+            else {
+                return;
+            };
+            let timer = timer.with_interval(Duration::System(SystemTimeDiff::from_millis(
+                azul_layout::e2e::DEBUG_POLL_BUSY_MS,
+            )));
+            if let Some(lw) = self.get_layout_window_mut() {
+                lw.timers.insert(id, timer.clone());
+            }
+            self.start_timer(id.id, timer);
+        }
+    }
+
+    /// [`Self::rearm_debug_poll`] if a debug request was announced since the
+    /// last look - the slot every backend's loop passes after a wake
+    /// (`process_timers_and_threads`; the desktop loops also through the
+    /// app-event collector).
+    fn serve_debug_request_wake(&mut self) {
+        #[cfg(feature = "debug-server")]
+        if azul_layout::e2e::take_debug_request_wake() {
+            self.rearm_debug_poll();
+        }
+    }
+
     fn process_timers_and_threads(&mut self) -> bool {
         use azul_core::callbacks::Update;
+
+        // A debug request queued since the last turn re-arms the debug poll
+        // at the busy rate before the timers below are looked at.
+        self.serve_debug_request_wake();
 
         // R2: every backend calls this from its frame loop at TOP level, never
         // from inside a pass — which makes it the one shared point where a

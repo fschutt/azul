@@ -652,4 +652,13 @@ pub fn install_e2e_host_hooks() {
     set_host_hooks(E2eHostHooks {
         take_native_screenshot_base64: Some(screenshot),
     });
+
+    // A queued request wakes the desktop run loop (an NSEvent on macOS, the
+    // wake fd in the X11 / Wayland poll set); the loop then re-arms the
+    // window's debug poll at the busy rate
+    // (`PlatformWindow::serve_debug_request_wake`). The headless loop
+    // registers its own condvar waker.
+    azul_layout::e2e::add_debug_request_waker(std::sync::Arc::new(
+        crate::desktop::loop_waker::wake,
+    ));
 }

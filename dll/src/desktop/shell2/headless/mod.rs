@@ -2553,6 +2553,20 @@ impl HeadlessWindow {
                 false,
             );
         }
+        // A request the debug server queues wakes this loop too: Phase 2
+        // (`process_timers_and_threads`) re-arms the debug poll at the busy
+        // rate, so the poll's idle period is a safety net, not a latency.
+        #[cfg(feature = "debug-server")]
+        {
+            let condvar = self.wake_condvar.clone();
+            let mutex = self.wake_mutex.clone();
+            azul_layout::e2e::add_debug_request_waker(Arc::new(move || {
+                if let Ok(mut guard) = mutex.lock() {
+                    guard.woken = true;
+                    condvar.notify_one();
+                }
+            }));
+        }
 
         while self.is_open() {
             // ── Phase 1: Process injected events ─────────────────
@@ -3208,10 +3222,28 @@ impl HeadlessWindow {
                 // work the wake announced is serviced now.
                 guard.woken = false;
             } else if has_timers || self.thread_poll_timer_running || has_hotkeys {
-                // Timers or threads active → poll once per frame
+                // Threads and simulated hotkeys are only seen by polling: once
+                // per frame. Timers alone: until the next one is due, never
+                // sooner than a frame - an idle debug poll (2 s) no longer
+                // wakes this loop 60 times a second, and anything that has
+                // work (a request, a timer change, an injected event)
+                // notifies the condvar.
+                let wait = if self.thread_poll_timer_running || has_hotkeys {
+                    poll_interval
+                } else {
+                    let get_time = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
+                        .get_system_time_fn;
+                    self.common
+                        .layout_window
+                        .as_ref()
+                        .and_then(|lw| lw.time_until_next_timer_ms(&get_time))
+                        .map_or(poll_interval, |ms| {
+                            poll_interval.max(std::time::Duration::from_millis(ms))
+                        })
+                };
                 let _r = self
                     .wake_condvar
-                    .wait_timeout_while(guard, poll_interval, |ws| !ws.woken);
+                    .wait_timeout_while(guard, wait, |ws| !ws.woken);
             } else {
                 // No timers → block indefinitely until woken
                 let _r = self.wake_condvar.wait_while(guard, |ws| !ws.woken);
