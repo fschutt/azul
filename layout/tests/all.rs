@@ -714,3 +714,5 @@ mod a_rows_height_is_its_tallest_cell_or_its_own_height;
 mod a_fixed_table_takes_its_column_widths_from_its_first_row;
 #[path = "a_spanning_cells_width_is_spread_over_the_columns_it_spans.rs"]
 mod a_spanning_cells_width_is_spread_over_the_columns_it_spans;
+#[path = "an_acked_split_of_a_list_item_resumes_past_the_new_items_marker.rs"]
+mod an_acked_split_of_a_list_item_resumes_past_the_new_items_marker;
