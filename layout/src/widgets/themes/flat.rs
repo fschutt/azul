@@ -5892,3 +5892,138 @@ pub(crate) fn dialog_kit_look() -> crate::widgets::dialog_kit::DialogKitLook {
         marker: None,
     }
 }
+// ==== timeline ====
+//
+// The flat timeline is Premiere's on the Windows 7 desktop: the ruler on
+// the window strip under its hairline, the track headers on the surface,
+// the lanes on the desk a hairline apart, the clips as rounded blocks in
+// their tint (video blue, audio green, titles violet, the accent, a quiet
+// grey) with white names, the selected clip ringed in gold, the playhead a
+// red line through the ruler and the lanes; focus is the field ring inside
+// the lanes. At night the desktop's dark surfaces, the tints a step deeper.
+
+const TIMELINE_VIDEO_LIGHT: ColorU = ColorU::rgb(0x4F, 0x74, 0xBF);
+const TIMELINE_VIDEO_DARK: ColorU = ColorU::rgb(0x3D, 0x5C, 0x99);
+const TIMELINE_AUDIO_LIGHT: ColorU = ColorU::rgb(0x3F, 0x8C, 0x5E);
+const TIMELINE_AUDIO_DARK: ColorU = ColorU::rgb(0x33, 0x70, 0x4B);
+const TIMELINE_TITLE_LIGHT: ColorU = ColorU::rgb(0x8E, 0x58, 0xB0);
+const TIMELINE_TITLE_DARK: ColorU = ColorU::rgb(0x6E, 0x44, 0x8A);
+const TIMELINE_MUTED_LIGHT: ColorU = ColorU::rgb(0x7A, 0x80, 0x8A);
+const TIMELINE_MUTED_DARK: ColorU = ColorU::rgb(0x52, 0x57, 0x5F);
+const TIMELINE_CLIP_INK: ColorU = ColorU::rgb(0xFF, 0xFF, 0xFF);
+const TIMELINE_PLAYHEAD_LIGHT: ColorU = ColorU::rgb(0xD0, 0x33, 0x2B);
+const TIMELINE_PLAYHEAD_DARK: ColorU = ColorU::rgb(0xFF, 0x5F, 0x52);
+const TIMELINE_SELECTED_RING: ColorU = ColorU::rgb(0xFF, 0xD3, 0x4D);
+
+/// A line `px` wide (a tick, the playhead).
+fn flat_timeline_line(px: isize, light: ColorU, dark: ColorU) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = vec![CssPropertyWithConditions::simple(CssProperty::const_width(
+        LayoutWidth::const_px(px),
+    ))];
+    v.extend(decl::themed_fill(light, dark));
+    v
+}
+
+/// A flat clip of `tint`: its block, its white name.
+fn flat_timeline_clip(
+    tint: crate::widgets::timeline::TimelineClipTint,
+) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    use crate::widgets::timeline::TimelineClipTint as T;
+    let (light, dark) = match tint {
+        T::Video => (TIMELINE_VIDEO_LIGHT, TIMELINE_VIDEO_DARK),
+        T::Audio => (TIMELINE_AUDIO_LIGHT, TIMELINE_AUDIO_DARK),
+        T::Title => (TIMELINE_TITLE_LIGHT, TIMELINE_TITLE_DARK),
+        T::Accent => (LIGHT_ACC, DARK_ACC),
+        T::Muted => (TIMELINE_MUTED_LIGHT, TIMELINE_MUTED_DARK),
+    };
+    let mut v = decl::themed_fill(light, dark).to_vec();
+    v.extend(decl::themed_ink(TIMELINE_CLIP_INK, TIMELINE_CLIP_INK));
+    v.extend(decl::radius(3));
+    v.extend(decl::padding(0, 6, 0, 4));
+    v
+}
+
+/// Flat's timeline look.
+#[must_use]
+pub(crate) fn timeline_look() -> crate::widgets::timeline::TimelineLook {
+    use super::{decl, style_kit as kit};
+
+    let mut corner = vec![kit::font_size(12), decl::semibold()];
+    corner.extend(decl::padding(0, 8, 0, 8));
+    corner.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
+
+    let mut ruler = decl::border_left(1).to_vec();
+    ruler.extend(decl::themed_border_left_color(LIGHT_BD, DARK_BD));
+
+    let mut tick_label = vec![kit::font_size(10)];
+    tick_label.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut header = decl::padding(0, 2, 0, 8).to_vec();
+    header.extend(decl::border_bottom(1));
+    header.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut track_name = vec![kit::font_size(12), decl::semibold()];
+    track_name.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
+
+    let mut lanes = decl::themed_fill(LIGHT_DESK, DARK_DESK).to_vec();
+    lanes.extend(decl::border_left(1));
+    lanes.extend(decl::themed_border_left_color(LIGHT_BD, DARK_BD));
+    lanes.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+
+    let mut lane = decl::border_bottom(1).to_vec();
+    lane.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let selected = CssPropertyWithConditions::themed(
+        decl::shadow(0, 0, 2, TIMELINE_SELECTED_RING, true),
+        decl::shadow(0, 0, 2, TIMELINE_SELECTED_RING, true),
+    )
+    .to_vec();
+
+    let mut clip_thumb = decl::margin(0, 5, 0, 0).to_vec();
+    clip_thumb.extend(decl::radius(2));
+
+    let clip_label = vec![kit::font_size(11), decl::semibold()];
+    let mut clip_detail = vec![kit::font_size(10)];
+    clip_detail.extend(decl::margin(0, 0, 0, 6));
+
+    let mut scroll_track = decl::themed_fill(LIGHT_TRACK, DARK_TRACK).to_vec();
+    scroll_track.extend(decl::radius(4));
+    scroll_track.extend(decl::margin(2, 8, 2, 4));
+
+    let mut thumb = decl::themed_fill(LIGHT_BD3, DARK_BD3).to_vec();
+    thumb.extend(decl::radius(3));
+
+    crate::widgets::timeline::TimelineLook {
+        root: flat_sheet(),
+        head: flat_strip_below(),
+        corner,
+        ruler,
+        tick: flat_timeline_line(1, LIGHT_BD3, DARK_BD3),
+        tick_minor: flat_timeline_line(1, LIGHT_BD, DARK_BD),
+        tick_label,
+        ruler_head: flat_timeline_line(2, TIMELINE_PLAYHEAD_LIGHT, TIMELINE_PLAYHEAD_DARK),
+        headers: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
+        header,
+        track_name,
+        lanes,
+        lane,
+        clip: flat_timeline_clip,
+        clip_selected: selected,
+        clip_thumb,
+        clip_label,
+        clip_detail,
+        playhead: flat_timeline_line(2, TIMELINE_PLAYHEAD_LIGHT, TIMELINE_PLAYHEAD_DARK),
+        scroll: flat_strip_above(),
+        scroll_track,
+        thumb,
+        marker: None,
+    }
+}
+
+/// The flat timeline.
+#[must_use]
+pub fn timeline(t: crate::widgets::timeline::Timeline) -> Dom {
+    crate::widgets::timeline::build(t, &timeline_look())
+}
