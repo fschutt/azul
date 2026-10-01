@@ -448,4 +448,86 @@ mod tests {
         m.start_enter(key, (-120.0, 0.0), mode);
         assert_eq!(m.get(key).map(|a| a.class), Some(AnimClass::Exit));
     }
+
+    // --- Settling (PR #476 ledger, idle leftovers) --------------------------
+    //
+    // AzWidgets at rest held 476 FLIP moves whose values had converged
+    // (translate 15 -> 0.016) but never finished, so `needs_animation_frame`
+    // stayed true and the window never reached `FrameDamage::None`. On a
+    // spring's tail |v| ~ omega * |x| (omega = 13 for SMOOTH), so a velocity
+    // epsilon of 0.06 units/s demanded |x| < 0.005: the VELOCITY decided, and
+    // a converged state like (0.016, -0.2) - invisible, sub-pixel - counted
+    // as moving. Settled means: the spring can never again move further than
+    // `EPSILON_VALUE` from its target (its energy bounds the excursion).
+
+    #[test]
+    fn a_spring_that_can_no_longer_move_visibly_has_settled() {
+        // The converged state FB3 saw never finish.
+        assert!(Spring::SMOOTH.is_settled(0.016, 0.0, -0.2));
+        // One tick at that state - even a zero-length one, a pass that is
+        // not a frame - finishes the channel on its target.
+        let mut c = AnimChannel::spring(0.016, 0.0, Spring::SMOOTH);
+        c.velocity = -0.2;
+        c.tick(0.0);
+        assert!(c.is_finished(), "a converged spring must finish");
+        assert_eq!(c.current, 0.0);
+        assert_eq!(c.velocity, 0.0);
+    }
+
+    #[test]
+    fn a_spring_crossing_its_target_fast_has_not_settled() {
+        // Position alone would stop an overshooting spring mid-flight.
+        assert!(!Spring::SNAPPY.is_settled(0.0, 0.0, 5.0));
+        assert!(!Spring::SMOOTH.is_settled(0.01, 0.0, 2.0));
+        assert!(!Spring::GENTLE.is_settled(0.07, 0.0, 0.0));
+    }
+
+    #[test]
+    fn a_settled_spring_never_moves_further_than_the_epsilon_again() {
+        for spring in [Spring::SMOOTH, Spring::GENTLE, Spring::SNAPPY] {
+            for xi in -12..=12 {
+                for vi in -40..=40 {
+                    let (x0, v0) = (xi as f32 * 0.005, vi as f32 * 0.05);
+                    if !spring.is_settled(x0, 0.0, v0) {
+                        continue;
+                    }
+                    let (mut x, mut v) = (x0, v0);
+                    for _ in 0..480 {
+                        (x, v) = spring.step(x, 0.0, v, 1.0 / 120.0);
+                        assert!(
+                            x.abs() <= Spring::EPSILON_VALUE,
+                            "{spring:?} accepted ({x0}, {v0}) as settled, then moved to {x}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_flip_move_settles_within_a_second_at_any_frame_rate() {
+        for dt in [1.0 / 60.0, 1.0 / 120.0, 1.0 / 240.0_f32] {
+            let mut m = AnimationManager::new();
+            m.start_or_retarget_move(
+                AnimKey(1),
+                FlipTransform {
+                    translate_x: 15.0,
+                    translate_y: -300.0,
+                    scale_x: 1.0,
+                    scale_y: 1.0,
+                },
+                InterpolationMode::Spring(Spring::SMOOTH),
+            );
+            let mut t = 0.0_f32;
+            while !m.is_empty() && t < 1.1 {
+                m.tick(dt);
+                t += dt;
+            }
+            assert!(
+                m.is_empty(),
+                "a 300 px FLIP move at {dt} s per frame is still active after {t} s: {:?}",
+                m.get(AnimKey(1))
+            );
+        }
+    }
 }
