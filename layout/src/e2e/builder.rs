@@ -103,58 +103,6 @@ const MAX_TREE_DEPTH: usize = 128;
 /// Thumbnails kept per window before the cache starts over.
 const MAX_THUMBNAILS: usize = 512;
 
-/// The XML parser's void elements (`layout/src/xml/mod.rs`): written
-/// self-closing, and they take no children.
-const VOID_ELEMENTS: &[&str] = &[
-    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source",
-    "track", "wbr",
-];
-
-/// The XML parser's HTML5 auto-close rules (`layout/src/xml/mod.rs`): a `<p>`
-/// ends where a block element starts, so `<p><div/></p>` parses as two
-/// SIBLINGS. A document that nested them would show one tree and mount
-/// another, so the builder refuses the nesting instead.
-const AUTO_CLOSE: &[(&str, &[&str])] = &[
-    (
-        "p",
-        &[
-            "address",
-            "article",
-            "aside",
-            "blockquote",
-            "div",
-            "dl",
-            "fieldset",
-            "footer",
-            "form",
-            "h1",
-            "h2",
-            "h3",
-            "h4",
-            "h5",
-            "h6",
-            "header",
-            "hr",
-            "main",
-            "nav",
-            "ol",
-            "p",
-            "pre",
-            "section",
-            "table",
-            "ul",
-        ],
-    ),
-    ("li", &["li"]),
-    ("td", &["td", "th", "tr"]),
-    ("th", &["td", "th", "tr"]),
-    ("tr", &["tr"]),
-    ("option", &["option", "optgroup"]),
-    ("optgroup", &["optgroup"]),
-    ("dd", &["dd", "dt"]),
-    ("dt", &["dd", "dt"]),
-];
-
 thread_local! {
     /// Re-entrancy depth of [`builder_template_render_fn`]: a data-model
     /// component can render a template component that renders the first one
@@ -2724,22 +2672,24 @@ fn data_model_with_args(
 // Names and escaping
 // ===========================================================================
 
+/// The XML parser's void elements (`azul_core::xml::html`, the one tree
+/// construction every loader runs): written self-closing, and they take no
+/// children.
 fn is_void(tag: &str) -> bool {
-    VOID_ELEMENTS.contains(&tag)
+    azul_core::xml::html::is_void_element(tag)
 }
 
-/// Why `child` cannot be a child of `parent` under [`AUTO_CLOSE`], if it cannot.
+/// Why `child` cannot be a child of `parent`, if it cannot: the loaders' implied
+/// end tags (`azul_core::xml::html::start_tag_closes`) - a `<p>` ends where a
+/// block starts, so `<p><div/></p>` parses as two SIBLINGS, and a document that
+/// nested them would show one tree and mount another.
 fn why_not_inside(parent: &BuilderNodeKind, child: &BuilderNodeKind) -> Option<String> {
     let (BuilderNodeKind::Element { tag: parent_tag }, BuilderNodeKind::Element { tag }) =
         (parent, child)
     else {
         return None;
     };
-    let closers = AUTO_CLOSE
-        .iter()
-        .find(|(p, _)| *p == parent_tag.as_str())?
-        .1;
-    closers.contains(&tag.as_str()).then(|| {
+    azul_core::xml::html::start_tag_closes(parent_tag, tag).then(|| {
         format!(
             "a <{tag}> cannot go inside a <{parent_tag}>: HTML ends the <{parent_tag}> where the \
              <{tag}> starts, so the window would show them as siblings"

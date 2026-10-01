@@ -642,6 +642,37 @@ pub fn is_void_element(tag: &str) -> bool {
     )
 }
 
+/// Whether a `start` tag ends an open `open` element it would go into
+/// directly: the tree construction's implied end tags for a direct parent
+/// (`<p>` ends where a `<div>` starts, an `<li>` at the next `<li>`, a cell at
+/// the next cell or row). What a document editor asks before it nests
+/// `start` inside `open`: a loader would make them siblings. Names are
+/// lower-case.
+#[must_use]
+pub fn start_tag_closes(open: &str, start: &str) -> bool {
+    match open {
+        "p" => closes_p(start),
+        "li" => start == "li",
+        "dd" | "dt" => matches!(start, "dd" | "dt"),
+        "option" => matches!(start, "option" | "optgroup"),
+        "optgroup" => start == "optgroup",
+        "td" | "th" => matches!(
+            start,
+            "td" | "th" | "tr" | "thead" | "tbody" | "tfoot" | "caption" | "colgroup"
+        ),
+        "tr" => matches!(
+            start,
+            "tr" | "thead" | "tbody" | "tfoot" | "caption" | "colgroup"
+        ),
+        "thead" | "tbody" | "tfoot" | "caption" | "colgroup" => matches!(
+            start,
+            "thead" | "tbody" | "tfoot" | "caption" | "colgroup"
+        ),
+        h if is_heading(h) => is_heading(start),
+        _ => false,
+    }
+}
+
 /// The formatting elements: what a browser reopens in the next block when
 /// a block start closes them (`<p><b>x<p>y`).
 fn is_formatting(tag: &str) -> bool {
