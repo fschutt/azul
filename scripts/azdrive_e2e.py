@@ -259,15 +259,17 @@ class App:
         log("screenshot %s (%d bytes)" % (path, os.path.getsize(path)))
 
 
+# Explorer's layout keys: Ctrl+Shift+<digit>. (The ribbon's Layout gallery shows a strip that
+# clips its later cells; the keys reach every layout.)
 LAYOUTS = [
-    ("Extra large icons", "extra_large_icons"),
-    ("Large icons", "large_icons"),
-    ("Medium icons", "medium_icons"),
-    ("Small icons", "small_icons"),
-    ("List", "list"),
-    ("Tiles", "tiles"),
-    ("Content", "content"),
-    ("Details", "details"),
+    ("1", "extra_large_icons"),
+    ("2", "large_icons"),
+    ("3", "medium_icons"),
+    ("4", "small_icons"),
+    ("5", "list"),
+    ("7", "tiles"),
+    ("8", "content"),
+    ("6", "details"),
 ]
 
 
@@ -278,6 +280,9 @@ def item_names(app):
     by_index = {n["index"]: n for n in nodes}
     for n in nodes:
         if "azdrive-name" in (n.get("classes") or []):
+            if n.get("text"):
+                names.append(n["text"])
+                continue
             for child in n.get("children") or []:
                 text = by_index.get(child, {}).get("text")
                 if text:
@@ -332,17 +337,20 @@ def run(args, logs):
         if ".hidden-settings" in item_names(app):
             raise Failure("a hidden item shows while Hidden items is off")
 
-        # 3. Every layout.
-        app.click_exact("VIEW")
-        for label, name in LAYOUTS:
+        # 3. Every layout (Ctrl+Shift+1..8), and one through the ribbon's gallery.
+        for digit, name in LAYOUTS:
             app.after("the layout %s" % name, "AZDRIVE_LAYOUT", re.escape(name),
-                      lambda: app.click_exact(label))
+                      lambda: app.key(digit, ctrl=True, shift=True))
             app.until("the %s view" % name, lambda: "azdrive-layout-%s" % name in app.classes())
-            if not app.until("the items of %s" % name, lambda: item_names(app)):
-                raise Failure("the %s layout shows no items" % name)
+            app.until("the items of %s" % name, lambda: len(app.nodes_with_class("azdrive-item")) >= 5)
             if name in ("large_icons", "tiles"):
                 app.screenshot(os.path.join(out, "03-%s.png" % name))
-        log("3. all eight layouts render the folder")
+        app.click_exact("VIEW")
+        app.after("Large icons from the gallery", "AZDRIVE_LAYOUT", r"large_icons",
+                  lambda: app.click_exact("Large icons"))
+        app.after("Details from the status bar's switch", "AZDRIVE_LAYOUT", r"details",
+                  lambda: app.key("6", ctrl=True, shift=True))
+        log("3. all eight layouts render the folder (keys and the ribbon's gallery)")
 
         # 4. Sort by the Name header (twice: descending), then by Size.
         app.until("the Details header", lambda: app.has("#details-header"))
