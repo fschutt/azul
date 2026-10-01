@@ -86,6 +86,8 @@ pub struct Drafts {
     pub list_group: String,
     /// The To-Do bar's task line.
     pub todo: String,
+    /// The repeat editor ("Custom...") is open.
+    pub custom_repeat: bool,
 }
 
 /// File work running on a thread (besides the write queue).
@@ -452,6 +454,7 @@ impl Tasks {
             self.drafts.notes = self.tasks[i].notes.clone();
             self.drafts.step.clear();
             self.drafts.tag.clear();
+            self.drafts.custom_repeat = false;
         }
     }
 
