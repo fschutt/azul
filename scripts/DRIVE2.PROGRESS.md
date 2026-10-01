@@ -14,17 +14,19 @@ details panes, a Properties dialog, Settings on ShellSettingsLayout, and a headl
   AddressBar recent chevron + dimmed arrows, BrowserShell `tree_visible`.
 
 ## IN PROGRESS
-- `908e4b0f5` RED / `ddb4f6312` GREEN: the AzDrive model (browse, model, fileops, preview, keys).
-- `d2a0b20f6` WIP: new lib.rs (state, navigation, keyring, on_job_done, layout, start) + jobs.rs.
-  Still to write (lib.rs already declares them): `args.rs` (Args::parse, Screen, write_sample),
-  `actions.rs` (on_key_down, on_dropped_file, on_resized, run_command, open_drive_form,
-  request_preview, transfer_planned, transfer_ran, enqueue/pump of the queue, every ribbon
-  command), `ui_ribbon.rs`, `ui_view.rs` (content, on_column_drag_move/end), `ui_panes.rs`
-  (address_bar, navigation_pane, status_bar, preview_pane, details_pane), `ui_dialogs.rs`
-  (popup_parts, inline_sheet, on_dialog_closed, backstage).
+- Last commit: `fe60cb477` (actions.rs parts 1-3 done: Action table, keyboard, selection, clipboard,
+  transfer queue, conflicts, upload/download/drop, delete/rename/new/undo, properties, previews,
+  share, pins, view settings, context menu, drives). Earlier: `ae7f45a45` args.rs GREEN,
+  `d2a0b20f6` lib.rs core + jobs.rs.
+- NEXT STEP: write `ui_panes.rs` (address_bar, navigation_pane [ShellNavigationPane: groups Quick
+  access / This PC], status_bar, preview_pane, details_pane), then `ui_view.rs` (content: This PC,
+  Quick access, folder layouts, Details header with resizable columns, groups, items with click /
+  double-click / right-click / drag / drop / rename field, on_column_drag_move/end), then
+  `ui_ribbon.rs` (ribbon(s, app)), then `ui_dialogs.rs` (popup_parts, inline_sheet, on_dialog_closed,
+  backstage with ShellSettingsLayout). Each file in pieces, committed.
 
 ## NEXT
-- the UI modules above; parse-check; commit "feat(azul-drive): ..." (GREEN of the app).
+- review pass (unused imports, names against api_new.json), rustfmt parse check of the crate.
 - scripts/azdrive_e2e.py (headless), update examples/azul-drive/scripts/browse.py.
 - report scripts/DRIVE2_2026_10_01.md (api.json list, least-sure spots, test commands).
 
