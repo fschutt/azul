@@ -1740,6 +1740,1125 @@ fn about_dialog(app_ref: &RefAny) -> Dom {
         .dom()
 }
 
-// ==== PIECE E: callbacks ====
+// ==== callbacks ====
+
+/// A media bin item's payload.
+struct BinItem {
+    app: RefAny,
+    media: u64,
+}
+
+/// Which effect a number field sets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EffectField {
+    X,
+    Y,
+    Scale,
+    Opacity,
+    CropLeft,
+    CropRight,
+    CropTop,
+    CropBottom,
+    TransitionFrames,
+}
+
+impl EffectField {
+    fn label(self) -> &'static str {
+        match self {
+            EffectField::X => "Position X",
+            EffectField::Y => "Position Y",
+            EffectField::Scale => "Scale %",
+            EffectField::Opacity => "Opacity %",
+            EffectField::CropLeft => "Crop left %",
+            EffectField::CropRight => "Crop right %",
+            EffectField::CropTop => "Crop top %",
+            EffectField::CropBottom => "Crop bottom %",
+            EffectField::TransitionFrames => "Frames",
+        }
+    }
+}
+
+/// A number field's payload.
+struct EffectInput {
+    app: RefAny,
+    clip: u64,
+    field: EffectField,
+}
+
+/// Applies `edit`: the model changes, the picture and the file follow.
+fn apply_edit(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App, edit: Edit) -> Update {
+    let label = edit.label();
+    let Some(result) = app.project.as_mut().map(|p| p.edit(edit)) else {
+        return Update::DoNothing;
+    };
+    after_change(info, app_ref, app, label, result)
+}
+
+/// What every change of the sequence is followed by (an edit, an undo).
+fn after_change(
+    info: &mut CallbackInfo,
+    app_ref: &RefAny,
+    app: &mut App,
+    label: &str,
+    result: Result<(), model::EditError>,
+) -> Update {
+    match result {
+        Ok(()) => {
+            app.revision += 1;
+            app.program_frame = None;
+            if let Some(p) = app.project.as_ref() {
+                app.selected.retain(|id| p.sequence.clip(*id).is_some());
+            }
+            app.status = label.to_string();
+            announce(&format!(
+                "EDIT {} {} {}",
+                label.replace(' ', "_"),
+                app.clip_count(),
+                app.end()
+            ));
+            save(info, app_ref, app);
+            request_program_frame(info, app_ref, app);
+        }
+        Err(e) => {
+            app.status = e.message().to_string();
+        }
+    }
+    Update::RefreshDom
+}
+
+/// Moves the playhead to `f` (kept in view) and shows its picture.
+fn seek(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App, f: Frame) -> Update {
+    let end = app.end();
+    app.playhead = f.clamp(0, end.max(0));
+    let t = app.seconds(app.playhead);
+    let span = f64::from((app.window_width - 180.0).max(400.0)) / f64::from(app.pps.max(0.05));
+    if t < app.view_start || t > app.view_start + span * 0.95 {
+        app.view_start = (t - span * 0.1).max(0.0);
+    }
+    announce(&format!("PLAYHEAD {}", app.playhead));
+    request_program_frame(info, app_ref, app);
+    Update::RefreshDom
+}
+
+/// The first selected clip.
+fn selected_clip(app: &App) -> Option<model::Clip> {
+    let id = *app.selected.first()?;
+    app.project.as_ref()?.sequence.clip(id).cloned()
+}
+
+/// The selected clips lifted (or ripple-deleted with `ripple`).
+fn delete_selected(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App, ripple: bool) -> Update {
+    let ids = app.selected.clone();
+    if ids.is_empty() {
+        app.status = String::from("Select a clip to delete.");
+        return Update::RefreshDom;
+    }
+    let mut update = Update::DoNothing;
+    for id in ids {
+        let edit = if ripple {
+            Edit::RippleDelete { clip: id }
+        } else {
+            Edit::Lift { clip: id }
+        };
+        update = apply_edit(info, app_ref, app, edit);
+    }
+    update
+}
+
+/// Opens `media` in the source monitor with the marks of `range` (a clip's
+/// in and out), or none.
+fn open_in_source(
+    info: &mut CallbackInfo,
+    app_ref: &RefAny,
+    app: &mut App,
+    media: u64,
+    range: Option<(Frame, Frame)>,
+) -> Update {
+    app.source = Some(SourceMarks {
+        media,
+        mark_in: range.map(|r| r.0),
+        mark_out: range.map(|r| r.1),
+        position: range.map_or(0, |r| r.0),
+    });
+    app.source_frame = None;
+    app.active = Monitor::Source;
+    request_source_frame(info, app_ref, app);
+    Update::RefreshDom
+}
+
+/// Puts the source monitor's marked range on V1 at the playhead.
+fn source_to_timeline(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App, insert: bool) -> Update {
+    let Some(marks) = app.source else {
+        app.status = String::from("Open a clip in the source monitor first.");
+        return Update::RefreshDom;
+    };
+    let at = app.playhead;
+    let Some(clip) = app.project.as_mut().and_then(|p| p.clip_from_marks(&marks)) else {
+        app.status = String::from("The out mark lies before the in mark.");
+        return Update::RefreshDom;
+    };
+    let length = clip.length;
+    let edit = if insert {
+        Edit::Insert { track: 0, at, clip }
+    } else {
+        Edit::Overwrite { track: 0, at, clip }
+    };
+    let update = apply_edit(info, app_ref, app, edit);
+    app.playhead = at + length;
+    request_program_frame(info, app_ref, app);
+    update
+}
+
+/// Toggles playback at normal speed.
+fn toggle_play(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App) -> Update {
+    if app.playback.is_some() {
+        stop_playback(app);
+        announce(&format!("PLAYHEAD {}", app.playhead));
+    } else {
+        start_playback(info, app_ref, app, 1);
+    }
+    Update::RefreshDom
+}
+
+/// J / L: faster in their direction, or reversed.
+fn shuttle(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App, forward: bool) -> Update {
+    let speed = app.playback.as_ref().map_or(0, |p| p.speed);
+    let next = match (forward, speed) {
+        (true, s) if s > 0 => (s * 2).min(4),
+        (true, _) => 1,
+        (false, s) if s < 0 => (s * 2).max(-4),
+        (false, _) => -1,
+    };
+    start_playback(info, app_ref, app, next);
+    Update::RefreshDom
+}
+
+/// Zooms the timeline by `factor` about `anchor` seconds.
+fn zoom_about(app: &mut App, factor: f32, anchor: f64) {
+    let pps = (app.pps * factor).clamp(0.5, 2000.0);
+    let x = (anchor - app.view_start) * f64::from(app.pps);
+    app.view_start = (anchor - x / f64::from(pps)).max(0.0);
+    app.pps = pps;
+}
+
+/// Whether the focused node carries a class containing `part`.
+fn focus_has_class(info: &CallbackInfo, part: &str) -> bool {
+    info.get_focused_node()
+        .into_option()
+        .is_some_and(|node| {
+            info.get_node_classes(node)
+                .as_slice()
+                .iter()
+                .any(|c| c.as_str().contains(part))
+        })
+}
+
+/// The window's keys (Premiere's shortcuts).
+extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app_ref = data.clone();
+    let Some(key) = info.get_current_keyboard_state().current_virtual_keycode.into_option() else {
+        return Update::DoNothing;
+    };
+    let m = info.get_key_modifiers();
+    let cmd = m.ctrl || m.meta;
+    // A text field keeps its letters, the focused timeline its own keys.
+    if focus_has_class(&info, "text-input") || focus_has_class(&info, "number-input") {
+        return Update::DoNothing;
+    }
+    let timeline_focused = focus_has_class(&info, "__azul-native-timeline-lanes");
+    let Some(mut guard) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    let app = &mut *guard;
+    if matches!(key, VirtualKeyCode::Escape) {
+        app.settings_open = false;
+        app.about_open = false;
+        if app.export.shared.as_ref().map_or(true, |s| s.progress.lock().map_or(true, |p| p.finished)) {
+            app.export.open = false;
+        }
+        return Update::RefreshDom;
+    }
+    if app.project.is_none() {
+        return Update::DoNothing;
+    }
+    let fps = i64::from(app.fps());
+    let update = match key {
+        VirtualKeyCode::Z if cmd && m.shift => redo(&mut info, &app_ref, app),
+        VirtualKeyCode::Z if cmd => undo(&mut info, &app_ref, app),
+        VirtualKeyCode::Y if cmd => redo(&mut info, &app_ref, app),
+        VirtualKeyCode::K if cmd => {
+            let at = app.playhead;
+            apply_edit(&mut info, &app_ref, app, Edit::Razor { track: None, at })
+        }
+        VirtualKeyCode::E if cmd => {
+            app.export.open = true;
+            Update::RefreshDom
+        }
+        VirtualKeyCode::I if cmd => {
+            drop(guard);
+            return on_import(data, info);
+        }
+        _ if cmd => return Update::DoNothing,
+        VirtualKeyCode::Space => toggle_play(&mut info, &app_ref, app),
+        VirtualKeyCode::K => {
+            stop_playback(app);
+            Update::RefreshDom
+        }
+        VirtualKeyCode::L => shuttle(&mut info, &app_ref, app, true),
+        VirtualKeyCode::J => shuttle(&mut info, &app_ref, app, false),
+        VirtualKeyCode::I | VirtualKeyCode::O => {
+            let is_in = matches!(key, VirtualKeyCode::I);
+            match app.active {
+                Monitor::Source => {
+                    if let Some(marks) = app.source.as_mut() {
+                        if is_in {
+                            marks.mark_in = Some(marks.position);
+                        } else {
+                            marks.mark_out = Some(marks.position);
+                        }
+                    }
+                }
+                Monitor::Program => {
+                    if is_in {
+                        app.program_in = Some(app.playhead);
+                    } else {
+                        app.program_out = Some(app.playhead);
+                    }
+                }
+            }
+            Update::RefreshDom
+        }
+        VirtualKeyCode::Comma => source_to_timeline(&mut info, &app_ref, app, true),
+        VirtualKeyCode::Period => source_to_timeline(&mut info, &app_ref, app, false),
+        VirtualKeyCode::V => set_tool(app, Tool::Select),
+        VirtualKeyCode::C => set_tool(app, Tool::Razor),
+        VirtualKeyCode::B => set_tool(app, Tool::Ripple),
+        VirtualKeyCode::Y => set_tool(app, Tool::Slip),
+        VirtualKeyCode::H => set_tool(app, Tool::Hand),
+        VirtualKeyCode::Z => set_tool(app, Tool::Zoom),
+        VirtualKeyCode::S => {
+            app.snapping = !app.snapping;
+            Update::RefreshDom
+        }
+        _ if timeline_focused => return Update::DoNothing,
+        VirtualKeyCode::Left => {
+            stop_playback(app);
+            let f = app.playhead - if m.shift { fps } else { 1 };
+            seek(&mut info, &app_ref, app, f)
+        }
+        VirtualKeyCode::Right => {
+            stop_playback(app);
+            let f = app.playhead + if m.shift { fps } else { 1 };
+            seek(&mut info, &app_ref, app, f)
+        }
+        VirtualKeyCode::Home => seek(&mut info, &app_ref, app, 0),
+        VirtualKeyCode::End => {
+            let end = app.end();
+            seek(&mut info, &app_ref, app, end)
+        }
+        VirtualKeyCode::Up | VirtualKeyCode::Down => {
+            let points = app.project.as_ref().map(|p| p.sequence.edit_points()).unwrap_or_default();
+            let at = app.playhead;
+            let target = if matches!(key, VirtualKeyCode::Up) {
+                points.iter().rev().find(|p| **p < at).copied().unwrap_or(0)
+            } else {
+                points.iter().find(|p| **p > at).copied().unwrap_or(at)
+            };
+            seek(&mut info, &app_ref, app, target)
+        }
+        VirtualKeyCode::Delete | VirtualKeyCode::Back => delete_selected(&mut info, &app_ref, app, m.shift),
+        VirtualKeyCode::Equals => {
+            let anchor = app.seconds(app.playhead);
+            zoom_about(app, 1.25, anchor);
+            Update::RefreshDom
+        }
+        VirtualKeyCode::Minus => {
+            let anchor = app.seconds(app.playhead);
+            zoom_about(app, 0.8, anchor);
+            Update::RefreshDom
+        }
+        _ => return Update::DoNothing,
+    };
+    info.prevent_default();
+    update
+}
+
+fn set_tool(app: &mut App, tool: Tool) -> Update {
+    app.tool = tool;
+    app.status = format!("Tool: {}", tool.label());
+    Update::RefreshDom
+}
+
+fn undo(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App) -> Update {
+    let label = app.project.as_ref().and_then(Project::undo_label).unwrap_or("");
+    let done = app.project.as_mut().is_some_and(Project::undo);
+    if !done {
+        app.status = String::from("Nothing to undo.");
+        return Update::RefreshDom;
+    }
+    after_change(info, app_ref, app, &format!("Undo {label}"), Ok(()))
+}
+
+fn redo(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App) -> Update {
+    let label = app.project.as_ref().and_then(Project::redo_label).unwrap_or("");
+    let done = app.project.as_mut().is_some_and(Project::redo);
+    if !done {
+        app.status = String::from("Nothing to redo.");
+        return Update::RefreshDom;
+    }
+    after_change(info, app_ref, app, &format!("Redo {label}"), Ok(()))
+}
+
+/// What the timeline widget asks for.
+extern "C" fn on_timeline(mut data: RefAny, mut info: CallbackInfo, event: TimelineEvent) -> Update {
+    let app_ref = data.clone();
+    let Some(mut guard) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    let app = &mut *guard;
+    let at = app.frame_of(event.time);
+    match event.kind {
+        TimelineEventKind::Seek => {
+            stop_playback(app);
+            seek(&mut info, &app_ref, app, at)
+        }
+        TimelineEventKind::Scroll => {
+            app.view_start = event.time.max(0.0);
+            Update::RefreshDom
+        }
+        TimelineEventKind::Zoom => {
+            #[allow(clippy::cast_possible_truncation)]
+            let pps = event.value as f32;
+            app.pps = pps.clamp(0.5, 2000.0);
+            app.view_start = event.time.max(0.0);
+            Update::RefreshDom
+        }
+        TimelineEventKind::ZoomToFit => {
+            let span = app.seconds(app.end()).max(1.0);
+            #[allow(clippy::cast_possible_truncation)]
+            let pps = (f64::from((app.window_width - 180.0).max(400.0)) / span) as f32;
+            app.pps = pps.clamp(0.5, 2000.0);
+            app.view_start = 0.0;
+            Update::RefreshDom
+        }
+        TimelineEventKind::Select => match app.tool {
+            Tool::Razor => {
+                let track = if event.shift { None } else { Some(event.track) };
+                apply_edit(&mut info, &app_ref, app, Edit::Razor { track, at })
+            }
+            Tool::Zoom => {
+                zoom_about(app, if event.shift { 0.5 } else { 2.0 }, event.time);
+                Update::RefreshDom
+            }
+            _ => {
+                if event.shift || event.ctrl {
+                    if let Some(i) = app.selected.iter().position(|id| *id == event.clip_id) {
+                        app.selected.remove(i);
+                    } else {
+                        app.selected.push(event.clip_id);
+                    }
+                } else {
+                    app.selected = vec![event.clip_id];
+                }
+                Update::RefreshDom
+            }
+        },
+        TimelineEventKind::Open => {
+            let clip = app.project.as_ref().and_then(|p| p.sequence.clip(event.clip_id).cloned());
+            match clip {
+                Some(c) => open_in_source(
+                    &mut info,
+                    &app_ref,
+                    app,
+                    c.media,
+                    Some((c.source_in, c.source_in + c.length - 1)),
+                ),
+                None => Update::DoNothing,
+            }
+        }
+        TimelineEventKind::Move => {
+            if app.tool == Tool::Slip {
+                let start = app
+                    .project
+                    .as_ref()
+                    .and_then(|p| p.sequence.clip(event.clip_id).map(|c| c.start))
+                    .unwrap_or(at);
+                apply_edit(
+                    &mut info,
+                    &app_ref,
+                    app,
+                    Edit::Slip {
+                        clip: event.clip_id,
+                        delta: start - at,
+                    },
+                )
+            } else {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let track = event.value.max(0.0) as usize;
+                apply_edit(
+                    &mut info,
+                    &app_ref,
+                    app,
+                    Edit::Move {
+                        clip: event.clip_id,
+                        track,
+                        start: at,
+                    },
+                )
+            }
+        }
+        TimelineEventKind::Trim => {
+            let edge = if matches!(event.edge, TimelineEdge::Start) {
+                Edge::Start
+            } else {
+                Edge::End
+            };
+            let edit = if app.tool == Tool::Ripple {
+                Edit::RippleTrim {
+                    clip: event.clip_id,
+                    edge,
+                    at,
+                }
+            } else {
+                Edit::Trim {
+                    clip: event.clip_id,
+                    edge,
+                    at,
+                }
+            };
+            apply_edit(&mut info, &app_ref, app, edit)
+        }
+        TimelineEventKind::LaneClick => {
+            app.selected.clear();
+            Update::RefreshDom
+        }
+        TimelineEventKind::Delete => delete_selected(&mut info, &app_ref, app, event.shift),
+        TimelineEventKind::ToggleMute => {
+            let hidden = app
+                .project
+                .as_ref()
+                .and_then(|p| p.sequence.tracks.get(event.track).map(|t| t.hidden))
+                .unwrap_or(false);
+            apply_edit(
+                &mut info,
+                &app_ref,
+                app,
+                Edit::SetTrackHidden {
+                    track: event.track,
+                    hidden: !hidden,
+                },
+            )
+        }
+        TimelineEventKind::ToggleLock => {
+            let locked = app
+                .project
+                .as_ref()
+                .and_then(|p| p.sequence.tracks.get(event.track).map(|t| t.locked))
+                .unwrap_or(false);
+            apply_edit(
+                &mut info,
+                &app_ref,
+                app,
+                Edit::SetTrackLocked {
+                    track: event.track,
+                    locked: !locked,
+                },
+            )
+        }
+    }
+}
+
+/// The wheel over the timeline: scrolls the view; with Ctrl / Cmd, zooms
+/// about the playhead.
+extern "C" fn on_timeline_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let hit = info.get_hit_node();
+    let node = NodeId::create(hit.node.into_raw().saturating_sub(1));
+    let Some(delta) = info.get_scroll_delta(hit.dom, node).into_option() else {
+        return Update::DoNothing;
+    };
+    let m = info.get_key_modifiers();
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    if delta.x == 0.0 && delta.y == 0.0 {
+        return Update::DoNothing;
+    }
+    info.prevent_default();
+    if m.ctrl || m.meta {
+        let anchor = app.seconds(app.playhead);
+        zoom_about(&mut app, if delta.y < 0.0 { 1.15 } else { 1.0 / 1.15 }, anchor);
+    } else {
+        let d = if delta.x == 0.0 { delta.y } else { delta.x };
+        app.view_start = (app.view_start + f64::from(d) / f64::from(app.pps.max(0.05))).max(0.0);
+    }
+    Update::RefreshDom
+}
+
+extern "C" fn on_tool(mut data: RefAny, _info: CallbackInfo, state: SegmentedState) -> Update {
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    set_tool(&mut app, Tool::ALL[state.selected_index.min(Tool::ALL.len() - 1)])
+}
+
+extern "C" fn on_snap(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    app.snapping = !app.snapping;
+    Update::RefreshDom
+}
+
+extern "C" fn on_undo(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app_ref = data.clone();
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    undo(&mut info, &app_ref, &mut app)
+}
+
+extern "C" fn on_redo(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app_ref = data.clone();
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    redo(&mut info, &app_ref, &mut app)
+}
+
+extern "C" fn on_import(data: RefAny, _info: CallbackInfo) -> Update {
+    let filter = OptionFileTypeList::Some(FileTypeList {
+        document_types: StringVec::from(vec![
+            AzString::from("mp4"),
+            AzString::from("m4v"),
+            AzString::from("mov"),
+        ]),
+        document_descriptor: AzString::from("Video"),
+    });
+    let _request = FileDialog::open_multiple_files(
+        "Import media",
+        OptionString::None,
+        filter,
+        data,
+        on_import_picked,
+    );
+    Update::DoNothing
+}
+
+extern "C" fn on_import_picked(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    let Some(picked) = FileOpenMultiResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let paths: Vec<String> = picked
+        .paths
+        .as_slice()
+        .iter()
+        .map(|p: &FilePath| p.inner.as_str().to_string())
+        .filter(|p| !p.is_empty())
+        .collect();
+    if paths.is_empty() {
+        return Update::DoNothing;
+    }
+    let app_ref = data.clone();
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    if app.project.is_none() {
+        return Update::DoNothing;
+    }
+    app.status = format!("Importing {} file(s)...", paths.len());
+    let fps = app.fps();
+    spawn(&mut info, &app_ref, &app, Job::Import { paths, fps });
+    Update::RefreshDom
+}
+
+extern "C" fn on_bin_click(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some((mut app_ref, media)) = data.downcast_ref::<BinItem>().map(|b| (b.app.clone(), b.media)) else {
+        return Update::DoNothing;
+    };
+    let Some(mut app) = app_ref.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    app.selected_media = Some(media);
+    Update::RefreshDom
+}
+
+extern "C" fn on_bin_open(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app_ref, media)) = data.downcast_ref::<BinItem>().map(|b| (b.app.clone(), b.media)) else {
+        return Update::DoNothing;
+    };
+    let handle = app_ref.clone();
+    let Some(mut app) = app_ref.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    app.selected_media = Some(media);
+    open_in_source(&mut info, &handle, &mut app, media, None)
+}
+
+extern "C" fn on_bin_open_selected(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app_ref = data.clone();
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    let Some(media) = app.selected_media.or_else(|| app.project.as_ref().and_then(|p| p.media.first().map(|m| m.id))) else {
+        return Update::DoNothing;
+    };
+    open_in_source(&mut info, &app_ref, &mut app, media, None)
+}
+
+extern "C" fn on_source_slider(mut data: RefAny, mut info: CallbackInfo, state: SliderState) -> Update {
+    let app_ref = data.clone();
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    #[allow(clippy::cast_possible_truncation)]
+    let position = state.value.round() as Frame;
+    if let Some(marks) = app.source.as_mut() {
+        marks.position = position.max(0);
+    }
+    app.active = Monitor::Source;
+    request_source_frame(&mut info, &app_ref, &mut app);
+    Update::RefreshDom
+}
+
+extern "C" fn on_activate_source(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    if app.active == Monitor::Source {
+        return Update::DoNothing;
+    }
+    app.active = Monitor::Source;
+    Update::RefreshDom
+}
+
+extern "C" fn on_activate_program(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    if app.active == Monitor::Program {
+        return Update::DoNothing;
+    }
+    app.active = Monitor::Program;
+    Update::RefreshDom
+}
+
+/// Sets the source monitor's in (`is_in`) or out mark at its position.
+fn source_mark(data: &mut RefAny, is_in: bool) -> Update {
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    if let Some(marks) = app.source.as_mut() {
+        if is_in {
+            marks.mark_in = Some(marks.position);
+        } else {
+            marks.mark_out = Some(marks.position);
+        }
+    }
+    app.active = Monitor::Source;
+    Update::RefreshDom
+}
+
+extern "C" fn on_source_in(mut data: RefAny, _info: CallbackInfo) -> Update {
+    source_mark(&mut data, true)
+}
+
+extern "C" fn on_source_out(mut data: RefAny, _info: CallbackInfo) -> Update {
+    source_mark(&mut data, false)
+}
+
+extern "C" fn on_insert(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app_ref = data.clone();
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    source_to_timeline(&mut info, &app_ref, &mut app, true)
+}
+
+extern "C" fn on_overwrite(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app_ref = data.clone();
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    source_to_timeline(&mut info, &app_ref, &mut app, false)
+}
+
+/// Moves the playhead by `delta` frames, or to `to`.
+fn transport(data: &mut RefAny, info: &mut CallbackInfo, delta: Frame, to: Option<Frame>) -> Update {
+    let app_ref = data.clone();
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    stop_playback(&mut app);
+    app.active = Monitor::Program;
+    let f = to.unwrap_or(app.playhead + delta);
+    seek(info, &app_ref, &mut app, f)
+}
+
+extern "C" fn on_go_start(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    transport(&mut data, &mut info, 0, Some(0))
+}
+
+extern "C" fn on_go_end(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let end = data.downcast_ref::<App>().map_or(0, |a| a.end());
+    transport(&mut data, &mut info, 0, Some(end))
+}
+
+extern "C" fn on_step_back(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    transport(&mut data, &mut info, -1, None)
+}
+
+extern "C" fn on_step_forward(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    transport(&mut data, &mut info, 1, None)
+}
+
+extern "C" fn on_play_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app_ref = data.clone();
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    toggle_play(&mut info, &app_ref, &mut app)
+}
+
+/// Sets the program monitor's in (`is_in`) or out mark at the playhead.
+fn program_mark(data: &mut RefAny, is_in: bool) -> Update {
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    let at = app.playhead;
+    if is_in {
+        app.program_in = Some(at);
+    } else {
+        app.program_out = Some(at);
+    }
+    app.active = Monitor::Program;
+    Update::RefreshDom
+}
+
+extern "C" fn on_program_in(mut data: RefAny, _info: CallbackInfo) -> Update {
+    program_mark(&mut data, true)
+}
+
+extern "C" fn on_program_out(mut data: RefAny, _info: CallbackInfo) -> Update {
+    program_mark(&mut data, false)
+}
+
+/// A number field of the effect controls changed.
+extern "C" fn on_effect_value(mut data: RefAny, mut info: CallbackInfo, state: NumberInputState) -> Update {
+    let Some((mut app_ref, clip_id, field)) =
+        data.downcast_ref::<EffectInput>().map(|e| (e.app.clone(), e.clip, e.field))
+    else {
+        return Update::DoNothing;
+    };
+    let handle = app_ref.clone();
+    let Some(mut app) = app_ref.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    let Some(clip) = app.project.as_ref().and_then(|p| p.sequence.clip(clip_id).cloned()) else {
+        return Update::DoNothing;
+    };
+    let v = state.number;
+    let mut e: Effects = clip.effects;
+    let edit = match field {
+        EffectField::X => {
+            e.x = v;
+            Edit::SetEffects { clip: clip_id, effects: e }
+        }
+        EffectField::Y => {
+            e.y = v;
+            Edit::SetEffects { clip: clip_id, effects: e }
+        }
+        EffectField::Scale => {
+            e.scale = (v / 100.0).max(0.01);
+            Edit::SetEffects { clip: clip_id, effects: e }
+        }
+        EffectField::Opacity => {
+            e.opacity = (v / 100.0).clamp(0.0, 1.0);
+            Edit::SetEffects { clip: clip_id, effects: e }
+        }
+        EffectField::CropLeft => {
+            e.crop_left = (v / 100.0).clamp(0.0, 1.0);
+            Edit::SetEffects { clip: clip_id, effects: e }
+        }
+        EffectField::CropRight => {
+            e.crop_right = (v / 100.0).clamp(0.0, 1.0);
+            Edit::SetEffects { clip: clip_id, effects: e }
+        }
+        EffectField::CropTop => {
+            e.crop_top = (v / 100.0).clamp(0.0, 1.0);
+            Edit::SetEffects { clip: clip_id, effects: e }
+        }
+        EffectField::CropBottom => {
+            e.crop_bottom = (v / 100.0).clamp(0.0, 1.0);
+            Edit::SetEffects { clip: clip_id, effects: e }
+        }
+        EffectField::TransitionFrames => {
+            #[allow(clippy::cast_possible_truncation)]
+            let frames = v.round().max(1.0) as Frame;
+            let transition = clip.transition.map(|t| Transition { frames, ..t });
+            Edit::SetTransition { clip: clip_id, transition }
+        }
+    };
+    apply_edit(&mut info, &handle, &mut app, edit)
+}
+
+extern "C" fn on_transition_kind(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    let app_ref = data.clone();
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    let Some(clip) = selected_clip(&app) else {
+        return Update::DoNothing;
+    };
+    let frames = clip.transition.map_or(12, |t| t.frames);
+    let transition = match state.selected_index {
+        1 => Some(Transition { kind: TransitionKind::CrossDissolve, frames }),
+        2 => Some(Transition { kind: TransitionKind::DipToBlack, frames }),
+        _ => None,
+    };
+    apply_edit(&mut info, &app_ref, &mut app, Edit::SetTransition { clip: clip.id, transition })
+}
+
+extern "C" fn on_toggle_enabled(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app_ref = data.clone();
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    let Some(clip) = selected_clip(&app) else {
+        return Update::DoNothing;
+    };
+    apply_edit(
+        &mut info,
+        &app_ref,
+        &mut app,
+        Edit::SetEnabled {
+            clip: clip.id,
+            enabled: !clip.enabled,
+        },
+    )
+}
+
+extern "C" fn on_reset_effects(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app_ref = data.clone();
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    let Some(clip) = selected_clip(&app) else {
+        return Update::DoNothing;
+    };
+    apply_edit(
+        &mut info,
+        &app_ref,
+        &mut app,
+        Edit::SetEffects {
+            clip: clip.id,
+            effects: Effects::default(),
+        },
+    )
+}
+
+extern "C" fn on_export_open(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    app.export.open = true;
+    Update::RefreshDom
+}
+
+extern "C" fn on_export_close(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    app.export.open = false;
+    Update::RefreshDom
+}
+
+/// A dialog's own close button (or Escape in it): the dialogs close; an
+/// export runs on.
+extern "C" fn on_dialog_close(mut data: RefAny, _info: CallbackInfo, _state: DialogState) -> Update {
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    app.export.open = false;
+    app.settings_open = false;
+    app.about_open = false;
+    Update::RefreshDom
+}
+
+/// One of the export dialog's choices.
+fn export_choice(data: &mut RefAny, set: impl FnOnce(&mut ExportState)) -> Update {
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    set(&mut app.export);
+    Update::RefreshDom
+}
+
+extern "C" fn on_export_size(mut data: RefAny, _info: CallbackInfo, state: SegmentedState) -> Update {
+    export_choice(&mut data, |e| e.size = state.selected_index.min(EXPORT_SIZES.len() - 1))
+}
+
+extern "C" fn on_export_bitrate(mut data: RefAny, _info: CallbackInfo, state: SegmentedState) -> Update {
+    export_choice(&mut data, |e| e.bitrate = state.selected_index.min(EXPORT_BITRATES.len() - 1))
+}
+
+extern "C" fn on_export_range(mut data: RefAny, _info: CallbackInfo, state: SegmentedState) -> Update {
+    export_choice(&mut data, |e| e.range = state.selected_index.min(2))
+}
+
+/// Starts the export the dialog describes, and a timer that shows its
+/// progress until it ends.
+extern "C" fn on_export_start(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app_ref = data.clone();
+    let Some(mut guard) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    let app = &mut *guard;
+    let Some(project) = app.project.clone() else {
+        return Update::DoNothing;
+    };
+    if app.export.shared.as_ref().is_some_and(|s| s.progress.lock().map_or(false, |p| !p.finished)) {
+        return Update::DoNothing;
+    }
+    let (width, height) = EXPORT_SIZES[app.export.size.min(EXPORT_SIZES.len() - 1)];
+    let range = match (app.export.range, app.program_in, app.program_out) {
+        (1, Some(from), Some(to)) => ExportRange::Marked { from, to },
+        (2, _, _) => ExportRange::First(i64::from(project.sequence.fps)),
+        _ => ExportRange::Sequence,
+    };
+    let settings = ExportSettings {
+        width,
+        height,
+        bitrate_kbps: EXPORT_BITRATES[app.export.bitrate.min(EXPORT_BITRATES.len() - 1)],
+        range,
+        name: project.name.clone(),
+    };
+    let shared = Arc::new(ExportShared::default());
+    app.export.shared = Some(shared.clone());
+    app.export.last_line.clear();
+    app.status = String::from("Exporting...");
+    spawn(&mut info, &app_ref, app, Job::Export { project, settings, shared });
+    let timer = TimerId::unique();
+    let get_time = info.get_system_time_fn();
+    info.add_timer(
+        timer,
+        Timer::create(app_ref.clone(), export_tick, get_time)
+            .with_interval(Duration::System(SystemTimeDiff::from_millis(200))),
+    );
+    app.export.timer = Some(timer);
+    Update::RefreshDom
+}
+
+/// The export's progress on screen, five times a second, until it ends.
+extern "C" fn export_tick(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackReturn {
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return TimerCallbackReturn::terminate_unchanged();
+    };
+    let Some(progress) = app
+        .export
+        .shared
+        .as_ref()
+        .and_then(|s| s.progress.lock().ok().map(|p| p.clone()))
+    else {
+        app.export.timer = None;
+        return TimerCallbackReturn::terminate_unchanged();
+    };
+    let line = format!("EXPORT {} {}", progress.done, progress.total);
+    if line != app.export.last_line {
+        announce(&line);
+        app.export.last_line = line;
+    }
+    if progress.finished {
+        app.export.timer = None;
+        TimerCallbackReturn::terminate_and_refresh_dom()
+    } else {
+        TimerCallbackReturn::continue_and_refresh_dom()
+    }
+}
+
+extern "C" fn on_export_cancel(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    if let Some(s) = app.export.shared.as_ref() {
+        s.cancel.store(true, Ordering::Relaxed);
+    }
+    app.status = String::from("Cancelling the export...");
+    Update::RefreshDom
+}
+
+extern "C" fn on_settings_open(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    app.settings_open = true;
+    Update::RefreshDom
+}
+
+extern "C" fn on_about_open(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    app.settings_open = false;
+    app.about_open = true;
+    Update::RefreshDom
+}
+
+extern "C" fn on_about_close(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    app.about_open = false;
+    Update::RefreshDom
+}
+
+extern "C" fn on_theme_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let flora = data.downcast_ref::<App>().is_some_and(|a| a.flora);
+    info.set_theme(AzString::from(if flora { "flat" } else { "flora" }));
+    Update::DoNothing
+}
+
+extern "C" fn on_mode_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let dark = data.downcast_ref::<App>().is_some_and(|a| a.dark);
+    info.set_mode(OptionDarkLightMode::Some(if dark {
+        DarkLightMode::Light
+    } else {
+        DarkLightMode::Dark
+    }));
+    Update::DoNothing
+}
+
+/// Makes the sample project (a job: it may encode two clips).
+extern "C" fn on_make_sample(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app_ref = data.clone();
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    app.loading = true;
+    let id = Uuid::v4().as_str().to_string();
+    spawn(
+        &mut info,
+        &app_ref,
+        &app,
+        Job::Load {
+            sample_id: Some(id),
+            project: None,
+        },
+    );
+    Update::RefreshDom
+}
+
+/// Starts an empty project.
+extern "C" fn on_new_project(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app_ref = data.clone();
+    let Some(mut app) = data.downcast_mut::<App>() else {
+        return Update::DoNothing;
+    };
+    let id = Uuid::v4().as_str().to_string();
+    app.project = Some(Project::create(id.clone(), String::from("Untitled"), 1280, 720, 25));
+    app.revision += 1;
+    announce(&format!("PROJECT {id} 0 0"));
+    save(&mut info, &app_ref, &app);
+    Update::RefreshDom
+}
 
 // ==== PIECE F: start ====
