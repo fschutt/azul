@@ -473,28 +473,55 @@ pub fn repeat_choices(date: NaiveDate, custom: Option<&Rule>) -> Vec<(Repeat, St
 /// "Custom" when the event has a rule of its own.
 #[must_use]
 pub fn repeat_segments(has_custom: bool) -> Vec<&'static str> {
-    todo!()
+    let mut segments = vec!["Does not repeat", "Daily", "Weekly", "Monthly", "Yearly"];
+    if has_custom {
+        segments.push("Custom");
+    }
+    segments
 }
 
 /// The segment `repeat` is shown on (weekly and every weekday share "Weekly", the two monthly
 /// choices "Monthly").
 #[must_use]
 pub fn repeat_segment(repeat: Repeat) -> usize {
-    todo!()
+    match repeat {
+        Repeat::Never => 0,
+        Repeat::Daily => 1,
+        Repeat::Weekly | Repeat::Weekdays => 2,
+        Repeat::MonthlyDay | Repeat::MonthlyWeekday => 3,
+        Repeat::Yearly => 4,
+        Repeat::Custom => 5,
+    }
 }
 
 /// The repeat a click on segment `index` picks; within "Weekly" and "Monthly" the choice
 /// stays the one it was.
 #[must_use]
 pub fn repeat_of_segment(index: usize, current: Repeat) -> Repeat {
-    todo!()
+    match index {
+        0 => Repeat::Never,
+        1 => Repeat::Daily,
+        2 if current == Repeat::Weekdays => Repeat::Weekdays,
+        2 => Repeat::Weekly,
+        3 if current == Repeat::MonthlyWeekday => Repeat::MonthlyWeekday,
+        3 => Repeat::MonthlyDay,
+        4 => Repeat::Yearly,
+        _ => Repeat::Custom,
+    }
 }
 
 /// The second row of a weekly or monthly repeat: its two choices, as `(choice, label)`;
 /// empty for every other repeat.
 #[must_use]
 pub fn repeat_variants(repeat: Repeat, date: NaiveDate) -> Vec<(Repeat, String)> {
-    todo!()
+    let pair = match repeat {
+        Repeat::Weekly | Repeat::Weekdays => [Repeat::Weekly, Repeat::Weekdays],
+        Repeat::MonthlyDay | Repeat::MonthlyWeekday => [Repeat::MonthlyDay, Repeat::MonthlyWeekday],
+        _ => return Vec::new(),
+    };
+    pair.into_iter()
+        .map(|r| (r, repeat_label(r, date, None)))
+        .collect()
 }
 
 /// The unit of "Every N ...": "days", "weeks", "months", "years".
