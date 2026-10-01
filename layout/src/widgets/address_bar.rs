@@ -34,7 +34,8 @@ use azul_css::{
             LayoutFlexShrink, LayoutMinWidth,
         },
         property::CssProperty,
-        style::{StyleCursor, StyleUserSelect},
+        basic::length::PercentageValue,
+        style::{effects::StyleOpacity, StyleCursor, StyleUserSelect},
     },
     AzString, StringVec,
 };
@@ -62,6 +63,16 @@ static FIELD_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
 static SEARCH_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-address-bar-search",
 ))];
+/// Added to the box of an arrow that cannot go: dimmed, announced unavailable.
+pub const NAV_DISABLED_CLASS: &str = "__azul-native-address-bar-nav-disabled";
+
+/// An arrow that cannot go is dimmed (the same in every theme).
+pub(crate) static ADDRESS_BAR_NAV_DISABLED_BASE: &[CssPropertyWithConditions] =
+    &[CssPropertyWithConditions::simple(CssProperty::const_opacity(
+        StyleOpacity {
+            inner: PercentageValue::const_new(40),
+        },
+    ))];
 
 /// What happened on the bar.
 #[repr(C)]
@@ -90,6 +101,9 @@ pub enum AddressBarEventKind {
     EditCancelled,
     /// The search box changed: `text` is its text.
     Search,
+    /// The "Recent locations" chevron right of Forward (`with_recent`): the
+    /// app opens a menu of the places visited, at the hit node.
+    Recent,
 }
 
 /// One action on the bar: what, which crumb, what text.
@@ -156,6 +170,9 @@ pub struct AddressBar {
     pub can_go_up: bool,
     /// Show the path as an editable field instead of the trail.
     pub editing: bool,
+    /// Show Explorer's "Recent locations" chevron right of Forward, which
+    /// reports [`AddressBarEventKind::Recent`].
+    pub show_recent: bool,
 }
 
 /// What a theme decides about an address bar: the SKIN of each part, laid
@@ -232,6 +249,7 @@ impl AddressBar {
             can_go_forward: false,
             can_go_up: false,
             editing: false,
+            show_recent: false,
         }
     }
 
@@ -294,6 +312,18 @@ impl AddressBar {
     #[must_use]
     pub const fn with_editing(mut self, editing: bool) -> Self {
         self.set_editing(editing);
+        self
+    }
+
+    /// Show (or hide) the "Recent locations" chevron right of Forward.
+    pub const fn set_recent(&mut self, show_recent: bool) {
+        self.show_recent = show_recent;
+    }
+
+    /// [`Self::set_recent`] for the builder chain.
+    #[must_use]
+    pub const fn with_recent(mut self, show_recent: bool) -> Self {
+        self.set_recent(show_recent);
         self
     }
 
@@ -407,6 +437,16 @@ extern "C" fn on_forward(mut data: RefAny, info: CallbackInfo) -> Update {
         &mut data,
         info,
         AddressBarEventKind::Forward,
+        0,
+        AzString::from_const_str(""),
+    )
+}
+
+extern "C" fn on_recent(mut data: RefAny, info: CallbackInfo) -> Update {
+    emit(
+        &mut data,
+        info,
+        AddressBarEventKind::Recent,
         0,
         AzString::from_const_str(""),
     )
@@ -558,12 +598,13 @@ pub(crate) fn build(bar: AddressBar, look: &AddressBarLook) -> Dom {
         can_go_forward,
         can_go_up,
         editing,
+        show_recent,
     } = bar;
     let theme = theme.into_option();
     let shared = RefAny::new(AddressBarShared { on_event });
 
     // An arrow or Refresh: an icon button in its box. One that cannot go
-    // has no click.
+    // has no click, is dimmed and is announced unavailable.
     let nav = |icon: &'static str, enabled: bool, on_click: ButtonOnClickCallbackType| {
         let mut button = Button::create(AzString::from_const_str(""))
             .with_icon(AzString::from_const_str(icon));
@@ -573,10 +614,29 @@ pub(crate) fn build(bar: AddressBar, look: &AddressBarLook) -> Dom {
         if let Some(theme) = theme {
             button = button.with_theme(theme);
         }
+        let mut button = button.dom();
+        let mut classes: Vec<IdOrClass> = NAV_CLASS.to_vec();
+        let mut style = part(ADDRESS_BAR_NAV_BASE, &look.nav);
+        if !enabled {
+            classes.push(Class(AzString::from_const_str(NAV_DISABLED_CLASS)));
+            style = crate::widgets::themes::theme_blocks::stack_parts(
+                &style,
+                &CssPropertyWithConditionsVec::from_const_slice(ADDRESS_BAR_NAV_DISABLED_BASE),
+            );
+            let mut a11y = button
+                .root
+                .get_accessibility_info()
+                .cloned()
+                .unwrap_or_default();
+            let mut states = a11y.states.clone().into_library_owned_vec();
+            states.push(azul_core::a11y::AccessibilityState::Unavailable);
+            a11y.states = azul_core::a11y::AccessibilityStateVec::from_vec(states);
+            button.root.set_accessibility_info(a11y);
+        }
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(NAV_CLASS))
-            .with_css_props(part(ADDRESS_BAR_NAV_BASE, &look.nav))
-            .with_child(button.dom())
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+            .with_css_props(style)
+            .with_child(button)
     };
 
     let field = if editing {
@@ -653,14 +713,22 @@ pub(crate) fn build(bar: AddressBar, look: &AddressBarLook) -> Dom {
             role: azul_core::a11y::AccessibilityRole::Toolbar,
             ..Default::default()
         })
-        .with_children(DomVec::from_vec(alloc::vec![
-            nav("arrow_back", can_go_back, on_back),
-            nav("arrow_forward", can_go_forward, on_forward),
-            nav("arrow_upward", can_go_up, on_up),
-            field,
-            nav("refresh", true, on_refresh),
-            search_box,
-        ]))
+        .with_children(DomVec::from_vec({
+            let mut parts = alloc::vec![
+                nav("arrow_back", can_go_back, on_back),
+                nav("arrow_forward", can_go_forward, on_forward),
+            ];
+            if show_recent {
+                parts.push(nav("expand_more", true, on_recent));
+            }
+            parts.extend([
+                nav("arrow_upward", can_go_up, on_up),
+                field,
+                nav("refresh", true, on_refresh),
+                search_box,
+            ]);
+            parts
+        }))
 }
 
 #[cfg(test)]

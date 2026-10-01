@@ -93,6 +93,9 @@ pub struct BrowserShell {
     /// The widget theme this shell is PINNED to (`with_theme`), or `None`
     /// to follow the app theme.
     pub theme: OptionUiTheme,
+    /// Whether the navigation tree is shown (default); hidden, the content
+    /// takes its place and F6 skips it (Explorer's View > Navigation pane).
+    pub tree_visible: bool,
 }
 
 impl BrowserShell {
@@ -115,6 +118,7 @@ impl BrowserShell {
             content_ratio: 0.7,
             details_ratio: 0.22,
             theme: OptionUiTheme::None,
+            tree_visible: true,
         }
     }
 
@@ -187,6 +191,18 @@ impl BrowserShell {
     #[must_use]
     pub fn with_status_bar(mut self, status_bar: Dom) -> Self {
         self.set_status_bar(status_bar);
+        self
+    }
+
+    /// Show or hide the navigation tree.
+    pub const fn set_tree_visible(&mut self, visible: bool) {
+        self.tree_visible = visible;
+    }
+
+    /// [`Self::set_tree_visible`] for the builder chain.
+    #[must_use]
+    pub const fn with_tree_visible(mut self, visible: bool) -> Self {
+        self.set_tree_visible(visible);
         self
     }
 
@@ -298,6 +314,7 @@ impl BrowserShell {
             content_ratio,
             details_ratio,
             theme,
+            tree_visible,
         } = self;
         // The ribbon row: the ribbon (if any) over the address bar.
         let address_row = Dom::create_div()
@@ -331,7 +348,8 @@ impl BrowserShell {
             ShellPane::create(AzString::from_const_str(TREE_ID), tree)
                 .with_kind(ShellPaneKind::Navigation)
                 .with_label(AzString::from_const_str("Navigation"))
-                .with_ratio(tree_ratio),
+                .with_ratio(tree_ratio)
+                .with_visible(tree_visible),
         )
         .with_pane(
             ShellPane::create(AzString::from_const_str(CONTENT_ID), content)

@@ -2702,6 +2702,12 @@ pub struct RibbonButton {
     pub toggled: bool,
     /// Optional click callback (same family as [`Button::on_click`]).
     pub on_click: OptionButtonOnClick,
+    /// Why the command cannot run now ("Select a file to rename"); empty =
+    /// enabled. A disabled button keeps its place and its keyboard stop, is
+    /// dimmed, never runs `on_click`, is announced unavailable with this
+    /// reason as its description, and shows the reason as a tooltip on hover
+    /// and on click (Office's greyed commands and their tooltips).
+    pub disabled_reason: AzString,
 }
 
 /// Drop-down decoration of a [`RibbonButton`].
@@ -3004,7 +3010,27 @@ impl RibbonButton {
             arrow: RibbonArrow::None,
             toggled: false,
             on_click: OptionButtonOnClick::None,
+            disabled_reason: AzString::from_const_str(""),
         }
+    }
+
+    /// Disables the button: `reason` says why the command cannot run now
+    /// (an empty reason enables it again). See [`Self::disabled_reason`].
+    pub fn set_disabled(&mut self, reason: AzString) {
+        self.disabled_reason = reason;
+    }
+
+    /// Builder method: disables the button with `reason` and returns `self`.
+    #[must_use]
+    pub fn with_disabled(mut self, reason: AzString) -> Self {
+        self.set_disabled(reason);
+        self
+    }
+
+    /// Whether the button is disabled (it has a reason).
+    #[must_use]
+    pub fn is_disabled(&self) -> bool {
+        !self.disabled_reason.as_str().is_empty()
     }
 
     /// Builder method: sets the arrow decoration and returns `self`.
@@ -3684,7 +3710,91 @@ fn styled_button(
     b.dom()
 }
 
+/// Added to a disabled ribbon button ([`RibbonButton::disabled_reason`]).
+pub const RIBBON_DISABLED_CLASS: &str = "__azul-native-ribbon-button-disabled";
+
+/// What a disabled button's callbacks carry: why it cannot run.
+#[derive(Debug, Clone)]
+struct DisabledReason(AzString);
+
+/// The pointer rests on a disabled button, or it was clicked: say why.
+extern "C" fn show_disabled_reason(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let reason = data.downcast_ref::<DisabledReason>().map(|r| r.0.clone());
+    if let Some(reason) = reason {
+        info.show_tooltip(reason);
+    }
+    Update::DoNothing
+}
+
+/// The pointer left a disabled button.
+extern "C" fn hide_disabled_reason(_data: RefAny, mut info: CallbackInfo) -> Update {
+    info.hide_tooltip();
+    Update::DoNothing
+}
+
+/// A disabled button's face: the resting style without its hover / pressed
+/// states, dimmed.
+fn disabled_style(container: &CssPropertyWithConditionsVec) -> CssPropertyWithConditionsVec {
+    use azul_css::dynamic_selector::PseudoStateType;
+    let resting: Vec<Cond> = container
+        .as_ref()
+        .iter()
+        .filter(|c| {
+            let states = c.pseudo_state_conditions();
+            !states.contains(&PseudoStateType::Hover) && !states.contains(&PseudoStateType::Active)
+        })
+        .cloned()
+        .collect();
+    let dimmed = CssPropertyWithConditionsVec::from_vec(vec![Cond::simple(P::const_opacity(
+        StyleOpacity {
+            inner: PercentageValue::const_new(40),
+        },
+    ))]);
+    merged_style(&CssPropertyWithConditionsVec::from_vec(resting), &dimmed)
+}
+
+/// Marks a built button disabled: the class, the unavailable state with the
+/// reason as its description, and the callbacks that show the reason.
+fn mark_disabled(dom: &mut Dom, reason: AzString) {
+    use azul_core::{
+        a11y::{AccessibilityInfo, AccessibilityState, AccessibilityStateVec},
+        callbacks::{CoreCallback, CoreCallbackData},
+        refany::OptionRefAny,
+    };
+    dom.root
+        .add_class(AzString::from_const_str(RIBBON_DISABLED_CLASS));
+    let mut a11y: AccessibilityInfo = dom
+        .root
+        .get_accessibility_info()
+        .cloned()
+        .unwrap_or_default();
+    let mut states = a11y.states.clone().into_library_owned_vec();
+    if !states.contains(&AccessibilityState::Unavailable) {
+        states.push(AccessibilityState::Unavailable);
+    }
+    a11y.states = AccessibilityStateVec::from_vec(states);
+    a11y.description = azul_css::OptionString::Some(reason.clone());
+    dom.root.set_accessibility_info(a11y);
+    let mut callbacks = dom.root.get_callbacks().clone().into_library_owned_vec();
+    for (event, cb) in [
+        (HoverEventFilter::MouseEnter, show_disabled_reason as usize),
+        (HoverEventFilter::Click, show_disabled_reason as usize),
+        (HoverEventFilter::MouseLeave, hide_disabled_reason as usize),
+    ] {
+        callbacks.push(CoreCallbackData {
+            event: EventFilter::Hover(event),
+            callback: CoreCallback {
+                cb,
+                ctx: OptionRefAny::None,
+            },
+            refany: RefAny::new(DisabledReason(reason.clone())),
+        });
+    }
+    dom.root.set_callbacks(callbacks.into());
+}
+
 fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: UiTheme) -> Dom {
+    let disabled = rb.is_disabled();
     let base = if large {
         &s.resolved_large_button_style()
     } else {
@@ -3694,6 +3804,11 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: U
         merged_style(base, &s.resolved_checked_style())
     } else {
         base.clone()
+    };
+    let container = if disabled {
+        disabled_style(&container)
+    } else {
+        container
     };
     let trailing = match rb.arrow {
         RibbonArrow::None => AzString::from_const_str(""),
@@ -3710,7 +3825,13 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: U
             s.resolved_small_label_style(),
         )
     };
-    styled_button(
+    // A disabled button never runs the app's callback.
+    let on_click = if disabled {
+        OptionButtonOnClick::None
+    } else {
+        rb.on_click
+    };
+    let mut dom = styled_button(
         rb.icon,
         rb.label,
         trailing,
@@ -3718,9 +3839,13 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: U
         icon_style,
         label_style,
         s.resolved_arrow_icon_style(),
-        rb.on_click,
+        on_click,
         theme,
-    )
+    );
+    if disabled {
+        mark_disabled(&mut dom, rb.disabled_reason);
+    }
+    dom
 }
 
 /// One item in the ribbon's theme. An embedded widget the caller left
