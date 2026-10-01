@@ -21,7 +21,7 @@
 //! On stdout, for scripts (`scripts/azsetup_e2e.py`): `AZSETUP_STEP <i>
 //! <label>` on every step, `AZSETUP_TOTAL <bytes>` when the components
 //! change, `AZSETUP_PATH <path>` when the folder changes,
-//! `AZSETUP_PROGRESS <percent>` while copying, `AZSETUP_DONE` at the end of
+//! `AZSETUP_PROGRESS <percent>` while copying, `AZSETUP_DONE <bytes>` at the end of
 //! it, `AZSETUP_FINISHED launch=<bool> settings=<bool>` on Finish,
 //! `AZSETUP_SETTINGS <event>` from the settings window.
 
@@ -122,8 +122,8 @@ fn options_page() -> WizardOptionsPage {
         WizardOption::create(s("Create a desktop shortcut"), true),
         WizardOption::create(s("Add AzOffice to the PATH"), false)
             .with_description(s("So a terminal finds azwriter, azsheets and azslides.")),
-        WizardOption::create(s("Install for me only"), true).with_group(1),
-        WizardOption::create(s("Install for all users"), false)
+        WizardOption::create(s("Just for me"), true).with_group(1),
+        WizardOption::create(s("For everyone on this computer"), false)
             .with_group(1)
             .with_description(s("Needs administrator rights.")),
     ]))
@@ -132,7 +132,10 @@ fn options_page() -> WizardOptionsPage {
 fn finish_page() -> WizardFinishPage {
     WizardFinishPage::create(
         s("Completing the AzOffice Setup Wizard"),
-        s("Setup has finished installing AzOffice on your computer.\n\nClick Finish to exit Setup."),
+        s(
+            "Setup has finished installing AzOffice on your computer.\n\nThe programs are in your \
+           applications folder.",
+        ),
     )
     .with_logo(s("check_circle"))
     .with_options(WizardOptionVec::from_vec(vec![
@@ -365,8 +368,8 @@ fn page(s_: &Setup, app: &RefAny) -> (Dom, AzString) {
                 .map(|o| o.label.as_str().to_string())
                 .collect();
             let p = WizardSummaryPage::create(StringPairVec::from_vec(Vec::new()))
-                .with_intro(s("Setup is ready to install AzOffice. Click Install to continue, or \
-                               Back to change a setting."))
+                .with_intro(s("Setup is ready to copy AzOffice onto this computer. Review the \
+                               choices below; go back to change one."))
                 .with_row(s("Destination folder"), s(&s_.path))
                 .with_row(s("Components"), s(&ticked.join(", ")))
                 .with_row(s("Additional tasks"), s(&tasks.join(", ")));
@@ -620,7 +623,7 @@ extern "C" fn on_tick(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallba
     let done = st.copier.tick(3);
     println!("{}", model::progress_line(st.copier.percent()));
     if done {
-        println!("AZSETUP_DONE");
+        println!("AZSETUP_DONE {}", st.copier.done_bytes);
         TimerCallbackReturn::terminate_and_refresh_dom()
     } else {
         TimerCallbackReturn::continue_and_refresh_dom()

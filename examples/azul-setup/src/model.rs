@@ -41,7 +41,7 @@ impl Step {
             Self::Options => "Options",
             Self::Ready => "Ready to install",
             Self::Installing => "Installing",
-            Self::Finish => "Finish",
+            Self::Finish => "Done",
         }
     }
 
