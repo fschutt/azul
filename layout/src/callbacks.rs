@@ -4179,7 +4179,18 @@ impl CallbackInfo {
             }
         }
 
-        None
+        // What the builder keeps as FLAGS (`Dom::with_contenteditable`,
+        // `Dom::with_tab_index`, which every text field and keyboard stop
+        // uses) answers too, as HTML spells it.
+        match attr_name {
+            "contenteditable" if node_data.is_contenteditable() => Some("true".into()),
+            "tabindex" => node_data.get_tab_index().map(|tab| match tab {
+                azul_core::dom::TabIndex::Auto => AzString::from("0"),
+                azul_core::dom::TabIndex::OverrideInParent(n) => n.to_string().into(),
+                azul_core::dom::TabIndex::NoKeyboardFocus => AzString::from("-1"),
+            }),
+            _ => None,
+        }
     }
 
     /// Get all classes of a node as a vector of strings
