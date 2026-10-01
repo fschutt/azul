@@ -189,3 +189,72 @@ pub fn glyph_runs(lw: &LayoutWindow) -> Vec<Vec<(f32, f32)>> {
         })
         .collect()
 }
+
+// ==== TABLE_B: pages and pixels ====
+//
+// The WPT reftest runner's pipeline (`layout/tests/wpt/reftest.rs`) in
+// miniature, for the table tests that are "this table paints exactly like
+// these divs": a page from a stylesheet and a body (the UA body margin
+// kept, as in the WPT pages) in the runner's 800 x 600 window, painted by
+// the CPU renderer.
+
+/// A page from a stylesheet and a body, the UA body margin kept.
+pub fn page(style: &str, body: &str) -> String {
+    format!(
+        "<html xmlns=\"http://www.w3.org/1999/xhtml\"><head><style>{style}</style></head>\
+         <body>{body}</body></html>"
+    )
+}
+
+/// `markup` laid out in the WPT runner's 800 x 600 window.
+pub fn laid_out_page(markup: &str) -> LayoutWindow {
+    laid_out(markup, 800.0, 600.0)
+}
+
+/// `a` and `b` agree to the tenth of a pixel the box model is stored in.
+pub fn near_tenth(a: f32, b: f32) -> bool {
+    near(a, b, 0.11)
+}
+
+/// The page laid out at 800 x 600 and painted by the CPU renderer.
+pub fn render(markup: &str) -> azul_layout::cpurender::AzulPixmap {
+    let lw = laid_out_page(markup);
+    let result = lw
+        .get_layout_result(&DomId::ROOT_ID)
+        .expect("no layout result");
+    let rr = RendererResources::default();
+    let mut glyphs = azul_layout::glyph_cache::GlyphCache::new();
+    azul_layout::cpurender::render_with_font_manager(
+        &result.display_list,
+        &rr,
+        &lw.font_manager,
+        azul_layout::cpurender::RenderOptions {
+            width: 800.0,
+            height: 600.0,
+            dpi_factor: 1.0,
+        },
+        &mut glyphs,
+    )
+    .expect("the page renders")
+}
+
+/// How many pixels the test page and the reference page differ in (WPT's
+/// `match` with no fuzz): 0 when they paint alike.
+pub fn pixels_differing(test: &str, reference: &str) -> u64 {
+    let t = render(test);
+    let r = render(reference);
+    let d = azul_layout::cpurender::pixel_diff(&r, &t, 0);
+    assert!(d.dimensions_match, "both pages render at 800x600");
+    d.diff_count
+}
+
+/// How many pixels are (close to) the colour `rgb`.
+pub fn count_colour(pixmap: &azul_layout::cpurender::AzulPixmap, rgb: (u8, u8, u8)) -> usize {
+    pixmap
+        .data()
+        .chunks_exact(4)
+        .filter(|p| {
+            p[0].abs_diff(rgb.0) < 8 && p[1].abs_diff(rgb.1) < 8 && p[2].abs_diff(rgb.2) < 8
+        })
+        .count()
+}

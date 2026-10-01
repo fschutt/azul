@@ -702,3 +702,5 @@ mod html_pasted_from_word_and_browsers_keeps_its_formatting;
 mod builtin_html_elements_take_their_presentational_arguments;
 #[path = "the_list_style_shorthand_sets_the_marker_type_and_position.rs"]
 mod the_list_style_shorthand_sets_the_marker_type_and_position;
+#[path = "a_cells_specified_width_is_its_columns_width.rs"]
+mod a_cells_specified_width_is_its_columns_width;
