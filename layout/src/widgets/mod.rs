@@ -414,6 +414,12 @@ pub mod path_input;
 /// components, options, summary, progress, finish) for the wizard layout;
 /// see `wizard_pages.rs`.
 pub mod wizard_pages;
+/// Shortcut recorder widget.
+///
+/// The field a settings page records a keyboard shortcut with (a
+/// `GlobalHotkey`): click or Enter listens, the next chord is the shortcut;
+/// see `shortcut_recorder.rs`.
+pub mod shortcut_recorder;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
 
@@ -1619,6 +1625,27 @@ mod label_convention {
                 ]))
                 .dom(),
             ),
+            (
+                "shortcut_recorder",
+                super::shortcut_recorder::ShortcutRecorder::create()
+                    .with_accessibility_name(AzString::from("Command palette"))
+                    .with_hotkey(azul_core::global_hotkey::GlobalHotkey::create(
+                        azul_core::global_hotkey::HotkeyModifiers {
+                            ctrl: true,
+                            alt: false,
+                            shift: true,
+                            meta: false,
+                        },
+                        azul_core::window::VirtualKeyCode::P,
+                    ))
+                    .dom(),
+            ),
+            (
+                "shortcut_recorder (recording)",
+                super::shortcut_recorder::ShortcutRecorder::create()
+                    .with_recording(true)
+                    .dom(),
+            ),
         ];
         // The app shells, each with placeholder content (`shells::fixtures`).
         all.extend(super::shells::fixtures::every_shell());
@@ -2495,6 +2522,8 @@ mod theme_contrast {
         "hidden_input",
         "date_picker (inline)",
         "path_input",
+        "shortcut_recorder",
+        "shortcut_recorder (recording)",
     ];
     /// Navigation and application chrome.
     const CHROME: &[&str] = &[
