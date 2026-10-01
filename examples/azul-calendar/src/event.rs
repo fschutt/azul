@@ -641,7 +641,10 @@ pub fn save(data_dir: &Path, event: &Event) -> std::io::Result<PathBuf> {
 
 /// Removes the event `id`'s file (a missing file is not an error: S3's delete).
 pub fn remove(data_dir: &Path, id: &str) -> std::io::Result<()> {
-    todo!()
+    match std::fs::remove_file(event_path(data_dir, id)) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
+    }
 }
 
 /// A file in the events folder that is named like an event but was not read.
