@@ -502,7 +502,7 @@ impl EditorState {
 /// and acks them. Returns `(changed, rebuild)`: a Markdown shortcut (with
 /// `shortcuts`) or a typing style the engine cannot paint asks for a new
 /// DOM.
-fn sync_text(state: &mut crate::AppState, info: &mut CallbackInfo, shortcuts: bool) -> (bool, bool) {
+pub(crate) fn sync_text(state: &mut crate::AppState, info: &mut CallbackInfo, shortcuts: bool) -> (bool, bool) {
     let edits = info.get_unsynced_text_edits();
     let edits = edits.as_ref();
     if edits.is_empty() {

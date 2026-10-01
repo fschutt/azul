@@ -769,3 +769,515 @@ pub fn delete_forever(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, i
         jobs::spawn(info, app, s, job);
     }
 }
+
+// ==== The editor pane ====
+
+/// A toolbar command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Tool {
+    Kind(BlockKind),
+    Format(Format),
+    Indent(i8),
+    Link,
+    Rule,
+}
+
+/// The payload of a toolbar button.
+struct ToolRef {
+    app: RefAny,
+    tool: Tool,
+}
+
+/// The toolbar's buttons: `(id, icon, label, name, tool)`; a label shows as
+/// text when there is no icon.
+fn tools() -> Vec<(&'static str, &'static str, &'static str, &'static str, Tool)> {
+    vec![
+        ("tool-h1", "", "H1", "Heading 1", Tool::Kind(BlockKind::Heading(1))),
+        ("tool-h2", "", "H2", "Heading 2", Tool::Kind(BlockKind::Heading(2))),
+        ("tool-h3", "", "H3", "Heading 3", Tool::Kind(BlockKind::Heading(3))),
+        ("tool-bold", "format_bold", "", "Bold", Tool::Format(Format::Bold)),
+        ("tool-italic", "format_italic", "", "Italic", Tool::Format(Format::Italic)),
+        ("tool-underline", "format_underlined", "", "Underline", Tool::Format(Format::Underline)),
+        ("tool-strike", "format_strikethrough", "", "Strikethrough", Tool::Format(Format::Strike)),
+        ("tool-code", "code", "", "Inline code", Tool::Format(Format::Code)),
+        ("tool-bullets", "format_list_bulleted", "", "Bulleted list", Tool::Kind(BlockKind::Bullet(0))),
+        ("tool-numbers", "format_list_numbered", "", "Numbered list", Tool::Kind(BlockKind::Numbered(0))),
+        (
+            "tool-checklist",
+            "checklist",
+            "",
+            "Checklist",
+            Tool::Kind(BlockKind::Check {
+                indent: 0,
+                checked: false,
+            }),
+        ),
+        ("tool-outdent", "format_indent_decrease", "", "Outdent", Tool::Indent(-1)),
+        ("tool-indent", "format_indent_increase", "", "Indent", Tool::Indent(1)),
+        ("tool-quote", "format_quote", "", "Quote", Tool::Kind(BlockKind::Quote)),
+        (
+            "tool-codeblock",
+            "data_object",
+            "",
+            "Code block",
+            Tool::Kind(BlockKind::Code {
+                lang: String::new(),
+            }),
+        ),
+        ("tool-link", "link", "", "Link", Tool::Link),
+        ("tool-rule", "horizontal_rule", "", "Horizontal rule", Tool::Rule),
+    ]
+}
+
+/// The formatting toolbar; the block kind the caret is in shows pressed.
+fn toolbar(s: &AppState, app: &RefAny, look: &Look) -> Dom {
+    let current = s
+        .open_note()
+        .and_then(|n| n.doc.blocks.get(s.editor.caret_block))
+        .map(|b| b.kind.clone());
+    let mut row = Dom::create_div()
+        .with_id("format-toolbar")
+        .with_accessibility_name("Formatting")
+        .with_css(format!(
+            "display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; padding: 4px 24px; \
+             border-bottom: 1px solid {}; flex-shrink: 0;",
+            look.line
+        ));
+    for (id, icon, label, name, tool) in tools() {
+        let pressed = match (&tool, &current) {
+            (Tool::Kind(kind), Some(c)) => kind.same_family(c),
+            _ => false,
+        };
+        let mut button = Button::create(label).with_on_click(
+            RefAny::new(ToolRef {
+                app: app.clone(),
+                tool,
+            }),
+            on_tool as ButtonOnClickCallbackType,
+        );
+        if !icon.is_empty() {
+            button = button.with_icon(icon);
+        }
+        if pressed {
+            button = button.with_button_type(ButtonType::Primary);
+        }
+        row.add_child(
+            button
+                .dom()
+                .with_id(id)
+                .with_accessibility_name(name)
+                .with_css("margin-right: 2px; margin-bottom: 2px;"),
+        );
+        if matches!(id, "tool-h3" | "tool-code" | "tool-indent" | "tool-codeblock") {
+            row.add_child(Dom::create_div().with_css(format!(
+                "width: 1px; height: 20px; margin: 0px 6px; background: {};",
+                look.line
+            )));
+        }
+    }
+    row
+}
+
+extern "C" fn on_tool(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let (mut app, tool) = match data.downcast_ref::<ToolRef>() {
+        Some(t) => (t.app.clone(), t.tool.clone()),
+        None => return Update::DoNothing,
+    };
+    let Some(mut guard) = app.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let _ = editor::sync_text(s, &mut info, false);
+    let update = match tool {
+        Tool::Kind(kind) => editor::toggle_kind(s, &mut info, kind),
+        Tool::Format(format) => editor::toggle_format(s, &mut info, format, true),
+        Tool::Indent(delta) => editor::indent(s, &mut info, delta),
+        Tool::Rule => editor::insert_rule(s, &mut info),
+        Tool::Link => {
+            open_link_sheet(s);
+            Update::RefreshDom
+        }
+    };
+    if !matches!(s.overlay, Overlay::Link { .. }) {
+        editor::focus_editor(&mut info);
+    }
+    update
+}
+
+/// The payload of a tag chip.
+struct TagRef {
+    app: RefAny,
+    tag: String,
+}
+
+/// The header's buttons: `(id, icon, name, action)`.
+fn header_button(app: &RefAny, id: &str, icon: &str, name: &str, primary: bool, action: ButtonOnClickCallbackType) -> Dom {
+    let mut button = Button::create("").with_icon(icon).with_on_click(app.clone(), action);
+    if primary {
+        button = button.with_button_type(ButtonType::Primary);
+    }
+    button
+        .dom()
+        .with_id(id)
+        .with_accessibility_name(name)
+        .with_css("margin-left: 4px;")
+}
+
+/// The editor pane: the note's header (where it is, when it was edited, the
+/// note's buttons), its title, its tags, the toolbar and the text.
+fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
+    let Some(note) = s.open_note() else {
+        return ShellEmptyState::create("No note open")
+            .with_icon("description")
+            .with_detail("Choose a note in the list, or start a new one.")
+            .with_action_label("New note")
+            .with_on_action(app.clone(), on_new_note as ButtonOnClickCallbackType)
+            .dom();
+    };
+    let offset = AppState::utc_offset();
+    let mut pane = Dom::create_div().with_id("editor-pane").with_css(format!(
+        "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; background: {}; color: {};",
+        look.paper, look.text
+    ));
+
+    if note.is_trashed() {
+        pane.add_child(
+            Dom::create_div()
+                .with_id("trash-bar")
+                .with_css(format!(
+                    "display: flex; flex-direction: row; align-items: center; padding: 6px 24px; \
+                     background: {}; flex-shrink: 0;",
+                    look.code_bg
+                ))
+                .with_child(text_line("This note is in the Trash.", "flex-grow: 1; font-size: 13px;"))
+                .with_child(
+                    Button::create("Restore")
+                        .with_on_click(app.clone(), on_restore as ButtonOnClickCallbackType)
+                        .dom()
+                        .with_id("restore-note"),
+                )
+                .with_child(
+                    Button::create("Delete forever")
+                        .with_button_type(ButtonType::Danger)
+                        .with_on_click(app.clone(), on_delete_forever as ButtonOnClickCallbackType)
+                        .dom()
+                        .with_id("delete-forever")
+                        .with_css("margin-left: 6px;"),
+                ),
+        );
+    }
+
+    // Where the note is and when it was edited, the note's buttons.
+    let place = note.home_notebook().replace('/', " \u{203a} ");
+    let meta = format!("Edited {} \u{b7} {}", model::long_date(note.meta.modified, offset), place);
+    pane.add_child(
+        Dom::create_div()
+            .with_css("display: flex; flex-direction: row; align-items: center; padding: 10px 24px 0px 24px; flex-shrink: 0;")
+            .with_child(text_line(&meta, &format!("flex-grow: 1; font-size: 12px; color: {};", look.muted)).with_id("note-meta"))
+            .with_child(header_button(
+                app,
+                "pin-note",
+                "push_pin",
+                if note.meta.pinned { "Unpin" } else { "Pin" },
+                note.meta.pinned,
+                on_pin as ButtonOnClickCallbackType,
+            ))
+            .with_child(header_button(app, "note-history", "history", "Version history", false, on_history as ButtonOnClickCallbackType))
+            .with_child(header_button(app, "export-pdf", "picture_as_pdf", "Export as PDF", false, on_export_pdf as ButtonOnClickCallbackType))
+            .with_child(header_button(
+                app,
+                "export-markdown",
+                "file_download",
+                "Export as Markdown",
+                false,
+                on_export_markdown as ButtonOnClickCallbackType,
+            ))
+            .with_child(header_button(app, "trash-note", "delete", "Move to Trash", false, on_trash as ButtonOnClickCallbackType)),
+    );
+
+    // The title.
+    pane.add_child(
+        Dom::create_div()
+            .with_css("display: flex; flex-direction: row; padding: 6px 24px 0px 24px; flex-shrink: 0;")
+            .with_child(
+                TextInput::create()
+                    .with_text(note.meta.title.as_str())
+                    .with_placeholder("Title")
+                    .with_accessibility_name("Title")
+                    .with_on_text_input(app.clone(), on_title_input as TextInputOnTextInputCallbackType)
+                    .with_on_virtual_key_down(app.clone(), on_title_key as TextInputOnVirtualKeyDownCallbackType)
+                    .dom()
+                    .with_id("note-title")
+                    .with_css("flex-grow: 1;"),
+            ),
+    );
+
+    // The tags: a chip each, then the field that adds one.
+    let mut tags = Dom::create_div()
+        .with_id("note-tags")
+        .with_css("display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; padding: 6px 24px; flex-shrink: 0;");
+    for tag in &note.meta.tags {
+        tags.add_child(
+            Chip::create(format!("#{tag}"))
+                .with_removable(true)
+                .with_on_remove(
+                    RefAny::new(TagRef {
+                        app: app.clone(),
+                        tag: tag.clone(),
+                    }),
+                    on_tag_remove as ChipOnRemoveCallbackType,
+                )
+                .dom()
+                .with_css("margin-right: 4px;"),
+        );
+    }
+    tags.add_child(
+        TextInput::create()
+            .with_text(s.tag_draft.as_str())
+            .with_placeholder("Add tag")
+            .with_accessibility_name("Add tag")
+            .with_on_text_input(app.clone(), on_tag_input as TextInputOnTextInputCallbackType)
+            .with_on_virtual_key_down(app.clone(), on_tag_key as TextInputOnVirtualKeyDownCallbackType)
+            .with_on_focus_lost(app.clone(), on_tag_blur as TextInputOnFocusLostCallbackType)
+            .dom()
+            .with_id("tag-input")
+            .with_css("width: 140px;"),
+    );
+    pane.add_child(tags);
+
+    pane.add_child(toolbar(s, app, look));
+
+    // The text, scrolling.
+    let view = editor::View {
+        doc: &note.doc,
+        notebook: &note.notebook,
+        images: &s.images,
+        look,
+        font_px: s.settings.text_size.px(),
+    };
+    pane.add_child(
+        Dom::create_div()
+            .with_id("note-scroll")
+            .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; overflow-y: auto; padding: 8px 32px 0px 32px;")
+            .with_child(editor::host_dom(&view, app)),
+    );
+    pane
+}
+
+fn text_return(update: Update) -> OnTextInputReturn {
+    OnTextInputReturn {
+        update,
+        valid: TextInputValid::Yes,
+    }
+}
+
+extern "C" fn on_title_input(mut data: RefAny, mut info: CallbackInfo, field: TextInputState) -> OnTextInputReturn {
+    let title = field.get_text().as_str().to_string();
+    with_state(&mut data, &mut info, |s, _, _| {
+        if let Some(note) = s.open_note_mut() {
+            note.meta.title = title;
+        }
+        s.edited();
+        Update::DoNothing
+    });
+    text_return(Update::DoNothing)
+}
+
+/// Enter in the title goes on in the text.
+extern "C" fn on_title_key(_data: RefAny, mut info: CallbackInfo, _field: TextInputState) -> OnTextInputReturn {
+    let key = info.get_current_keyboard_state().current_virtual_keycode.into_option();
+    if matches!(key, Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter)) {
+        editor::focus_editor(&mut info);
+    }
+    text_return(Update::DoNothing)
+}
+
+/// Adds the tag being typed to the open note and clears the field (the
+/// field's typing is acknowledged, so the empty field the app renders
+/// wins over it). Returns whether a tag was added.
+fn commit_tag(s: &mut AppState, info: &mut CallbackInfo) -> bool {
+    let draft = s.tag_draft.trim().trim_matches(',').to_string();
+    s.tag_draft.clear();
+    // The editor's typing first: the acknowledgment covers every editor.
+    let _ = editor::sync_text(s, info, false);
+    info.mark_text_revision_synced(info.get_document_text_revision());
+    if draft.is_empty() {
+        return false;
+    }
+    let added = s.open_note_mut().is_some_and(|n| n.add_tag(&draft));
+    if added {
+        s.edited();
+    }
+    added
+}
+
+extern "C" fn on_tag_input(mut data: RefAny, mut info: CallbackInfo, field: TextInputState) -> OnTextInputReturn {
+    let text = field.get_text().as_str().to_string();
+    let update = with_state(&mut data, &mut info, |s, info, _| {
+        // A comma ends a tag, as Enter does.
+        if text.ends_with(',') {
+            s.tag_draft = text.trim_end_matches(',').to_string();
+            commit_tag(s, info);
+            return Update::RefreshDom;
+        }
+        s.tag_draft = text;
+        Update::DoNothing
+    });
+    text_return(update)
+}
+
+extern "C" fn on_tag_key(mut data: RefAny, mut info: CallbackInfo, _field: TextInputState) -> OnTextInputReturn {
+    let key = info.get_current_keyboard_state().current_virtual_keycode.into_option();
+    if !matches!(key, Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter)) {
+        return text_return(Update::DoNothing);
+    }
+    let update = with_state(&mut data, &mut info, |s, info, _| {
+        commit_tag(s, info);
+        Update::RefreshDom
+    });
+    text_return(update)
+}
+
+extern "C" fn on_tag_blur(mut data: RefAny, mut info: CallbackInfo, _field: TextInputState) -> Update {
+    with_state(&mut data, &mut info, |s, info, _| {
+        if s.tag_draft.trim().is_empty() {
+            return Update::DoNothing;
+        }
+        commit_tag(s, info);
+        Update::RefreshDom
+    })
+}
+
+extern "C" fn on_tag_remove(mut data: RefAny, mut info: CallbackInfo, _chip: ChipState) -> Update {
+    let (mut app, tag) = match data.downcast_ref::<TagRef>() {
+        Some(t) => (t.app.clone(), t.tag.clone()),
+        None => return Update::DoNothing,
+    };
+    let Some(mut guard) = app.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let _ = editor::sync_text(s, &mut info, false);
+    let removed = s.open_note_mut().is_some_and(|n| n.remove_tag(&tag));
+    if removed {
+        s.edited();
+    }
+    crate::refresh_if(removed)
+}
+
+extern "C" fn on_pin(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |s, info, app| toggle_pin(info, app, s))
+}
+
+extern "C" fn on_trash(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |s, info, app| {
+        let Some(id) = s.open.clone() else {
+            return Update::DoNothing;
+        };
+        delete_note(info, app, s, &id);
+        Update::RefreshDom
+    })
+}
+
+extern "C" fn on_restore(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |s, info, app| {
+        let Some(id) = s.open.clone() else {
+            return Update::DoNothing;
+        };
+        restore_note(info, app, s, &id);
+        Update::RefreshDom
+    })
+}
+
+extern "C" fn on_delete_forever(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |s, _, _| {
+        if let Some(id) = s.open.clone() {
+            s.overlay = Overlay::ConfirmDelete { id };
+        }
+        Update::RefreshDom
+    })
+}
+
+extern "C" fn on_history(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |s, info, app| {
+        show_history(info, app, s);
+        Update::RefreshDom
+    })
+}
+
+/// A file name for an export of `title`.
+fn export_name(title: &str, extension: &str) -> String {
+    let base: String = title
+        .chars()
+        .map(|c| if c.is_alphanumeric() || matches!(c, ' ' | '-' | '_') { c } else { '_' })
+        .collect();
+    let base = base.trim();
+    format!("{}.{extension}", if base.is_empty() { "note" } else { base })
+}
+
+/// A second handle on the callback's info (the PDF render takes one by
+/// value; AzWriter's `reborrow_info` is the twin).
+fn reborrow_info(info: &CallbackInfo) -> CallbackInfo {
+    CallbackInfo {
+        ref_data: info.ref_data,
+        hit_dom_node: info.hit_dom_node,
+        cursor_relative_to_item: info.cursor_relative_to_item,
+        cursor_in_viewport: info.cursor_in_viewport,
+        changes: info.changes,
+    }
+}
+
+/// The open note as a PDF (A4 at 96 dpi), through azul's paged pipeline.
+extern "C" fn on_export_pdf(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app = data.clone();
+    let (name, dom) = {
+        let Some(mut guard) = data.downcast_mut::<AppState>() else {
+            return Update::DoNothing;
+        };
+        let s = &mut *guard;
+        let _ = editor::sync_text(s, &mut info, false);
+        let Some(note) = s.open_note() else {
+            return Update::DoNothing;
+        };
+        let view = editor::View {
+            doc: &note.doc,
+            notebook: &note.notebook,
+            images: &s.images,
+            look: &look::LIGHT,
+            font_px: 15.0,
+        };
+        let page = Dom::create_body()
+            .with_css("margin: 0px; padding: 72px; background: white; font-family: sans-serif;")
+            .with_child(editor::print_dom(&view, note.display_title(), &app));
+        (export_name(note.display_title(), "pdf"), page)
+    };
+    let bytes = azul::pdf::Pdf::create()
+        .from_dom_in_callback(reborrow_info(&info), dom, 794.0, 1123.0)
+        .as_ref()
+        .to_vec();
+    if bytes.is_empty() {
+        eprintln!("[aznotes] the PDF export produced no bytes");
+        return Update::DoNothing;
+    }
+    let len = bytes.len();
+    if azul::dialog::FileDialog::save_bytes(name.as_str(), "application/pdf", bytes) {
+        println!("AZNOTES_EXPORTED pdf {len}");
+    }
+    Update::DoNothing
+}
+
+/// The open note's file as it is on disk (front matter and Markdown).
+extern "C" fn on_export_markdown(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |s, info, _| {
+        let _ = editor::sync_text(s, info, false);
+        let Some(note) = s.open_note() else {
+            return Update::DoNothing;
+        };
+        let bytes = note.to_file().into_bytes();
+        let len = bytes.len();
+        if azul::dialog::FileDialog::save_bytes(export_name(note.display_title(), "md").as_str(), "text/markdown", bytes) {
+            println!("AZNOTES_EXPORTED md {len}");
+        }
+        Update::DoNothing
+    })
+}
