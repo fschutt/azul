@@ -7,16 +7,16 @@ through the `Drive` trait on azul Threads (transfer queue, conflicts, InfoBar er
 details panes, a Properties dialog, Settings on ShellSettingsLayout, and a headless E2E.
 
 ## DONE
-- (none yet)
+- `ae0d6783c` RED / `a7d539da6` GREEN: azul-storage folder operations (`ops`: list_all, exists,
+  folder_exists; `Drive::{create_folder, rename, delete_folder, local_path, metadata}` with defaults,
+  LocalDrive native, S3 metadata, ScopedDrive forwards), `transfer::copy_object` with progress.
+- `ab49b5e29` RED / `3fee6fab7` GREEN: RibbonButton disabled + reason (tooltip, Unavailable),
+  AddressBar recent chevron + dimmed arrows, BrowserShell `tree_visible`.
 
 ## IN PROGRESS
-- azul-storage: folder operations (create / rename / delete a folder, list_all, exists), drive-to-drive
-  `transfer::copy_object` with progress, `Drive::local_path`, `Drive::metadata` (S3 headers) - RED.
+- AzDrive model (pure modules) - RED tests.
 
 ## NEXT
-- GREEN of the storage operations.
-- Widgets in azul: RibbonButton disabled + reason; BrowserShell navigation pane toggle; AddressBar
-  recent-locations chevron (RED, then GREEN).
 - AzDrive model (browse.rs and new pure modules: selection, type-ahead, layouts, grouping, columns,
   conflicts, trash, transfer queue, preview kinds) - RED unit tests, then GREEN.
 - AzDrive UI rebuilt on BrowserShell + ShellNavigationPane + Ribbon + StatusBar + InfoBar.
