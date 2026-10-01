@@ -34,16 +34,16 @@ here (house rule); Rust files are parse-checked with `rustfmt --check` / `--emit
 - `c80fa4e94` RED / `e1e04689b` pace.rs; `2c4d92e57` pump paces itself, stats repaint only in
   the open overlay.
 
-## IN PROGRESS (last commit: 2c4d92e57)
-- next: `src/args.rs` (--screen lobby|call|settings, --theme flat|flora, --mode light|dark|system,
-  --name) RED -> GREEN; then `src/ui.rs` in pieces (skeleton + styles; tiles; side panel people /
-  chat / statistics; controls; lobby; settings on ShellSettingsLayout), each committed; then
-  switch meet_layout to ui.rs and delete the old call_layout/start_layout; callbacks for chat
-  send, panel switch, settings, devices; keyboard shortcuts. Then scripts/azmeet_e2e.py, the
-  chat-input layout test, report.
-- UI decisions: lobby = CallShell with the self preview as its one tile and the join form in the
-  side panel; statistics = side-panel mode (SidePanel::Statistics); settings = an in-window
-  screen on ShellSettingsLayout with a Back button.
+- args.rs (`f2c4f015c`/`16d6558f8`), ui.rs (`78c89d48f` skeleton, `8e93aa828` tiles, `e83b55169`
+  side panel, `86d12fb3b` controls/lobby/settings, `f4bc3ad4b` key hook + facing, `5db51f356` tile
+  sizing, `bb65a4029` tile ids), lib.rs swap to ui (`45aabf5ae`), callbacks (`a446d8589`), args
+  wiring (`ec48019dc`), statistics people + AZMEET_PANEL (`e5fd9cf2b`).
+
+## IN PROGRESS (last commit: bb65a4029)
+- next: `scripts/azmeet_e2e.py` (dev server + Ada AUTOCREATE + Ben JOIN, each under run_capped.sh
+  1000 MB / 120 s; asserts each window has the other's tile #azmeet-tile-<name>-camera, decodes
+  the other's video (statistics), a chat message arrives (stdout AZMEET_CHAT + chat panel)); then
+  the chat-field layout test (layout/tests), the CPU probe script, the report.
 
 ## NEXT (plan, in order)
 1. Engine video leftovers (RED then fix each):
