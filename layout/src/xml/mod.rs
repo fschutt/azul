@@ -39,7 +39,7 @@ fn decode_xml_entities_slow(s: &str) -> std::borrow::Cow<'_, str> {
 }
 
 pub use azul_core::xml::*;
-use azul_core::{dom::Dom, impl_from, styled_dom::StyledDom, window::StringPairVec};
+use azul_core::{dom::Dom, impl_from, styled_dom::StyledDom};
 #[cfg(feature = "parser")]
 use azul_css::parser2::CssParseError;
 use azul_css::{css::Css, AzString, OptionString, U8Vec};
