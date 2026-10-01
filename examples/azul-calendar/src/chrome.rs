@@ -40,7 +40,7 @@ use crate::{
     calendars::{self, Calendar, Colour},
     editor_ui, event, ics, meet_rooms, meeting, settings, tasks, views,
     views::ViewKind,
-    views_ui, week, CalState, ERROR, LABEL, LINE, PAGE, SECONDARY,
+    views_ui, CalState, ERROR, LABEL, PAGE, SECONDARY,
 };
 
 /// The navigation pane's width, and its width folded to the strip of module icons.

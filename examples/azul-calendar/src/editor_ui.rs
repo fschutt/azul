@@ -25,8 +25,7 @@ use azul::{
     widgets::{
         ButtonType, CheckBoxState, DatePicker, DatePickerState, DropDown, OnTextInputReturn,
         Ribbon, RibbonButton, RibbonGroup, RibbonItem, RibbonTab, Segmented, SegmentedState,
-        TextArea, TextAreaState, TextInputState, TextInputValid, TimePicker, TimePickerState,
-        Titlebar,
+        TextArea, TextAreaState, TextInputState, TimePicker, TimePickerState, Titlebar,
     },
     window::WindowDecorations,
 };
