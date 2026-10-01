@@ -6347,6 +6347,9 @@ where
         if is_table_cell && self.is_inside_collapsed_table(node_index) {
             return Ok(());
         }
+        if is_table_cell && self.cell_is_hidden_empty(node_index) {
+            return Ok(());
+        }
 
         if let Some(dom_id) = node.dom_node_id {
             let styled_node_state = self.get_styled_node_state(dom_id);
@@ -6618,6 +6621,23 @@ where
             .and_then(|prop| prop.get_property().copied())
             .unwrap_or(StyleBorderCollapse::Separate)
             == StyleBorderCollapse::Collapse
+    }
+
+    /// `empty-cells: hide` (CSS 2.2 17.6.1.1): in the separated borders
+    /// model an empty cell paints neither its border nor its background.
+    fn cell_is_hidden_empty(&self, node_index: usize) -> bool {
+        use azul_css::props::layout::StyleEmptyCells;
+        let Some(node) = self
+            .positioned_tree
+            .tree
+            .get(LayoutNodeId::new(node_index))
+        else {
+            return false;
+        };
+        matches!(node.formatting_context, FormattingContext::TableCell)
+            && crate::solver3::fc::get_empty_cells_property(self.ctx, node) == StyleEmptyCells::Hide
+            && !self.is_inside_collapsed_table(node_index)
+            && crate::solver3::fc::is_cell_empty(self.positioned_tree.tree, node_index)
     }
 
     /// Whether a node lives inside a `border-collapse: collapse` table
@@ -6923,6 +6943,9 @@ where
     /// Helper function to paint an element's background (used for all table elements)
     /// Reads background-color and border-radius from CSS properties and emits `push_rect()`
     fn paint_element_background(&self, builder: &mut DisplayListBuilder, node_index: usize) {
+        if self.cell_is_hidden_empty(node_index) {
+            return;
+        }
         let Some(paint_rect) = self.get_paint_rect(node_index) else {
             return;
         };

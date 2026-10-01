@@ -6414,7 +6414,7 @@ pub(crate) fn resolve_table_border_spacing<T: ParsedFontTrait>(
 
 /// Get the empty-cells property for a table-cell node.
 /// Returns Show (default) or Hide.
-fn get_empty_cells_property<T: ParsedFontTrait>(
+pub(crate) fn get_empty_cells_property<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNodeHot,
 ) -> StyleEmptyCells {
@@ -6516,7 +6516,7 @@ fn is_visibility_collapsed<T: ParsedFontTrait>(
 ///
 /// Note: Full whitespace detection would require checking text content during rendering.
 /// This function provides a basic check suitable for layout phase.
-fn is_cell_empty(tree: &LayoutTree, cell_index: usize) -> bool {
+pub(crate) fn is_cell_empty(tree: &LayoutTree, cell_index: usize) -> bool {
     if tree.get(LayoutNodeId::new(cell_index)).is_none() {
         return true; // Invalid cell is considered empty
     }
