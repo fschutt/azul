@@ -59,16 +59,52 @@ pub fn arrange(
     pinned: Option<u64>,
     active: Option<u64>,
 ) -> Arrangement {
-    let _ = (me, my_screen, others, view, pinned, active);
-    Arrangement::default()
+    let present = |key: &u64| others.iter().any(|p| p.key == *key);
+    let camera = |key: u64| Tile {
+        key,
+        kind: TileKind::Camera,
+    };
+    let screen = |key: u64| Tile {
+        key,
+        kind: TileKind::Screen,
+    };
+    let stage = match others.iter().find(|p| p.sharing) {
+        Some(sharer) => Some(screen(sharer.key)),
+        None if view == View::Speaker => pinned
+            .filter(present)
+            .or_else(|| active.filter(present))
+            .or_else(|| others.first().map(|p| p.key))
+            .map(camera),
+        None => None,
+    };
+    let mut tiles = Vec::with_capacity(others.len() * 2 + 2);
+    for p in others {
+        tiles.push(camera(p.key));
+        if p.sharing {
+            tiles.push(screen(p.key));
+        }
+    }
+    tiles.push(camera(me));
+    if my_screen {
+        tiles.push(screen(me));
+    }
+    tiles.retain(|tile| Some(*tile) != stage);
+    Arrangement { stage, tiles }
 }
 
 /// The height a tile asks its stream for, in logical pixels: its laid-out height (else its box's
 /// height until it is laid out), or 0 - no stream - when it is not visible or drawn smaller than
 /// [`MIN_TILE_PX`] device pixels at `scale`.
 pub fn tile_need(visible: bool, laid_out: Option<f32>, box_height: f32, scale: f32) -> f32 {
-    let _ = (visible, laid_out, scale);
-    box_height
+    if !visible {
+        return 0.0;
+    }
+    let height = laid_out.unwrap_or(box_height);
+    // `!(>=)` also turns a NaN height into no stream.
+    if !(height * scale.max(1.0) >= MIN_TILE_PX) {
+        return 0.0;
+    }
+    height
 }
 
 #[cfg(test)]
