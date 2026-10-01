@@ -485,4 +485,70 @@ mod tests {
             }
         }
     }
+
+    /// `#rrggbb` as linear-light WCAG luminance.
+    fn luminance(rgb: [f32; 3]) -> f32 {
+        let lin = |v: f32| {
+            let v = v / 255.0;
+            if v <= 0.040_45 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2])
+    }
+
+    fn rgb(hex: &str) -> [f32; 3] {
+        let h = hex.trim_start_matches('#');
+        let c = |i: usize| f32::from(u8::from_str_radix(&h[i..i + 2], 16).unwrap());
+        [c(0), c(2), c(4)]
+    }
+
+    /// The contrast of `ink` at `alpha` over `ground`, as a reader sees it.
+    fn reads(ink: [f32; 3], alpha: f32, ground: [f32; 3]) -> f32 {
+        let seen = [0, 1, 2].map(|i| ink[i] * alpha + ground[i] * (1.0 - alpha));
+        let (a, b) = (luminance(seen), luminance(ground));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    /// An event's text is the desktop's ink (macOS: black at 85 %, secondary at 50 %; white at
+    /// 85 % / 55 % in dark mode) on its calendar's tint, and the "Join meeting" button's label the
+    /// button's own ink on its face over the tint: every tint keeps the main ink at 4.5:1 and the
+    /// secondary at 3:1 in both modes, so no event, line or button on it fades out.
+    #[test]
+    fn every_calendar_colour_reads_with_the_desktops_ink_in_light_and_dark() {
+        for c in Colour::ALL {
+            let p = c.paint();
+            let light = rgb(p.light_fill);
+            let dark = rgb(p.dark_fill);
+            let black = [0.0, 0.0, 0.0];
+            let white = [255.0, 255.0, 255.0];
+            assert!(
+                reads(black, 0.85, light) >= 4.5,
+                "{c:?}: text on the light tint"
+            );
+            assert!(
+                reads(black, 0.50, light) >= 3.0,
+                "{c:?}: secondary text on the light tint"
+            );
+            assert!(
+                reads(white, 0.85, dark) >= 4.5,
+                "{c:?}: text on the dark tint"
+            );
+            assert!(
+                reads(white, 0.55, dark) >= 3.0,
+                "{c:?}: secondary text on the dark tint"
+            );
+            // The swatch stands out from the window in both modes.
+            assert!(
+                reads(rgb(p.light_edge), 1.0, white) >= 3.0,
+                "{c:?}: light swatch"
+            );
+            assert!(
+                reads(rgb(p.dark_edge), 1.0, [30.0, 30.0, 30.0]) >= 3.0,
+                "{c:?}: dark swatch"
+            );
+        }
+    }
 }
