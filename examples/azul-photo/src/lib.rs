@@ -3,6 +3,7 @@
 
 pub mod args;
 pub mod raster;
+pub mod state;
 pub mod storage;
 pub mod view;
 
