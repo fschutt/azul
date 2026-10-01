@@ -38,8 +38,16 @@ parse-checked with `rustfmt --edition 2021 --check`.
   on_close_requested, save_note/save_all, request_images, open_note, new_note, apply outcomes)
   `252f4c0f0`.
 
+- ui.rs parts a-d committed (`07993c66e`, `1d3326aad`, `5e29de7ca`, `c547695b3`): layout,
+  title row, status bar, window keys, dropped files, navigation pane, note list, editor pane,
+  exports. STILL MISSING in ui.rs (referenced): `open_link_sheet(&mut AppState)`,
+  `show_history(&mut CallbackInfo, &RefAny, &mut AppState)`, `overlay_dom(s, app, look)`,
+  `settings_screen(s, app, look)`, `history_screen(s, app, look)`.
+
 ## IN PROGRESS (precise next steps, in order)
-5. ui.rs in pieces. REQUIRED by lib.rs/jobs.rs: `pub extern "C" fn layout(RefAny,
+5. ui.rs parts e-g: e = overlays (palette + commands + on_run/on_query/on_close, new notebook
+   sheet, link sheet, confirm delete), f = settings, g = history.
+   (old plan follows) REQUIRED by lib.rs/jobs.rs: `pub extern "C" fn layout(RefAny,
    LayoutCallbackInfo) -> Dom`, `pub const SETTINGS_SHORTCUTS: usize`, `pub const SETTINGS_ABOUT:
    usize`, `pub fn show_history(&mut CallbackInfo, &RefAny, &mut AppState)`. Pieces: (a) layout +
    title row + status bar + window callbacks (keys Ctrl+N/K/S/,/Escape, focus, close);
