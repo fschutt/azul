@@ -371,7 +371,7 @@ fn a_selected_clip_carries_its_class_and_state_and_every_clip_is_named() {
     for c in &clips {
         for (_, n) in theme_checks::nodes(c) {
             if let azul_core::dom::NodeType::Text(s) = n.root.get_node_type() {
-                texts.push(s.as_str().to_string());
+                texts.push(s.as_ref().as_str().to_string());
             }
         }
     }

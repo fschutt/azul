@@ -67,13 +67,13 @@ use azul_css::{
             LayoutPosition, LayoutTop, LayoutWidth,
         },
         property::{CssProperty, StyleWhiteSpaceValue},
-        style::{StyleCursor, StyleUserSelect, StyleWhiteSpace},
+        style::{StyleUserSelect, StyleWhiteSpace},
     },
     AzString,
 };
 
 use crate::{
-    callbacks::{Callback, CallbackInfo},
+    callbacks::CallbackInfo,
     widgets::{
         button::{Button, ButtonOnClickCallbackType, ButtonType},
         themes::{OptionUiTheme, UiTheme},
@@ -1145,9 +1145,8 @@ extern "C" fn on_lanes_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         TimelineEventKind::Zoom => {
             s.view_start = event.time;
             #[allow(clippy::cast_possible_truncation)]
-            {
-                s.pps = event.value as f32;
-            }
+            let pps = event.value as f32;
+            s.pps = pps;
         }
         _ => {}
     }
@@ -1458,9 +1457,8 @@ extern "C" fn on_clip_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
         TimelineDragMode::Move => {
             let mut e = TimelineEvent::create(TimelineEventKind::Move, drag.now_start);
             #[allow(clippy::cast_precision_loss)]
-            {
-                e.value = drag.now_track as f64;
-            }
+            let target = drag.now_track as f64;
+            e.value = target;
             e
         }
         TimelineDragMode::TrimStart => TimelineEvent::create(TimelineEventKind::Trim, drag.now_start),
