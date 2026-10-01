@@ -59,9 +59,6 @@ pub fn abi_hash(ir: &CodegenIR) -> u64 {
 /// function and constant, sorted. Docs, argument names and bodies are left
 /// out (see the module docs).
 pub fn abi_signature(ir: &CodegenIR) -> String {
-    if true {
-        return String::new(); // RED stub
-    }
     let mut entries: Vec<String> = Vec::with_capacity(
         ir.structs.len()
             + ir.enums.len()
@@ -96,7 +93,10 @@ pub fn abi_signature(ir: &CodegenIR) -> String {
             a.name,
             a.target.trim(),
             a.generic_args.join(", "),
-            a.monomorphized_def.as_ref().map(monomorphized).unwrap_or_default()
+            a.monomorphized_def
+                .as_ref()
+                .map(monomorphized)
+                .unwrap_or_default()
         ));
     }
     for c in &ir.callback_typedefs {
@@ -217,8 +217,10 @@ fn ret(r: &Option<String>) -> String {
 /// `AzString` `From` impl, which checks too), so checking them checks the
 /// first call.
 pub fn rust_wrapper_checks(config: &CodegenConfig, kind: FunctionKind) -> bool {
-    false && matches!(config.cabi_functions, CAbiFunctionMode::ExternalBindings { .. })
-        && matches!(kind, FunctionKind::Constructor | FunctionKind::StaticMethod)
+    matches!(
+        config.cabi_functions,
+        CAbiFunctionMode::ExternalBindings { .. }
+    ) && matches!(kind, FunctionKind::Constructor | FunctionKind::StaticMethod)
 }
 
 /// The statement [`rust_wrapper_checks`] wrappers start with.
@@ -311,7 +313,8 @@ pub fn rust_items(ir: &CodegenIR, config: &CodegenConfig) -> String {
     b.indent();
     b.line("if let Some(message) = az_abi_mismatch_message(AZ_ABI_HASH, lib_hash) {");
     b.indent();
-    b.line("let _ = message; // RED stub");
+    b.line("::std::eprintln!(\"{}\", message);");
+    b.line("::std::process::abort();");
     b.dedent();
     b.line("}");
     b.dedent();
@@ -325,7 +328,10 @@ fn rust_const(b: &mut CodeBuilder, hash: u64) {
     b.line("/// fields (names, types, order) and repr, every enum's variants, every");
     b.line("/// function signature. Docs do not change it. libazul exports it as");
     b.line("/// `AzAbi_getHash()`; a binding compares the two before its first call.");
-    b.line(&format!("pub const AZ_ABI_HASH: u64 = {};", hex_literal(hash)));
+    b.line(&format!(
+        "pub const AZ_ABI_HASH: u64 = {};",
+        hex_literal(hash)
+    ));
     b.blank();
 }
 
@@ -374,9 +380,6 @@ pub fn c_includes() -> String {
 /// The ABI-guard block of azul.h: the hash, the export's declaration, the
 /// check, and its load-time call.
 pub fn c_items(ir: &CodegenIR) -> String {
-    if true {
-        return String::new(); // RED stub
-    }
     let hash = abi_hash(ir);
     let mut b = CodeBuilder::new("    ");
     b.line("/* ABI guard. AZ_ABI_HASH is the hash of the api.json this header was");
@@ -437,7 +440,11 @@ mod tests {
             let rest = t
                 .strip_prefix("pub const AZ_ABI_HASH: u64 = ")
                 .or_else(|| t.strip_prefix("#define AZ_ABI_HASH ((uint64_t)"))?;
-            Some(rest.chars().take_while(|c| c.is_ascii_hexdigit() || *c == 'x').collect())
+            Some(
+                rest.chars()
+                    .take_while(|c| c.is_ascii_hexdigit() || *c == 'x')
+                    .collect(),
+            )
         })
     }
 
@@ -472,7 +479,12 @@ mod tests {
         let entry: std::collections::BTreeSet<&str> = ir
             .functions
             .iter()
-            .filter(|f| matches!(f.kind, FunctionKind::Constructor | FunctionKind::StaticMethod))
+            .filter(|f| {
+                matches!(
+                    f.kind,
+                    FunctionKind::Constructor | FunctionKind::StaticMethod
+                )
+            })
             .map(|f| f.c_name.as_str())
             .collect();
         let text = CodeGenerator::generate(ir, &CodegenConfig::dll_dynamic()).unwrap();
@@ -482,7 +494,9 @@ mod tests {
             if !line.starts_with("pub fn ") {
                 continue;
             }
-            let Some(p) = line.find("unsafe { Az") else { continue };
+            let Some(p) = line.find("unsafe { Az") else {
+                continue;
+            };
             let callee: String = line[p + "unsafe { ".len()..]
                 .chars()
                 .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
@@ -496,8 +510,15 @@ mod tests {
                 offenders.push(line.to_string());
             }
         }
-        assert!(offenders.is_empty(), "wrappers without the ABI check:\n{}", offenders.join("\n"));
-        assert!(checked > 100, "only {checked} checked constructor wrappers found");
+        assert!(
+            offenders.is_empty(),
+            "wrappers without the ABI check:\n{}",
+            offenders.join("\n")
+        );
+        assert!(
+            checked > 100,
+            "only {checked} checked constructor wrappers found"
+        );
         // The internal bindings (link-static / libazul itself) never check.
         let dll = CodeGenerator::generate(ir, &CodegenConfig::dll_internal()).unwrap();
         assert!(!dll.contains(RUST_CHECK_CALL));
@@ -577,7 +598,11 @@ mod tests {
             abi_hash(&ir)
         };
         let field_type = changed(&|ir| {
-            let s = ir.structs.iter_mut().find(|s| !s.fields.is_empty()).unwrap();
+            let s = ir
+                .structs
+                .iter_mut()
+                .find(|s| !s.fields.is_empty())
+                .unwrap();
             s.fields[0].type_name.push_str("Changed");
         });
         let repr = changed(&|ir| {
@@ -589,13 +614,21 @@ mod tests {
             e.variants.swap(0, 1);
         });
         let new_field = changed(&|ir| {
-            let s = ir.structs.iter_mut().find(|s| !s.fields.is_empty()).unwrap();
+            let s = ir
+                .structs
+                .iter_mut()
+                .find(|s| !s.fields.is_empty())
+                .unwrap();
             let mut f = s.fields[0].clone();
             f.name.push_str("_new");
             s.fields.push(f);
         });
         let arg = changed(&|ir| {
-            let f = ir.functions.iter_mut().find(|f| !f.args.is_empty()).unwrap();
+            let f = ir
+                .functions
+                .iter_mut()
+                .find(|f| !f.args.is_empty())
+                .unwrap();
             f.args[0].ref_kind = match f.args[0].ref_kind {
                 ArgRefKind::Owned => ArgRefKind::Ref,
                 _ => ArgRefKind::Owned,
@@ -603,7 +636,10 @@ mod tests {
         });
         let ret = changed(&|ir| {
             let f = ir.functions.iter_mut().next().unwrap();
-            f.return_type = Some(format!("{}Changed", f.return_type.clone().unwrap_or_default()));
+            f.return_type = Some(format!(
+                "{}Changed",
+                f.return_type.clone().unwrap_or_default()
+            ));
         });
         for (what, h) in [
             ("a field type", field_type),

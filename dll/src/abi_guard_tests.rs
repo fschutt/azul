@@ -26,7 +26,10 @@ fn the_mismatch_message_names_both_hashes_and_says_to_rebuild_the_app() {
         .expect("different hashes are a mismatch");
     assert!(message.contains("1111222233334444"), "{message}");
     assert!(message.contains("aaaabbbbccccdddd"), "{message}");
-    assert!(message.contains("rebuild the app against this libazul"), "{message}");
+    assert!(
+        message.contains("rebuild the app against this libazul"),
+        "{message}"
+    );
 }
 
 #[test]
@@ -39,7 +42,9 @@ fn a_libazul_with_another_abi_hash_aborts_the_app_with_both_hashes() {
     }
     // The parent: run exactly this test again in a child process (an abort
     // would take the test harness down with it).
-    let path = module_path!().split_once("::").map_or(module_path!(), |(_, p)| p);
+    let path = module_path!()
+        .split_once("::")
+        .map_or(module_path!(), |(_, p)| p);
     let test = format!("{path}::a_libazul_with_another_abi_hash_aborts_the_app_with_both_hashes");
     let out = std::process::Command::new(std::env::current_exe().expect("test binary"))
         .args([test.as_str(), "--exact", "--nocapture", "--test-threads=1"])
@@ -63,5 +68,8 @@ fn a_libazul_with_another_abi_hash_aborts_the_app_with_both_hashes() {
     }
     assert!(stderr.contains(&format!("{AZ_ABI_HASH:016x}")), "{stderr}");
     assert!(stderr.contains(&format!("{wrong:016x}")), "{stderr}");
-    assert!(stderr.contains("rebuild the app against this libazul"), "{stderr}");
+    assert!(
+        stderr.contains("rebuild the app against this libazul"),
+        "{stderr}"
+    );
 }
