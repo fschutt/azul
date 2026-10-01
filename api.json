@@ -130807,6 +130807,7 @@
                         }
                     },
                     "ShellPaneVec": {
+                        "external": "azul_layout::widgets::shells::office_shell::ShellPaneVec",
                         "custom_impls": [
                             "Clone",
                             "Debug",
@@ -131001,6 +131002,7 @@
                         }
                     },
                     "ShellNavigationModuleVec": {
+                        "external": "azul_layout::widgets::shells::navigation_pane::ShellNavigationModuleVec",
                         "custom_impls": [
                             "Clone",
                             "Debug",
@@ -131250,6 +131252,7 @@
                         "repr": "C, u8"
                     },
                     "ShellBottomTabVec": {
+                        "external": "azul_layout::widgets::shells::mobile_shell::ShellBottomTabVec",
                         "custom_impls": [
                             "Clone",
                             "Debug",
@@ -131689,6 +131692,7 @@
                         }
                     },
                     "ShellPaletteCommandVec": {
+                        "external": "azul_layout::widgets::shells::command_palette::ShellPaletteCommandVec",
                         "custom_impls": [
                             "Clone",
                             "Debug",
