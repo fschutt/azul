@@ -698,3 +698,5 @@ mod real_mail_html_parses_like_a_browser;
 mod the_two_xml_loaders_build_one_tree;
 #[path = "html_pasted_from_word_and_browsers_keeps_its_formatting.rs"]
 mod html_pasted_from_word_and_browsers_keeps_its_formatting;
+#[path = "builtin_html_elements_take_their_presentational_arguments.rs"]
+mod builtin_html_elements_take_their_presentational_arguments;
