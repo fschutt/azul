@@ -708,3 +708,5 @@ mod a_cells_specified_width_is_its_columns_width;
 mod a_collapsed_table_shares_each_border_between_its_cells;
 #[path = "a_separated_table_spaces_its_cells_and_paints_its_own_border.rs"]
 mod a_separated_table_spaces_its_cells_and_paints_its_own_border;
+#[path = "a_rows_height_is_its_tallest_cell_or_its_own_height.rs"]
+mod a_rows_height_is_its_tallest_cell_or_its_own_height;
