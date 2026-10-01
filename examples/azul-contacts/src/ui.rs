@@ -1240,3 +1240,457 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_child(ShellThemeScope::create(root).with_accent(ShellThemeAccent::Blue).dom())
         .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_key)
 }
+
+// ==== Callbacks: files ====
+
+/// Runs `f` on the app's state; the window is rebuilt afterwards.
+fn with_app(
+    app: &mut RefAny,
+    info: &mut CallbackInfo,
+    f: impl FnOnce(&mut ContactsApp, &mut CallbackInfo, &RefAny),
+) -> Update {
+    let handle = app.clone();
+    let Some(mut guard) = app.downcast_mut::<ContactsApp>() else {
+        return Update::DoNothing;
+    };
+    f(&mut guard, info, &handle);
+    Update::RefreshDom
+}
+
+fn write_files(s: &ContactsApp, info: &mut CallbackInfo, app: &RefAny, jobs: Vec<FileJob>, tag: u64) {
+    kit::spawn_file_jobs(info, &s.data_root, jobs, app.clone(), tag, on_files_done);
+}
+
+/// Puts a contact into the book (replacing the one with its UID) and writes its file.
+fn save_contact(s: &mut ContactsApp, info: &mut CallbackInfo, app: &RefAny, mut c: Contact) {
+    store::ensure_uid(&mut c);
+    let (key, bytes) = store::file_of(&c);
+    match s.book.iter().position(|x| x.uid == c.uid) {
+        Some(i) => s.book[i] = c.clone(),
+        None => s.book.push(c.clone()),
+    }
+    write_files(s, info, app, vec![FileJob::Put { key, bytes }], TAG_WRITE);
+    s.select(Some(c.uid));
+}
+
+fn copy_to_clipboard(info: &mut CallbackInfo, text: &str) {
+    info.set_clipboard_content(ClipboardContent {
+        plain_text: AzString::from(text),
+        styled_runs: StyledTextRunVec::create(),
+        html: OptionString::None,
+    });
+}
+
+/// Writes the contacts at `indices` as one `.vcf` under `exports/` in the data root.
+fn export_contacts(s: &mut ContactsApp, info: &mut CallbackInfo, app: &RefAny, indices: &[usize]) {
+    if indices.is_empty() {
+        s.notice = "Nothing to export.".to_string();
+        return;
+    }
+    let text = store::export(&s.book, indices, s.export_version);
+    let key = format!("exports/contacts-{}.vcf", now_secs());
+    s.notice = format!(
+        "Exporting {} contact{} to {}",
+        indices.len(),
+        if indices.len() == 1 { "" } else { "s" },
+        azul_appkit::data::local_path(&s.data_root, &key).display()
+    );
+    write_files(s, info, app, vec![FileJob::Put { key, bytes: text.into_bytes() }], TAG_WRITE);
+}
+
+/// Reads a `.vcf` file for the import preview (on a Thread; the drive is its folder).
+fn read_import_file(s: &mut ContactsApp, info: &mut CallbackInfo, app: &RefAny, path: &Path) {
+    let (Some(folder), Some(name)) = (path.parent(), path.file_name()) else {
+        if let Reading::Import(st) = &mut s.reading {
+            st.problems = vec![format!("\"{}\" is not a file.", path.display())];
+        }
+        return;
+    };
+    let folder = if folder.as_os_str().is_empty() { Path::new(".") } else { folder };
+    let mut state = match std::mem::replace(&mut s.reading, Reading::Card) {
+        Reading::Import(st) => st,
+        _ => ImportState {
+            path: String::new(),
+            rows: Vec::new(),
+            problems: Vec::new(),
+            group: "Imported".to_string(),
+            reading: false,
+        },
+    };
+    state.path = path.display().to_string();
+    state.rows.clear();
+    state.problems.clear();
+    state.reading = true;
+    s.reading = Reading::Import(state);
+    kit::spawn_file_jobs(
+        info,
+        folder,
+        vec![FileJob::Get { key: name.to_string_lossy().into_owned() }],
+        app.clone(),
+        TAG_IMPORT_FILE,
+        on_files_done,
+    );
+}
+
+/// After loading: the screen `--screen` asked for, the files given to import.
+fn after_load(s: &mut ContactsApp, info: &mut CallbackInfo, app: &RefAny) {
+    if s.selected.is_none() {
+        let first = s.view().first().map(|&i| s.book[i].uid.clone());
+        s.select(first);
+    }
+    match std::mem::take(&mut s.start_screen).as_str() {
+        "new" => s.reading = Reading::Edit(Form::new(None)),
+        "duplicates" => open_duplicates(s),
+        "import" => s.reading = Reading::Import(empty_import()),
+        _ => {}
+    }
+    if let Some(path) = s.import_files.first().cloned() {
+        s.import_files.clear();
+        read_import_file(s, info, app, &path);
+    }
+}
+
+fn empty_import() -> ImportState {
+    ImportState {
+        path: String::new(),
+        rows: Vec::new(),
+        problems: Vec::new(),
+        group: "Imported".to_string(),
+        reading: false,
+    }
+}
+
+fn open_duplicates(s: &mut ContactsApp) {
+    let pairs = s.duplicates();
+    println!("AZCONTACTS_DUPLICATES {}", pairs.len());
+    s.reading = Reading::Merge(MergeState {
+        pairs,
+        index: 0,
+        plan: MergePlan::default(),
+    });
+}
+
+extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app = data.clone();
+    let Some(s) = data.downcast_ref::<ContactsApp>() else {
+        return Update::DoNothing;
+    };
+    kit::on_window_created(&s.kit, &mut info);
+    kit::spawn_file_jobs(
+        &mut info,
+        &s.data_root,
+        vec![FileJob::GetAll {
+            prefix: format!("{}/", store::APP_FOLDER),
+            suffix: store::SUFFIX.to_string(),
+        }],
+        app.clone(),
+        TAG_LOAD,
+        on_files_done,
+    );
+    Update::DoNothing
+}
+
+extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(reply) = kit::take_reply(&mut msg) else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, &mut info, |s, info, handle| match reply.tag {
+        TAG_LOAD => {
+            let mut files = Vec::new();
+            for outcome in reply.outcomes {
+                if let FileOutcome::GotAll { files: f, errors, .. } = outcome {
+                    files = f;
+                    for e in errors {
+                        eprintln!("[azcontacts] {e}");
+                    }
+                }
+            }
+            let (book, problems) = store::load(&files);
+            for p in &problems {
+                eprintln!("[azcontacts] {p}");
+            }
+            if !problems.is_empty() {
+                s.notice = format!("{} contact file(s) could not be read fully", problems.len());
+            }
+            s.book = book;
+            if s.book.is_empty() && s.sample {
+                s.book = sample::sample_book();
+                let jobs: Vec<FileJob> = s
+                    .book
+                    .iter()
+                    .map(|c| {
+                        let (key, bytes) = store::file_of(c);
+                        FileJob::Put { key, bytes }
+                    })
+                    .collect();
+                write_files(s, info, handle, jobs, TAG_SAMPLE);
+            }
+            s.loaded = true;
+            println!("AZCONTACTS_LOADED {}", s.book.len());
+            after_load(s, info, handle);
+        }
+        TAG_IMPORT_FILE => {
+            let mut text = None;
+            let mut problem = None;
+            for outcome in reply.outcomes {
+                match outcome {
+                    FileOutcome::Got { result: Ok(Some(bytes)), .. } => text = Some(String::from_utf8_lossy(&bytes).into_owned()),
+                    FileOutcome::Got { result: Ok(None), key } => problem = Some(format!("\"{key}\" does not exist.")),
+                    FileOutcome::Got { result: Err(e), .. } => problem = Some(e),
+                    _ => {}
+                }
+            }
+            let book = s.book.clone();
+            if let Reading::Import(st) = &mut s.reading {
+                st.reading = false;
+                if let Some(p) = problem {
+                    st.problems = vec![p];
+                }
+                if let Some(text) = text {
+                    let (rows, problems) = store::import_preview(&text, &book);
+                    if rows.is_empty() && problems.is_empty() {
+                        st.problems.push("The file holds no vCard.".to_string());
+                    }
+                    st.problems.extend(problems);
+                    st.rows = rows;
+                    println!("AZCONTACTS_IMPORT_PREVIEW {} {}", st.rows.len(), store::import_summary(&st.rows));
+                }
+            }
+        }
+        TAG_SAMPLE | TAG_WRITE => {
+            let mut failed = 0;
+            for outcome in &reply.outcomes {
+                if let Some(e) = outcome.error() {
+                    failed += 1;
+                    eprintln!("[azcontacts] {e}");
+                    continue;
+                }
+                match outcome {
+                    FileOutcome::Put { key, .. } if reply.tag == TAG_WRITE => {
+                        if let Some(uid) = key.strip_prefix("contacts/").and_then(|k| k.strip_suffix(".vcf")) {
+                            println!("AZCONTACTS_SAVED {uid}");
+                        } else {
+                            println!("AZCONTACTS_EXPORTED {key}");
+                            s.notice = format!("Exported to {}", azul_appkit::data::local_path(&s.data_root, key).display());
+                        }
+                    }
+                    FileOutcome::Deleted { key, .. } => {
+                        if let Some(uid) = store::uid_of_key(key) {
+                            println!("AZCONTACTS_DELETED {uid}");
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if reply.tag == TAG_SAMPLE {
+                println!("AZCONTACTS_SAMPLE_WRITTEN {}", reply.outcomes.len() - failed);
+            }
+            if failed > 0 {
+                s.notice = format!("{failed} file(s) could not be written - see the log");
+            }
+        }
+        _ => {}
+    })
+}
+
+// ==== Callbacks: navigation and list ====
+
+/// Leaves the reading pane's form or screen for the card; `false` when the
+/// edit form has changes (it asks first).
+fn leave_reading(s: &mut ContactsApp) -> bool {
+    if let Reading::Edit(form) = &mut s.reading {
+        if form.changed() {
+            form.confirm_discard = true;
+            return false;
+        }
+    }
+    s.reading = Reading::Card;
+    true
+}
+
+fn set_filter(s: &mut ContactsApp, filter: Filter) {
+    if !leave_reading(s) {
+        return;
+    }
+    s.filter = filter;
+    let view = s.view();
+    println!("AZCONTACTS_VIEW {}", view.len());
+    if !s.selected_index().is_some_and(|i| view.contains(&i)) {
+        let first = view.first().map(|&i| s.book[i].uid.clone());
+        s.select(first);
+    }
+}
+
+extern "C" fn on_nav(mut data: RefAny, mut info: CallbackInfo, event: ShellNavigationPaneEvent) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| match event.kind {
+        ShellNavigationPaneEventKind::GroupToggled => {
+            if event.group < s.nav_open.len() {
+                s.nav_open[event.group] = event.expand;
+            }
+        }
+        ShellNavigationPaneEventKind::NodeClicked => match (event.group, event.index) {
+            (0, 1) => set_filter(s, Filter::Favorites),
+            (0, 2) => {
+                if leave_reading(s) {
+                    open_duplicates(s);
+                }
+            }
+            (1, k) if k >= 1 => {
+                let counts = book::group_counts(&s.book);
+                if let Some((name, _)) = counts.get(k - 1) {
+                    set_filter(s, Filter::Group(name.clone()));
+                }
+            }
+            _ => set_filter(s, Filter::All),
+        },
+        _ => {}
+    })
+}
+
+extern "C" fn on_row(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, uid)) = data.downcast_ref::<RowRef>().map(|r| (r.app.clone(), r.uid.clone())) else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, &mut info, |s, _info, _| {
+        if leave_reading(s) {
+            s.select(Some(uid));
+        }
+    })
+}
+
+/// The A-Z bar: the letter's section (or the next one with contacts) scrolls to the top.
+extern "C" fn on_jump(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(letter) = data.downcast_ref::<LetterRef>().map(|l| l.letter) else {
+        return Update::DoNothing;
+    };
+    let dom = info.get_hit_node().dom;
+    let start = ALPHABET.iter().position(|l| *l == letter).unwrap_or(0);
+    for candidate in ALPHABET[start..].iter().chain(ALPHABET[..start].iter().rev()) {
+        let node = info.get_node_id_by_id_attribute(dom, section_id(*candidate));
+        if node.into_raw() != 0 {
+            info.scroll_node_into_view(DomNodeId { dom, node }, ScrollIntoViewOptions::start());
+            println!("AZCONTACTS_JUMP {candidate}");
+            break;
+        }
+    }
+    Update::DoNothing
+}
+
+extern "C" fn on_search(mut data: RefAny, mut info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+    let query = state.get_text().as_str().to_string();
+    let update = with_app(&mut data, &mut info, |s, _info, _| {
+        s.query = query;
+        let view = s.view();
+        println!("AZCONTACTS_VIEW {}", view.len());
+        if !s.selected_index().is_some_and(|i| view.contains(&i)) && matches!(s.reading, Reading::Card) {
+            let first = view.first().map(|&i| s.book[i].uid.clone());
+            s.select(first);
+        }
+    });
+    OnTextInputReturn {
+        update,
+        valid: TextInputValid::Yes,
+    }
+}
+
+extern "C" fn on_sort(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    with_app(&mut data, &mut info, |s, info, _| {
+        s.sort = if state.selected_index == 1 { SortBy::Last } else { SortBy::First };
+        kit::set_value(&s.kit, info, "sort", s.sort.key());
+    })
+}
+
+extern "C" fn on_open_settings(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| kit::open_settings(&s.kit, None))
+}
+
+extern "C" fn on_export_version(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    with_app(&mut data, &mut info, |s, info, _| {
+        s.export_version = if state.selected_index == 1 { Version::V3 } else { Version::V4 };
+        kit::set_value(&s.kit, info, "export", s.export_version.label());
+    })
+}
+
+// ==== Callbacks: the card ====
+
+extern "C" fn on_new(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| {
+        if leave_reading(s) {
+            s.reading = Reading::Edit(Form::new(None));
+        }
+    })
+}
+
+extern "C" fn on_edit(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| {
+        if let Some(i) = s.selected_index() {
+            s.reading = Reading::Edit(Form::new(Some(&s.book[i])));
+        }
+    })
+}
+
+extern "C" fn on_toggle_favorite(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, info, handle| {
+        if let Some(i) = s.selected_index() {
+            let mut c = s.book[i].clone();
+            c.favorite = !c.favorite;
+            save_contact(s, info, handle, c);
+        }
+    })
+}
+
+extern "C" fn on_copy_vcard(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, info, _| {
+        if let Some(i) = s.selected_index() {
+            copy_to_clipboard(info, &s.book[i].to_vcf(s.export_version));
+            s.notice = format!("Copied {} as vCard {}", s.book[i].display_name(), s.export_version.label());
+        }
+    })
+}
+
+extern "C" fn on_copy_email(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, info, _| {
+        if let Some(e) = s.selected_index().and_then(|i| s.book[i].emails.first().cloned()) {
+            copy_to_clipboard(info, &e.value);
+            s.notice = format!("Copied {}", e.value);
+        }
+    })
+}
+
+extern "C" fn on_export_selected(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, info, handle| {
+        let indices: Vec<usize> = s.selected_index().into_iter().collect();
+        export_contacts(s, info, handle, &indices);
+    })
+}
+
+extern "C" fn on_export_view(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, info, handle| {
+        let indices = s.view();
+        export_contacts(s, info, handle, &indices);
+    })
+}
+
+extern "C" fn on_delete(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| s.confirm_delete = true)
+}
+
+extern "C" fn on_delete_cancelled(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| s.confirm_delete = false)
+}
+
+extern "C" fn on_delete_confirmed(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, info, handle| {
+        let Some(i) = s.selected_index() else {
+            return;
+        };
+        let view = s.view();
+        let pos = view.iter().position(|&x| x == i).unwrap_or(0);
+        let removed = s.book.remove(i);
+        write_files(s, info, handle, vec![FileJob::Delete { key: store::contact_key(&removed.uid) }], TAG_WRITE);
+        let view = s.view();
+        let next = view.get(pos.min(view.len().saturating_sub(1))).map(|&j| s.book[j].uid.clone());
+        s.select(next);
+        s.notice = format!("Deleted {}", removed.display_name());
+    })
+}
