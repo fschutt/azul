@@ -1,0 +1,33 @@
+[package]
+name = "AzVideoCut"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzVideoCut - a Premiere-like video editor on the public azul API. A media
+    bin, a source monitor (in / out points), a program monitor (play, J / K / L,
+    timecode), the timeline (azul's Timeline widget: V1..V3 over A1..A3, razor,
+    ripple, slip, snapping), effect controls (position, scale, opacity, crop,
+    cross dissolve, dip to black) and an H.264 MP4 export, on azul's own video
+    stack: Mp4Demuxer + VideoDecoder for the frames (seek to the keyframe,
+    decode forward), a CPU compositor, VideoEncoder + Mp4Muxer for the file.
+    A project is files: <data root>/videocut/<uuid>/project.json and its
+    media/, written through azul-storage's Drive (a LocalDrive today).
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+azul-storage = { path = "../azul-storage", features = ["azul"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lib]
+name = "azvideocut"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzVideoCut"
+path = "src/main.rs"
