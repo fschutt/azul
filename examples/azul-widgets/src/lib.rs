@@ -20,6 +20,7 @@ use azul::{
 
 mod forms;
 mod hotkeys;
+mod dialogs;
 mod mail;
 mod notifications;
 mod video;
@@ -79,6 +80,9 @@ struct Showcase {
     /// The "Mail" section's values: the Outlook-style mail widgets (see
     /// `mail.rs`).
     mail: mail::MailDemo,
+    /// The "Dialogs" section's values: the wizard, settings and standard
+    /// dialogs (see `dialogs.rs`).
+    dialogs: dialogs::DialogsDemo,
 }
 
 const CHOICES: &[&str] = &["Red", "Green", "Blue"];
@@ -1079,6 +1083,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let raw_inputs = forms::raw_inputs_section(&data, &s.form, theme);
     // The Outlook-style mail widgets.
     let mail = mail::mail_section(&data, &s.mail, theme);
+    // The wizard, settings and standard dialogs.
+    let dialogs = dialogs::dialogs_section(&data, &s.dialogs, theme);
 
     let heading = Dom::create_h1_with_text("Azul Widget Showcase").with_css(
         "font-size: 26px; font-weight: bold; color: system:text; margin-top: 0px; \
@@ -1154,6 +1160,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 .with_child(overlays)
                 .with_child(datetime)
                 .with_child(mail)
+                .with_child(dialogs)
                 .with_child(every_input)
                 .with_child(raw_inputs),
         )
@@ -1442,6 +1449,7 @@ pub fn start() {
         widget_theme: UiTheme::Flat,
         form: forms::FormDemo::create(),
         mail: mail::MailDemo::create(),
+        dialogs: dialogs::DialogsDemo::create(),
     });
     // `None` follows the desktop - the default, spelled out: an app that
     // starts pinned passes `OptionDarkLightMode::Some(DarkLightMode::Dark)`.
