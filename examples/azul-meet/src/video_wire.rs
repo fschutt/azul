@@ -469,6 +469,8 @@ pub struct KeyframePolicy {
     /// A keyframe was forced: how many more P-frames (of frames submitted before it) may come out
     /// before its keyframe must.
     awaiting: Option<u32>,
+    /// What the last forcing `should_force` changed, for `not_taken` to put back.
+    undo: Option<(Option<u32>, Option<u64>, KeyframeStats)>,
     reopen: bool,
     reopens_in_a_row: u32,
     stats: KeyframeStats,
@@ -495,8 +497,10 @@ impl KeyframePolicy {
             .last_keyframe_ms
             .is_some_and(|at| now_ms.saturating_sub(at) >= PERIODIC_KEYFRAME_MS);
         if !(fresh || asked || periodic) {
+            self.undo = None;
             return false;
         }
+        self.undo = Some((self.awaiting, self.last_forced_ms, self.stats));
         if asked {
             self.stats.on_request += 1;
         } else if periodic {
@@ -532,7 +536,13 @@ impl KeyframePolicy {
 
     /// The frame [`Self::should_force`] was just asked about was not taken by the encoder (its
     /// queue was full): nothing was forced, so the request stays open for the next frame.
-    pub fn not_taken(&mut self) {}
+    pub fn not_taken(&mut self) {
+        if let Some((awaiting, last_forced_ms, stats)) = self.undo.take() {
+            self.awaiting = awaiting;
+            self.last_forced_ms = last_forced_ms;
+            self.stats = stats;
+        }
+    }
 
     /// The encoder must be closed and opened again.
     pub fn must_reopen(&self) -> bool {
