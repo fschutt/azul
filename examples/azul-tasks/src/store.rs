@@ -39,15 +39,86 @@ pub struct Loaded {
 }
 
 /// Every key under `prefix`, `page` keys per listing call.
-pub fn all_keys(drive: &dyn Drive, prefix: &str, page: u32) -> Result<Vec<String>, DriveError> { todo!() }
+pub fn all_keys(drive: &dyn Drive, prefix: &str, page: u32) -> Result<Vec<String>, DriveError> {
+    let mut keys = Vec::new();
+    let mut request = ListRequest::recursive(prefix).with_max_keys(page);
+    loop {
+        let listed = drive.list(&request)?;
+        keys.extend(listed.objects.into_iter().map(|o| o.key));
+        match listed.next {
+            Some(token) => request = request.with_continuation(token),
+            None => break,
+        }
+    }
+    Ok(keys)
+}
 
 /// Reads every list, task and the settings. A file that cannot be read is named in
 /// `skipped` and left alone; tasks in a folder without its `list.json` get an "Untitled
 /// list" so they still show (the list file is written when that list is next changed).
-pub fn load_all(drive: &dyn Drive) -> Result<Loaded, DriveError> { todo!() }
+pub fn load_all(drive: &dyn Drive) -> Result<Loaded, DriveError> {
+    load_all_paged(drive, PAGE_SIZE)
+}
 
 /// [`load_all`] with `page` keys per listing call.
-pub fn load_all_paged(drive: &dyn Drive, page: u32) -> Result<Loaded, DriveError> { todo!() }
+pub fn load_all_paged(drive: &dyn Drive, page: u32) -> Result<Loaded, DriveError> {
+    let mut out = Loaded::default();
+    let prefix = format!("{}/", model::TASKS_DIR);
+    for key in all_keys(drive, &prefix, page)? {
+        let kind = model::parse_key(&key);
+        if matches!(kind, KeyKind::Attachment { .. } | KeyKind::Other) {
+            continue;
+        }
+        let text = match drive.get(&key) {
+            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+            Err(e) => {
+                out.skipped.push(Skipped {
+                    key,
+                    reason: e.to_string(),
+                });
+                continue;
+            }
+        };
+        let skip = |out: &mut Loaded, key: String, reason: String| out.skipped.push(Skipped { key, reason });
+        match kind {
+            KeyKind::Settings => match model::settings_from_json(&text) {
+                Ok(s) => out.settings = Some(s),
+                Err(e) => skip(&mut out, key, e.to_string()),
+            },
+            KeyKind::List { list } => match model::list_from_json(&text) {
+                Ok(l) if l.id == list => out.lists.push(l),
+                Ok(_) => skip(&mut out, key, "its id is not its folder's".into()),
+                Err(e) => skip(&mut out, key, e.to_string()),
+            },
+            KeyKind::Task { list, task } => match model::task_from_json(&text) {
+                Ok(mut t) if t.id == task => {
+                    // The folder says which list a task is in.
+                    t.list = list;
+                    out.tasks.push(t);
+                }
+                Ok(_) => skip(&mut out, key, "its id is not its file's name".into()),
+                Err(e) => skip(&mut out, key, e.to_string()),
+            },
+            KeyKind::Attachment { .. } | KeyKind::Other => {}
+        }
+    }
+    let mut next_order = out.lists.iter().map(|l| l.order).max().unwrap_or(0);
+    let mut missing: Vec<String> = out
+        .tasks
+        .iter()
+        .map(|t| t.list.clone())
+        .filter(|id| !out.lists.iter().any(|l| l.id == *id))
+        .collect();
+    missing.sort();
+    missing.dedup();
+    for id in missing {
+        next_order += 1;
+        out.lists
+            .push(TaskList::new(id, "Untitled list".to_string(), next_order));
+    }
+    out.lists.sort_by(|a, b| (a.order, a.name.to_lowercase()).cmp(&(b.order, b.name.to_lowercase())));
+    Ok(out)
+}
 
 // ==== The write queue ====
 
@@ -60,7 +131,11 @@ pub enum Write {
 
 impl Write {
     #[must_use]
-    pub fn key(&self) -> &str { todo!() }
+    pub fn key(&self) -> &str {
+        match self {
+            Write::Put { key, .. } | Write::Delete { key } => key,
+        }
+    }
 }
 
 /// The writes waiting, the batch in flight and the failures kept for a retry.
@@ -73,40 +148,86 @@ pub struct WriteQueue {
 
 impl WriteQueue {
     #[must_use]
-    pub fn new() -> Self { todo!() }
+    pub fn new() -> Self {
+        WriteQueue::default()
+    }
 
     /// Writes `bytes` to `key` (replacing a waiting write of `key`).
-    pub fn put(&mut self, key: String, bytes: Vec<u8>) { todo!() }
+    pub fn put(&mut self, key: String, bytes: Vec<u8>) {
+        self.replace(Write::Put { key, bytes });
+    }
 
     /// Deletes `key` (replacing a waiting write of `key`).
-    pub fn delete(&mut self, key: String) { todo!() }
+    pub fn delete(&mut self, key: String) {
+        self.replace(Write::Delete { key });
+    }
 
-    fn replace(&mut self, write: Write) { todo!() }
+    fn replace(&mut self, write: Write) {
+        self.pending.retain(|w| w.key() != write.key());
+        self.failed.retain(|(w, _)| w.key() != write.key());
+        self.pending.push(write);
+    }
 
     /// The next batch: everything waiting, unless a batch is still in flight.
-    pub fn take(&mut self) -> Option<Vec<Write>> { todo!() }
+    pub fn take(&mut self) -> Option<Vec<Write>> {
+        if self.in_flight > 0 || self.pending.is_empty() {
+            return None;
+        }
+        let batch = std::mem::take(&mut self.pending);
+        self.in_flight = batch.len();
+        Some(batch)
+    }
 
     /// The batch in flight is done; `failed` are its writes that did not land, with why.
-    pub fn finish(&mut self, failed: Vec<(Write, String)>) { todo!() }
+    pub fn finish(&mut self, failed: Vec<(Write, String)>) {
+        self.in_flight = 0;
+        for (write, why) in failed {
+            let superseded = self.pending.iter().any(|w| w.key() == write.key());
+            if !superseded {
+                self.failed.retain(|(w, _)| w.key() != write.key());
+                self.failed.push((write, why));
+            }
+        }
+    }
 
     /// Queues the failed writes again (before anything newer).
-    pub fn retry(&mut self) { todo!() }
+    pub fn retry(&mut self) {
+        let failed = std::mem::take(&mut self.failed);
+        let mut again: Vec<Write> = failed
+            .into_iter()
+            .map(|(w, _)| w)
+            .filter(|w| !self.pending.iter().any(|p| p.key() == w.key()))
+            .collect();
+        again.append(&mut self.pending);
+        self.pending = again;
+    }
 
     /// Writes waiting (not counting the batch in flight).
     #[must_use]
-    pub fn pending(&self) -> usize { todo!() }
+    pub fn pending(&self) -> usize {
+        self.pending.len()
+    }
 
     /// Writes of the batch in flight.
     #[must_use]
-    pub fn in_flight(&self) -> usize { todo!() }
+    pub fn in_flight(&self) -> usize {
+        self.in_flight
+    }
 
     /// The failures kept for a retry: `(key, why)`.
     #[must_use]
-    pub fn failures(&self) -> Vec<(String, String)> { todo!() }
+    pub fn failures(&self) -> Vec<(String, String)> {
+        self.failed
+            .iter()
+            .map(|(w, why)| (w.key().to_string(), why.clone()))
+            .collect()
+    }
 
     /// Nothing waiting, nothing in flight.
     #[must_use]
-    pub fn is_idle(&self) -> bool { todo!() }
+    pub fn is_idle(&self) -> bool {
+        self.in_flight == 0 && self.pending.is_empty()
+    }
 }
 
 /// What a batch did.
@@ -119,23 +240,65 @@ pub struct BatchResult {
 }
 
 /// Runs a batch against the drive, in order.
-pub fn run_batch(drive: &dyn Drive, batch: Vec<Write>) -> BatchResult { todo!() }
+pub fn run_batch(drive: &dyn Drive, batch: Vec<Write>) -> BatchResult {
+    let mut out = BatchResult::default();
+    for write in batch {
+        let result = match &write {
+            Write::Put { key, bytes } => drive.put(key, bytes),
+            Write::Delete { key } => drive.delete(key),
+        };
+        match result {
+            Ok(()) => out.done.push(write.key().to_string()),
+            Err(e) => out.failed.push((write, e.to_string())),
+        }
+    }
+    out
+}
 
 // ==== Attachments ====
 
 /// Copies the file at `path` to `key`; returns its size.
-pub fn attach_file(drive: &dyn Drive, key: &str, path: &Path) -> Result<u64, DriveError> { todo!() }
+pub fn attach_file(drive: &dyn Drive, key: &str, path: &Path) -> Result<u64, DriveError> {
+    let bytes = fs::read(path).map_err(|e| DriveError::Io(format!("{}: {e}", path.display())))?;
+    drive.put(key, &bytes)?;
+    Ok(u64::try_from(bytes.len()).unwrap_or(u64::MAX))
+}
 
 /// Fetches `key` into the folder `dir` (made if missing), under its own name; returns the
 /// file's path.
-pub fn fetch_file(drive: &dyn Drive, key: &str, dir: &Path) -> Result<PathBuf, DriveError> { todo!() }
+pub fn fetch_file(drive: &dyn Drive, key: &str, dir: &Path) -> Result<PathBuf, DriveError> {
+    let name = azul_storage::key::safe_file_name(key).ok_or_else(|| DriveError::InvalidKey {
+        key: key.to_string(),
+        reason: "it has no file name",
+    })?;
+    let bytes = drive.get(key)?;
+    fs::create_dir_all(dir).map_err(|e| DriveError::Io(format!("{}: {e}", dir.display())))?;
+    let path = dir.join(name);
+    fs::write(&path, bytes).map_err(|e| DriveError::Io(format!("{}: {e}", path.display())))?;
+    Ok(path)
+}
 
 /// Moves every file under the folder `from` to the folder `to` (a task's attachments when
 /// the task moves to another list); returns how many.
-pub fn move_files(drive: &dyn Drive, from: &str, to: &str) -> Result<usize, DriveError> { todo!() }
+pub fn move_files(drive: &dyn Drive, from: &str, to: &str) -> Result<usize, DriveError> {
+    let keys = all_keys(drive, from, PAGE_SIZE)?;
+    for key in &keys {
+        let rest = &key[from.len()..];
+        let bytes = drive.get(key)?;
+        drive.put(&format!("{to}{rest}"), &bytes)?;
+        drive.delete(key)?;
+    }
+    Ok(keys.len())
+}
 
 /// Deletes every file under the folder `prefix`; returns how many.
-pub fn delete_files(drive: &dyn Drive, prefix: &str) -> Result<usize, DriveError> { todo!() }
+pub fn delete_files(drive: &dyn Drive, prefix: &str) -> Result<usize, DriveError> {
+    let keys = all_keys(drive, prefix, PAGE_SIZE)?;
+    for key in &keys {
+        drive.delete(key)?;
+    }
+    Ok(keys.len())
+}
 
 #[cfg(test)]
 mod tests {

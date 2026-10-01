@@ -14,15 +14,41 @@ use crate::model::{self, Reminder, Task};
 
 /// The moment `t` reminds, if it has a reminder that can go off.
 #[must_use]
-pub fn reminder_at(t: &Task, reminder_time: NaiveTime) -> Option<NaiveDateTime> { todo!() }
+pub fn reminder_at(t: &Task, reminder_time: NaiveTime) -> Option<NaiveDateTime> {
+    match t.reminder? {
+        Reminder::At(at) => Some(at),
+        Reminder::Before(minutes) => {
+            let due = t.due?;
+            let base = due.and_time(t.due_time.unwrap_or(reminder_time));
+            Some(model::minutes_before(base, minutes))
+        }
+    }
+}
 
 /// The open tasks whose reminder is due at `now` and was not shown yet (indices).
 #[must_use]
-pub fn due_now(tasks: &[Task], now: NaiveDateTime, reminder_time: NaiveTime) -> Vec<usize> { todo!() }
+pub fn due_now(tasks: &[Task], now: NaiveDateTime, reminder_time: NaiveTime) -> Vec<usize> {
+    tasks
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| !t.is_done())
+        .filter_map(|(i, t)| {
+            let at = reminder_at(t, reminder_time)?;
+            (at <= now && t.reminded != Some(at)).then_some(i)
+        })
+        .collect()
+}
 
 /// The earliest reminder still to come after `now`.
 #[must_use]
-pub fn next_at(tasks: &[Task], now: NaiveDateTime, reminder_time: NaiveTime) -> Option<NaiveDateTime> { todo!() }
+pub fn next_at(tasks: &[Task], now: NaiveDateTime, reminder_time: NaiveTime) -> Option<NaiveDateTime> {
+    tasks
+        .iter()
+        .filter(|t| !t.is_done())
+        .filter_map(|t| reminder_at(t, reminder_time))
+        .filter(|at| *at > now)
+        .min()
+}
 
 /// What the reminder control offers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,35 +76,95 @@ impl Preset {
     ];
 
     #[must_use]
-    pub fn label(self) -> &'static str { todo!() }
+    pub fn label(self) -> &'static str {
+        match self {
+            Preset::None => "None",
+            Preset::AtDue => "At the due time",
+            Preset::Before5 => "5 minutes before",
+            Preset::Before15 => "15 minutes before",
+            Preset::Before60 => "1 hour before",
+            Preset::DayBefore => "1 day before",
+            Preset::OnDate => "On a date...",
+        }
+    }
 
     /// The position in [`Preset::ALL`].
     #[must_use]
-    pub fn index(self) -> usize { todo!() }
+    pub fn index(self) -> usize {
+        Preset::ALL.iter().position(|p| *p == self).unwrap_or(0)
+    }
 
     /// The minutes before the due time, for the relative presets.
     #[must_use]
-    pub fn minutes(self) -> Option<i64> { todo!() }
+    pub fn minutes(self) -> Option<i64> {
+        match self {
+            Preset::AtDue => Some(0),
+            Preset::Before5 => Some(5),
+            Preset::Before15 => Some(15),
+            Preset::Before60 => Some(60),
+            Preset::DayBefore => Some(24 * 60),
+            Preset::None | Preset::OnDate => None,
+        }
+    }
 }
 
 /// The preset a reminder is (a relative reminder of other minutes reads as "On a date").
 #[must_use]
-pub fn preset_of(reminder: Option<Reminder>) -> Preset { todo!() }
+pub fn preset_of(reminder: Option<Reminder>) -> Preset {
+    match reminder {
+        None => Preset::None,
+        Some(Reminder::At(_)) => Preset::OnDate,
+        Some(Reminder::Before(m)) => Preset::ALL
+            .into_iter()
+            .find(|p| p.minutes() == Some(m))
+            .unwrap_or(Preset::OnDate),
+    }
+}
 
 /// The reminder a chosen preset sets on `t`: relative ones need a due date (without one
 /// they become a moment: `fallback` minus the minutes); "On a date" keeps a moment the task
 /// has, else takes when the task reminds now, else `fallback`.
 #[must_use]
-pub fn reminder_for(preset: Preset, t: &Task, reminder_time: NaiveTime, fallback: NaiveDateTime) -> Option<Reminder> { todo!() }
+pub fn reminder_for(preset: Preset, t: &Task, reminder_time: NaiveTime, fallback: NaiveDateTime) -> Option<Reminder> {
+    match preset {
+        Preset::None => None,
+        Preset::OnDate => Some(Reminder::At(match t.reminder {
+            Some(Reminder::At(at)) => at,
+            _ => reminder_at(t, reminder_time).unwrap_or(fallback),
+        })),
+        relative => {
+            let minutes = relative.minutes().unwrap_or(0);
+            if t.due.is_some() {
+                Some(Reminder::Before(minutes))
+            } else {
+                Some(Reminder::At(fallback - Duration::minutes(minutes)))
+            }
+        }
+    }
+}
 
 /// The reminder as the detail pane and the banner read it: "Fri 2 Oct 08:45".
 #[must_use]
-pub fn describe(t: &Task, reminder_time: NaiveTime, today: chrono::NaiveDate) -> Option<String> { todo!() }
+pub fn describe(t: &Task, reminder_time: NaiveTime, today: chrono::NaiveDate) -> Option<String> {
+    let at = reminder_at(t, reminder_time)?;
+    Some(format!(
+        "{} {}",
+        model::day_label(at.date(), today),
+        model::format_time(at.time())
+    ))
+}
 
 /// The banner's line for the tasks reminding now: "Reminder: Pay rent", "2 reminders: Pay
 /// rent, Call Kai", "4 reminders: Pay rent, Call Kai and 2 more".
 #[must_use]
-pub fn banner_text(titles: &[&str]) -> String { todo!() }
+pub fn banner_text(titles: &[&str]) -> String {
+    match titles {
+        [] => String::new(),
+        [one] => format!("Reminder: {one}"),
+        [a, b] => format!("2 reminders: {a}, {b}"),
+        [a, b, rest @ ..] => format!("{} reminders: {a}, {b} and {} more", titles.len(), rest.len()),
+    }
+}
 
 #[cfg(test)]
 mod tests {

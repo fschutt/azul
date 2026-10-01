@@ -28,15 +28,30 @@ impl Unit {
 
     /// The unit's name in a task file: `day`, `week`, `month`, `year`.
     #[must_use]
-    pub fn name(self) -> &'static str { todo!() }
+    pub fn name(self) -> &'static str {
+        match self {
+            Unit::Day => "day",
+            Unit::Week => "week",
+            Unit::Month => "month",
+            Unit::Year => "year",
+        }
+    }
 
     /// The unit a task file names.
     #[must_use]
-    pub fn from_name(name: &str) -> Option<Unit> { todo!() }
+    pub fn from_name(name: &str) -> Option<Unit> {
+        Unit::ALL.into_iter().find(|u| u.name() == name)
+    }
 
     /// "day" or "days", for "every 3 days".
     #[must_use]
-    pub fn label(self, n: u32) -> String { todo!() }
+    pub fn label(self, n: u32) -> String {
+        if n == 1 {
+            self.name().to_string()
+        } else {
+            format!("{}s", self.name())
+        }
+    }
 }
 
 /// The days Monday to Friday, the "weekdays" rule.
@@ -66,59 +81,180 @@ pub struct Repeat {
 impl Repeat {
     /// Every `every` (at least 1) `unit`s.
     #[must_use]
-    pub fn new(every: u32, unit: Unit) -> Self { todo!() }
+    pub fn new(every: u32, unit: Unit) -> Self {
+        Repeat {
+            every: every.max(1),
+            unit,
+            weekdays: Vec::new(),
+            month_day: None,
+            from_completion: false,
+        }
+    }
 
     #[must_use]
-    pub fn daily() -> Self { todo!() }
+    pub fn daily() -> Self {
+        Repeat::new(1, Unit::Day)
+    }
 
     #[must_use]
-    pub fn weekly() -> Self { todo!() }
+    pub fn weekly() -> Self {
+        Repeat::new(1, Unit::Week)
+    }
 
     /// Monday to Friday.
     #[must_use]
-    pub fn weekdays() -> Self { todo!() }
+    pub fn weekdays() -> Self {
+        Repeat::new(1, Unit::Week).on_weekdays(&WORK_DAYS)
+    }
 
     #[must_use]
-    pub fn monthly() -> Self { todo!() }
+    pub fn monthly() -> Self {
+        Repeat::new(1, Unit::Month)
+    }
 
     #[must_use]
-    pub fn yearly() -> Self { todo!() }
+    pub fn yearly() -> Self {
+        Repeat::new(1, Unit::Year)
+    }
 
     /// A week rule on these days (sorted Monday first, each once).
     #[must_use]
-    pub fn on_weekdays(mut self, days: &[Weekday]) -> Self { todo!() }
+    pub fn on_weekdays(mut self, days: &[Weekday]) -> Self {
+        let mut days: Vec<Weekday> = days.to_vec();
+        days.sort_by_key(|d| d.num_days_from_monday());
+        days.dedup();
+        self.weekdays = days;
+        self
+    }
 
     /// A month or year rule on this day of the month (1..=31).
     #[must_use]
-    pub fn on_month_day(mut self, day: u32) -> Self { todo!() }
+    pub fn on_month_day(mut self, day: u32) -> Self {
+        self.month_day = Some(day.clamp(1, 31));
+        self
+    }
 
     /// Count from the completion day.
     #[must_use]
-    pub fn counting_from_completion(mut self, yes: bool) -> Self { todo!() }
+    pub fn counting_from_completion(mut self, yes: bool) -> Self {
+        self.from_completion = yes;
+        self
+    }
 
     /// Whether this is the Monday-to-Friday rule.
     #[must_use]
-    pub fn is_weekdays(&self) -> bool { todo!() }
+    pub fn is_weekdays(&self) -> bool {
+        self.unit == Unit::Week && self.every == 1 && self.weekdays == WORK_DAYS
+    }
 
     /// The rule with its day of the month fixed from `due` (month and year rules), so the
     /// occurrences after a short month come back to the day the rule started on.
     #[must_use]
-    pub fn anchored(mut self, due: NaiveDate) -> Self { todo!() }
+    pub fn anchored(mut self, due: NaiveDate) -> Self {
+        if matches!(self.unit, Unit::Month | Unit::Year) && self.month_day.is_none() {
+            self.month_day = Some(due.day());
+        }
+        self
+    }
 
     /// The first occurrence strictly after `date` (which is taken to be an occurrence).
     #[must_use]
-    pub fn next_after(&self, date: NaiveDate) -> NaiveDate { todo!() }
+    pub fn next_after(&self, date: NaiveDate) -> NaiveDate {
+        let every = i64::from(self.every.max(1));
+        match self.unit {
+            Unit::Day => date + Duration::days(every),
+            Unit::Week => {
+                if self.weekdays.is_empty() {
+                    return date + Duration::days(7 * every);
+                }
+                let today = date.weekday().num_days_from_monday();
+                if let Some(later) = self
+                    .weekdays
+                    .iter()
+                    .map(|d| d.num_days_from_monday())
+                    .find(|&d| d > today)
+                {
+                    return date + Duration::days(i64::from(later - today));
+                }
+                let monday = date - Duration::days(i64::from(today));
+                let first = self.weekdays[0].num_days_from_monday();
+                monday + Duration::days(7 * every + i64::from(first))
+            }
+            Unit::Month => {
+                let day = self.month_day.unwrap_or_else(|| date.day());
+                add_months(date, i32::try_from(every).unwrap_or(1), day)
+            }
+            Unit::Year => {
+                let day = self.month_day.unwrap_or_else(|| date.day());
+                let year = date.year() + i32::try_from(every).unwrap_or(1);
+                ymd_clamped(year, date.month(), day)
+            }
+        }
+    }
 
     /// The first occurrence on or after `date`: where a rule given without a date starts
     /// ("every monday" typed on a Thursday is due next Monday).
     #[must_use]
-    pub fn first_on_or_after(&self, date: NaiveDate) -> NaiveDate { todo!() }
+    pub fn first_on_or_after(&self, date: NaiveDate) -> NaiveDate {
+        match self.unit {
+            Unit::Day | Unit::Year => date,
+            Unit::Week => {
+                if self.weekdays.is_empty() {
+                    return date;
+                }
+                (0..7)
+                    .map(|n| date + Duration::days(n))
+                    .find(|d| self.weekdays.contains(&d.weekday()))
+                    .unwrap_or(date)
+            }
+            Unit::Month => match self.month_day {
+                None => date,
+                Some(day) => {
+                    let this = ymd_clamped(date.year(), date.month(), day);
+                    if this >= date {
+                        this
+                    } else {
+                        add_months(date, 1, day)
+                    }
+                }
+            },
+        }
+    }
 
     /// The rule as the detail pane and the row show it: "Daily", "Every 3 days", "Weekdays",
     /// "Weekly on Mon, Wed", "Every 2 weeks", "Monthly on the 31st", "Yearly", "... after
     /// completion".
     #[must_use]
-    pub fn label(&self) -> String { todo!() }
+    pub fn label(&self) -> String {
+        let mut text = if self.is_weekdays() {
+            "Weekdays".to_string()
+        } else if self.every == 1 {
+            match self.unit {
+                Unit::Day => "Daily",
+                Unit::Week => "Weekly",
+                Unit::Month => "Monthly",
+                Unit::Year => "Yearly",
+            }
+            .to_string()
+        } else {
+            format!("Every {} {}", self.every, self.unit.label(self.every))
+        };
+        if self.unit == Unit::Week && !self.weekdays.is_empty() && !self.is_weekdays() {
+            let days: Vec<&str> = self.weekdays.iter().map(|d| weekday_short(*d)).collect();
+            text.push_str(" on ");
+            text.push_str(&days.join(", "));
+        }
+        if self.unit == Unit::Month {
+            if let Some(day) = self.month_day {
+                text.push_str(" on the ");
+                text.push_str(&ordinal(day));
+            }
+        }
+        if self.from_completion {
+            text.push_str(" after completion");
+        }
+        text
+    }
 }
 
 /// The due date of the task a completed repeating task spawns: the first occurrence after
@@ -130,36 +266,109 @@ pub fn next_occurrence(
     due: NaiveDate,
     completed_on: NaiveDate,
     today: NaiveDate,
-) -> NaiveDate { todo!() }
+) -> NaiveDate {
+    let rule = repeat.clone().anchored(due);
+    if rule.from_completion {
+        return rule.next_after(completed_on);
+    }
+    let mut next = rule.next_after(due);
+    // A daily rule ten years overdue is 3650 steps; stop long before anything loops forever.
+    for _ in 0..100_000 {
+        if next >= today {
+            break;
+        }
+        next = rule.next_after(next);
+    }
+    next
+}
 
 /// The days of `month` in `year`.
 #[must_use]
-pub fn days_in_month(year: i32, month: u32) -> u32 { todo!() }
+pub fn days_in_month(year: i32, month: u32) -> u32 {
+    let (next_year, next_month) = if month >= 12 {
+        (year + 1, 1)
+    } else {
+        (year, month + 1)
+    };
+    NaiveDate::from_ymd_opt(next_year, next_month, 1)
+        .and_then(|first| first.pred_opt())
+        .map_or(28, |last| last.day())
+}
 
 /// `year-month-day`, the day clamped to the month's last day (31 in February is the 28th or
 /// the 29th).
 #[must_use]
-pub fn ymd_clamped(year: i32, month: u32, day: u32) -> NaiveDate { todo!() }
+pub fn ymd_clamped(year: i32, month: u32, day: u32) -> NaiveDate {
+    let month = month.clamp(1, 12);
+    let day = day.clamp(1, days_in_month(year, month));
+    NaiveDate::from_ymd_opt(year, month, day).unwrap_or(NaiveDate::MIN)
+}
 
 /// `months` months after `date`, on `day` of that month (clamped to its length).
 #[must_use]
-pub fn add_months(date: NaiveDate, months: i32, day: u32) -> NaiveDate { todo!() }
+pub fn add_months(date: NaiveDate, months: i32, day: u32) -> NaiveDate {
+    let index = date.year() * 12 + i32::try_from(date.month0()).unwrap_or(0) + months;
+    let year = index.div_euclid(12);
+    let month = u32::try_from(index.rem_euclid(12)).unwrap_or(0) + 1;
+    ymd_clamped(year, month, day)
+}
 
 /// `mon`, `tue`, ... as a task file writes a weekday.
 #[must_use]
-pub fn weekday_name(day: Weekday) -> &'static str { todo!() }
+pub fn weekday_name(day: Weekday) -> &'static str {
+    match day {
+        Weekday::Mon => "mon",
+        Weekday::Tue => "tue",
+        Weekday::Wed => "wed",
+        Weekday::Thu => "thu",
+        Weekday::Fri => "fri",
+        Weekday::Sat => "sat",
+        Weekday::Sun => "sun",
+    }
+}
 
 /// `Mon`, `Tue`, ... as the app shows a weekday.
 #[must_use]
-pub fn weekday_short(day: Weekday) -> &'static str { todo!() }
+pub fn weekday_short(day: Weekday) -> &'static str {
+    match day {
+        Weekday::Mon => "Mon",
+        Weekday::Tue => "Tue",
+        Weekday::Wed => "Wed",
+        Weekday::Thu => "Thu",
+        Weekday::Fri => "Fri",
+        Weekday::Sat => "Sat",
+        Weekday::Sun => "Sun",
+    }
+}
 
 /// The weekday a task file names (`mon` .. `sun`).
 #[must_use]
-pub fn weekday_from_name(name: &str) -> Option<Weekday> { todo!() }
+pub fn weekday_from_name(name: &str) -> Option<Weekday> {
+    [
+        Weekday::Mon,
+        Weekday::Tue,
+        Weekday::Wed,
+        Weekday::Thu,
+        Weekday::Fri,
+        Weekday::Sat,
+        Weekday::Sun,
+    ]
+    .into_iter()
+    .find(|d| weekday_name(*d) == name)
+}
 
 /// `1st`, `2nd`, `3rd`, `4th`, `11th`, `21st`, `31st`.
 #[must_use]
-pub fn ordinal(n: u32) -> String { todo!() }
+pub fn ordinal(n: u32) -> String {
+    let suffix = match (n % 10, n % 100) {
+        (_, 11..=13) => "th",
+        (1, _) => "st",
+        (2, _) => "nd",
+        (3, _) => "rd",
+        _ => "th",
+    };
+    format!("{n}{suffix}")
+}
 
 #[cfg(test)]
 mod tests {

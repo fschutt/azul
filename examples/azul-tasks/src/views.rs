@@ -50,18 +50,47 @@ impl Smart {
     ];
 
     #[must_use]
-    pub fn label(self) -> &'static str { todo!() }
+    pub fn label(self) -> &'static str {
+        match self {
+            Smart::Today => "Today",
+            Smart::Upcoming => "Upcoming",
+            Smart::Scheduled => "Scheduled",
+            Smart::Flagged => "Flagged",
+            Smart::All => "All",
+            Smart::Completed => "Completed",
+        }
+    }
 
     /// A Material icon name.
     #[must_use]
-    pub fn icon(self) -> &'static str { todo!() }
+    pub fn icon(self) -> &'static str {
+        match self {
+            Smart::Today => "today",
+            Smart::Upcoming => "date_range",
+            Smart::Scheduled => "event",
+            Smart::Flagged => "flag",
+            Smart::All => "inbox",
+            Smart::Completed => "task_alt",
+        }
+    }
 
     /// `today`, `upcoming`, ... (the command line's `--view`, stdout).
     #[must_use]
-    pub fn name(self) -> &'static str { todo!() }
+    pub fn name(self) -> &'static str {
+        match self {
+            Smart::Today => "today",
+            Smart::Upcoming => "upcoming",
+            Smart::Scheduled => "scheduled",
+            Smart::Flagged => "flagged",
+            Smart::All => "all",
+            Smart::Completed => "completed",
+        }
+    }
 
     #[must_use]
-    pub fn from_name(name: &str) -> Option<Smart> { todo!() }
+    pub fn from_name(name: &str) -> Option<Smart> {
+        Smart::ALL.into_iter().find(|s| s.name() == name)
+    }
 }
 
 /// What the task list shows.
@@ -77,10 +106,28 @@ pub enum View {
 impl View {
     /// `today`, `list:<id>`, `tag:<tag>`, `search:<words>`.
     #[must_use]
-    pub fn name(&self) -> String { todo!() }
+    pub fn name(&self) -> String {
+        match self {
+            View::Smart(s) => s.name().to_string(),
+            View::List(id) => format!("list:{id}"),
+            View::Tag(tag) => format!("tag:{tag}"),
+            View::Search(q) => format!("search:{q}"),
+        }
+    }
 
     #[must_use]
-    pub fn from_name(name: &str) -> Option<View> { todo!() }
+    pub fn from_name(name: &str) -> Option<View> {
+        if let Some(id) = name.strip_prefix("list:") {
+            return Some(View::List(id.to_string()));
+        }
+        if let Some(tag) = name.strip_prefix("tag:") {
+            return Some(View::Tag(tag.to_string()));
+        }
+        if let Some(q) = name.strip_prefix("search:") {
+            return Some(View::Search(q.to_string()));
+        }
+        Smart::from_name(name).map(View::Smart)
+    }
 }
 
 /// How the app draws a section's header.
@@ -107,37 +154,107 @@ pub struct Section {
 }
 
 impl Section {
-    fn new(key: String, title: String, kind: SectionKind) -> Self { todo!() }
+    fn new(key: String, title: String, kind: SectionKind) -> Self {
+        Section {
+            key,
+            title,
+            kind,
+            tasks: Vec::new(),
+        }
+    }
 }
 
 /// Whether an open task is late: due before today, or today at a time that has passed.
 #[must_use]
-pub fn is_overdue(t: &Task, now: NaiveDateTime) -> bool { todo!() }
+pub fn is_overdue(t: &Task, now: NaiveDateTime) -> bool {
+    if t.is_done() {
+        return false;
+    }
+    match t.due {
+        None => false,
+        Some(due) if due < now.date() => true,
+        Some(due) if due == now.date() => t.due_time.is_some_and(|time| time < now.time()),
+        Some(_) => false,
+    }
+}
 
 /// Whether `t` belongs to smart list `s` on `today`.
 #[must_use]
-pub fn in_smart(s: Smart, t: &Task, today: NaiveDate) -> bool { todo!() }
+pub fn in_smart(s: Smart, t: &Task, today: NaiveDate) -> bool {
+    if s == Smart::Completed {
+        return t.is_done();
+    }
+    if t.is_done() {
+        return false;
+    }
+    match s {
+        Smart::Today => t.due.is_some_and(|d| d <= today),
+        Smart::Upcoming => t
+            .due
+            .is_some_and(|d| d >= today && d < today + Duration::days(7)),
+        Smart::Scheduled => t.due.is_some(),
+        Smart::Flagged => t.flagged,
+        Smart::All => true,
+        Smart::Completed => false,
+    }
+}
 
 /// The open tasks of smart list `s` (all completed ones for Completed).
 #[must_use]
-pub fn smart_count(s: Smart, tasks: &[Task], today: NaiveDate) -> usize { todo!() }
+pub fn smart_count(s: Smart, tasks: &[Task], today: NaiveDate) -> usize {
+    tasks.iter().filter(|t| in_smart(s, t, today)).count()
+}
 
 /// The open tasks of list `list`.
 #[must_use]
-pub fn list_count(list: &str, tasks: &[Task]) -> usize { todo!() }
+pub fn list_count(list: &str, tasks: &[Task]) -> usize {
+    tasks.iter().filter(|t| t.list == list && !t.is_done()).count()
+}
 
 /// Every tag of the open tasks with how many carry it, by name (any case counts as one, the
 /// first spelling seen names it).
 #[must_use]
-pub fn tags(tasks: &[Task]) -> Vec<(String, usize)> { todo!() }
+pub fn tags(tasks: &[Task]) -> Vec<(String, usize)> {
+    let mut seen: BTreeMap<String, (String, usize)> = BTreeMap::new();
+    for t in tasks.iter().filter(|t| !t.is_done()) {
+        for tag in &t.tags {
+            let entry = seen
+                .entry(tag.to_lowercase())
+                .or_insert_with(|| (tag.clone(), 0));
+            entry.1 += 1;
+        }
+    }
+    seen.into_values().collect()
+}
 
 /// Whether every word of `query` is in the task's title, notes, tags or steps (any case).
 #[must_use]
-pub fn search_matches(t: &Task, query: &str) -> bool { todo!() }
+pub fn search_matches(t: &Task, query: &str) -> bool {
+    let haystack = format!(
+        "{} {} {} {}",
+        t.title,
+        t.notes,
+        t.tags.join(" "),
+        t.subtasks
+            .iter()
+            .map(|s| s.title.as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
+    )
+    .to_lowercase();
+    let mut words = query.split_whitespace().peekable();
+    words.peek().is_some() && words.all(|w| haystack.contains(&w.trim_start_matches('#').to_lowercase()))
+}
 
 /// The lists in the navigation pane's order: by `order`, then name.
 #[must_use]
-pub fn ordered_lists(lists: &[TaskList]) -> Vec<usize> { todo!() }
+pub fn ordered_lists(lists: &[TaskList]) -> Vec<usize> {
+    let mut idx: Vec<usize> = (0..lists.len()).collect();
+    idx.sort_by(|&a, &b| {
+        (lists[a].order, lists[a].name.to_lowercase()).cmp(&(lists[b].order, lists[b].name.to_lowercase()))
+    });
+    idx
+}
 
 /// An entry of the "My lists" tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -150,22 +267,76 @@ pub enum NavEntry {
 
 /// The "My lists" tree: lists and groups in list order, a group where its first list is.
 #[must_use]
-pub fn nav_entries(lists: &[TaskList]) -> Vec<NavEntry> { todo!() }
+pub fn nav_entries(lists: &[TaskList]) -> Vec<NavEntry> {
+    let mut out: Vec<NavEntry> = Vec::new();
+    for i in ordered_lists(lists) {
+        let group = lists[i].group.trim();
+        if group.is_empty() {
+            out.push(NavEntry::List(i));
+            continue;
+        }
+        let existing = out.iter_mut().find_map(|e| match e {
+            NavEntry::Group { name, lists } if name.eq_ignore_ascii_case(group) => Some(lists),
+            _ => None,
+        });
+        match existing {
+            Some(members) => members.push(i),
+            None => out.push(NavEntry::Group {
+                name: group.to_string(),
+                lists: vec![i],
+            }),
+        }
+    }
+    out
+}
 
 /// The lists in the order the navigation pane shows them (groups unfolded): what Cmd+7 ..
 /// Cmd+9 pick after the six smart lists.
 #[must_use]
-pub fn lists_in_nav_order(lists: &[TaskList]) -> Vec<usize> { todo!() }
+pub fn lists_in_nav_order(lists: &[TaskList]) -> Vec<usize> {
+    nav_entries(lists)
+        .into_iter()
+        .flat_map(|e| match e {
+            NavEntry::List(i) => vec![i],
+            NavEntry::Group { lists, .. } => lists,
+        })
+        .collect()
+}
 
 /// Orders `idx` by `mode`; ties by the manual order, then creation.
-pub fn sort_indices(idx: &mut [usize], tasks: &[Task], mode: SortMode) { todo!() }
+pub fn sort_indices(idx: &mut [usize], tasks: &[Task], mode: SortMode) {
+    idx.sort_by(|&a, &b| {
+        let (x, y) = (&tasks[a], &tasks[b]);
+        let by_mode = match mode {
+            SortMode::Manual => std::cmp::Ordering::Equal,
+            SortMode::Due => due_key(x).cmp(&due_key(y)),
+            SortMode::Priority => y.priority.cmp(&x.priority),
+            SortMode::Title => x.title.to_lowercase().cmp(&y.title.to_lowercase()),
+            SortMode::Created => x.created.cmp(&y.created),
+        };
+        by_mode
+            .then(x.order.cmp(&y.order))
+            .then(x.created.cmp(&y.created))
+    });
+}
 
 /// Due date and time, the undated last, a timed task before an untimed one of its day.
-fn due_key(t: &Task) -> (bool, Option<NaiveDate>, bool, Option<chrono::NaiveTime>) { todo!() }
+fn due_key(t: &Task) -> (bool, Option<NaiveDate>, bool, Option<chrono::NaiveTime>) {
+    (t.due.is_none(), t.due, t.due_time.is_none(), t.due_time)
+}
 
 /// Orders the tasks of one day: by time (untimed last), then priority (high first), then the
 /// manual order.
-fn sort_day(idx: &mut [usize], tasks: &[Task]) { todo!() }
+fn sort_day(idx: &mut [usize], tasks: &[Task]) {
+    idx.sort_by(|&a, &b| {
+        let (x, y) = (&tasks[a], &tasks[b]);
+        due_key(x)
+            .cmp(&due_key(y))
+            .then(y.priority.cmp(&x.priority))
+            .then(x.order.cmp(&y.order))
+            .then(x.created.cmp(&y.created))
+    });
+}
 
 /// The sections of `view` at `now`.
 #[must_use]
@@ -176,46 +347,321 @@ pub fn sections(
     now: NaiveDateTime,
     sort: SortMode,
     show_completed: bool,
-) -> Vec<Section> { todo!() }
+) -> Vec<Section> {
+    let today = now.date();
+    match view {
+        View::Smart(Smart::Today) => {
+            let mut overdue = Section::new("overdue".into(), "Overdue".into(), SectionKind::Overdue);
+            let mut due_today = Section::new("today".into(), "Today".into(), SectionKind::Plain);
+            for (i, t) in tasks.iter().enumerate() {
+                if !in_smart(Smart::Today, t, today) {
+                    continue;
+                }
+                if t.due.is_some_and(|d| d < today) {
+                    overdue.tasks.push(i);
+                } else {
+                    due_today.tasks.push(i);
+                }
+            }
+            sort_day(&mut overdue.tasks, tasks);
+            sort_day(&mut due_today.tasks, tasks);
+            non_empty(vec![overdue, due_today])
+        }
+        View::Smart(Smart::Upcoming) => {
+            let mut days: Vec<Section> = (0..7)
+                .map(|n| {
+                    let date = today + Duration::days(n);
+                    Section::new(
+                        format!("day-{}", model::format_date(date)),
+                        model::day_heading(date, today),
+                        SectionKind::Plain,
+                    )
+                })
+                .collect();
+            for (i, t) in tasks.iter().enumerate() {
+                if let (true, Some(due)) = (in_smart(Smart::Upcoming, t, today), t.due) {
+                    if let Ok(n) = usize::try_from((due - today).num_days()) {
+                        if let Some(day) = days.get_mut(n) {
+                            day.tasks.push(i);
+                        }
+                    }
+                }
+            }
+            for day in &mut days {
+                sort_day(&mut day.tasks, tasks);
+            }
+            non_empty(days)
+        }
+        View::Smart(Smart::Scheduled) => {
+            let mut overdue = Section::new("overdue".into(), "Overdue".into(), SectionKind::Overdue);
+            let mut by_key: BTreeMap<String, Section> = BTreeMap::new();
+            for (i, t) in tasks.iter().enumerate() {
+                let (true, Some(due)) = (in_smart(Smart::Scheduled, t, today), t.due) else {
+                    continue;
+                };
+                if due < today {
+                    overdue.tasks.push(i);
+                    continue;
+                }
+                // Keys sort by date: `day-` dates come before `month-` ones only within
+                // the week, so they carry a prefix that sorts by time first.
+                let (key, title) = if due < today + Duration::days(7) {
+                    (
+                        format!("day-{}", model::format_date(due)),
+                        model::day_heading(due, today),
+                    )
+                } else {
+                    (
+                        format!("month-{:04}-{:02}", due.year(), due.month()),
+                        if due.year() == today.year() {
+                            due.format("%B").to_string()
+                        } else {
+                            due.format("%B %Y").to_string()
+                        },
+                    )
+                };
+                by_key
+                    .entry(sort_stamp(due, today) + &key)
+                    .or_insert_with(|| Section::new(key, title, SectionKind::Plain))
+                    .tasks
+                    .push(i);
+            }
+            sort_day(&mut overdue.tasks, tasks);
+            let mut out = vec![overdue];
+            for (_, mut s) in by_key {
+                sort_day(&mut s.tasks, tasks);
+                out.push(s);
+            }
+            non_empty(out)
+        }
+        View::Smart(Smart::Flagged) => by_list(tasks, lists, sort, |t| !t.is_done() && t.flagged),
+        View::Smart(Smart::All) => by_list(tasks, lists, sort, |t| !t.is_done()),
+        View::Smart(Smart::Completed) => {
+            let mut by_day: BTreeMap<NaiveDate, Vec<usize>> = BTreeMap::new();
+            for (i, t) in tasks.iter().enumerate() {
+                if let Some(done) = t.completed {
+                    by_day.entry(done.date()).or_default().push(i);
+                }
+            }
+            by_day
+                .into_iter()
+                .rev()
+                .map(|(date, mut idx)| {
+                    idx.sort_by(|&a, &b| tasks[b].completed.cmp(&tasks[a].completed));
+                    Section {
+                        key: format!("done-{}", model::format_date(date)),
+                        title: model::day_heading(date, today),
+                        kind: SectionKind::Plain,
+                        tasks: idx,
+                    }
+                })
+                .collect()
+        }
+        View::List(id) => {
+            let mut open = Section::new("open".into(), String::new(), SectionKind::Plain);
+            let mut done = Vec::new();
+            for (i, t) in tasks.iter().enumerate() {
+                if t.list != *id {
+                    continue;
+                }
+                if t.is_done() {
+                    done.push(i);
+                } else {
+                    open.tasks.push(i);
+                }
+            }
+            sort_indices(&mut open.tasks, tasks, sort);
+            let mut out = vec![open];
+            if show_completed && !done.is_empty() {
+                done.sort_by(|&a, &b| tasks[b].completed.cmp(&tasks[a].completed));
+                out.push(Section {
+                    key: "completed".into(),
+                    title: format!("Completed ({})", done.len()),
+                    kind: SectionKind::Completed,
+                    tasks: done,
+                });
+            }
+            out
+        }
+        View::Tag(tag) => by_list(tasks, lists, sort, |t| !t.is_done() && t.has_tag(tag)),
+        View::Search(query) => {
+            let mut out = by_list(tasks, lists, sort, |t| !t.is_done() && search_matches(t, query));
+            let mut done: Vec<usize> = (0..tasks.len())
+                .filter(|&i| tasks[i].is_done() && search_matches(&tasks[i], query))
+                .collect();
+            if !done.is_empty() {
+                done.sort_by(|&a, &b| tasks[b].completed.cmp(&tasks[a].completed));
+                out.push(Section {
+                    key: "completed".into(),
+                    title: format!("Completed ({})", done.len()),
+                    kind: SectionKind::Completed,
+                    tasks: done,
+                });
+            }
+            out
+        }
+    }
+}
 
 /// A key prefix that sorts a Scheduled section by its first day.
-fn sort_stamp(due: NaiveDate, today: NaiveDate) -> String { todo!() }
+fn sort_stamp(due: NaiveDate, today: NaiveDate) -> String {
+    if due < today + Duration::days(7) {
+        format!("{}:", model::format_date(due))
+    } else {
+        format!("{:04}-{:02}-99:", due.year(), due.month())
+    }
+}
 
 /// The tasks `keep` picks, a section per list in the lists' order.
-fn by_list(tasks: &[Task], lists: &[TaskList], sort: SortMode, keep: impl Fn(&Task) -> bool) -> Vec<Section> { todo!() }
+fn by_list(tasks: &[Task], lists: &[TaskList], sort: SortMode, keep: impl Fn(&Task) -> bool) -> Vec<Section> {
+    let mut out = Vec::new();
+    for li in lists_in_nav_order(lists) {
+        let list = &lists[li];
+        let mut idx: Vec<usize> = (0..tasks.len())
+            .filter(|&i| tasks[i].list == list.id && keep(&tasks[i]))
+            .collect();
+        if idx.is_empty() {
+            continue;
+        }
+        sort_indices(&mut idx, tasks, sort);
+        let title = if list.group.is_empty() {
+            list.name.clone()
+        } else {
+            format!("{} \u{203a} {}", list.group, list.name)
+        };
+        out.push(Section {
+            key: format!("list-{}", list.id),
+            title,
+            kind: SectionKind::Plain,
+            tasks: idx,
+        });
+    }
+    // Tasks of a list that is not there (a folder without its list file) still show.
+    let known: Vec<&str> = lists.iter().map(|l| l.id.as_str()).collect();
+    let mut orphans: Vec<usize> = (0..tasks.len())
+        .filter(|&i| !known.contains(&tasks[i].list.as_str()) && keep(&tasks[i]))
+        .collect();
+    if !orphans.is_empty() {
+        sort_indices(&mut orphans, tasks, sort);
+        out.push(Section {
+            key: "list-".into(),
+            title: "Other".into(),
+            kind: SectionKind::Plain,
+            tasks: orphans,
+        });
+    }
+    out
+}
 
-fn non_empty(sections: Vec<Section>) -> Vec<Section> { todo!() }
+fn non_empty(sections: Vec<Section>) -> Vec<Section> {
+    sections.into_iter().filter(|s| !s.tasks.is_empty()).collect()
+}
 
 /// Every task index of `sections`, top to bottom (the keyboard's order).
 #[must_use]
-pub fn flat(sections: &[Section]) -> Vec<usize> { todo!() }
+pub fn flat(sections: &[Section]) -> Vec<usize> {
+    sections.iter().flat_map(|s| s.tasks.iter().copied()).collect()
+}
 
 /// The order a new task takes at the end of `list`.
 #[must_use]
-pub fn next_order(tasks: &[Task], list: &str) -> i64 { todo!() }
+pub fn next_order(tasks: &[Task], list: &str) -> i64 {
+    tasks
+        .iter()
+        .filter(|t| t.list == list)
+        .map(|t| t.order)
+        .max()
+        .map_or(ORDER_STEP, |m| m + ORDER_STEP)
+}
 
 /// The open tasks of `list` in their manual order.
-fn manual_order(tasks: &[Task], list: &str) -> Vec<usize> { todo!() }
+fn manual_order(tasks: &[Task], list: &str) -> Vec<usize> {
+    let mut idx: Vec<usize> = (0..tasks.len())
+        .filter(|&i| tasks[i].list == list && !tasks[i].is_done())
+        .collect();
+    sort_indices(&mut idx, tasks, SortMode::Manual);
+    idx
+}
 
 /// Gives the tasks in `order` the orders 1024, 2048, ...; returns those that changed.
-fn renumber(tasks: &mut [Task], order: &[usize]) -> Vec<usize> { todo!() }
+fn renumber(tasks: &mut [Task], order: &[usize]) -> Vec<usize> {
+    let mut changed = Vec::new();
+    for (n, &i) in order.iter().enumerate() {
+        let want = (i64::try_from(n).unwrap_or(0) + 1) * ORDER_STEP;
+        if tasks[i].order != want {
+            tasks[i].order = want;
+            changed.push(i);
+        }
+    }
+    changed
+}
 
 /// Moves task `moving` in front of task `before` (or to the end of its list with `None`),
 /// in the manual order of `moving`'s list; `before` must be in the same list. Returns the
 /// tasks whose order changed (to be saved).
-pub fn reorder(tasks: &mut [Task], moving: usize, before: Option<usize>) -> Vec<usize> { todo!() }
+pub fn reorder(tasks: &mut [Task], moving: usize, before: Option<usize>) -> Vec<usize> {
+    let list = tasks[moving].list.clone();
+    if before.is_some_and(|b| tasks[b].list != list || b == moving) {
+        return Vec::new();
+    }
+    let mut order = manual_order(tasks, &list);
+    order.retain(|&i| i != moving);
+    let at = before
+        .and_then(|b| order.iter().position(|&i| i == b))
+        .unwrap_or(order.len());
+    order.insert(at, moving);
+    renumber(tasks, &order)
+}
 
 /// Moves task `moving` one place up or down in its list's manual order (Alt+Up / Alt+Down).
 /// Returns the tasks whose order changed.
-pub fn move_step(tasks: &mut [Task], moving: usize, up: bool) -> Vec<usize> { todo!() }
+pub fn move_step(tasks: &mut [Task], moving: usize, up: bool) -> Vec<usize> {
+    let list = tasks[moving].list.clone();
+    let mut order = manual_order(tasks, &list);
+    let Some(pos) = order.iter().position(|&i| i == moving) else {
+        return Vec::new();
+    };
+    let target = if up {
+        match pos.checked_sub(1) {
+            Some(t) => t,
+            None => return Vec::new(),
+        }
+    } else if pos + 1 < order.len() {
+        pos + 1
+    } else {
+        return Vec::new();
+    };
+    order.swap(pos, target);
+    renumber(tasks, &order)
+}
 
 /// "Fri 2 Oct", "Today 09:00", "Tomorrow" - the row's due chip.
 #[must_use]
-pub fn due_label(t: &Task, today: NaiveDate) -> Option<String> { todo!() }
+pub fn due_label(t: &Task, today: NaiveDate) -> Option<String> {
+    let due = t.due?;
+    let day = model::day_label(due, today);
+    Some(match t.due_time {
+        Some(time) => format!("{day} {}", model::format_time(time)),
+        None => day,
+    })
+}
 
 /// `(due today, overdue)` among the open tasks, for the status bar.
 #[must_use]
-pub fn summary(tasks: &[Task], now: NaiveDateTime) -> (usize, usize) { todo!() }
+pub fn summary(tasks: &[Task], now: NaiveDateTime) -> (usize, usize) {
+    let today = now.date();
+    let open = tasks.iter().filter(|t| !t.is_done());
+    let mut due_today = 0;
+    let mut overdue = 0;
+    for t in open {
+        if is_overdue(t, now) {
+            overdue += 1;
+        } else if t.due == Some(today) {
+            due_today += 1;
+        }
+    }
+    (due_today, overdue)
+}
 
 #[cfg(test)]
 mod tests {

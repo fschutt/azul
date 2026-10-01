@@ -78,7 +78,75 @@ impl Args {
     where
         I: IntoIterator<Item = S>,
         S: Into<String>,
-    { todo!() }
+    {
+        let mut a = Self::default();
+        let argv: Vec<String> = argv.into_iter().map(Into::into).collect();
+        let mut i = 0;
+        while i < argv.len() {
+            let arg = argv[i].as_str();
+            let (name, inline) = match arg.split_once('=') {
+                Some((n, v)) if n.starts_with("--") => (n, Some(v.to_string())),
+                _ => (arg, None),
+            };
+            let mut value = |what: &str| -> Result<String, ParseError> {
+                if let Some(v) = inline.clone() {
+                    return Ok(v);
+                }
+                i += 1;
+                argv.get(i)
+                    .cloned()
+                    .ok_or_else(|| format!("{name} needs a {what}"))
+            };
+            match name {
+                "-h" | "--help" => return Err(HELP.to_string()),
+                "--sample" => a.sample = true,
+                "--data" => a.data = Some(PathBuf::from(value("folder")?)),
+                "--screen" => {
+                    let v = value("name")?;
+                    a.screen = Screen::ALL
+                        .iter()
+                        .find(|(_, n)| *n == v)
+                        .map(|(s, _)| *s)
+                        .ok_or_else(|| {
+                            format!("--screen: expected main|settings|shortcuts|about|palette, got {v:?}")
+                        })?;
+                }
+                "--theme" => {
+                    let v = value("name")?;
+                    if !matches!(v.as_str(), "flat" | "flora") {
+                        return Err(format!("--theme: expected flat|flora, got {v:?}"));
+                    }
+                    a.theme = Some(v);
+                }
+                "--mode" => {
+                    let v = value("name")?;
+                    a.mode = Some(match v.as_str() {
+                        "light" => Mode::Light,
+                        "dark" => Mode::Dark,
+                        "system" => Mode::System,
+                        other => return Err(format!("--mode: expected light|dark|system, got {other:?}")),
+                    });
+                }
+                "--view" => {
+                    let v = value("name")?;
+                    a.view = Some(View::from_name(&v).ok_or_else(|| format!("--view: unknown view {v:?}"))?);
+                }
+                "--size" => {
+                    let v = value("WxH")?;
+                    let (w, h) = v
+                        .split_once('x')
+                        .ok_or_else(|| format!("--size: expected WxH, got {v:?}"))?;
+                    match (w.parse::<f32>(), h.parse::<f32>()) {
+                        (Ok(w), Ok(h)) if w > 0.0 && h > 0.0 => a.size = Some((w, h)),
+                        _ => return Err(format!("--size: expected WxH in pixels, got {v:?}")),
+                    }
+                }
+                other => return Err(format!("unknown option {other:?}\n\n{HELP}")),
+            }
+            i += 1;
+        }
+        Ok(a)
+    }
 }
 
 #[cfg(test)]
