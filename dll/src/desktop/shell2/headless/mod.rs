@@ -12377,14 +12377,14 @@ mod child_window_tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use azul_core::{
-        callbacks::{LayoutCallback, LayoutCallbackInfo, Update},
+        callbacks::{LayoutCallback, LayoutCallbackInfo, TimerCallbackReturn, Update},
         dom::Dom,
         refany::{OptionRefAny, RefAny},
-        task::TimerId,
+        task::{TerminateTimer, TimerId},
     };
     use azul_layout::{
         callbacks::{Callback, CallbackInfo},
-        timer::{Timer, TimerCallbackInfo, TimerCallbackReturn},
+        timer::{Timer, TimerCallbackInfo},
     };
 
     use super::*;
@@ -12428,9 +12428,13 @@ mod child_window_tests {
     }
 
     fn root() -> HeadlessWindow {
+        root_with(root_layout)
+    }
+
+    fn root_with(layout: azul_core::callbacks::LayoutCallbackType) -> HeadlessWindow {
         use azul_core::icon::{IconProviderHandle, SharedIconProvider};
         HeadlessWindow::new(
-            window(root_layout, "root"),
+            window(layout, "root"),
             Arc::new(RefCell::new(RefAny::new(()))),
             event::SharedUndoManager::new(),
             AppConfig::default(),
@@ -12464,5 +12468,53 @@ mod child_window_tests {
         }
         assert_eq!(CHILD_TIMER_RUNS.load(Ordering::SeqCst), 1, "its timer ran");
         assert_eq!(CHILD_CREATED.load(Ordering::SeqCst), 1, "created once, pumped many times");
+    }
+
+    static ROOT_LAYOUTS: AtomicUsize = AtomicUsize::new(0);
+
+    extern "C" fn counting_root_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        ROOT_LAYOUTS.fetch_add(1, Ordering::SeqCst);
+        Dom::create_body()
+    }
+
+    /// What AzMail's compose window answers when a mail is sent: the main window must show it
+    /// in Sent Items.
+    extern "C" fn refresh_all_timer(_data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackReturn {
+        TimerCallbackReturn {
+            should_update: Update::RefreshDomAllWindows,
+            should_terminate: TerminateTimer::Terminate,
+        }
+    }
+
+    extern "C" fn child_refreshing_everything(data: RefAny, mut info: CallbackInfo) -> Update {
+        let get_time = info.get_system_time_fn();
+        info.add_timer(TimerId::unique(), Timer::create(data, refresh_all_timer, get_time));
+        Update::DoNothing
+    }
+
+    extern "C" fn quiet_child_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        Dom::create_body()
+    }
+
+    /// `Update::RefreshDomAllWindows` from a timer, a thread's write-back or a finished request
+    /// rebuilds EVERY window of the app, as it does from an event handler: the shared
+    /// `process_timers_and_threads` treated it as a plain `RefreshDom` of the window it ran in.
+    #[test]
+    fn a_child_timer_answering_refresh_all_windows_rebuilds_the_root() {
+        let mut root = root_with(counting_root_layout);
+        root.regenerate_layout().expect("the root's first layout");
+        let _ = root.common.take_regeneration();
+        let before = ROOT_LAYOUTS.load(Ordering::SeqCst);
+        let mut child = window(quiet_child_layout, "child");
+        child.create_callback = Some(Callback::create(child_refreshing_everything)).into();
+        root.queue_window_create(child);
+        for _ in 0..3 {
+            root.pump_children();
+            root.pump_once(true);
+        }
+        assert!(
+            ROOT_LAYOUTS.load(Ordering::SeqCst) > before,
+            "the root was rebuilt for the child's RefreshDomAllWindows"
+        );
     }
 }
