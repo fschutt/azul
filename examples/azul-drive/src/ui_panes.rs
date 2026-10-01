@@ -274,6 +274,8 @@ extern "C" fn on_nav_event(
     mut info: CallbackInfo,
     event: ShellNavigationPaneEvent,
 ) -> Update {
+    let mods = info.get_key_modifiers();
+    let copy = mods.ctrl || mods.meta;
     with_state(&mut data, &mut info, |info, app, s| {
         let group = event.group.min(1);
         match event.kind {
@@ -301,6 +303,12 @@ extern "C" fn on_nav_event(
                         }
                     }
                     None => {}
+                }
+            }
+            // Items dragged in the window, dropped on a folder of the tree.
+            ShellNavigationPaneEventKind::NodeDropped => {
+                if let Some(place) = group_places(s, group).get(event.index).cloned() {
+                    actions::drop_on_place(info, app, s, place, copy);
                 }
             }
             ShellNavigationPaneEventKind::ModuleSelected

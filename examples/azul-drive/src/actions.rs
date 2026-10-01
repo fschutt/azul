@@ -1393,10 +1393,31 @@ pub(crate) fn drop_on_folder(
     target_prefix: &str,
     copy: bool,
 ) {
+    let Some(target_id) = s.current_drive_id() else {
+        return;
+    };
+    drop_on_place(info, app, s, Place::folder(&target_id, target_prefix), copy);
+}
+
+/// The items dragged in the window, dropped on the folder `place` (any
+/// drive; a folder of the navigation pane): within one drive a move (Ctrl
+/// copies), across drives a copy.
+pub(crate) fn drop_on_place(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    place: Place,
+    copy: bool,
+) {
     let Some((source_id, items)) = s.dragging.take() else {
         return;
     };
-    let Some(target_id) = s.current_drive_id() else {
+    let Place::Folder {
+        drive: target_id,
+        prefix: target_prefix,
+    } = place
+    else {
+        s.warn("Drop the items on a folder of a drive.");
         return;
     };
     // A folder never lands on itself.
@@ -1409,7 +1430,7 @@ pub(crate) fn drop_on_folder(
     } else {
         TransferKind::Move
     };
-    enqueue_transfer(info, app, s, kind, &source_id, items, &target_id, target_prefix, None);
+    enqueue_transfer(info, app, s, kind, &source_id, items, &target_id, &target_prefix, None);
 }
 
 // ==== Upload and download ====
