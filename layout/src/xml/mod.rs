@@ -530,10 +530,22 @@ fn open_fast_node(
             settings.push(setting);
         }
     }
+    // HTML's presentational hints (`<font color>`, `<ol type>`, `<center>`,
+    // `<img align>` ...): the CSS of the element's builtin arguments, before
+    // its `style` attribute - the same function core's DOM builder asks.
+    let hints = azul_core::xml::builtin_presentational_hints(
+        tag,
+        attrs.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+    );
+    let hint_props = if hints.is_empty() {
+        Vec::new()
+    } else {
+        azul_core::xml::attributes::style_declarations(&hints, css_key_map)
+    };
     azul_core::xml::attributes::apply_settings(
         &mut nd,
         azul_core::xml::attributes::ordered(settings.into_iter()),
-        Vec::new(),
+        hint_props,
         Some(css_key_map),
         &mut |s: &str| str_arena.intern(s),
     );

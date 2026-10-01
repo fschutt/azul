@@ -3272,6 +3272,30 @@ fn builtin_data_model(tag: &str) -> Vec<ComponentDataField> {
                 Some(D::String(AzString::from_const_str(""))),
                 "Height of the image"
             ),
+            data_field(
+                "align",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Float (left, right) or vertical alignment (top, middle, bottom) of the image"
+            ),
+            data_field(
+                "border",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Width of the image's border in pixels"
+            ),
+            data_field(
+                "hspace",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Gap left and right of the image in pixels"
+            ),
+            data_field(
+                "vspace",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Gap above and below the image in pixels"
+            ),
         ],
         "form" => alloc::vec![
             data_field(
@@ -3339,6 +3363,76 @@ fn builtin_data_model(tag: &str) -> Vec<ComponentDataField> {
                 String,
                 Some(D::String(AzString::from_const_str("1"))),
                 "Numbering type (1, A, a, I, i)"
+            ),
+            data_field(
+                "reversed",
+                Bool,
+                Some(D::Bool(false)),
+                "Whether the list counts down"
+            ),
+        ],
+        "ul" => alloc::vec![
+            data_field(
+                "type",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Bullet type (disc, circle, square)"
+            ),
+        ],
+        "li" => alloc::vec![
+            data_field(
+                "value",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "The item's number in an ordered list (the next items count on from it)"
+            ),
+            data_field(
+                "type",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Numbering or bullet type of the item (1, A, a, I, i, disc, circle, square)"
+            ),
+        ],
+        "font" => alloc::vec![
+            data_field(
+                "face",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Font family names, comma separated"
+            ),
+            data_field(
+                "size",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Legacy font size 1..7, or relative to 3 (+1, -2)"
+            ),
+            data_field(
+                "color",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Text color"
+            ),
+        ],
+        "div" | "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => alloc::vec![
+            data_field(
+                "align",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Text alignment (left, right, center, justify)"
+            ),
+        ],
+        "body" => alloc::vec![
+            data_field(
+                "bgcolor",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Background color of the document"
+            ),
+            data_field(
+                "text",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Text color of the document"
             ),
         ],
         // Form controls
@@ -4051,7 +4145,7 @@ pub fn data_model_with_attributes<'a>(
 /// fields are read by the element's own path - `img` `width`/`height`, the
 /// form controls, `td` `colspan` - or not yet at all; see
 /// `scripts/MAILVIEW_2026_09_30.md`).
-const BUILTIN_ARGUMENT_ELEMENTS: &[&str] = &["a", "area", "link", "base", "img"];
+const BUILTIN_ARGUMENT_ELEMENTS: &[&str] = &["a", "area", "link", "base", "img", "ol", "li"];
 
 /// The render side of a builtin element's ARGUMENTS (its component's
 /// declared fields, filled by [`data_model_with_attributes`]): what they set
@@ -4063,6 +4157,11 @@ const BUILTIN_ARGUMENT_ELEMENTS: &[&str] = &["a", "area", "link", "base", "img"]
 /// - `img`: `src` and `alt`, as attributes an app can read (the image itself stays the
 ///   loader's `NullImage` placeholder carrying `src`) - what a mail client needs to show "[image:
 ///   alt]" and to load the picture on request.
+/// - `ol`: `reversed` (and its `start` when it counts down) as the attributes the layout's list
+///   numbering reads (`compute_counters`); an `ol` counting up starts through its
+///   presentational hint ([`builtin_presentational_hints`]: `counter-reset`).
+/// - `li`: `value` (a number) as its `Value` attribute: the item's number in its list, which
+///   the layout's numbering reads and the next items count on from.
 ///
 /// An empty value sets nothing; a value already on the node is not
 /// duplicated.
@@ -4088,6 +4187,27 @@ pub fn apply_builtin_element_args(tag: &str, args: &ComponentDataModel, node: &m
         "img" | "image" => {
             add.extend(value("src").map(A::Src));
             add.extend(value("alt").map(A::Alt));
+        }
+        "ol" => {
+            if argument_bool(args, "reversed") {
+                add.push(A::Custom(crate::dom::AttributeNameValue {
+                    attr_name: AzString::from_const_str("reversed"),
+                    value: AzString::from_const_str(""),
+                }));
+                if let Some(start) = argument_i32(args, "start").filter(|s| *s != 1) {
+                    add.push(A::Custom(crate::dom::AttributeNameValue {
+                        attr_name: AzString::from_const_str("start"),
+                        value: AzString::from(start.to_string()),
+                    }));
+                }
+            }
+        }
+        "li" => {
+            add.extend(
+                value("value")
+                    .filter(|v| v.as_str().trim().parse::<i32>().is_ok())
+                    .map(A::Value),
+            );
         }
         _ => {}
     }
@@ -4124,6 +4244,239 @@ pub fn apply_builtin_args_from_attributes<'a>(
     };
     let args = data_model_with_attributes(&model, attributes);
     apply_builtin_element_args(tag, &args, node);
+}
+
+/// An `I32` argument's value.
+fn argument_i32(args: &ComponentDataModel, name: &str) -> Option<i32> {
+    match &args.get_field(name)?.default_value {
+        OptionComponentDefaultValue::Some(ComponentDefaultValue::I32(n)) => Some(*n),
+        _ => None,
+    }
+}
+
+/// A `Bool` argument's value (`false` when the model has none).
+fn argument_bool(args: &ComponentDataModel, name: &str) -> bool {
+    matches!(
+        args.get_field(name).map(|f| &f.default_value),
+        Some(OptionComponentDefaultValue::Some(ComponentDefaultValue::Bool(true)))
+    )
+}
+
+/// The elements that have presentational hints ([`builtin_presentational_hints`]).
+const PRESENTATIONAL_ELEMENTS: &[&str] = &[
+    "ol", "ul", "li", "img", "image", "font", "center", "div", "p", "h1", "h2", "h3", "h4", "h5",
+    "h6", "body",
+];
+
+/// The CSS of a builtin element's PRESENTATIONAL arguments.
+///
+/// The HTML Standard's presentational hints (its rendering section), as
+/// declarations (`list-style-type: lower-alpha; ...`, empty for none):
+///
+/// - `ol` / `ul` / `li` `type` (`1 a A i I`, `disc circle square`): `list-style-type`; `ol
+///   start` (counting up): `counter-reset: list-item <start - 1>`;
+/// - `font`: `face` -> `font-family`, `size` (1..7, or relative to 3) -> `font-size` (10 13 16 18
+///   24 32 48 px), `color` -> `color`;
+/// - `center`: `text-align: center`; `align` on `div`, `p`, `h1`..`h6`: `text-align`;
+/// - `img`: `align` (`left` / `right` float, `top` / `middle` / `bottom` ... align vertically),
+///   `border` (a solid border of that width), `hspace` / `vspace` (margins), a percentage `width`
+///   / `height` (a number is the image's intrinsic size, which the loader sets);
+/// - `body`: `bgcolor` -> `background-color`, `text` -> `color`.
+///
+/// The arguments are the element's builtin data model filled from its
+/// `attributes` ([`data_model_with_attributes`], the one filler); a value that
+/// is not what the attribute takes (a colour with a `;` in it) is left out.
+/// The XML loaders put these declarations BEFORE the element's `style`
+/// attribute's, which wins over them. (A browser ranks them below the
+/// author's stylesheets too; azul's inline declarations outrank every
+/// stylesheet, so a sheet's rule cannot override a hint yet.) The table
+/// attributes (`bgcolor` / `width` / `align` on `table`, `td` ...) are not
+/// here.
+#[must_use]
+pub fn builtin_presentational_hints<'a>(
+    tag: &str,
+    attributes: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> String {
+    if !PRESENTATIONAL_ELEMENTS.contains(&tag) {
+        return String::new();
+    }
+    let model = ComponentDataModel {
+        name: AzString::from_const_str(""),
+        description: AzString::from_const_str(""),
+        fields: builtin_data_model(tag).into(),
+    };
+    let args = data_model_with_attributes(&model, attributes);
+    let text = |name: &str| -> Option<String> {
+        args.get_default_string(name)
+            .map(|v| v.as_str().trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+    let mut css = String::new();
+    let mut push = |property: &str, value: &str| {
+        css.push_str(property);
+        css.push_str(": ");
+        css.push_str(value);
+        css.push_str("; ");
+    };
+    match tag {
+        "ol" | "ul" | "li" => {
+            if let Some(kind) = text("type").filter(|t| !(tag == "ol" && t == "1")) {
+                if let Some(style) = list_style_of_type(&kind) {
+                    push("list-style-type", style);
+                }
+            }
+            if tag == "ol" && !argument_bool(&args, "reversed") {
+                if let Some(start) = argument_i32(&args, "start").filter(|s| *s != 1) {
+                    push(
+                        "counter-reset",
+                        &format!("list-item {}", start.saturating_sub(1)),
+                    );
+                }
+            }
+        }
+        "img" | "image" => {
+            for (attribute, property) in [("width", "width"), ("height", "height")] {
+                if let Some(percent) = text(attribute).and_then(|v| html_percentage(&v)) {
+                    push(property, &percent);
+                }
+            }
+            if let Some(align) = text("align") {
+                match align.to_ascii_lowercase().as_str() {
+                    "left" => push("float", "left"),
+                    "right" => push("float", "right"),
+                    "top" => push("vertical-align", "top"),
+                    "texttop" => push("vertical-align", "text-top"),
+                    "middle" | "absmiddle" | "abscenter" => push("vertical-align", "middle"),
+                    "bottom" | "baseline" => push("vertical-align", "baseline"),
+                    "absbottom" => push("vertical-align", "bottom"),
+                    _ => {}
+                }
+            }
+            if let Some(border) = text("border")
+                .and_then(|v| html_pixels(&v))
+                .filter(|b| *b > 0)
+            {
+                push("border", &format!("{border}px solid"));
+            }
+            if let Some(h) = text("hspace").and_then(|v| html_pixels(&v)) {
+                push("margin-left", &format!("{h}px"));
+                push("margin-right", &format!("{h}px"));
+            }
+            if let Some(v) = text("vspace").and_then(|v| html_pixels(&v)) {
+                push("margin-top", &format!("{v}px"));
+                push("margin-bottom", &format!("{v}px"));
+            }
+        }
+        "font" => {
+            if let Some(face) = text("face").filter(|f| is_safe_css_value(f)) {
+                push("font-family", &face);
+            }
+            if let Some(px) = text("size").and_then(|v| legacy_font_size_px(&v)) {
+                push("font-size", &format!("{px}px"));
+            }
+            if let Some(color) = text("color").and_then(|v| legacy_color(&v)) {
+                push("color", &color);
+            }
+        }
+        "center" => push("text-align", "center"),
+        "body" => {
+            if let Some(color) = text("bgcolor").and_then(|v| legacy_color(&v)) {
+                push("background-color", &color);
+            }
+            if let Some(color) = text("text").and_then(|v| legacy_color(&v)) {
+                push("color", &color);
+            }
+        }
+        _ => {
+            // div, p, h1..h6
+            if let Some(align) = text("align") {
+                let align = align.to_ascii_lowercase();
+                if matches!(align.as_str(), "left" | "right" | "center" | "justify") {
+                    push("text-align", &align);
+                }
+            }
+        }
+    }
+    css
+}
+
+/// HTML's list `type`: `1 a A i I` (case matters) and `disc circle square`.
+fn list_style_of_type(kind: &str) -> Option<&'static str> {
+    Some(match kind {
+        "1" => "decimal",
+        "a" => "lower-alpha",
+        "A" => "upper-alpha",
+        "i" => "lower-roman",
+        "I" => "upper-roman",
+        k if k.eq_ignore_ascii_case("disc") => "disc",
+        k if k.eq_ignore_ascii_case("circle") => "circle",
+        k if k.eq_ignore_ascii_case("square") => "square",
+        k if k.eq_ignore_ascii_case("none") => "none",
+        _ => return None,
+    })
+}
+
+/// A non-negative number of pixels (`4`, `4px`).
+fn html_pixels(value: &str) -> Option<u32> {
+    value
+        .trim()
+        .trim_end_matches("px")
+        .trim()
+        .parse::<u32>()
+        .ok()
+}
+
+/// A percentage (`100%`) as CSS.
+fn html_percentage(value: &str) -> Option<String> {
+    let number = value.trim().strip_suffix('%')?.trim();
+    number
+        .parse::<f32>()
+        .ok()
+        .filter(|n| n.is_finite() && *n >= 0.0)
+        .map(|_| format!("{number}%"))
+}
+
+/// The pixel size of HTML's legacy font sizes: 1..7 (x-small .. xxx-large), a
+/// `+n` / `-n` relative to 3.
+fn legacy_font_size_px(value: &str) -> Option<u32> {
+    const PX: [u32; 7] = [10, 13, 16, 18, 24, 32, 48];
+    let value = value.trim();
+    let (relative, digits) = match value.as_bytes().first()? {
+        b'+' => (1, &value[1..]),
+        b'-' => (-1, &value[1..]),
+        _ => (0, value),
+    };
+    let digits: String = digits.chars().take_while(char::is_ascii_digit).collect();
+    let n: i32 = digits.parse().ok()?;
+    let size = if relative == 0 { n } else { 3 + relative * n };
+    let index = usize::try_from(size.clamp(1, 7) - 1).ok()?;
+    PX.get(index).copied()
+}
+
+/// A legacy colour attribute as a CSS colour: `#rgb` / `#rrggbb` (also
+/// without the `#`, as mail writes it), a colour name, `rgb(..)`; `None` for
+/// anything else.
+fn legacy_color(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() || !is_safe_css_value(value) {
+        return None;
+    }
+    let hex = value.strip_prefix('#').unwrap_or(value);
+    if matches!(hex.len(), 3 | 6) && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Some(format!("#{hex}"));
+    }
+    if value.starts_with('#') {
+        return None;
+    }
+    Some(value.to_string())
+}
+
+/// A value that stays one CSS value: no `;`, braces, escapes, markup or
+/// control characters.
+fn is_safe_css_value(value: &str) -> bool {
+    !value
+        .chars()
+        .any(|c| matches!(c, ';' | '{' | '}' | '\\' | '<' | '>') || c.is_control())
 }
 
 // ============================================================================
@@ -6003,9 +6356,26 @@ fn apply_xml_node_attributes(
         );
     }
 
+    // HTML's presentational hints: the CSS the element's builtin arguments
+    // stand for (`<font color>`, `<ol type>`, `<center>`, `<img align>` ...),
+    // before the `style` attribute, which wins over them.
+    let hints = builtin_presentational_hints(
+        component_name,
+        xml_node
+            .attributes
+            .as_slice()
+            .iter()
+            .map(|pair| (pair.key.as_str(), pair.value.as_str())),
+    );
+    if !hints.is_empty() {
+        let map = azul_css::props::property::get_css_key_map();
+        intrinsic_props.extend(attributes::style_declarations(&hints, &map));
+    }
+
     // Land the table's settings: ids and classes, focus, the typed
     // attributes, and ONE inline style - the intrinsic sizing above, the
-    // `dir` direction, then the `style` attribute (so author style wins).
+    // hints, the `dir` direction, then the `style` attribute (so author
+    // style wins).
     attributes::apply_settings(node, settings, intrinsic_props, None, &mut |s: &str| {
         AzString::from(s)
     });
