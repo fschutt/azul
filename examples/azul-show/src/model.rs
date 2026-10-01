@@ -43,6 +43,12 @@ impl Color {
         Self { r, g, b, a }
     }
 
+    /// The colour at opacity `a`.
+    #[must_use]
+    pub const fn with_alpha(self, a: u8) -> Self {
+        Self { a, ..self }
+    }
+
     /// `#rrggbb`, or `#rrggbbaa` when not opaque.
     #[must_use]
     pub fn hex(&self) -> String {
