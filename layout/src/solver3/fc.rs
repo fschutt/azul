@@ -7422,124 +7422,96 @@ fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
         }
     }
 
-    // Step 2: Calculate final column widths based on available space
-    // Exclude collapsed columns from total width calculations
-    let total_min_width: f32 = table_ctx
-        .columns
-        .iter()
-        .enumerate()
-        .filter(|(idx, _)| !table_ctx.collapsed_columns.contains(idx))
-        .map(|(_, c)| c.min_width)
-        .sum();
-    let total_max_width: f32 = table_ctx
-        .columns
-        .iter()
-        .enumerate()
-        .filter(|(idx, _)| !table_ctx.collapsed_columns.contains(idx))
-        .map(|(_, c)| c.max_width)
-        .sum();
-    let available_width = table_width; // Use table's content-box width, not constraints
+    // Step 2: the columns' constraints (CSS Tables 3 3.8) - the measured
+    // min/max-content above, plus what the cells' and the `<col>`s' `width`
+    // make of a column (a constrained column, a percentage column) - and the
+    // distribution of the table's width over them (3.9.3), both in
+    // `table_width`, which the table's intrinsic sizes use too. Every column
+    // used to get a share of the excess in proportion to its max-content
+    // whatever its `width` said (`<td width="100">a</td><td>a</td>` in a
+    // 400px table came out 200 / 200, not 100 / 300), and percentages were
+    // not read at all.
+    use crate::solver3::table_width as tw;
 
-    debug_table_layout!(
-        ctx,
-        "calculate_column_widths_auto: min={:.2}, max={:.2}, table_width={:.2}",
-        total_min_width,
-        total_max_width,
-        table_width
-    );
-
-    // Handle infinity and NaN cases
-    if !total_max_width.is_finite() || !available_width.is_finite() {
-        // If max_width is infinite or unavailable, distribute available width equally
-        let num_non_collapsed = table_ctx.columns.len() - table_ctx.collapsed_columns.len();
-        let width_per_column = if num_non_collapsed > 0 {
-            available_width / num_non_collapsed as f32
-        } else {
-            0.0
+    let mut accumulators = vec![tw::ColumnAccumulator::default(); num_cols];
+    for cell_info in &table_ctx.cells {
+        if cell_info.colspan != 1 || cell_info.column >= num_cols {
+            continue;
+        }
+        let Some(cell) = tree.get(LayoutNodeId::new(cell_info.node_index)) else {
+            continue;
         };
-
-        for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
-            if table_ctx.collapsed_columns.contains(&col_idx) {
-                col.computed_width = Some(0.0);
-            } else {
-                // Use the larger of min_width and equal distribution
-                col.computed_width = Some(col.min_width.max(width_per_column));
-            }
-        }
-    } else if available_width >= total_max_width {
-        // Case 1: More space than max-content - distribute excess proportionally
-        //
-        // CSS 2.1 Section 17.5.2.2: Distribute extra space proportionally to
-        // max-content widths
-        let excess_width = available_width - total_max_width;
-
-        // First pass: collect column info (max_width) to avoid borrowing issues
-        let column_info: Vec<(usize, f32, bool)> = table_ctx
-            .columns
-            .iter()
-            .enumerate()
-            .map(|(idx, c)| (idx, c.max_width, table_ctx.collapsed_columns.contains(&idx)))
-            .collect();
-
-        // Calculate total weight for proportional distribution (use max_width as weight)
-        let total_weight: f32 = column_info.iter()
-            .filter(|(_, _, is_collapsed)| !is_collapsed)
-            .map(|(_, max_w, _)| max_w.max(1.0)) // Avoid division by zero
-            .sum();
-
-        let num_non_collapsed = column_info
-            .iter()
-            .filter(|(_, _, is_collapsed)| !is_collapsed)
-            .count();
-
-        // Second pass: set computed widths
-        for (col_idx, max_width, is_collapsed) in column_info {
-            let col = &mut table_ctx.columns[col_idx];
-            if is_collapsed {
-                col.computed_width = Some(0.0);
-            } else {
-                // Start with max-content width, then add proportional share of excess
-                let weight_factor = if total_weight > 0.0 {
-                    max_width.max(1.0) / total_weight
-                } else {
-                    // If all columns have 0 max_width, distribute equally
-                    1.0 / num_non_collapsed.max(1) as f32
-                };
-
-                let final_width = max_width + (excess_width * weight_factor);
-                col.computed_width = Some(final_width);
-            }
-        }
-    } else if available_width >= total_min_width {
-        // Case 2: Between min and max - interpolate proportionally
-        // Avoid division by zero if min == max
-        let scale = if total_max_width > total_min_width {
-            (available_width - total_min_width) / (total_max_width - total_min_width)
-        } else {
-            0.0 // If min == max, just use min width
+        let Some(dom_id) = cell.dom_node_id else {
+            continue;
         };
-        for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
-            if table_ctx.collapsed_columns.contains(&col_idx) {
-                col.computed_width = Some(0.0);
-            } else {
-                let interpolated = col.min_width + (col.max_width - col.min_width) * scale;
-                col.computed_width = Some(interpolated);
-            }
-        }
-    } else {
-        // Case 3: Not enough space - columns must not shrink below their
-        // min-content width (CSS 2.1 §17.5.2). Floor each column at min_width;
-        // the table overflows its containing block instead of squeezing content.
-        for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
-            if table_ctx.collapsed_columns.contains(&col_idx) {
-                col.computed_width = Some(0.0);
-            } else {
-                col.computed_width = Some(col.min_width);
-            }
+        let bp = cell.box_props.unpack();
+        let h_extras = bp.padding.left + bp.padding.right + bp.border.left + bp.border.right;
+        accumulators[cell_info.column].add_width(tw::specified_width(
+            ctx.styled_dom,
+            dom_id,
+            h_extras,
+        ));
+    }
+    if let Some(table_index) = table_ctx
+        .row_node_indices
+        .first()
+        .and_then(|&row| enclosing_table(tree, row))
+    {
+        for (accumulator, width) in accumulators
+            .iter_mut()
+            .zip(tw::column_element_widths(ctx.styled_dom, tree, table_index))
+        {
+            accumulator.add_width(width);
         }
     }
 
+    let mut column_constraints: Vec<tw::ColumnConstraint> = table_ctx
+        .columns
+        .iter()
+        .zip(accumulators)
+        .enumerate()
+        .map(|(idx, (col, mut accumulator))| {
+            if table_ctx.collapsed_columns.contains(&idx) {
+                return tw::ColumnConstraint::default();
+            }
+            accumulator.raise(col.min_width, col.max_width);
+            accumulator.finish()
+        })
+        .collect();
+    tw::clamp_percentages(&mut column_constraints);
+    let widths = tw::distribute_to_columns(&column_constraints, table_width);
+
+    debug_table_layout!(
+        ctx,
+        "calculate_column_widths_auto: table_width={:.2}, constraints={:?}, widths={:?}",
+        table_width,
+        column_constraints,
+        widths
+    );
+
+    for (col_idx, (col, width)) in table_ctx.columns.iter_mut().zip(widths).enumerate() {
+        col.computed_width = Some(if table_ctx.collapsed_columns.contains(&col_idx) {
+            0.0
+        } else {
+            width
+        });
+    }
+
     Ok(())
+}
+
+/// The table a row belongs to: its parent, or its row group's parent.
+fn enclosing_table(tree: &LayoutTree, row_index: usize) -> Option<usize> {
+    let mut current = tree.get(LayoutNodeId::new(row_index))?.parent;
+    for _ in 0..2 {
+        let index = current?;
+        let node = tree.get(LayoutNodeId::new(index))?;
+        if matches!(node.formatting_context, FormattingContext::Table) {
+            return Some(index);
+        }
+        current = node.parent;
+    }
+    None
 }
 
 /// Distribute a multi-column cell's width across the columns it spans

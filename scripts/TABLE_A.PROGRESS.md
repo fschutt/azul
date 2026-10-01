@@ -11,13 +11,12 @@ Brief: scratchpad `TABLE_A_go.md` (widths, row groups, presentational attributes
 - bc6361f65 FIX item 3: presentational attributes (attribute table keeps them, StyledDom creation maps them), UA table defaults
 
 ## IN PROGRESS
-- FIX items 1/4/5. Done in the working tree / last commit: fc.rs `resolve_table_border_spacing` (twins
-  replaced), layout_table_fc reads the table width from `used_size` and gives the columns the content
-  width minus the spacing (`columns_width`).
-- (b) DONE (c06e62f4a col widths; next commit: sizing.rs intrinsic via table_width + px override exemptions).
-- (c) DONE (next commit): auto table = clamp(MIN, avail, MAX), border box floored at MIN.
-- NEXT STEP (d): fc.rs `calculate_column_widths_auto_with_width` Step 2 via `distribute_to_columns` with
-  percent/fixed from single-span cells and `<col>`s.
+- Items 1/4/5 code complete (58f7ccd60, c06e62f4a, 7e00f8d0d, c1266420f, + the Step 2 commit).
+- NEXT STEP: item 2 (row groups) in fc.rs: analyze_table_structure visual order (thead first, tfoot
+  last), position_table_cells -> positions for row groups / direct rows / caption relative to the
+  table, rows relative to their group, cells relative to their row (warm.relative_position), col /
+  colgroup rects; cache.rs table cache hit positions only; display_list: the table paints its own
+  background + border (generic path), then paint_table_items layers 2-6.
 
 ## NEXT
 - FIX item 2: row groups / rows / cells positioned hierarchically; thead first, tfoot last; table paints
