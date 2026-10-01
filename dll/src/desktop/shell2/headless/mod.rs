@@ -1556,6 +1556,10 @@ pub struct HeadlessWindow {
     thread_poll_timer_running: bool,
     /// Pending window creation requests (for popup menus, dialogs, etc.).
     pub pending_window_creates: Vec<WindowCreateOptions>,
+    /// The windows opened from this one's callbacks (`CallbackInfo::create_window`: menus,
+    /// dialogs, an app's second window), pumped by this window's loop
+    /// ([`Self::pump_children`]).
+    pub children: Vec<HeadlessWindow>,
     /// Config snapshot (needed for spawning sub-windows).
     config: AppConfig,
     /// Icon provider (shared across all windows).
@@ -1659,6 +1663,7 @@ impl HeadlessWindow {
             event_queue: VecDeque::new(),
             thread_poll_timer_running: false,
             pending_window_creates: Vec::new(),
+            children: Vec::new(),
             config,
             icon_provider,
             font_registry,
@@ -1670,6 +1675,48 @@ impl HeadlessWindow {
     }
 
     // === Lifecycle ===
+
+    /// Spawns a window for every pending create request and pumps the open child windows
+    /// (one turn of each), dropping the closed ones.
+    pub fn pump_children(&mut self) {
+        while let Some(pending_create) = self.pending_window_creates.pop() {
+            log_debug!(
+                LogCategory::Window,
+                "[Headless] Spawning sub-HeadlessWindow (type: {:?})",
+                pending_create.window_state.flags.window_type
+            );
+            match HeadlessWindow::new(
+                pending_create,
+                self.common.app_data.clone(),
+                self.common.undo_manager.clone(),
+                self.config.clone(),
+                self.icon_provider.clone(),
+                self.common.fc_cache.clone(),
+                self.font_registry.clone(),
+            ) {
+                Ok(child) => self.children.push(child),
+                Err(e) => {
+                    log_error!(
+                        LogCategory::Window,
+                        "[Headless] Failed to create sub-HeadlessWindow: {:?}",
+                        e
+                    );
+                }
+            }
+        }
+        self.children.retain_mut(|child| {
+            while let Some(ev) = child.poll_event() {
+                if let HeadlessEvent::Close = ev {
+                    child.close();
+                }
+            }
+            if child.common.current_window_state().flags.close_requested {
+                child.close();
+            }
+            child.pending_window_creates.clear();
+            child.is_open()
+        });
+    }
 
     /// Poll the next event from the queue.
     pub fn poll_event(&mut self) -> Option<HeadlessEvent> {
@@ -2528,8 +2575,6 @@ impl HeadlessWindow {
             }
         }
 
-        // -- child windows (sub-HeadlessWindows for menus, dialogs) --
-        let mut children: Vec<HeadlessWindow> = Vec::new();
         let mut warned_no_wake_sources = false;
 
         // A global-hotkey press simulated from another thread (a test, the
@@ -3123,49 +3168,8 @@ impl HeadlessWindow {
                 self.close();
             }
 
-            // ── Phase 3: Spawn sub-HeadlessWindows for pending creates ─
-            while let Some(pending_create) = self.pending_window_creates.pop() {
-                log_debug!(
-                    LogCategory::Window,
-                    "[Headless] Spawning sub-HeadlessWindow (type: {:?})",
-                    pending_create.window_state.flags.window_type
-                );
-                match HeadlessWindow::new(
-                    pending_create,
-                    self.common.app_data.clone(),
-                    self.common.undo_manager.clone(),
-                    self.config.clone(),
-                    self.icon_provider.clone(),
-                    self.common.fc_cache.clone(),
-                    self.font_registry.clone(),
-                ) {
-                    Ok(child) => children.push(child),
-                    Err(e) => {
-                        log_error!(
-                            LogCategory::Window,
-                            "[Headless] Failed to create sub-HeadlessWindow: {:?}",
-                            e
-                        );
-                    }
-                }
-            }
-
-            // ── Phase 4: Pump child windows ──────────────────────
-            children.retain_mut(|child| {
-                while let Some(ev) = child.poll_event() {
-                    if let HeadlessEvent::Close = ev {
-                        child.close();
-                    }
-                }
-                // Same close_requested contract as the parent window above: a
-                // callback that closes a child popup/dialog sets the flag and
-                // the loop must consume it.
-                if child.common.current_window_state().flags.close_requested {
-                    child.close();
-                }
-                child.pending_window_creates.clear();
-                child.is_open()
-            });
+            // ── Phase 3 + 4: spawn and pump the child windows ─────
+            self.pump_children();
 
             // ── Phase 5: Condvar-based wait ──────────────────────
             let has_timers = self
@@ -3181,7 +3185,7 @@ impl HeadlessWindow {
                 || self.thread_poll_timer_running
                 || has_hotkeys
                 || debug_enabled
-                || !children.is_empty();
+                || !self.children.is_empty();
 
             if !has_wake_sources && !warned_no_wake_sources {
                 warned_no_wake_sources = true;
@@ -12323,5 +12327,105 @@ mod native_backbuffer_reuse_law {
             "an unchanged-size frame painted only its damage strips into a buffer that holds no \
              previous frame"
         );
+    }
+}
+
+/// A window an app opens from a callback (`CallbackInfo::create_window`: AzMail's compose
+/// window, a dialog) is a window of its own in a headless run too: its create callback runs,
+/// it is laid out, and its timers - the debug server's among them - and its threads are
+/// pumped like the root's. It used to be created and then only polled for a Close: never laid
+/// out, its timers and threads never run, so nothing (and no E2E) could reach it.
+#[cfg(test)]
+mod child_window_tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use azul_core::{
+        callbacks::{LayoutCallback, LayoutCallbackInfo, Update},
+        dom::Dom,
+        refany::{OptionRefAny, RefAny},
+        task::TimerId,
+    };
+    use azul_layout::{
+        callbacks::{Callback, CallbackInfo},
+        timer::{Timer, TimerCallbackInfo, TimerCallbackReturn},
+    };
+
+    use super::*;
+
+    static CHILD_CREATED: AtomicUsize = AtomicUsize::new(0);
+    static CHILD_LAYOUTS: AtomicUsize = AtomicUsize::new(0);
+    static CHILD_TIMER_RUNS: AtomicUsize = AtomicUsize::new(0);
+
+    extern "C" fn root_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        Dom::create_body()
+    }
+
+    extern "C" fn child_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        CHILD_LAYOUTS.fetch_add(1, Ordering::SeqCst);
+        Dom::create_body().with_child(Dom::create_div())
+    }
+
+    extern "C" fn child_timer(_data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackReturn {
+        CHILD_TIMER_RUNS.fetch_add(1, Ordering::SeqCst);
+        TimerCallbackReturn::terminate_unchanged()
+    }
+
+    /// The child's create callback starts a timer, as AzMail's compose window does to put the
+    /// caret into its editor once it is laid out.
+    extern "C" fn child_created(data: RefAny, mut info: CallbackInfo) -> Update {
+        CHILD_CREATED.fetch_add(1, Ordering::SeqCst);
+        let get_time = info.get_system_time_fn();
+        info.add_timer(TimerId::unique(), Timer::create(data, child_timer, get_time));
+        Update::DoNothing
+    }
+
+    fn window(layout: azul_core::callbacks::LayoutCallbackType, id: &str) -> WindowCreateOptions {
+        let mut opts = WindowCreateOptions::default();
+        opts.window_state.layout_callback = LayoutCallback {
+            cb: layout,
+            ctx: OptionRefAny::None,
+        };
+        opts.window_state.window_id = id.into();
+        opts.window_state.size.dimensions = azul_core::geom::LogicalSize::new(300.0, 200.0);
+        opts
+    }
+
+    fn root() -> HeadlessWindow {
+        use azul_core::icon::{IconProviderHandle, SharedIconProvider};
+        HeadlessWindow::new(
+            window(root_layout, "root"),
+            Arc::new(RefCell::new(RefAny::new(()))),
+            event::SharedUndoManager::new(),
+            AppConfig::default(),
+            SharedIconProvider::from_handle(IconProviderHandle::default()),
+            Arc::new(FcFontCache::default()),
+            None,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_window_opened_from_a_callback_is_laid_out_and_runs_its_timers() {
+        let mut root = root();
+        let mut child = window(child_layout, "child");
+        child.create_callback = Some(Callback::create(child_created)).into();
+        root.queue_window_create(child);
+        root.pump_children();
+        assert_eq!(root.children.len(), 1, "the child window exists");
+        assert_eq!(CHILD_CREATED.load(Ordering::SeqCst), 1, "its create callback ran once");
+        assert!(CHILD_LAYOUTS.load(Ordering::SeqCst) >= 1, "it was laid out");
+        assert!(
+            root.children[0]
+                .common
+                .layout_window
+                .as_ref()
+                .is_some_and(|lw| !lw.layout_results.is_empty()),
+            "it has a layout result"
+        );
+        for _ in 0..3 {
+            root.pump_children();
+        }
+        assert_eq!(CHILD_TIMER_RUNS.load(Ordering::SeqCst), 1, "its timer ran");
+        assert_eq!(CHILD_CREATED.load(Ordering::SeqCst), 1, "created once, pumped many times");
     }
 }
