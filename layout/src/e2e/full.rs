@@ -154,6 +154,68 @@ pub enum DebugResponseData {
     Err(String),
 }
 
+#[cfg(feature = "std")]
+impl DebugResponseData {
+    /// The response to a CPU screenshot, from the pixels the UI thread
+    /// rendered.
+    #[must_use]
+    pub fn pending_screenshot(pixmap: crate::cpurender::AzulPixmap) -> Self {
+        // RED stub: encodes right here, on the caller's (UI) thread.
+        match pixmap.encode_png() {
+            Ok(png) => Self::Ok {
+                window_state: None,
+                data: Some(ResponseData::Screenshot(ScreenshotData {
+                    data: alloc::format!(
+                        "data:image/png;base64,{}",
+                        azul_layout::callbacks::base64_encode(&png)
+                    ),
+                })),
+            },
+            Err(e) => Self::Err(alloc::format!("PNG encoding failed: {e}")),
+        }
+    }
+
+    /// Is the PNG of this response still to be encoded?
+    #[must_use]
+    pub fn is_pending(&self) -> bool {
+        false // RED stub
+    }
+
+    /// Finish the response on the receiving thread.
+    #[must_use]
+    pub fn into_ready(self) -> Self {
+        self // RED stub
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod pending_screenshot_tests {
+    use super::*;
+
+    /// A screenshot's PNG encode (a deflate over every pixel, tens of ms for
+    /// a large window) ran inside the debug timer, on the UI thread. The UI
+    /// thread now renders the pixels and hands them over unencoded; the
+    /// thread that receives the response - the HTTP thread for a request
+    /// that came over the wire - encodes them.
+    #[test]
+    fn a_screenshot_png_is_encoded_by_the_thread_that_answers_the_request() {
+        let pixmap = crate::cpurender::AzulPixmap::new(4, 2).expect("a 4x2 pixmap");
+        let response = DebugResponseData::pending_screenshot(pixmap);
+        assert!(
+            response.is_pending(),
+            "the UI thread hands the pixels over unencoded"
+        );
+        let answering = std::thread::spawn(move || response.into_ready());
+        match answering.join().expect("the answering thread") {
+            DebugResponseData::Ok {
+                data: Some(ResponseData::Screenshot(shot)),
+                ..
+            } => assert!(shot.data.starts_with("data:image/png;base64,"), "{}", shot.data),
+            other => panic!("expected an encoded screenshot, got {other:?}"),
+        }
+    }
+}
+
 /// Typed response data variants
 #[cfg(feature = "std")]
 fn profile_kind_memory() -> ProfileKind {
