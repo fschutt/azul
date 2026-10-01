@@ -649,16 +649,19 @@ pub(crate) fn build(shell: MobileShell, look: &ShellLook) -> Dom {
                 .with_child(a),
         );
     }
-    let mut bar_base: Vec<CssPropertyWithConditions> = APP_BAR_BASE.to_vec();
+    // The safe-area inset goes AFTER the look: a look that pads the bar
+    // (`padding: 0 8px`) would otherwise override it and the bar would sit
+    // under the status bar.
+    let mut bar_skin: Vec<CssPropertyWithConditions> = look.app_bar.to_vec();
     #[allow(clippy::cast_possible_truncation)]
     if top_inset > 0.0 {
-        bar_base.push(CssPropertyWithConditions::simple(CssProperty::const_padding_top(
+        bar_skin.push(CssPropertyWithConditions::simple(CssProperty::const_padding_top(
             LayoutPaddingTop::const_px(top_inset as isize),
         )));
     }
     let app_bar = Dom::create_node(NodeType::Header)
         .with_ids_and_classes(id_and_class(&AzString::from_const_str(APP_BAR_ID), APP_BAR_CLASS))
-        .with_css_props(part(&bar_base, &look.app_bar))
+        .with_css_props(part(APP_BAR_BASE, &bar_skin))
         .with_accessibility_name(title)
         .with_children(DomVec::from_vec(bar_children));
 
@@ -802,11 +805,16 @@ mod mobile_shell_tests {
             rule.as_ref(),
             &[DynamicSelector::ViewportWidth(MinMaxRange::with_max(NARROW_MAX_PX))]
         );
-        let bar = tc::find(&dom, APP_BAR_CLASS).expect("app bar");
-        assert!(tc::resolve(bar, azul_css::props::property::CssPropertyType::PaddingTop, false, None).is_none());
+        // The look pads the bar (`padding: 0 8px`); the inset replaces its top.
+        let top = |d: &Dom| {
+            let bar = tc::find(d, APP_BAR_CLASS).expect("app bar");
+            tc::resolve(bar, azul_css::props::property::CssPropertyType::PaddingTop, false, None)
+                .map(|p| format!("{p:?}"))
+                .unwrap_or_default()
+        };
         let inset = mobile_shell().with_top_inset(44.0).with_theme(UiTheme::Flat).dom();
-        let bar = tc::find(&inset, APP_BAR_CLASS).expect("app bar");
-        assert!(tc::resolve(bar, azul_css::props::property::CssPropertyType::PaddingTop, false, None).is_some());
+        assert!(!top(&dom).contains("44"), "no inset: {}", top(&dom));
+        assert!(top(&inset).contains("44"), "the inset pads the top: {}", top(&inset));
     }
 
     type Log = Arc<Mutex<Vec<usize>>>;
