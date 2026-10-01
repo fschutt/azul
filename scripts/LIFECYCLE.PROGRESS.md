@@ -7,20 +7,20 @@ thread, monitor change re-reads the frame interval); dark "Dark" segment.
 ## DONE
 - 1. ABI guard: RED 9d8d69e45, GREEN 3ba642c65
 - 2. threads of unmounted nodes: RED e379b2fb4, GREEN 6c3ffd0da
+- 3a. FLIP settle: RED ee3c8f0fc, GREEN cead23ffb (energy criterion in
+  SpringCurve::is_settled); RED 147c624e4, GREEN b53b691f8 (drop Move/Enter
+  anims whose node left the tree)
 
 ## IN PROGRESS
-- 3a. FLIP springs never settle. Last commit: 4c2b4718d. Findings: settle =
-  |x|<0.06 && |v|<0.06 (css SpringCurve::is_settled); on a spring's tail
-  |v| ~ omega*|x| (omega=13 for SMOOTH), so the VELOCITY epsilon decides and
-  demands x<0.0046; FB3 saw values frozen at 0.016 (v~0.2) never settling.
-  NEXT STEP: RED test in core/src/animation_test.rs "a spring that can no
-  longer move more than the epsilon has settled" (x=0.016,v=-0.2 must
-  settle, overshoot at zero-crossing with large v must not), then GREEN:
-  energy criterion x^2 + (m/k) v^2 < EPS^2 in SpringCurve::is_settled; plus
-  drop Move/Enter anims whose key has no node after finish_reconciliation
-  (exits are zombie-owned, keep them).
+- 3b. RenderImageCallback whose inputs did not change must not request a
+  frame (AzReview: new ImageRef every frame in prepare_frame_content).
+  Last commit: b53b691f8. NEXT STEP: find prepare_frame_content /
+  RenderImageCallback invocation in layout/dll, see why each frame mints a
+  new ImageRef, write RED test, fix.
 
 ## NEXT
+- 3c. debug-server poll event-driven + PNG encode off the UI thread
+- 3d. monitor change re-reads the frame interval
 - 4. Segmented dark pair
 
 ## Decisions
