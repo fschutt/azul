@@ -33,10 +33,24 @@ parse-checked with `rustfmt --edition 2021 --check`.
   pub editor: editor::EditorState, .. }`, `AppState::open_note_mut(&mut self) -> Option<&mut Note>`,
   `AppState::edited(&mut self)`.
 
+- lib.rs (AppState, Settings, start, data_root, with_state, refresh_if) `065d4440a`;
+  jobs.rs (spawn, on_startup, autosave_tick, focus_editor_soon, on_window_focus,
+  on_close_requested, save_note/save_all, request_images, open_note, new_note, apply outcomes)
+  `252f4c0f0`.
+
 ## IN PROGRESS (precise next steps, in order)
-4. lib.rs in pieces: AppState + start; threads/write-back; layout (PimShell: nav pane, message
-   list, editor pane with title/tags/toolbar, status bar); callbacks (editor sync, structural
-   edits, keys, toolbar, list, nav, palette, settings, history, export, autosave timer, close).
+5. ui.rs in pieces. REQUIRED by lib.rs/jobs.rs: `pub extern "C" fn layout(RefAny,
+   LayoutCallbackInfo) -> Dom`, `pub const SETTINGS_SHORTCUTS: usize`, `pub const SETTINGS_ABOUT:
+   usize`, `pub fn show_history(&mut CallbackInfo, &RefAny, &mut AppState)`. Pieces: (a) layout +
+   title row + status bar + window callbacks (keys Ctrl+N/K/S/,/Escape, focus, close);
+   (b) navigation pane + its event; (c) note list (MessageList, Pin mark) + its events;
+   (d) editor pane (title TextInput, tag chips + tag field, toolbar Buttons) + callbacks;
+   (e) overlays (palette with commands, new notebook, link, confirm delete); (f) settings
+   (ShellSettingsLayout: General, Editor, Storage, Keyboard shortcuts, About); (g) history
+   screen (versions list, preview, restore); (h) exports (PDF via Pdf::from_dom_in_callback,
+   Markdown via FileDialog::save_bytes), empty states.
+6. registration (root Cargo.toml member, scripts/workspace_test_members.txt, CI step),
+   scripts/aznotes_e2e.py, report scripts/NOTES_2026_10_01.md.
 
 ## NEXT
 - registration (workspace, test members, CI), scripts/aznotes_e2e.py, the report.
