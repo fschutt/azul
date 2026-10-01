@@ -678,3 +678,15 @@ mod a_scrolled_virtual_view_is_repainted_where_its_content_moved;
 mod a_detected_pinch_has_no_padding;
 #[path = "flex_items_keep_the_size_their_container_gave_them.rs"]
 mod flex_items_keep_the_size_their_container_gave_them;
+#[path = "common/table_markup.rs"]
+mod table_markup;
+#[path = "a_table_is_as_wide_as_its_content_and_container_allow.rs"]
+mod a_table_is_as_wide_as_its_content_and_container_allow;
+#[path = "row_groups_are_boxes_stacked_in_order.rs"]
+mod row_groups_are_boxes_stacked_in_order;
+#[path = "presentational_table_attributes_style_the_table.rs"]
+mod presentational_table_attributes_style_the_table;
+#[path = "percentage_and_fixed_columns_share_the_table_like_browsers.rs"]
+mod percentage_and_fixed_columns_share_the_table_like_browsers;
+#[path = "a_nested_table_widens_the_cell_that_holds_it.rs"]
+mod a_nested_table_widens_the_cell_that_holds_it;
