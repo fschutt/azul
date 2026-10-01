@@ -1,0 +1,47 @@
+# NOTES progress (AzNotes)
+
+Branch `wt/notes` from `39092feee`. Worktree
+`/Users/fschutt/Development/azul/.claude/worktrees/agent-a15ab00b973aabdc4`. Report:
+`scripts/NOTES_2026_10_01.md`. Nothing is compiled here (house rule); Rust files are
+parse-checked with `rustfmt --edition 2021 --check`.
+
+## DONE
+- (none yet)
+
+## IN PROGRESS
+- engine: E1 counters in a hovered / focused list, E2 the message list's row mark
+
+## NEXT
+- examples/azul-notes: model (notes, notebooks, tags, search, sort, sections), the editor
+  document (blocks + runs), front matter + Markdown both ways (pulldown-cmark 0.9, already in
+  Cargo.lock through AzWriter), storage jobs on a Thread through azul-storage's LocalDrive,
+  the UI on PimShell, palette, settings, about, history, sample data, args.
+- registration (workspace, test members, CI), scripts/aznotes_e2e.py, the report.
+
+## Decisions (made unattended, for the report)
+- D1 The editor is app-local for this pass (`examples/azul-notes/src/editor.rs` +
+  `doc.rs`), written so it can be promoted to `azul::widgets::RichTextEditor`. Reason: no
+  compiler tonight, and the widget's api surface (blocks, runs, events, the sync glue) needs a
+  design pass with the parent. AzWriter's `ir.rs` is the twin (named in the report).
+- D2 The editor model is a FLAT block list (paragraph, heading, bullet/numbered/check item with
+  an indent level, quote, code block, rule, image), one DOM child of the contenteditable host
+  per block; list items are `li` (display: list-item, the engine's `::marker`) directly under
+  the host; a numbered item's number is set with `counter-reset: list-item <n-1>` on the item;
+  a check item's box is an absolutely positioned `contenteditable=false` island (out of the
+  IFC, walled off from the text the engine edits), so the item's runs start at DOM child 1.
+- D3 The note list is azul's `MessageList` with a new row MARK (`MessageListMark::Pin`): the
+  same widget AzMail uses, so search row, sort header, sections, keyboard and virtualisation
+  are not duplicated.
+- D4 Typing: TextChanged -> sync the block text into the model (prefix/suffix diff keeps the
+  runs), ack the revision, no rebuild. Enter / Backspace merges: DocumentEdit -> apply the
+  split / merge to the model, ack, RefreshDom. Markdown shortcuts, toolbar block kinds and
+  inline formats: change the model, ack, RefreshDom (the new generation's text wins:
+  `gc_app_set_text` / the acked GC). Switching notes / restoring a version / an external
+  edit: `reset_editor_content`.
+- D5 Dates: `azul_storage::time` (one place for ISO 8601; a formatter is added there) for the
+  front matter, chrono `Local` for the list's dates (as AzDrive / AzMail).
+- D6 Empty notebooks persist as a marker object `notes/<notebook>/.notebook` (S3 has no
+  folders).
+
+## Open questions
+- (none yet)
