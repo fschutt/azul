@@ -6,11 +6,14 @@ Branch `wt/mail2` from `39092feee`. Worktree
 
 ## DONE (commit hashes)
 
-- (none yet)
+- `552fb1ee9` plan + progress file
+- `8ed90db3a` / `103ea3069` RED / GREEN: `TreeViewNode::badge` (the folder tree's unread count)
+- `44a941729` / `f80b56184` RED / GREEN: listing.rs, compose.rs, sending.rs, the message view's
+  thread headers, sync adopts a local-only folder (UIDVALIDITY 0), `LocalFolder::delete`
 
 ## IN PROGRESS
 
-- plan + progress file
+- App UI (NEXT step 3)
 
 ## NEXT (in order)
 
