@@ -8999,26 +8999,6 @@
                         },
                         "repr": "C"
                     },
-                    "MimeTypeHint": {
-                        "external": "azul_core::xml::MimeTypeHint",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
-                        ],
-                        "struct_fields": [
-                            {
-                                "inner": {
-                                    "type": "String"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "VideoModeVecSlice": {
                         "external": "azul_core::window::VideoModeVecSlice",
                         "derive": [
@@ -9248,41 +9228,6 @@
                                     "doc": [
                                         "Number of elements in the slice"
                                     ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "DetectedPinch": {
-                        "doc": [
-                            "Result of pinch gesture detection (scale + center + travel distances + duration)."
-                        ],
-                        "external": "azul_layout::managers::gesture::DetectedPinch",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "duration_ms": {
-                                    "type": "u64"
-                                },
-                                "center": {
-                                    "type": "LogicalPosition"
-                                },
-                                "scale": {
-                                    "type": "f32"
-                                },
-                                "initial_distance": {
-                                    "type": "f32"
-                                },
-                                "current_distance": {
-                                    "type": "f32"
-                                },
-                                "began": {
-                                    "type": "bool"
                                 }
                             }
                         ],
@@ -10298,6 +10243,86 @@
                                 "high_contrast": {
                                     "type": "OptionString"
                                 }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "CompositionCursor": {
+                        "external": "azul_core::events::CompositionCursor",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "begin": {
+                                    "type": "usize"
+                                },
+                                "end": {
+                                    "type": "usize"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "LinuxDecorationsState": {
+                        "external": "azul_core::window::LinuxDecorationsState",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd",
+                            "Ord",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "is_dragging_titlebar": {
+                                    "type": "bool"
+                                },
+                                "close_button_hover": {
+                                    "type": "bool"
+                                },
+                                "maximize_button_hover": {
+                                    "type": "bool"
+                                },
+                                "minimize_button_hover": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "WindowDecorations": {
+                        "external": "azul_core::window::WindowDecorations",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Ord",
+                            "PartialOrd",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Normal": {},
+                                "NoTitle": {},
+                                "NoTitleAutoInject": {},
+                                "NoControls": {},
+                                "None": {}
                             }
                         ],
                         "repr": "C"
@@ -23639,6 +23664,79 @@
                                 "type": "Update"
                             }
                         }
+                    },
+                    "SpatialNavigationSearchOptions": {
+                        "external": "azul_core::callbacks::SpatialNavigationSearchOptions",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "candidates": {
+                                    "type": "OptionDomNodeIdVec"
+                                },
+                                "container": {
+                                    "type": "OptionDomNodeId"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FocusableAreaSearchMode": {
+                        "external": "azul_core::callbacks::FocusableAreaSearchMode",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Visible": {},
+                                "All": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RelayoutReason": {
+                        "doc": [
+                            "What triggered the current `layout()` invocation.",
+                            "",
+                            "The framework re-invokes the layout callback for any change that may produce a structurally different DOM (resize across a CSS breakpoint, theme toggle, route switch, callback returning Update::RefreshDom). Read via `LayoutCallbackInfo.relayout_reason()` so the callback can branch - for example, skip expensive analytics on `Resize` calls."
+                        ],
+                        "external": "azul_core::callbacks::RelayoutReason",
+                        "derive": [
+                            "PartialEq",
+                            "Eq",
+                            "Clone",
+                            "Hash",
+                            "Copy",
+                            "PartialOrd",
+                            "Ord",
+                            "Debug",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Initial": {},
+                                "RefreshDom": {},
+                                "Resize": {},
+                                "ModeChange": {},
+                                "RouteChange": {},
+                                "Other": {},
+                                "ThemeChange": {}
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -33803,32 +33901,6 @@
                         ],
                         "repr": "C"
                     },
-                    "BackstageNavItemVecSlice": {
-                        "external": "azul_layout::widgets::backstage::BackstageNavItemVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "BackstageNavItem",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "KeyModifiers": {
                         "external": "azul_core::events::KeyModifiers",
                         "derive": [
@@ -34146,27 +34218,6 @@
                                 "callable": {
                                     "type": "OptionRefAny"
                                 }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "FocusableAreaSearchMode": {
-                        "external": "azul_core::callbacks::FocusableAreaSearchMode",
-                        "derive": [
-                            "Debug",
-                            "Default",
-                            "Copy",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Visible": {},
-                                "All": {}
                             }
                         ],
                         "repr": "C"
@@ -34803,27 +34854,6 @@
                         ],
                         "repr": "C"
                     },
-                    "AccordionVariant": {
-                        "external": "azul_layout::widgets::accordion::AccordionVariant",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash",
-                            "Default"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Panel": {},
-                                "Groups": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "TileOnClickCallback": {
                         "external": "azul_layout::widgets::tile::TileOnClickCallback",
                         "custom_impls": [
@@ -34883,6 +34913,406 @@
                                 },
                                 "callable": {
                                     "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ScrollIntoViewOptions": {
+                        "external": "azul_core::events::ScrollIntoViewOptions",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "block": {
+                                    "type": "ScrollLogicalPosition"
+                                },
+                                "inline_axis": {
+                                    "type": "ScrollLogicalPosition"
+                                },
+                                "behavior": {
+                                    "type": "ScrollIntoViewBehavior"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "nearest": {
+                                "doc": [
+                                    "Create options with \"nearest\" alignment for both axes"
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::events::ScrollIntoViewOptions::nearest()"
+                            },
+                            "center": {
+                                "doc": [
+                                    "Create options with \"center\" alignment for both axes"
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::events::ScrollIntoViewOptions::center()"
+                            },
+                            "start": {
+                                "doc": [
+                                    "Create options with \"start\" alignment for both axes"
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::events::ScrollIntoViewOptions::start()"
+                            },
+                            "end": {
+                                "doc": [
+                                    "Create options to align the end of the target with the end of the viewport"
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::events::ScrollIntoViewOptions::end()"
+                            }
+                        },
+                        "functions": {
+                            "with_instant": {
+                                "doc": [
+                                    "Set instant scroll behavior"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ScrollIntoViewOptions"
+                                },
+                                "fn_body": "object.with_instant()"
+                            },
+                            "with_smooth": {
+                                "doc": [
+                                    "Set smooth scroll behavior"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ScrollIntoViewOptions"
+                                },
+                                "fn_body": "object.with_smooth()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "StyledDom": {
+                        "priority": 90.0,
+                        "external": "azul_core::styled_dom::StyledDom",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "PartialEq",
+                            "Clone",
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "root": {
+                                    "type": "NodeHierarchyItemId"
+                                },
+                                "node_hierarchy": {
+                                    "type": "NodeHierarchyItemVec"
+                                },
+                                "node_data": {
+                                    "type": "NodeDataVec"
+                                },
+                                "styled_nodes": {
+                                    "type": "StyledNodeVec"
+                                },
+                                "cascade_info": {
+                                    "type": "CascadeInfoVec"
+                                },
+                                "nodes_with_window_callbacks": {
+                                    "type": "NodeHierarchyItemIdVec"
+                                },
+                                "nodes_with_datasets": {
+                                    "type": "NodeHierarchyItemIdVec"
+                                },
+                                "tag_ids_to_node_ids": {
+                                    "type": "TagIdToNodeIdMappingVec"
+                                },
+                                "non_leaf_nodes": {
+                                    "type": "ParentWithNodeDepthVec"
+                                },
+                                "css_property_cache": {
+                                    "type": "CssPropertyCachePtr"
+                                },
+                                "dom_id": {
+                                    "type": "DomId"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create_from_dom": {
+                                "doc": [
+                                    "Creates a `StyledDom` from a recursive Dom tree with deferred CSS.",
+                                    "",
+                                    "This is the Phase 7.2 entry point: the layout callback returns a recursive",
+                                    "`Dom` with `css: Vec<Css>` on each node. This function:",
+                                    "",
+                                    "1. Collects all CSS objects from the recursive tree",
+                                    "2. Flattens the Dom into contiguous arrays (`CompactDom`)",
+                                    "3. Merges all CSS objects and runs a single cascade pass",
+                                    "4. Runs `apply_ua_css` -> `compute_inherited_values` -> `build_compact_cache`",
+                                    "5. Generates anonymous table elements"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "dom": "Dom"
+                                    }
+                                ],
+                                "fn_body": "azul_core::styled_dom::StyledDom::create_from_dom(dom)"
+                            }
+                        },
+                        "functions": {
+                            "append_child": {
+                                "doc": [
+                                    "Appends another `StyledDom` as a child to the `self.root`",
+                                    "without re-styling the DOM itself"
+                                ],
+                                "priority": 80.0,
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "other": "StyledDom"
+                                    }
+                                ],
+                                "fn_body": "object.append_child(other)"
+                            },
+                            "with_child": {
+                                "doc": [
+                                    "Same as `append_child()`, but as a builder method"
+                                ],
+                                "priority": 90.0,
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "other": "StyledDom"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyledDom"
+                                },
+                                "fn_body": "object.with_child(other)"
+                            },
+                            "node_count": {
+                                "doc": [
+                                    "Returns the total number of nodes in this StyledDom."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.node_count()"
+                            },
+                            "set_menu_bar": {
+                                "doc": [
+                                    "Sets the menu bar for the root node"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "menu_bar": "Menu"
+                                    }
+                                ],
+                                "fn_body": "object.set_menu_bar(menu_bar)"
+                            },
+                            "with_menu_bar": {
+                                "doc": [
+                                    "Builder method for setting the menu bar"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "menu_bar": "Menu"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyledDom"
+                                },
+                                "fn_body": "object.with_menu_bar(menu_bar)"
+                            },
+                            "set_context_menu": {
+                                "doc": [
+                                    "Sets the context menu for the root node"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "context_menu": "Menu"
+                                    }
+                                ],
+                                "fn_body": "object.set_context_menu(context_menu)"
+                            },
+                            "with_context_menu": {
+                                "doc": [
+                                    "Builder method for setting the context menu"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "context_menu": "Menu"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyledDom"
+                                },
+                                "fn_body": "object.with_context_menu(context_menu)"
+                            },
+                            "get_rects_in_rendering_order": {
+                                "doc": [
+                                    "Returns nodes grouped by their rendering order (respects z-index and position)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ContentGroup"
+                                },
+                                "fn_body": "object.get_rects_in_rendering_order()"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Replaces this StyledDom with default and returns the old value."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyledDom"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "StyledNodeState": {
+                        "external": "azul_core::styled_dom::StyledNodeState",
+                        "custom_impls": [
+                            "Debug"
+                        ],
+                        "derive": [
+                            "Default",
+                            "Hash",
+                            "Clone",
+                            "Copy",
+                            "PartialOrd",
+                            "Ord",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "hover": {
+                                    "type": "bool"
+                                },
+                                "active": {
+                                    "type": "bool"
+                                },
+                                "focused": {
+                                    "type": "bool"
+                                },
+                                "disabled": {
+                                    "type": "bool"
+                                },
+                                "checked": {
+                                    "type": "bool"
+                                },
+                                "focus_within": {
+                                    "type": "bool"
+                                },
+                                "visited": {
+                                    "type": "bool"
+                                },
+                                "backdrop": {
+                                    "type": "bool"
+                                },
+                                "dragging": {
+                                    "type": "bool"
+                                },
+                                "drag_over": {
+                                    "type": "bool"
+                                },
+                                "placeholder": {
+                                    "type": "bool"
+                                },
+                                "seat_focused": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyledNode": {
+                        "external": "azul_core::styled_dom::StyledNode",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "styled_node_state": {
+                                    "type": "StyledNodeState"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyledNodeVecSlice": {
+                        "external": "azul_core::styled_dom::StyledNodeVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "StyledNode",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
                                 }
                             }
                         ],
@@ -47072,63 +47502,6 @@
                         "functions": {},
                         "repr": "C"
                     },
-                    "StyledNodeState": {
-                        "external": "azul_core::styled_dom::StyledNodeState",
-                        "custom_impls": [
-                            "Debug"
-                        ],
-                        "derive": [
-                            "Default",
-                            "Hash",
-                            "Clone",
-                            "Copy",
-                            "PartialOrd",
-                            "Ord",
-                            "PartialEq",
-                            "Eq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "hover": {
-                                    "type": "bool"
-                                },
-                                "active": {
-                                    "type": "bool"
-                                },
-                                "focused": {
-                                    "type": "bool"
-                                },
-                                "disabled": {
-                                    "type": "bool"
-                                },
-                                "checked": {
-                                    "type": "bool"
-                                },
-                                "focus_within": {
-                                    "type": "bool"
-                                },
-                                "visited": {
-                                    "type": "bool"
-                                },
-                                "backdrop": {
-                                    "type": "bool"
-                                },
-                                "dragging": {
-                                    "type": "bool"
-                                },
-                                "drag_over": {
-                                    "type": "bool"
-                                },
-                                "placeholder": {
-                                    "type": "bool"
-                                },
-                                "seat_focused": {
-                                    "type": "bool"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "CssPropertyCachePtr": {
                         "external": "azul_core::prop_cache::CssPropertyCachePtr",
                         "custom_impls": [
@@ -47147,40 +47520,6 @@
                                 },
                                 "run_destructor": {
                                     "type": "bool"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "SvgRenderTransform": {
-                        "external": "azul_core::svg::SvgRenderTransform",
-                        "derive": [
-                            "PartialOrd",
-                            "Copy",
-                            "Debug",
-                            "Default",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "sx": {
-                                    "type": "f32"
-                                },
-                                "kx": {
-                                    "type": "f32"
-                                },
-                                "ky": {
-                                    "type": "f32"
-                                },
-                                "sy": {
-                                    "type": "f32"
-                                },
-                                "tx": {
-                                    "type": "f32"
-                                },
-                                "ty": {
-                                    "type": "f32"
                                 }
                             }
                         ],
@@ -47479,218 +47818,6 @@
                         "generic_params": [
                             "T"
                         ]
-                    },
-                    "StyledDom": {
-                        "priority": 90.0,
-                        "external": "azul_core::styled_dom::StyledDom",
-                        "custom_impls": [
-                            "Default"
-                        ],
-                        "derive": [
-                            "PartialEq",
-                            "Clone",
-                            "Debug"
-                        ],
-                        "struct_fields": [
-                            {
-                                "root": {
-                                    "type": "NodeHierarchyItemId"
-                                },
-                                "node_hierarchy": {
-                                    "type": "NodeHierarchyItemVec"
-                                },
-                                "node_data": {
-                                    "type": "NodeDataVec"
-                                },
-                                "styled_nodes": {
-                                    "type": "StyledNodeVec"
-                                },
-                                "cascade_info": {
-                                    "type": "CascadeInfoVec"
-                                },
-                                "nodes_with_window_callbacks": {
-                                    "type": "NodeHierarchyItemIdVec"
-                                },
-                                "nodes_with_datasets": {
-                                    "type": "NodeHierarchyItemIdVec"
-                                },
-                                "tag_ids_to_node_ids": {
-                                    "type": "TagIdToNodeIdMappingVec"
-                                },
-                                "non_leaf_nodes": {
-                                    "type": "ParentWithNodeDepthVec"
-                                },
-                                "css_property_cache": {
-                                    "type": "CssPropertyCachePtr"
-                                },
-                                "dom_id": {
-                                    "type": "DomId"
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "create_from_dom": {
-                                "doc": [
-                                    "Creates a `StyledDom` from a recursive Dom tree with deferred CSS.",
-                                    "",
-                                    "This is the Phase 7.2 entry point: the layout callback returns a recursive",
-                                    "`Dom` with `css: Vec<Css>` on each node. This function:",
-                                    "",
-                                    "1. Collects all CSS objects from the recursive tree",
-                                    "2. Flattens the Dom into contiguous arrays (`CompactDom`)",
-                                    "3. Merges all CSS objects and runs a single cascade pass",
-                                    "4. Runs `apply_ua_css` -> `compute_inherited_values` -> `build_compact_cache`",
-                                    "5. Generates anonymous table elements"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "dom": "Dom"
-                                    }
-                                ],
-                                "fn_body": "azul_core::styled_dom::StyledDom::create_from_dom(dom)"
-                            }
-                        },
-                        "functions": {
-                            "append_child": {
-                                "doc": [
-                                    "Appends another `StyledDom` as a child to the `self.root`",
-                                    "without re-styling the DOM itself"
-                                ],
-                                "priority": 80.0,
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "other": "StyledDom"
-                                    }
-                                ],
-                                "fn_body": "object.append_child(other)"
-                            },
-                            "with_child": {
-                                "doc": [
-                                    "Same as `append_child()`, but as a builder method"
-                                ],
-                                "priority": 90.0,
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "other": "StyledDom"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "StyledDom"
-                                },
-                                "fn_body": "object.with_child(other)"
-                            },
-                            "node_count": {
-                                "doc": [
-                                    "Returns the total number of nodes in this StyledDom."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "object.node_count()"
-                            },
-                            "set_menu_bar": {
-                                "doc": [
-                                    "Sets the menu bar for the root node"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "menu_bar": "Menu"
-                                    }
-                                ],
-                                "fn_body": "object.set_menu_bar(menu_bar)"
-                            },
-                            "with_menu_bar": {
-                                "doc": [
-                                    "Builder method for setting the menu bar"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "menu_bar": "Menu"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "StyledDom"
-                                },
-                                "fn_body": "object.with_menu_bar(menu_bar)"
-                            },
-                            "set_context_menu": {
-                                "doc": [
-                                    "Sets the context menu for the root node"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "context_menu": "Menu"
-                                    }
-                                ],
-                                "fn_body": "object.set_context_menu(context_menu)"
-                            },
-                            "with_context_menu": {
-                                "doc": [
-                                    "Builder method for setting the context menu"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "context_menu": "Menu"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "StyledDom"
-                                },
-                                "fn_body": "object.with_context_menu(context_menu)"
-                            },
-                            "get_rects_in_rendering_order": {
-                                "doc": [
-                                    "Returns nodes grouped by their rendering order (respects z-index and position)."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ContentGroup"
-                                },
-                                "fn_body": "object.get_rects_in_rendering_order()"
-                            },
-                            "swap_with_default": {
-                                "doc": [
-                                    "Replaces this StyledDom with default and returns the old value."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "StyledDom"
-                                },
-                                "fn_body": "object.swap_with_default()"
-                            }
-                        },
-                        "repr": "C"
                     },
                     "VertexLayout": {
                         "external": "azul_core::gl::VertexLayout",
@@ -48243,30 +48370,6 @@
                             ]
                         }
                     },
-                    "WindowDecorations": {
-                        "external": "azul_core::window::WindowDecorations",
-                        "derive": [
-                            "Debug",
-                            "Copy",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "Ord",
-                            "PartialOrd",
-                            "Hash",
-                            "Default"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Normal": {},
-                                "NoTitle": {},
-                                "NoTitleAutoInject": {},
-                                "NoControls": {},
-                                "None": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "PhysicalPosition": {
                         "external": "azul_core::geom::PhysicalPosition",
                         "custom_impls": [
@@ -48295,37 +48398,6 @@
                         "generic_params": [
                             "T"
                         ]
-                    },
-                    "LinuxDecorationsState": {
-                        "external": "azul_core::window::LinuxDecorationsState",
-                        "derive": [
-                            "Debug",
-                            "Default",
-                            "Copy",
-                            "Clone",
-                            "PartialEq",
-                            "PartialOrd",
-                            "Ord",
-                            "Eq",
-                            "Hash"
-                        ],
-                        "struct_fields": [
-                            {
-                                "is_dragging_titlebar": {
-                                    "type": "bool"
-                                },
-                                "close_button_hover": {
-                                    "type": "bool"
-                                },
-                                "maximize_button_hover": {
-                                    "type": "bool"
-                                },
-                                "minimize_button_hover": {
-                                    "type": "bool"
-                                }
-                            }
-                        ],
-                        "repr": "C"
                     },
                     "Srgb": {
                         "external": "azul_core::window::Srgb",
@@ -48608,25 +48680,6 @@
                                 "ListStyleType": {},
                                 "ListStylePosition": {},
                                 "StringSet": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "StyledNode": {
-                        "external": "azul_core::styled_dom::StyledNode",
-                        "derive": [
-                            "Debug",
-                            "Default",
-                            "Clone",
-                            "PartialEq",
-                            "PartialOrd",
-                            "Eq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "styled_node_state": {
-                                    "type": "StyledNodeState"
-                                }
                             }
                         ],
                         "repr": "C"
@@ -50081,32 +50134,6 @@
                                 },
                                 "len": {
                                     "type": "usize"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "StyledNodeVecSlice": {
-                        "external": "azul_core::styled_dom::StyledNodeVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "StyledNode",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
                                 }
                             }
                         ],
@@ -52531,79 +52558,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "SvgTransform": {
-                        "external": "azul_core::svg::SvgTransform",
-                        "derive": [
-                            "Default",
-                            "Debug",
-                            "Copy",
-                            "Clone",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "struct_fields": [
-                            {
-                                "sx": {
-                                    "type": "f32"
-                                },
-                                "kx": {
-                                    "type": "f32"
-                                },
-                                "ky": {
-                                    "type": "f32"
-                                },
-                                "sy": {
-                                    "type": "f32"
-                                },
-                                "tx": {
-                                    "type": "f32"
-                                },
-                                "ty": {
-                                    "type": "f32"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "SvgFillStyle": {
-                        "external": "azul_core::svg::SvgFillStyle",
-                        "custom_impls": [
-                            "Default"
-                        ],
-                        "derive": [
-                            "Debug",
-                            "Copy",
-                            "Clone",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "struct_fields": [
-                            {
-                                "line_join": {
-                                    "type": "SvgLineJoin"
-                                },
-                                "miter_limit": {
-                                    "type": "f32"
-                                },
-                                "tolerance": {
-                                    "type": "f32"
-                                },
-                                "fill_rule": {
-                                    "type": "SvgFillRule"
-                                },
-                                "transform": {
-                                    "type": "SvgTransform"
-                                },
-                                "anti_alias": {
-                                    "type": "bool"
-                                },
-                                "high_quality_aa": {
-                                    "type": "bool"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "ScrollbarVisibilityModeParseErrorOwned": {
                         "external": "azul_css::props::style::scrollbar::ScrollbarVisibilityModeParseErrorOwned",
                         "derive": [
@@ -54933,37 +54887,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "RelayoutReason": {
-                        "doc": [
-                            "What triggered the current `layout()` invocation.",
-                            "",
-                            "The framework re-invokes the layout callback for any change that may produce a structurally different DOM (resize across a CSS breakpoint, theme toggle, route switch, callback returning Update::RefreshDom). Read via `LayoutCallbackInfo.relayout_reason()` so the callback can branch - for example, skip expensive analytics on `Resize` calls."
-                        ],
-                        "external": "azul_core::callbacks::RelayoutReason",
-                        "derive": [
-                            "PartialEq",
-                            "Eq",
-                            "Clone",
-                            "Hash",
-                            "Copy",
-                            "PartialOrd",
-                            "Ord",
-                            "Debug",
-                            "Default"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Initial": {},
-                                "RefreshDom": {},
-                                "Resize": {},
-                                "ModeChange": {},
-                                "RouteChange": {},
-                                "Other": {},
-                                "ThemeChange": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "SystemStyleDependency": {
                         "doc": [
                             "Which facet of the OS style a `layout()` callback read.",
@@ -56000,31 +55923,6 @@
                         ],
                         "repr": "C"
                     },
-                    "CompositionCursor": {
-                        "external": "azul_core::events::CompositionCursor",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash",
-                            "Default"
-                        ],
-                        "struct_fields": [
-                            {
-                                "begin": {
-                                    "type": "usize"
-                                },
-                                "end": {
-                                    "type": "usize"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "StyleSpatialNavigationActionValue": {
                         "external": "azul_css::props::property::StyleSpatialNavigationActionValue",
                         "repr": "C",
@@ -56648,6 +56546,131 @@
                                 "Light": {},
                                 "Dark": {},
                                 "SystemPreferred": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "IconStyleOptions": {
+                        "external": "azul_css::system::IconStyleOptions",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Clone",
+                            "PartialEq",
+                            "Copy",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "prefer_grayscale": {
+                                    "type": "bool"
+                                },
+                                "tint_color": {
+                                    "type": "OptionColorU"
+                                },
+                                "inherit_text_color": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TitlebarButtons": {
+                        "doc": [
+                            "Which window control buttons are available in the titlebar."
+                        ],
+                        "external": "azul_css::system::TitlebarButtons",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "has_close": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Close button is available"
+                                    ]
+                                },
+                                "has_minimize": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Minimize button is available"
+                                    ]
+                                },
+                                "has_maximize": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Maximize/zoom button is available"
+                                    ]
+                                },
+                                "has_fullscreen": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Fullscreen button is available (macOS green button behavior)"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "KeyframesVecSlice": {
+                        "external": "azul_css::css::KeyframesVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "Keyframes",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "KeyframeStopVecSlice": {
+                        "external": "azul_css::css::KeyframeStopVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "KeyframeStop",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
                             }
                         ],
                         "repr": "C"
@@ -61141,54 +61164,6 @@
                                     "type": "usize",
                                     "doc": [
                                         "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "TitlebarButtons": {
-                        "doc": [
-                            "Which window control buttons are available in the titlebar."
-                        ],
-                        "external": "azul_css::system::TitlebarButtons",
-                        "custom_impls": [
-                            "Default"
-                        ],
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
-                        ],
-                        "struct_fields": [
-                            {
-                                "has_close": {
-                                    "type": "bool",
-                                    "doc": [
-                                        "Close button is available"
-                                    ]
-                                },
-                                "has_minimize": {
-                                    "type": "bool",
-                                    "doc": [
-                                        "Minimize button is available"
-                                    ]
-                                },
-                                "has_maximize": {
-                                    "type": "bool",
-                                    "doc": [
-                                        "Maximize/zoom button is available"
-                                    ]
-                                },
-                                "has_fullscreen": {
-                                    "type": "bool",
-                                    "doc": [
-                                        "Fullscreen button is available (macOS green button behavior)"
                                     ]
                                 }
                             }
@@ -71142,58 +71117,6 @@
                         ],
                         "repr": "C"
                     },
-                    "KeyframeStopVecSlice": {
-                        "external": "azul_css::css::KeyframeStopVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "KeyframeStop",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "KeyframesVecSlice": {
-                        "external": "azul_css::css::KeyframesVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "Keyframes",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "ConsumerFrame": {
                         "external": "azul_core::video::ConsumerFrame",
                         "derive": [
@@ -77163,6 +77086,85 @@
                                 "fn_body": "object.dom()"
                             }
                         },
+                        "repr": "C"
+                    },
+                    "BackstageNavItemVecSlice": {
+                        "external": "azul_layout::widgets::backstage::BackstageNavItemVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "BackstageNavItem",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "AccordionVariant": {
+                        "external": "azul_layout::widgets::accordion::AccordionVariant",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Panel": {},
+                                "Groups": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MapPinTap": {
+                        "external": "azul_layout::widgets::map::MapPinTap",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "MapPinTapCallback"
+                                }
+                            }
+                        ],
                         "repr": "C"
                     }
                 }
@@ -90207,27 +90209,6 @@
                         ],
                         "repr": "C"
                     },
-                    "SvgVertex": {
-                        "external": "azul_core::svg::SvgVertex",
-                        "derive": [
-                            "Copy",
-                            "PartialEq",
-                            "PartialOrd",
-                            "Clone",
-                            "Debug"
-                        ],
-                        "struct_fields": [
-                            {
-                                "x": {
-                                    "type": "f32"
-                                },
-                                "y": {
-                                    "type": "f32"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "GlType": {
                         "priority": 24.0,
                         "external": "azul_core::gl::GlType",
@@ -90425,32 +90406,6 @@
                                 },
                                 "severity": {
                                     "type": "GLenum"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "SvgVertexVecSlice": {
-                        "external": "azul_core::svg::SvgVertexVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "SvgVertex",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
                                 }
                             }
                         ],
@@ -91379,280 +91334,6 @@
                         ],
                         "repr": "C"
                     },
-                    "VideoEncoder": {
-                        "priority": 20.0,
-                        "external": "azul_dll::unified::video_codec::VideoEncoder",
-                        "custom_impls": [
-                            "Clone",
-                            "Default",
-                            "Drop"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "c_void",
-                                    "ref_kind": "mutptr"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "open": {
-                                "doc": [
-                                    "Open an encoder for `width` x `height`, H.265 if `h265` else H.264, at",
-                                    "`bitrate_kbps`. Uses the platform-native backend ([`backend_name`]).",
-                                    "Returns an invalid handle (`is_open()` false) where no backend exists."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "width": "u32"
-                                    },
-                                    {
-                                        "height": "u32"
-                                    },
-                                    {
-                                        "h265": "bool"
-                                    },
-                                    {
-                                        "bitrate_kbps": "u32"
-                                    }
-                                ],
-                                "fn_body": "azul_dll::unified::video_codec::VideoEncoder::open(width, height, h265, bitrate_kbps)"
-                            }
-                        },
-                        "functions": {
-                            "backend_name": {
-                                "doc": [
-                                    "The native codec backend selected for this platform (\"VideoToolbox\",",
-                                    "\"MediaCodec\", \"gpu-video\", or \"none\")."
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "String"
-                                },
-                                "fn_body": "azul_dll::unified::video_codec::VideoEncoder::backend_name().into()"
-                            },
-                            "is_open": {
-                                "doc": [
-                                    "Whether the encoder opened (a backend exists for this platform)."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.is_open()"
-                            },
-                            "encode": {
-                                "doc": [
-                                    "Submit one `VideoFrame` (RGBA) for encoding; `force_keyframe` requests an IDR.",
-                                    "Returns `true` if the frame was accepted (the encoder is open). The encoded",
-                                    "chunks (Annex-B for H.264/H.265) come out of `recv_packet`, possibly several per",
-                                    "frame and possibly later: hardware and browser (WebCodecs) encoders are",
-                                    "output-callback shaped, so submit and poll are separate steps on every target."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "frame": "VideoFrame"
-                                    },
-                                    {
-                                        "force_keyframe": "bool"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.encode(frame, force_keyframe)"
-                            },
-                            "frames_encoded": {
-                                "doc": [
-                                    "Frames submitted to [`encode`](Self::encode) so far (stub progress)."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "u64"
-                                },
-                                "fn_body": "object.frames_encoded()"
-                            },
-                            "close": {
-                                "doc": [
-                                    "Release the encoder. (Drop does this too.)"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    }
-                                ],
-                                "fn_body": "object.close()"
-                            },
-                            "recv_packet": {
-                                "doc": [
-                                    "Pull the next encoded chunk, or `None` when nothing is ready yet. Drain in a",
-                                    "loop after each `encode` (or from a timer)."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionU8Vec"
-                                },
-                                "fn_body": "object.recv_packet()"
-                            }
-                        },
-                        "repr": "C"
-                    },
-                    "VideoDecoder": {
-                        "priority": 18.0,
-                        "external": "azul_dll::unified::video_codec::VideoDecoder",
-                        "custom_impls": [
-                            "Clone",
-                            "Default",
-                            "Drop"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "c_void",
-                                    "ref_kind": "mutptr"
-                                },
-                                "run_destructor": {
-                                    "type": "bool"
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "open": {
-                                "doc": [
-                                    "Open a decoder (H.265 if `h265` else H.264) using the platform-native",
-                                    "backend. Invalid handle where no backend exists."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "h265": "bool"
-                                    }
-                                ],
-                                "fn_body": "azul_dll::unified::video_codec::VideoDecoder::open(h265)"
-                            }
-                        },
-                        "functions": {
-                            "is_open": {
-                                "doc": [
-                                    "Whether the decoder opened."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.is_open()"
-                            },
-                            "decode": {
-                                "doc": [
-                                    "Submit one encoded chunk (Annex-B H.264). Returns `true` if the chunk was",
-                                    "accepted (the decoder is open). Decoded frames come out of `recv_frame`: decode",
-                                    "is pipelined and B-frame reordered, so one chunk can yield zero or several",
-                                    "frames, possibly later - the same output-callback shape as WebCodecs."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "data": "U8Vec"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.decode(data)"
-                            },
-                            "close": {
-                                "doc": [
-                                    "Release the decoder. (Drop does this too.)"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    }
-                                ],
-                                "fn_body": "object.close()"
-                            },
-                            "recv_frame": {
-                                "doc": [
-                                    "Pull the next decoded frame, or `None` when nothing is ready yet. Drain in a",
-                                    "loop after each `decode` (or from a timer)."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionVideoFrame"
-                                },
-                                "fn_body": "object.recv_frame()"
-                            },
-                            "set_output_size": {
-                                "doc": [
-                                    "Hand decoded frames out at `width` x `height` (`0 x 0`: the stream's",
-                                    "own size) - the size of the tile that shows them, so a 720p stream in",
-                                    "a small tile is scaled once, by the decoder (in hardware with",
-                                    "VideoToolbox), instead of by the renderer on every paint. A change on",
-                                    "a running stream starts at its next keyframe. Backends that cannot",
-                                    "scale hand out the stream's size."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "width": "u32"
-                                    },
-                                    {
-                                        "height": "u32"
-                                    }
-                                ],
-                                "fn_body": "object.set_output_size(width, height)"
-                            },
-                            "set_output_format": {
-                                "doc": [
-                                    "Hand decoded frames out in `format`: an NV12 variant (the decoder's",
-                                    "own 4:2:0 - no conversion; a tile shows it through the GPU's YUV",
-                                    "shader or the CPU rasterizer's fused convert), BGRA8, or RGBA8 (the",
-                                    "default). A change on a running stream starts at its next keyframe.",
-                                    "Backends that cannot give the format hand out RGBA8; every frame says",
-                                    "its format (`VideoFrame::format`)."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "format": "RawImageFormat"
-                                    }
-                                ],
-                                "fn_body": "object.set_output_format(format)"
-                            }
-                        },
-                        "repr": "C"
-                    },
                     "Brush": {
                         "external": "azul_core::resources::Brush",
                         "derive": [
@@ -91694,62 +91375,6 @@
                                     }
                                 ],
                                 "fn_body": "azul_core::resources::Brush::new(color, radius)"
-                            }
-                        },
-                        "repr": "C"
-                    },
-                    "DecodedVideo": {
-                        "external": "azul_dll::unified::video_codec::pipeline::DecodedVideo",
-                        "derive": [
-                            "Debug",
-                            "Clone"
-                        ],
-                        "struct_fields": [
-                            {
-                                "width": {
-                                    "type": "u32"
-                                },
-                                "height": {
-                                    "type": "u32"
-                                },
-                                "fps": {
-                                    "type": "f32"
-                                },
-                                "frames": {
-                                    "type": "VideoFrameVec"
-                                },
-                                "access_units_fed": {
-                                    "type": "usize"
-                                }
-                            }
-                        ],
-                        "functions": {
-                            "decode_mp4_h264": {
-                                "doc": [
-                                    "Demux + decode an in-memory MP4 (H.264) and resume `on_result` with a",
-                                    "`VideoDecodeResult` (`video` is `None` on any error). Decoding a whole clip is",
-                                    "inherently asynchronous on web (WebCodecs), so the answer is delivered as a",
-                                    "resume on every target. On a box with no hardware decoder the demux still runs",
-                                    "and `frames` is empty (see `access_units_fed`).",
-                                    "Never runs the callback re-entrantly inside the requesting activation: on desktop",
-                                    "it runs right after the current activation returns (same frame), on web on a later",
-                                    "task. `data` is handed back to the callback untouched."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "bytes": "U8Vec"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "on_result": "ResumeCallback"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "RequestId"
-                                },
-                                "fn_body": "azul_dll::unified::video_codec::pipeline::decode_mp4_h264(bytes, data, on_result)"
                             }
                         },
                         "repr": "C"
@@ -94303,75 +93928,6 @@
                             }
                         ],
                         "repr": "C"
-                    }
-                }
-            },
-            "xml": {
-                "doc": [
-                    "XML parsing / decoding module"
-                ],
-                "priority": 44.0,
-                "classes": {
-                    "Xml": {
-                        "priority": 50.0,
-                        "external": "azul_core::xml::Xml",
-                        "derive": [
-                            "Debug",
-                            "PartialOrd",
-                            "Clone",
-                            "PartialEq",
-                            "Eq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "root": {
-                                    "type": "XmlNodeChildVec"
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "from_str": {
-                                "doc": [
-                                    "Parses an XML document with one or more root nodes"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "xml_string": "String"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ResultXmlXmlError"
-                                },
-                                "fn_body": "azul_layout::xml::parse_xml(xml_string.as_str()).into()"
-                            }
-                        },
-                        "functions": {
-                            "scan_external_resources": {
-                                "doc": [
-                                    "Scan the XML/HTML document for external resource URLs.",
-                                    "",
-                                    "This function traverses the entire document tree and extracts URLs from:",
-                                    "- `<img src=\"...\">` - Images",
-                                    "- `<link href=\"...\">` - Stylesheets, icons, fonts",
-                                    "- `<script src=\"...\">` - Scripts",
-                                    "- `<video src=\"...\">`, `<source src=\"...\">` - Video",
-                                    "- `<audio src=\"...\">` - Audio",
-                                    "- `<a href=\"...\">` - Links (classified as Unknown)",
-                                    "- CSS `url()` in style attributes",
-                                    "- `<style>` blocks with @import or url()"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ExternalResourceVec"
-                                },
-                                "fn_body": "object.scan_external_resources()"
-                            }
-                        },
-                        "repr": "C"
                     },
                     "ParsedSvg": {
                         "priority": 34.0,
@@ -94446,6 +94002,304 @@
                                     "type": "OptionRawImage"
                                 },
                                 "fn_body": "object.render(options).into()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "SvgVertexVecSlice": {
+                        "external": "azul_core::svg::SvgVertexVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "SvgVertex",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SvgTransform": {
+                        "external": "azul_core::svg::SvgTransform",
+                        "derive": [
+                            "Default",
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "sx": {
+                                    "type": "f32"
+                                },
+                                "kx": {
+                                    "type": "f32"
+                                },
+                                "ky": {
+                                    "type": "f32"
+                                },
+                                "sy": {
+                                    "type": "f32"
+                                },
+                                "tx": {
+                                    "type": "f32"
+                                },
+                                "ty": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SvgParseOptions": {
+                        "external": "azul_core::svg::SvgParseOptions",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "PartialOrd",
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "relative_image_path": {
+                                    "type": "OptionString"
+                                },
+                                "default_font_family": {
+                                    "type": "String"
+                                },
+                                "languages": {
+                                    "type": "StringVec"
+                                },
+                                "dpi": {
+                                    "type": "f32"
+                                },
+                                "font_size": {
+                                    "type": "f32"
+                                },
+                                "shape_rendering": {
+                                    "type": "ShapeRendering"
+                                },
+                                "text_rendering": {
+                                    "type": "TextRendering"
+                                },
+                                "image_rendering": {
+                                    "type": "ImageRendering"
+                                },
+                                "fontdb": {
+                                    "type": "FontDatabase"
+                                },
+                                "keep_named_groups": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SvgVertex": {
+                        "external": "azul_core::svg::SvgVertex",
+                        "derive": [
+                            "Copy",
+                            "PartialEq",
+                            "PartialOrd",
+                            "Clone",
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "x": {
+                                    "type": "f32"
+                                },
+                                "y": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SvgRenderOptions": {
+                        "external": "azul_core::svg::SvgRenderOptions",
+                        "derive": [
+                            "PartialOrd",
+                            "Copy",
+                            "Default",
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "target_size": {
+                                    "type": "OptionLayoutSize"
+                                },
+                                "background_color": {
+                                    "type": "OptionColorU"
+                                },
+                                "fit": {
+                                    "type": "SvgFitTo"
+                                },
+                                "transform": {
+                                    "type": "SvgRenderTransform"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SvgFillStyle": {
+                        "external": "azul_core::svg::SvgFillStyle",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "line_join": {
+                                    "type": "SvgLineJoin"
+                                },
+                                "miter_limit": {
+                                    "type": "f32"
+                                },
+                                "tolerance": {
+                                    "type": "f32"
+                                },
+                                "fill_rule": {
+                                    "type": "SvgFillRule"
+                                },
+                                "transform": {
+                                    "type": "SvgTransform"
+                                },
+                                "anti_alias": {
+                                    "type": "bool"
+                                },
+                                "high_quality_aa": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SvgRenderTransform": {
+                        "external": "azul_core::svg::SvgRenderTransform",
+                        "derive": [
+                            "PartialOrd",
+                            "Copy",
+                            "Debug",
+                            "Default",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "sx": {
+                                    "type": "f32"
+                                },
+                                "kx": {
+                                    "type": "f32"
+                                },
+                                "ky": {
+                                    "type": "f32"
+                                },
+                                "sy": {
+                                    "type": "f32"
+                                },
+                                "tx": {
+                                    "type": "f32"
+                                },
+                                "ty": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    }
+                }
+            },
+            "xml": {
+                "doc": [
+                    "XML parsing / decoding module"
+                ],
+                "priority": 44.0,
+                "classes": {
+                    "Xml": {
+                        "priority": 50.0,
+                        "external": "azul_core::xml::Xml",
+                        "derive": [
+                            "Debug",
+                            "PartialOrd",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "root": {
+                                    "type": "XmlNodeChildVec"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "from_str": {
+                                "doc": [
+                                    "Parses an XML document with one or more root nodes"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "xml_string": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultXmlXmlError"
+                                },
+                                "fn_body": "azul_layout::xml::parse_xml(xml_string.as_str()).into()"
+                            }
+                        },
+                        "functions": {
+                            "scan_external_resources": {
+                                "doc": [
+                                    "Scan the XML/HTML document for external resource URLs.",
+                                    "",
+                                    "This function traverses the entire document tree and extracts URLs from:",
+                                    "- `<img src=\"...\">` - Images",
+                                    "- `<link href=\"...\">` - Stylesheets, icons, fonts",
+                                    "- `<script src=\"...\">` - Scripts",
+                                    "- `<video src=\"...\">`, `<source src=\"...\">` - Video",
+                                    "- `<audio src=\"...\">` - Audio",
+                                    "- `<a href=\"...\">` - Links (classified as Unknown)",
+                                    "- CSS `url()` in style attributes",
+                                    "- `<style>` blocks with @import or url()"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ExternalResourceVec"
+                                },
+                                "fn_body": "object.scan_external_resources()"
                             }
                         },
                         "repr": "C"
@@ -94955,6 +94809,26 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "MimeTypeHint": {
+                        "external": "azul_core::xml::MimeTypeHint",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "inner": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -127593,81 +127467,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "SvgParseOptions": {
-                        "external": "azul_core::svg::SvgParseOptions",
-                        "custom_impls": [
-                            "Default"
-                        ],
-                        "derive": [
-                            "PartialOrd",
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "relative_image_path": {
-                                    "type": "OptionString"
-                                },
-                                "default_font_family": {
-                                    "type": "String"
-                                },
-                                "languages": {
-                                    "type": "StringVec"
-                                },
-                                "dpi": {
-                                    "type": "f32"
-                                },
-                                "font_size": {
-                                    "type": "f32"
-                                },
-                                "shape_rendering": {
-                                    "type": "ShapeRendering"
-                                },
-                                "text_rendering": {
-                                    "type": "TextRendering"
-                                },
-                                "image_rendering": {
-                                    "type": "ImageRendering"
-                                },
-                                "fontdb": {
-                                    "type": "FontDatabase"
-                                },
-                                "keep_named_groups": {
-                                    "type": "bool"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "SvgRenderOptions": {
-                        "external": "azul_core::svg::SvgRenderOptions",
-                        "derive": [
-                            "PartialOrd",
-                            "Copy",
-                            "Default",
-                            "Clone",
-                            "Debug",
-                            "PartialEq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "target_size": {
-                                    "type": "OptionLayoutSize"
-                                },
-                                "background_color": {
-                                    "type": "OptionColorU"
-                                },
-                                "fit": {
-                                    "type": "SvgFitTo"
-                                },
-                                "transform": {
-                                    "type": "SvgRenderTransform"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "OptionLogicalPosition": {
                         "external": "azul_core::geom::OptionLogicalPosition",
                         "derive": [
@@ -128726,31 +128525,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "IconStyleOptions": {
-                        "external": "azul_css::system::IconStyleOptions",
-                        "derive": [
-                            "Debug",
-                            "Default",
-                            "Clone",
-                            "PartialEq",
-                            "Copy",
-                            "Eq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "prefer_grayscale": {
-                                    "type": "bool"
-                                },
-                                "tint_color": {
-                                    "type": "OptionColorU"
-                                },
-                                "inherit_text_color": {
-                                    "type": "bool"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "OptionDatasetMergeCallback": {
                         "external": "azul_core::dom::OptionDatasetMergeCallback",
                         "derive": [
@@ -128766,92 +128540,6 @@
                             }
                         ],
                         "repr": "C, u8"
-                    },
-                    "ScrollIntoViewOptions": {
-                        "external": "azul_core::events::ScrollIntoViewOptions",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "Hash",
-                            "Default"
-                        ],
-                        "struct_fields": [
-                            {
-                                "block": {
-                                    "type": "ScrollLogicalPosition"
-                                },
-                                "inline_axis": {
-                                    "type": "ScrollLogicalPosition"
-                                },
-                                "behavior": {
-                                    "type": "ScrollIntoViewBehavior"
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "nearest": {
-                                "doc": [
-                                    "Create options with \"nearest\" alignment for both axes"
-                                ],
-                                "fn_args": [],
-                                "fn_body": "azul_core::events::ScrollIntoViewOptions::nearest()"
-                            },
-                            "center": {
-                                "doc": [
-                                    "Create options with \"center\" alignment for both axes"
-                                ],
-                                "fn_args": [],
-                                "fn_body": "azul_core::events::ScrollIntoViewOptions::center()"
-                            },
-                            "start": {
-                                "doc": [
-                                    "Create options with \"start\" alignment for both axes"
-                                ],
-                                "fn_args": [],
-                                "fn_body": "azul_core::events::ScrollIntoViewOptions::start()"
-                            },
-                            "end": {
-                                "doc": [
-                                    "Create options to align the end of the target with the end of the viewport"
-                                ],
-                                "fn_args": [],
-                                "fn_body": "azul_core::events::ScrollIntoViewOptions::end()"
-                            }
-                        },
-                        "functions": {
-                            "with_instant": {
-                                "doc": [
-                                    "Set instant scroll behavior"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ScrollIntoViewOptions"
-                                },
-                                "fn_body": "object.with_instant()"
-                            },
-                            "with_smooth": {
-                                "doc": [
-                                    "Set smooth scroll behavior"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ScrollIntoViewOptions"
-                                },
-                                "fn_body": "object.with_smooth()"
-                            }
-                        },
-                        "repr": "C"
                     },
                     "OptionPendingTextEdit": {
                         "external": "azul_layout::managers::text_input::OptionPendingTextEdit",
@@ -133435,27 +133123,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "SpatialNavigationSearchOptions": {
-                        "external": "azul_core::callbacks::SpatialNavigationSearchOptions",
-                        "derive": [
-                            "Debug",
-                            "Default",
-                            "Clone",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "struct_fields": [
-                            {
-                                "candidates": {
-                                    "type": "OptionDomNodeIdVec"
-                                },
-                                "container": {
-                                    "type": "OptionDomNodeId"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "OptionNotificationCallback": {
                         "external": "azul_core::notification::OptionNotificationCallback",
                         "derive": [
@@ -137914,38 +137581,6 @@
                                 },
                                 "max_frame_rate": {
                                     "type": "OptionU32"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "MapPinTap": {
-                        "external": "azul_layout::widgets::map::MapPinTap",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "derive": [
-                            "Clone",
-                            "Debug",
-                            "Hash",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord"
-                        ],
-                        "struct_fields": [
-                            {
-                                "data": {
-                                    "type": "RefAny"
-                                },
-                                "callback": {
-                                    "type": "MapPinTapCallback"
                                 }
                             }
                         ],
@@ -144415,6 +144050,41 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "DetectedPinch": {
+                        "doc": [
+                            "Result of pinch gesture detection (scale + center + travel distances + duration)."
+                        ],
+                        "external": "azul_layout::managers::gesture::DetectedPinch",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "duration_ms": {
+                                    "type": "u64"
+                                },
+                                "center": {
+                                    "type": "LogicalPosition"
+                                },
+                                "scale": {
+                                    "type": "f32"
+                                },
+                                "initial_distance": {
+                                    "type": "f32"
+                                },
+                                "current_distance": {
+                                    "type": "f32"
+                                },
+                                "began": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -146597,6 +146267,336 @@
                                 }
                             }
                         ],
+                        "repr": "C"
+                    },
+                    "VideoDecoder": {
+                        "priority": 18.0,
+                        "external": "azul_dll::unified::video_codec::VideoDecoder",
+                        "custom_impls": [
+                            "Clone",
+                            "Default",
+                            "Drop"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "open": {
+                                "doc": [
+                                    "Open a decoder (H.265 if `h265` else H.264) using the platform-native",
+                                    "backend. Invalid handle where no backend exists."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "h265": "bool"
+                                    }
+                                ],
+                                "fn_body": "azul_dll::unified::video_codec::VideoDecoder::open(h265)"
+                            }
+                        },
+                        "functions": {
+                            "is_open": {
+                                "doc": [
+                                    "Whether the decoder opened."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_open()"
+                            },
+                            "decode": {
+                                "doc": [
+                                    "Submit one encoded chunk (Annex-B H.264). Returns `true` if the chunk was",
+                                    "accepted (the decoder is open). Decoded frames come out of `recv_frame`: decode",
+                                    "is pipelined and B-frame reordered, so one chunk can yield zero or several",
+                                    "frames, possibly later - the same output-callback shape as WebCodecs."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "data": "U8Vec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.decode(data)"
+                            },
+                            "close": {
+                                "doc": [
+                                    "Release the decoder. (Drop does this too.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.close()"
+                            },
+                            "recv_frame": {
+                                "doc": [
+                                    "Pull the next decoded frame, or `None` when nothing is ready yet. Drain in a",
+                                    "loop after each `decode` (or from a timer)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionVideoFrame"
+                                },
+                                "fn_body": "object.recv_frame()"
+                            },
+                            "set_output_size": {
+                                "doc": [
+                                    "Hand decoded frames out at `width` x `height` (`0 x 0`: the stream's",
+                                    "own size) - the size of the tile that shows them, so a 720p stream in",
+                                    "a small tile is scaled once, by the decoder (in hardware with",
+                                    "VideoToolbox), instead of by the renderer on every paint. A change on",
+                                    "a running stream starts at its next keyframe. Backends that cannot",
+                                    "scale hand out the stream's size."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "width": "u32"
+                                    },
+                                    {
+                                        "height": "u32"
+                                    }
+                                ],
+                                "fn_body": "object.set_output_size(width, height)"
+                            },
+                            "set_output_format": {
+                                "doc": [
+                                    "Hand decoded frames out in `format`: an NV12 variant (the decoder's",
+                                    "own 4:2:0 - no conversion; a tile shows it through the GPU's YUV",
+                                    "shader or the CPU rasterizer's fused convert), BGRA8, or RGBA8 (the",
+                                    "default). A change on a running stream starts at its next keyframe.",
+                                    "Backends that cannot give the format hand out RGBA8; every frame says",
+                                    "its format (`VideoFrame::format`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "format": "RawImageFormat"
+                                    }
+                                ],
+                                "fn_body": "object.set_output_format(format)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "VideoEncoder": {
+                        "priority": 20.0,
+                        "external": "azul_dll::unified::video_codec::VideoEncoder",
+                        "custom_impls": [
+                            "Clone",
+                            "Default",
+                            "Drop"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "open": {
+                                "doc": [
+                                    "Open an encoder for `width` x `height`, H.265 if `h265` else H.264, at",
+                                    "`bitrate_kbps`. Uses the platform-native backend ([`backend_name`]).",
+                                    "Returns an invalid handle (`is_open()` false) where no backend exists."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "width": "u32"
+                                    },
+                                    {
+                                        "height": "u32"
+                                    },
+                                    {
+                                        "h265": "bool"
+                                    },
+                                    {
+                                        "bitrate_kbps": "u32"
+                                    }
+                                ],
+                                "fn_body": "azul_dll::unified::video_codec::VideoEncoder::open(width, height, h265, bitrate_kbps)"
+                            }
+                        },
+                        "functions": {
+                            "backend_name": {
+                                "doc": [
+                                    "The native codec backend selected for this platform (\"VideoToolbox\",",
+                                    "\"MediaCodec\", \"gpu-video\", or \"none\")."
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "azul_dll::unified::video_codec::VideoEncoder::backend_name().into()"
+                            },
+                            "is_open": {
+                                "doc": [
+                                    "Whether the encoder opened (a backend exists for this platform)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_open()"
+                            },
+                            "encode": {
+                                "doc": [
+                                    "Submit one `VideoFrame` (RGBA) for encoding; `force_keyframe` requests an IDR.",
+                                    "Returns `true` if the frame was accepted (the encoder is open). The encoded",
+                                    "chunks (Annex-B for H.264/H.265) come out of `recv_packet`, possibly several per",
+                                    "frame and possibly later: hardware and browser (WebCodecs) encoders are",
+                                    "output-callback shaped, so submit and poll are separate steps on every target."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "frame": "VideoFrame"
+                                    },
+                                    {
+                                        "force_keyframe": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.encode(frame, force_keyframe)"
+                            },
+                            "frames_encoded": {
+                                "doc": [
+                                    "Frames submitted to [`encode`](Self::encode) so far (stub progress)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "u64"
+                                },
+                                "fn_body": "object.frames_encoded()"
+                            },
+                            "close": {
+                                "doc": [
+                                    "Release the encoder. (Drop does this too.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.close()"
+                            },
+                            "recv_packet": {
+                                "doc": [
+                                    "Pull the next encoded chunk, or `None` when nothing is ready yet. Drain in a",
+                                    "loop after each `encode` (or from a timer)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionU8Vec"
+                                },
+                                "fn_body": "object.recv_packet()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "DecodedVideo": {
+                        "external": "azul_dll::unified::video_codec::pipeline::DecodedVideo",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "width": {
+                                    "type": "u32"
+                                },
+                                "height": {
+                                    "type": "u32"
+                                },
+                                "fps": {
+                                    "type": "f32"
+                                },
+                                "frames": {
+                                    "type": "VideoFrameVec"
+                                },
+                                "access_units_fed": {
+                                    "type": "usize"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "decode_mp4_h264": {
+                                "doc": [
+                                    "Demux + decode an in-memory MP4 (H.264) and resume `on_result` with a",
+                                    "`VideoDecodeResult` (`video` is `None` on any error). Decoding a whole clip is",
+                                    "inherently asynchronous on web (WebCodecs), so the answer is delivered as a",
+                                    "resume on every target. On a box with no hardware decoder the demux still runs",
+                                    "and `frames` is empty (see `access_units_fed`).",
+                                    "Never runs the callback re-entrantly inside the requesting activation: on desktop",
+                                    "it runs right after the current activation returns (same frame), on web on a later",
+                                    "task. `data` is handed back to the callback untouched."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "bytes": "U8Vec"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_result": "ResumeCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RequestId"
+                                },
+                                "fn_body": "azul_dll::unified::video_codec::pipeline::decode_mp4_h264(bytes, data, on_result)"
+                            }
+                        },
                         "repr": "C"
                     }
                 }
