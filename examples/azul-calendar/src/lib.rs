@@ -48,6 +48,7 @@ pub mod meeting;
 pub mod rrule;
 pub mod sample;
 pub mod settings;
+pub mod tasks;
 #[cfg(test)]
 mod test_dir;
 pub mod views;
