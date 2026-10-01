@@ -690,3 +690,5 @@ mod presentational_table_attributes_style_the_table;
 mod percentage_and_fixed_columns_share_the_table_like_browsers;
 #[path = "a_nested_table_widens_the_cell_that_holds_it.rs"]
 mod a_nested_table_widens_the_cell_that_holds_it;
+#[path = "a_render_image_callback_with_unchanged_inputs_is_not_invoked_again.rs"]
+mod a_render_image_callback_with_unchanged_inputs_is_not_invoked_again;
