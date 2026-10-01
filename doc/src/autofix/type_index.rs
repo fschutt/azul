@@ -3516,6 +3516,51 @@ mod tests {
         assert_eq!(ctor.signature(), "() -> Tile");
     }
 
+    /// `impl Default for Tile { fn default() .. }` is not an API function:
+    /// api.json carries it as `custom_impls: ["Default"]` and the codegen
+    /// makes `Tile_default` from that. `autofix add Tile.*` listed it as a
+    /// constructor named `default` and `autofix list` as "missing in api.json"
+    /// (2026-09-30) - the type index merged trait-impl methods into the
+    /// inherent ones without saying where they came from. A method knows its
+    /// trait, and the standard traits are never API functions; a wrapper
+    /// trait that exposes free functions still is.
+    #[test]
+    fn a_standard_traits_impl_method_is_not_an_api_function() {
+        let mut m = MethodDef {
+            name: "default".to_string(),
+            self_kind: None,
+            args: Vec::new(),
+            return_type: Some("Tile".to_string()),
+            return_ref_kind: RefKind::Value,
+            is_constructor: true,
+            doc: Vec::new(),
+            is_public: true,
+            from_trait: Some("Default".to_string()),
+        };
+        assert!(m.is_std_trait_impl());
+        m.from_trait = Some("WrapperTrait".to_string());
+        assert!(!m.is_std_trait_impl(), "a wrapper trait's method stays an API candidate");
+        m.from_trait = None;
+        assert!(!m.is_std_trait_impl(), "an inherent method stays an API candidate");
+
+        let source = r#"
+            pub struct Tile { pub title: String }
+            impl Tile { pub fn create(title: String) -> Self { Tile { title } } }
+            impl Default for Tile { fn default() -> Self { Tile { title: String::new() } } }
+            impl Clone for Tile { fn clone(&self) -> Self { Tile { title: self.title.clone() } } }
+        "#;
+        let types = extract_types_from_source(source);
+        let tile = types.iter().find(|t| t.name == "Tile").expect("Tile");
+        let from: Vec<(String, Option<String>)> = tile
+            .methods
+            .iter()
+            .map(|m| (m.name.clone(), m.from_trait.clone()))
+            .collect();
+        assert!(from.contains(&("create".to_string(), None)));
+        assert!(from.contains(&("default".to_string(), Some("Default".to_string()))));
+        assert!(from.contains(&("clone".to_string(), Some("Clone".to_string()))));
+    }
+
     fn extract_types_from_source(source: &str) -> Vec<TypeDefinition> {
         let syntax_tree: File = syn::parse_file(source).expect("Failed to parse");
         let mut types = Vec::new();
