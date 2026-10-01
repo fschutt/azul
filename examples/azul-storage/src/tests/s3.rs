@@ -470,3 +470,54 @@ fn credentials_round_trip_through_the_keyring_secret() {
     assert!(Credentials::from_keyring_secret("not json").is_err());
     assert!(Credentials::from_keyring_secret("{}").is_err());
 }
+
+#[test]
+fn the_metadata_of_an_object_lists_its_type_storage_class_and_user_metadata() {
+    let fake = Fake::default();
+    fake.answer(
+        200,
+        &[
+            ("Content-Type", "image/png"),
+            ("Content-Length", "1234"),
+            ("ETag", "\"abc\""),
+            ("x-amz-storage-class", "STANDARD_IA"),
+            ("x-amz-meta-author", "Felix"),
+            ("x-amz-server-side-encryption", "AES256"),
+            ("x-amz-request-id", "R1"),
+        ],
+        "",
+    );
+    let pairs = local_drive(&fake).metadata("photos/a.png").unwrap();
+    let call = fake.last();
+    assert_eq!(call.method, Method::Head);
+    let get = |name: &str| {
+        pairs
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.as_str())
+    };
+    assert_eq!(get("Content-Type"), Some("image/png"));
+    assert_eq!(get("Storage class"), Some("STANDARD_IA"));
+    assert_eq!(get("Encryption"), Some("AES256"));
+    assert_eq!(get("ETag"), Some("abc"));
+    assert_eq!(
+        get("author"),
+        Some("Felix"),
+        "user metadata by its own name: {pairs:?}"
+    );
+    assert_eq!(
+        get("x-amz-request-id"),
+        None,
+        "request bookkeeping is not metadata"
+    );
+}
+
+#[test]
+fn the_metadata_of_a_missing_object_is_not_found() {
+    let fake = Fake::default();
+    fake.answer(404, &[], "");
+    assert!(matches!(
+        local_drive(&fake).metadata("nope.png"),
+        Err(DriveError::NotFound { .. })
+    ));
+}

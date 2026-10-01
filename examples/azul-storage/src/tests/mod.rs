@@ -4,6 +4,7 @@
 mod config;
 mod key;
 mod local;
+mod ops;
 mod s3;
 mod scoped;
 mod sigv4;
