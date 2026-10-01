@@ -141,7 +141,7 @@ fn block_dom(view: &View<'_>, index: usize, block: &Block, app: &RefAny) -> Dom 
             with_runs(Dom::create_p(), block, look).with_css(format!("{base} margin-bottom: 6px;"))
         }
         BlockKind::Heading(level) => {
-            let (node, scale) = match level {
+            let (node, scale) = match *level {
                 1 => (Dom::create_h1(), 1.75),
                 2 => (Dom::create_h2(), 1.4),
                 3 => (Dom::create_h3(), 1.2),
@@ -905,12 +905,14 @@ pub extern "C" fn on_editor_key(mut data: RefAny, mut info: CallbackInfo) -> Upd
             Command::Check => {
                 info.prevent_default();
                 let block = caret.map_or(state.editor.caret_block, |(b, _)| b);
-                match state.open_note_mut() {
-                    Some(note) if note.doc.toggle_check(block) => {
-                        state.edited();
-                        Update::RefreshDom
-                    }
-                    _ => Update::DoNothing,
+                let toggled = state
+                    .open_note_mut()
+                    .is_some_and(|note| note.doc.toggle_check(block));
+                if toggled {
+                    state.edited();
+                    Update::RefreshDom
+                } else {
+                    Update::DoNothing
                 }
             }
         };
