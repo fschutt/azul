@@ -949,8 +949,14 @@ fn cut_frame(
         (!bytes.is_empty()).then(|| VideoFrame::with_format(pw, ph, bytes.into(), cut_format))
     });
     let consumers = image_scale::fan_out(&src, &targets.consumers, resample);
-    let source = (targets.wants_source || preview.is_none())
-        .then(|| VideoFrame::with_format(fw, fh, core::mem::take(buf).into(), format));
+    // The frame travels as it is: the worker keeps a buffer with the frame's
+    // room, which the next read swaps into the platform's capture slot, so
+    // the slot writes the next frame into it instead of growing an empty one.
+    let source = (targets.wants_source || preview.is_none()).then(|| {
+        let room = buf.capacity();
+        let bytes = core::mem::replace(buf, Vec::with_capacity(room));
+        VideoFrame::with_format(fw, fh, bytes.into(), format)
+    });
     CapturedFrames {
         source,
         preview,
