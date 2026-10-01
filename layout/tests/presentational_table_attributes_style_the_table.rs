@@ -198,3 +198,26 @@ fn the_height_attribute_sets_the_tables_height() {
     let t = rect(&lw, "t");
     assert!(near(t.size.height, 200.0, 0.5), "height=200: {t:?}");
 }
+
+#[test]
+fn align_center_on_a_cell_centers_the_table_inside_it() {
+    // HTML: `align="center"` on a td / th / div centers its block-level
+    // children too (`-webkit-center`), the newsletter's wrapper cell.
+    let lw = body(&format!(
+        "<table width=\"800\" cellspacing=\"0\" cellpadding=\"0\"><tr><td align=\"center\">\
+         <table id=\"inner\" width=\"600\" cellspacing=\"0\" cellpadding=\"0\"><tr><td>{}</td></tr></table>\
+         </td></tr></table>\
+         <div align=\"center\"><div id=\"box\" style=\"width: 200px; height: 10px\"></div></div>",
+        block(50)
+    ));
+    let inner = rect(&lw, "inner");
+    assert!(
+        near(inner.origin.x, 100.0, 0.5),
+        "the 600px table centered in 800: {inner:?}"
+    );
+    let b = rect(&lw, "box");
+    assert!(
+        near(b.origin.x, 300.0, 0.5),
+        "the 200px div centered in 800: {b:?}"
+    );
+}
