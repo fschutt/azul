@@ -14,17 +14,17 @@ thread, monitor change re-reads the frame interval); dark "Dark" segment.
 - e2e manager accounting for thread_owner: ea93eb0bf
 - 3c part 1 debug wake: RED 44199da3b, GREEN 91800c36b (layout) +
   52450b5ec (dll loops) + 4a7ee6d5a (headless children guard)
+- 3c part 2 PNG off UI thread: refactor d9d76151d, RED 57867bb64,
+  GREEN 86fb64407
 
 ## IN PROGRESS
-- 3c part 2: PNG encode of the CPU `screenshot` op off the UI thread.
-  Last commit: 4a7ee6d5a. NEXT STEP: DebugResponseData gets a pending-PNG
-  form; `into_ready()` encodes on the receiving thread (HTTP thread for
-  wire requests; scenario steps / run.rs / runner.rs call it inline).
-  Consumers: full.rs ~5370 (HTTP), ~12263 (scenario), runner.rs 4612,
-  dll run.rs 430. RED test first (encode runs on the receiver thread).
+- 3d. a monitor change mid-run keeps the old frame interval. Last commit:
+  86fb64407. NEXT STEP: find where monitor_id changes (shells:
+  windowDidChangeScreen on macOS, WM_DPICHANGED/move on Win32, X11
+  configure) and where intervals are armed (CSS driver, scroll physics,
+  caret tween, debug poll); re-arm running drivers on a monitor change.
 
 ## NEXT
-- 3d. monitor change re-reads the frame interval
 - 4. Segmented dark pair
 
 ## Decisions
