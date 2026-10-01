@@ -742,3 +742,352 @@ extern "C" fn on_path_style(mut data: RefAny, _info: CallbackInfo, state: CheckB
 extern "C" fn on_path_style_label(mut data: RefAny, _info: CallbackInfo) -> Update {
     set_path_style(&mut data, None)
 }
+
+// ==== The FILE backstage ====
+
+/// FILE: the Options (ShellSettingsLayout), About, Close.
+pub(crate) fn backstage(s: &DriveState, app: &RefAny, page: usize) -> Dom {
+    let items = vec![
+        BackstageNavItem::create(AzString::from("Options")),
+        BackstageNavItem::create(AzString::from("About")),
+        BackstageNavItem::create(AzString::from("Close")).with_gap_before(),
+    ];
+    let content = if page == 1 { about(s) } else { options(s, app) };
+    Backstage::create(BackstageNavItemVec::from(items))
+        .with_active_item(page.min(1))
+        .with_content(content)
+        .with_on_nav_select(app.clone(), on_backstage_nav as BackstageOnNavSelectCallbackType)
+        .with_on_back(app.clone(), on_backstage_back as ButtonOnClickCallbackType)
+        .dom()
+}
+
+extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    with_state(&mut data, &mut info, |info, _app, s| {
+        if index == 2 {
+            info.close_window();
+        } else {
+            s.backstage = Some(index);
+        }
+    })
+}
+
+extern "C" fn on_backstage_back(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |_info, _app, s| s.backstage = None)
+}
+
+/// The Options' categories.
+const CATEGORIES: [&str; 4] = ["View", "Navigation", "Drives", "About"];
+
+/// A setting's check box with its label (both toggle it).
+fn setting_check(app: &RefAny, text: &str, which: Toggle, on: bool) -> Dom {
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: row; align-items: center; padding: 4px 0px;")
+        .with_child(
+            CheckBox::create(on)
+                .with_accessibility_name(AzString::from(text))
+                .with_on_toggle(
+                    action_ref(app, Action::Toggle(which)),
+                    on_setting_check as CheckBoxOnToggleCallbackType,
+                )
+                .dom(),
+        )
+        .with_child(
+            Dom::create_span_with_text(AzString::from(text))
+                .with_css("margin-left: 8px;")
+                .with_callback(
+                    EventFilter::Hover(HoverEventFilter::Click),
+                    action_ref(app, Action::Toggle(which)),
+                    on_action,
+                ),
+        )
+}
+
+extern "C" fn on_setting_check(mut data: RefAny, mut info: CallbackInfo, _state: CheckBoxState) -> Update {
+    let Some((mut app, action)) = data
+        .downcast_ref::<ActionRef>()
+        .map(|r| (r.app.clone(), r.action.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    with_state(&mut app, &mut info, |info, app, s| {
+        actions::run_action(info, app, s, action)
+    })
+}
+
+fn column_of(children: Vec<Dom>) -> Dom {
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column;")
+        .with_children(DomVec::from(children))
+}
+
+fn section(title: &str, content: Dom) -> ShellSettingsSection {
+    ShellSettingsSection::create(AzString::from(title), content)
+}
+
+/// The Options: the sections of the chosen category.
+fn options(s: &DriveState, app: &RefAny) -> Dom {
+    let sections: Vec<ShellSettingsSection> = match s.settings_category {
+        0 => {
+            let layouts: Vec<AzString> = ViewLayout::ALL
+                .iter()
+                .map(|l| AzString::from(l.label()))
+                .collect();
+            let selected = ViewLayout::ALL
+                .iter()
+                .position(|l| *l == s.settings.layout)
+                .unwrap_or(0);
+            vec![
+                section(
+                    "Layout of the folders",
+                    DropDown::create(StringVec::from(layouts))
+                        .with_selected(selected)
+                        .with_accessibility_name(AzString::from("Layout of the folders"))
+                        .with_on_choice_change(
+                            app.clone(),
+                            on_default_layout as DropDownOnChoiceChangeCallbackType,
+                        )
+                        .dom()
+                        .with_id("setting-layout"),
+                ),
+                section(
+                    "Show",
+                    column_of(vec![
+                        setting_check(app, "Hidden items", Toggle::HiddenItems, s.settings.show_hidden),
+                        setting_check(
+                            app,
+                            "File name extensions",
+                            Toggle::Extensions,
+                            s.settings.show_extensions,
+                        ),
+                        setting_check(
+                            app,
+                            "Item check boxes",
+                            Toggle::ItemCheckboxes,
+                            s.settings.item_checkboxes,
+                        ),
+                    ]),
+                ),
+                section(
+                    "Deleting",
+                    column_of(vec![
+                        setting_check(
+                            app,
+                            "Ask before deleting for good",
+                            Toggle::ConfirmDelete,
+                            s.settings.confirm_delete,
+                        ),
+                        line(
+                            "Delete on a local drive moves the items into its .azdrive-trash \
+                             folder (Ctrl+Z brings them back); a cloud drive always asks.",
+                        )
+                        .with_css("font-size: 12px; opacity: 0.75;"),
+                    ]),
+                ),
+            ]
+        }
+        1 => vec![
+            section(
+                "Open AzDrive in",
+                DropDown::create(StringVec::from(vec![
+                    AzString::from("This PC"),
+                    AzString::from("Quick access"),
+                ]))
+                .with_selected(match s.settings.start {
+                    StartPlace::ThisPc => 0,
+                    StartPlace::QuickAccess => 1,
+                })
+                .with_accessibility_name(AzString::from("Open AzDrive in"))
+                .with_on_choice_change(
+                    app.clone(),
+                    on_start_place as DropDownOnChoiceChangeCallbackType,
+                )
+                .dom()
+                .with_id("setting-start"),
+            ),
+            section(
+                "Panes",
+                column_of(vec![
+                    setting_check(
+                        app,
+                        "Navigation pane",
+                        Toggle::NavigationPane,
+                        s.settings.navigation_pane,
+                    ),
+                    setting_check(app, "Preview pane", Toggle::PreviewPane, s.settings.preview_pane),
+                    setting_check(app, "Details pane", Toggle::DetailsPane, s.settings.details_pane),
+                ]),
+            ),
+        ],
+        2 => {
+            let rows: Vec<Dom> = s
+                .slots
+                .iter()
+                .enumerate()
+                .map(|(index, slot)| {
+                    let location = match &slot.entry.location {
+                        DriveLocation::Local { root } => root.clone(),
+                        DriveLocation::S3 {
+                            endpoint, bucket, ..
+                        } => format!("s3://{bucket} at {endpoint}"),
+                    };
+                    let mut row = Dom::create_div()
+                        .with_css(
+                            "display: flex; flex-direction: row; align-items: center; \
+                             padding: 4px 0px;",
+                        )
+                        .with_child(
+                            Dom::create_icon(AzString::from(slot.icon()))
+                                .with_css("font-size: 20px; margin-right: 8px;"),
+                        )
+                        .with_child(
+                            Dom::create_div()
+                                .with_css("display: flex; flex-direction: column; flex-grow: 1;")
+                                .with_child(Dom::create_span_with_text(AzString::from(
+                                    slot.entry.name.as_str(),
+                                )))
+                                .with_child(
+                                    Dom::create_span_with_text(AzString::from(format!(
+                                        "{} - {location}",
+                                        slot.kind()
+                                    )))
+                                    .with_css("font-size: 12px; opacity: 0.75;"),
+                                ),
+                        );
+                    if slot.entry.id != HOME_ID {
+                        row.add_child(
+                            Button::create(AzString::from("Remove"))
+                                .with_on_click(
+                                    RefAny::new(DriveRef {
+                                        app: app.clone(),
+                                        index,
+                                    }),
+                                    on_remove_drive as ButtonOnClickCallbackType,
+                                )
+                                .dom(),
+                        );
+                    }
+                    row
+                })
+                .collect();
+            let drives_file = s
+                .drives_file
+                .as_deref()
+                .map_or_else(|| String::from("(none)"), |p| p.display().to_string());
+            vec![
+                section("Drives", column_of(rows)),
+                section(
+                    "Add a drive",
+                    column_of(vec![
+                        Dom::create_div()
+                            .with_css("display: flex; flex-direction: row;")
+                            .with_child(action_button("Add S3 drive", app, Action::AddDrive))
+                            .with_child(action_button(
+                                "Add a folder as a drive",
+                                app,
+                                Action::AddLocalDrive,
+                            )),
+                        line(&format!(
+                            "An S3 drive's access keys live in the system keyring only; the list \
+                             of drives (without keys) is {drives_file}."
+                        ))
+                        .with_css("font-size: 12px; opacity: 0.75;"),
+                    ]),
+                ),
+            ]
+        }
+        _ => vec![section("About AzDrive", about(s))],
+    };
+    let categories: Vec<AzString> = CATEGORIES.iter().map(|c| AzString::from(*c)).collect();
+    ShellSettingsLayout::create(StringVec::from(categories))
+        .with_sections(azul::vec::ShellSettingsSectionVec::from(sections))
+        .with_active_category(s.settings_category)
+        .with_search(AzString::from(s.settings_search.as_str()))
+        .with_search_placeholder(AzString::from("Search the options"))
+        .with_on_category(
+            app.clone(),
+            on_settings_category as ShellSettingsLayoutOnCategoryCallbackType,
+        )
+        .with_on_search(
+            app.clone(),
+            on_settings_search as ShellSettingsLayoutOnSearchCallbackType,
+        )
+        .dom()
+        .with_id("settings")
+}
+
+/// About AzDrive.
+fn about(s: &DriveState) -> Dom {
+    let settings_file = s
+        .settings_drive
+        .as_ref()
+        .map_or_else(|| String::from("(none)"), |d| {
+            d.root().join(crate::SETTINGS_KEY).display().to_string()
+        });
+    column_of(vec![
+        Dom::create_span_with_text(AzString::from(format!(
+            "AzDrive {}",
+            env!("CARGO_PKG_VERSION")
+        )))
+        .with_css("font-size: 18px; font-weight: bold;"),
+        line(
+            "A file manager like Windows Explorer for the folders of this computer and S3 \
+             buckets (AWS S3, Cloudflare R2, MinIO), built on azul: the BrowserShell, the Ribbon, \
+             the navigation pane, the address bar, tiles, the InfoBar and the status bar.",
+        ),
+        line(&format!("Settings: {settings_file}")).with_css("font-size: 12px; opacity: 0.75;"),
+        line(
+            "Keys: Enter opens, Backspace / Alt+Up goes up, Alt+Left / Alt+Right walk the \
+             history, F2 renames, Delete / Shift+Delete, Ctrl+C / Ctrl+X / Ctrl+V, Ctrl+A, \
+             Ctrl+Z, Ctrl+Shift+N, F5, Ctrl+F, the menu key; type a name to jump to it.",
+        )
+        .with_css("font-size: 12px; opacity: 0.75;"),
+    ])
+    .with_id("about")
+}
+
+struct DriveRef {
+    app: RefAny,
+    index: usize,
+}
+
+extern "C" fn on_remove_drive(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, index)) = data.downcast_ref::<DriveRef>().map(|d| (d.app.clone(), d.index))
+    else {
+        return Update::DoNothing;
+    };
+    with_state(&mut app, &mut info, |_info, _app, s| {
+        if let Some(slot) = s.slots.get(index) {
+            let drive_id = slot.entry.id.clone();
+            s.popups_opened += 1;
+            s.popup = Some(Popup::ConfirmForget { drive_id });
+        }
+    })
+}
+
+extern "C" fn on_default_layout(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    with_state(&mut data, &mut info, |info, app, s| {
+        if let Some(layout) = ViewLayout::ALL.get(index) {
+            actions::set_layout(info, app, s, *layout);
+        }
+    })
+}
+
+extern "C" fn on_start_place(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    with_state(&mut data, &mut info, |info, app, s| {
+        s.settings.start = if index == 1 {
+            StartPlace::QuickAccess
+        } else {
+            StartPlace::ThisPc
+        };
+        save_settings(info, app, s);
+    })
+}
+
+extern "C" fn on_settings_category(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    with_state(&mut data, &mut info, |_info, _app, s| s.settings_category = index)
+}
+
+extern "C" fn on_settings_search(mut data: RefAny, mut info: CallbackInfo, text: AzString) -> Update {
+    let text = text.as_str().to_string();
+    with_state(&mut data, &mut info, |_info, _app, s| s.settings_search = text)
+}
