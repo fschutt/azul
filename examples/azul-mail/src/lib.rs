@@ -30,6 +30,7 @@ pub mod account;
 pub mod args;
 pub mod auth;
 pub mod compose;
+pub mod editor;
 pub mod folders;
 pub mod html;
 pub mod imap_client;
