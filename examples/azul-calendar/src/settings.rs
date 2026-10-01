@@ -77,16 +77,39 @@ pub fn hour_px_line(hour_px: f32) -> String {
 /// The week's zoom the settings file's text keeps (its last `week_hour_px=` line), held to the
 /// limits; `None` without one, or when its value is no finite number.
 pub fn hour_px(text: &str) -> Option<f32> {
-    let value = text
-        .lines()
-        .filter_map(|line| line.trim().strip_prefix(HOUR_PX_KEY))
-        .last()?;
-    let px = value
-        .trim()
+    let px = value(text, HOUR_PX_KEY)?
         .parse::<f32>()
         .ok()
         .filter(|px| px.is_finite())?;
     Some(week::clamp_hour_px(px))
+}
+
+/// The calendar view shown last (`views::ViewKind::name`).
+pub const VIEW_KEY: &str = "view=";
+/// The calendars "My calendars" hides (`calendars::hidden_value`).
+pub const HIDDEN_CALENDARS_KEY: &str = "hidden_calendars=";
+/// Whether the To-Do bar is shown (`1` / `0`).
+pub const TODO_BAR_KEY: &str = "todo_bar=";
+/// Whether the navigation pane is folded to its strip (`1` / `0`).
+pub const NAVIGATION_FOLDED_KEY: &str = "navigation_folded=";
+
+/// The value of the settings file's last line with `key` (the key with its `=`), trimmed;
+/// `None` without one.
+pub fn value<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+    text.lines()
+        .filter_map(|line| line.trim().strip_prefix(key))
+        .last()
+        .map(str::trim)
+}
+
+/// The setting line `key` (with its `=`) `value`.
+pub fn line(key: &str, value: &str) -> String {
+    todo!()
+}
+
+/// A `1` / `0` setting: `Some(true)` for `1`, `Some(false)` for `0`, `None` for anything else.
+pub fn flag(text: &str, key: &str) -> Option<bool> {
+    todo!()
 }
 
 #[cfg(test)]
@@ -178,6 +201,17 @@ mod tests {
         assert_eq!(read_text(&file), None);
         write_line(&file, &hour_px_line(60.0)).unwrap();
         assert_eq!(read_text(&file).as_deref(), Some("week_hour_px=60.0\n"));
+    }
+
+    #[test]
+    fn a_settings_value_is_its_last_line_and_a_flag_is_one_or_zero() {
+        let text = "view=month\ntodo_bar=1\nview= week \nnavigation_folded=yes\n";
+        assert_eq!(value(text, VIEW_KEY), Some("week"));
+        assert_eq!(value(text, HIDDEN_CALENDARS_KEY), None);
+        assert_eq!(flag(text, TODO_BAR_KEY), Some(true));
+        assert_eq!(flag(text, NAVIGATION_FOLDED_KEY), None);
+        assert_eq!(flag(&line(TODO_BAR_KEY, "0"), TODO_BAR_KEY), Some(false));
+        assert_eq!(line(VIEW_KEY, " day "), "view=day\n");
     }
 
     /// The data folder is made when the first setting is saved.

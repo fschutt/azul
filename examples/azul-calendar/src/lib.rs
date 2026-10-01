@@ -39,11 +39,16 @@
 //! `AZCAL_SYNCED <link>` when a link's room is registered, `AZCAL_JOIN_PID <pid>` when "Join
 //! meeting" started AzMeet.
 
+pub mod calendars;
+pub mod editor;
 pub mod event;
+pub mod ics;
 pub mod meeting;
+pub mod rrule;
 pub mod settings;
 #[cfg(test)]
 mod test_dir;
+pub mod views;
 pub mod week;
 
 /// AzMeet's meeting links and room keys: AzMeet's own `rooms.rs`, compiled into AzCalendar too,

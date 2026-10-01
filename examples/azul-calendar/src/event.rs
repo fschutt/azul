@@ -3,7 +3,7 @@
 //! the folder can move to S3 or R2 as it is. Durable data lives only in these files: the meeting
 //! server (the `meet` Worker) mints a meeting's link, and the event file keeps it.
 //!
-//! The format, version 2:
+//! The format, version 2 (an event with a title, a day and times, and maybe a meeting):
 //!
 //! ```json
 //! {
@@ -25,32 +25,72 @@
 //! }
 //! ```
 //!
+//! Version 3 is version 2 with what the event editor adds, each field left out while it holds
+//! nothing, so an event that uses none of them is still written as version 2, byte for byte:
+//!
+//! ```json
+//! {
+//!   "format": "azcalendar.event",
+//!   "version": 3,
+//!   "id": "0b0f6f2e-5b8e-4c43-9a57-3f1f0d6f4b1a",
+//!   "title": "Planning days",
+//!   "date": "2026-09-30",
+//!   "all_day": true,
+//!   "last_day": "2026-10-02",
+//!   "location": "Room 4",
+//!   "notes": "Bring the roadmap.",
+//!   "attendees": ["ana@example.com"],
+//!   "reminder": 15,
+//!   "calendar": "9d4c1f3a-2b7e-4d10-8f6a-51c2e7b9a0d3",
+//!   "repeat": "FREQ=WEEKLY;BYDAY=WE",
+//!   "except": ["2026-10-07"],
+//!   "uid": "abc123@google.com"
+//! }
+//! ```
+//!
+//! - `all_day`: the event has no times (`start` / `end` are left out) and lasts from `date` to
+//!   `last_day`, both included (`last_day` left out: one day).
+//! - `reminder`: minutes before the start (0: at the start).
+//! - `calendar`: the id of the calendar the event is in (`calendars.rs`); left out: the default
+//!   calendar.
+//! - `repeat`: the repeat rule as iCalendar RRULE text (`rrule.rs`); `except`: the days a
+//!   repeating event skips (EXDATE).
+//! - `uid`: the iCalendar UID of an imported event, so importing the same file again updates it
+//!   instead of adding it twice. Events made here are `<id>@azcalendar`.
+//!
 //! Times are wall-clock times on the event's day (no time zones in the event itself); an event
-//! ends on the day it starts. `meeting.starts_at` / `ends_at` are the times the meeting server
-//! keeps the room for, in UTC, as it answered them: the event's times read in the zone of the
-//! AzCalendar that made the link.
+//! with times ends on the day it starts. `meeting.starts_at` / `ends_at` are the times the
+//! meeting server keeps the room for, in UTC, as it answered them: the event's times read in the
+//! zone of the AzCalendar that made the link.
 //!
 //! AzCalendar makes a meeting's link itself (a room id drawn here, the same shape as the server's),
 //! so making one works offline, and registers the room with the meeting server as soon as it
 //! answers. Until then the meeting has `"pending": true` (and no `code`, `expires` or times); the
 //! registered meeting leaves `pending` out, as every file from before it does.
 //!
-//! Version 1 is the same without `meeting.starts_at` / `ends_at` (links minted before meeting
-//! times); it is still read, and written as version 2 when saved again. A file with a higher
-//! `version` was written by a newer AzCalendar and is left alone, never guessed at; fields this
-//! version does not know are ignored.
+//! Version 1 is the same as version 2 without `meeting.starts_at` / `ends_at` (links minted before
+//! meeting times); it is still read, and written as version 2 when saved again. A file with a
+//! higher `version` was written by a newer AzCalendar and is left alone, never guessed at; fields
+//! this version does not know are ignored.
 
 use std::path::{Path, PathBuf};
 
-use chrono::{NaiveDate, NaiveTime, Timelike};
+use chrono::{Duration, NaiveDate, NaiveTime, Timelike};
 use serde::{Deserialize, Serialize};
 
-use crate::meet_rooms::{self, RoomKey};
+use crate::{
+    meet_rooms::{self, RoomKey},
+    rrule::Rule,
+};
 
 /// The `format` of an event file.
 pub const FORMAT: &str = "azcalendar.event";
-/// The version this AzCalendar writes, and the newest it reads.
-pub const VERSION: u64 = 2;
+/// The version this AzCalendar writes for an event that uses version 3's fields, and the newest
+/// it reads.
+pub const VERSION: u64 = 3;
+/// The version an event that uses none of version 3's fields is written in: the files of the
+/// AzCalendar before the event editor, which that AzCalendar still reads.
+pub const PLAIN_VERSION: u64 = 2;
 /// The oldest version this AzCalendar reads.
 pub const OLDEST_VERSION: u64 = 1;
 /// The folder, and the object-key prefix, of the event files.
@@ -67,11 +107,31 @@ pub struct Event {
     /// A version 4 UUID in lower case, which names the event's file.
     pub id: String,
     pub title: String,
+    /// The day the event is on (its first day; a repeating event's first date).
     pub date: NaiveDate,
-    /// Start and end, to the minute.
+    /// Start and end, to the minute. An all-day event runs from 00:00 to the last minute of
+    /// the day here; its file has no times.
     pub start: NaiveTime,
     pub end: NaiveTime,
     pub meeting: Option<Meeting>,
+    /// The event has no times: it takes whole days, `date` to `last_day`.
+    pub all_day: bool,
+    /// An all-day event's last day (included); `date` for every other event.
+    pub last_day: NaiveDate,
+    pub location: String,
+    pub notes: String,
+    /// The people invited, by e-mail address.
+    pub attendees: Vec<String>,
+    /// A reminder this many minutes before the start.
+    pub reminder: Option<u32>,
+    /// The id of the calendar the event is in; empty: the default calendar.
+    pub calendar: String,
+    /// How the event repeats.
+    pub repeat: Option<Rule>,
+    /// The days a repeating event skips.
+    pub except: Vec<NaiveDate>,
+    /// An imported event's iCalendar UID (empty for an event made here).
+    pub uid: String,
 }
 
 /// An event's AzMeet meeting, as the meeting server minted it.
@@ -129,6 +189,14 @@ pub enum EventError {
     EndNotAfterStart,
     /// The meeting link does not name an AzMeet room.
     BadMeetingLink(String),
+    /// An all-day event's last day is before its first.
+    LastDayBeforeFirst,
+    /// An attendee that is not an e-mail address.
+    BadAttendee(String),
+    /// The calendar id is not a calendar's (`calendars.rs`).
+    BadCalendar(String),
+    /// The repeat rule does not parse, or is outside what AzCalendar keeps (`rrule.rs`).
+    BadRepeat(String),
 }
 
 impl std::fmt::Display for EventError {
@@ -154,14 +222,31 @@ impl std::fmt::Display for EventError {
             EventError::BadMeetingLink(link) => {
                 write!(f, "the meeting link {link:?} does not name an AzMeet room")
             }
+            EventError::LastDayBeforeFirst => write!(f, "the event ends before its first day"),
+            EventError::BadAttendee(who) => write!(f, "{who:?} is not an e-mail address"),
+            EventError::BadCalendar(id) => write!(f, "the calendar id {id:?} is not a calendar's"),
+            EventError::BadRepeat(why) => write!(f, "{why}"),
         }
     }
 }
 
+/// The last minute of a day: where an all-day event ends, and the latest an event can end.
+fn last_minute() -> NaiveTime {
+    NaiveTime::from_hms_opt(23, 59, 0).unwrap_or(NaiveTime::MIN)
+}
+
+/// Whether `text` reads as an e-mail address: one `@` with something on both sides, a dot in
+/// the domain, no spaces or brackets. Not RFC 5322; what a person types into "To".
+#[must_use]
+pub fn is_email(text: &str) -> bool {
+    todo!()
+}
+
 impl Event {
-    /// A checked event: `id` is a UUID in lower case, the title (trimmed) is not empty, the end
-    /// is after the start, and a meeting's link names an AzMeet room by its id. Times are cut to
-    /// the minute.
+    /// A checked event with times on one day: `id` is a UUID in lower case, the title (trimmed)
+    /// is not empty, the end is after the start, and a meeting's link names an AzMeet room by
+    /// its id. Times are cut to the minute. Everything else is empty: set it on the event and
+    /// [`Event::check`] it.
     pub fn create(
         id: &str,
         title: &str,
@@ -170,30 +255,88 @@ impl Event {
         end: NaiveTime,
         meeting: Option<Meeting>,
     ) -> Result<Event, EventError> {
-        if !is_event_id(id) {
-            return Err(EventError::BadId(id.to_string()));
-        }
-        let title = title.trim();
-        if title.is_empty() {
-            return Err(EventError::EmptyTitle);
-        }
-        let (start, end) = (to_the_minute(start), to_the_minute(end));
-        if end <= start {
-            return Err(EventError::EndNotAfterStart);
-        }
-        if let Some(m) = &meeting {
-            if !matches!(meet_rooms::parse_room_link(&m.link), Some(RoomKey::Id(_))) {
-                return Err(EventError::BadMeetingLink(m.link.clone()));
-            }
-        }
-        Ok(Event {
+        Event {
             id: id.to_string(),
             title: title.to_string(),
             date,
             start,
             end,
             meeting,
-        })
+            all_day: false,
+            last_day: date,
+            location: String::new(),
+            notes: String::new(),
+            attendees: Vec::new(),
+            reminder: None,
+            calendar: String::new(),
+            repeat: None,
+            except: Vec::new(),
+            uid: String::new(),
+        }
+        .check()
+    }
+
+    /// A checked all-day event from `date` to `last_day` (both included).
+    pub fn create_all_day(
+        id: &str,
+        title: &str,
+        date: NaiveDate,
+        last_day: NaiveDate,
+    ) -> Result<Event, EventError> {
+        todo!()
+    }
+
+    /// The event as it may be saved, or why not: everything [`Event::create`] checks, an
+    /// all-day event's last day is not before its first (and it runs from 00:00 to the day's
+    /// last minute), any other event's last day is its day, the attendees are e-mail addresses
+    /// (trimmed, each once), the calendar is a calendar's id, and the exceptions are sorted
+    /// and each once. Text fields are trimmed.
+    pub fn check(mut self) -> Result<Event, EventError> {
+        // RED: the checks of the AzCalendar before the editor's fields, nothing more.
+        if !is_event_id(&self.id) {
+            return Err(EventError::BadId(self.id));
+        }
+        self.title = self.title.trim().to_string();
+        if self.title.is_empty() {
+            return Err(EventError::EmptyTitle);
+        }
+        let (start, end) = (to_the_minute(self.start), to_the_minute(self.end));
+        if end <= start {
+            return Err(EventError::EndNotAfterStart);
+        }
+        self.start = start;
+        self.end = end;
+        if let Some(m) = &self.meeting {
+            if !matches!(meet_rooms::parse_room_link(&m.link), Some(RoomKey::Id(_))) {
+                return Err(EventError::BadMeetingLink(m.link.clone()));
+            }
+        }
+        Ok(self)
+    }
+
+    /// The event uses a field version 2 does not have.
+    #[must_use]
+    pub fn needs_version_3(&self) -> bool {
+        todo!()
+    }
+
+    /// How many days after its first day an occurrence of the event ends (0: the same day).
+    #[must_use]
+    pub fn span_days(&self) -> i64 {
+        todo!()
+    }
+
+    /// The first days of the event's occurrences that are on any day from `from` to `to` (both
+    /// included), in order: an all-day event of several days that began before `from` is one.
+    #[must_use]
+    pub fn starts_between(&self, from: NaiveDate, to: NaiveDate) -> Vec<NaiveDate> {
+        todo!()
+    }
+
+    /// The event's iCalendar UID: the imported one, else `<id>@azcalendar`.
+    #[must_use]
+    pub fn ical_uid(&self) -> String {
+        todo!()
     }
 }
 
@@ -201,7 +344,9 @@ fn to_the_minute(t: NaiveTime) -> NaiveTime {
     NaiveTime::from_hms_opt(t.hour(), t.minute(), 0).unwrap_or(t)
 }
 
-/// The file on disk: version 2, and version 1 (the same without a meeting's times).
+/// The file on disk: version 3, version 2 (without the editor's fields) and version 1 (the same
+/// without a meeting's times). A field that holds nothing is left out, in that order, so a
+/// version 2 event is written exactly as before.
 #[derive(Serialize, Deserialize)]
 struct EventFile {
     format: String,
@@ -209,22 +354,67 @@ struct EventFile {
     id: String,
     title: String,
     date: String,
-    start: String,
-    end: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    start: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    end: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    all_day: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_day: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    location: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    notes: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    attendees: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    reminder: Option<u32>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    calendar: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    repeat: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    except: Vec<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    uid: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     meeting: Option<Meeting>,
 }
 
+/// The version `event`'s file is written in: 2 unless it uses version 3's fields.
+#[must_use]
+pub fn file_version(event: &Event) -> u64 {
+    // RED: every event is written as version 2.
+    PLAIN_VERSION
+}
+
 /// The event's file contents (pretty JSON, ending in a newline).
 pub fn to_json(event: &Event) -> String {
+    let date = |d: NaiveDate| d.format(DATE_FORMAT).to_string();
+    let time = |t: NaiveTime| Some(t.format(TIME_FORMAT).to_string());
     let file = EventFile {
         format: FORMAT.to_string(),
-        version: VERSION,
+        version: file_version(event),
         id: event.id.clone(),
         title: event.title.clone(),
-        date: event.date.format(DATE_FORMAT).to_string(),
-        start: event.start.format(TIME_FORMAT).to_string(),
-        end: event.end.format(TIME_FORMAT).to_string(),
+        date: date(event.date),
+        start: if event.all_day {
+            None
+        } else {
+            time(event.start)
+        },
+        end: if event.all_day { None } else { time(event.end) },
+        all_day: event.all_day,
+        last_day: (event.all_day && event.last_day != event.date).then(|| date(event.last_day)),
+        location: event.location.clone(),
+        notes: event.notes.clone(),
+        attendees: event.attendees.clone(),
+        reminder: event.reminder,
+        calendar: event.calendar.clone(),
+        repeat: event.repeat.as_ref().map(|r| r.to_rrule(event.all_day)),
+        except: event.except.iter().map(|d| date(*d)).collect(),
+        uid: event.uid.clone(),
         meeting: event.meeting.clone(),
     };
     // Strings and numbers only: serializing cannot fail.
@@ -253,20 +443,60 @@ pub fn from_json(text: &str) -> Result<Event, EventError> {
     }
     let file: EventFile =
         serde_json::from_value(value).map_err(|e| EventError::Malformed(e.to_string()))?;
-    let date =
-        NaiveDate::parse_from_str(&file.date, DATE_FORMAT).map_err(|_| EventError::BadField {
-            field: "date",
-            value: file.date.clone(),
-        })?;
-    let time = |field: &'static str, value: &str| {
+    let day = |field: &'static str, value: &str| {
+        NaiveDate::parse_from_str(value, DATE_FORMAT).map_err(|_| EventError::BadField {
+            field,
+            value: value.to_string(),
+        })
+    };
+    let date = day("date", &file.date)?;
+    let time = |field: &'static str, value: Option<&String>| {
+        let value = value.map(String::as_str).unwrap_or_default();
         NaiveTime::parse_from_str(value, TIME_FORMAT).map_err(|_| EventError::BadField {
             field,
             value: value.to_string(),
         })
     };
-    let start = time("start", &file.start)?;
-    let end = time("end", &file.end)?;
-    Event::create(&file.id, &file.title, date, start, end, file.meeting)
+    let (start, end) = if file.all_day {
+        (NaiveTime::MIN, last_minute())
+    } else {
+        (
+            time("start", file.start.as_ref())?,
+            time("end", file.end.as_ref())?,
+        )
+    };
+    let last_day = match &file.last_day {
+        Some(text) => day("last_day", text)?,
+        None => date,
+    };
+    let repeat = match &file.repeat {
+        Some(text) => Some(Rule::parse(text).map_err(|e| EventError::BadRepeat(e.to_string()))?),
+        None => None,
+    };
+    let except = file
+        .except
+        .iter()
+        .map(|d| day("except", d))
+        .collect::<Result<Vec<_>, _>>()?;
+    Event {
+        id: file.id,
+        title: file.title,
+        date,
+        start,
+        end,
+        meeting: file.meeting,
+        all_day: file.all_day,
+        last_day,
+        location: file.location,
+        notes: file.notes,
+        attendees: file.attendees,
+        reminder: file.reminder,
+        calendar: file.calendar,
+        repeat,
+        except,
+        uid: file.uid,
+    }
+    .check()
 }
 
 /// Whether `s` is a UUID in its canonical lower-case form (8-4-4-4-12 hex digits), which is
@@ -283,6 +513,12 @@ pub fn is_event_id(s: &str) -> bool {
                         .bytes()
                         .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
             })
+}
+
+/// Whether `s` names a calendar an event can be in: empty (the default calendar) or a calendar's
+/// id, a UUID in lower case like an event's (it names the calendar's file, `calendars.rs`).
+pub fn is_calendar_id(s: &str) -> bool {
+    todo!()
 }
 
 /// `<id>.json`
@@ -445,9 +681,9 @@ mod tests {
         }
     }
 
-    /// `"version": <this version>`, as `to_json` writes it.
+    /// `"version": <the version a plain event is written in>`, as `to_json` writes it.
     fn this_version() -> String {
-        format!("\"version\": {VERSION}")
+        format!("\"version\": {PLAIN_VERSION}")
     }
 
     fn sync(meeting: Option<Meeting>) -> Event {
@@ -531,7 +767,7 @@ mod tests {
             }))
         );
         let json: serde_json::Value = serde_json::from_str(&to_json(&event)).unwrap();
-        assert_eq!(json["version"], VERSION);
+        assert_eq!(json["version"], PLAIN_VERSION);
     }
 
     #[test]
@@ -832,5 +1068,174 @@ mod tests {
         let (events, skipped) = load_all(&dir.0.join("nothing here"));
         assert!(events.is_empty());
         assert!(skipped.is_empty());
+    }
+
+    // ==== version 3: the event editor's fields ====
+
+    const CAL: &str = "9d4c1f3a-2b7e-4d10-8f6a-51c2e7b9a0d3";
+
+    /// An event that uses every field of version 3.
+    fn planning() -> Event {
+        let mut e =
+            Event::create_all_day(ID, "Planning days", day(2026, 9, 30), day(2026, 10, 2)).unwrap();
+        e.location = String::from("Room 4");
+        e.notes = String::from("Bring the roadmap.");
+        e.attendees = vec![String::from("ana@example.com")];
+        e.reminder = Some(15);
+        e.calendar = String::from(CAL);
+        e.repeat = Some(Rule::parse("FREQ=WEEKLY;BYDAY=WE").unwrap());
+        e.except = vec![day(2026, 10, 7)];
+        e.uid = String::from("abc123@google.com");
+        e.check().unwrap()
+    }
+
+    /// The event editor added fields; an event that uses none of them is still the file the
+    /// AzCalendar before it wrote (and reads), byte for byte.
+    #[test]
+    fn an_event_that_uses_none_of_the_editors_fields_is_written_as_version_2_byte_for_byte() {
+        let expected = format!(
+            "{{\n  \"format\": \"azcalendar.event\",\n  \"version\": 2,\n  \"id\": \"{ID}\",\n  \
+             \"title\": \"Team sync\",\n  \"date\": \"2026-09-30\",\n  \"start\": \"09:00\",\n  \
+             \"end\": \"10:00\"\n}}\n"
+        );
+        assert_eq!(to_json(&sync(None)), expected);
+        assert_eq!(file_version(&sync(Some(meeting()))), PLAIN_VERSION);
+    }
+
+    #[test]
+    fn the_editors_fields_round_trip_through_a_version_3_file() {
+        let event = planning();
+        let text = to_json(&event);
+        let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(json["version"], 3);
+        assert_eq!(json["all_day"], true);
+        assert_eq!(json["last_day"], "2026-10-02");
+        assert!(
+            json.get("start").is_none() && json.get("end").is_none(),
+            "{json}"
+        );
+        assert_eq!(json["location"], "Room 4");
+        assert_eq!(json["notes"], "Bring the roadmap.");
+        assert_eq!(json["attendees"][0], "ana@example.com");
+        assert_eq!(json["reminder"], 15);
+        assert_eq!(json["calendar"], CAL);
+        assert_eq!(json["repeat"], "FREQ=WEEKLY;BYDAY=WE");
+        assert_eq!(json["except"][0], "2026-10-07");
+        assert_eq!(json["uid"], "abc123@google.com");
+        assert_eq!(from_json(&text), Ok(event));
+        // One field is enough for version 3.
+        let mut located = sync(None);
+        located.location = String::from("Room 4");
+        assert_eq!(file_version(&located), VERSION);
+    }
+
+    #[test]
+    fn an_all_day_event_runs_the_whole_of_its_days() {
+        let e = Event::create_all_day(ID, "Holiday", day(2026, 10, 9), day(2026, 10, 11)).unwrap();
+        assert!(e.all_day);
+        assert_eq!((e.start, e.end), (at(0, 0), at(23, 59)));
+        assert_eq!(e.span_days(), 2);
+        assert_eq!(
+            Event::create_all_day(ID, "Holiday", day(2026, 10, 9), day(2026, 10, 8)),
+            Err(EventError::LastDayBeforeFirst)
+        );
+        // An event with times ends on its own day, whatever `last_day` said.
+        let mut timed = sync(None);
+        timed.last_day = day(2026, 10, 3);
+        assert_eq!(timed.check().unwrap().last_day, day(2026, 9, 30));
+    }
+
+    #[test]
+    fn attendees_are_e_mail_addresses_each_once_and_the_calendar_is_a_calendars_id() {
+        let mut e = sync(None);
+        e.attendees = vec![
+            String::from(" ana@example.com "),
+            String::from("ANA@example.com"),
+            String::from("bo@example.org"),
+        ];
+        assert_eq!(
+            e.clone().check().unwrap().attendees,
+            vec![
+                String::from("ana@example.com"),
+                String::from("bo@example.org")
+            ]
+        );
+        e.attendees.push(String::from("not an address"));
+        assert_eq!(
+            e.check(),
+            Err(EventError::BadAttendee(String::from("not an address")))
+        );
+        let mut e = sync(None);
+        e.calendar = String::from("../work");
+        assert_eq!(
+            e.check(),
+            Err(EventError::BadCalendar(String::from("../work")))
+        );
+        for good in ["ana@example.com", "a.b+c@mail.example.org"] {
+            assert!(is_email(good), "{good}");
+        }
+        for bad in [
+            "",
+            "ana",
+            "ana@",
+            "@example.com",
+            "ana@example",
+            "a na@example.com",
+            "<a@b.c>",
+        ] {
+            assert!(!is_email(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_repeating_event_is_on_the_dates_its_rule_makes_without_its_exceptions() {
+        let mut e = sync(None);
+        e.repeat = Some(Rule::parse("FREQ=WEEKLY").unwrap());
+        e.except = vec![day(2026, 10, 14)];
+        let e = e.check().unwrap();
+        assert_eq!(
+            e.starts_between(day(2026, 9, 28), day(2026, 10, 25)),
+            vec![day(2026, 9, 30), day(2026, 10, 7), day(2026, 10, 21)]
+        );
+        // The next week shows the next one.
+        assert_eq!(
+            e.starts_between(day(2026, 10, 5), day(2026, 10, 11)),
+            vec![day(2026, 10, 7)]
+        );
+        // An event that does not repeat is on its day only.
+        let once = sync(None);
+        assert_eq!(
+            once.starts_between(day(2026, 9, 28), day(2026, 10, 4)),
+            vec![day(2026, 9, 30)]
+        );
+        assert!(once
+            .starts_between(day(2026, 10, 5), day(2026, 10, 11))
+            .is_empty());
+    }
+
+    #[test]
+    fn a_several_day_event_that_began_before_a_view_is_in_it() {
+        let e = Event::create_all_day(ID, "Holiday", day(2026, 10, 9), day(2026, 10, 12)).unwrap();
+        assert_eq!(
+            e.starts_between(day(2026, 10, 12), day(2026, 10, 18)),
+            vec![day(2026, 10, 9)]
+        );
+        assert!(e
+            .starts_between(day(2026, 10, 13), day(2026, 10, 18))
+            .is_empty());
+    }
+
+    #[test]
+    fn a_file_with_a_repeat_rule_outside_the_subset_is_refused_with_the_reason() {
+        let text = to_json(&planning()).replace("FREQ=WEEKLY;BYDAY=WE", "FREQ=HOURLY");
+        assert!(
+            matches!(from_json(&text), Err(EventError::BadRepeat(why)) if why.contains("HOURLY"))
+        );
+    }
+
+    #[test]
+    fn an_event_made_here_has_an_icalendar_uid_of_its_own_id() {
+        assert_eq!(sync(None).ical_uid(), format!("{ID}@azcalendar"));
+        assert_eq!(planning().ical_uid(), "abc123@google.com");
     }
 }
