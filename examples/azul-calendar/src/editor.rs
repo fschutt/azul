@@ -469,6 +469,34 @@ pub fn repeat_choices(date: NaiveDate, custom: Option<&Rule>) -> Vec<(Repeat, St
     choices
 }
 
+/// The repeat row's segments: "Does not repeat", "Daily", "Weekly", "Monthly", "Yearly", and
+/// "Custom" when the event has a rule of its own.
+#[must_use]
+pub fn repeat_segments(has_custom: bool) -> Vec<&'static str> {
+    todo!()
+}
+
+/// The segment `repeat` is shown on (weekly and every weekday share "Weekly", the two monthly
+/// choices "Monthly").
+#[must_use]
+pub fn repeat_segment(repeat: Repeat) -> usize {
+    todo!()
+}
+
+/// The repeat a click on segment `index` picks; within "Weekly" and "Monthly" the choice
+/// stays the one it was.
+#[must_use]
+pub fn repeat_of_segment(index: usize, current: Repeat) -> Repeat {
+    todo!()
+}
+
+/// The second row of a weekly or monthly repeat: its two choices, as `(choice, label)`;
+/// empty for every other repeat.
+#[must_use]
+pub fn repeat_variants(repeat: Repeat, date: NaiveDate) -> Vec<(Repeat, String)> {
+    todo!()
+}
+
 /// The unit of "Every N ...": "days", "weeks", "months", "years".
 #[must_use]
 pub fn interval_unit(repeat: Repeat) -> &'static str {
@@ -764,6 +792,38 @@ mod tests {
         let m = EditorForm::new_meeting(3, ID, d(2026, 9, 30), at(9, 0), at(10, 0), "");
         assert!(m.add_meet && m.meeting_request);
         assert_eq!(m.window_title(), "Untitled - Meeting");
+    }
+
+    #[test]
+    fn the_repeat_row_is_five_segments_and_a_second_row_for_weekly_and_monthly() {
+        assert_eq!(
+            repeat_segments(false),
+            vec!["Does not repeat", "Daily", "Weekly", "Monthly", "Yearly"]
+        );
+        assert_eq!(repeat_segments(true).last(), Some(&"Custom"));
+        for repeat in Repeat::CHOICES {
+            let index = repeat_segment(repeat);
+            assert_eq!(repeat_of_segment(index, repeat), repeat, "{repeat:?}");
+        }
+        assert_eq!(repeat_segment(Repeat::Weekdays), 2);
+        assert_eq!(repeat_of_segment(2, Repeat::Never), Repeat::Weekly);
+        assert_eq!(repeat_of_segment(3, Repeat::Daily), Repeat::MonthlyDay);
+        assert_eq!(repeat_of_segment(5, Repeat::Weekly), Repeat::Custom);
+        let date = d(2026, 9, 30);
+        let weekly: Vec<String> = repeat_variants(Repeat::Weekdays, date)
+            .into_iter()
+            .map(|(_, l)| l)
+            .collect();
+        assert_eq!(
+            weekly,
+            vec!["Weekly on Wednesday", "Every weekday (Monday to Friday)"]
+        );
+        let monthly: Vec<Repeat> = repeat_variants(Repeat::MonthlyDay, date)
+            .into_iter()
+            .map(|(r, _)| r)
+            .collect();
+        assert_eq!(monthly, vec![Repeat::MonthlyDay, Repeat::MonthlyWeekday]);
+        assert!(repeat_variants(Repeat::Daily, date).is_empty());
     }
 
     #[test]
