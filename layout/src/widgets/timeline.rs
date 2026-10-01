@@ -1096,7 +1096,7 @@ extern "C" fn on_lanes_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     let shift = ks.shift_down();
-    let Some(mut s) = data.downcast_mut::<TimelineShared>() else {
+    let Some(s) = data.downcast_ref::<TimelineShared>() else {
         return Update::DoNothing;
     };
     #[allow(clippy::cast_possible_truncation)]
@@ -1140,16 +1140,8 @@ extern "C" fn on_lanes_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         }
         _ => return Update::DoNothing,
     };
-    match event.kind {
-        TimelineEventKind::Seek => s.playhead = event.time,
-        TimelineEventKind::Zoom => {
-            s.view_start = event.time;
-            #[allow(clippy::cast_possible_truncation)]
-            let pps = event.value as f32;
-            s.pps = pps;
-        }
-        _ => {}
-    }
+    // The widget is controlled: the app moves the playhead and the view
+    // and rebuilds; every key computes from the values it was built with.
     let hook = s.on_event.clone();
     drop(s);
     // The key is the timeline's: spatial navigation must not walk out of it.
