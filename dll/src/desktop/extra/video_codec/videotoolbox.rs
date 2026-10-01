@@ -1381,6 +1381,30 @@ impl Drop for OutputStage {
     }
 }
 
+/// A decoded picture as VideoToolbox handed it out: a retained, IOSurface-
+/// backed CVPixelBuffer that the GPU can sample without a copy - the first
+/// step of the zero-copy display path (scripts/VIDEO_PATH_2026_09_30.md,
+/// "Zero copy"). Released when dropped.
+pub(super) struct NativePicture {
+    buffer: *mut c_void,
+}
+
+unsafe impl Send for NativePicture {}
+
+impl NativePicture {
+    /// The IOSurfaceRef behind the picture (null for a buffer without one).
+    pub(super) fn io_surface(&self) -> *mut c_void {
+        core::ptr::null_mut()
+    }
+
+    /// The picture copied into a frame (NV12 / BGRA as it is, RGBA when
+    /// `want_rgba`): what the byte path hands out.
+    pub(super) fn to_frame(&self, want_rgba: bool) -> Option<VideoFrame> {
+        let _ = (self.buffer, want_rgba);
+        None
+    }
+}
+
 /// A live VTDecompressionSession fed Annex-B H.264.
 pub(super) struct VtDecoder {
     session: *mut c_void,
@@ -1726,6 +1750,18 @@ impl VtDecoder {
             Ok(mut q) => q.drain(..).collect(),
             Err(_) => Vec::new(),
         }
+    }
+
+    /// Keep decoded pictures where VideoToolbox put them (`NativePicture`s,
+    /// taken with [`Self::take_native`]) instead of copying them into
+    /// frames.
+    pub(super) fn set_native_output(&mut self, native: bool) {
+        let _ = native;
+    }
+
+    /// The pictures kept since the last call (see [`Self::set_native_output`]).
+    pub(super) fn take_native(&mut self) -> Vec<NativePicture> {
+        Vec::new()
     }
 
     fn reset_session(&mut self) {
@@ -2086,6 +2122,11 @@ mod vt_tests {
             }
         }
         assert!(formats.iter().any(|(f, ..)| *f >= 3), "{formats:?}");
+        assert_eq!(
+            formats.len(),
+            8,
+            "every frame decoded across the switch: {formats:?}"
+        );
         for (f, format, len) in &formats {
             if *f < 3 {
                 assert!(format.is_nv12(), "{formats:?}");
@@ -2094,5 +2135,51 @@ mod vt_tests {
                 assert_eq!(*len, (w * h * 4) as usize, "{formats:?}");
             }
         }
+    }
+
+    /// A decoded picture can stay where VideoToolbox put it: an
+    /// IOSurface-backed buffer the decoder hands over retained, with no copy
+    /// into CPU memory - what a GPU window samples directly (the next step:
+    /// an external image bound with `CGLTexImageIOSurface2D`). Copied out, it
+    /// is the frame the byte path gives; and while pictures stay native, no
+    /// byte frame is made.
+    #[test]
+    fn a_decoded_picture_can_stay_in_its_iosurface() {
+        if VtLib::get().is_none() {
+            eprintln!("VideoToolbox unavailable — skipping");
+            return;
+        }
+        let (w, h) = (320u32, 240u32);
+        let mut enc = VtEncoder::open(w, h, 800).expect("encoder open");
+        let mut dec = VtDecoder::open_h264().expect("decoder open");
+        dec.set_output_format(RawImageFormat::NV12Rec709Video);
+        dec.set_native_output(true);
+        let mut copied = 0;
+        let mut native = Vec::new();
+        for f in 0..6u32 {
+            let chunk = enc.encode(&nv12_frame(f, w, h), f == 0);
+            if !chunk.is_empty() {
+                copied += dec.decode(&chunk).len();
+                native.extend(dec.take_native());
+            }
+        }
+        assert_eq!(copied, 0, "a native picture is not copied into a frame");
+        assert!(native.len() >= 5, "{} native pictures", native.len());
+        for picture in &native {
+            assert!(!picture.io_surface().is_null(), "the picture is in an IOSurface");
+            let frame = picture.to_frame(false).expect("the picture copies out");
+            assert_eq!(frame.format, RawImageFormat::NV12Rec709Video);
+            assert_eq!((frame.width, frame.height), (w, h));
+            assert_eq!(Some(frame.bytes.as_ref().len()), frame.expected_len());
+        }
+        // Scaled by the output stage, the picture is still an IOSurface.
+        dec.set_output_size(160, 120);
+        let chunk = enc.encode(&nv12_frame(7, w, h), false);
+        let _ = dec.decode(&chunk);
+        let scaled = dec.take_native();
+        let picture = scaled.first().expect("a scaled native picture");
+        assert!(!picture.io_surface().is_null());
+        let frame = picture.to_frame(false).expect("copies out");
+        assert_eq!((frame.width, frame.height), (160, 120));
     }
 }
