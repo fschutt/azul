@@ -569,6 +569,19 @@ const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     // `AppConfig::natural_scroll` (9b-ii-b-i-a) belongs beside AppConfig, not
     // in `image` where the keyword pass filed it.
     ("NaturalScroll", "app"),
+    // The system-style tween durations sit beside `SystemStyle` and
+    // `ScrollPhysics` in css; by path (`azul_core::resources::`) the tool
+    // would file it under `image`, and no word of the name is a keyword.
+    ("SystemAnimations", "css"),
+    // One family, one module: the Svg* geometry/style/options types were
+    // scattered over css, gl, option and svg by whichever word of the name
+    // won (`SvgParseOptions` -> option, `SvgFillStyle` -> css). `SvgParseError`
+    // stays in error (structural names are settled before this table).
+    ("Svg", "svg"),
+    // A recolor IS a color mapping: these two sit beside `IconColorMapping`
+    // in css, not with the icon provider handles in window.
+    ("IconModeColors", "css"),
+    ("IconRecolor", "css"),
     // System-wide hotkeys are grabbed for the APP (one App-owned manager,
     // whatever window declares them), so they sit beside `App` and
     // `AppConfig`. Without the entry "GLobalHotkey" contains the
@@ -635,6 +648,62 @@ fn difficult_type_module(type_name: &str) -> Option<&'static str> {
         .map(|(_, module)| *module)
 }
 
+/// Byte offsets where a CamelCase (or snake_case) word starts in `name`:
+/// `AccordionVariant` -> {0, 9}, `CSSProperty` -> {0, 3}, `node_id` -> {0, 5}.
+fn word_starts(name: &str) -> Vec<usize> {
+    let b = name.as_bytes();
+    let mut starts = Vec::new();
+    for i in 0..b.len() {
+        let c = b[i];
+        if c == b'_' {
+            continue;
+        }
+        let prev = if i == 0 { None } else { Some(b[i - 1]) };
+        let next = b.get(i + 1).copied();
+        let is_start = match prev {
+            None => true,
+            Some(b'_') => true,
+            Some(p) => {
+                // lower->Upper (`nI`), digit boundaries, or the last capital of
+                // an acronym run (`SSP` in `CSSProperty`: `P` precedes a lower)
+                (c.is_ascii_uppercase() && !p.is_ascii_uppercase())
+                    || (c.is_ascii_uppercase()
+                        && p.is_ascii_uppercase()
+                        && next.is_some_and(|n| n.is_ascii_lowercase()))
+            }
+        };
+        if is_start {
+            starts.push(i);
+        }
+    }
+    starts
+}
+
+/// `keyword` occurs in `type_name` as whole words: it starts on a word
+/// boundary and ends on one. `aria` is INSIDE `AccordionVariant` but is not
+/// a word of it; `node` is a word of `NodeId`, `tabindex` of `TabIndex`.
+fn keyword_is_whole_word(type_name: &str, keyword: &str) -> bool {
+    let lower = type_name.to_lowercase();
+    let starts = word_starts(type_name);
+    let mut from = 0;
+    while let Some(off) = lower[from..].find(keyword) {
+        let i = from + off;
+        let end = i + keyword.len();
+        let ends_on_boundary =
+            end == lower.len() || starts.contains(&end) || lower.as_bytes()[end] == b'_';
+        if starts.contains(&i) && ends_on_boundary {
+            return true;
+        }
+        from = i + 1;
+    }
+    false
+}
+
+/// (module, is_guess). `is_guess` is true when no keyword matched (`misc`)
+/// AND when the winning keyword is only a substring of the name, not one of
+/// its words - `aria` inside `AccordionVariant` chose `dom` for a widget
+/// enum (2026-10-01). A guess still names a module; the caller that has
+/// the source path lets the path decide instead.
 pub fn determine_module(type_name: &str) -> (String, bool) {
     let lower_name = type_name.to_lowercase();
 
@@ -705,15 +774,24 @@ pub fn determine_module(type_name: &str) -> (String, bool) {
     // stronger evidence than a shared word — "FilePath" contains the module
     // name "file" AND svg's generic keyword "path", both length 4: `file`
     // must win); remaining ties fall to module order (first in MODULES wins).
-    matches.sort_by(|a, b| match b.2.cmp(&a.2) {
-        std::cmp::Ordering::Equal => match b.4.cmp(&a.4) {
-            std::cmp::Ordering::Equal => a.3.cmp(&b.3),
+    // A keyword that is a WORD of the name outranks every substring match,
+    // whatever their lengths: `component` (a word of `ComponentDefaultValue`)
+    // beats the longer `defaultvalue`-style accidents, `font` in `FontMetrics`
+    // beats `metrics`. Among equals the old order holds.
+    let whole = |m: &(&str, &str, usize, usize, bool)| keyword_is_whole_word(type_name, m.1);
+    matches.sort_by(|a, b| match whole(b).cmp(&whole(a)) {
+        std::cmp::Ordering::Equal => match b.2.cmp(&a.2) {
+            std::cmp::Ordering::Equal => match b.4.cmp(&a.4) {
+                std::cmp::Ordering::Equal => a.3.cmp(&b.3),
+                other => other,
+            },
             other => other,
         },
         other => other,
     });
 
-    (matches[0].0.to_string(), false)
+    let (module, keyword, ..) = matches[0];
+    (module.to_string(), !keyword_is_whole_word(type_name, keyword))
 }
 
 /// Check if a type is in the correct module and return the correct module if not.
@@ -1064,6 +1142,60 @@ pub fn analyze_ffi_difficulty(type_str: &str) -> FfiDifficulty {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_keyword_counts_only_as_a_whole_word_of_the_name() {
+        assert!(keyword_is_whole_word("NodeId", "node"));
+        assert!(keyword_is_whole_word("TabIndex", "tabindex"));
+        assert!(keyword_is_whole_word("StyledDom", "dom"));
+        assert!(keyword_is_whole_word("CSSProperty", "property"));
+        assert!(keyword_is_whole_word("css_property", "css"));
+        assert!(!keyword_is_whole_word("AccordionVariant", "aria"));
+        assert!(!keyword_is_whole_word("Random", "dom"));
+        assert_eq!(word_starts("AccordionVariant"), vec![0, 9]);
+        assert_eq!(word_starts("CSSProperty"), vec![0, 3]);
+    }
+
+    /// A plain widget struct/enum that the keyword matcher files elsewhere by a
+    /// coincidental word in its name is still a widget: the scan moves it to
+    /// `widgets`. `AccordionVariant` sat in `dom` for one round (2026-10-01).
+    #[test]
+    fn a_widget_enum_misfiled_by_its_name_is_moved_to_widgets() {
+        assert_eq!(
+            get_correct_module_with_path(
+                "AccordionVariant",
+                "dom",
+                Some("azul_layout::widgets::accordion::AccordionVariant"),
+            ),
+            Some("widgets".to_string())
+        );
+        assert_eq!(
+            get_correct_module_with_path(
+                "AccordionVariant",
+                "widgets",
+                Some("azul_layout::widgets::accordion::AccordionVariant"),
+            ),
+            None
+        );
+    }
+
+    /// The by-concern widget placements stay: callback wrappers in dom,
+    /// callback typedefs in callbacks, options in option, vecs in vec.
+    #[test]
+    fn the_by_concern_widget_placements_are_not_moved() {
+        for (name, module) in [
+            ("ButtonOnClickCallback", "dom"),
+            ("ButtonOnClickCallbackType", "callbacks"),
+            ("OptionButtonOnClick", "option"),
+            ("RibbonTabVec", "vec"),
+        ] {
+            assert_eq!(
+                get_correct_module_with_path(name, module, Some("azul_layout::widgets::button::X")),
+                None,
+                "{name} in {module}"
+            );
+        }
+    }
 
     #[test]
     fn test_vec_types() {
