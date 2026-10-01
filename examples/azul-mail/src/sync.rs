@@ -315,6 +315,17 @@ pub fn sync_folder(
         .and_then(|bytes| String::from_utf8(bytes).ok())
         .and_then(|text| FolderState::from_json(&text));
     let plan = plan_folder(old_state.as_ref(), &selected);
+    // Mail written here (a sent mail SEND filed, a draft) has a LOCAL UID, not one of the
+    // server's numbering: it is carried across a renumbering instead of going to stale/.
+    let local: Vec<(IndexEntry, Vec<u8>)> = if plan.renumbered.is_some() {
+        read_index(store, key)
+            .into_values()
+            .filter(|e| e.uid >= crate::send::LOCAL_UID_FLOOR)
+            .filter_map(|e| store.get(&e.path).ok().map(|bytes| (e, bytes)))
+            .collect()
+    } else {
+        Vec::new()
+    };
     if let Some(old) = plan.renumbered {
         store
             .move_prefix(&store::folder_prefix(key), &store::stale_prefix(key, old))
@@ -327,6 +338,11 @@ pub fn sync_folder(
     };
     // A folder without an index file (new, or renumbered) gets one even when it is empty.
     let mut index_dirty = store.size_of(&store::index_key(key)).is_none();
+    for (entry, bytes) in local {
+        store.put(&entry.path, &bytes, true).map_err(storage)?;
+        index.insert(entry.uid, entry);
+        index_dirty = true;
+    }
     let mut state =
         FolderState::create(&mailbox.server_name, &mailbox.display, selected.uidvalidity);
     state.last_uid = plan.last_uid;
