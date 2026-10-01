@@ -27,16 +27,15 @@ here (house rule); Rust files are parse-checked with `rustfmt --check` / `--emit
   wire_codec (no JPEG before caps).
 - `16fbdfff9` RED / `d141d27b7` feat: tiles.rs (arrange: stage / tiles; tile_need culling).
 
-## IN PROGRESS (last commit: d141d27b7)
-- next: lib.rs integration, small commits:
-  a. async codec: send_h264 submits + `drain_h264` sends packets; pump drains every encoder and
-     decoder (`drain_decoders`), probe_encode/probe_decode use flush.
-  b. assignment_among: viewer caps unknown -> need 0 (wire_codec).
-  c. chat: MeetState.chat (ChatLog), receive kind 8 in receive_item, `send_chat`.
-  d. speaker: MeetState.speaker (ActiveSpeaker) fed in receive_audio (level_db of packets).
-  e. culling: measure_tiles reads is_node_visible + tiles::tile_need; my_wants via arrange roles.
-  f. pump: adaptive interval (15 ms with media, 250 ms idle) and no RefreshDom unless text changed.
-  Then src/ui.rs (CallShell view), then scripts/azmeet_e2e.py, report.
+- lib.rs: `a87794232` async codec drain, `1b6ea3f4a` stream_targets, `1ccb08331` no JPEG before
+  caps, `002d71c37` chat, `9e41a685f` active speaker, `450b21fab` culling via arrange +
+  is_node_visible. (`a34ffdefe`/`246136a89` KeyframePolicy::not_taken.)
+
+## IN PROGRESS (last commit: 450b21fab)
+- next: `pace.rs` (PumpPace: 15 ms busy, 250 ms after 1 s quiet) RED -> GREEN; then pump_link uses
+  it (re-arms its timer), stats tick by time (2 s), no RefreshDom for statistics unless the
+  overlay is open and its text changed. Then src/ui.rs (CallShell view, lobby, chat, people,
+  controls, stats overlay, settings), then scripts/azmeet_e2e.py, report.
 
 ## NEXT (plan, in order)
 1. Engine video leftovers (RED then fix each):
