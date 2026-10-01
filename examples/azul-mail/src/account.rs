@@ -79,6 +79,8 @@ pub struct Account {
     /// character a file name or an object key could trip on replaced ([`account_id`]).
     pub id: String,
     pub email: String,
+    /// The sender's name for the From line ("Ada Lovelace"); empty for the address alone.
+    pub name: String,
     /// The IMAP login name; most providers want the address.
     pub username: String,
     pub imap: Server,
@@ -400,6 +402,7 @@ pub fn from_json(text: &str) -> Result<Account, AccountError> {
     Ok(Account {
         id,
         email: file.email,
+        name: String::new(),
         username: file.username,
         imap: file.imap,
         smtp: file.smtp,
@@ -449,6 +452,8 @@ pub fn load_all(root: &Path) -> (Vec<Account>, Vec<(PathBuf, String)>) {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AccountForm {
     pub email: String,
+    /// "Your name", for the From line.
+    pub name: String,
     pub username: String,
     pub imap_host: String,
     pub imap_port: String,
@@ -460,6 +465,14 @@ pub struct AccountForm {
     pub plain: bool,
     /// "Sign in with an OAuth access token (XOAUTH2)".
     pub xoauth2: bool,
+}
+
+impl Account {
+    /// The From line: `Name <address>` (the name quoted when it holds a special character), or
+    /// the address alone without a name.
+    pub fn sender(&self) -> String {
+        todo!()
+    }
 }
 
 /// What the form shows in its empty fields: the values an empty field stands for.
@@ -509,6 +522,7 @@ impl AccountForm {
     pub fn from_account(account: &Account) -> AccountForm {
         AccountForm {
             email: account.email.clone(),
+            name: String::new(),
             username: account.username.clone(),
             imap_host: account.imap.host.clone(),
             imap_port: account.imap.port.to_string(),
@@ -577,6 +591,7 @@ impl AccountForm {
         Ok(Account {
             id,
             email: self.email.trim().to_string(),
+            name: String::new(),
             username: pick(&self.username, &defaults.username),
             imap: Server {
                 host: imap_host,
@@ -612,6 +627,7 @@ mod tests {
         Account {
             id: String::from(ADA),
             email: String::from(ADA),
+            name: String::new(),
             username: String::from(ADA),
             imap: Server {
                 host: String::from("imap.example.org"),
@@ -832,6 +848,34 @@ mod tests {
             ..a
         };
         assert_eq!(from_json(&to_json(&elsewhere)), Ok(elsewhere));
+    }
+
+    #[test]
+    fn an_account_with_a_name_sends_as_name_and_address() {
+        assert_eq!(account().sender(), ADA, "no name: the address alone");
+        let named = Account {
+            name: String::from("Ada Lovelace"),
+            ..account()
+        };
+        assert_eq!(named.sender(), "Ada Lovelace <ada@example.org>");
+        let comma = Account {
+            name: String::from("Lovelace, Ada"),
+            ..account()
+        };
+        assert_eq!(comma.sender(), "\"Lovelace, Ada\" <ada@example.org>");
+        let text = to_json(&named);
+        assert!(text.contains("\"name\": \"Ada Lovelace\""), "{text}");
+        assert_eq!(from_json(&text), Ok(named.clone()));
+        let form = AccountForm::from_account(&named);
+        assert_eq!(form.name, "Ada Lovelace");
+        let mut typed = AccountForm {
+            email: String::from(ADA),
+            name: String::from("  Ada Lovelace "),
+            ..AccountForm::default()
+        };
+        assert_eq!(typed.to_account().unwrap().name, "Ada Lovelace");
+        typed.name.clear();
+        assert_eq!(typed.to_account().unwrap().name, "");
     }
 
     #[test]
