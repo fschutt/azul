@@ -17,6 +17,7 @@ members = [
     "examples/azul-appkit", # azul-appkit: the shared app skeleton (switches, data layout, settings, shortcuts, About, file jobs)
     "examples/azul-calculator", # AzCalculator: Standard / Scientific / Programmer / Date / Convert on the S9 UtilityShell (azul-appkit)
     "examples/azul-contacts", # AzContacts: the address book on the S4 PimShell, one contacts/<uuid>.vcf per contact (azul-appkit)
+    "examples/azul-setup", # AzSetup: a fake AzOffice installer (the wizard pages, the settings dialog, the standard dialogs), the headless E2E
     "dll", # dll module with auto-gen C functions (optional pyO3 support), depends on layout, core and css
     "doc", # doc / test generator, depends on layout, core and css
     "layout", # layout depends on core + css
