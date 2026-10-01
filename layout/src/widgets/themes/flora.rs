@@ -7662,3 +7662,65 @@ pub(crate) fn selection_adorner_look() -> crate::widgets::selection_adorner::Sel
         marker: Some(super::style_kit::FLORA_CLASS),
     }
 }
+
+// ==== thumbnail_strip ====
+//
+// A flora thumbnail strip lies on the toolbar strip: the numbers in the
+// quiet ink, each preview on paper in a --fl-bd frame that takes the accent
+// stone when the slide is selected, a hidden slide at half strength, the
+// section headers semibold in the ink; focus is the accent halo inside the
+// item. At night the night strip, the accent's glow.
+
+/// Flora's thumbnail-strip look.
+#[must_use]
+pub(crate) fn thumbnail_strip_look() -> crate::widgets::thumbnail_strip::ThumbnailStripLook {
+    use super::{decl, style_kit as kit};
+
+    let mut strip = vec![
+        kit::font_size(12),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    strip.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+    strip.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    strip.extend(decl::padding(6, 6, 6, 6));
+
+    let mut section = vec![kit::font_size(12), decl::semibold()];
+    section.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    section.extend(decl::padding(6, 4, 4, 2));
+
+    let mut section_icon = vec![kit::font_size(16)];
+    section_icon.extend(decl::margin(0, 4, 0, 0));
+    section_icon.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
+    let mut item = decl::padding(4, 6, 4, 2).to_vec();
+    item.extend(decl::radius(4));
+    item.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+
+    let mut number = vec![kit::font_size(12)];
+    number.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+    number.extend(decl::margin(2, 6, 0, 0));
+
+    let mut badge = vec![kit::font_size(14)];
+    badge.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
+    let mut thumb = decl::border(2).to_vec();
+    thumb.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
+    thumb.extend(decl::themed_fill(LIGHT_PG, DARK_PG));
+    thumb.extend(decl::radius(2));
+
+    crate::widgets::thumbnail_strip::ThumbnailStripLook {
+        strip,
+        section,
+        section_icon,
+        item,
+        item_selected: decl::themed_fill(LIGHT_TRACK, DARK_TRACK).to_vec(),
+        number,
+        badge,
+        thumb,
+        thumb_selected: decl::themed_border_color(LIGHT_ACC, DARK_GLOW),
+        thumb_hidden: vec![CssPropertyWithConditions::simple(CssProperty::const_opacity(
+            azul_css::props::style::StyleOpacity::const_new(50),
+        ))],
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}

@@ -6078,3 +6078,70 @@ pub(crate) fn selection_adorner_look() -> crate::widgets::selection_adorner::Sel
         marker: None,
     }
 }
+
+// ==== thumbnail_strip ====
+//
+// The flat thumbnail strip is PowerPoint 2013's slide rail: the window
+// surface, each slide's number small and grey beside (or under) its
+// preview, the preview in a grey 2 px frame that turns PowerPoint's orange
+// (the item washed peach) when the slide is selected, a hidden slide's preview at half strength,
+// the section headers semibold in the ink; focus is the field ring inside
+// the item. At night the desktop's surfaces and inks, the orange lifts.
+
+const THUMB_SELECTED_LIGHT: ColorU = ColorU::new(0xD2, 0x47, 0x26, 255);
+const THUMB_SELECTED_DARK: ColorU = ColorU::new(0xF2, 0x8B, 0x6A, 255);
+const THUMB_PAPER_LIGHT: ColorU = ColorU::new(0xFF, 0xFF, 0xFF, 255);
+const THUMB_ITEM_SELECTED_LIGHT: ColorU = ColorU::new(0xFC, 0xE4, 0xD6, 255);
+const THUMB_ITEM_SELECTED_DARK: ColorU = ColorU::new(0x4A, 0x30, 0x26, 255);
+
+/// Flat's thumbnail-strip look.
+#[must_use]
+pub(crate) fn thumbnail_strip_look() -> crate::widgets::thumbnail_strip::ThumbnailStripLook {
+    use super::{decl, style_kit as kit};
+
+    let mut strip = vec![
+        kit::font_size(12),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    strip.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    strip.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    strip.extend(decl::padding(6, 6, 6, 6));
+
+    let mut section = vec![kit::font_size(12), decl::semibold()];
+    section.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    section.extend(decl::padding(6, 4, 4, 2));
+
+    let mut section_icon = vec![kit::font_size(16)];
+    section_icon.extend(decl::margin(0, 4, 0, 0));
+    section_icon.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut item = decl::padding(4, 6, 4, 2).to_vec();
+    item.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+
+    let mut number = vec![kit::font_size(12)];
+    number.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    number.extend(decl::margin(2, 6, 0, 0));
+
+    let mut badge = vec![kit::font_size(14)];
+    badge.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut thumb = decl::border(2).to_vec();
+    thumb.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
+    thumb.extend(decl::themed_fill(THUMB_PAPER_LIGHT, DARK_SUR));
+
+    crate::widgets::thumbnail_strip::ThumbnailStripLook {
+        strip,
+        section,
+        section_icon,
+        item,
+        item_selected: decl::themed_fill(THUMB_ITEM_SELECTED_LIGHT, THUMB_ITEM_SELECTED_DARK).to_vec(),
+        number,
+        badge,
+        thumb,
+        thumb_selected: decl::themed_border_color(THUMB_SELECTED_LIGHT, THUMB_SELECTED_DARK),
+        thumb_hidden: vec![CssPropertyWithConditions::simple(CssProperty::const_opacity(
+            azul_css::props::style::StyleOpacity::const_new(50),
+        ))],
+        marker: None,
+    }
+}
