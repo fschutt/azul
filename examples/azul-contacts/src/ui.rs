@@ -296,3 +296,947 @@ pub fn start() {
     let window = kit::window_options(&kit_ref, layout, (1100.0, 720.0), (640.0, 420.0), on_window_created);
     App::create(RefAny::new(app), config).run(window);
 }
+
+// ==== Small pieces ====
+
+fn strs(items: &[&str]) -> StringVec {
+    StringVec::from_vec(items.iter().map(|s| AzString::from(*s)).collect())
+}
+
+fn text<S: Into<AzString>>(content: S) -> Dom {
+    Dom::create_span_with_text(content)
+}
+
+fn block(css: &str, child: Dom) -> Dom {
+    Dom::create_div().with_css(css).with_child(child)
+}
+
+fn column(css: &str, children: Vec<Dom>) -> Dom {
+    Dom::create_div()
+        .with_css(format!("display: flex; flex-direction: column; {css}"))
+        .with_children(DomVec::from_vec(children))
+}
+
+fn row(css: &str, children: Vec<Dom>) -> Dom {
+    Dom::create_div()
+        .with_css(format!("display: flex; flex-direction: row; align-items: center; {css}"))
+        .with_children(DomVec::from_vec(children))
+}
+
+fn button(label: &str, id: &str, app: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
+    Button::create(label).with_on_click(app.clone(), cb).dom().with_id(id)
+}
+
+fn primary(label: &str, id: &str, app: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
+    Button::create(label)
+        .with_button_type(ButtonType::Primary)
+        .with_on_click(app.clone(), cb)
+        .dom()
+        .with_id(id)
+}
+
+/// The id of a letter section (`#` is `hash`).
+#[must_use]
+pub fn section_id(letter: char) -> String {
+    if letter == '#' {
+        "section-hash".to_string()
+    } else {
+        format!("section-{letter}")
+    }
+}
+
+// ==== Navigation ====
+
+fn navigation(s: &ContactsApp, app: &RefAny) -> Dom {
+    let favorites = s.book.iter().filter(|c| c.favorite).count();
+    let dupes = s.duplicates().len();
+    let duplicates_open = matches!(s.reading, Reading::Merge(_));
+    let contacts = TreeViewNode::create(format!("All contacts ({})", s.book.len()))
+        .with_icon("contacts")
+        .with_expanded(true)
+        .with_selected(s.filter == Filter::All && !duplicates_open)
+        .with_child(
+            TreeViewNode::create(format!("Favourites ({favorites})"))
+                .with_icon("star")
+                .with_selected(s.filter == Filter::Favorites && !duplicates_open),
+        )
+        .with_child(
+            TreeViewNode::create(format!("Possible duplicates ({dupes})"))
+                .with_icon("merge")
+                .with_selected(duplicates_open),
+        );
+    let mut groups = TreeViewNode::create("Groups").with_icon("group").with_expanded(true);
+    let counts = book::group_counts(&s.book);
+    for (name, count) in &counts {
+        groups = groups.with_child(
+            TreeViewNode::create(format!("{name} ({count})"))
+                .with_icon("label")
+                .with_selected(s.filter == Filter::Group(name.clone()) && !duplicates_open),
+        );
+    }
+    ShellNavigationPane::create()
+        .with_header(primary("New contact", "contacts-new", app, on_new))
+        .with_group(ShellNavigationGroup::create("Contacts", contacts).with_count(s.book.len()).with_open(s.nav_open[0]))
+        .with_group(ShellNavigationGroup::create("Groups", groups).with_count(counts.len()).with_open(s.nav_open[1]))
+        .with_label("Contacts and groups")
+        .with_on_event(app.clone(), on_nav as ShellNavigationPaneOnEventCallbackType)
+        .dom()
+}
+
+// ==== The list ====
+
+struct RowRef {
+    app: RefAny,
+    uid: String,
+}
+
+struct LetterRef {
+    letter: char,
+}
+
+fn filter_title(s: &ContactsApp) -> String {
+    match &s.filter {
+        Filter::All => "All contacts".to_string(),
+        Filter::Favorites => "Favourites".to_string(),
+        Filter::Group(g) => g.clone(),
+    }
+}
+
+fn contact_row(s: &ContactsApp, app: &RefAny, c: &Contact) -> Dom {
+    let selected = s.selected.as_deref() == Some(c.uid.as_str());
+    let mut texts = vec![block("font-size: 13px;", text(c.display_name()))];
+    let subtitle = c.subtitle();
+    if !subtitle.is_empty() {
+        texts.push(block("font-size: 11px; opacity: 0.7;", text(subtitle)));
+    }
+    let mut children = vec![
+        Avatar::create(book::initials(c)).with_size(AvatarSize::Small).dom(),
+        column("flex-grow: 1; padding-left: 8px; min-width: 0px;", texts),
+    ];
+    if c.favorite {
+        children.push(block("padding: 0px 6px; font-size: 13px;", text("\u{2605}")));
+    }
+    row(
+        &format!(
+            "padding: 4px 8px; cursor: pointer; {}",
+            if selected { "background-color: rgba(64, 128, 255, 0.18);" } else { "" }
+        ),
+        children,
+    )
+    .with_class("contact-row")
+    .with_accessibility_name(c.display_name())
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::MouseUp),
+        RefAny::new(RowRef {
+            app: app.clone(),
+            uid: c.uid.clone(),
+        }),
+        on_row,
+    )
+}
+
+fn jump_bar(present: &[char]) -> Dom {
+    let mut bar = Dom::create_div()
+        .with_id("contacts-jump")
+        .with_css("display: flex; flex-direction: column; width: 18px; flex-shrink: 0; font-size: 10px; padding-top: 4px;");
+    for letter in ALPHABET {
+        let has = present.contains(&letter);
+        bar.add_child(
+            Dom::create_div()
+                .with_id(format!("jump-{}", if letter == '#' { "hash".to_string() } else { letter.to_string() }))
+                .with_css(format!(
+                    "text-align: center; cursor: pointer; {}",
+                    if has { "font-weight: 700;" } else { "opacity: 0.35;" }
+                ))
+                .with_child(text(letter.to_string()))
+                .with_callback(
+                    EventFilter::Hover(HoverEventFilter::MouseUp),
+                    RefAny::new(LetterRef { letter }),
+                    on_jump,
+                ),
+        );
+    }
+    bar
+}
+
+fn list_pane(s: &ContactsApp, app: &RefAny) -> Dom {
+    let indices = s.view();
+    let sections = book::sections(&s.book, &indices, s.sort);
+    let present: Vec<char> = sections.iter().map(|(l, _)| *l).collect();
+    let search = TextInput::create_search()
+        .with_text(s.query.as_str())
+        .with_placeholder("Search contacts")
+        .with_accessibility_name("Search contacts")
+        .with_on_text_input(app.clone(), on_search as TextInputOnTextInputCallbackType)
+        .dom()
+        .with_id("contacts-search");
+    let sort = Segmented::create(strs(&["First name", "Last name"]))
+        .with_selected_index(usize::from(s.sort == SortBy::Last))
+        .with_on_change(app.clone(), on_sort as SegmentedOnChangeCallbackType)
+        .dom()
+        .with_id("contacts-sort");
+    let heading = block(
+        "padding: 6px 8px 2px 8px; font-size: 12px; font-weight: 600;",
+        text(format!("{} \u{b7} {}", filter_title(s), indices.len())),
+    )
+    .with_id("contacts-heading");
+    let body = if !s.loaded {
+        block("padding: 16px; opacity: 0.7;", text("Reading your contacts\u{2026}"))
+    } else if s.book.is_empty() {
+        ShellEmptyState::create("No contacts yet")
+            .with_icon("contacts")
+            .with_detail("Add one, or import a vCard file.")
+            .with_action_label("New contact")
+            .with_on_action(app.clone(), on_new as ButtonOnClickCallbackType)
+            .dom()
+    } else if indices.is_empty() {
+        ShellEmptyState::create("Nobody here")
+            .with_icon("search")
+            .with_detail(if s.query.trim().is_empty() {
+                "This group has no contacts.".to_string()
+            } else {
+                format!("No contact matches \u{201c}{}\u{201d}.", s.query.trim())
+            })
+            .dom()
+    } else {
+        let mut list = Dom::create_div()
+            .with_id("contacts-list")
+            .with_css("display: flex; flex-direction: column; flex-grow: 1; overflow-y: auto; min-height: 0px;");
+        for (letter, members) in &sections {
+            list.add_child(
+                block(
+                    "padding: 4px 8px; font-size: 11px; font-weight: 700; opacity: 0.8;",
+                    text(letter.to_string()),
+                )
+                .with_id(section_id(*letter)),
+            );
+            for &i in members {
+                list.add_child(contact_row(s, app, &s.book[i]));
+            }
+        }
+        row("flex-grow: 1; min-height: 0px; align-items: stretch;", vec![list, jump_bar(&present)])
+    };
+    column(
+        "flex-grow: 1; min-height: 0px;",
+        vec![
+            row("padding: 6px 8px;", vec![block("flex-grow: 1; margin-right: 6px;", search), sort]),
+            heading,
+            body,
+        ],
+    )
+}
+
+// ==== The card ====
+
+fn field_row(label: &str, value: Dom) -> Dom {
+    row(
+        "align-items: flex-start; padding: 3px 0px;",
+        vec![
+            block("width: 96px; flex-shrink: 0; font-size: 12px; opacity: 0.7;", text(label)),
+            block("flex-grow: 1; font-size: 13px;", value),
+        ],
+    )
+}
+
+fn lines(items: Vec<String>) -> Dom {
+    column("", items.into_iter().map(|l| Dom::create_div().with_child(text(l))).collect())
+}
+
+fn card_view(s: &ContactsApp, app: &RefAny, c: &Contact) -> Dom {
+    let mut actions = vec![
+        primary("Edit", "card-edit", app, on_edit),
+        Button::create(if c.favorite { "\u{2605} Favourite" } else { "\u{2606} Favourite" })
+            .with_on_click(app.clone(), on_toggle_favorite as ButtonOnClickCallbackType)
+            .dom()
+            .with_id("card-favorite"),
+        button("Copy vCard", "card-copy", app, on_copy_vcard),
+        button("Export", "card-export", app, on_export_selected),
+    ];
+    if !c.emails.is_empty() {
+        // Until AzMail takes a hand-off: the address to the clipboard.
+        actions.push(
+            Button::create("Mail")
+                .with_icon("mail")
+                .with_on_click(app.clone(), on_copy_email as ButtonOnClickCallbackType)
+                .dom()
+                .with_id("card-mail"),
+        );
+    }
+    actions.push(
+        Button::create("Delete")
+            .with_button_type(ButtonType::Danger)
+            .with_on_click(app.clone(), on_delete as ButtonOnClickCallbackType)
+            .dom()
+            .with_id("card-delete"),
+    );
+    let mut children = vec![
+        row(
+            "padding: 12px 0px;",
+            vec![
+                Avatar::create(book::initials(c)).with_size(AvatarSize::Large).dom(),
+                column(
+                    "padding-left: 12px;",
+                    vec![
+                        block("font-size: 22px; font-weight: 600;", text(c.display_name())).with_id("card-name"),
+                        block("font-size: 13px; opacity: 0.75;", text(c.subtitle())),
+                    ],
+                ),
+            ],
+        ),
+        Dom::create_div()
+            .with_css("display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; padding-bottom: 8px;")
+            .with_children(DomVec::from_vec(actions)),
+    ];
+    if s.confirm_delete {
+        children.push(row(
+            "padding: 6px 0px;",
+            vec![
+                block("padding-right: 8px;", text(format!("Delete {}? Its file goes too.", c.display_name()))),
+                Button::create("Delete")
+                    .with_button_type(ButtonType::Danger)
+                    .with_on_click(app.clone(), on_delete_confirmed as ButtonOnClickCallbackType)
+                    .dom()
+                    .with_id("card-delete-confirm"),
+                button("Keep", "card-delete-cancel", app, on_delete_cancelled),
+            ],
+        ));
+    }
+    let mut fields = Vec::new();
+    for p in &c.phones {
+        fields.push(field_row(&p.label, text(p.value.as_str())));
+    }
+    for e in &c.emails {
+        fields.push(field_row(&e.label, text(e.value.as_str())));
+    }
+    for a in &c.addresses {
+        fields.push(field_row(&a.label, lines(a.lines())));
+    }
+    for u in &c.urls {
+        fields.push(field_row(&u.label, text(u.value.as_str())));
+    }
+    if let Some(b) = &c.birthday {
+        fields.push(field_row("birthday", text(b.describe())));
+    }
+    if !c.nickname.trim().is_empty() {
+        fields.push(field_row("nickname", text(c.nickname.as_str())));
+    }
+    if !c.groups.is_empty() {
+        let chips: Vec<Dom> = c.groups.iter().map(|g| Chip::create(g.as_str()).dom()).collect();
+        fields.push(field_row(
+            "groups",
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px;")
+                .with_children(DomVec::from_vec(chips)),
+        ));
+    }
+    for f in &c.custom {
+        fields.push(field_row(&f.label, text(f.value.as_str())));
+    }
+    if !c.photo.trim().is_empty() {
+        fields.push(field_row("photo", text(if c.photo.starts_with("data:") { "a picture in the card" } else { c.photo.as_str() })));
+    }
+    if !c.notes.trim().is_empty() {
+        fields.push(field_row("notes", lines(c.notes.lines().map(str::to_string).collect())));
+    }
+    children.push(column("", fields).with_id("card-fields"));
+    children.push(block(
+        "padding-top: 12px; font-size: 11px; opacity: 0.6;",
+        text(format!("File: {}", store::contact_key(&c.uid))),
+    ));
+    column("padding: 0px 16px; overflow-y: auto; flex-grow: 1; min-height: 0px;", children).with_id("contact-card")
+}
+
+// ==== The edit form ====
+
+/// A text field of the form.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FormField {
+    Given,
+    Family,
+    Org,
+    Department,
+    Title,
+    Nickname,
+    Birthday,
+    NewGroup,
+    Phone(usize),
+    Email(usize),
+    Street(usize),
+    Postcode(usize),
+    City(usize),
+    Region(usize),
+    Country(usize),
+    CustomLabel(usize),
+    CustomValue(usize),
+    ImportPath,
+    ImportGroup,
+}
+
+/// A repeated row of the form.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RowKind {
+    Phone,
+    Email,
+    Address,
+    Custom,
+    Group,
+}
+
+struct FieldRef {
+    app: RefAny,
+    field: FormField,
+}
+
+struct LabelRef {
+    app: RefAny,
+    kind: RowKind,
+    index: usize,
+}
+
+struct RowKindRef {
+    app: RefAny,
+    kind: RowKind,
+    index: usize,
+}
+
+fn input(app: &RefAny, field: FormField, value: &str, placeholder: &str, id: &str) -> Dom {
+    TextInput::create()
+        .with_text(value)
+        .with_placeholder(placeholder)
+        .with_accessibility_name(placeholder)
+        .with_on_text_input(
+            RefAny::new(FieldRef { app: app.clone(), field }),
+            on_form_text as TextInputOnTextInputCallbackType,
+        )
+        .dom()
+        .with_id(id)
+}
+
+fn label_drop(app: &RefAny, kind: RowKind, index: usize, labels: &[&str], current: &str, id: &str) -> Dom {
+    let mut choices: Vec<&str> = labels.to_vec();
+    if !choices.contains(&current) && !current.is_empty() {
+        choices.push(current);
+    }
+    let selected = choices.iter().position(|l| *l == current).unwrap_or(0);
+    DropDown::create(strs(&choices))
+        .with_selected(selected)
+        .with_accessibility_name("Label")
+        .with_on_choice_change(
+            RefAny::new(LabelRef { app: app.clone(), kind, index }),
+            on_label_change as DropDownOnChoiceChangeCallbackType,
+        )
+        .dom()
+        .with_id(id)
+}
+
+fn remove_button(app: &RefAny, kind: RowKind, index: usize, id: &str) -> Dom {
+    Button::create("")
+        .with_icon("remove_circle_outline")
+        .with_on_click(RefAny::new(RowKindRef { app: app.clone(), kind, index }), on_remove_row as ButtonOnClickCallbackType)
+        .dom()
+        .with_id(id)
+}
+
+fn add_button(app: &RefAny, kind: RowKind, label: &str, id: &str) -> Dom {
+    Button::create(label)
+        .with_icon("add")
+        .with_on_click(RefAny::new(RowKindRef { app: app.clone(), kind, index: 0 }), on_add_row as ButtonOnClickCallbackType)
+        .dom()
+        .with_id(id)
+}
+
+fn form_section(title: &str, children: Vec<Dom>) -> Dom {
+    let mut all = vec![block("padding: 10px 0px 4px 0px; font-size: 11px; font-weight: 700; opacity: 0.7;", text(title.to_uppercase()))];
+    all.extend(children);
+    column("", all)
+}
+
+/// The labels a picked label list offers (the label itself if it is the user's own).
+fn labels_for(kind: RowKind) -> &'static [&'static str] {
+    match kind {
+        RowKind::Phone => &PHONE_LABELS,
+        RowKind::Email => &EMAIL_LABELS,
+        _ => &ADDRESS_LABELS,
+    }
+}
+
+fn edit_view(app: &RefAny, form: &Form) -> Dom {
+    let d = &form.draft;
+    let mut children = Vec::new();
+    children.push(row(
+        "padding: 10px 0px;",
+        vec![
+            block("font-size: 18px; font-weight: 600; flex-grow: 1;", text(if form.original.is_some() { "Edit contact" } else { "New contact" })),
+            button("Cancel", "edit-cancel", app, on_edit_cancel),
+            primary("Save", "edit-save", app, on_edit_save),
+        ],
+    ));
+    if form.confirm_discard {
+        children.push(row(
+            "padding: 6px 0px;",
+            vec![
+                block("padding-right: 8px;", text("Discard your changes?")),
+                Button::create("Discard")
+                    .with_button_type(ButtonType::Danger)
+                    .with_on_click(app.clone(), on_edit_discard as ButtonOnClickCallbackType)
+                    .dom()
+                    .with_id("edit-discard"),
+                button("Keep editing", "edit-keep", app, on_edit_keep),
+            ],
+        ));
+    }
+    if !form.problems.is_empty() {
+        children.push(
+            column("padding: 6px 8px; border-left: 3px solid #c0392b;", form.problems.iter().map(|p| Dom::create_div().with_child(text(p.as_str()))).collect())
+                .with_id("edit-problems"),
+        );
+    }
+    let pair = |a: Dom, b: Dom| row("gap: 6px; padding: 2px 0px;", vec![block("flex-grow: 1;", a), block("flex-grow: 1;", b)]);
+    children.push(form_section(
+        "Name",
+        vec![
+            pair(
+                input(app, FormField::Given, &d.given, "First name", "edit-given"),
+                input(app, FormField::Family, &d.family, "Last name", "edit-family"),
+            ),
+            pair(
+                input(app, FormField::Org, &d.org, "Company", "edit-org"),
+                input(app, FormField::Department, &d.department, "Department", "edit-department"),
+            ),
+            pair(
+                input(app, FormField::Title, &d.title, "Job title", "edit-title"),
+                input(app, FormField::Nickname, &d.nickname, "Nickname", "edit-nickname"),
+            ),
+        ],
+    ));
+    let mut phones: Vec<Dom> = d
+        .phones
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            row(
+                "gap: 6px; padding: 2px 0px;",
+                vec![
+                    label_drop(app, RowKind::Phone, i, &PHONE_LABELS, &p.label, &format!("edit-phone-label-{i}")),
+                    block("flex-grow: 1;", input(app, FormField::Phone(i), &p.value, "Phone", &format!("edit-phone-{i}"))),
+                    remove_button(app, RowKind::Phone, i, &format!("edit-phone-remove-{i}")),
+                ],
+            )
+        })
+        .collect();
+    phones.push(add_button(app, RowKind::Phone, "Add phone", "edit-add-phone"));
+    children.push(form_section("Phone", phones));
+    let mut emails: Vec<Dom> = d
+        .emails
+        .iter()
+        .enumerate()
+        .map(|(i, e)| {
+            row(
+                "gap: 6px; padding: 2px 0px;",
+                vec![
+                    label_drop(app, RowKind::Email, i, &EMAIL_LABELS, &e.label, &format!("edit-email-label-{i}")),
+                    block("flex-grow: 1;", input(app, FormField::Email(i), &e.value, "Email", &format!("edit-email-{i}"))),
+                    remove_button(app, RowKind::Email, i, &format!("edit-email-remove-{i}")),
+                ],
+            )
+        })
+        .collect();
+    emails.push(add_button(app, RowKind::Email, "Add email", "edit-add-email"));
+    children.push(form_section("Email", emails));
+    let mut addresses: Vec<Dom> = Vec::new();
+    for (i, a) in d.addresses.iter().enumerate() {
+        addresses.push(row(
+            "gap: 6px; padding: 2px 0px;",
+            vec![
+                label_drop(app, RowKind::Address, i, &ADDRESS_LABELS, &a.label, &format!("edit-address-label-{i}")),
+                block("flex-grow: 1;", input(app, FormField::Street(i), &a.street, "Street", &format!("edit-street-{i}"))),
+                remove_button(app, RowKind::Address, i, &format!("edit-address-remove-{i}")),
+            ],
+        ));
+        addresses.push(row(
+            "gap: 6px; padding: 2px 0px 6px 0px;",
+            vec![
+                block("width: 90px;", input(app, FormField::Postcode(i), &a.postcode, "Postcode", &format!("edit-postcode-{i}"))),
+                block("flex-grow: 1;", input(app, FormField::City(i), &a.locality, "City", &format!("edit-city-{i}"))),
+                block("flex-grow: 1;", input(app, FormField::Region(i), &a.region, "Region", &format!("edit-region-{i}"))),
+                block("flex-grow: 1;", input(app, FormField::Country(i), &a.country, "Country", &format!("edit-country-{i}"))),
+            ],
+        ));
+    }
+    addresses.push(add_button(app, RowKind::Address, "Add address", "edit-add-address"));
+    children.push(form_section("Address", addresses));
+    children.push(form_section(
+        "Birthday",
+        vec![
+            input(app, FormField::Birthday, &form.birthday_text, "DD.MM.YYYY, or DD.MM. without a year", "edit-birthday"),
+        ],
+    ));
+    let chips: Vec<Dom> = d
+        .groups
+        .iter()
+        .enumerate()
+        .map(|(i, g)| {
+            Chip::create(g.as_str())
+                .with_removable(true)
+                .with_on_remove(RefAny::new(RowKindRef { app: app.clone(), kind: RowKind::Group, index: i }), on_remove_group as ChipOnRemoveCallbackType)
+                .dom()
+        })
+        .collect();
+    children.push(form_section(
+        "Groups",
+        vec![
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px; padding-bottom: 4px;")
+                .with_children(DomVec::from_vec(chips)),
+            row(
+                "gap: 6px;",
+                vec![
+                    block("flex-grow: 1;", input(app, FormField::NewGroup, &form.new_group, "Add to a group", "edit-new-group")),
+                    add_button(app, RowKind::Group, "Add", "edit-add-group"),
+                ],
+            ),
+        ],
+    ));
+    let mut custom: Vec<Dom> = d
+        .custom
+        .iter()
+        .enumerate()
+        .map(|(i, f)| {
+            row(
+                "gap: 6px; padding: 2px 0px;",
+                vec![
+                    block("width: 140px;", input(app, FormField::CustomLabel(i), &f.label, "Field name", &format!("edit-field-label-{i}"))),
+                    block("flex-grow: 1;", input(app, FormField::CustomValue(i), &f.value, "Value", &format!("edit-field-{i}"))),
+                    remove_button(app, RowKind::Custom, i, &format!("edit-field-remove-{i}")),
+                ],
+            )
+        })
+        .collect();
+    custom.push(add_button(app, RowKind::Custom, "Add field", "edit-add-field"));
+    children.push(form_section("More fields", custom));
+    children.push(form_section(
+        "Notes",
+        vec![TextArea::create()
+            .with_text(d.notes.as_str())
+            .with_placeholder("Notes")
+            .with_accessibility_name("Notes")
+            .with_on_text_input(app.clone(), on_notes as TextAreaOnTextInputCallbackType)
+            .dom()
+            .with_id("edit-notes")],
+    ));
+    children.push(row(
+        "padding: 8px 0px;",
+        vec![
+            Switch::create(d.favorite)
+                .with_accessibility_name("Favourite")
+                .with_on_toggle(app.clone(), on_form_favorite as SwitchOnToggleCallbackType)
+                .dom()
+                .with_id("edit-favorite"),
+            block("padding-left: 8px;", text("Favourite")),
+        ],
+    ));
+    column("padding: 0px 16px 16px 16px; overflow-y: auto; flex-grow: 1; min-height: 0px;", children).with_id("contact-edit")
+}
+
+// ==== Import ====
+
+struct ImportRowRef {
+    app: RefAny,
+    index: usize,
+}
+
+fn status_text(status: &ImportStatus, book: &[Contact]) -> String {
+    match status {
+        ImportStatus::New => "new".to_string(),
+        ImportStatus::Update(i) => format!("updates {}", book.get(*i).map(Contact::display_name).unwrap_or_default()),
+        ImportStatus::Duplicate(i, score) => format!(
+            "duplicate of {} ({:.2})",
+            book.get(*i).map(Contact::display_name).unwrap_or_default(),
+            score
+        ),
+    }
+}
+
+fn import_view(s: &ContactsApp, app: &RefAny, st: &ImportState) -> Dom {
+    let mut children = vec![
+        block("font-size: 18px; font-weight: 600; padding: 10px 0px;", text("Import contacts")),
+        row(
+            "gap: 6px;",
+            vec![
+                block("flex-grow: 1;", input(app, FormField::ImportPath, &st.path, "Path to a .vcf file", "import-path")),
+                button("Read", "import-read", app, on_import_read),
+                button("Choose file\u{2026}", "import-choose", app, on_import_choose),
+            ],
+        ),
+    ];
+    if st.reading {
+        children.push(block("padding: 8px 0px;", text("Reading\u{2026}")));
+    }
+    for p in &st.problems {
+        children.push(block("font-size: 12px; opacity: 0.8;", text(p.as_str())));
+    }
+    if !st.rows.is_empty() {
+        children.push(block("padding: 8px 0px; font-weight: 600;", text(store::import_summary(&st.rows))).with_id("import-summary"));
+        let mut table = Vec::new();
+        for (i, r) in st.rows.iter().enumerate() {
+            let c = &r.contact;
+            table.push(row(
+                "gap: 8px; padding: 2px 0px; font-size: 13px;",
+                vec![
+                    CheckBox::create(r.selected)
+                        .with_accessibility_name(format!("Import {}", c.display_name()))
+                        .with_on_toggle(RefAny::new(ImportRowRef { app: app.clone(), index: i }), on_import_toggle as CheckBoxOnToggleCallbackType)
+                        .dom()
+                        .with_id(format!("import-row-{i}")),
+                    block("width: 180px;", text(c.display_name())),
+                    block("width: 200px; opacity: 0.8;", text(c.emails.first().map(|e| e.value.clone()).unwrap_or_else(|| "\u{2014}".into()))),
+                    block("width: 150px; opacity: 0.8;", text(c.phones.first().map(|p| p.value.clone()).unwrap_or_else(|| "\u{2014}".into()))),
+                    block("flex-grow: 1; opacity: 0.8;", text(status_text(&r.status, &s.book))),
+                ],
+            ));
+        }
+        children.push(column("", table).with_id("import-rows"));
+        children.push(row(
+            "gap: 6px; padding-top: 10px;",
+            vec![
+                block("", text("Add to group")),
+                block("flex-grow: 1;", input(app, FormField::ImportGroup, &st.group, "Group (optional)", "import-group")),
+                button("Cancel", "import-cancel", app, on_import_cancel),
+                primary("Import", "import-run", app, on_import_run),
+            ],
+        ));
+    } else if !st.reading {
+        children.push(block(
+            "padding-top: 12px; opacity: 0.75; font-size: 13px;",
+            text("vCard 3.0 and 4.0 files with one or many cards. Nothing is imported before you press Import."),
+        ));
+        children.push(row("padding-top: 8px;", vec![button("Cancel", "import-cancel", app, on_import_cancel)]));
+    }
+    column("padding: 0px 16px 16px 16px; overflow-y: auto; flex-grow: 1; min-height: 0px;", children).with_id("contact-import")
+}
+
+// ==== Merge ====
+
+/// A single field of the merge screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MergeField {
+    Name,
+    Company,
+    Birthday,
+    Photo,
+    Notes,
+}
+
+struct MergeRef {
+    app: RefAny,
+    field: MergeField,
+}
+
+fn merge_view(s: &ContactsApp, app: &RefAny, st: &MergeState) -> Dom {
+    let Some(pair) = st.pairs.get(st.index) else {
+        return ShellEmptyState::create("No possible duplicates")
+            .with_icon("merge")
+            .with_detail("No two contacts share a name, an email address or a phone number.")
+            .dom()
+            .with_id("merge-empty");
+    };
+    let (a, b) = (&s.book[pair.a], &s.book[pair.b]);
+    let pick_row = |label: &str, field: MergeField, pick: Pick, left: String, right: String, id: &str| {
+        row(
+            "gap: 8px; padding: 4px 0px;",
+            vec![
+                block("width: 90px; font-size: 12px; opacity: 0.7;", text(label)),
+                block("flex-grow: 1; font-size: 13px;", text(if left.is_empty() { "\u{2014}".to_string() } else { left })),
+                Segmented::create(strs(&["Left", "Right"]))
+                    .with_selected_index(usize::from(pick == Pick::B))
+                    .with_on_change(RefAny::new(MergeRef { app: app.clone(), field }), on_merge_pick as SegmentedOnChangeCallbackType)
+                    .dom()
+                    .with_id(id),
+                block("flex-grow: 1; font-size: 13px;", text(if right.is_empty() { "\u{2014}".to_string() } else { right })),
+            ],
+        )
+    };
+    let company = |c: &Contact| c.subtitle();
+    let birthday = |c: &Contact| c.birthday.map(|b| b.describe()).unwrap_or_default();
+    let photo = |c: &Contact| if c.photo.is_empty() { String::new() } else { "photo".to_string() };
+    let list = |c: &Contact| -> Vec<String> {
+        c.phones
+            .iter()
+            .map(|p| format!("{}: {}", p.label, p.value))
+            .chain(c.emails.iter().map(|e| format!("{}: {}", e.label, e.value)))
+            .chain(c.addresses.iter().map(|x| format!("{}: {}", x.label, x.lines().join(", "))))
+            .collect()
+    };
+    let children = vec![
+        row(
+            "padding: 10px 0px; gap: 8px;",
+            vec![
+                block("font-size: 18px; font-weight: 600; flex-grow: 1;", text(format!("Possible duplicates ({})", st.pairs.len()))),
+                button("\u{2039}", "merge-prev", app, on_merge_prev),
+                block("font-size: 13px;", text(format!("{} of {}", st.index + 1, st.pairs.len()))).with_id("merge-position"),
+                button("\u{203a}", "merge-next", app, on_merge_next),
+            ],
+        ),
+        block(
+            "font-size: 13px; padding-bottom: 8px;",
+            text(format!(
+                "{} \u{2194} {}   similarity {:.2} ({})",
+                a.display_name(),
+                b.display_name(),
+                pair.score,
+                pair.reasons.join(", ")
+            )),
+        )
+        .with_id("merge-pair"),
+        pick_row("Name", MergeField::Name, st.plan.name, a.display_name(), b.display_name(), "merge-name"),
+        pick_row("Company", MergeField::Company, st.plan.company, company(a), company(b), "merge-company"),
+        pick_row("Birthday", MergeField::Birthday, st.plan.birthday, birthday(a), birthday(b), "merge-birthday"),
+        pick_row("Photo", MergeField::Photo, st.plan.photo, photo(a), photo(b), "merge-photo"),
+        pick_row("Notes", MergeField::Notes, st.plan.notes, a.notes.clone(), b.notes.clone(), "merge-notes"),
+        row(
+            "padding: 4px 0px 4px 98px;",
+            vec![
+                Switch::create(st.plan.notes_both)
+                    .with_accessibility_name("Keep both notes")
+                    .with_on_toggle(app.clone(), on_merge_notes_both as SwitchOnToggleCallbackType)
+                    .dom()
+                    .with_id("merge-notes-both"),
+                block("padding-left: 8px; font-size: 13px;", text("Keep both notes")),
+            ],
+        ),
+        block("padding: 8px 0px 2px 0px; font-size: 11px; font-weight: 700; opacity: 0.7;", text("KEPT FROM BOTH")),
+        row(
+            "align-items: flex-start; gap: 16px;",
+            vec![
+                block("flex-grow: 1; font-size: 12px;", lines(list(a))),
+                block("flex-grow: 1; font-size: 12px;", lines(list(b))),
+            ],
+        ),
+        row(
+            "gap: 6px; padding-top: 12px;",
+            vec![
+                block("flex-grow: 1;", Dom::create_div()),
+                button("Not a duplicate", "merge-ignore", app, on_merge_ignore),
+                primary("Merge contacts", "merge-run", app, on_merge_run),
+            ],
+        ),
+    ];
+    column("padding: 0px 16px 16px 16px; overflow-y: auto; flex-grow: 1; min-height: 0px;", children).with_id("contact-merge")
+}
+
+// ==== The panes and the window ====
+
+fn reading_pane(s: &ContactsApp, app: &RefAny) -> Dom {
+    match &s.reading {
+        Reading::Edit(form) => edit_view(app, form),
+        Reading::Import(st) => import_view(s, app, st),
+        Reading::Merge(st) => merge_view(s, app, st),
+        Reading::Card => match s.selected_index() {
+            Some(i) => card_view(s, app, &s.book[i]),
+            None => ShellEmptyState::create("No contact selected")
+                .with_icon("person")
+                .with_detail("Pick someone in the list, or add a new contact.")
+                .with_action_label("New contact")
+                .with_on_action(app.clone(), on_new as ButtonOnClickCallbackType)
+                .dom(),
+        },
+    }
+}
+
+fn toolbar(app: &RefAny) -> Dom {
+    let tool = |label: &str, icon: &str, id: &str, cb: ButtonOnClickCallbackType| {
+        Button::create(label).with_icon(icon).with_on_click(app.clone(), cb).dom().with_id(id)
+    };
+    row(
+        "gap: 4px; padding: 4px 8px;",
+        vec![
+            tool("New", "person_add", "toolbar-new", on_new),
+            tool("Import", "file_upload", "toolbar-import", on_import_open),
+            tool("Export", "file_download", "toolbar-export", on_export_view),
+            tool("Duplicates", "merge", "toolbar-duplicates", on_open_duplicates),
+            block("flex-grow: 1;", Dom::create_div()),
+            tool("Settings", "settings", "toolbar-settings", on_open_settings),
+        ],
+    )
+}
+
+fn status_bar(s: &ContactsApp, app: &RefAny) -> Dom {
+    let dupes = s.duplicates().len();
+    let mut segments = vec![StatusBarSegment::create(format!(
+        "{} contact{}",
+        s.book.len(),
+        if s.book.len() == 1 { "" } else { "s" }
+    ))];
+    if dupes > 0 {
+        segments.push(
+            StatusBarSegment::create(format!("{dupes} possible duplicate{} \u{2013} review", if dupes == 1 { "" } else { "s" }))
+                .with_on_click(app.clone(), on_open_duplicates as ButtonOnClickCallbackType),
+        );
+    }
+    if !s.notice.is_empty() {
+        segments.push(StatusBarSegment::create(s.notice.as_str()));
+    }
+    StatusBar::create(segments).dom().with_id("contacts-status")
+}
+
+fn settings_sections(s: &ContactsApp, app: &RefAny) -> Vec<AppSection> {
+    vec![AppSection {
+        category: 0,
+        title: "List and files".to_string(),
+        content: column(
+            "",
+            vec![
+                kit::row(
+                    "Sort by",
+                    Segmented::create(strs(&["First name", "Last name"]))
+                        .with_selected_index(usize::from(s.sort == SortBy::Last))
+                        .with_on_change(app.clone(), on_sort as SegmentedOnChangeCallbackType)
+                        .dom()
+                        .with_id("set-sort"),
+                ),
+                kit::row(
+                    "Export as",
+                    Segmented::create(strs(&["vCard 4.0", "vCard 3.0"]))
+                        .with_selected_index(usize::from(s.export_version == Version::V3))
+                        .with_on_change(app.clone(), on_export_version as SegmentedOnChangeCallbackType)
+                        .dom()
+                        .with_id("set-export-version"),
+                ),
+                kit::note(&format!(
+                    "Every contact is one vCard file in {}. {} pair(s) marked as not duplicates.",
+                    azul_appkit::data::local_path(&s.data_root, store::APP_FOLDER).display(),
+                    s.ignored.len()
+                )),
+            ],
+        ),
+    }]
+}
+
+/// The window: the shell (or the settings page), the theme scope, the window keys.
+extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    // Reading the mode makes a light / dark switch rebuild the window.
+    let _mode = info.get_mode();
+    let app = data.clone();
+    let Some(guard) = data.downcast_ref::<ContactsApp>() else {
+        return Dom::create_body();
+    };
+    let s = &*guard;
+    let content = if kit::settings_open(&s.kit) {
+        column(
+            "flex-grow: 1; min-height: 0px;",
+            vec![kit::title_row(SPEC.name), kit::settings_page(&s.kit, settings_sections(s, &app))],
+        )
+    } else {
+        PimShell::create(navigation(s, &app), list_pane(s, &app), reading_pane(s, &app))
+            .with_title_row(kit::title_row(SPEC.name))
+            .with_ribbon(toolbar(&app))
+            .with_status_bar(status_bar(s, &app))
+            .with_list_label("Contacts")
+            .dom()
+    };
+    let root = column("flex-grow: 1; min-height: 0px;", vec![content]);
+    Dom::create_body()
+        .with_css("display: flex; flex-direction: column;")
+        .with_child(ShellThemeScope::create(root).with_accent(ShellThemeAccent::Blue).dom())
+        .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_key)
+}
