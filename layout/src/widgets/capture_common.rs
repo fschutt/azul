@@ -1448,6 +1448,7 @@ mod autotest_generated {
                     node_id,
                     image,
                     update_type,
+                    dirty_rect: _,
                 } => Some((*dom_id, node_id.index(), image, *update_type)),
                 _ => None,
             })

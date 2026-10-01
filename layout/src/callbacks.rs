@@ -428,6 +428,9 @@ pub enum CallbackChange {
         node_id: NodeId,
         image: ImageRef,
         update_type: UpdateImageType,
+        /// The rect (image pixels) in which `image` differs from the node's
+        /// previous image (`change_node_image_rect`); `None` = all of it.
+        dirty_rect: Option<azul_css::props::basic::LayoutRect>,
     },
     /// Record a STRUCTURAL document edit (Enter split / merge / wrap…) for
     /// the app to apply to ITS model - azul never mutates the `StyledDom`.
@@ -2251,6 +2254,31 @@ impl CallbackInfo {
             node_id,
             image,
             update_type,
+            dirty_rect: None,
+        });
+    }
+
+    /// Change the image of a node that differs from its previous image only
+    /// inside `dirty_rect` (in image pixels: origin + size).
+    ///
+    /// A canvas that repaints a brush dab keeps one image node and replaces
+    /// its image per pointer move; with the rect, the GPU renderer uploads
+    /// only those pixels instead of the whole image (a 2000x1500 canvas is
+    /// 12 MB per upload). Rects of several changes before a frame add up. An
+    /// image of another size or format is uploaded whole, whatever the rect.
+    pub fn change_node_image_rect(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        image: ImageRef,
+        dirty_rect: azul_css::props::basic::LayoutRect,
+    ) {
+        self.push_change(CallbackChange::ChangeNodeImage {
+            dom_id,
+            node_id,
+            image,
+            update_type: UpdateImageType::Content,
+            dirty_rect: Some(dirty_rect),
         });
     }
 

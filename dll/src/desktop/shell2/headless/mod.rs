@@ -11890,6 +11890,7 @@ mod tests {
                 node_id,
                 image: tile_frame(rgba),
                 update_type: azul_core::resources::UpdateImageType::Content,
+                dirty_rect: None,
             },
         )
     }

@@ -2385,6 +2385,7 @@ impl Runner {
                 node_id,
                 image,
                 update_type: _,
+                dirty_rect,
             } => {
                 // The content chokepoint: overlay write + journal + in-place DL
                 // patch (paint tier) or incremental-cache reset (relayout
@@ -2395,6 +2396,7 @@ impl Runner {
                             dom_id: *dom_id,
                             node_id: *node_id,
                             image: image.clone(),
+                            dirty_rect: *dirty_rect,
                         });
                 result.tier.to_process_event_result()
             }

@@ -6390,6 +6390,7 @@ pub trait PlatformWindow {
                 node_id,
                 image,
                 update_type: _,
+                dirty_rect,
             } => {
                 // The ONE content chokepoint: overlay write + journal + in-place
                 // display-list patch (paint tier — the DL diff sees the ImageRef
@@ -6401,6 +6402,7 @@ pub trait PlatformWindow {
                         dom_id: *dom_id,
                         node_id: *node_id,
                         image: image.clone(),
+                        dirty_rect: *dirty_rect,
                     })
                     .tier
                 });
