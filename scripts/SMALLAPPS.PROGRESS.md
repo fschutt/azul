@@ -15,19 +15,18 @@ Task: AzCalculator (F1/F2/F6/F7 vehicle) + AzContacts (A4). Report: scripts/SMAL
 - 30d459a21 test(azcalculator): scripts/azcalculator_e2e.py
 - 392058389 / f176d2f3b azcontacts vcard.rs (RED / GREEN)
 - 66d7fae9b/afee1f564 contact.rs; 0d194a6e3/28a5ca6ed book.rs; 887b60931/89f0b41ef dupes.rs; 15a67f7d0/b85fc8269 store.rs; a5111bd72/716a23d94 sample.rs (RED/GREEN)
+- 8d1010329, d1ac2b4ae wip(azcontacts): ui.rs pieces 1-2
 
 ## IN PROGRESS
-- AzContacts UI: ui.rs piece 1 (state + start)
+- AzContacts ui.rs piece 3: callbacks
 
 ## NEXT
 3. DONE (calculator UI + E2E).
 4. DONE: AzContacts model (vcard, contact, book, dupes, store, sample), RED + GREEN each.
-5. NEXT STEP: AzContacts UI in examples/azul-contacts/src/ui.rs written in pieces (ui.rs not in lib.rs until the
-   last piece): state + start (kit, load all contacts/*.vcf via appkit file jobs GetAll, --sample writes
-   sample_book files when empty), then layout (PimShell: navigation = ShellNavigationPane groups All /
-   Favourites / groups / Duplicates; list = search TextInput + sort Segmented + A-Z bar + rows Avatar+name;
-   reading = card view / edit form / import preview / merge screen), then callbacks; stdout AZCONTACTS_*.
-   Then scripts/azcontacts_e2e.py, then the report.
+5. NEXT STEP: AzContacts UI ui.rs - pieces 1 (state/start, 8d1010329) and 2 (layout, d1ac2b4ae) are committed;
+   next piece 3 = every callback the layout names (on_new, on_nav, on_row, on_jump, on_search, on_sort, card /
+   edit / import / merge / export callbacks, on_key, on_window_created, on_files_done, photo picking with a
+   small base64 encoder), then wire `pub mod ui;` + start() in lib.rs. Then scripts/azcontacts_e2e.py, report.
 5. AzContacts UI on PimShell + E2E scripts/azcontacts_e2e.py + registration.
 6. Report.
 
