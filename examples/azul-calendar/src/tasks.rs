@@ -38,38 +38,100 @@ struct TaskFile {
 /// A new task titled `title` (trimmed); `None` for an empty title.
 #[must_use]
 pub fn new_task(title: &str) -> Option<Task> {
-    todo!()
+    let title = title.trim();
+    (!title.is_empty()).then(|| Task {
+        id: event::new_event_id(),
+        title: title.to_string(),
+        done: false,
+    })
 }
 
 /// Where the task `id` is stored under `data_dir`.
 #[must_use]
 pub fn task_path(data_dir: &Path, id: &str) -> PathBuf {
-    todo!()
+    data_dir
+        .join(TASKS_DIR)
+        .join(LIST)
+        .join(format!("{id}.json"))
 }
 
 #[must_use]
 pub fn to_json(task: &Task) -> String {
-    todo!()
+    let file = TaskFile {
+        format: FORMAT.to_string(),
+        version: VERSION,
+        task: task.clone(),
+    };
+    let mut text = serde_json::to_string_pretty(&file).unwrap_or_default();
+    text.push('\n');
+    text
 }
 
 pub fn from_json(text: &str) -> Result<Task, String> {
-    todo!()
+    let file: TaskFile = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    if file.format != FORMAT || file.version != VERSION {
+        return Err(String::from("not an AzCalendar task of this version"));
+    }
+    if !is_event_id(&file.task.id) {
+        return Err(format!(
+            "the id {:?} is not a UUID in lower case",
+            file.task.id
+        ));
+    }
+    if file.task.title.trim().is_empty() {
+        return Err(String::from("the task has no title"));
+    }
+    Ok(file.task)
 }
 
 /// Writes `task` to its file, atomically.
 pub fn save(data_dir: &Path, task: &Task) -> std::io::Result<PathBuf> {
-    todo!()
+    let path = task_path(data_dir, &task.id);
+    let dir = data_dir.join(TASKS_DIR).join(LIST);
+    std::fs::create_dir_all(&dir)?;
+    let temp = dir.join(format!(".{}.json.tmp", task.id));
+    std::fs::write(&temp, to_json(task))?;
+    if let Err(e) = std::fs::rename(&temp, &path) {
+        let _ = std::fs::remove_file(&temp);
+        return Err(e);
+    }
+    Ok(path)
 }
 
 /// Every task of the list: the open ones first, then the done ones, each by title.
 #[must_use]
 pub fn load_all(data_dir: &Path) -> Vec<Task> {
-    todo!()
+    let mut tasks = Vec::new();
+    let Ok(entries) = std::fs::read_dir(data_dir.join(TASKS_DIR).join(LIST)) else {
+        return tasks;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(id) = name.to_str().and_then(|n| n.strip_suffix(".json")) else {
+            continue;
+        };
+        if !is_event_id(id) {
+            continue;
+        }
+        let Ok(task) = std::fs::read_to_string(entry.path())
+            .map_err(|e| e.to_string())
+            .and_then(|text| from_json(&text))
+        else {
+            continue;
+        };
+        if task.id == id {
+            tasks.push(task);
+        }
+    }
+    sort(&mut tasks);
+    tasks
 }
 
 /// Open tasks first, then done ones, each by title.
 pub fn sort(tasks: &mut [Task]) {
-    todo!()
+    tasks.sort_by(|a, b| {
+        (a.done, a.title.to_lowercase(), &a.id).cmp(&(b.done, b.title.to_lowercase(), &b.id))
+    });
 }
 
 #[cfg(test)]
