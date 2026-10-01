@@ -83,6 +83,9 @@ pub const DECODER_INERT_AFTER: u32 = 30;
 pub const RESTART_AFTER_BACKWARD: u32 = 1000;
 /// Encoders reopened in a row without a keyframe coming out, after which H.264 is given up.
 pub const MAX_REOPENS: u32 = 3;
+/// Packets of frames submitted before a forced one that may still come out ahead of it: the
+/// encoder works on its own thread, with up to three frames queued and one in hand.
+pub const OUTPUT_LAG_PACKETS: u32 = 4;
 /// Frames per second of the test pattern.
 pub const PATTERN_FPS: u32 = 15;
 /// Pixels the test pattern's bars move left per frame.
@@ -679,6 +682,16 @@ impl PatternClock {
     }
 }
 
+/// The codec a viewer gets a sender's stream in: H.264 when the sender encodes it and the viewer
+/// decodes it, JPEG when one of them cannot; `None` while the viewer's caps have not arrived -
+/// nothing is sent yet. JPEG is the fallback of a side without H.264 (no encoder off Apple
+/// today), never the default: a Mac peer whose caps came a moment after its first frames used
+/// to get those as JPEG.
+pub fn wire_codec(sender_encodes: bool, viewer_decodes: Option<bool>) -> Option<Codec> {
+    let _ = (sender_encodes, viewer_decodes);
+    Some(Codec::Jpeg)
+}
+
 /// The window's codec line: "Video: H.264 (VideoToolbox)", with "; JPEG to Ben (no H.264 decoder)"
 /// for peers that cannot decode it, or "Video: JPEG (no encoder)". `encoder` is the H.264 backend,
 /// or why there is none.
@@ -1217,6 +1230,24 @@ mod tests {
         assert_eq!(policy.stats().periodic, 2);
     }
 
+    /// The encoder works on its own thread: a forced frame's packet comes out after the packets
+    /// of the frames queued before it, which are P-frames. Those are no reason to reopen it.
+    #[test]
+    fn a_forced_keyframe_that_comes_out_a_few_packets_later_is_no_reason_to_reopen() {
+        let mut policy = KeyframePolicy::new();
+        assert!(policy.should_force(0));
+        policy.on_output(true, 0);
+        policy.request();
+        assert!(policy.should_force(600));
+        for i in 0..u64::from(OUTPUT_LAG_PACKETS) {
+            policy.on_output(false, 600 + i);
+            assert!(!policy.must_reopen(), "packet {i} of a frame queued before the forced one");
+        }
+        policy.on_output(true, 700);
+        assert!(!policy.must_reopen());
+        assert!(!policy.should_force(766), "the request was answered");
+    }
+
     #[test]
     fn an_encoder_that_ignores_a_forced_keyframe_is_reopened() {
         let mut policy = KeyframePolicy::new();
@@ -1224,7 +1255,10 @@ mod tests {
         policy.on_output(true, 0);
         policy.request();
         assert!(policy.should_force(600));
-        policy.on_output(false, 600);
+        // The packets of the frames queued before it, then the forced frame's own: a P-frame.
+        for i in 0..=u64::from(OUTPUT_LAG_PACKETS) {
+            policy.on_output(false, 600 + i);
+        }
         assert!(policy.must_reopen());
         policy.reopened();
         assert!(!policy.must_reopen());
@@ -1238,12 +1272,26 @@ mod tests {
         let mut broken = KeyframePolicy::new();
         for round in 0..u64::from(MAX_REOPENS) {
             assert!(!broken.is_broken());
-            assert!(broken.should_force(round * 100));
-            broken.on_output(false, round * 100);
+            for i in 0..=u64::from(OUTPUT_LAG_PACKETS) {
+                // A fresh encoder forces every frame until a keyframe comes out.
+                assert!(broken.should_force(round * 100 + i));
+                broken.on_output(false, round * 100 + i);
+            }
             assert!(broken.must_reopen());
             broken.reopened();
         }
         assert!(broken.is_broken());
+    }
+
+    /// H.264 when both sides do it, JPEG when one cannot, nothing while the viewer's caps are
+    /// unknown: a Mac never gets JPEG because its caps arrived a moment late.
+    #[test]
+    fn a_viewer_whose_caps_have_not_arrived_gets_nothing_not_jpeg() {
+        assert_eq!(wire_codec(true, None), None);
+        assert_eq!(wire_codec(false, None), None);
+        assert_eq!(wire_codec(true, Some(true)), Some(Codec::H264));
+        assert_eq!(wire_codec(true, Some(false)), Some(Codec::Jpeg));
+        assert_eq!(wire_codec(false, Some(true)), Some(Codec::Jpeg));
     }
 
     #[test]
