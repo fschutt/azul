@@ -7921,6 +7921,44 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
         ),
     };
 
+    // A cell of loose text with only inline-level children IS one inline
+    // formatting context (CSS 2.2 9.4.2), and its intrinsic widths are that
+    // IFC's: its longest word under the min-content constraint, its longest
+    // line under max-content. THIS is the measurement path; the final pass
+    // lays the cell out at its column width in `layout_cell_for_height` and
+    // never comes here. The generic subtree layout below would run the cell
+    // through `layout_bfc`, where the text child is a block-level box sized
+    // at its MAX-content width - so the min pass reported the max.
+    let cell_is_ifc = tree
+        .get(LayoutNodeId::new(cell_index))
+        .and_then(|n| n.dom_node_id)
+        .is_some_and(|dom_id| cell_is_inline_formatting_context(ctx.styled_dom, dom_id));
+    if cell_is_ifc {
+        let output = layout_ifc(ctx, text_cache, tree, cell_index, &cell_constraints)?;
+        // The measurement's lines are not the cell's: nothing may read a
+        // min-content line layout as the final one (`layout_cell_for_height`
+        // lays the cell out again at its column width).
+        if let Some(warm) = tree.warm_mut(LayoutNodeId::new(cell_index)) {
+            warm.inline_layout_result = None;
+        }
+        let cell_bp = tree
+            .get(LayoutNodeId::new(cell_index))
+            .ok_or(LayoutError::InvalidTree)?
+            .box_props
+            .unpack();
+        let wm = constraints.writing_mode;
+        let content_width = if output.overflow_size.width.is_finite() {
+            output.overflow_size.width.max(0.0)
+        } else {
+            0.0
+        };
+        return Ok(content_width
+            + cell_bp.padding.cross_start(wm)
+            + cell_bp.padding.cross_end(wm)
+            + cell_bp.border.cross_start(wm)
+            + cell_bp.border.cross_end(wm));
+    }
+
     crate::solver3::cache::calculate_layout_for_subtree(
         ctx,
         tree,
@@ -8244,14 +8282,17 @@ fn distribute_cell_width_across_columns(
 /// Does this cell establish an INLINE formatting context: loose text, and
 /// only inline-level children (CSS 2.2 9.4.2)?
 ///
-/// Then the final pass ([`layout_cell_for_height`]) lays it out as ONE IFC.
-/// OPEN (TABLE-B, 2026-10-01): the table's min/max-content measurement still
-/// lays such a cell out through [`layout_formatting_context`] as a BFC, where
-/// its text child is a block-level box at its MAX-content width, so the
-/// cell's min-content equals its max and prose columns never shrink. Routing
-/// every `TableCell` to `layout_ifc` there (7534be8c7) also took the final
-/// passes over cells and dropped whole tables from the layout; the
-/// measurement has to be told apart from the final pass first.
+/// Then it is laid out as ONE IFC, on two explicit paths that never meet:
+/// the table's min/max-content MEASUREMENT ([`measure_cell_content_width`])
+/// lays its IFC out under the measurement constraint and reads the extent
+/// (min-content = its longest word), and the FINAL pass
+/// ([`layout_cell_for_height`]) lays it out at its column width. The generic
+/// route (`layout_formatting_context` -> `layout_bfc`) made the cell's text
+/// child a block-level box sized at its MAX-content width, so a cell's
+/// min-content came out equal to its max and a 220px table of prose ran its
+/// cells 360px wide; routing EVERY such cell through `layout_ifc` inside
+/// `layout_formatting_context` (7534be8c7, reverted) also changed the final
+/// passes and dropped whole tables from the layout.
 fn cell_is_inline_formatting_context(styled_dom: &StyledDom, cell_dom_id: NodeId) -> bool {
     let any_text = cell_dom_id
         .az_children(&styled_dom.node_hierarchy.as_container())

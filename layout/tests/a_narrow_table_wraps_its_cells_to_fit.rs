@@ -85,7 +85,6 @@ fn node(lw: &LayoutWindow, id: &str) -> DomNodeId {
 }
 
 #[test]
-#[ignore = "OPEN for TABLE-B: a prose cell's min-content is measured as a BFC (= its max-content); see cell_is_inline_formatting_context in solver3/fc.rs"]
 fn prose_cells_wrap_inside_a_220px_table() {
     let lw = laid_out(
         "<html><head></head><body style=\"margin: 0\">\
