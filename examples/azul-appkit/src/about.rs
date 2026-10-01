@@ -26,14 +26,27 @@ pub struct AboutInfo {
 /// The About rows: version, license, where the data lives, the toolkit.
 #[must_use]
 pub fn about_rows(info: &AboutInfo, data_root: &Path) -> Vec<(String, String)> {
-        todo!("RED: about_rows")
-    }
+    vec![
+        ("Version".to_string(), info.version.to_string()),
+        ("License".to_string(), info.license.to_string()),
+        (
+            "Data folder".to_string(),
+            crate::data::local_path(data_root, info.app_folder)
+                .display()
+                .to_string(),
+        ),
+        ("Built with".to_string(), "azul (azul.rs)".to_string()),
+    ]
+}
 
 /// The window title: the app's name, with the screen when it is not the main one.
 #[must_use]
 pub fn window_title(app: &str, screen: Option<&str>) -> String {
-        todo!("RED: window_title")
+    match screen.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(screen) => format!("{screen} - {app}"),
+        None => app.to_string(),
     }
+}
 
 #[cfg(test)]
 mod tests {

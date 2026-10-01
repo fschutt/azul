@@ -39,21 +39,51 @@ pub const KIT_SHORTCUTS: [Shortcut; 3] = [
 /// and `Ctrl` elsewhere; the `+` joins stay.
 #[must_use]
 pub fn display_keys(keys: &str, mac: bool) -> String {
-        todo!("RED: display_keys")
-    }
+    keys.split('+')
+        .map(|part| match part {
+            "Mod" => {
+                if mac {
+                    "Cmd"
+                } else {
+                    "Ctrl"
+                }
+            }
+            "Alt" if mac => "Option",
+            other => other,
+        })
+        .collect::<Vec<_>>()
+        .join("+")
+}
 
 /// The groups in the order they first appear, each with its shortcuts in table order.
 #[must_use]
 pub fn groups(list: &[Shortcut]) -> Vec<(&'static str, Vec<Shortcut>)> {
-        todo!("RED: groups")
+    let mut out: Vec<(&'static str, Vec<Shortcut>)> = Vec::new();
+    for s in list {
+        match out.iter_mut().find(|(g, _)| *g == s.group) {
+            Some((_, items)) => items.push(*s),
+            None => out.push((s.group, vec![*s])),
+        }
     }
+    out
+}
 
 /// Whether a shortcut matches a search: every word of the query appears in
 /// its group, keys or action (any case). An empty query matches everything.
 #[must_use]
 pub fn matches(s: &Shortcut, query: &str, mac: bool) -> bool {
-        todo!("RED: matches")
-    }
+    let hay = format!(
+        "{} {} {} {}",
+        s.group,
+        s.keys,
+        display_keys(s.keys, mac),
+        s.action
+    )
+    .to_lowercase();
+    query
+        .split_whitespace()
+        .all(|word| hay.contains(&word.to_lowercase()))
+}
 
 #[cfg(test)]
 mod tests {

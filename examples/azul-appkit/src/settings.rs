@@ -85,7 +85,14 @@ impl AppSettings {
     /// The file's text: pretty-printed JSON with sorted keys and a final newline.
     #[must_use]
     pub fn to_json(&self) -> String {
-        todo!("RED: to_json")
+        let file = SettingsFile {
+            theme: self.theme.name().to_string(),
+            mode: self.mode.name().to_string(),
+            values: self.values.clone(),
+        };
+        let mut text = serde_json::to_string_pretty(&file).unwrap_or_else(|_| "{}".to_string());
+        text.push('\n');
+        text
     }
 
     /// An app value.
@@ -103,7 +110,11 @@ impl AppSettings {
     /// anything else, or no value, is `default`.
     #[must_use]
     pub fn get_bool(&self, key: &str, default: bool) -> bool {
-        todo!("RED: get_bool")
+        match self.get(key).map(|v| v.trim().to_ascii_lowercase()) {
+            Some(v) if matches!(v.as_str(), "true" | "1" | "yes" | "on") => true,
+            Some(v) if matches!(v.as_str(), "false" | "0" | "no" | "off") => false,
+            _ => default,
+        }
     }
 
     /// Sets a yes / no value (`true` / `false`).
@@ -115,7 +126,10 @@ impl AppSettings {
     /// over the file (for this run only; the file keeps its own).
     #[must_use]
     pub fn effective(&self, args: &AppArgs) -> (Theme, ModePref) {
-        todo!("RED: effective")
+        (
+            args.theme.unwrap_or(self.theme),
+            args.mode.unwrap_or(self.mode),
+        )
     }
 }
 

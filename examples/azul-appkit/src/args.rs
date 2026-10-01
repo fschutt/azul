@@ -47,7 +47,10 @@ impl Theme {
     /// A theme by name, any case, surrounding blanks ignored.
     #[must_use]
     pub fn parse(name: &str) -> Option<Theme> {
-        todo!("RED: parse")
+        let name = name.trim();
+        Theme::ALL
+            .into_iter()
+            .find(|t| t.name().eq_ignore_ascii_case(name))
     }
 
     /// The position in [`Theme::ALL`].
@@ -93,7 +96,10 @@ impl ModePref {
     /// A choice by name, any case, surrounding blanks ignored.
     #[must_use]
     pub fn parse(name: &str) -> Option<ModePref> {
-        todo!("RED: parse")
+        let name = name.trim();
+        ModePref::ALL
+            .into_iter()
+            .find(|m| m.name().eq_ignore_ascii_case(name))
     }
 
     /// The position in [`ModePref::ALL`].
@@ -147,8 +153,38 @@ pub const DEFAULT_SHOT_DELAY_MS: u64 = 1500;
 /// The usage text of an app.
 #[must_use]
 pub fn help(spec: &AppSpec) -> String {
-        todo!("RED: help")
+    let files = if spec.files_help.is_empty() {
+        String::new()
+    } else {
+        " [FILE...]".to_string()
+    };
+    let mut out = format!(
+        "{name} - {summary}\n\nUSAGE:\n    {binary} [OPTIONS]{files}\n\nOPTIONS:\n",
+        name = spec.name,
+        summary = spec.summary,
+        binary = spec.binary,
+    );
+    out.push_str(&format!(
+        "    --screen <NAME>          {}\n",
+        spec.screens.join(" | ")
+    ));
+    out.push_str("    --size <WxH>             Initial window size, e.g. --size 900x640\n");
+    out.push_str("    --theme <NAME>           flat | flora (this run only)\n");
+    out.push_str("    --mode <NAME>            system | light | dark (this run only)\n");
+    out.push_str("    --shot <PNG>             Render, write this screenshot, exit\n");
+    out.push_str(&format!(
+        "    --shot-delay-ms <MS>     Settle time before --shot (default {DEFAULT_SHOT_DELAY_MS})\n"
+    ));
+    out.push_str("    --sample                 Fill an empty data folder with sample data\n");
+    out.push_str(
+        "    --data-dir <DIR>         The data root (default: $AZLIN_DATA, else the user's)\n",
+    );
+    out.push_str("    -h, --help               Print this help\n");
+    if !spec.files_help.is_empty() {
+        out.push_str(&format!("\nFILE: {}\n", spec.files_help));
     }
+    out
+}
 
 impl AppArgs {
     /// Parses `argv` WITHOUT the program name. `Err` carries the message to
@@ -158,7 +194,101 @@ impl AppArgs {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        todo!("RED: parse")
+        let mut a = AppArgs {
+            shot_delay_ms: DEFAULT_SHOT_DELAY_MS,
+            ..AppArgs::default()
+        };
+        let argv: Vec<String> = argv.into_iter().map(Into::into).collect();
+        let mut i = 0;
+        while i < argv.len() {
+            let arg = argv[i].as_str();
+            let (name, inline) = match arg.split_once('=') {
+                Some((n, v)) if n.starts_with("--") => (n, Some(v.to_string())),
+                _ => (arg, None),
+            };
+            let mut value = |what: &str| -> Result<String, String> {
+                if let Some(v) = inline.clone() {
+                    return Ok(v);
+                }
+                i += 1;
+                argv.get(i)
+                    .cloned()
+                    .ok_or_else(|| format!("{name} needs a {what}"))
+            };
+            match name {
+                "-h" | "--help" => return Err(help(spec)),
+                "--screen" => {
+                    let v = value("name")?;
+                    match spec
+                        .screens
+                        .iter()
+                        .find(|s| s.eq_ignore_ascii_case(v.trim()))
+                    {
+                        Some(screen) => a.screen = Some((*screen).to_string()),
+                        None => {
+                            return Err(format!(
+                                "--screen: expected {}, got {v:?}",
+                                spec.screens.join("|")
+                            ))
+                        }
+                    }
+                }
+                "--size" => {
+                    let v = value("WxH")?;
+                    a.size = Some(parse_size(&v)?);
+                }
+                "--theme" => {
+                    let v = value("name")?;
+                    a.theme = Some(
+                        Theme::parse(&v)
+                            .ok_or_else(|| format!("--theme: expected flat|flora, got {v:?}"))?,
+                    );
+                }
+                "--mode" => {
+                    let v = value("name")?;
+                    a.mode =
+                        Some(ModePref::parse(&v).ok_or_else(|| {
+                            format!("--mode: expected system|light|dark, got {v:?}")
+                        })?);
+                }
+                "--shot" => a.shot = Some(PathBuf::from(value("path")?)),
+                "--shot-delay-ms" => {
+                    let v = value("number")?;
+                    a.shot_delay_ms = v
+                        .trim()
+                        .parse()
+                        .map_err(|_| format!("--shot-delay-ms: expected a number, got {v:?}"))?;
+                }
+                "--sample" => {
+                    if inline.is_some() {
+                        return Err("--sample takes no value".to_string());
+                    }
+                    a.sample = true;
+                }
+                "--data-dir" => {
+                    let v = value("folder")?;
+                    if v.trim().is_empty() {
+                        return Err("--data-dir needs a folder".to_string());
+                    }
+                    a.data_dir = Some(PathBuf::from(v));
+                }
+                other if other.starts_with('-') && other != "-" => {
+                    return Err(format!("unknown option {other:?}\n\n{}", help(spec)))
+                }
+                positional => {
+                    if spec.files_help.is_empty() {
+                        return Err(format!(
+                            "{} takes no files ({positional:?})\n\n{}",
+                            spec.name,
+                            help(spec)
+                        ));
+                    }
+                    a.files.push(PathBuf::from(positional));
+                }
+            }
+            i += 1;
+        }
+        Ok(a)
     }
 
     /// The switches of this process (`std::env::args`, without the program name).
@@ -169,14 +299,22 @@ impl AppArgs {
     /// The screen to open: `--screen`, else the app's first screen.
     #[must_use]
     pub fn screen_or_default<'a>(&'a self, spec: &'a AppSpec) -> &'a str {
-        todo!("RED: screen_or_default")
+        self.screen
+            .as_deref()
+            .or_else(|| spec.screens.first().copied())
+            .unwrap_or("")
     }
 }
 
 /// `WxH` in logical pixels, both positive.
 fn parse_size(v: &str) -> Result<(f32, f32), String> {
-        todo!("RED: parse_size")
+    let bad = || format!("--size: expected WxH in pixels, got {v:?}");
+    let (w, h) = v.trim().split_once(['x', 'X']).ok_or_else(bad)?;
+    match (w.trim().parse::<f32>(), h.trim().parse::<f32>()) {
+        (Ok(w), Ok(h)) if w > 0.0 && h > 0.0 && w.is_finite() && h.is_finite() => Ok((w, h)),
+        _ => Err(bad()),
     }
+}
 
 #[cfg(test)]
 mod tests {

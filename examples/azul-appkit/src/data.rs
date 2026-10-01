@@ -24,15 +24,32 @@ pub const ROOT_DIR: &str = "Azlin";
 /// [`ROOT_DIR`] in the working folder (a system without a data folder).
 #[must_use]
 pub fn data_root(flag: Option<&Path>, var: Option<&str>, os_data_dir: Option<PathBuf>) -> PathBuf {
-        todo!("RED: data_root")
+    if let Some(flag) = flag.filter(|p| !p.as_os_str().is_empty()) {
+        return flag.to_path_buf();
     }
+    if let Some(var) = var.map(str::trim).filter(|v| !v.is_empty()) {
+        return PathBuf::from(var);
+    }
+    match os_data_dir.filter(|p| !p.as_os_str().is_empty()) {
+        Some(dir) => dir.join(ROOT_DIR),
+        None => PathBuf::from(ROOT_DIR),
+    }
+}
 
 /// The drive key of `name` in an app's folder: `calculator` + `history.jsonl`
 /// = `calculator/history.jsonl`. Slashes at the joint are not doubled.
 #[must_use]
 pub fn app_key(app_folder: &str, name: &str) -> String {
-        todo!("RED: app_key")
+    let folder = app_folder.trim_matches('/');
+    let name = name.trim_start_matches('/');
+    if folder.is_empty() {
+        name.to_string()
+    } else if name.is_empty() {
+        format!("{folder}/")
+    } else {
+        format!("{folder}/{name}")
     }
+}
 
 /// The folder an app's keys live in, as a listing prefix: `contacts/`.
 #[must_use]
@@ -44,8 +61,12 @@ pub fn app_prefix(app_folder: &str) -> String {
 /// reading and writing go through the drive).
 #[must_use]
 pub fn local_path(root: &Path, key: &str) -> PathBuf {
-        todo!("RED: local_path")
+    let mut path = root.to_path_buf();
+    for segment in key.split('/').filter(|s| !s.is_empty()) {
+        path.push(segment);
     }
+    path
+}
 
 /// A new random identifier for a record file (`contacts/<id>.vcf`): a version
 /// 4 UUID in its usual 8-4-4-4-12 lowercase form. Random enough that two
@@ -76,14 +97,28 @@ pub fn new_uuid() -> String {
 /// The UUID text of 128 random bits, with the version (4) and variant (10xx) bits set.
 #[must_use]
 pub fn uuid_from_words(hi: u64, lo: u64) -> String {
-        todo!("RED: uuid_from_words")
-    }
+    let hi = (hi & 0xffff_ffff_ffff_0fff) | 0x0000_0000_0000_4000;
+    let lo = (lo & 0x3fff_ffff_ffff_ffff) | 0x8000_0000_0000_0000;
+    format!(
+        "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
+        hi >> 32,
+        (hi >> 16) & 0xffff,
+        hi & 0xffff,
+        lo >> 48,
+        lo & 0xffff_ffff_ffff
+    )
+}
 
 /// Whether `text` is a UUID in the 8-4-4-4-12 hex form (any case).
 #[must_use]
 pub fn is_uuid(text: &str) -> bool {
-        todo!("RED: is_uuid")
-    }
+    let groups: Vec<&str> = text.split('-').collect();
+    groups.len() == 5
+        && groups
+            .iter()
+            .zip([8, 4, 4, 4, 12])
+            .all(|(g, n)| g.len() == n && g.chars().all(|c| c.is_ascii_hexdigit()))
+}
 
 #[cfg(test)]
 mod tests {

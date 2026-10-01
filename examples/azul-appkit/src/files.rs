@@ -63,13 +63,68 @@ impl FileOutcome {
 
 /// Every key under `prefix`, at any depth, in key order (all pages).
 pub fn list_all(drive: &dyn Drive, prefix: &str) -> Result<Vec<String>, DriveError> {
-        todo!("RED: list_all")
+    let mut keys = Vec::new();
+    let mut request = ListRequest::recursive(prefix);
+    // A drive that keeps answering with a token would loop forever: stop
+    // after far more pages than any folder of an app has.
+    for _ in 0..10_000 {
+        let page = drive.list(&request)?;
+        keys.extend(page.objects.into_iter().map(|o| o.key));
+        match page.next {
+            Some(token) => request = ListRequest::recursive(prefix).with_continuation(token),
+            None => break,
+        }
     }
+    keys.sort();
+    Ok(keys)
+}
 
 /// Runs one job.
 pub fn run_job(drive: &dyn Drive, job: FileJob) -> FileOutcome {
-        todo!("RED: run_job")
+    match job {
+        FileJob::Put { key, bytes } => {
+            let result = drive.put(&key, &bytes).map_err(|e| e.to_string());
+            FileOutcome::Put { key, result }
+        }
+        FileJob::Get { key } => {
+            let result = match drive.get(&key) {
+                Ok(bytes) => Ok(Some(bytes)),
+                Err(DriveError::NotFound { .. }) => Ok(None),
+                Err(e) => Err(e.to_string()),
+            };
+            FileOutcome::Got { key, result }
+        }
+        FileJob::GetAll { prefix, suffix } => {
+            let mut files = Vec::new();
+            let mut errors = Vec::new();
+            match list_all(drive, &prefix) {
+                Ok(keys) => {
+                    for key in keys.into_iter().filter(|k| k.ends_with(&suffix)) {
+                        match drive.get(&key) {
+                            Ok(bytes) => files.push((key, bytes)),
+                            // Deleted between the listing and the read: not there.
+                            Err(DriveError::NotFound { .. }) => {}
+                            Err(e) => errors.push(e.to_string()),
+                        }
+                    }
+                }
+                Err(e) => errors.push(e.to_string()),
+            }
+            FileOutcome::GotAll {
+                prefix,
+                files,
+                errors,
+            }
+        }
+        FileJob::Delete { key } => {
+            let result = match drive.delete(&key) {
+                Ok(()) | Err(DriveError::NotFound { .. }) => Ok(()),
+                Err(e) => Err(e.to_string()),
+            };
+            FileOutcome::Deleted { key, result }
+        }
     }
+}
 
 /// Runs the jobs in order (a later job sees what an earlier one wrote).
 pub fn run_jobs(drive: &dyn Drive, jobs: Vec<FileJob>) -> Vec<FileOutcome> {
