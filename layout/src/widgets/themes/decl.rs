@@ -498,3 +498,22 @@ pub(crate) const fn border_top(width_px: isize) -> [CssPropertyWithConditions; 2
         )),
     ]
 }
+
+// ==== cell_grid: a right rule ====
+
+/// `border-right: <width>px solid`, no colour (pair it with
+/// [`themed_border_right_color`]): [`border_left`]'s twin for the other
+/// edge - a grid line between two cells, a header's divider.
+#[must_use]
+pub(crate) const fn border_right(width_px: isize) -> [CssPropertyWithConditions; 2] {
+    [
+        CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
+            LayoutBorderRightWidth::const_px(width_px),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
+            StyleBorderRightStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+    ]
+}

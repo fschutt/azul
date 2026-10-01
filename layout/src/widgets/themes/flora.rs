@@ -7609,6 +7609,79 @@ pub(crate) fn timeline_look() -> crate::widgets::timeline::TimelineLook {
         scroll: flora_strip_above(),
         scroll_track,
         thumb,
+// ==== cell_grid ====
+//
+// A flora grid is a page of cells a --fl-sep hairline apart under a strip
+// of column letters and beside a strip of row numbers (--fl-strip, the
+// letters in --fl-soft1); the headers of the selection sit on the track
+// colour, a wholly selected column or row in the accent; the selected cells
+// take the track colour, the current range the accent outline with the fill
+// handle at its corner, the editor a page-coloured box in the accent. At
+// night every surface, ink and wash takes its night value.
+
+/// Flora's cell-grid look.
+#[must_use]
+pub(crate) fn cell_grid_look() -> crate::widgets::cell_grid::CellGridLook {
+    use super::{decl, style_kit as kit};
+
+    let mut grid = alloc::vec![CssPropertyWithConditions::simple(
+        CssProperty::const_font_family(SYSTEM_UI_FAMILY)
+    )];
+    grid.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    grid.extend(decl::themed_fill(LIGHT_PG, DARK_PG));
+
+    let mut header = alloc::vec![kit::font_size(11)];
+    header.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+    header.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    header.extend(decl::border_right(1));
+    header.extend(decl::themed_border_right_color(LIGHT_BD, DARK_BD));
+    header.extend(decl::border_bottom(1));
+    header.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut header_active = decl::themed_fill(LIGHT_TRACK, DARK_TRACK).to_vec();
+    header_active.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    let mut header_selected = decl::themed_fill(LIGHT_ACC, DARK_ACC).to_vec();
+    header_selected.extend(decl::themed_ink(LIGHT_ON_ACC, DARK_ON_ACC));
+
+    let mut grid_line_right = decl::border_right(1).to_vec();
+    grid_line_right.extend(decl::themed_border_right_color(LIGHT_SEP, DARK_SEP));
+    let mut grid_line_bottom = decl::border_bottom(1).to_vec();
+    grid_line_bottom.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+    let mut no_line_right = decl::border_right(1).to_vec();
+    no_line_right.extend(decl::themed_border_right_color(LIGHT_PG, DARK_PG));
+    let mut no_line_bottom = decl::border_bottom(1).to_vec();
+    no_line_bottom.extend(decl::themed_border_bottom_color(LIGHT_PG, DARK_PG));
+
+    let mut outline = decl::border(2).to_vec();
+    outline.extend(decl::themed_border_color(LIGHT_ACC, DARK_ACC));
+    let mut fill_handle = decl::themed_fill(LIGHT_ACC, DARK_ACC).to_vec();
+    fill_handle.extend(decl::border(1));
+    fill_handle.extend(decl::themed_border_color(LIGHT_PG, DARK_PG));
+    let mut fill_preview = decl::border(1).to_vec();
+    fill_preview.extend(decl::themed_border_color(LIGHT_SOFT1, DARK_SOFT1));
+    let mut editor = decl::themed_fill(LIGHT_PG, DARK_PG).to_vec();
+    editor.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    editor.extend(decl::border(2));
+    editor.extend(decl::themed_border_color(LIGHT_ACC, DARK_ACC));
+    editor.extend(decl::padding(0, 3, 0, 3));
+
+    crate::widgets::cell_grid::CellGridLook {
+        grid,
+        corner: header.clone(),
+        header,
+        header_active,
+        header_selected,
+        grid_line_right,
+        grid_line_bottom,
+        no_line_right,
+        no_line_bottom,
+        selected: decl::themed_fill(LIGHT_TRACK, DARK_TRACK).to_vec(),
+        freeze_line: decl::themed_fill(LIGHT_BD3, DARK_BD3).to_vec(),
+        outline,
+        fill_handle,
+        fill_preview,
+        editor,
+        caret: decl::themed_fill(LIGHT_INK, DARK_INK).to_vec(),
         marker: Some(super::style_kit::FLORA_CLASS),
     }
 }
@@ -7723,4 +7796,8 @@ pub(crate) fn thumbnail_strip_look() -> crate::widgets::thumbnail_strip::Thumbna
         ))],
         marker: Some(super::style_kit::FLORA_CLASS),
     }
+/// The flora cell grid.
+#[must_use]
+pub(crate) fn cell_grid(g: crate::widgets::cell_grid::CellGridResolved) -> Dom {
+    crate::widgets::cell_grid::build(g, &cell_grid_look())
 }
