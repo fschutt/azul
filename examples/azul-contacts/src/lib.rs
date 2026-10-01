@@ -16,5 +16,10 @@ pub mod sample;
 pub mod store;
 pub mod vcard;
 
-/// The window (filled in by the UI commit).
-pub fn start() {}
+/// The window (azul's PimShell, the list, the card, the edit form, import, merge, settings).
+pub mod ui;
+
+/// Starts AzContacts (the switches are read from the command line).
+pub fn start() {
+    ui::start();
+}

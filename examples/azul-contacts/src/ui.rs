@@ -83,9 +83,8 @@ pub const ABOUT: AboutInfo = AboutInfo {
     app_folder: "contacts",
 };
 
-pub const SHORTCUTS: [Shortcut; 10] = [
+pub const SHORTCUTS: [Shortcut; 9] = [
     Shortcut::new("Contacts", "Mod+N", "New contact"),
-    Shortcut::new("Contacts", "Mod+F", "Search"),
     Shortcut::new("Contacts", "Mod+E", "Edit the selected contact"),
     Shortcut::new("Contacts", "Mod+S", "Save the contact being edited"),
     Shortcut::new("Contacts", "Escape", "Cancel editing"),
@@ -771,6 +770,15 @@ fn edit_view(app: &RefAny, form: &Form) -> Dom {
             primary("Save", "edit-save", app, on_edit_save),
         ],
     ));
+    let mut photo_row = vec![
+        Avatar::create(book::initials(d)).with_size(AvatarSize::Medium).dom(),
+        button("Change photo\u{2026}", "edit-photo", app, on_photo_choose),
+    ];
+    if !d.photo.trim().is_empty() {
+        photo_row.push(button("Remove photo", "edit-photo-remove", app, on_photo_remove));
+        photo_row.push(block("font-size: 12px; opacity: 0.75;", text("A photo is set.")));
+    }
+    children.push(row("gap: 8px; padding-bottom: 6px;", photo_row));
     if form.confirm_discard {
         children.push(row(
             "padding: 6px 0px;",
@@ -1693,4 +1701,702 @@ extern "C" fn on_delete_confirmed(mut data: RefAny, mut info: CallbackInfo) -> U
         s.select(next);
         s.notice = format!("Deleted {}", removed.display_name());
     })
+}
+
+// ==== Callbacks: the edit form ====
+
+/// Runs `f` on the edit form, if the reading pane shows one.
+fn with_form(app: &mut RefAny, info: &mut CallbackInfo, f: impl FnOnce(&mut Form)) -> Update {
+    with_app(app, info, |s, _info, _| {
+        if let Reading::Edit(form) = &mut s.reading {
+            f(form);
+        }
+    })
+}
+
+fn set_field(form: &mut Form, field: FormField, value: String) {
+    let d = &mut form.draft;
+    match field {
+        FormField::Given => d.given = value,
+        FormField::Family => d.family = value,
+        FormField::Org => d.org = value,
+        FormField::Department => d.department = value,
+        FormField::Title => d.title = value,
+        FormField::Nickname => d.nickname = value,
+        FormField::Birthday => form.birthday_text = value,
+        FormField::NewGroup => form.new_group = value,
+        FormField::Phone(i) => {
+            if let Some(p) = d.phones.get_mut(i) {
+                p.value = value;
+            }
+        }
+        FormField::Email(i) => {
+            if let Some(e) = d.emails.get_mut(i) {
+                e.value = value;
+            }
+        }
+        FormField::Street(i) => {
+            if let Some(a) = d.addresses.get_mut(i) {
+                a.street = value;
+            }
+        }
+        FormField::Postcode(i) => {
+            if let Some(a) = d.addresses.get_mut(i) {
+                a.postcode = value;
+            }
+        }
+        FormField::City(i) => {
+            if let Some(a) = d.addresses.get_mut(i) {
+                a.locality = value;
+            }
+        }
+        FormField::Region(i) => {
+            if let Some(a) = d.addresses.get_mut(i) {
+                a.region = value;
+            }
+        }
+        FormField::Country(i) => {
+            if let Some(a) = d.addresses.get_mut(i) {
+                a.country = value;
+            }
+        }
+        FormField::CustomLabel(i) => {
+            if let Some(f) = d.custom.get_mut(i) {
+                f.label = value;
+            }
+        }
+        FormField::CustomValue(i) => {
+            if let Some(f) = d.custom.get_mut(i) {
+                f.value = value;
+            }
+        }
+        FormField::ImportPath | FormField::ImportGroup => {}
+    }
+}
+
+/// A text field of the form or the import screen. The draft takes the text; the
+/// window is not rebuilt (the field shows what was typed).
+extern "C" fn on_form_text(mut data: RefAny, mut info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+    let keep = OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: TextInputValid::Yes,
+    };
+    let Some((mut app, field)) = data.downcast_ref::<FieldRef>().map(|f| (f.app.clone(), f.field)) else {
+        return keep;
+    };
+    let value = state.get_text().as_str().to_string();
+    let _ = with_app(&mut app, &mut info, |s, _info, _| match (&mut s.reading, field) {
+        (Reading::Import(st), FormField::ImportPath) => st.path = value,
+        (Reading::Import(st), FormField::ImportGroup) => st.group = value,
+        (Reading::Edit(form), field) => set_field(form, field, value),
+        _ => {}
+    });
+    keep
+}
+
+extern "C" fn on_notes(mut data: RefAny, mut info: CallbackInfo, state: TextAreaState) -> OnTextInputReturn {
+    let notes: String = state.text.as_slice().iter().filter_map(|c| char::from_u32(*c)).collect();
+    let _ = with_form(&mut data, &mut info, |form| form.draft.notes = notes);
+    OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: TextInputValid::Yes,
+    }
+}
+
+extern "C" fn on_form_favorite(mut data: RefAny, mut info: CallbackInfo, state: SwitchState) -> Update {
+    with_form(&mut data, &mut info, |form| form.draft.favorite = state.checked)
+}
+
+extern "C" fn on_label_change(mut data: RefAny, mut info: CallbackInfo, choice: usize) -> Update {
+    let Some((mut app, kind, index)) = data.downcast_ref::<LabelRef>().map(|l| (l.app.clone(), l.kind, l.index)) else {
+        return Update::DoNothing;
+    };
+    with_form(&mut app, &mut info, |form| {
+        let d = &mut form.draft;
+        let current = match kind {
+            RowKind::Phone => d.phones.get(index).map(|p| p.label.clone()),
+            RowKind::Email => d.emails.get(index).map(|e| e.label.clone()),
+            RowKind::Address => d.addresses.get(index).map(|a| a.label.clone()),
+            _ => None,
+        };
+        let Some(current) = current else {
+            return;
+        };
+        // The same choices label_drop offered: the standard labels, then the row's own.
+        let mut choices: Vec<String> = labels_for(kind).iter().map(|l| (*l).to_string()).collect();
+        if !choices.contains(&current) && !current.is_empty() {
+            choices.push(current);
+        }
+        let Some(label) = choices.get(choice).cloned() else {
+            return;
+        };
+        match kind {
+            RowKind::Phone => d.phones[index].label = label,
+            RowKind::Email => d.emails[index].label = label,
+            RowKind::Address => d.addresses[index].label = label,
+            _ => {}
+        }
+    })
+}
+
+extern "C" fn on_add_row(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, kind)) = data.downcast_ref::<RowKindRef>().map(|r| (r.app.clone(), r.kind)) else {
+        return Update::DoNothing;
+    };
+    with_form(&mut app, &mut info, |form| {
+        let d = &mut form.draft;
+        match kind {
+            RowKind::Phone => {
+                let label = if d.phones.is_empty() { "mobile" } else { "work" };
+                d.phones.push(Labeled::new(label, ""));
+            }
+            RowKind::Email => {
+                let label = if d.emails.is_empty() { "home" } else { "work" };
+                d.emails.push(Labeled::new(label, ""));
+            }
+            RowKind::Address => d.addresses.push(Address {
+                label: if d.addresses.is_empty() { "home".into() } else { "work".into() },
+                ..Address::default()
+            }),
+            RowKind::Custom => d.custom.push(Labeled::new("", "")),
+            RowKind::Group => {
+                let group = form.new_group.trim().to_string();
+                if !group.is_empty() && !form.draft.groups.contains(&group) {
+                    form.draft.groups.push(group);
+                }
+                form.new_group.clear();
+            }
+        }
+    })
+}
+
+extern "C" fn on_remove_row(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, kind, index)) = data.downcast_ref::<RowKindRef>().map(|r| (r.app.clone(), r.kind, r.index)) else {
+        return Update::DoNothing;
+    };
+    with_form(&mut app, &mut info, |form| {
+        let d = &mut form.draft;
+        let len = match kind {
+            RowKind::Phone => d.phones.len(),
+            RowKind::Email => d.emails.len(),
+            RowKind::Address => d.addresses.len(),
+            RowKind::Custom => d.custom.len(),
+            RowKind::Group => d.groups.len(),
+        };
+        if index >= len {
+            return;
+        }
+        match kind {
+            RowKind::Phone => {
+                d.phones.remove(index);
+            }
+            RowKind::Email => {
+                d.emails.remove(index);
+            }
+            RowKind::Address => {
+                d.addresses.remove(index);
+            }
+            RowKind::Custom => {
+                d.custom.remove(index);
+            }
+            RowKind::Group => {
+                d.groups.remove(index);
+            }
+        }
+    })
+}
+
+extern "C" fn on_remove_group(data: RefAny, info: CallbackInfo, _state: ChipState) -> Update {
+    on_remove_row(data, info)
+}
+
+/// The draft as it is saved: empty rows dropped, the birthday from its text,
+/// a group still in the "add" field added.
+#[must_use]
+pub fn finished_draft(form: &Form) -> (Contact, Vec<String>) {
+    let mut c = form.draft.clone();
+    c.phones.retain(|p| !p.value.trim().is_empty());
+    c.emails.retain(|e| !e.value.trim().is_empty());
+    c.urls.retain(|u| !u.value.trim().is_empty());
+    c.addresses.retain(|a| !a.is_empty());
+    c.custom.retain(|f| !f.value.trim().is_empty());
+    for p in c.phones.iter_mut().chain(c.emails.iter_mut()) {
+        p.value = p.value.trim().to_string();
+    }
+    let group = form.new_group.trim();
+    if !group.is_empty() && !c.groups.iter().any(|g| g == group) {
+        c.groups.push(group.to_string());
+    }
+    c.birthday = Birthday::parse(&form.birthday_text);
+    let problems = c.problems(Some(&form.birthday_text));
+    (c, problems)
+}
+
+extern "C" fn on_edit_save(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, info, handle| {
+        let Reading::Edit(form) = &mut s.reading else {
+            return;
+        };
+        let (contact, problems) = finished_draft(form);
+        if !problems.is_empty() {
+            println!("AZCONTACTS_PROBLEMS {}", problems.join(" | "));
+            form.problems = problems;
+            return;
+        }
+        s.reading = Reading::Card;
+        save_contact(s, info, handle, contact);
+    })
+}
+
+extern "C" fn on_edit_cancel(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| {
+        leave_reading(s);
+    })
+}
+
+extern "C" fn on_edit_discard(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| s.reading = Reading::Card)
+}
+
+extern "C" fn on_edit_keep(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_form(&mut data, &mut info, |form| form.confirm_discard = false)
+}
+
+/// Standard base64 (for a photo picked from a file).
+#[must_use]
+pub fn base64(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        out.push(TABLE[(n >> 18) as usize & 63] as char);
+        out.push(TABLE[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 { TABLE[(n >> 6) as usize & 63] as char } else { '=' });
+        out.push(if chunk.len() > 2 { TABLE[n as usize & 63] as char } else { '=' });
+    }
+    out
+}
+
+/// The image type of a picture file by its name.
+#[must_use]
+pub fn image_mime(path: &str) -> &'static str {
+    let lower = path.to_lowercase();
+    if lower.ends_with(".png") {
+        "image/png"
+    } else if lower.ends_with(".gif") {
+        "image/gif"
+    } else if lower.ends_with(".webp") {
+        "image/webp"
+    } else if lower.ends_with(".svg") {
+        "image/svg+xml"
+    } else {
+        "image/jpeg"
+    }
+}
+
+extern "C" fn on_photo_choose(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let app = data.clone();
+    if data.downcast_ref::<ContactsApp>().is_none() {
+        return Update::DoNothing;
+    }
+    let _request = FileDialog::open_file(
+        "Choose a photo",
+        OptionString::None,
+        OptionFileTypeList::None,
+        app,
+        on_photo_picked,
+    );
+    Update::DoNothing
+}
+
+/// The picture is read as it is picked (the dialog's answer arrives in a
+/// callback, the file is small): the bytes become the card's data: URI.
+extern "C" fn on_photo_picked(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    let Some(picked) = FileOpenResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(path) = picked.path.into_option() else {
+        return Update::DoNothing; // cancelled
+    };
+    let path = PathBuf::from(path.as_string().as_str());
+    with_app(&mut data, &mut info, |s, info, handle| {
+        let (Some(folder), Some(name)) = (path.parent(), path.file_name()) else {
+            return;
+        };
+        kit::spawn_file_jobs(
+            info,
+            folder,
+            vec![FileJob::Get { key: name.to_string_lossy().into_owned() }],
+            handle.clone(),
+            TAG_PHOTO,
+            on_photo_read,
+        );
+        s.notice = format!("Reading {}", path.display());
+    })
+}
+
+const TAG_PHOTO: u64 = 5;
+
+extern "C" fn on_photo_read(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(reply) = kit::take_reply(&mut msg) else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, &mut info, |s, _info, _| {
+        for outcome in reply.outcomes {
+            if let FileOutcome::Got { key, result } = outcome {
+                match result {
+                    Ok(Some(bytes)) if bytes.len() <= 2 * 1024 * 1024 => {
+                        if let Reading::Edit(form) = &mut s.reading {
+                            form.draft.photo = format!("data:{};base64,{}", image_mime(&key), base64(&bytes));
+                            s.notice = "Photo set".to_string();
+                        }
+                    }
+                    Ok(Some(_)) => s.notice = "That picture is larger than 2 MB.".to_string(),
+                    Ok(None) => s.notice = format!("{key} does not exist"),
+                    Err(e) => s.notice = e,
+                }
+            }
+        }
+    })
+}
+
+extern "C" fn on_photo_remove(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_form(&mut data, &mut info, |form| form.draft.photo.clear())
+}
+
+// ==== Callbacks: import ====
+
+extern "C" fn on_import_open(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| {
+        if leave_reading(s) {
+            s.reading = Reading::Import(empty_import());
+        }
+    })
+}
+
+extern "C" fn on_import_read(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, info, handle| {
+        let path = match &s.reading {
+            Reading::Import(st) => st.path.trim().to_string(),
+            _ => return,
+        };
+        if path.is_empty() {
+            if let Reading::Import(st) = &mut s.reading {
+                st.problems = vec!["Type the path of a .vcf file, or choose one.".to_string()];
+            }
+            return;
+        }
+        read_import_file(s, info, handle, &PathBuf::from(path));
+    })
+}
+
+extern "C" fn on_import_choose(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let app = data.clone();
+    if data.downcast_ref::<ContactsApp>().is_none() {
+        return Update::DoNothing;
+    }
+    let _request = FileDialog::open_file(
+        "Import contacts",
+        OptionString::None,
+        OptionFileTypeList::None,
+        app,
+        on_import_file_picked,
+    );
+    Update::DoNothing
+}
+
+extern "C" fn on_import_file_picked(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    let Some(picked) = FileOpenResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(path) = picked.path.into_option() else {
+        return Update::DoNothing;
+    };
+    let path = PathBuf::from(path.as_string().as_str());
+    with_app(&mut data, &mut info, |s, info, handle| read_import_file(s, info, handle, &path))
+}
+
+extern "C" fn on_import_toggle(mut data: RefAny, mut info: CallbackInfo, state: CheckBoxState) -> Update {
+    let Some((mut app, index)) = data.downcast_ref::<ImportRowRef>().map(|r| (r.app.clone(), r.index)) else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, &mut info, |s, _info, _| {
+        if let Reading::Import(st) = &mut s.reading {
+            if let Some(r) = st.rows.get_mut(index) {
+                r.selected = state.checked;
+            }
+        }
+    })
+}
+
+extern "C" fn on_import_cancel(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| s.reading = Reading::Card)
+}
+
+extern "C" fn on_import_run(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, info, handle| {
+        let Reading::Import(st) = std::mem::replace(&mut s.reading, Reading::Card) else {
+            return;
+        };
+        let group = st.group.trim().to_string();
+        let mut jobs = Vec::new();
+        let mut first = None;
+        let mut count = 0;
+        for row in st.rows.into_iter().filter(|r| r.selected) {
+            let mut c = row.contact;
+            store::ensure_uid(&mut c);
+            if !group.is_empty() && !c.groups.contains(&group) {
+                c.groups.push(group.clone());
+            }
+            match s.book.iter().position(|x| x.uid == c.uid) {
+                Some(i) => s.book[i] = c.clone(),
+                None => s.book.push(c.clone()),
+            }
+            let (key, bytes) = store::file_of(&c);
+            jobs.push(FileJob::Put { key, bytes });
+            first.get_or_insert(c.uid.clone());
+            count += 1;
+        }
+        println!("AZCONTACTS_IMPORTED {count}");
+        s.notice = format!("Imported {count} contact{}", if count == 1 { "" } else { "s" });
+        write_files(s, info, handle, jobs, TAG_WRITE);
+        if first.is_some() {
+            s.select(first);
+        }
+    })
+}
+
+// ==== Callbacks: duplicates ====
+
+extern "C" fn on_open_duplicates(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| {
+        if leave_reading(s) {
+            open_duplicates(s);
+        }
+    })
+}
+
+fn with_merge(app: &mut RefAny, info: &mut CallbackInfo, f: impl FnOnce(&mut MergeState)) -> Update {
+    with_app(app, info, |s, _info, _| {
+        if let Reading::Merge(st) = &mut s.reading {
+            f(st);
+        }
+    })
+}
+
+extern "C" fn on_merge_pick(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    let Some((mut app, field)) = data.downcast_ref::<MergeRef>().map(|m| (m.app.clone(), m.field)) else {
+        return Update::DoNothing;
+    };
+    let pick = if state.selected_index == 1 { Pick::B } else { Pick::A };
+    with_merge(&mut app, &mut info, |st| match field {
+        MergeField::Name => st.plan.name = pick,
+        MergeField::Company => st.plan.company = pick,
+        MergeField::Birthday => st.plan.birthday = pick,
+        MergeField::Photo => st.plan.photo = pick,
+        MergeField::Notes => st.plan.notes = pick,
+    })
+}
+
+extern "C" fn on_merge_notes_both(mut data: RefAny, mut info: CallbackInfo, state: SwitchState) -> Update {
+    with_merge(&mut data, &mut info, |st| st.plan.notes_both = state.checked)
+}
+
+extern "C" fn on_merge_prev(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_merge(&mut data, &mut info, |st| {
+        if !st.pairs.is_empty() {
+            st.index = (st.index + st.pairs.len() - 1) % st.pairs.len();
+            st.plan = MergePlan::default();
+        }
+    })
+}
+
+extern "C" fn on_merge_next(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_merge(&mut data, &mut info, |st| {
+        if !st.pairs.is_empty() {
+            st.index = (st.index + 1) % st.pairs.len();
+            st.plan = MergePlan::default();
+        }
+    })
+}
+
+/// The merge screen after the book changed: the pairs again, near the same place.
+fn refresh_pairs(s: &mut ContactsApp, index: usize) {
+    let pairs = s.duplicates();
+    println!("AZCONTACTS_DUPLICATES {}", pairs.len());
+    let index = index.min(pairs.len().saturating_sub(1));
+    s.reading = Reading::Merge(MergeState {
+        pairs,
+        index,
+        plan: MergePlan::default(),
+    });
+}
+
+extern "C" fn on_merge_ignore(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, info, _| {
+        let Reading::Merge(st) = &s.reading else {
+            return;
+        };
+        let Some(pair) = st.pairs.get(st.index).cloned() else {
+            return;
+        };
+        let index = st.index;
+        let (a, b) = (s.book[pair.a].uid.clone(), s.book[pair.b].uid.clone());
+        s.ignored.push((a, b));
+        let value = write_ignored(&s.ignored);
+        kit::set_value(&s.kit, info, "ignored", &value);
+        refresh_pairs(s, index);
+    })
+}
+
+extern "C" fn on_merge_run(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, info, handle| {
+        let Reading::Merge(st) = &s.reading else {
+            return;
+        };
+        let Some(pair) = st.pairs.get(st.index).cloned() else {
+            return;
+        };
+        let (index, plan) = (st.index, st.plan);
+        let merged = dupes::merge(&s.book[pair.a], &s.book[pair.b], &plan);
+        let gone = s.book[pair.b].uid.clone();
+        s.book[pair.a] = merged.clone();
+        s.book.remove(pair.b);
+        let (key, bytes) = store::file_of(&merged);
+        write_files(
+            s,
+            info,
+            handle,
+            vec![FileJob::Put { key, bytes }, FileJob::Delete { key: store::contact_key(&gone) }],
+            TAG_WRITE,
+        );
+        println!("AZCONTACTS_MERGED {}", merged.uid);
+        s.notice = format!("Merged into {}", merged.display_name());
+        s.selected = Some(merged.uid.clone());
+        refresh_pairs(s, index);
+    })
+}
+
+// ==== Keyboard ====
+
+extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(kit_ref) = data.downcast_ref::<ContactsApp>().map(|s| s.kit.clone()) else {
+        return Update::DoNothing;
+    };
+    if let Some(update) = kit::handle_key(&kit_ref, &mut info) {
+        return update;
+    }
+    if kit::settings_open(&kit_ref) {
+        return Update::DoNothing;
+    }
+    let Some(key) = info.get_current_keyboard_state().current_virtual_keycode.into_option() else {
+        return Update::DoNothing;
+    };
+    let m = info.get_key_modifiers();
+    let command = m.ctrl || m.meta;
+    use azul::dom::VirtualKeyCode as K;
+    match (key, command, m.shift) {
+        (K::N, true, _) => {
+            info.prevent_default();
+            on_new(data, info)
+        }
+        (K::E, true, false) => {
+            info.prevent_default();
+            on_edit(data, info)
+        }
+        (K::E, true, true) => {
+            info.prevent_default();
+            on_export_view(data, info)
+        }
+        (K::S, true, _) => {
+            info.prevent_default();
+            on_edit_save(data, info)
+        }
+        (K::I, true, _) => {
+            info.prevent_default();
+            on_import_open(data, info)
+        }
+        (K::D, true, _) => {
+            info.prevent_default();
+            on_open_duplicates(data, info)
+        }
+        (K::Escape, false, _) => with_app(&mut data, &mut info, |s, _info, _| {
+            leave_reading(s);
+        }),
+        (K::Up | K::Down, false, _) => with_app(&mut data, &mut info, |s, _info, _| {
+            if !matches!(s.reading, Reading::Card) {
+                return;
+            }
+            let view = s.view();
+            if view.is_empty() {
+                return;
+            }
+            let pos = s.selected_index().and_then(|i| view.iter().position(|&x| x == i));
+            let next = match (pos, key == K::Down) {
+                (None, _) => 0,
+                (Some(p), true) => (p + 1).min(view.len() - 1),
+                (Some(p), false) => p.saturating_sub(1),
+            };
+            let uid = s.book[view[next]].uid.clone();
+            s.select(Some(uid));
+        }),
+        _ => Update::DoNothing,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! The parts of the window that are plain data.
+
+    use super::*;
+
+    #[test]
+    fn base64_matches_the_standard_alphabet_and_padding() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
+        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+        assert_eq!(base64(&[0xff, 0xfe, 0xfd]), "//79");
+        assert_eq!(image_mime("Me.PNG"), "image/png");
+        assert_eq!(image_mime("me.jpg"), "image/jpeg");
+    }
+
+    #[test]
+    fn ignored_pairs_round_trip_through_the_settings_value() {
+        let pairs = vec![("a".to_string(), "b".to_string()), ("c".to_string(), "d".to_string())];
+        assert_eq!(write_ignored(&pairs), "a|b,c|d");
+        assert_eq!(parse_ignored("a|b,c|d"), pairs);
+        assert_eq!(parse_ignored(""), Vec::<(String, String)>::new());
+        assert_eq!(parse_ignored("broken,|x,y|"), Vec::<(String, String)>::new());
+    }
+
+    #[test]
+    fn a_saved_draft_drops_empty_rows_and_takes_the_birthday_text() {
+        let mut form = Form::new(None);
+        form.draft.given = "Robin".into();
+        form.draft.phones = vec![Labeled::new("mobile", " +49 151 0000 0001 "), Labeled::new("work", "  ")];
+        form.draft.emails = vec![Labeled::new("home", "")];
+        form.birthday_text = "14.03.".into();
+        form.new_group = "Book club".into();
+        let (c, problems) = finished_draft(&form);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(c.phones, vec![Labeled::new("mobile", "+49 151 0000 0001")]);
+        assert!(c.emails.is_empty());
+        assert_eq!(c.birthday, Some(Birthday { year: None, month: 3, day: 14 }));
+        assert_eq!(c.groups, vec!["Book club"]);
+        assert!(form.changed());
+        form.birthday_text = "32.13.".into();
+        assert_eq!(finished_draft(&form).1.len(), 1);
+        let empty = Form::new(None);
+        assert_eq!(finished_draft(&empty).1, vec!["A contact needs a name or a company."]);
+        assert!(!empty.changed());
+    }
+
+    #[test]
+    fn the_section_ids_name_the_letters() {
+        assert_eq!(section_id('A'), "section-A");
+        assert_eq!(section_id('#'), "section-hash");
+    }
 }
