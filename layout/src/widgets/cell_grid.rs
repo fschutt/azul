@@ -193,6 +193,9 @@ pub struct CellGridDrag {
     /// Resize: the column's width or the row's height when it was pressed,
     /// in px at 100 % zoom.
     pub start_size: f32,
+    /// Resize: the size the drag has reached so far (the grid draws the
+    /// column or row at it until the release reports it).
+    pub size: f32,
     /// Resize: the column or row; 0 otherwise.
     pub index: u32,
     /// Select / Fill: the cell the drag started in.
@@ -1875,4 +1878,796 @@ pub(crate) fn cells_to_html(rows: &[Vec<String>]) -> String {
     }
     out.push_str("</table>");
     out
+}
+
+// ---- the build: the cells in view, their looks, the overlays ----
+
+use azul_css::{
+    css::CssPropertyValue,
+    props::{
+        basic::{length::FloatValue, StyleFontSize, StyleFontStyle},
+        layout::{
+            LayoutAlignItems, LayoutBoxSizing, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
+            LayoutFlexShrink, LayoutHeight, LayoutJustifyContent, LayoutLeft, LayoutMinHeight,
+            LayoutMinWidth, LayoutOverflow, LayoutPaddingLeft, LayoutPaddingRight, LayoutPosition,
+            LayoutTop, LayoutWidth,
+        },
+        property::CssProperty,
+        style::{
+            BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+            LayoutBorderTopWidth, StyleBorderBottomColor, StyleBorderBottomStyle,
+            StyleBorderLeftColor, StyleBorderLeftStyle, StyleBorderRightColor,
+            StyleBorderRightStyle, StyleBorderTopColor, StyleBorderTopStyle, StyleCursor,
+            StyleTextColor, StyleTextDecoration, StyleUserSelect, StyleWhiteSpace,
+        },
+    },
+};
+
+/// The grid's class; the grid node also carries the app's `id`.
+pub(crate) const GRID_CLASS_NAME: &str = "__azul-native-cell-grid";
+/// A row of cells (the header row too).
+pub(crate) const ROW_CLASS_NAME: &str = "__azul-native-cell-grid-row";
+/// A cell.
+pub(crate) const CELL_CLASS_NAME: &str = "__azul-native-cell-grid-cell";
+/// A column letter or a row number.
+pub(crate) const HEADER_CLASS_NAME: &str = "__azul-native-cell-grid-header";
+/// The top-left corner.
+pub(crate) const CORNER_CLASS_NAME: &str = "__azul-native-cell-grid-corner";
+/// The line after the frozen rows / columns.
+pub(crate) const FREEZE_CLASS_NAME: &str = "__azul-native-cell-grid-freeze";
+/// The outline around the current range.
+pub(crate) const OUTLINE_CLASS_NAME: &str = "__azul-native-cell-grid-outline";
+/// The fill handle.
+pub(crate) const FILL_HANDLE_CLASS_NAME: &str = "__azul-native-cell-grid-fill-handle";
+/// The outline of the range a fill drag reaches.
+pub(crate) const FILL_PREVIEW_CLASS_NAME: &str = "__azul-native-cell-grid-fill-preview";
+/// The in-cell editor.
+pub(crate) const EDITOR_CLASS_NAME: &str = "__azul-native-cell-grid-editor";
+/// The editor's caret.
+pub(crate) const CARET_CLASS_NAME: &str = "__azul-native-cell-grid-caret";
+
+static GRID_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(GRID_CLASS_NAME))];
+static ROW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(ROW_CLASS_NAME))];
+static CELL_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(CELL_CLASS_NAME))];
+static HEADER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(HEADER_CLASS_NAME))];
+static CORNER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(CORNER_CLASS_NAME))];
+static FREEZE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(FREEZE_CLASS_NAME))];
+static OUTLINE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(OUTLINE_CLASS_NAME))];
+static FILL_HANDLE_CLASS: &[IdOrClass] =
+    &[Class(AzString::from_const_str(FILL_HANDLE_CLASS_NAME))];
+static FILL_PREVIEW_CLASS: &[IdOrClass] =
+    &[Class(AzString::from_const_str(FILL_PREVIEW_CLASS_NAME))];
+static EDITOR_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(EDITOR_CLASS_NAME))];
+static CARET_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(CARET_CLASS_NAME))];
+
+/// What a theme decides about a grid: the SKIN of each part, laid over the
+/// part's base (the structure, the same in every theme) by [`build`].
+pub(crate) struct CellGridLook {
+    /// The grid: the face, the ink, the paper.
+    pub grid: Vec<CssPropertyWithConditions>,
+    /// A column letter / row number: the strip, the soft ink, hairlines.
+    pub header: Vec<CssPropertyWithConditions>,
+    /// Added to the headers of the selection's columns and rows.
+    pub header_active: Vec<CssPropertyWithConditions>,
+    /// Added to the header of a WHOLLY selected column or row.
+    pub header_selected: Vec<CssPropertyWithConditions>,
+    /// The top-left corner.
+    pub corner: Vec<CssPropertyWithConditions>,
+    /// A cell's right grid line (width, style and colour).
+    pub grid_line_right: Vec<CssPropertyWithConditions>,
+    /// A cell's bottom grid line.
+    pub grid_line_bottom: Vec<CssPropertyWithConditions>,
+    /// The right edge without grid lines (same width, the paper's colour,
+    /// so hiding the lines moves nothing).
+    pub no_line_right: Vec<CssPropertyWithConditions>,
+    /// The bottom edge without grid lines.
+    pub no_line_bottom: Vec<CssPropertyWithConditions>,
+    /// Added to a selected cell (the active one stays clear).
+    pub selected: Vec<CssPropertyWithConditions>,
+    /// The freeze line.
+    pub freeze_line: Vec<CssPropertyWithConditions>,
+    /// The outline around the current range.
+    pub outline: Vec<CssPropertyWithConditions>,
+    /// The fill handle.
+    pub fill_handle: Vec<CssPropertyWithConditions>,
+    /// The outline of the range a fill drag reaches.
+    pub fill_preview: Vec<CssPropertyWithConditions>,
+    /// The in-cell editor.
+    pub editor: Vec<CssPropertyWithConditions>,
+    /// The editor's caret.
+    pub caret: Vec<CssPropertyWithConditions>,
+    /// The theme's marker class on the grid, if it has one.
+    pub marker: Option<&'static str>,
+}
+
+const fn simple(p: CssProperty) -> CssPropertyWithConditions {
+    CssPropertyWithConditions::simple(p)
+}
+
+/// The grid: a column of rows that takes its pane, clips what does not fit,
+/// is the containing block of the overlays, and is ONE focus stop whose
+/// text a drag never selects.
+pub(crate) static CELL_GRID_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+    simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    simple(CssProperty::const_min_height(LayoutMinHeight::const_px(0))),
+    simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
+    simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    simple(CssProperty::const_position(LayoutPosition::Relative)),
+    simple(CssProperty::const_cursor(StyleCursor::Cell)),
+    simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// A row: the header, then the cells side by side, never shrinking.
+pub(crate) static CELL_GRID_ROW_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+];
+
+/// A cell: its width, its content set by its alignment, clipped, the grid
+/// lines inside its box.
+pub(crate) static CELL_GRID_CELL_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+    simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(3))),
+    simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(3))),
+];
+
+/// A header (a column letter, a row number, the corner): its label centred.
+pub(crate) static CELL_GRID_HEADER_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    simple(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+    simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+    simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    simple(CssProperty::const_cursor(StyleCursor::Default)),
+];
+
+/// The freeze line between the frozen and the scrolled part.
+pub(crate) static CELL_GRID_FREEZE_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+];
+
+/// An overlay (outline, fill handle, editor): placed by px over the cells.
+pub(crate) static CELL_GRID_OVERLAY_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_position(LayoutPosition::Absolute)),
+    simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+];
+
+/// The editor: the text and the caret on one line, never wrapped.
+pub(crate) static CELL_GRID_EDITOR_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_position(LayoutPosition::Absolute)),
+    simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    simple(CssProperty::const_cursor(StyleCursor::Text)),
+];
+
+/// A cell's text: one line unless the cell wraps.
+pub(crate) static CELL_GRID_TEXT_BASE: &[CssPropertyWithConditions] = &[simple(
+    CssProperty::WhiteSpace(CssPropertyValue::Exact(StyleWhiteSpace::Pre)),
+)];
+
+/// The grid with its window laid out and the cells in view asked for ONCE
+/// (both looks are built from it when the grid follows the app theme).
+#[derive(Debug, Clone)]
+pub(crate) struct CellGridResolved {
+    /// The grid, a resize in progress applied to its sizes.
+    pub grid: CellGrid,
+    /// Where the rows and columns in view sit.
+    pub geo: Geometry,
+    /// `cells[r][c]` for `geo.rows[r]` x `geo.columns[c]`.
+    pub cells: Vec<Vec<(CellGridCell, CellGridCellStyle)>>,
+}
+
+/// The content of `at`, from the data callback.
+fn cell_content(source: &OptionCellGridDataSource, at: CellGridCellRef) -> CellGridCell {
+    match source.as_ref() {
+        Some(CellGridDataSource { refany, callback }) => callback.invoke(refany.clone(), at),
+        None => CellGridCell::empty(),
+    }
+}
+
+/// The look of `at`, from the style callback.
+fn cell_style(source: &OptionCellGridStyleSource, at: CellGridCellRef) -> CellGridCellStyle {
+    match source.as_ref() {
+        Some(CellGridStyleSource { refany, callback }) => callback.invoke(refany.clone(), at),
+        None => CellGridCellStyle::default(),
+    }
+}
+
+/// A column / row being resized is drawn at the dragged size.
+fn apply_resize_preview(grid: &mut CellGrid) {
+    let drag = grid.view.drag;
+    match drag.kind {
+        CellGridDragKind::ResizeColumn => {
+            let mut v = grid.column_widths.as_ref().to_vec();
+            v.push(CellGridSize::create(drag.index, drag.size));
+            grid.column_widths = CellGridSizeVec::from_vec(v);
+        }
+        CellGridDragKind::ResizeRow => {
+            let mut v = grid.row_heights.as_ref().to_vec();
+            v.push(CellGridSize::create(drag.index, drag.size));
+            grid.row_heights = CellGridSizeVec::from_vec(v);
+        }
+        _ => {}
+    }
+}
+
+/// Lays the grid out and asks the callbacks for the cells in view.
+pub(crate) fn resolve(mut grid: CellGrid) -> CellGridResolved {
+    apply_resize_preview(&mut grid);
+    grid.view.top_row = grid.view.top_row.max(grid.frozen_rows);
+    grid.view.left_column = grid.view.left_column.max(grid.frozen_columns);
+    let geo = geometry(&grid);
+    let cells = geo
+        .rows
+        .iter()
+        .map(|r| {
+            geo.columns
+                .iter()
+                .map(|c| {
+                    let at = CellGridCellRef::create(r.index, c.index);
+                    (
+                        cell_content(&grid.data_source, at),
+                        cell_style(&grid.style_source, at),
+                    )
+                })
+                .collect()
+        })
+        .collect();
+    CellGridResolved { grid, geo, cells }
+}
+
+/// The range a fill drag from `source` to `target` covers: the source
+/// stretched down / up or right / left (whichever way the pointer went
+/// further), never both.
+pub(crate) fn fill_range(source: CellGridRange, target: CellGridCellRef) -> CellGridRange {
+    let below = target.row.saturating_sub(source.last.row);
+    let above = source.first.row.saturating_sub(target.row);
+    let right = target.column.saturating_sub(source.last.column);
+    let left = source.first.column.saturating_sub(target.column);
+    let vertical = below.max(above);
+    let horizontal = right.max(left);
+    let mut r = source;
+    if vertical == 0 && horizontal == 0 {
+        return r;
+    }
+    if vertical >= horizontal {
+        if below > 0 {
+            r.last.row = target.row;
+        } else {
+            r.first.row = target.row;
+        }
+    } else if right > 0 {
+        r.last.column = target.column;
+    } else {
+        r.first.column = target.column;
+    }
+    r
+}
+
+/// The relative luminance of a colour (sRGB, 0 = black, 1 = white).
+fn luminance(c: ColorU) -> f32 {
+    let lin = |v: u8| {
+        let s = f32::from(v) / 255.0;
+        if s <= 0.04045 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b)
+}
+
+/// The automatic ink on a filled cell: black on a light fill, white on a
+/// dark one.
+pub(crate) fn auto_ink(fill: ColorU) -> ColorU {
+    if luminance(fill) > 0.18 {
+        ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        }
+    } else {
+        ColorU {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        }
+    }
+}
+
+fn px_width(px: f32) -> CssPropertyWithConditions {
+    simple(CssProperty::const_width(LayoutWidth::px(px)))
+}
+
+fn px_height(px: f32) -> CssPropertyWithConditions {
+    simple(CssProperty::const_height(LayoutHeight::px(px)))
+}
+
+fn px_min_width(px: f32) -> CssPropertyWithConditions {
+    simple(CssProperty::const_min_width(LayoutMinWidth::px(px)))
+}
+
+/// `left` / `top` / `width` / `height` of an overlay.
+fn place(x: f32, y: f32, w: f32, h: f32) -> [CssPropertyWithConditions; 4] {
+    [
+        simple(CssProperty::const_left(LayoutLeft::px(x))),
+        simple(CssProperty::const_top(LayoutTop::px(y))),
+        px_width(w.max(0.0)),
+        px_height(h.max(0.0)),
+    ]
+}
+
+/// A thin border edge in a cell's own colour.
+fn edge(which: Dir, color: ColorU) -> [CssPropertyWithConditions; 3] {
+    match which {
+        Dir::Up => [
+            simple(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(1))),
+            simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
+                inner: BorderStyle::Solid,
+            })),
+            simple(CssProperty::const_border_top_color(StyleBorderTopColor { inner: color })),
+        ],
+        Dir::Right => [
+            simple(CssProperty::const_border_right_width(
+                LayoutBorderRightWidth::const_px(1),
+            )),
+            simple(CssProperty::const_border_right_style(StyleBorderRightStyle {
+                inner: BorderStyle::Solid,
+            })),
+            simple(CssProperty::const_border_right_color(StyleBorderRightColor {
+                inner: color,
+            })),
+        ],
+        Dir::Down => [
+            simple(CssProperty::const_border_bottom_width(
+                LayoutBorderBottomWidth::const_px(1),
+            )),
+            simple(CssProperty::const_border_bottom_style(StyleBorderBottomStyle {
+                inner: BorderStyle::Solid,
+            })),
+            simple(CssProperty::const_border_bottom_color(StyleBorderBottomColor {
+                inner: color,
+            })),
+        ],
+        Dir::Left => [
+            simple(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(1))),
+            simple(CssProperty::const_border_left_style(StyleBorderLeftStyle {
+                inner: BorderStyle::Solid,
+            })),
+            simple(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: color })),
+        ],
+    }
+}
+
+/// The declarations a cell's own style adds: font, fill, ink, alignment,
+/// custom borders (in place of the grid line on that edge).
+fn cell_style_props(
+    style: &CellGridCellStyle,
+    kind: CellGridCellKind,
+    zoom: f32,
+    look: &CellGridLook,
+    grid_lines: bool,
+    selected: bool,
+) -> Vec<CssPropertyWithConditions> {
+    let mut v = Vec::new();
+    v.extend(match style.border_right.into_option() {
+        Some(c) => edge(Dir::Right, c).to_vec(),
+        None if grid_lines => look.grid_line_right.clone(),
+        None => look.no_line_right.clone(),
+    });
+    v.extend(match style.border_bottom.into_option() {
+        Some(c) => edge(Dir::Down, c).to_vec(),
+        None if grid_lines => look.grid_line_bottom.clone(),
+        None => look.no_line_bottom.clone(),
+    });
+    if let Some(c) = style.border_top.into_option() {
+        v.extend(edge(Dir::Up, c));
+    }
+    if let Some(c) = style.border_left.into_option() {
+        v.extend(edge(Dir::Left, c));
+    }
+    let justify = match style.align {
+        CellGridHorizontalAlign::Left => LayoutJustifyContent::Start,
+        CellGridHorizontalAlign::Center => LayoutJustifyContent::Center,
+        CellGridHorizontalAlign::Right => LayoutJustifyContent::End,
+        CellGridHorizontalAlign::General => match kind {
+            CellGridCellKind::Number => LayoutJustifyContent::End,
+            CellGridCellKind::Boolean | CellGridCellKind::Error => LayoutJustifyContent::Center,
+            CellGridCellKind::Empty | CellGridCellKind::Text => LayoutJustifyContent::Start,
+        },
+    };
+    v.push(simple(CssProperty::const_justify_content(justify)));
+    v.push(simple(CssProperty::const_align_items(match style.vertical_align {
+        CellGridVerticalAlign::Bottom => LayoutAlignItems::End,
+        CellGridVerticalAlign::Center => LayoutAlignItems::Center,
+        CellGridVerticalAlign::Top => LayoutAlignItems::Start,
+    })));
+    if style.font_size > 0.0 && style.font_size.is_finite() {
+        v.push(simple(CssProperty::const_font_size(StyleFontSize::px(
+            style.font_size * zoom,
+        ))));
+    }
+    if style.bold {
+        v.push(super::themes::decl::bold());
+    }
+    if style.italic {
+        v.push(simple(CssProperty::font_style(StyleFontStyle::Italic)));
+    }
+    match style.fill.into_option() {
+        Some(fill) => {
+            v.push(simple(super::themes::decl::fill(fill)));
+            let ink = style.ink.into_option().unwrap_or_else(|| auto_ink(fill));
+            v.push(simple(CssProperty::const_text_color(StyleTextColor { inner: ink })));
+        }
+        None => {
+            if selected {
+                v.extend(look.selected.iter().cloned());
+            }
+            if let Some(ink) = style.ink.into_option() {
+                v.push(simple(CssProperty::const_text_color(StyleTextColor { inner: ink })));
+            }
+        }
+    }
+    v
+}
+
+/// A cell's text carrier: decorations, one line unless it wraps.
+fn cell_text(text: AzString, style: &CellGridCellStyle) -> Dom {
+    let mut props: Vec<CssPropertyWithConditions> = Vec::new();
+    if style.wrap {
+        props.push(simple(CssProperty::WhiteSpace(CssPropertyValue::Exact(
+            StyleWhiteSpace::PreWrap,
+        ))));
+    } else {
+        props.extend_from_slice(CELL_GRID_TEXT_BASE);
+    }
+    if style.underline {
+        props.push(simple(CssProperty::text_decoration(StyleTextDecoration::Underline)));
+    } else if style.strike {
+        props.push(simple(CssProperty::text_decoration(StyleTextDecoration::LineThrough)));
+    }
+    crate::widgets::widget_p_with_text(text).with_css_props(CssPropertyWithConditionsVec::from_vec(props))
+}
+
+/// Whether column `c` is wholly selected (a range spans every row).
+fn column_wholly_selected(view: &CellGridView, row_count: u32, c: u32) -> bool {
+    view.ranges.as_ref().iter().any(|r| {
+        r.first.row == 0 && r.last.row + 1 >= row_count && r.first.column <= c && c <= r.last.column
+    })
+}
+
+/// Whether row `r` is wholly selected.
+fn row_wholly_selected(view: &CellGridView, column_count: u32, r: u32) -> bool {
+    view.ranges.as_ref().iter().any(|g| {
+        g.first.column == 0
+            && g.last.column + 1 >= column_count
+            && g.first.row <= r
+            && r <= g.last.row
+    })
+}
+
+/// The grid's DOM in `look`: grid [header row?, (freeze line), rows ..,
+/// outline, fill preview?, fill handle?, editor?].
+#[allow(clippy::too_many_lines)]
+pub(crate) fn build(resolved: CellGridResolved, look: &CellGridLook) -> Dom {
+    use azul_core::a11y::{AccessibilityInfo, AccessibilityRole, AccessibilityState, AccessibilityStateVec};
+
+    let part = |base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
+        super::themes::decl::on_base(base, skin)
+    };
+    let CellGridResolved { grid, geo, cells } = resolved;
+    let zoom = if grid.zoom.is_finite() && grid.zoom > 0.0 {
+        grid.zoom
+    } else {
+        1.0
+    };
+    let view = &grid.view;
+    let current = view.current_range();
+    let any_frozen_rows = grid.frozen_rows > 0;
+    let any_frozen_columns = grid.frozen_columns > 0;
+    let row_label_width = geo.header_width;
+
+    let freeze_v = |height: f32| -> Dom {
+        let mut p = part(CELL_GRID_FREEZE_BASE, &look.freeze_line);
+        p.push(px_width(FREEZE_LINE_PX));
+        p.push(px_height(height));
+        Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(FREEZE_CLASS))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(p))
+    };
+
+    let mut children: Vec<Dom> = Vec::with_capacity(geo.rows.len() + 6);
+
+    // The header row: the corner, then the column letters.
+    if grid.show_headers {
+        let mut cells_row: Vec<Dom> = Vec::with_capacity(geo.columns.len() + 2);
+        let mut corner = part(CELL_GRID_HEADER_BASE, &look.corner);
+        corner.push(px_width(row_label_width));
+        cells_row.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(CORNER_CLASS))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(corner)),
+        );
+        for (i, c) in geo.columns.iter().enumerate() {
+            if i == geo.frozen_columns && any_frozen_columns {
+                cells_row.push(freeze_v(geo.header_height));
+            }
+            let mut p = part(CELL_GRID_HEADER_BASE, &look.header);
+            let in_selection = view
+                .ranges
+                .as_ref()
+                .iter()
+                .any(|r| r.first.column <= c.index && c.index <= r.last.column);
+            if column_wholly_selected(view, grid.row_count, c.index) {
+                p.extend(look.header_selected.iter().cloned());
+            } else if in_selection {
+                p.extend(look.header_active.iter().cloned());
+            }
+            p.push(px_width(c.size));
+            let label = CellGrid::column_label(c.index);
+            cells_row.push(
+                Dom::create_div()
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(HEADER_CLASS))
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(p))
+                    .with_accessibility_info(AccessibilityInfo {
+                        column_index: azul_css::corety::OptionUsize::Some(c.index as usize + 1),
+                        ..AccessibilityInfo::named(label.clone(), AccessibilityRole::ColumnHeader)
+                    })
+                    .with_child(crate::widgets::widget_p_with_text(label)),
+            );
+        }
+        if geo.frozen_columns == geo.columns.len() && any_frozen_columns {
+            cells_row.push(freeze_v(geo.header_height));
+        }
+        let mut row = CELL_GRID_ROW_BASE.to_vec();
+        row.push(px_height(geo.header_height));
+        children.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(ROW_CLASS))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(row))
+                .with_accessibility_info(AccessibilityInfo {
+                    role: AccessibilityRole::Row,
+                    ..Default::default()
+                })
+                .with_children(DomVec::from_vec(cells_row)),
+        );
+    }
+
+    // The rows: the frozen ones, the freeze line, the scrolled ones.
+    let freeze_h = || -> Dom {
+        let mut p = part(CELL_GRID_FREEZE_BASE, &look.freeze_line);
+        p.push(px_height(FREEZE_LINE_PX));
+        Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(FREEZE_CLASS))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(p))
+    };
+    for (ri, (r, row_cells)) in geo.rows.iter().zip(cells).enumerate() {
+        if ri == geo.frozen_rows && any_frozen_rows {
+            children.push(freeze_h());
+        }
+        let mut row_children: Vec<Dom> = Vec::with_capacity(geo.columns.len() + 2);
+        if grid.show_headers {
+            let mut p = part(CELL_GRID_HEADER_BASE, &look.header);
+            let in_selection = view
+                .ranges
+                .as_ref()
+                .iter()
+                .any(|g| g.first.row <= r.index && r.index <= g.last.row);
+            if row_wholly_selected(view, grid.column_count, r.index) {
+                p.extend(look.header_selected.iter().cloned());
+            } else if in_selection {
+                p.extend(look.header_active.iter().cloned());
+            }
+            p.push(px_width(row_label_width));
+            let label = AzString::from(alloc::format!("{}", u64::from(r.index) + 1));
+            row_children.push(
+                Dom::create_div()
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(HEADER_CLASS))
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(p))
+                    .with_accessibility_info(AccessibilityInfo {
+                        row_index: azul_css::corety::OptionUsize::Some(r.index as usize + 1),
+                        ..AccessibilityInfo::named(label.clone(), AccessibilityRole::RowHeader)
+                    })
+                    .with_child(crate::widgets::widget_p_with_text(label)),
+            );
+        }
+        for (ci, (c, (content, style))) in geo.columns.iter().zip(row_cells).enumerate() {
+            if ci == geo.frozen_columns && any_frozen_columns {
+                row_children.push(freeze_v(r.size));
+            }
+            let at = CellGridCellRef::create(r.index, c.index);
+            let selected = view.is_selected(at);
+            let shaded = selected && at != view.active;
+            let mut p = part(CELL_GRID_CELL_BASE, &[]);
+            p.push(px_width(c.size));
+            p.extend(cell_style_props(
+                &style,
+                content.kind,
+                zoom,
+                look,
+                grid.show_grid_lines,
+                shaded,
+            ));
+            let mut states = Vec::new();
+            if selected {
+                states.push(AccessibilityState::Selected);
+            }
+            let editing_here = view.is_editing() && at == view.active;
+            let text = if editing_here {
+                // The editor overlay shows the edit; the cell under it is blank.
+                AzString::from_const_str("")
+            } else {
+                content.text
+            };
+            row_children.push(
+                Dom::create_div()
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(CELL_CLASS))
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(p))
+                    .with_accessibility_info(AccessibilityInfo {
+                        role: AccessibilityRole::GridCell,
+                        row_index: azul_css::corety::OptionUsize::Some(r.index as usize + 1),
+                        column_index: azul_css::corety::OptionUsize::Some(c.index as usize + 1),
+                        states: AccessibilityStateVec::from_vec(states),
+                        ..Default::default()
+                    })
+                    .with_child(cell_text(text, &style)),
+            );
+        }
+        if geo.frozen_columns == geo.columns.len() && any_frozen_columns {
+            row_children.push(freeze_v(r.size));
+        }
+        let mut row = CELL_GRID_ROW_BASE.to_vec();
+        row.push(px_height(r.size));
+        children.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(ROW_CLASS))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(row))
+                .with_accessibility_info(AccessibilityInfo {
+                    role: AccessibilityRole::Row,
+                    row_index: azul_css::corety::OptionUsize::Some(r.index as usize + 1),
+                    ..Default::default()
+                })
+                .with_children(DomVec::from_vec(row_children)),
+        );
+    }
+    if geo.frozen_rows == geo.rows.len() && any_frozen_rows {
+        children.push(freeze_h());
+    }
+
+    // The overlays: the current range's outline and its fill handle, the
+    // range a fill drag reaches, the editor.
+    let outline_rect = range_rect(&geo, &current);
+    if let Some((x, y, w, h)) = outline_rect {
+        let mut p = part(CELL_GRID_OVERLAY_BASE, &look.outline);
+        p.extend(place(x - 1.0, y - 1.0, w + 1.0, h + 1.0));
+        children.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(OUTLINE_CLASS))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(p)),
+        );
+    }
+    if view.drag.kind == CellGridDragKind::Fill {
+        let reach = fill_range(current, view.drag.target);
+        if reach != current {
+            if let Some((x, y, w, h)) = range_rect(&geo, &reach) {
+                let mut p = part(CELL_GRID_OVERLAY_BASE, &look.fill_preview);
+                p.extend(place(x - 1.0, y - 1.0, w + 1.0, h + 1.0));
+                children.push(
+                    Dom::create_div()
+                        .with_ids_and_classes(IdOrClassVec::from_const_slice(FILL_PREVIEW_CLASS))
+                        .with_css_props(CssPropertyWithConditionsVec::from_vec(p)),
+                );
+            }
+        }
+    }
+    if let Some((hx, hy)) = fill_handle_at(&grid, &geo) {
+        let mut p = part(CELL_GRID_OVERLAY_BASE, &look.fill_handle);
+        let half = FILL_HANDLE_PX / 2.0;
+        p.extend(place(hx - half, hy - half, FILL_HANDLE_PX, FILL_HANDLE_PX));
+        children.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(FILL_HANDLE_CLASS))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(p)),
+        );
+    }
+    if view.is_editing() {
+        if let Some((x, y, w, h)) = range_rect(&geo, &CellGridRange::create(view.active)) {
+            let chars: Vec<char> = view.edit_text.as_str().chars().collect();
+            let caret = (view.edit_cursor as usize).min(chars.len());
+            let before: String = chars[..caret].iter().collect();
+            let after: String = chars[caret..].iter().collect();
+            let mut p = part(CELL_GRID_EDITOR_BASE, &look.editor);
+            p.push(simple(CssProperty::const_left(LayoutLeft::px(x - 1.0))));
+            p.push(simple(CssProperty::const_top(LayoutTop::px(y - 1.0))));
+            p.push(px_min_width(w + 1.0));
+            p.push(px_height(h + 1.0));
+            let mut caret_props = look.caret.clone();
+            caret_props.push(px_width(1.0));
+            caret_props.push(px_height((grid.font_size * zoom).max(8.0)));
+            let text_props = || CssPropertyWithConditionsVec::from_const_slice(CELL_GRID_TEXT_BASE);
+            children.push(
+                Dom::create_div()
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(EDITOR_CLASS))
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(p))
+                    .with_children(DomVec::from_vec(alloc::vec![
+                        crate::widgets::widget_p_with_text(AzString::from(before))
+                            .with_css_props(text_props()),
+                        Dom::create_div()
+                            .with_ids_and_classes(IdOrClassVec::from_const_slice(CARET_CLASS))
+                            .with_css_props(CssPropertyWithConditionsVec::from_vec(caret_props)),
+                        crate::widgets::widget_p_with_text(AzString::from(after))
+                            .with_css_props(text_props()),
+                    ])),
+            );
+        }
+    }
+
+    // The grid: one focus stop; its value names the cell cursor's cell so a
+    // screen reader reads where it went.
+    let mut classes: Vec<IdOrClass> = GRID_CLASS.to_vec();
+    if let Some(marker) = look.marker {
+        classes.push(Class(AzString::from_const_str(marker)));
+    }
+    let mut grid_props = part(CELL_GRID_BASE, &look.grid);
+    grid_props.push(simple(CssProperty::const_font_size(StyleFontSize::px(
+        grid.font_size * zoom,
+    ))));
+    let active_value = AzString::from(alloc::format!(
+        "{}",
+        CellGrid::cell_label(view.active).as_str()
+    ));
+    let a11y = AccessibilityInfo {
+        accessibility_value: Some(active_value).into(),
+        ..AccessibilityInfo::named(grid.accessibility_name.clone(), AccessibilityRole::Grid)
+    };
+    let id = grid.id.clone();
+    let shared = RefAny::new(GridShared { grid, geo });
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+        .with_id(id)
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(grid_props))
+        .with_tab_index(azul_core::dom::TabIndex::Auto)
+        .with_accessibility_info(a11y)
+        .with_callbacks(grid_callbacks(&shared).into())
+        .with_children(DomVec::from_vec(children))
+}
+
+/// The fill handle's centre, when the grid shows one: at the bottom-right
+/// corner of the current range, if that corner is in view and nothing is
+/// being edited.
+pub(crate) fn fill_handle_at(grid: &CellGrid, geo: &Geometry) -> Option<(f32, f32)> {
+    if !grid.fill_handle || grid.read_only || grid.view.is_editing() {
+        return None;
+    }
+    let current = grid.view.current_range();
+    let corner = range_rect(geo, &CellGridRange::create(current.last))?;
+    Some((corner.0 + corner.2, corner.1 + corner.3))
 }
