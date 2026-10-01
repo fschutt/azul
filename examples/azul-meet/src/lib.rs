@@ -445,6 +445,12 @@ struct MeetState {
     scale: f32,
     /// What this side passes on for others.
     relay: Relaying,
+    /// The call's chat: every message written here or received (`chat.rs`).
+    chat: chat::ChatLog,
+    /// Who is on the stage of the speaker view, from the levels of the audio each peer sends.
+    speaker: speaker::ActiveSpeaker,
+    /// What the call's side panel shows.
+    panel: SidePanel,
 }
 
 impl MeetState {
@@ -500,8 +506,22 @@ impl MeetState {
             stage_name: String::new(),
             scale: 1.0,
             relay: Relaying::default(),
+            chat: chat::ChatLog::new(),
+            speaker: speaker::ActiveSpeaker::new(),
+            panel: SidePanel::People,
         }
     }
+}
+
+/// What the call's side panel shows.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SidePanel {
+    /// Everyone in the call, with their microphone and camera.
+    People,
+    /// The chat.
+    Chat,
+    /// Nothing: the tiles take the window.
+    Closed,
 }
 
 /// How the call shows the others.
@@ -1745,6 +1765,34 @@ fn send_state(s: &MeetState, handles: &[u64]) {
 
 fn send_state_to_all(s: &MeetState) {
     send_state(s, &all_peers(s));
+}
+
+// ==== Chat: one reliable message to every peer (the rules are in chat.rs) ====
+
+/// This side writes `text` in the chat: listed, and sent to every connected peer. False for an
+/// empty message.
+fn send_chat(s: &mut MeetState, text: &str) -> bool {
+    let now = now_ms(s);
+    let Some(bytes) = s.chat.compose(s.me, &s.name, text, now) else {
+        return false;
+    };
+    send_message_to(s, &all_peers(s), &bytes);
+    true
+}
+
+/// A chat message from the peer with key `from`: listed (and printed for scripts as
+/// `AZMEET_CHAT <name>: <text>`). True when the window changes.
+fn receive_chat(s: &mut MeetState, from: u64, bytes: &[u8]) -> bool {
+    let name = name_of(s, from);
+    let open = s.panel == SidePanel::Chat;
+    if !s.chat.receive(from, &name, bytes, open) {
+        return false;
+    }
+    if let Some(message) = s.chat.messages().last() {
+        println!("AZMEET_CHAT {}: {}", message.name, message.text);
+        eprintln!("[azmeet] {}: chat from {}: {}", s.name, message.name, message.text);
+    }
+    true
 }
 
 /// One line per connected peer whose audio arrived: what its jitter buffer took in and played,
@@ -3151,6 +3199,9 @@ fn receive_item(
     if let Some(sync) = routes::decode_sync(bytes) {
         return apply_sync(s, conn, sync);
     }
+    if bytes.first() == Some(&chat::KIND_CHAT) {
+        return receive_chat(s, sender, bytes);
+    }
     match video_wire::decode_message(bytes) {
         Some(Message::Packet(header, payload)) => {
             let new_tile = take_video(s, endpoint, sender, conn, &header, payload, pictures);
@@ -4441,6 +4492,8 @@ fn leave_meeting(s: &mut MeetState) -> Option<HttpJob> {
     s.drop_video.clear();
     s.plan = routes::Plan::default();
     s.relay = Relaying::default();
+    s.chat = chat::ChatLog::new();
+    s.speaker = speaker::ActiveSpeaker::new();
     s.link_status = String::from("not in a meeting");
     s.notice = String::from("You left the meeting.");
     let room = s.room.as_mut()?;
