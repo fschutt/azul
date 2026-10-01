@@ -716,3 +716,5 @@ mod a_fixed_table_takes_its_column_widths_from_its_first_row;
 mod a_spanning_cells_width_is_spread_over_the_columns_it_spans;
 #[path = "an_acked_split_of_a_list_item_resumes_past_the_new_items_marker.rs"]
 mod an_acked_split_of_a_list_item_resumes_past_the_new_items_marker;
+#[path = "a_chat_field_keeps_its_width_while_text_is_typed.rs"]
+mod a_chat_field_keeps_its_width_while_text_is_typed;
