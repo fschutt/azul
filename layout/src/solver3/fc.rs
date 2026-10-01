@@ -6762,7 +6762,38 @@ fn analyze_table_structure<T: ParsedFontTrait>(
     // +spec:width-calculation:0a2766 - table internal elements form rectangular grid of
     // rows/columns (CSS 2.2 §17.5) CSS 2.2 Section 17.4: A table may have one table-caption
     // child. Traverse children to find caption, columns/colgroups, rows, and row groups
-    for &child_idx in tree.children(table_index) {
+    //
+    // In VISUAL order (CSS 2.1 17.2): the first `table-header-group` before
+    // every other row and row group, the first `table-footer-group` after
+    // them, wherever they are in the markup (any further header or footer
+    // group is an ordinary row group). Rows are numbered in this order, so
+    // the grid, the row positions and the row groups' boxes follow it.
+    let group_display = |idx: usize| {
+        tree.get(LayoutNodeId::new(idx))
+            .filter(|n| matches!(n.formatting_context, FormattingContext::TableRowGroup))
+            .and_then(|n| n.dom_node_id)
+            .map(|dom_id| crate::solver3::layout_tree::get_display_type(ctx.styled_dom, dom_id))
+    };
+    let children: Vec<usize> = tree.children(table_index).to_vec();
+    let header = children
+        .iter()
+        .copied()
+        .find(|&c| group_display(c) == Some(LayoutDisplay::TableHeaderGroup));
+    let footer = children
+        .iter()
+        .copied()
+        .find(|&c| group_display(c) == Some(LayoutDisplay::TableFooterGroup));
+    let visual_order: Vec<usize> = header
+        .into_iter()
+        .chain(
+            children
+                .iter()
+                .copied()
+                .filter(|&c| Some(c) != header && Some(c) != footer),
+        )
+        .chain(footer)
+        .collect();
+    for child_idx in visual_order {
         if let Some(child) = tree.get(LayoutNodeId::new(child_idx)) {
             // Check if this is a table caption
             if matches!(child.formatting_context, FormattingContext::TableCaption) {
