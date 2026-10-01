@@ -686,3 +686,613 @@ impl From<SelectionAdorner> for Dom {
         a.dom()
     }
 }
+
+// ==== Geometry (canvas units) ====
+
+/// (`x`, `y`) in `f`'s own axes, relative to its centre (the frame's
+/// rotation undone).
+pub(crate) fn to_local(f: &AdornerFrame, x: f32, y: f32) -> (f32, f32) {
+    let _ = (f, x, y);
+    (0.0, 0.0)
+}
+
+/// A point in `f`'s own axes (relative to its centre) back on the canvas.
+pub(crate) fn from_local(f: &AdornerFrame, lx: f32, ly: f32) -> (f32, f32) {
+    let _ = (f, lx, ly);
+    (0.0, 0.0)
+}
+
+/// The handle of `f` under (`x`, `y`) at `scale` px per unit: a resize
+/// handle, the rotate handle (when `rotate`), the body, or none.
+pub(crate) fn handle_at(
+    f: &AdornerFrame,
+    x: f32,
+    y: f32,
+    scale: f32,
+    rotate: bool,
+) -> Option<AdornerHandle> {
+    let _ = (f, x, y, scale, rotate);
+    None
+}
+
+/// The topmost item whose frame holds (`x`, `y`).
+pub(crate) fn hit_item(items: &[AdornerItem], x: f32, y: f32) -> Option<usize> {
+    let _ = (items, x, y);
+    None
+}
+
+/// The axis-aligned box around the rotated `frames`.
+pub(crate) fn union(frames: &[AdornerFrame]) -> Option<AdornerFrame> {
+    let _ = frames;
+    None
+}
+
+/// `start` dragged by `handle` over (`dx`, `dy`) canvas units: the opposite
+/// edge (or corner) stays where it is, along the frame's own axes; a corner
+/// keeps the ratio when `keep_ratio`.
+pub(crate) fn resized(
+    start: &AdornerFrame,
+    handle: AdornerHandle,
+    dx: f32,
+    dy: f32,
+    keep_ratio: bool,
+) -> AdornerFrame {
+    let _ = (handle, dx, dy, keep_ratio);
+    *start
+}
+
+/// `start` turned so its top points at (`x`, `y`); `snap15` snaps to 15
+/// degrees, `magnet` pulls to a right angle within 3 degrees.
+pub(crate) fn rotated(
+    start: &AdornerFrame,
+    x: f32,
+    y: f32,
+    snap15: bool,
+    magnet: bool,
+) -> AdornerFrame {
+    let _ = (x, y, snap15, magnet);
+    *start
+}
+
+/// `f` mapped from the box `from` onto the box `to` (a member of a resized
+/// multi-selection).
+pub(crate) fn map_frame(f: &AdornerFrame, from: &AdornerFrame, to: &AdornerFrame) -> AdornerFrame {
+    let _ = (from, to);
+    *f
+}
+
+/// The shift that snaps the box `moving` to the canvas (`width` x `height`:
+/// edges and centre lines) and to `others` (their edges and centres) within
+/// `tolerance` units, per axis, and the guides of the snaps it made.
+pub(crate) fn snap_move(
+    moving: &AdornerFrame,
+    others: &[AdornerFrame],
+    width: f32,
+    height: f32,
+    tolerance: f32,
+) -> (f32, f32, Vec<AdornerGuide>) {
+    let _ = (moving, others, width, height, tolerance);
+    (0.0, 0.0, Vec::new())
+}
+
+// ==== The state machine (the root's dataset) ====
+
+/// What a drag in flight does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum DragKind {
+    #[default]
+    Idle,
+    Transform,
+    Marquee,
+}
+
+/// A drag in flight: what it holds and where everything was at the press.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub(crate) struct AdornerDrag {
+    pub kind: DragKind,
+    pub handle: AdornerHandle,
+    pub start_x: f32,
+    pub start_y: f32,
+    /// The objects the drag transforms.
+    pub indices: Vec<u32>,
+    /// Their frames at the press.
+    pub frames: Vec<AdornerFrame>,
+    /// The frame the handle was on: the object, or the box around several.
+    pub reference: AdornerFrame,
+    /// Past the click slop.
+    pub moved: bool,
+    /// A press on a selected object of a multi-selection: selecting it
+    /// alone if the press stays a click.
+    pub click: Option<usize>,
+    /// The frames last reported.
+    pub last: Vec<AdornerFrame>,
+}
+
+/// Everything the root's callbacks share: the objects, the canvas, the
+/// app's hook and the drag in flight.
+#[derive(Debug, Clone)]
+pub(crate) struct AdornerState {
+    pub items: Vec<AdornerItem>,
+    pub on_event: OptionSelectionAdornerOnEvent,
+    pub editing: Option<usize>,
+    pub width: f32,
+    pub height: f32,
+    pub scale: f32,
+    pub snap_distance: f32,
+    pub nudge: f32,
+    pub snap: bool,
+    pub drag: AdornerDrag,
+}
+
+impl AdornerState {
+    /// The state of a canvas of `items`, `width` x `height` units at scale 1,
+    /// snapping off, no hook.
+    pub(crate) fn new(items: Vec<AdornerItem>, width: f32, height: f32) -> Self {
+        Self {
+            items,
+            on_event: None.into(),
+            editing: None,
+            width,
+            height,
+            scale: 1.0,
+            snap_distance: 6.0,
+            nudge: 1.0,
+            snap: false,
+            drag: AdornerDrag::default(),
+        }
+    }
+
+    /// The selected items, in z-order.
+    pub(crate) fn selected(&self) -> Vec<usize> {
+        self.items
+            .iter()
+            .enumerate()
+            .filter(|(_, it)| it.selected)
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// A press at (`x`, `y`) canvas units: the events it reports and whether
+    /// it starts a drag (the pointer is captured).
+    pub(crate) fn press(
+        &mut self,
+        x: f32,
+        y: f32,
+        shift: bool,
+        ctrl: bool,
+    ) -> (Vec<SelectionAdornerEvent>, bool) {
+        let _ = (x, y, shift, ctrl);
+        (Vec::new(), false)
+    }
+
+    /// The pointer moved to (`x`, `y`) during a drag.
+    pub(crate) fn drag_to(&mut self, x: f32, y: f32, shift: bool) -> Option<SelectionAdornerEvent> {
+        let _ = (x, y, shift);
+        None
+    }
+
+    /// The button went up at (`x`, `y`).
+    pub(crate) fn release(&mut self, x: f32, y: f32) -> Option<SelectionAdornerEvent> {
+        let _ = (x, y);
+        None
+    }
+
+    /// A double-click at (`x`, `y`).
+    pub(crate) fn activate(&self, x: f32, y: f32) -> Option<SelectionAdornerEvent> {
+        let _ = (x, y);
+        None
+    }
+
+    /// A key on the focused canvas.
+    pub(crate) fn key(
+        &self,
+        key: VirtualKeyCode,
+        shift: bool,
+        ctrl: bool,
+    ) -> Option<SelectionAdornerEvent> {
+        let _ = (key, shift, ctrl);
+        None
+    }
+}
+
+/// The reconciler's merge: a drag in flight survives the app's rebuild.
+pub(crate) extern "C" fn merge_adorner_state(new_data: RefAny, old_data: RefAny) -> RefAny {
+    let _ = old_data;
+    new_data
+}
+
+#[cfg(test)]
+mod geometry_and_drag_tests {
+    use super::*;
+
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() < 0.01
+    }
+
+    fn same(a: &AdornerFrame, b: &AdornerFrame) -> bool {
+        close(a.x, b.x)
+            && close(a.y, b.y)
+            && close(a.width, b.width)
+            && close(a.height, b.height)
+            && close(a.rotation, b.rotation)
+    }
+
+    fn item(x: f32, y: f32, w: f32, h: f32, selected: bool) -> AdornerItem {
+        AdornerItem::create(AdornerFrame::create(x, y, w, h)).with_selected(selected)
+    }
+
+    fn indices(e: &SelectionAdornerEvent) -> Vec<u32> {
+        e.indices.as_ref().to_vec()
+    }
+
+    fn frames(e: &SelectionAdornerEvent) -> Vec<AdornerFrame> {
+        e.frames.as_ref().to_vec()
+    }
+
+    #[test]
+    fn a_rotated_frame_contains_the_points_of_its_turned_box() {
+        // 200 x 20 turned upright: it covers x 190..210, y 50..250.
+        let f = AdornerFrame::create(100.0, 140.0, 200.0, 20.0).with_rotation(90.0);
+        assert!(f.contains(200.0, 60.0));
+        assert!(f.contains(205.0, 240.0));
+        assert!(!f.contains(120.0, 150.0), "the unturned box's end is not in it");
+        let b = f.bounds();
+        assert!(same(&b, &AdornerFrame::create(190.0, 50.0, 20.0, 200.0)), "{b:?}");
+        let (lx, ly) = to_local(&f, 200.0, 50.0);
+        assert!(
+            close(lx, -100.0) && close(ly, 0.0),
+            "the top of the turned box is its left end: {lx} {ly}"
+        );
+        let (x, y) = from_local(&f, -100.0, 0.0);
+        assert!(close(x, 200.0) && close(y, 50.0));
+    }
+
+    #[test]
+    fn a_press_on_a_corner_grabs_the_handle_and_a_press_inside_grabs_the_body() {
+        let f = AdornerFrame::create(100.0, 100.0, 200.0, 100.0);
+        assert_eq!(handle_at(&f, 100.0, 100.0, 1.0, true), Some(AdornerHandle::TopLeft));
+        assert_eq!(handle_at(&f, 302.0, 198.0, 1.0, true), Some(AdornerHandle::BottomRight));
+        assert_eq!(handle_at(&f, 200.0, 200.0, 1.0, true), Some(AdornerHandle::Bottom));
+        assert_eq!(handle_at(&f, 100.0, 150.0, 1.0, true), Some(AdornerHandle::Left));
+        assert_eq!(handle_at(&f, 150.0, 130.0, 1.0, true), Some(AdornerHandle::Body));
+        assert_eq!(handle_at(&f, 400.0, 130.0, 1.0, true), None);
+        // At half scale a handle reaches 6 px = 12 units: 110 is still on it.
+        assert_eq!(handle_at(&f, 110.0, 110.0, 0.5, true), Some(AdornerHandle::TopLeft));
+        assert_eq!(handle_at(&f, 110.0, 110.0, 1.0, true), Some(AdornerHandle::Body));
+    }
+
+    #[test]
+    fn the_rotate_handle_sits_above_the_top_edge_and_turns_with_the_frame() {
+        let f = AdornerFrame::create(100.0, 100.0, 200.0, 100.0);
+        assert_eq!(
+            handle_at(&f, 200.0, 100.0 - ROTATE_OFFSET_PX, 1.0, true),
+            Some(AdornerHandle::Rotate)
+        );
+        assert_eq!(
+            handle_at(&f, 200.0, 100.0 - ROTATE_OFFSET_PX, 1.0, false),
+            None,
+            "no rotate handle asked for"
+        );
+        // Turned 90 degrees clockwise its top faces right.
+        let turned = f.with_rotation(90.0);
+        let (cx, cy) = (turned.center_x(), turned.center_y());
+        assert_eq!(
+            handle_at(&turned, cx + 50.0 + ROTATE_OFFSET_PX, cy, 1.0, true),
+            Some(AdornerHandle::Rotate)
+        );
+    }
+
+    #[test]
+    fn the_topmost_object_under_the_pointer_is_hit() {
+        let items = [
+            item(0.0, 0.0, 100.0, 100.0, false),
+            item(50.0, 50.0, 100.0, 100.0, false),
+        ];
+        assert_eq!(hit_item(&items, 75.0, 75.0), Some(1), "the later one is on top");
+        assert_eq!(hit_item(&items, 25.0, 25.0), Some(0));
+        assert_eq!(hit_item(&items, 175.0, 25.0), None);
+    }
+
+    #[test]
+    fn a_press_on_an_object_selects_it_and_a_drag_moves_it_until_the_release_commits() {
+        let mut s = AdornerState::new(vec![item(100.0, 100.0, 100.0, 50.0, false)], 1000.0, 1000.0);
+        let (events, capture) = s.press(150.0, 120.0, false, false);
+        assert!(capture, "the press starts a drag");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, SelectionAdornerEventKind::Select);
+        assert_eq!(indices(&events[0]), vec![0]);
+        s.items[0].selected = true; // the app's answer
+        let step = s.drag_to(200.0, 170.0, false).expect("a transform");
+        assert_eq!(step.kind, SelectionAdornerEventKind::Transform);
+        assert_eq!(step.handle, AdornerHandle::Body);
+        assert_eq!(indices(&step), vec![0]);
+        assert!(same(&frames(&step)[0], &AdornerFrame::create(150.0, 150.0, 100.0, 50.0)));
+        // Shift keeps the move on one axis.
+        let step = s.drag_to(260.0, 140.0, true).expect("a transform");
+        assert!(same(&frames(&step)[0], &AdornerFrame::create(210.0, 100.0, 100.0, 50.0)));
+        let end = s.release(260.0, 140.0).expect("a commit");
+        assert_eq!(end.kind, SelectionAdornerEventKind::Commit);
+        assert!(same(&frames(&end)[0], &AdornerFrame::create(210.0, 100.0, 100.0, 50.0)));
+        assert_eq!(s.drag.kind, DragKind::Idle);
+        assert!(s.release(260.0, 140.0).is_none(), "one release, one commit");
+    }
+
+    #[test]
+    fn a_small_wiggle_is_a_click_not_a_drag() {
+        let mut s = AdornerState::new(vec![item(100.0, 100.0, 100.0, 50.0, true)], 1000.0, 1000.0);
+        let (events, _) = s.press(150.0, 120.0, false, false);
+        assert!(events.is_empty(), "the object is selected already");
+        assert!(s.drag_to(151.0, 121.0, false).is_none());
+        assert!(s.release(151.0, 121.0).is_none());
+    }
+
+    #[test]
+    fn shift_adds_to_the_selection_and_ctrl_on_a_selected_object_toggles_it_without_a_drag() {
+        let mut s = AdornerState::new(
+            vec![
+                item(0.0, 0.0, 100.0, 100.0, true),
+                item(200.0, 0.0, 100.0, 100.0, false),
+            ],
+            1000.0,
+            1000.0,
+        );
+        let (events, capture) = s.press(250.0, 50.0, true, false);
+        assert!(capture);
+        assert_eq!(events[0].kind, SelectionAdornerEventKind::Select);
+        assert!(events[0].shift);
+        assert_eq!(indices(&events[0]), vec![1]);
+        assert_eq!(s.drag.indices, vec![0, 1], "the drag moves the grown selection");
+        s.release(250.0, 50.0);
+
+        let (events, capture) = s.press(50.0, 50.0, false, true);
+        assert!(!capture, "a toggle is no drag");
+        assert_eq!(events[0].kind, SelectionAdornerEventKind::Select);
+        assert!(events[0].ctrl);
+        assert_eq!(indices(&events[0]), vec![0]);
+    }
+
+    #[test]
+    fn a_click_on_one_object_of_a_multi_selection_selects_it_alone_on_release() {
+        let mut s = AdornerState::new(
+            vec![
+                item(0.0, 0.0, 100.0, 100.0, true),
+                item(200.0, 0.0, 100.0, 100.0, true),
+            ],
+            1000.0,
+            1000.0,
+        );
+        let (events, capture) = s.press(250.0, 50.0, false, false);
+        assert!(capture && events.is_empty(), "a press on the selection may start a move");
+        let up = s.release(250.0, 50.0).expect("a select");
+        assert_eq!(up.kind, SelectionAdornerEventKind::Select);
+        assert_eq!(indices(&up), vec![1]);
+    }
+
+    #[test]
+    fn a_press_on_the_empty_canvas_clears_and_a_drag_spans_a_marquee_of_the_objects_inside() {
+        let mut s = AdornerState::new(
+            vec![
+                item(100.0, 100.0, 50.0, 50.0, true),
+                item(300.0, 300.0, 50.0, 50.0, false),
+                item(800.0, 800.0, 50.0, 50.0, false),
+            ],
+            1000.0,
+            1000.0,
+        );
+        let (events, capture) = s.press(500.0, 50.0, false, false);
+        assert!(capture);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, SelectionAdornerEventKind::Clear);
+        let span = s.drag_to(90.0, 400.0, false).expect("a marquee");
+        assert_eq!(span.kind, SelectionAdornerEventKind::Marquee);
+        assert!(same(&frames(&span)[0], &AdornerFrame::create(90.0, 50.0, 410.0, 350.0)));
+        assert_eq!(indices(&span), vec![0, 1], "the objects wholly inside");
+        let end = s.release(90.0, 400.0).expect("the marquee's end");
+        assert_eq!(end.kind, SelectionAdornerEventKind::MarqueeEnd);
+        assert_eq!(indices(&end), vec![0, 1]);
+    }
+
+    #[test]
+    fn a_corner_drag_resizes_from_the_opposite_corner_and_shift_keeps_the_ratio() {
+        let f = AdornerFrame::create(100.0, 100.0, 200.0, 100.0);
+        let br = resized(&f, AdornerHandle::BottomRight, 50.0, 20.0, false);
+        assert!(same(&br, &AdornerFrame::create(100.0, 100.0, 250.0, 120.0)), "{br:?}");
+        let kept = resized(&f, AdornerHandle::BottomRight, 50.0, 20.0, true);
+        assert!(same(&kept, &AdornerFrame::create(100.0, 100.0, 250.0, 125.0)), "{kept:?}");
+        let tl = resized(&f, AdornerHandle::TopLeft, 50.0, 20.0, false);
+        assert!(same(&tl, &AdornerFrame::create(150.0, 120.0, 150.0, 80.0)), "{tl:?}");
+        let edge = resized(&f, AdornerHandle::Right, 50.0, 20.0, false);
+        assert!(
+            same(&edge, &AdornerFrame::create(100.0, 100.0, 250.0, 100.0)),
+            "an edge moves one way: {edge:?}"
+        );
+        let tiny = resized(&f, AdornerHandle::Right, -500.0, 0.0, false);
+        assert!(
+            close(tiny.width, MIN_SIZE) && close(tiny.x, 100.0),
+            "no flip past the opposite edge: {tiny:?}"
+        );
+    }
+
+    #[test]
+    fn an_edge_drag_of_a_turned_frame_resizes_along_its_own_axis_and_keeps_the_opposite_edge() {
+        let f = AdornerFrame::create(100.0, 100.0, 200.0, 100.0).with_rotation(90.0);
+        // Its right edge faces down: dragging down by 40 widens it by 40.
+        let r = resized(&f, AdornerHandle::Right, 0.0, 40.0, false);
+        assert!(
+            same(&r, &AdornerFrame::create(80.0, 120.0, 240.0, 100.0).with_rotation(90.0)),
+            "{r:?}"
+        );
+        let (x0, y0) = from_local(&f, -100.0, 0.0);
+        let (x1, y1) = from_local(&r, -120.0, 0.0);
+        assert!(close(x0, x1) && close(y0, y1), "the left edge stays");
+    }
+
+    #[test]
+    fn a_rotate_drag_turns_about_the_centre_and_shift_snaps_to_15_degrees() {
+        let f = AdornerFrame::create(100.0, 100.0, 200.0, 100.0);
+        let right = rotated(&f, 300.0, 150.0, false, false);
+        assert!(close(right.rotation, 90.0), "{right:?}");
+        assert!(close(right.x, 100.0) && close(right.width, 200.0), "the box stays, it turns");
+        assert!(close(rotated(&f, 200.0, 250.0, false, false).rotation, 180.0));
+        assert!(close(rotated(&f, 100.0, 150.0, false, false).rotation, 270.0));
+        let ten = 10f32.to_radians();
+        let (px, py) = (200.0 + 100.0 * ten.cos(), 150.0 + 100.0 * ten.sin());
+        assert!(close(rotated(&f, px, py, false, false).rotation, 100.0));
+        assert!(close(rotated(&f, px, py, true, false).rotation, 105.0), "Shift: steps of 15");
+        let two = 2f32.to_radians();
+        let (qx, qy) = (200.0 + 100.0 * two.cos(), 150.0 + 100.0 * two.sin());
+        assert!(
+            close(rotated(&f, qx, qy, false, true).rotation, 90.0),
+            "the magnet pulls to a right angle"
+        );
+    }
+
+    #[test]
+    fn a_move_snaps_to_the_canvas_centre_and_to_another_objects_edge_and_reports_the_guides() {
+        let mut s = AdornerState::new(
+            vec![
+                item(100.0, 250.0, 100.0, 100.0, true),
+                item(620.0, 100.0, 100.0, 100.0, false),
+            ],
+            1000.0,
+            600.0,
+        );
+        s.snap = true;
+        s.press(150.0, 300.0, false, false);
+        // x 445 puts the centre at 495, 5 off the centre line at 500; the
+        // middle stays on the canvas's middle.
+        let step = s.drag_to(150.0 + 345.0, 300.0, false).expect("a transform");
+        assert!(
+            same(&frames(&step)[0], &AdornerFrame::create(450.0, 250.0, 100.0, 100.0)),
+            "{:?}",
+            frames(&step)
+        );
+        let guides = step.guides.as_ref().to_vec();
+        assert!(guides.iter().any(|g| g.vertical && close(g.position, 500.0)), "{guides:?}");
+        assert!(guides.iter().any(|g| !g.vertical && close(g.position, 300.0)), "{guides:?}");
+        // The right edge at 618 is 2 off the other object's left edge at 620.
+        let step = s.drag_to(150.0 + 418.0, 300.0, false).expect("a transform");
+        assert!(close(frames(&step)[0].x, 520.0), "{:?}", frames(&step));
+        assert!(step
+            .guides
+            .as_ref()
+            .iter()
+            .any(|g| g.vertical && close(g.position, 620.0)));
+        // Far from everything: no snap, no guide.
+        let step = s.drag_to(150.0 + 200.0, 300.0 + 77.0, false).expect("a transform");
+        assert!(same(&frames(&step)[0], &AdornerFrame::create(300.0, 327.0, 100.0, 100.0)));
+        assert!(step.guides.as_ref().is_empty());
+    }
+
+    #[test]
+    fn a_multi_selection_resizes_as_one_box() {
+        let mut s = AdornerState::new(
+            vec![
+                item(0.0, 0.0, 100.0, 100.0, true),
+                item(200.0, 0.0, 100.0, 100.0, true),
+            ],
+            2000.0,
+            2000.0,
+        );
+        let (events, capture) = s.press(300.0, 100.0, false, false);
+        assert!(capture && events.is_empty());
+        assert_eq!(
+            s.drag.handle,
+            AdornerHandle::BottomRight,
+            "the box's corner, not the object's body"
+        );
+        let step = s.drag_to(600.0, 200.0, false).expect("a transform");
+        let f = frames(&step);
+        assert!(same(&f[0], &AdornerFrame::create(0.0, 0.0, 200.0, 200.0)), "{f:?}");
+        assert!(same(&f[1], &AdornerFrame::create(400.0, 0.0, 200.0, 200.0)), "{f:?}");
+    }
+
+    #[test]
+    fn a_press_inside_the_object_being_edited_is_left_to_the_text() {
+        let mut s = AdornerState::new(vec![item(100.0, 100.0, 200.0, 100.0, true)], 1000.0, 1000.0);
+        s.editing = Some(0);
+        let (events, capture) = s.press(150.0, 120.0, false, false);
+        assert!(events.is_empty() && !capture);
+        assert_eq!(s.drag.kind, DragKind::Idle);
+        let (events, capture) = s.press(600.0, 600.0, false, false);
+        assert!(capture);
+        assert_eq!(
+            events[0].kind,
+            SelectionAdornerEventKind::Clear,
+            "a press outside ends the editing"
+        );
+    }
+
+    #[test]
+    fn the_arrows_nudge_delete_and_escape_report_and_tab_walks_the_objects() {
+        let s = AdornerState::new(
+            vec![
+                item(10.0, 10.0, 10.0, 10.0, true),
+                item(50.0, 50.0, 10.0, 10.0, false),
+            ],
+            1000.0,
+            1000.0,
+        );
+        let e = s.key(VirtualKeyCode::Right, false, false).expect("a nudge");
+        assert_eq!(e.kind, SelectionAdornerEventKind::Nudge);
+        assert_eq!(indices(&e), vec![0]);
+        assert!(same(&frames(&e)[0], &AdornerFrame::create(20.0, 10.0, 10.0, 10.0)));
+        let fine = s.key(VirtualKeyCode::Up, false, true).expect("a fine nudge");
+        assert!(same(&frames(&fine)[0], &AdornerFrame::create(10.0, 9.0, 10.0, 10.0)));
+        assert_eq!(
+            s.key(VirtualKeyCode::Delete, false, false).map(|e| e.kind),
+            Some(SelectionAdornerEventKind::Delete)
+        );
+        assert_eq!(
+            s.key(VirtualKeyCode::Back, false, false).map(|e| e.kind),
+            Some(SelectionAdornerEventKind::Delete)
+        );
+        assert_eq!(
+            s.key(VirtualKeyCode::Escape, false, false).map(|e| e.kind),
+            Some(SelectionAdornerEventKind::Escape)
+        );
+        let next = s.key(VirtualKeyCode::Tab, false, false).expect("the next object");
+        assert_eq!((next.kind, indices(&next)), (SelectionAdornerEventKind::Select, vec![1]));
+        let prev = s.key(VirtualKeyCode::Tab, true, false).expect("the previous object");
+        assert_eq!(indices(&prev), vec![1], "Shift+Tab wraps");
+        let enter = s.key(VirtualKeyCode::Return, false, false).expect("activate");
+        assert_eq!(
+            (enter.kind, indices(&enter)),
+            (SelectionAdornerEventKind::Activate, vec![0])
+        );
+        let none = AdornerState::new(vec![item(0.0, 0.0, 1.0, 1.0, false)], 10.0, 10.0);
+        assert!(
+            none.key(VirtualKeyCode::Right, false, false).is_none(),
+            "nothing selected, nothing to nudge"
+        );
+        assert_eq!(
+            none.key(VirtualKeyCode::Tab, false, false).map(|e| indices(&e)),
+            Some(vec![0])
+        );
+    }
+
+    #[test]
+    fn a_double_click_activates_the_object_under_the_pointer() {
+        let s = AdornerState::new(vec![item(100.0, 100.0, 200.0, 100.0, false)], 1000.0, 1000.0);
+        let e = s.activate(150.0, 120.0).expect("activate");
+        assert_eq!((e.kind, indices(&e)), (SelectionAdornerEventKind::Activate, vec![0]));
+        assert!(s.activate(900.0, 900.0).is_none());
+    }
+
+    #[test]
+    fn a_rebuild_mid_drag_keeps_the_drag() {
+        let mut old = AdornerState::new(vec![item(100.0, 100.0, 100.0, 50.0, true)], 1000.0, 1000.0);
+        old.press(150.0, 120.0, false, false);
+        old.drag_to(200.0, 170.0, false);
+        let drag = old.drag.clone();
+        assert_eq!(drag.kind, DragKind::Transform);
+        let fresh = AdornerState::new(vec![item(150.0, 150.0, 100.0, 50.0, true)], 1000.0, 1000.0);
+        let mut merged = merge_adorner_state(RefAny::new(fresh), RefAny::new(old));
+        let merged = merged.downcast_ref::<AdornerState>().expect("the state");
+        assert_eq!(merged.drag, drag, "the drag goes on");
+        assert!(
+            same(&merged.items[0].frame, &AdornerFrame::create(150.0, 150.0, 100.0, 50.0)),
+            "the app's new frames stay"
+        );
+    }
+}
