@@ -55,8 +55,11 @@ parse-checked with `rustfmt --edition 2021 --check`.
   item's marker (restore_caret_from_resume_point -> caret_past_markers). Test
   layout/tests/an_acked_split_of_a_list_item_resumes_past_the_new_items_marker.rs (in all.rs).
 
+- Report scripts/NOTES_2026_10_01.md written (keep its commit list current when adding work).
+
 ## IN PROGRESS (precise next steps, in order)
-8. (continue) A careful compile-in-head review pass over every AzNotes file (types, borrows, imports).
+8. (optional, time permitting) more review passes / engine gaps; update the report's commit list.
+   A careful compile-in-head review pass over every AzNotes file (types, borrows, imports).
 9. Report scripts/NOTES_2026_10_01.md.
    (old plan follows, done up to 6) REQUIRED by lib.rs/jobs.rs: `pub extern "C" fn layout(RefAny,
    LayoutCallbackInfo) -> Dom`, `pub const SETTINGS_SHORTCUTS: usize`, `pub const SETTINGS_ABOUT:
