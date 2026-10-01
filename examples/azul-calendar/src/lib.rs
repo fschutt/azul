@@ -240,6 +240,8 @@ pub(crate) struct CalState {
     // ---- FILE > Options ----
     pub(crate) server_text: String,
     pub(crate) server_error: String,
+    /// The category of the Options page shown.
+    pub(crate) options_category: usize,
     // ---- the editor window ----
     pub(crate) editor: Option<EditorForm>,
     /// The day of the occurrence the editor was opened on (a repeating event's).
@@ -428,7 +430,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             app.clone(),
             on_app_mounted,
         )
-        .with_child(chrome::office_shell(s, &app));
+        .with_child(chrome::office_shell(s, &app, info.get_window_height()));
     Dom::create_body()
         .with_css(BODY)
         .with_menu_bar(menu_bar(&app))
@@ -1084,6 +1086,7 @@ pub fn start() {
         sync_every_ms: sync_seconds.saturating_mul(1000),
         timers_started: false,
         server_error: String::new(),
+        options_category: 0,
         editor: None,
         editor_occurrence: None,
         editors_opened: 0,
