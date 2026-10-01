@@ -1529,3 +1529,880 @@ fn download_selected(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) 
         Some(ConflictChoice::KeepBoth),
     );
 }
+
+// ==== Delete, rename, new, undo ====
+
+/// Delete: into the trash folder on a local drive (Ctrl+Z brings it back);
+/// for good on a cloud drive, in the trash itself and with Shift+Delete -
+/// after a question unless the user turned it off (a cloud drive always asks).
+fn delete_selected(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, permanent: bool) {
+    let Some(drive_id) = s.current_drive_id() else {
+        return;
+    };
+    let items = s.selected_items();
+    if items.is_empty() {
+        return;
+    }
+    let in_trash = items.iter().all(|i| fileops::is_in_trash(&i.key));
+    let local = s.is_local_drive(&drive_id);
+    if local && !permanent && !in_trash {
+        s.trash_serial += 1;
+        let stamp = fileops::trash_stamp(now_secs(), s.trash_serial);
+        let Some(drive) = open_current(s) else {
+            return;
+        };
+        s.info(format!(
+            "Moving {} item(s) to the trash folder...",
+            items.len()
+        ));
+        spawn(
+            info,
+            app,
+            s,
+            Job::Delete {
+                drive,
+                drive_id,
+                items,
+                stamp: Some(stamp),
+            },
+        );
+        return;
+    }
+    if !local || s.settings.confirm_delete {
+        s.popups_opened += 1;
+        s.popup = Some(Popup::ConfirmDelete { drive_id, items });
+        return;
+    }
+    delete_for_good(info, app, s, drive_id, items);
+}
+
+/// The delete dialog said yes.
+pub(crate) fn confirm_delete(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let Some(Popup::ConfirmDelete { drive_id, items }) = s.popup.take() else {
+        return;
+    };
+    delete_for_good(info, app, s, drive_id, items);
+}
+
+fn delete_for_good(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: String,
+    items: Vec<SourceItem>,
+) {
+    let Some(drive) = open_drive(s, &drive_id) else {
+        return;
+    };
+    s.info(format!("Deleting {} item(s)...", items.len()));
+    spawn(
+        info,
+        app,
+        s,
+        Job::Delete {
+            drive,
+            drive_id,
+            items,
+            stamp: None,
+        },
+    );
+}
+
+/// F2: the selected item's name becomes a text field (the extension stays
+/// out of it while extensions are hidden).
+fn start_rename(s: &mut DriveState) {
+    let Some(entry) = s.single_selected().cloned() else {
+        return;
+    };
+    println!("AZDRIVE_RENAMING {}", entry.key);
+    s.renaming = Some(Renaming {
+        text: entry.display_name(s.settings.show_extensions),
+        is_folder: entry.is_folder,
+        key: entry.key,
+    });
+}
+
+/// Enter (or a click elsewhere) in the rename field: the new name.
+pub(crate) fn commit_rename(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let Some(renaming) = s.renaming.take() else {
+        return;
+    };
+    let Some(entry) = s.entry(&renaming.key).cloned() else {
+        return;
+    };
+    let mut name = renaming.text.trim().to_string();
+    if !s.settings.show_extensions && !entry.is_folder {
+        if let Some(ext) = browse::extension_of(&entry.name) {
+            name = format!("{name}.{ext}");
+        }
+    }
+    if name == entry.name {
+        return;
+    }
+    if let Err(why) = fileops::check_name(&name) {
+        s.error(why);
+        s.renaming = Some(renaming);
+        return;
+    }
+    if s
+        .entries
+        .iter()
+        .any(|e| e.key != entry.key && e.name.eq_ignore_ascii_case(&name))
+    {
+        s.error(format!(
+            "There is already an item named \"{name}\" in this folder."
+        ));
+        s.renaming = Some(renaming);
+        return;
+    }
+    let parent = fileops::parent_of(&entry.key);
+    let to = if entry.is_folder {
+        format!("{parent}{name}/")
+    } else {
+        format!("{parent}{name}")
+    };
+    let Some(drive_id) = s.current_drive_id() else {
+        return;
+    };
+    let Some(drive) = open_current(s) else {
+        return;
+    };
+    spawn(
+        info,
+        app,
+        s,
+        Job::Rename {
+            drive,
+            drive_id,
+            from: entry.key,
+            to,
+        },
+    );
+}
+
+/// New folder / New item: the first free name, then rename it in place.
+fn new_item(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, base: &str, folder: bool) {
+    let Some(drive_id) = s.current_drive_id() else {
+        return;
+    };
+    let taken: Vec<String> = s.entries.iter().map(|e| e.name.to_lowercase()).collect();
+    let name = fileops::new_name(base, &|n: &str| taken.contains(&n.to_lowercase()));
+    let key = format!("{}{name}{}", s.prefix(), if folder { "/" } else { "" });
+    let Some(drive) = open_current(s) else {
+        return;
+    };
+    spawn(info, app, s, Job::Create { drive, drive_id, key });
+}
+
+/// Ctrl+Z: the last rename, delete into the trash, move or new item, back.
+fn undo(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let Some(op) = s.undo.pop() else {
+        return;
+    };
+    let (drive_id, pairs, remove, trashed) = match op.clone() {
+        UndoOp::Rename { drive, from, to } => (drive, vec![(to, from)], None, false),
+        UndoOp::Trash { drive, gone } => (drive, gone, None, true),
+        UndoOp::Move { drive, pairs } => (drive, pairs, None, false),
+        UndoOp::Create { drive, key } => (drive, Vec::new(), Some(key), false),
+    };
+    let Some(drive) = open_drive(s, &drive_id) else {
+        return;
+    };
+    s.info(format!("{}...", op.label()));
+    spawn(
+        info,
+        app,
+        s,
+        Job::Undo {
+            drive,
+            pairs,
+            remove,
+            trashed,
+        },
+    );
+}
+
+// ==== Properties, preview, metadata ====
+
+/// Alt+Enter / Properties: the selected items, the open folder or the
+/// selected drive.
+fn show_properties(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    match &s.place {
+        Place::ThisPc => match s.selected_drive {
+            Some(index) => open_properties(info, app, s, Vec::new(), Some(index)),
+            None => s.warn("Select a drive to see its properties."),
+        },
+        Place::QuickAccess => s.info("Open a pinned folder to see its properties."),
+        Place::Folder { prefix, .. } => {
+            let mut items: Vec<browse::Entry> =
+                s.selected_entries().into_iter().cloned().collect();
+            if items.is_empty() {
+                let index = s.current_drive();
+                if prefix.is_empty() {
+                    if let Some(index) = index {
+                        open_properties(info, app, s, Vec::new(), Some(index));
+                    }
+                    return;
+                }
+                items.push(browse::Entry {
+                    key: prefix.clone(),
+                    name: key::last_segment(prefix).to_string(),
+                    is_folder: true,
+                    size: None,
+                    modified: None,
+                    etag: None,
+                });
+            }
+            open_properties(info, app, s, items, None);
+        }
+    }
+}
+
+/// Opens the Properties dialog and asks for what it needs: a folder's
+/// size (one recursive listing), a file's metadata (one HEAD).
+pub(crate) fn open_properties(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    items: Vec<browse::Entry>,
+    drive: Option<usize>,
+) {
+    s.popups_opened += 1;
+    let serial = s.popups_opened;
+    s.popup = Some(Popup::Properties(PropertiesState {
+        items: items.clone(),
+        drive,
+        tab: 0,
+        size: None,
+        serial,
+        metadata: None,
+    }));
+    println!("AZDRIVE_DONE properties {}", items.len());
+    match items.as_slice() {
+        [one] if one.is_folder => {
+            if let Some(drive) = open_current(s) {
+                spawn(
+                    info,
+                    app,
+                    s,
+                    Job::Measure {
+                        drive,
+                        prefix: one.key.clone(),
+                        serial,
+                    },
+                );
+            }
+        }
+        [one] => {
+            if let Some(drive) = open_current(s) {
+                spawn(
+                    info,
+                    app,
+                    s,
+                    Job::Metadata {
+                        drive,
+                        key: one.key.clone(),
+                    },
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The selection changed: the preview pane's file (fetched on a thread),
+/// and the details pane's metadata of a cloud file.
+pub(crate) fn request_preview(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let Some(entry) = s.single_selected().cloned() else {
+        s.preview = None;
+        return;
+    };
+    let local = s
+        .current_drive_id()
+        .is_some_and(|id| s.is_local_drive(&id));
+    if s.settings.details_pane && !entry.is_folder && !local && !s.metadata.contains_key(&entry.key)
+    {
+        if let Some(drive) = open_current(s) {
+            spawn(
+                info,
+                app,
+                s,
+                Job::Metadata {
+                    drive,
+                    key: entry.key.clone(),
+                },
+            );
+        }
+    }
+    if !s.settings.preview_pane {
+        return;
+    }
+    if s.preview.as_ref().is_some_and(|p| p.key == entry.key) {
+        return;
+    }
+    if entry.is_folder {
+        s.preview = Some(PreviewState {
+            key: entry.key.clone(),
+            content: Some(PreviewContent::Message(String::from(
+                "A folder: open it to see what it holds.",
+            ))),
+        });
+        return;
+    }
+    let kind = preview::preview_kind(&entry.name);
+    if let Some(reason) = preview::no_preview_reason(kind) {
+        println!("AZDRIVE_PREVIEW none {}", entry.key);
+        s.preview = Some(PreviewState {
+            key: entry.key.clone(),
+            content: Some(PreviewContent::Message(reason.to_string())),
+        });
+        return;
+    }
+    let Some(drive) = open_current(s) else {
+        return;
+    };
+    s.preview = Some(PreviewState {
+        key: entry.key.clone(),
+        content: None,
+    });
+    let temp_dir = s.open_dir.join("preview");
+    spawn(
+        info,
+        app,
+        s,
+        Job::Preview {
+            drive,
+            key: entry.key,
+            size: entry.size,
+            kind,
+            temp_dir,
+        },
+    );
+}
+
+// ==== Share ====
+
+/// Share: the selected items' addresses on the clipboard.
+fn share_link(info: &mut CallbackInfo, s: &mut DriveState) {
+    copy_path(info, s);
+    s.info(
+        "Copied the items' addresses (a file path, or an s3:// address; signed web links need \
+         the access-link server).",
+    );
+}
+
+/// Email: a new message in the mail app with the items' addresses.
+fn email_selected(s: &mut DriveState) {
+    let Some(drive_id) = s.current_drive_id() else {
+        return;
+    };
+    let entries: Vec<browse::Entry> = s.selected_entries().into_iter().cloned().collect();
+    let subject = entries
+        .iter()
+        .map(|e| e.name.clone())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let body = entries
+        .iter()
+        .map(|e| item_location(s, &drive_id, &e.key))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let url = format!(
+        "mailto:?subject={}&body={}",
+        azul_storage::sigv4::uri_encode(&subject, true),
+        azul_storage::sigv4::uri_encode(&body, true)
+    );
+    match Url::parse(url.as_str()).into_result() {
+        Ok(url) if url.open() => s.info("A new message with the items' addresses is open."),
+        _ => s.error("The system has no mail app to open."),
+    }
+}
+
+/// Zip: the selected items packed into one zip file in the open folder.
+fn zip_selected(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    /// Bigger selections are not packed in memory.
+    const MAX_ZIP_BYTES: u64 = 256 * 1024 * 1024;
+    let items = s.selected_items();
+    let known: u64 = items.iter().filter_map(|i| i.size).sum();
+    if known > MAX_ZIP_BYTES {
+        s.error("The selection is too big to compress in memory (more than 256 MB).");
+        return;
+    }
+    let base = match items.as_slice() {
+        [one] => {
+            let name = key::last_segment(&one.key);
+            let stem = if one.is_folder {
+                name
+            } else {
+                fileops::split_extension(name).0
+            };
+            format!("{stem}.zip")
+        }
+        _ => format!("{}.zip", s.place_name()),
+    };
+    let taken: Vec<String> = s.entries.iter().map(|e| e.name.to_lowercase()).collect();
+    let name = fileops::new_name(&base, &|n: &str| taken.contains(&n.to_lowercase()));
+    let zip_key = format!("{}{name}", s.prefix());
+    let Some(drive) = open_current(s) else {
+        return;
+    };
+    s.info(format!("Compressing {} item(s)...", items.len()));
+    spawn(
+        info,
+        app,
+        s,
+        Job::Zip {
+            drive,
+            items,
+            zip_key,
+        },
+    );
+}
+
+/// Pin to Quick access (the selected folder, else the open one); a pinned
+/// one is unpinned.
+fn toggle_pin(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let Some(drive) = s.current_drive_id() else {
+        return;
+    };
+    let (prefix, name) = match s.single_selected() {
+        Some(e) if e.is_folder => (e.key.clone(), e.name.clone()),
+        _ => (s.prefix().to_string(), s.place_name()),
+    };
+    if s.settings.is_pinned(&drive, &prefix) {
+        s.settings
+            .pinned
+            .retain(|p| !(p.drive == drive && p.prefix == prefix));
+        s.info(format!("\"{name}\" left Quick access."));
+    } else {
+        s.settings.pinned.push(model::Pinned {
+            drive,
+            prefix,
+            name: name.clone(),
+        });
+        s.success(format!("\"{name}\" is pinned to Quick access."));
+    }
+    println!("AZDRIVE_DONE pinned {}", s.settings.pinned.len());
+    save_settings(info, app, s);
+}
+
+// ==== View settings ====
+
+pub(crate) fn set_layout(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    layout: ViewLayout,
+) {
+    s.settings.layout = layout;
+    println!("AZDRIVE_LAYOUT {}", layout.name());
+    save_settings(info, app, s);
+}
+
+/// Sort by `column` (a second click on the same column reverses it), or
+/// in the given direction.
+pub(crate) fn sort_by(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    column: Column,
+    descending: Option<bool>,
+) {
+    s.settings.sort = match descending {
+        Some(descending) => browse::Sort { column, descending },
+        None => s.settings.sort.clicked(column),
+    };
+    browse::sort_entries(&mut s.entries, s.settings.sort);
+    println!(
+        "AZDRIVE_SORT {} {}",
+        s.settings.sort.column.label(),
+        if s.settings.sort.descending {
+            "desc"
+        } else {
+            "asc"
+        }
+    );
+    save_settings(info, app, s);
+}
+
+/// A View setting on or off.
+fn toggle(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, which: Toggle) {
+    let settings = &mut s.settings;
+    match which {
+        Toggle::NavigationPane => settings.navigation_pane = !settings.navigation_pane,
+        Toggle::PreviewPane => settings.preview_pane = !settings.preview_pane,
+        Toggle::DetailsPane => settings.details_pane = !settings.details_pane,
+        Toggle::ItemCheckboxes => settings.item_checkboxes = !settings.item_checkboxes,
+        Toggle::Extensions => settings.show_extensions = !settings.show_extensions,
+        Toggle::HiddenItems => settings.show_hidden = !settings.show_hidden,
+        Toggle::ConfirmDelete => settings.confirm_delete = !settings.confirm_delete,
+    }
+    println!(
+        "AZDRIVE_PANES {} {} {}",
+        s.settings.navigation_pane, s.settings.preview_pane, s.settings.details_pane
+    );
+    match which {
+        Toggle::HiddenItems => {
+            let keys = s.visible_keys();
+            let order: Vec<&str> = keys.iter().map(String::as_str).collect();
+            s.selection.retain(&order);
+            // The tree lists its folders again with or without the hidden ones.
+            s.tree.loaded.clear();
+            let open: Vec<crate::TreeKey> = s.tree.expanded.iter().cloned().collect();
+            for node in open {
+                crate::start_tree_listing(info, app, s, node);
+            }
+        }
+        Toggle::PreviewPane => {
+            s.preview = None;
+            request_preview(info, app, s);
+        }
+        _ => {}
+    }
+    save_settings(info, app, s);
+}
+
+// ==== Menus ====
+
+/// The context menu of the selection (or of the folder itself when nothing
+/// is selected), as Explorer's right-click and the menu key show it.
+pub(crate) fn context_menu(app: &RefAny, s: &DriveState) -> Menu {
+    let item = |label: &str, action: Action| {
+        let disabled = why_not(s, &action).is_some();
+        menu_item(app, label, action, disabled)
+    };
+    let submenu = |label: &str, children: Vec<MenuItem>| {
+        MenuItem::String(StringMenuItem::create(AzString::from(label)).with_children(children))
+    };
+    let items = if s.current_drive().is_some() && !s.selection.is_empty() {
+        let one_folder = s.single_selected().is_some_and(|e| e.is_folder);
+        let mut items = vec![
+            item("Open", Action::Open),
+            item("Download", Action::Download),
+            MenuItem::Separator,
+            item("Cut", Action::Cut),
+            item("Copy", Action::Copy),
+        ];
+        if one_folder {
+            items.push(item("Pin to Quick access", Action::Pin));
+        }
+        items.extend([
+            MenuItem::Separator,
+            item("Compress to zip", Action::Zip),
+            item("Copy path", Action::CopyPath),
+            MenuItem::Separator,
+            item("Delete", Action::Delete),
+            item("Rename", Action::Rename),
+            MenuItem::Separator,
+            item("Properties", Action::Properties),
+        ]);
+        items
+    } else {
+        let layouts: Vec<MenuItem> = ViewLayout::ALL
+            .iter()
+            .map(|l| {
+                check_item(
+                    app,
+                    l.label(),
+                    Action::SetLayout(*l),
+                    s.settings.layout == *l,
+                )
+            })
+            .collect();
+        let sorts: Vec<MenuItem> = s
+            .settings
+            .columns
+            .visible()
+            .into_iter()
+            .map(|c| check_item(app, c.label(), Action::SortBy(c), s.settings.sort.column == c))
+            .collect();
+        let groups: Vec<MenuItem> = GroupBy::ALL
+            .iter()
+            .map(|g| check_item(app, g.label(), Action::GroupBy(*g), s.settings.group_by == *g))
+            .collect();
+        vec![
+            submenu("View", layouts),
+            submenu("Sort by", sorts),
+            submenu("Group by", groups),
+            item("Refresh", Action::Refresh),
+            MenuItem::Separator,
+            item("Paste", Action::Paste),
+            item("Undo", Action::Undo),
+            MenuItem::Separator,
+            submenu(
+                "New",
+                vec![
+                    item("Folder", Action::NewFolder),
+                    item("Text Document", Action::NewTextDocument),
+                ],
+            ),
+            MenuItem::Separator,
+            item("Properties", Action::Properties),
+        ]
+    };
+    Menu::create(items)
+}
+
+/// A popup's close (x, Escape): a conflict question cancels its transfer.
+pub(crate) fn close_popup(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    match s.popup {
+        Some(Popup::Conflict { id, .. }) => cancel_transfer(info, app, s, id),
+        _ => s.popup = None,
+    }
+}
+
+// ==== Drives ====
+
+/// Opens the "Add drive" form; with `editing`, prefilled from that drive to
+/// enter its keys again.
+pub(crate) fn open_drive_form(s: &mut DriveState, editing: Option<usize>) {
+    let mut form = DriveForm::default();
+    let mut editing_id = None;
+    if let Some(slot) = editing.and_then(|i| s.slots.get(i)) {
+        if let Some(config) = slot.entry.s3_config() {
+            form.name = slot.entry.name.clone();
+            form.endpoint = config.endpoint;
+            form.region = config.region;
+            form.bucket = config.bucket;
+            form.path_style = config.path_style;
+            editing_id = Some(slot.entry.id.clone());
+        }
+    }
+    s.popups_opened += 1;
+    s.popup = Some(Popup::AddDrive {
+        form,
+        editing: editing_id,
+        serial: s.popups_opened,
+        testing: false,
+        tested: None,
+        error: String::new(),
+    });
+}
+
+/// "Test connection": ONE listing call with the form's keys.
+pub(crate) fn test_connection(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let Some(Popup::AddDrive {
+        form,
+        serial,
+        testing,
+        tested,
+        error,
+        ..
+    }) = s.popup.as_mut()
+    else {
+        return;
+    };
+    if *testing {
+        return;
+    }
+    match form.check() {
+        Ok((config, credentials)) => {
+            *testing = true;
+            *tested = None;
+            error.clear();
+            let serial = *serial;
+            spawn(
+                info,
+                app,
+                s,
+                Job::Test {
+                    serial,
+                    config,
+                    credentials,
+                },
+            );
+        }
+        Err(problem) => *error = problem,
+    }
+}
+
+/// "Save drive": the entry into the drives file (no secrets), the keys
+/// into the keyring.
+pub(crate) fn save_drive(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let Some(Popup::AddDrive {
+        form,
+        editing,
+        error,
+        ..
+    }) = s.popup.as_mut()
+    else {
+        return;
+    };
+    let id = editing
+        .clone()
+        .unwrap_or_else(|| config::new_drive_id(form.name.trim()));
+    let (entry, credentials) = match form.entry(&id).and_then(|entry| {
+        let (_, credentials) = form.check()?;
+        Ok((entry, credentials))
+    }) {
+        Ok(parts) => parts,
+        Err(problem) => {
+            *error = problem;
+            return;
+        }
+    };
+    let Some(file_path) = s.drives_file.clone() else {
+        *error = String::from("There is no configuration folder to save the drive in.");
+        return;
+    };
+    let saved = DrivesFile::load(&file_path).and_then(|mut file| {
+        file.add(entry.clone());
+        file.save(&file_path)
+    });
+    if let Err(e) = saved {
+        *error = format!("The drive could not be saved: {e}");
+        return;
+    }
+    let secret = credentials.to_keyring_secret();
+    let index = match s.slot_index(&id) {
+        Some(index) => {
+            s.slots[index] = Slot::new(entry);
+            index
+        }
+        None => {
+            s.slots.push(Slot::new(entry));
+            s.slots.len() - 1
+        }
+    };
+    s.slots[index].credentials = Some(credentials);
+    s.popup = None;
+    s.selected_drive = Some(index);
+    println!("AZDRIVE_ADDED {id}");
+    crate::keyring(
+        info,
+        s,
+        KeyringOp::Store {
+            drive_id: id.clone(),
+        },
+        KeyringCall::Store(config::keyring_key(&id), secret),
+    );
+    go(info, app, s, Place::folder(&id, ""), true);
+}
+
+/// "Add a folder as a drive": the OS's folder dialog picked one.
+extern "C" fn on_local_drive_picked(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    result: RefAny,
+) -> Update {
+    let Some(picked) = FileOpenResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(path) = picked.path.into_option() else {
+        return Update::DoNothing; // cancelled
+    };
+    let root = PathBuf::from(path.inner.as_str());
+    with_state(&mut data, &mut info, |info, app, s| {
+        let name = root
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| root.display().to_string());
+        let id = config::new_drive_id(&name);
+        let entry = DriveEntry {
+            id: id.clone(),
+            name: name.clone(),
+            location: DriveLocation::Local {
+                root: root.to_string_lossy().into_owned(),
+            },
+        };
+        if let Some(file_path) = s.drives_file.clone() {
+            let saved = DrivesFile::load(&file_path).and_then(|mut file| {
+                file.add(entry.clone());
+                file.save(&file_path)
+            });
+            if let Err(e) = saved {
+                s.error(format!("The drive could not be saved: {e}"));
+                return;
+            }
+        }
+        s.slots.push(Slot::new(entry));
+        crate::refresh_disks(s);
+        println!("AZDRIVE_ADDED {id}");
+        s.success(format!("\"{name}\" is a drive now."));
+        go(info, app, s, Place::folder(&id, ""), true);
+    })
+}
+
+/// "Remove drive" confirmed: out of the drives file, its keys out of the keyring.
+pub(crate) fn forget_drive(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let Some(Popup::ConfirmForget { drive_id }) = s.popup.take() else {
+        return;
+    };
+    if let Some(file_path) = s.drives_file.clone() {
+        let saved = DrivesFile::load(&file_path).and_then(|mut file| {
+            file.remove(&drive_id);
+            file.save(&file_path)
+        });
+        if let Err(e) = saved {
+            s.error(format!("The drives file could not be updated: {e}"));
+            return;
+        }
+    }
+    let mut needs_keyring = false;
+    if let Some(index) = s.slot_index(&drive_id) {
+        let name = s.slots[index].entry.name.clone();
+        needs_keyring = s.slots[index].entry.needs_keyring();
+        s.slots.remove(index);
+        s.info(format!("\"{name}\" was removed from AzDrive. Its files stay where they are."));
+    }
+    s.selected_drive = None;
+    s.tree.expanded.retain(|node| node.0 != drive_id);
+    s.tree.loaded.retain(|node, _| node.0 != drive_id);
+    s.root_counts.remove(&drive_id);
+    s.settings.pinned.retain(|p| p.drive != drive_id);
+    if needs_keyring {
+        crate::keyring(
+            info,
+            s,
+            KeyringOp::Forget,
+            KeyringCall::Delete(config::keyring_key(&drive_id)),
+        );
+    }
+    s.history.clear();
+    save_settings(info, app, s);
+    go(info, app, s, Place::ThisPc, false);
+}
+
+/// The "Choose location" dialog's path: the transfer goes there.
+pub(crate) fn choose_location_done(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let Some(Popup::ChooseLocation { kind, text, .. }) = s.popup.take() else {
+        return;
+    };
+    match browse::parse_path(&text, &s.drive_names()) {
+        Some(place @ Place::Folder { .. }) => transfer_selection_to(info, app, s, kind, place),
+        _ => {
+            s.popup = Some(Popup::ChooseLocation {
+                kind,
+                error: format!("\"{}\" is not a folder of a drive.", text.trim()),
+                text,
+            });
+        }
+    }
+}
+
+/// A drive tile's or pin's selection (This PC, Quick access).
+pub(crate) fn select_drive(s: &mut DriveState, index: usize) {
+    s.selected_drive = Some(index);
+}
+
+/// Whether the source of a drag is a local drive (for the drop's default).
+pub(crate) fn drag_source_is_local(s: &DriveState) -> bool {
+    s.dragging
+        .as_ref()
+        .is_some_and(|(id, _)| s.is_local_drive(id))
+}
+
+/// Whether `key` is the cut clipboard's item (drawn faded, as Explorer does).
+pub(crate) fn is_cut(s: &DriveState, item_key: &str) -> bool {
+    s.clipboard.as_ref().is_some_and(|c| {
+        c.cut && s.current_drive_id().as_deref() == Some(c.drive.as_str())
+            && c.items.iter().any(|i| i.key == item_key)
+    })
+}
+
+/// The drive of a pinned folder, opened (for Quick access's tiles).
+pub(crate) fn pinned_drive(s: &mut DriveState, index: usize) -> Option<Arc<dyn Drive>> {
+    let pin = s.settings.pinned.get(index)?.clone();
+    let slot = s.slot_index(&pin.drive)?;
+    open_slot(s, slot)
+}
