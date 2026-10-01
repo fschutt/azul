@@ -161,27 +161,85 @@ pub enum DebugRoute {
 #[cfg(feature = "std")]
 #[must_use]
 pub fn route_debug_request(target: Option<&str>, me: u64, windows: &[(u64, String)]) -> DebugRoute {
-    // Today's rule: whoever takes a request serves it, unless it names another window.
-    let mine = windows.iter().find(|(slot, _)| *slot == me).map(|(_, id)| id.as_str());
-    match target {
-        Some(t) if !t.is_empty() && mine != Some(t) => DebugRoute::NoSuchWindow,
-        _ => DebugRoute::Mine,
+    let slot = match target.filter(|t| !t.is_empty()) {
+        // Naming none: the first window that registered (the app's first window), or this
+        // one when the registry is empty (a timer outside a window).
+        None => windows.first().map_or(me, |(slot, _)| *slot),
+        Some(t) => match windows.iter().find(|(_, id)| id == t) {
+            Some((slot, _)) => *slot,
+            None => return DebugRoute::NoSuchWindow,
+        },
+    };
+    if slot == me {
+        DebugRoute::Mine
+    } else {
+        DebugRoute::Forward(slot)
     }
+}
+
+/// The windows with a debug timer: `(slot, window id)` in registration order.
+#[cfg(feature = "std")]
+fn debug_windows() -> &'static Mutex<Vec<(u64, String)>> {
+    static WINDOWS: OnceLock<Mutex<Vec<(u64, String)>>> = OnceLock::new();
+    WINDOWS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// The requests handed over to a window, by slot.
+#[cfg(feature = "std")]
+fn forwarded_debug_requests() -> &'static Mutex<BTreeMap<u64, VecDeque<DebugRequest>>> {
+    static FORWARDED: OnceLock<Mutex<BTreeMap<u64, VecDeque<DebugRequest>>>> = OnceLock::new();
+    FORWARDED.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+/// Registers a window's debug timer under a new slot.
+#[cfg(feature = "std")]
+fn register_debug_window(window_id: &str) -> u64 {
+    static NEXT_SLOT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let slot = NEXT_SLOT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    if let Ok(mut windows) = debug_windows().lock() {
+        windows.push((slot, window_id.to_string()));
+    }
+    slot
+}
+
+/// A window's debug timer is gone (the window closed): its slot leaves the registry, and the
+/// requests still waiting for it are answered.
+#[cfg(feature = "std")]
+fn unregister_debug_window(slot: u64) {
+    if let Ok(mut windows) = debug_windows().lock() {
+        windows.retain(|(s, _)| *s != slot);
+    }
+    for request in take_forwarded_debug_requests(slot) {
+        send_err(&request, "the window this request named was closed");
+    }
+}
+
+/// The registered windows, `(slot, window id)` in registration order.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn registered_debug_windows() -> Vec<(u64, String)> {
+    debug_windows().lock().map(|w| w.clone()).unwrap_or_default()
 }
 
 /// Hands `request` to the window registered under `slot` (its timer serves it at its next
 /// tick, [`take_forwarded_debug_requests`]).
 #[cfg(feature = "std")]
 pub fn forward_debug_request(slot: u64, request: DebugRequest) {
-    let _ = (slot, request);
+    if let Ok(mut forwarded) = forwarded_debug_requests().lock() {
+        forwarded.entry(slot).or_default().push_back(request);
+    }
 }
 
 /// The requests other windows handed to the window registered under `slot`, oldest first.
 #[cfg(feature = "std")]
 #[must_use]
 pub fn take_forwarded_debug_requests(slot: u64) -> Vec<DebugRequest> {
-    let _ = slot;
-    Vec::new()
+    forwarded_debug_requests()
+        .lock()
+        .ok()
+        .and_then(|mut forwarded| forwarded.remove(&slot))
+        .map(Vec::from)
+        .unwrap_or_default()
 }
 
 /// Response data from timer callback to HTTP thread (internal)
@@ -12593,7 +12651,7 @@ pub extern "C" fn debug_timer_callback(
     // tick and put back at the end: the dispatcher needs `&mut` access to it
     // while `timer_data`'s exclusive borrow must not stay live across the
     // callbacks below.
-    let (mut app_data, component_map, request_rx, my_window_id, mut session) = {
+    let (mut app_data, component_map, request_rx, my_window_id, my_slot, mut session) = {
         let mut dtd = match timer_data.downcast_mut::<DebugTimerData>() {
             Some(d) => d,
             None => {
@@ -12614,6 +12672,7 @@ pub extern "C" fn debug_timer_callback(
             dtd.component_map.clone(),
             dtd.request_rx.clone(),
             dtd.window_id.clone(),
+            dtd.slot,
             core::mem::take(&mut dtd.session),
         )
     };
@@ -12650,23 +12709,30 @@ pub extern "C" fn debug_timer_callback(
     // Drain all available requests from the SPMC channel
     let mut processed_count = 0;
 
+    // Every window's timer drains the ONE shared queue: a request for another window (by
+    // `window_id`; naming none, the first window) is handed over to it, and the requests other
+    // windows handed to this one are served first, in order.
+    let windows = registered_debug_windows();
+    let mut mine = take_forwarded_debug_requests(my_slot);
     while let Ok(request) = request_rx.try_recv() {
-        // Window-targeted routing
-        if let Some(ref target_id) = request.window_id {
-            if target_id != &my_window_id {
-                // Not for us — but SPMC already consumed it.
-                // Send error so HTTP thread doesn't hang forever.
+        match route_debug_request(request.window_id.as_deref(), my_slot, &windows) {
+            DebugRoute::Mine => mine.push(request),
+            DebugRoute::Forward(slot) => forward_debug_request(slot, request),
+            DebugRoute::NoSuchWindow => {
+                let open: Vec<&str> = windows.iter().map(|(_, id)| id.as_str()).collect();
                 send_err(
                     &request,
                     format!(
-                        "Request targeted window '{}' but was consumed by '{}'",
-                        target_id, my_window_id
+                        "No window has the id {:?} (open windows: {:?}; this is {:?})",
+                        request.window_id.as_deref().unwrap_or(""),
+                        open,
+                        my_window_id
                     ),
                 );
-                continue;
             }
         }
-
+    }
+    for request in mine {
         log(
             LogLevel::Debug,
             LogCategory::DebugServer,
@@ -21069,11 +21135,13 @@ pub fn create_debug_timer(
 
     let pace = DebugPollPace::new();
     let interval_ms = pace.interval_ms();
+    let slot = register_debug_window(&window_id);
     let timer_data = azul_core::refany::RefAny::new(DebugTimerData {
         app_data,
         component_map,
         request_rx,
         window_id,
+        slot,
         session: E2eSession::new(),
         pace,
     });
@@ -21103,6 +21171,9 @@ struct DebugTimerData {
     request_rx: spmc::Receiver<DebugRequest>,
     /// This window's unique ID for request routing
     window_id: String,
+    /// This timer's slot in the registry of windows the debug server reaches
+    /// ([`route_debug_request`]).
+    slot: u64,
     /// This window's E2E scheduler slot — the suspended scenario run that has
     /// to survive between timer ticks. Per-window on purpose: it used to be a
     /// process-global, so two windows shared one slot.
@@ -21110,6 +21181,14 @@ struct DebugTimerData {
     /// How often this timer polls (busy while requests arrive, idle after a
     /// quiet second): see [`DebugPollPace`].
     pace: DebugPollPace,
+}
+
+#[cfg(feature = "std")]
+#[cfg(feature = "e2e-server")]
+impl Drop for DebugTimerData {
+    fn drop(&mut self) {
+        unregister_debug_window(self.slot);
+    }
 }
 
 // Re-export log categories for convenience
