@@ -522,6 +522,7 @@ mod tests {
             is_folder: false,
             size: Some(size),
             modified: Some(modified),
+            etag: None,
         }
     }
 
@@ -532,6 +533,7 @@ mod tests {
             is_folder: true,
             size: None,
             modified: None,
+            etag: None,
         }
     }
 
@@ -841,5 +843,69 @@ mod tests {
         assert!(!text.contains("test-secret"), "{text}");
         assert!(!text.contains("AKIDTEST"), "{text}");
         assert!(text.contains("azdrive"), "{text}");
+    }
+
+    #[test]
+    fn quick_access_is_a_place_of_its_own_in_the_trail_and_the_typed_path() {
+        let drives = vec![("home".to_string(), "Home".to_string())];
+        assert_eq!(path_text(&Place::QuickAccess, None), "Quick access");
+        assert_eq!(parse_path("quick access", &drives), Some(Place::QuickAccess));
+        assert_eq!(
+            crumbs_of(&Place::QuickAccess, ""),
+            vec![("Quick access".to_string(), Place::QuickAccess)]
+        );
+    }
+
+    #[test]
+    fn the_type_column_names_the_kind_of_file_as_explorer_does() {
+        assert_eq!(kind_of("inbox", true), "File folder");
+        assert_eq!(kind_of("notes.txt", false), "Text Document");
+        assert_eq!(kind_of("photo.JPG", false), "JPEG image");
+        assert_eq!(kind_of("paper.pdf", false), "PDF Document");
+        assert_eq!(kind_of("main.rs", false), "RS File");
+        assert_eq!(kind_of("README", false), "File");
+        assert_eq!(kind_of(".bashrc", false), "File", "a leading dot is not an extension");
+        assert_eq!(file("a.png", 1, 0).kind(), "PNG image");
+    }
+
+    #[test]
+    fn sorting_by_type_groups_the_kinds_then_names() {
+        let mut entries = vec![
+            file("b.txt", 1, 1),
+            file("a.png", 1, 1),
+            folder("z"),
+            file("a.txt", 1, 1),
+        ];
+        sort_entries(
+            &mut entries,
+            Sort {
+                column: Column::Type,
+                descending: false,
+            },
+        );
+        assert_eq!(names(&entries), vec!["z", "a.png", "a.txt", "b.txt"]);
+    }
+
+    #[test]
+    fn extensions_hide_when_asked_and_dot_files_are_hidden_items() {
+        let f = file("report.final.pdf", 1, 0);
+        assert_eq!(f.display_name(true), "report.final.pdf");
+        assert_eq!(f.display_name(false), "report.final");
+        assert_eq!(folder("v1.2").display_name(false), "v1.2", "a folder has no extension");
+        assert_eq!(file(".env", 1, 0).display_name(false), ".env");
+        assert!(file(".env", 1, 0).is_hidden());
+        assert!(folder(".azdrive-trash").is_hidden());
+        assert!(!file("env", 1, 0).is_hidden());
+    }
+
+    #[test]
+    fn every_column_has_a_header_and_reads_back_from_its_index() {
+        for (i, column) in Column::ALL.iter().enumerate() {
+            assert_eq!(column.index(), i);
+            assert_eq!(Column::from_index(i), Some(*column));
+            assert!(!column.label().is_empty());
+        }
+        assert_eq!(Column::Modified.label(), "Date modified");
+        assert_eq!(Column::from_index(99), None);
     }
 }

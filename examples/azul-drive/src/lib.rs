@@ -38,6 +38,10 @@
 //! `AZDRIVE_DONE <what> <key>`. Keys and secrets are never printed.
 
 pub mod browse;
+pub mod fileops;
+pub mod keys;
+pub mod model;
+pub mod preview;
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},
