@@ -5,9 +5,11 @@ Task: AzCalculator (F1/F2/F6/F7 vehicle) + AzContacts (A4). Report: scripts/SMAL
 ## DONE
 - 6c7492e66 test(e2e): key_down names every punctuation and keypad key (RED)
 - 8a5e2f886 fix(e2e): key_down knows the punctuation and keypad key names (GREEN)
+- 7c4ce8bd6 test(appkit): the shared app skeleton (RED)
+- 75f052000 feat(appkit): the shared app skeleton and its settings page (GREEN)
 
 ## IN PROGRESS
-- examples/azul-appkit (NEXT 1)
+- AzCalculator model (NEXT 2)
 
 ## NEXT
 1. examples/azul-appkit (shared skeleton crate): args (--screen/--size/--theme/--mode/--shot/--sample/--data-dir),
