@@ -470,16 +470,552 @@ pub(crate) struct ThumbnailStripLook {
     pub marker: Option<&'static str>,
 }
 
-/// The look a strip with the theme option `theme` is built with.
+// ---- the base: the strip's structure, in every theme ----
+
+/// The column: items top to bottom, scrolling when they overflow.
+pub(crate) static THUMBNAIL_COLUMN_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Auto)),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(0))),
+];
+
+/// The grid: items in rows that wrap, scrolling when they overflow.
+pub(crate) static THUMBNAIL_GRID_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_wrap(LayoutFlexWrap::Wrap)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_content(LayoutAlignContent::Start)),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Auto)),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(0))),
+];
+
+/// A section header: chevron and title on one line, the strip's full width.
+pub(crate) static THUMBNAIL_SECTION_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::Px(
+        azul_css::props::basic::pixel::PixelValue::const_percent(100),
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Default)),
+];
+
+/// A column item: the number beside the preview.
+pub(crate) static THUMBNAIL_ITEM_COLUMN_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Start)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Default)),
+];
+
+/// A grid item: the preview over the number.
+pub(crate) static THUMBNAIL_ITEM_GRID_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Default)),
+];
+
+/// The number column: the number over the badge.
+pub(crate) static THUMBNAIL_NUMBER_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+];
+
+/// The preview box: the positioning context of the app's preview, clipping it.
+pub(crate) static THUMBNAIL_THUMB_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+];
+
+/// The look a strip with the theme option `theme` is built with: the pinned
+/// theme's own look, or both looks merged in the structure of the theme the
+/// DOM is being built for (the previews are built once).
 pub(crate) fn look_for(theme: OptionUiTheme) -> ThumbnailStripLook {
-    let _ = theme;
-    ThumbnailStripLook::default()
+    use crate::widgets::themes::{flat, flora, theme_blocks::follow_props};
+    match theme.into_option() {
+        Some(UiTheme::Flat) => flat::thumbnail_strip_look(),
+        Some(UiTheme::Flora) => flora::thumbnail_strip_look(),
+        None => {
+            let (a, b) = (flat::thumbnail_strip_look(), flora::thumbnail_strip_look());
+            let both = |x: &[CssPropertyWithConditions], y: &[CssPropertyWithConditions]| {
+                follow_props(x, y).into_library_owned_vec()
+            };
+            ThumbnailStripLook {
+                strip: both(&a.strip, &b.strip),
+                section: both(&a.section, &b.section),
+                section_icon: both(&a.section_icon, &b.section_icon),
+                item: both(&a.item, &b.item),
+                item_selected: both(&a.item_selected, &b.item_selected),
+                number: both(&a.number, &b.number),
+                badge: both(&a.badge, &b.badge),
+                thumb: both(&a.thumb, &b.thumb),
+                thumb_selected: both(&a.thumb_selected, &b.thumb_selected),
+                thumb_hidden: both(&a.thumb_hidden, &b.thumb_hidden),
+                marker: match UiTheme::current() {
+                    UiTheme::Flat => a.marker,
+                    UiTheme::Flora => b.marker,
+                },
+            }
+        }
+    }
 }
 
-/// The strip's DOM in `look`.
+/// A part's declarations: its base (the structure), then the look's skin.
+fn part(
+    base: &[CssPropertyWithConditions],
+    skin: &[CssPropertyWithConditions],
+) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(crate::widgets::themes::decl::on_base(base, skin))
+}
+
+/// What every node of one strip shares: the app's hook, the items shown
+/// (as indices into the items, in DOM order) and the drag in flight.
+struct StripShared {
+    on_event: OptionThumbnailStripOnEvent,
+    visible: Vec<usize>,
+    drag_from: Option<usize>,
+    grid: bool,
+}
+
+/// An item's (or a section header's) payload: its index and the shared part.
+struct ItemData {
+    index: usize,
+    shared: RefAny,
+}
+
+fn hook(event: EventFilter, data: &RefAny, cb: usize) -> CoreCallbackData {
+    CoreCallbackData {
+        event,
+        callback: CoreCallback {
+            cb,
+            ctx: OptionRefAny::None,
+        },
+        refany: data.clone(),
+    }
+}
+
+/// The strip's DOM in `look`: [header?, item].. for the items shown.
 pub(crate) fn build(strip: ThumbnailStrip, look: &ThumbnailStripLook) -> Dom {
-    let _ = (strip, look);
+    use azul_core::a11y::{AccessibilityInfo, AccessibilityRole, AccessibilityState, AccessibilityStateVec};
+
+    let ThumbnailStrip {
+        items,
+        on_event,
+        accessibility_name,
+        active,
+        thumb_width,
+        thumb_height,
+        layout,
+        theme: _,
+    } = strip;
+    let grid = layout == ThumbnailStripLayout::Grid;
+    let items = items.into_library_owned_vec();
+
+    // The items shown: everything but the runs of folded sections.
+    let mut visible = Vec::with_capacity(items.len());
+    let mut folded = false;
+    for (i, item) in items.iter().enumerate() {
+        if !item.section.as_str().is_empty() {
+            folded = item.section_collapsed;
+        }
+        if !folded {
+            visible.push(i);
+        }
+    }
+    let stop = visible.iter().position(|&i| i == active).unwrap_or(0);
+    let shared = RefAny::new(StripShared {
+        on_event,
+        visible: visible.clone(),
+        drag_from: None,
+        grid,
+    });
+
+    let mut children: Vec<Dom> = Vec::with_capacity(items.len() + 4);
+    let mut position = 0usize;
+    for (index, item) in items.into_iter().enumerate() {
+        let ThumbnailItem {
+            content,
+            label,
+            name,
+            badge,
+            section,
+            selected,
+            hidden,
+            section_collapsed,
+        } = item;
+        if !section.as_str().is_empty() {
+            let data = RefAny::new(ItemData {
+                index,
+                shared: shared.clone(),
+            });
+            let state = if section_collapsed {
+                AccessibilityState::Collapsed
+            } else {
+                AccessibilityState::Expanded
+            };
+            children.push(
+                Dom::create_div()
+                    .with_class(AzString::from_const_str(SECTION_CLASS))
+                    .with_css_props(part(THUMBNAIL_SECTION_BASE, &look.section))
+                    .with_accessibility_info(AccessibilityInfo {
+                        role: AccessibilityRole::Grouping,
+                        accessibility_name: Some(section.clone()).into(),
+                        states: AccessibilityStateVec::from_vec(alloc::vec![state]),
+                        ..Default::default()
+                    })
+                    .with_callbacks(
+                        alloc::vec![hook(
+                            EventFilter::Hover(HoverEventFilter::Click),
+                            &data,
+                            on_section_click as usize,
+                        )]
+                        .into(),
+                    )
+                    .with_children(DomVec::from_vec(alloc::vec![
+                        Dom::create_icon(AzString::from_const_str(if section_collapsed {
+                            "chevron_right"
+                        } else {
+                            "expand_more"
+                        }))
+                        .with_css_props(part(&[], &look.section_icon)),
+                        crate::widgets::widget_p_with_text(section),
+                    ])),
+            );
+        }
+        if visible.get(position) != Some(&index) {
+            continue;
+        }
+        let tab = roving::item_tab_index(position, stop);
+        position += 1;
+
+        let mut number_parts = alloc::vec![crate::widgets::widget_p_with_text(label)];
+        if !badge.as_str().is_empty() {
+            number_parts.push(
+                Dom::create_icon(badge)
+                    .with_class(AzString::from_const_str(BADGE_CLASS))
+                    .with_css_props(part(&[], &look.badge)),
+            );
+        }
+        let number = Dom::create_div()
+            .with_class(AzString::from_const_str(NUMBER_CLASS))
+            .with_css_props(part(THUMBNAIL_NUMBER_BASE, &look.number))
+            .with_children(DomVec::from_vec(number_parts));
+
+        let mut thumb_skin = look.thumb.clone();
+        if selected {
+            thumb_skin.extend(look.thumb_selected.iter().cloned());
+        }
+        if hidden {
+            thumb_skin.extend(look.thumb_hidden.iter().cloned());
+        }
+        let mut thumb_css = crate::widgets::themes::decl::on_base(THUMBNAIL_THUMB_BASE, &thumb_skin);
+        thumb_css.push(CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::px(
+            thumb_width,
+        ))));
+        thumb_css.push(CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::px(
+            thumb_height,
+        ))));
+        let thumb = Dom::create_div()
+            .with_class(AzString::from_const_str(THUMB_CLASS))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(thumb_css))
+            .with_child(content);
+
+        let mut skin = look.item.clone();
+        if selected {
+            skin.extend(look.item_selected.iter().cloned());
+        }
+        let mut classes = alloc::vec![Class(AzString::from_const_str(ITEM_CLASS))];
+        if selected {
+            classes.push(Class(AzString::from_const_str(ITEM_SELECTED_CLASS)));
+        }
+        if hidden {
+            classes.push(Class(AzString::from_const_str(ITEM_HIDDEN_CLASS)));
+        }
+        let data = RefAny::new(ItemData {
+            index,
+            shared: shared.clone(),
+        });
+        let callbacks = alloc::vec![
+            hook(EventFilter::Hover(HoverEventFilter::Click), &data, on_item_click as usize),
+            hook(EventFilter::Hover(HoverEventFilter::DoubleClick), &data, on_item_double_click as usize),
+            hook(EventFilter::Hover(HoverEventFilter::DragStart), &data, on_item_drag_start as usize),
+            hook(EventFilter::Hover(HoverEventFilter::DragOver), &data, on_item_drag_over as usize),
+            hook(EventFilter::Hover(HoverEventFilter::Drop), &data, on_item_drop as usize),
+            hook(EventFilter::Focus(FocusEventFilter::VirtualKeyDown), &data, on_item_key as usize),
+        ];
+        let parts = if grid {
+            alloc::vec![thumb, number]
+        } else {
+            alloc::vec![number, thumb]
+        };
+        children.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+                .with_css_props(part(
+                    if grid {
+                        THUMBNAIL_ITEM_GRID_BASE
+                    } else {
+                        THUMBNAIL_ITEM_COLUMN_BASE
+                    },
+                    &skin,
+                ))
+                .with_tab_index(tab)
+                .with_attribute(AttributeType::Draggable(true))
+                .with_accessibility_info(AccessibilityInfo {
+                    role: AccessibilityRole::ListItem,
+                    accessibility_name: Some(name).into(),
+                    states: if selected {
+                        AccessibilityStateVec::from_vec(alloc::vec![AccessibilityState::Selected])
+                    } else {
+                        AccessibilityStateVec::from_const_slice(&[])
+                    },
+                    ..Default::default()
+                })
+                .with_callbacks(callbacks.into())
+                .with_children(DomVec::from_vec(parts)),
+        );
+    }
+
+    let mut classes = alloc::vec![Class(AzString::from_const_str(STRIP_CLASS))];
+    if grid {
+        classes.push(Class(AzString::from_const_str(GRID_CLASS)));
+    }
+    if let Some(marker) = look.marker {
+        classes.push(Class(AzString::from_const_str(marker)));
+    }
     Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+        .with_css_props(part(
+            if grid {
+                THUMBNAIL_GRID_BASE
+            } else {
+                THUMBNAIL_COLUMN_BASE
+            },
+            &look.strip,
+        ))
+        // A list of the previews, several may be selected.
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::List,
+            accessibility_name: Some(accessibility_name).into(),
+            states: AccessibilityStateVec::from_vec(alloc::vec![AccessibilityState::Multiselectable]),
+            ..Default::default()
+        })
+        .with_children(DomVec::from_vec(children))
+}
+
+// ==== The callbacks ====
+
+/// The item's index and the strip's shared part.
+fn item_of(data: &mut RefAny) -> Option<(usize, RefAny)> {
+    let d = data.downcast_ref::<ItemData>()?;
+    Some((d.index, d.shared.clone()))
+}
+
+/// Hands `event` to the app.
+fn emit(shared: &mut RefAny, info: CallbackInfo, event: ThumbnailStripEvent) -> Update {
+    let hook = match shared.downcast_ref::<StripShared>() {
+        Some(s) => s.on_event.clone(),
+        None => return Update::DoNothing,
+    };
+    match hook.as_ref() {
+        Some(ThumbnailStripOnEvent { refany, callback }) => callback.invoke(refany.clone(), info, event),
+        None => Update::DoNothing,
+    }
+}
+
+/// A click on an item: select it (Shift extends, Ctrl / Cmd toggles).
+extern "C" fn on_item_click(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((index, mut shared)) = item_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let ks = info.get_current_keyboard_state();
+    let mut event = ThumbnailStripEvent::create(ThumbnailStripEventKind::Select, index);
+    event.shift = ks.shift_down();
+    event.ctrl = ks.ctrl_down() || ks.super_down();
+    emit(&mut shared, info, event)
+}
+
+/// A double-click on an item: activate it.
+extern "C" fn on_item_double_click(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((index, mut shared)) = item_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    emit(
+        &mut shared,
+        info,
+        ThumbnailStripEvent::create(ThumbnailStripEventKind::Activate, index),
+    )
+}
+
+/// A drag leaves an item: its index is the drag's data.
+extern "C" fn on_item_drag_start(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((index, mut shared)) = item_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    info.set_drag_data(
+        AzString::from_const_str(DRAG_MIME),
+        alloc::format!("{index}").into_bytes(),
+    );
+    if let Some(mut s) = shared.downcast_mut::<StripShared>() {
+        s.drag_from = Some(index);
+    }
+    Update::DoNothing
+}
+
+/// A drag over an item: it takes a move.
+extern "C" fn on_item_drag_over(_data: RefAny, mut info: CallbackInfo) -> Update {
+    info.accept_drop();
+    info.set_drop_effect(azul_core::drag::DropEffect::Move);
+    Update::DoNothing
+}
+
+/// A drop on an item: move the dragged item next to it.
+extern "C" fn on_item_drop(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((on, mut shared)) = item_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let from_data = info
+        .get_drag_data(DRAG_MIME)
+        .into_option()
+        .and_then(|bytes| core::str::from_utf8(bytes.as_ref()).ok().and_then(|s| s.trim().parse::<usize>().ok()));
+    let from_drag = shared
+        .downcast_mut::<StripShared>()
+        .and_then(|mut s| s.drag_from.take());
+    let Some(from) = from_data.or(from_drag) else {
+        return Update::DoNothing;
+    };
+    if from == on {
+        return Update::DoNothing;
+    }
+    let mut event = ThumbnailStripEvent::create(ThumbnailStripEventKind::Move, from);
+    event.target = drop_target(from, on);
+    emit(&mut shared, info, event)
+}
+
+/// A click on a section header: fold or unfold its section.
+extern "C" fn on_section_click(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((index, mut shared)) = item_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    emit(
+        &mut shared,
+        info,
+        ThumbnailStripEvent::create(ThumbnailStripEventKind::SectionToggled, index),
+    )
+}
+
+/// A key on the focused item (module docs, KEYBOARD).
+extern "C" fn on_item_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    use VirtualKeyCode as K;
+
+    let ks = info.get_current_keyboard_state();
+    let Some(key) = ks.current_virtual_keycode.into_option() else {
+        return Update::DoNothing;
+    };
+    if ks.alt_down() {
+        return Update::DoNothing;
+    }
+    let shift = ks.shift_down();
+    let ctrl = ks.ctrl_down() || ks.super_down();
+    let Some((index, mut shared)) = item_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some((visible, grid)) = shared
+        .downcast_ref::<StripShared>()
+        .map(|s| (s.visible.clone(), s.grid))
+    else {
+        return Update::DoNothing;
+    };
+    let Some(position) = visible.iter().position(|&i| i == index) else {
+        return Update::DoNothing;
+    };
+    let step = match key {
+        K::Up => Some(Step::Previous),
+        K::Down => Some(Step::Next),
+        K::Left if grid => Some(Step::Previous),
+        K::Right if grid => Some(Step::Next),
+        K::Home => Some(Step::First),
+        K::End => Some(Step::Last),
+        _ => None,
+    };
+    if let Some(step) = step {
+        let arrow = matches!(key, K::Up | K::Down | K::Left | K::Right);
+        if ctrl {
+            if !arrow {
+                return Update::DoNothing;
+            }
+            // Ctrl / Cmd + arrow: move the item past its neighbour.
+            info.prevent_default();
+            let target = match step {
+                Step::Previous => position.checked_sub(1).map(|p| visible[p]),
+                _ => visible.get(position + 1).map(|&next| next + 1),
+            };
+            let Some(target) = target else {
+                return Update::DoNothing;
+            };
+            let mut event = ThumbnailStripEvent::create(ThumbnailStripEventKind::Move, index);
+            event.target = target;
+            return emit(&mut shared, info, event);
+        }
+        info.prevent_default();
+        let Some(next) = roving::step_target(position, visible.len(), step, false) else {
+            return Update::DoNothing;
+        };
+        if next == position {
+            return Update::DoNothing;
+        }
+        let focused = info.get_hit_node();
+        if let Some(strip) = info.get_parent(focused) {
+            let nodes = roving::items_of(&info, strip, ITEM_CLASS);
+            if next < nodes.len() {
+                roving::move_stop(&mut info, &nodes, next);
+            }
+        }
+        let mut event = ThumbnailStripEvent::create(ThumbnailStripEventKind::Select, visible[next]);
+        event.shift = shift;
+        return emit(&mut shared, info, event);
+    }
+    match key {
+        K::Return if !ctrl && !shift => {
+            info.prevent_default();
+            emit(
+                &mut shared,
+                info,
+                ThumbnailStripEvent::create(ThumbnailStripEventKind::Activate, index),
+            )
+        }
+        K::Delete | K::Back => {
+            info.prevent_default();
+            emit(
+                &mut shared,
+                info,
+                ThumbnailStripEvent::create(ThumbnailStripEventKind::Delete, index),
+            )
+        }
+        _ => Update::DoNothing,
+    }
 }
 
 #[cfg(test)]
