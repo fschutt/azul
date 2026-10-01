@@ -57,6 +57,7 @@ pub mod office_shell;
 pub mod pim_shell;
 pub mod records_shell;
 pub mod settings_layout;
+pub mod settings_dialog;
 pub mod theme_scope;
 pub mod timeline_shell;
 pub mod utility_shell;
@@ -75,6 +76,10 @@ pub use office_shell::{OfficeShell, ShellPane, ShellPaneKind};
 pub use pim_shell::PimShell;
 pub use records_shell::RecordsShell;
 pub use settings_layout::{ShellSettingsLayout, ShellSettingsSection};
+pub use settings_dialog::{
+    ShellSetting, ShellSettingChoice, ShellSettingNumber, ShellSettingShortcut, ShellSettingValue,
+    ShellSettingsApplyMode, ShellSettingsDialog, ShellSettingsEvent, ShellSettingsEventKind,
+};
 pub use theme_scope::{ShellThemeAccent, ShellThemeScope};
 pub use timeline_shell::TimelineShell;
 pub use utility_shell::UtilityShell;
