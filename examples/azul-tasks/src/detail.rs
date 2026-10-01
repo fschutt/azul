@@ -610,3 +610,589 @@ fn footer(app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
                 .with_id("detail-delete"),
         )
 }
+
+// ==== Callbacks: title, notes, priority, flag, completion ====
+
+const KEEP: OnTextInputReturn = OnTextInputReturn {
+    update: Update::DoNothing,
+    valid: TextInputValid::Yes,
+};
+
+/// The text of a text area's state.
+fn area_text(state: &TextAreaState) -> String {
+    state
+        .text
+        .as_slice()
+        .iter()
+        .filter_map(|c| char::from_u32(*c))
+        .collect()
+}
+
+/// The typed text is the app's: take it as seen (a field the app empties or reverts then
+/// rebuilds with what the app says).
+fn ack_typing(info: &mut CallbackInfo) {
+    let revision = info.get_document_text_revision();
+    info.mark_text_revision_synced(revision);
+}
+
+fn key_of(info: &CallbackInfo) -> Option<VirtualKeyCode> {
+    info.get_current_keyboard_state().current_virtual_keycode.into_option()
+}
+
+fn is_enter(key: Option<VirtualKeyCode>) -> bool {
+    matches!(key, Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter))
+}
+
+extern "C" fn on_done(mut data: RefAny, mut info: CallbackInfo, _state: CheckBoxState) -> Update {
+    with_task(&mut data, &mut info, |_info, _app, s, i, _| {
+        s.toggle_done(i, state::now());
+    })
+}
+
+extern "C" fn on_title_text(mut data: RefAny, _info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+    if let Some(mut s) = data.downcast_mut::<Tasks>() {
+        s.drafts.title = state.get_text().as_str().to_string();
+    }
+    KEEP
+}
+
+/// Enter keeps the title; Escape puts the task's title back.
+extern "C" fn on_title_key(mut data: RefAny, mut info: CallbackInfo, _state: TextInputState) -> OnTextInputReturn {
+    let key = key_of(&info);
+    if is_enter(key) {
+        let update = crate::with_tasks(&mut data, &mut info, |_info, _app, s| s.commit_drafts());
+        return OnTextInputReturn {
+            update,
+            valid: TextInputValid::Yes,
+        };
+    }
+    if key == Some(VirtualKeyCode::Escape) {
+        let update = crate::with_tasks(&mut data, &mut info, |info, _app, s| {
+            if let Some(i) = s.index_of(&s.drafts.task.clone()) {
+                s.drafts.title = s.tasks[i].title.clone();
+            }
+            ack_typing(info);
+        });
+        return OnTextInputReturn {
+            update,
+            valid: TextInputValid::Yes,
+        };
+    }
+    KEEP
+}
+
+extern "C" fn on_title_blur(mut data: RefAny, mut info: CallbackInfo, _state: TextInputState) -> Update {
+    crate::with_tasks(&mut data, &mut info, |_info, _app, s| s.commit_drafts())
+}
+
+extern "C" fn on_notes_text(mut data: RefAny, _info: CallbackInfo, state: TextAreaState) -> OnTextInputReturn {
+    if let Some(mut s) = data.downcast_mut::<Tasks>() {
+        s.drafts.notes = area_text(&state);
+    }
+    KEEP
+}
+
+extern "C" fn on_notes_blur(mut data: RefAny, mut info: CallbackInfo, state: TextAreaState) -> Update {
+    let text = area_text(&state);
+    crate::with_tasks(&mut data, &mut info, |_info, _app, s| {
+        s.drafts.notes = text;
+        s.commit_drafts();
+    })
+}
+
+extern "C" fn on_priority(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    with_task(&mut data, &mut info, |_info, _app, s, i, _| {
+        s.tasks[i].priority = Priority::from_index(state.selected_index);
+    })
+}
+
+extern "C" fn on_flag(mut data: RefAny, mut info: CallbackInfo, state: SwitchState) -> Update {
+    with_task(&mut data, &mut info, |_info, _app, s, i, _| {
+        s.tasks[i].flagged = state.checked;
+    })
+}
+
+// ==== Callbacks: steps ====
+
+extern "C" fn on_step_done(mut data: RefAny, mut info: CallbackInfo, state: CheckBoxState) -> Update {
+    with_task(&mut data, &mut info, |_info, _app, s, i, n| {
+        if let Some(step) = s.tasks[i].subtasks.get_mut(n) {
+            step.done = state.checked;
+        }
+    })
+}
+
+extern "C" fn on_step_remove(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_task(&mut data, &mut info, |_info, _app, s, i, n| {
+        if n < s.tasks[i].subtasks.len() {
+            s.tasks[i].subtasks.remove(n);
+        }
+    })
+}
+
+extern "C" fn on_step_text(mut data: RefAny, _info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+    if let Some(mut s) = data.downcast_mut::<Tasks>() {
+        s.drafts.step = state.get_text().as_str().to_string();
+    }
+    KEEP
+}
+
+/// Enter adds the step to the selected task.
+extern "C" fn on_step_key(mut data: RefAny, mut info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+    if !is_enter(key_of(&info)) {
+        return KEEP;
+    }
+    let title = state.get_text().as_str().trim().to_string();
+    let update = crate::with_tasks(&mut data, &mut info, |info, _app, s| {
+        s.drafts.step.clear();
+        ack_typing(info);
+        let Some(i) = s.selected_one() else {
+            return;
+        };
+        if title.is_empty() {
+            return;
+        }
+        let next = s.tasks[i].subtasks.len() + 1;
+        let mut id = format!("s{next}");
+        let mut n = next;
+        while s.tasks[i].subtasks.iter().any(|x| x.id == id) {
+            n += 1;
+            id = format!("s{n}");
+        }
+        s.tasks[i].subtasks.push(Subtask {
+            id,
+            title,
+            done: false,
+        });
+        s.save_task(i);
+    });
+    OnTextInputReturn {
+        update,
+        valid: TextInputValid::Yes,
+    }
+}
+
+// ==== Callbacks: due date and time ====
+
+/// The first day of next week (the settings' week start).
+fn next_week(today: NaiveDate, start: Weekday) -> NaiveDate {
+    let back = (7 + today.weekday().num_days_from_monday() - start.num_days_from_monday()) % 7;
+    today - Duration::days(i64::from(back)) + Duration::days(7)
+}
+
+/// A month or year rule follows its task's new due date to the new day of the month.
+fn reanchor(t: &mut Task) {
+    if let (Some(rule), Some(due)) = (t.repeat.as_mut(), t.due) {
+        if matches!(rule.unit, Unit::Month | Unit::Year) {
+            rule.month_day = Some(due.day());
+        }
+    }
+}
+
+/// 0 Today, 1 Tomorrow, 2 Next week, 3 Clear.
+extern "C" fn on_due_quick(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_task(&mut data, &mut info, |_info, _app, s, i, n| {
+        let today = state::now().date();
+        let week_start = s.settings.week_start;
+        let t = &mut s.tasks[i];
+        t.due = match n {
+            0 => Some(today),
+            1 => Some(today + Duration::days(1)),
+            2 => Some(next_week(today, week_start)),
+            _ => None,
+        };
+        if t.due.is_none() {
+            t.due_time = None;
+        }
+        t.reminded = None;
+        reanchor(t);
+    })
+}
+
+extern "C" fn on_due_date(mut data: RefAny, mut info: CallbackInfo, state: DatePickerState) -> Update {
+    with_task(&mut data, &mut info, |_info, _app, s, i, _| {
+        let Some(date) = NaiveDate::from_ymd_opt(i32::try_from(state.year).unwrap_or(1970), state.month, state.day) else {
+            return;
+        };
+        let t = &mut s.tasks[i];
+        t.due = Some(date);
+        t.reminded = None;
+        reanchor(t);
+    })
+}
+
+/// The hour of a time picker's state, on the 24-hour clock.
+fn picked_time(state: &TimePickerState) -> Option<NaiveTime> {
+    let hour = if state.is_24h {
+        state.hour
+    } else {
+        state.hour % 12 + if state.is_pm { 12 } else { 0 }
+    };
+    NaiveTime::from_hms_opt(hour, state.minute, 0)
+}
+
+extern "C" fn on_due_time(mut data: RefAny, mut info: CallbackInfo, state: TimePickerState) -> Update {
+    with_task(&mut data, &mut info, |_info, _app, s, i, _| {
+        if let Some(time) = picked_time(&state) {
+            s.tasks[i].due_time = Some(time);
+            s.tasks[i].reminded = None;
+        }
+    })
+}
+
+/// 0 "Add time" (the reminder time setting), 1 "No time".
+extern "C" fn on_add_time(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_task(&mut data, &mut info, |_info, _app, s, i, n| {
+        let time = s.settings.reminder_time;
+        s.tasks[i].due_time = if n == 0 { Some(time) } else { None };
+        s.tasks[i].reminded = None;
+    })
+}
+
+// ==== Callbacks: repeat ====
+
+extern "C" fn on_repeat(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    with_task(&mut data, &mut info, |_info, _app, s, i, _| {
+        let today = state::now().date();
+        if index == REPEATS.len() - 1 {
+            s.drafts.custom_repeat = true;
+            let due = s.tasks[i].due.unwrap_or(today);
+            let t = &mut s.tasks[i];
+            if t.repeat.is_none() {
+                t.repeat = Some(Repeat::weekly().on_weekdays(&[due.weekday()]));
+                t.due.get_or_insert(due);
+            }
+            return;
+        }
+        s.drafts.custom_repeat = false;
+        let t = &mut s.tasks[i];
+        let due = t.due.unwrap_or(today);
+        t.repeat = preset_repeat(index, due);
+        if let Some(rule) = &t.repeat {
+            if t.due.is_none() {
+                t.due = Some(rule.first_on_or_after(today));
+            }
+        }
+    })
+}
+
+/// Edits the custom rule of task `i` with `f` (a rule is made when there is none).
+fn edit_rule(s: &mut Tasks, i: usize, f: impl FnOnce(&mut Repeat)) {
+    let today = state::now().date();
+    let t = &mut s.tasks[i];
+    let due = *t.due.get_or_insert(today);
+    let rule = t.repeat.get_or_insert_with(|| Repeat::weekly().on_weekdays(&[due.weekday()]));
+    f(rule);
+    s.drafts.custom_repeat = true;
+}
+
+extern "C" fn on_repeat_every(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    with_task(&mut data, &mut info, |_info, _app, s, i, _| {
+        edit_rule(s, i, |r| r.every = u32::try_from(index + 1).unwrap_or(1));
+    })
+}
+
+extern "C" fn on_repeat_unit(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    with_task(&mut data, &mut info, |_info, _app, s, i, _| {
+        let due = s.tasks[i].due;
+        edit_rule(s, i, |r| {
+            r.unit = Unit::ALL.get(index).copied().unwrap_or(Unit::Day);
+            r.month_day = None;
+            if r.unit == Unit::Week {
+                if let (true, Some(d)) = (r.weekdays.is_empty(), due) {
+                    r.weekdays = vec![d.weekday()];
+                }
+            } else {
+                r.weekdays.clear();
+                if let Some(d) = due {
+                    if matches!(r.unit, Unit::Month | Unit::Year) {
+                        r.month_day = Some(d.day());
+                    }
+                }
+            }
+        });
+    })
+}
+
+extern "C" fn on_repeat_day(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_task(&mut data, &mut info, |_info, _app, s, i, n| {
+        let Some(day) = WEEK.get(n).copied() else {
+            return;
+        };
+        edit_rule(s, i, |r| {
+            let mut days = r.weekdays.clone();
+            if let Some(pos) = days.iter().position(|d| *d == day) {
+                if days.len() > 1 {
+                    days.remove(pos);
+                }
+            } else {
+                days.push(day);
+            }
+            *r = r.clone().on_weekdays(&days);
+        });
+    })
+}
+
+extern "C" fn on_repeat_from_completion(mut data: RefAny, mut info: CallbackInfo, state: CheckBoxState) -> Update {
+    with_task(&mut data, &mut info, |_info, _app, s, i, _| {
+        edit_rule(s, i, |r| r.from_completion = state.checked);
+    })
+}
+
+// ==== Callbacks: reminder ====
+
+extern "C" fn on_reminder(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    with_task(&mut data, &mut info, |_info, _app, s, i, _| {
+        let preset = Preset::ALL.get(index).copied().unwrap_or(Preset::None);
+        let reminder_time = s.settings.reminder_time;
+        let now = state::now();
+        let t = &s.tasks[i];
+        // Where a moment starts when the task has none: its due day at its time (or the
+        // reminder time), else an hour from now.
+        let fallback = t
+            .due
+            .map(|d| d.and_time(t.due_time.unwrap_or(reminder_time)))
+            .unwrap_or(now + Duration::hours(1));
+        let reminder = reminders::reminder_for(preset, t, reminder_time, fallback);
+        let t = &mut s.tasks[i];
+        t.reminder = reminder;
+        t.reminded = None;
+    })
+}
+
+extern "C" fn on_reminder_date(mut data: RefAny, mut info: CallbackInfo, state: DatePickerState) -> Update {
+    with_task(&mut data, &mut info, |_info, _app, s, i, _| {
+        let Some(date) = NaiveDate::from_ymd_opt(i32::try_from(state.year).unwrap_or(1970), state.month, state.day) else {
+            return;
+        };
+        if let Some(Reminder::At(at)) = s.tasks[i].reminder {
+            s.tasks[i].reminder = Some(Reminder::At(date.and_time(at.time())));
+            s.tasks[i].reminded = None;
+        }
+    })
+}
+
+extern "C" fn on_reminder_time(mut data: RefAny, mut info: CallbackInfo, state: TimePickerState) -> Update {
+    with_task(&mut data, &mut info, |_info, _app, s, i, _| {
+        let Some(time) = picked_time(&state) else {
+            return;
+        };
+        if let Some(Reminder::At(at)) = s.tasks[i].reminder {
+            s.tasks[i].reminder = Some(Reminder::At(at.date().and_time(time)));
+            s.tasks[i].reminded = None;
+        }
+    })
+}
+
+// ==== Callbacks: list, tags ====
+
+extern "C" fn on_list_change(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    with_task(&mut data, &mut info, |info, app, s, i, _| {
+        let order = views::lists_in_nav_order(&s.lists);
+        let Some(&li) = order.get(index) else {
+            return;
+        };
+        let list = s.lists[li].id.clone();
+        let id = s.tasks[i].id.clone();
+        let moves = s.move_tasks(&[id], &list);
+        crate::jobs::move_files(info, app, s, moves);
+    })
+}
+
+extern "C" fn on_tag_remove(mut data: RefAny, mut info: CallbackInfo, _state: ChipState) -> Update {
+    with_task(&mut data, &mut info, |_info, _app, s, i, n| {
+        if n < s.tasks[i].tags.len() {
+            s.tasks[i].tags.remove(n);
+        }
+    })
+}
+
+extern "C" fn on_tag_text(mut data: RefAny, _info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+    if let Some(mut s) = data.downcast_mut::<Tasks>() {
+        s.drafts.tag = state.get_text().as_str().to_string();
+    }
+    KEEP
+}
+
+/// Enter adds the typed tags (split at commas and spaces) to the selected task.
+extern "C" fn on_tag_key(mut data: RefAny, mut info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+    if !is_enter(key_of(&info)) {
+        return KEEP;
+    }
+    let text = state.get_text().as_str().to_string();
+    let update = crate::with_tasks(&mut data, &mut info, |info, _app, s| {
+        s.drafts.tag.clear();
+        ack_typing(info);
+        let Some(i) = s.selected_one() else {
+            return;
+        };
+        let mut changed = false;
+        for tag in text.split([',', ' ']) {
+            changed |= s.tasks[i].add_tag(tag);
+        }
+        if changed {
+            s.save_task(i);
+        }
+    });
+    OnTextInputReturn {
+        update,
+        valid: TextInputValid::Yes,
+    }
+}
+
+// ==== Callbacks: attachments, delete ====
+
+/// Copies the file at `path` next to task `task` (on a thread).
+fn attach(info: &mut CallbackInfo, app: &RefAny, s: &mut Tasks, task: &str, path: PathBuf) {
+    let Some(i) = s.index_of(task) else {
+        return;
+    };
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let Some(key) = model::attachment_key(&s.tasks[i].list, task, &name) else {
+        s.files.last_error = format!("\"{name}\" cannot be a file name in the data folder.");
+        return;
+    };
+    let name = azul_storage::key::last_segment(&key).to_string();
+    crate::jobs::spawn(
+        info,
+        app,
+        s,
+        crate::jobs::Job::Attach {
+            task: task.to_string(),
+            name,
+            key,
+            source: path,
+        },
+    );
+}
+
+extern "C" fn on_attach(data: RefAny, _info: CallbackInfo) -> Update {
+    let _request = FileDialog::open_file(
+        "Attach a file",
+        OptionString::None,
+        OptionFileTypeList::None,
+        data,
+        on_attach_picked,
+    );
+    Update::DoNothing
+}
+
+extern "C" fn on_attach_picked(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    let Some(picked) = FileOpenResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(path) = picked.path.into_option() else {
+        return Update::DoNothing; // cancelled
+    };
+    let source = PathBuf::from(path.as_string().as_str());
+    with_task(&mut data, &mut info, |info, app, s, i, _| {
+        let id = s.tasks[i].id.clone();
+        attach(info, app, s, &id, source);
+    })
+}
+
+/// Files dropped on the window are attached to the selected task.
+extern "C" fn on_file_dropped(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let files: Vec<PathBuf> = info
+        .get_dropped_files()
+        .as_slice()
+        .iter()
+        .map(|f| PathBuf::from(f.as_str()))
+        .collect();
+    crate::with_tasks(&mut data, &mut info, |info, app, s| {
+        let Some(i) = s.selected_one() else {
+            s.notice = "Select a task to attach the dropped files to.".to_string();
+            return;
+        };
+        let id = s.tasks[i].id.clone();
+        for path in files {
+            attach(info, app, s, &id, path);
+        }
+    })
+}
+
+extern "C" fn on_attachment_open(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_task(&mut data, &mut info, |info, app, s, i, n| {
+        let t = &s.tasks[i];
+        let Some(a) = t.attachments.get(n) else {
+            return;
+        };
+        let Some(key) = model::attachment_key(&t.list, &t.id, &a.name) else {
+            return;
+        };
+        let dir = std::env::temp_dir().join("AzTasks-open").join(&t.id);
+        crate::jobs::spawn(info, app, s, crate::jobs::Job::Open { key, dir });
+    })
+}
+
+extern "C" fn on_attachment_remove(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_task(&mut data, &mut info, |_info, _app, s, i, n| {
+        if n >= s.tasks[i].attachments.len() {
+            return;
+        }
+        let a = s.tasks[i].attachments.remove(n);
+        if let Some(key) = model::attachment_key(&s.tasks[i].list, &s.tasks[i].id, &a.name) {
+            s.queue.delete(key);
+        }
+    })
+}
+
+extern "C" fn on_delete(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, task)) = data
+        .downcast_ref::<DetailRef>()
+        .map(|r| (r.app.clone(), r.task.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    crate::with_tasks(&mut app, &mut info, |info, app, s| {
+        let gone = s.delete_tasks(&[task]);
+        crate::jobs::delete_files(info, app, s, gone);
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn day(y: i32, m: u32, d: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(y, m, d).unwrap()
+    }
+
+    #[test]
+    fn every_repeat_preset_reads_back_as_itself() {
+        let due = day(2026, 10, 1);
+        for index in 1..REPEATS.len() - 1 {
+            let rule = preset_repeat(index, due);
+            assert_eq!(repeat_preset(rule.as_ref()), index, "{}", REPEATS[index]);
+        }
+        assert_eq!(repeat_preset(None), 0);
+        assert_eq!(preset_repeat(0, due), None);
+        assert_eq!(
+            repeat_preset(Some(&Repeat::new(3, Unit::Day))),
+            REPEATS.len() - 1,
+            "every 3 days is a custom rule"
+        );
+        assert_eq!(
+            repeat_preset(Some(&Repeat::daily().counting_from_completion(true))),
+            REPEATS.len() - 1
+        );
+    }
+
+    #[test]
+    fn next_week_starts_on_the_week_start_setting() {
+        let thursday = day(2026, 10, 1);
+        assert_eq!(next_week(thursday, Weekday::Mon), day(2026, 10, 5));
+        assert_eq!(next_week(thursday, Weekday::Sun), day(2026, 10, 4));
+        assert_eq!(next_week(day(2026, 10, 5), Weekday::Mon), day(2026, 10, 12));
+    }
+
+    #[test]
+    fn sizes_read_in_bytes_kilobytes_and_megabytes() {
+        assert_eq!(size_text(900), "900 B");
+        assert_eq!(size_text(48_213), "47 KB");
+        assert_eq!(size_text(3 * 1024 * 1024 + 300_000), "3.3 MB");
+    }
+}
