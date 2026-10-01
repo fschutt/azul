@@ -7222,7 +7222,7 @@ fn collapse_edge(participants: &[BorderInfo]) -> Option<BorderInfo> {
 /// and column groups it bounds, and of the table on its outside.
 ///
 /// One resolution for the layout (half of each edge goes into the cells'
-/// and the table's box, [`apply_collapsed_table_borders`]) and for the
+/// and the table's box, [`apply_table_border_model`]) and for the
 /// painting (`paint_collapsed_table_borders` in `display_list.rs`).
 #[allow(clippy::too_many_lines)] // one participant list per edge kind
 pub(crate) fn resolve_collapsed_borders<T: ParsedFontTrait>(
@@ -7415,19 +7415,27 @@ pub(crate) fn resolve_collapsed_borders<T: ParsedFontTrait>(
     out
 }
 
-/// The collapsing border model's box geometry (CSS 2.2 17.6.2): a cell is
-/// laid out with half of each collapsed edge as its border, the table with
-/// half of its widest outer edge on each side and no padding ("in this
-/// model, a table does not have padding").
+/// The borders the boxes of every table are laid out with, decided before
+/// anything is measured (the intrinsic pass calls this first: the table's
+/// shrink-to-fit width, the column measurement and the cells' final layout
+/// all read the box props, so patching them here is what makes every one of
+/// them see the same table).
 ///
-/// Written into the boxes BEFORE anything is measured (the intrinsic pass
-/// calls this first): the table's shrink-to-fit width, the column
-/// measurement and the cells' final layout all read the box props, so
-/// patching them here is what makes every one of them see the same table.
+/// - Rows, row groups, columns and column groups have no border of their own
+///   in layout, in either model (CSS 2.2 17.6.1: the separated model ignores
+///   their border properties; 17.6.2: in the collapsing model they take part
+///   in the grid's edges, which the cells and the table carry). The cells are
+///   placed inside their row's content box, so a `tr { border-bottom }`
+///   moved them by the row's border.
+/// - The collapsing border model (CSS 2.2 17.6.2): a cell's border is half of
+///   each collapsed edge it touches, the table's half of its widest outer
+///   edge on each side, and the table has no padding ("in this model, a
+///   table does not have padding").
+///
 /// The unresolved props are patched too, or a parent's re-resolution
 /// (`layout_bfc` re-resolves its children's box props) undid it. Idempotent:
 /// it starts from the cascade every time.
-pub(crate) fn apply_collapsed_table_borders<T: ParsedFontTrait>(
+pub(crate) fn apply_table_border_model<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     tree: &mut LayoutTree,
 ) {
@@ -7442,40 +7450,62 @@ pub(crate) fn apply_collapsed_table_borders<T: ParsedFontTrait>(
         let Some(table) = tree.get(LayoutNodeId::new(table_index)) else {
             continue;
         };
-        if get_border_collapse_property(ctx, table) != StyleBorderCollapse::Collapse {
-            continue;
-        }
+        let collapsed =
+            get_border_collapse_property(ctx, table) == StyleBorderCollapse::Collapse;
         let Ok(grid) = analyze_table_structure(tree, table_index, ctx) else {
             continue;
         };
-        let borders = resolve_collapsed_borders(ctx, tree, table_index, &grid);
-        let table_border = if borders.num_rows == 0 || borders.num_cols == 0 {
-            // No grid to collapse with: the table's own border stands.
-            let (t, r, b, l) = get_border_info(ctx, table, BorderSource::Table);
-            let used = |e: BorderInfo| {
-                if matches!(e.style, BorderStyle::None | BorderStyle::Hidden) {
-                    0.0
-                } else {
-                    e.width
+        // Everything that reads the table node is decided before any box
+        // is patched.
+        let collapsed_boxes = collapsed.then(|| {
+            let borders = resolve_collapsed_borders(ctx, tree, table_index, &grid);
+            let table_border = if borders.num_rows == 0 || borders.num_cols == 0 {
+                // No grid to collapse with: the table's own border stands.
+                let (t, r, b, l) = get_border_info(ctx, table, BorderSource::Table);
+                let used = |e: BorderInfo| {
+                    if matches!(e.style, BorderStyle::None | BorderStyle::Hidden) {
+                        0.0
+                    } else {
+                        e.width
+                    }
+                };
+                EdgeSizes {
+                    top: used(t),
+                    right: used(r),
+                    bottom: used(b),
+                    left: used(l),
                 }
+            } else {
+                borders.table_border()
             };
-            EdgeSizes {
-                top: used(t),
-                right: used(r),
-                bottom: used(b),
-                left: used(l),
+            let cells: Vec<(usize, EdgeSizes)> = grid
+                .cells
+                .iter()
+                .map(|cell| (cell.node_index, borders.cell_border(cell)))
+                .collect();
+            (table_border, cells)
+        });
+
+        let mut grid_boxes: Vec<usize> = grid.row_node_indices.clone();
+        grid_boxes.extend(grid.row_groups.iter().flatten().copied());
+        grid_boxes.extend(grid.column_boxes.iter().map(|c| c.node_index));
+        grid_boxes.extend(grid.column_groups.iter().map(|g| g.node_index));
+        grid_boxes.sort_unstable();
+        grid_boxes.dedup();
+        for index in grid_boxes {
+            set_collapsed_box(tree, index, EdgeSizes::default(), false);
+        }
+
+        if let Some((table_border, cells)) = collapsed_boxes {
+            set_collapsed_box(tree, table_index, table_border, true);
+            for (cell, border) in cells {
+                set_collapsed_box(tree, cell, border, false);
             }
-        } else {
-            borders.table_border()
-        };
-        set_collapsed_box(tree, table_index, table_border, true);
-        for cell in &grid.cells {
-            set_collapsed_box(tree, cell.node_index, borders.cell_border(cell), false);
         }
     }
 }
 
-/// Give a node of a collapsed table its used border widths (and, for the
+/// Give a box of a table its used border widths (and, for a collapsed
 /// table, no padding), in the resolved AND the unresolved box props.
 fn set_collapsed_box(tree: &mut LayoutTree, index: usize, border: EdgeSizes, no_padding: bool) {
     use azul_css::props::basic::pixel::PixelValue;

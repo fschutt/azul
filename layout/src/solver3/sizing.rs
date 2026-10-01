@@ -174,11 +174,12 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     unsafe {
         crate::az_mark(0x607B0_u32, (tree.nodes.len() as u32));
     }
-    // The collapsing border model decides the borders tables and their cells
-    // are laid out with (half of each collapsed grid edge, no table padding,
-    // CSS 2.2 17.6.2) - before anything below or in the layout measures them.
-    // Idempotent; a pass over a reused tree finds them already in place.
-    super::fc::apply_collapsed_table_borders(&*ctx, tree);
+    // The borders tables and their boxes are laid out with (no border on
+    // rows, row groups and columns; in the collapsing model half of each
+    // collapsed grid edge and no table padding, CSS 2.2 17.6) - before
+    // anything below or in the layout measures them. Idempotent; a pass over
+    // a reused tree finds them already in place.
+    super::fc::apply_table_border_model(&*ctx, tree);
     if dirty_nodes.is_empty() {
         return Ok(());
     }
