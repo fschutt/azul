@@ -114,23 +114,92 @@ impl Base {
 /// A literal in `base` (`2A5F`, `-17`, `1010`; `0x` / `0o` / `0b` prefixes
 /// matching the base and `_` / blank separators are accepted), wrapped to the word.
 pub fn parse_int(text: &str, base: Base, word: WordSize) -> Result<i128, CalcError> {
-        todo!("RED: parse_int")
+    let bad = || CalcError::Syntax(format!("{text:?} is not a {} number", base.label()));
+    let t: String = text
+        .chars()
+        .filter(|c| !matches!(c, '_' | ' ' | ','))
+        .map(|c| if c == '\u{2212}' { '-' } else { c })
+        .collect();
+    let (negative, digits) = match t.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, t.as_str()),
+    };
+    let lower = digits.to_ascii_lowercase();
+    let digits = match (base, lower.get(..2)) {
+        (Base::Hex, Some("0x")) | (Base::Oct, Some("0o")) | (Base::Bin, Some("0b")) => &lower[2..],
+        _ => lower.as_str(),
+    };
+    if digits.is_empty() {
+        return Err(bad());
     }
+    let mut value: u128 = 0;
+    for c in digits.chars() {
+        let d = c.to_digit(base.radix()).ok_or_else(bad)?;
+        value = value
+            .checked_mul(u128::from(base.radix()))
+            .and_then(|v| v.checked_add(u128::from(d)))
+            .ok_or(CalcError::Overflow)?;
+        if value > u128::from(u64::MAX) * 2 {
+            return Err(CalcError::Overflow);
+        }
+    }
+    let v = value as i128;
+    Ok(word.wrap(if negative { -v } else { v }))
+}
 
 /// Whether `text` (digits in `base`, maybe a leading `-`) still fits the
 /// word's bits: the keypad refuses a digit that would not.
 #[must_use]
 pub fn fits(text: &str, base: Base, word: WordSize) -> bool {
-        todo!("RED: fits")
+    let digits = text.trim_start_matches('-');
+    let mut value: u128 = 0;
+    for c in digits.chars() {
+        let Some(d) = c.to_digit(base.radix()) else {
+            return false;
+        };
+        value = value * u128::from(base.radix()) + u128::from(d);
+        if value > word.mask() {
+            return false;
+        }
     }
+    true
+}
 
 /// The value as shown in `base`: DEC signed (grouped by thousands when
 /// `grouping`), HEX / OCT / BIN the word's bits, upper-case, grouped by 4
 /// (HEX, BIN) or 3 (OCT) when `grouping`.
 #[must_use]
 pub fn format_int(v: i128, base: Base, word: WordSize, grouping: bool) -> String {
-        todo!("RED: format_int")
+    let v = word.wrap(v);
+    match base {
+        Base::Dec => {
+            let text = v.unsigned_abs().to_string();
+            let body = if grouping {
+                crate::num::group_thousands(&text)
+            } else {
+                text
+            };
+            if v < 0 {
+                format!("-{body}")
+            } else {
+                body
+            }
+        }
+        Base::Hex | Base::Oct | Base::Bin => {
+            let u = word.unsigned(v);
+            let text = match base {
+                Base::Hex => format!("{u:X}"),
+                Base::Oct => format!("{u:o}"),
+                _ => format!("{u:b}"),
+            };
+            if !grouping {
+                return text;
+            }
+            let size = if base == Base::Oct { 3 } else { 4 };
+            group_from_right(&text, size, ' ')
+        }
     }
+}
 
 /// `1234567` by 3 with `,` -> `1,234,567`.
 fn group_from_right(text: &str, size: usize, sep: char) -> String {
@@ -147,18 +216,40 @@ fn group_from_right(text: &str, size: usize, sep: char) -> String {
 
 /// Shift left by `n` bits within the word (bits shifted out are lost).
 pub fn shift_left(v: i128, n: i128, word: WordSize) -> Result<i128, CalcError> {
-        todo!("RED: shift_left")
+    if n < 0 {
+        return Err(CalcError::InvalidInput);
     }
+    if n >= i128::from(word.bits()) {
+        return Ok(0);
+    }
+    Ok(word.wrap(((word.unsigned(v)) << n) as i128))
+}
 
 /// Arithmetic shift right by `n` bits (the sign bit is copied in).
 pub fn shift_right(v: i128, n: i128, word: WordSize) -> Result<i128, CalcError> {
-        todo!("RED: shift_right")
+    if n < 0 {
+        return Err(CalcError::InvalidInput);
     }
+    let v = word.wrap(v);
+    if n >= i128::from(word.bits()) {
+        return Ok(if v < 0 { -1 } else { 0 });
+    }
+    Ok(v >> n)
+}
 
 /// Rotate left by `n` bits within the word.
 pub fn rotate_left(v: i128, n: i128, word: WordSize) -> Result<i128, CalcError> {
-        todo!("RED: rotate_left")
+    if n < 0 {
+        return Err(CalcError::InvalidInput);
     }
+    let bits = u32::try_from(n % i128::from(word.bits())).unwrap_or(0);
+    let u = word.unsigned(v);
+    if bits == 0 {
+        return Ok(word.wrap(u as i128));
+    }
+    let rotated = ((u << bits) | (u >> (word.bits() - bits))) & word.mask();
+    Ok(word.wrap(rotated as i128))
+}
 
 /// Rotate right by `n` bits within the word.
 pub fn rotate_right(v: i128, n: i128, word: WordSize) -> Result<i128, CalcError> {
@@ -178,8 +269,11 @@ pub fn bit(v: i128, i: u32, word: WordSize) -> bool {
 /// `v` with bit `i` flipped (a bit outside the word changes nothing).
 #[must_use]
 pub fn toggle_bit(v: i128, i: u32, word: WordSize) -> i128 {
-        todo!("RED: toggle_bit")
+    if i >= word.bits() {
+        return word.wrap(v);
     }
+    word.wrap((word.unsigned(v) ^ (1u128 << i)) as i128)
+}
 
 #[cfg(test)]
 mod tests {

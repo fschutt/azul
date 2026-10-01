@@ -32,15 +32,31 @@ pub struct HistoryEntry {
 /// The file's text: one line per entry, oldest first, newline-terminated.
 #[must_use]
 pub fn to_jsonl(entries: &[HistoryEntry]) -> String {
-        todo!("RED: to_jsonl")
+    let mut out = String::new();
+    for e in entries {
+        if let Ok(line) = serde_json::to_string(e) {
+            out.push_str(&line);
+            out.push('\n');
+        }
     }
+    out
+}
 
 /// Reads the file: the entries (oldest first, at most [`MAX_HISTORY`], the
 /// newest kept) and how many lines could not be read.
 #[must_use]
 pub fn parse_jsonl(text: &str) -> (Vec<HistoryEntry>, usize) {
-        todo!("RED: parse_jsonl")
+    let mut entries = Vec::new();
+    let mut skipped = 0;
+    for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        match serde_json::from_str::<HistoryEntry>(line) {
+            Ok(e) => entries.push(e),
+            Err(_) => skipped += 1,
+        }
     }
+    trim(&mut entries);
+    (entries, skipped)
+}
 
 /// Drops the oldest entries beyond [`MAX_HISTORY`].
 pub fn trim(entries: &mut Vec<HistoryEntry>) {
@@ -77,7 +93,22 @@ impl Memory {
     /// M+ / M-: the top value replaced by `f(top)`; with nothing stored,
     /// `f(0)` is stored. `f` returns `None` when it cannot compute.
     pub fn update(&mut self, f: impl Fn(&str) -> Option<String>) -> bool {
-        todo!("RED: update")
+        match self.items.first().cloned() {
+            Some(top) => match f(&top) {
+                Some(v) => {
+                    self.items[0] = v;
+                    true
+                }
+                None => false,
+            },
+            None => match f("0") {
+                Some(v) => {
+                    self.items.push(v);
+                    true
+                }
+                None => false,
+            },
+        }
     }
 
     /// Removes the value at `index`.

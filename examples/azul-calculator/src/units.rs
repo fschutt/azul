@@ -189,8 +189,12 @@ fn num(text: &str) -> Result<Num, CalcError> {
 
 /// `value` in `from` converted to `to` (both of one category).
 pub fn convert(value: &Num, from: &Unit, to: &Unit) -> Result<Num, CalcError> {
-        todo!("RED: convert")
-    }
+    let base = value
+        .add(&num(from.offset)?)?
+        .mul(&num(from.num)?)?
+        .div(&num(from.den)?)?;
+    base.mul(&num(to.den)?)?.div(&num(to.num)?)?.sub(&num(to.offset)?)
+}
 
 /// A converted value as the converter shows it: up to `digits` significant
 /// digits, grouped.
@@ -205,21 +209,37 @@ pub fn show(value: &Num, digits: u64) -> String {
 
 /// The rate line under the fields: `1 km = 0.621371 mi`.
 pub fn rate_line(from: &Unit, to: &Unit) -> Result<String, CalcError> {
-        todo!("RED: rate_line")
-    }
+    let one = Num::from_i64(1);
+    Ok(format!(
+        "1 {} = {} {}",
+        from.symbol,
+        show(&convert(&one, from, to)?, 6),
+        to.symbol
+    ))
+}
 
 /// A recent conversion as listed: `42.195 km = 26.2188 mi`.
 pub fn recent_line(value: &Num, from: &Unit, to: &Unit) -> Result<String, CalcError> {
-        todo!("RED: recent_line")
-    }
+    Ok(format!(
+        "{} {} = {} {}",
+        show(value, 10),
+        from.symbol,
+        show(&convert(value, from, to)?, 6),
+        to.symbol
+    ))
+}
 
 /// When the category changes, the unit of the same name in the new one (by
 /// symbol), so a value keeps its meaning if the dimension matches - which in
 /// this table means never; the default pair otherwise.
 #[must_use]
 pub fn units_after_category_change(old_from: &Unit, old_to: &Unit, new: &Category) -> (usize, usize) {
-        todo!("RED: units_after_category_change")
+    let find = |u: &Unit| new.units.iter().position(|n| n.symbol == u.symbol);
+    match (find(old_from), find(old_to)) {
+        (Some(a), Some(b)) => (a, b),
+        _ => new.default_pair,
     }
+}
 
 #[cfg(test)]
 mod tests {

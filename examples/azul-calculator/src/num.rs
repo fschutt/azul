@@ -96,12 +96,46 @@ impl Num {
     /// A number as typed or pasted: `1280`, `-0.19`, `.5`, `5.`, `1.5E3`,
     /// `1.5e-3`. Grouping commas and blanks are ignored, `−` (U+2212) is a minus.
     pub fn parse(text: &str) -> Result<Num, CalcError> {
-        todo!("RED: parse")
+        let mut t: String = text
+            .chars()
+            .filter(|c| !matches!(c, ',' | ' ' | '_' | '\u{a0}' | '\u{202f}'))
+            .map(|c| if c == '\u{2212}' { '-' } else { c })
+            .collect();
+        if t.is_empty() || t == "-" {
+            return Err(CalcError::Syntax(format!("{text:?} is not a number")));
+        }
+        // `5.` and `5.E3` are 5; `.5` and `-.5` get their leading zero.
+        if let Some(pos) = t.find(['e', 'E']) {
+            if t[..pos].ends_with('.') {
+                t.remove(pos - 1);
+            }
+        } else if t.ends_with('.') {
+            t.pop();
+        }
+        if t.starts_with('.') {
+            t.insert(0, '0');
+        } else if t.starts_with("-.") {
+            t.insert(1, '0');
+        }
+        let valid = t.chars().all(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E'));
+        if !valid {
+            return Err(CalcError::Syntax(format!("{text:?} is not a number")));
+        }
+        let n = BigDecimal::from_str(&t)
+            .map_err(|_| CalcError::Syntax(format!("{text:?} is not a number")))?;
+        Num(n).checked()
     }
 
     /// A number from an `f64` result, trusted with [`F64_DIGITS`] digits.
     pub fn from_f64(v: f64) -> Result<Num, CalcError> {
-        todo!("RED: from_f64")
+        if !v.is_finite() {
+            return Err(CalcError::Overflow);
+        }
+        if v == 0.0 {
+            return Ok(Num::zero());
+        }
+        let n = BigDecimal::from_str(&format!("{v:e}")).map_err(|_| CalcError::Overflow)?;
+        Ok(Num(n).round_sig(F64_DIGITS).normalized())
     }
 
     /// The nearest `f64` (for the functions computed through it).
@@ -167,7 +201,12 @@ impl Num {
 
     /// Rounded to the working precision, an overflow refused, an underflow zero.
     pub fn checked(self) -> Result<Num, CalcError> {
-        todo!("RED: checked")
+        let n = self.round_sig(WORKING_DIGITS);
+        match n.exponent() {
+            Some(e) if e > MAX_EXPONENT => Err(CalcError::Overflow),
+            Some(e) if e < -MAX_EXPONENT => Ok(Num::zero()),
+            _ => Ok(n),
+        }
     }
 
     pub fn add(&self, other: &Num) -> Result<Num, CalcError> {
@@ -240,12 +279,46 @@ impl Num {
 
     /// `self ^ exponent`: exact for an integer exponent, through `f64` otherwise.
     pub fn pow(&self, exponent: &Num) -> Result<Num, CalcError> {
-        todo!("RED: pow")
+        if let Some(n) = exponent.to_i64_exact() {
+            if self.is_zero() {
+                return match n.cmp(&0) {
+                    Ordering::Less => Err(CalcError::DivideByZero),
+                    Ordering::Equal => Ok(Num::from_i64(1)),
+                    Ordering::Greater => Ok(Num::zero()),
+                };
+            }
+            // bigdecimal's powi keeps 100 significant digits while it squares, so
+            // even 2^1000000000 costs a few dozen multiplications; the exponent
+            // check of `checked` turns the result into an overflow or zero.
+            return Num(self.0.powi(n)).checked();
+        }
+        let base = self.to_f64()?;
+        let exp = exponent.to_f64()?;
+        if base < 0.0 {
+            // A negative base with an odd-denominator exponent: the real root.
+            let recip = 1.0 / exp;
+            if (recip.round() - recip).abs() < 1e-9 && (recip.round() as i64) % 2 != 0 {
+                return Num::from_f64(-(-base).powf(exp));
+            }
+            return Err(CalcError::InvalidInput);
+        }
+        Num::from_f64(base.powf(exp))
     }
 
     /// n! for an integer 0 <= n <= [`MAX_FACTORIAL`], exactly.
     pub fn factorial(&self) -> Result<Num, CalcError> {
-        todo!("RED: factorial")
+        let n = match self.to_i64_exact() {
+            Some(n) if n >= 0 => n,
+            _ => return Err(CalcError::InvalidInput),
+        };
+        if n > MAX_FACTORIAL {
+            return Err(CalcError::Overflow);
+        }
+        let mut acc = BigDecimal::from(1i64);
+        for i in 2..=n {
+            acc = acc * BigDecimal::from(i);
+        }
+        Num(acc).checked()
     }
 
     /// A function computed through `f64`, `None` from `f` = outside its domain.
@@ -280,7 +353,50 @@ impl Num {
     /// The value as shown.
     #[must_use]
     pub fn format(&self, f: &Format) -> String {
-        todo!("RED: format")
+        let n = self.round_sig(f.digits.max(1)).normalized();
+        let (int_val, scale) = n.0.as_bigint_and_exponent();
+        let text = int_val.to_string();
+        let (negative, digits) = match text.strip_prefix('-') {
+            Some(rest) => (true, rest.to_string()),
+            None => (false, text),
+        };
+        if digits == "0" {
+            return "0".to_string();
+        }
+        let exponent = digits.len() as i64 - 1 - scale;
+        let sign = if negative { "-" } else { "" };
+        let plain_limit = f.digits.min(DISPLAY_DIGITS) as i64;
+        if f.scientific || exponent >= plain_limit || exponent < -9 {
+            let (lead, rest) = digits.split_at(1);
+            let mantissa = if rest.is_empty() {
+                lead.to_string()
+            } else {
+                format!("{lead}.{rest}")
+            };
+            let esign = if exponent < 0 { '-' } else { '+' };
+            return format!("{sign}{mantissa}e{esign}{}", exponent.abs());
+        }
+        let (int_part, frac_part) = if scale <= 0 {
+            (format!("{digits}{}", "0".repeat((-scale) as usize)), String::new())
+        } else if (digits.len() as i64) > scale {
+            let (a, b) = digits.split_at(digits.len() - scale as usize);
+            (a.to_string(), b.to_string())
+        } else {
+            (
+                "0".to_string(),
+                format!("{}{digits}", "0".repeat((scale as usize) - digits.len())),
+            )
+        };
+        let int_part = if f.grouping {
+            group_thousands(&int_part)
+        } else {
+            int_part
+        };
+        if frac_part.is_empty() {
+            format!("{sign}{int_part}")
+        } else {
+            format!("{sign}{int_part}.{frac_part}")
+        }
     }
 }
 
@@ -293,16 +409,54 @@ impl fmt::Display for Num {
 /// `1234567` -> `1,234,567` (an integer part of ASCII digits).
 #[must_use]
 pub fn group_thousands(int_part: &str) -> String {
-        todo!("RED: group_thousands")
+    let len = int_part.len();
+    let mut out = String::with_capacity(len + len / 3);
+    for (i, c) in int_part.chars().enumerate() {
+        if i > 0 && (len - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
     }
+    out
+}
 
 /// A number as it is being typed, grouped but otherwise verbatim: `1280.50`
 /// shows `1,280.50` (the trailing zero stays), `0.` shows `0.`, `-12` `-12`,
 /// `1.5E-3` `1.5e-3`.
 #[must_use]
 pub fn format_typed(text: &str, grouping: bool) -> String {
-        todo!("RED: format_typed")
+    let (sign, rest) = match text.strip_prefix('-') {
+        Some(r) => ("-", r),
+        None => ("", text),
+    };
+    let (mantissa, exponent) = match rest.find(['e', 'E']) {
+        Some(p) => (&rest[..p], Some(&rest[p + 1..])),
+        None => (rest, None),
+    };
+    let (int_part, frac) = match mantissa.find('.') {
+        Some(p) => (&mantissa[..p], Some(&mantissa[p + 1..])),
+        None => (mantissa, None),
+    };
+    let int_part = if int_part.is_empty() { "0" } else { int_part };
+    let mut out = String::from(sign);
+    out.push_str(&if grouping {
+        group_thousands(int_part)
+    } else {
+        int_part.to_string()
+    });
+    if let Some(frac) = frac {
+        out.push('.');
+        out.push_str(frac);
     }
+    if let Some(e) = exponent {
+        out.push('e');
+        if !e.starts_with(['-', '+']) {
+            out.push('+');
+        }
+        out.push_str(e);
+    }
+    out
+}
 
 #[cfg(test)]
 mod tests {

@@ -50,13 +50,33 @@ impl Date {
     /// Days since 1970-01-01 (Howard Hinnant's days_from_civil).
     #[must_use]
     pub fn days(self) -> i64 {
-        todo!("RED: days")
+        let y = i64::from(self.year) - i64::from(self.month <= 2);
+        let era = y.div_euclid(400);
+        let yoe = y - era * 400;
+        let m = i64::from(self.month);
+        let d = i64::from(self.day);
+        let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        era * 146_097 + doe - 719_468
     }
 
     /// The date `days` after 1970-01-01.
     #[must_use]
     pub fn from_days(days: i64) -> Date {
-        todo!("RED: from_days")
+        let z = days + 719_468;
+        let era = z.div_euclid(146_097);
+        let doe = z - era * 146_097;
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+        let y = yoe + era * 400;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let d = doy - (153 * mp + 2) / 5 + 1;
+        let m = if mp < 10 { mp + 3 } else { mp - 9 };
+        Date {
+            year: (y + i64::from(m <= 2)) as i32,
+            month: m as u32,
+            day: d as u32,
+        }
     }
 
     /// Monday = 0 .. Sunday = 6.
@@ -77,7 +97,11 @@ impl Date {
     /// month's length (Jan 31 + 1 month = Feb 28 / 29). `None` outside 1..=9999.
     #[must_use]
     pub fn add_months(self, months: i64) -> Option<Date> {
-        todo!("RED: add_months")
+        let total = i64::from(self.year) * 12 + i64::from(self.month) - 1 + months;
+        let year = i32::try_from(total.div_euclid(12)).ok()?;
+        let month = (total.rem_euclid(12) + 1) as u32;
+        let day = self.day.min(days_in_month(year, month));
+        Date::new(year, month, day)
     }
 
     /// This date plus `days` days. `None` outside 1..=9999.
@@ -92,8 +116,20 @@ impl Date {
 /// is not accepted (ambiguous): ISO with `-` or `/`, or day.month.year.
 #[must_use]
 pub fn parse_date(text: &str) -> Option<Date> {
-        todo!("RED: parse_date")
+    let t = text.trim();
+    if t.contains('.') {
+        let parts: Vec<&str> = t.split('.').map(str::trim).collect();
+        if parts.len() == 3 && parts[2].len() == 4 {
+            return Date::new(parts[2].parse().ok()?, parts[1].parse().ok()?, parts[0].parse().ok()?);
+        }
+        return None;
     }
+    let parts: Vec<&str> = t.split(['-', '/']).map(str::trim).collect();
+    if parts.len() == 3 && parts[0].len() == 4 {
+        return Date::new(parts[0].parse().ok()?, parts[1].parse().ok()?, parts[2].parse().ok()?);
+    }
+    None
+}
 
 /// The difference between two dates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -157,8 +193,24 @@ fn grouped(n: i64) -> String {
 /// matter): whole years, whole months, the days left, and the total.
 #[must_use]
 pub fn difference(a: Date, b: Date) -> Difference {
-        todo!("RED: difference")
+    let (from, to) = if a <= b { (a, b) } else { (b, a) };
+    let total_days = to.days() - from.days();
+    let mut months = (i64::from(to.year) - i64::from(from.year)) * 12 + i64::from(to.month) - i64::from(from.month);
+    // Back one month if adding them overshoots.
+    loop {
+        match from.add_months(months) {
+            Some(d) if d > to => months -= 1,
+            _ => break,
+        }
     }
+    let anchor = from.add_months(months).unwrap_or(from);
+    Difference {
+        years: months / 12,
+        months: months % 12,
+        days: to.days() - anchor.days(),
+        total_days,
+    }
+}
 
 /// `date` plus (or minus, with `subtract`) years, months and days, in that order.
 #[must_use]

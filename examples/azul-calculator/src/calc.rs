@@ -196,14 +196,39 @@ impl Calculator {
     /// otherwise what is built so far without the number being typed.
     #[must_use]
     pub fn expression_line(&self) -> String {
-        todo!("RED: expression_line")
+        if self.just_evaluated {
+            return self.shown_expr.clone();
+        }
+        let end = if self.editing {
+            self.tokens.len().saturating_sub(1)
+        } else {
+            self.tokens.len()
+        };
+        expr::display(&self.tokens[..end], self.grouping, self.mode.is_programmer())
+            .trim_end()
+            .to_string()
     }
 
     /// The result line: the error, the number being typed (as typed), or the
     /// value of what is built so far.
     #[must_use]
     pub fn result_line(&self) -> String {
-        todo!("RED: result_line")
+        if let Some(e) = &self.error {
+            return e.clone();
+        }
+        if self.editing && !self.just_evaluated {
+            if let Some(Tok::Num(text)) = self.tokens.last() {
+                return if self.mode.is_programmer() {
+                    text.clone()
+                } else {
+                    format_typed(text, self.grouping)
+                };
+            }
+        }
+        match self.current_value() {
+            Some(v) => self.show(&v),
+            None => "0".to_string(),
+        }
     }
 
     /// How many `(` are open.
@@ -216,7 +241,27 @@ impl Calculator {
     /// being typed, or what is built so far (an unfinished tail left off).
     #[must_use]
     pub fn current_value(&self) -> Option<Value> {
-        todo!("RED: current_value")
+        if self.just_evaluated {
+            return self.result.clone();
+        }
+        if self.editing {
+            if let Some(Tok::Num(text)) = self.tokens.last() {
+                return self.eval_tokens(std::slice::from_ref(&Tok::Num(text.clone()))).ok();
+            }
+        }
+        let mut end = self.tokens.len();
+        while end > 0
+            && matches!(
+                self.tokens[end - 1],
+                Tok::Op(_) | Tok::Neg | Tok::Not | Tok::Func(_) | Tok::LParen
+            )
+        {
+            end -= 1;
+        }
+        if end == 0 {
+            return None;
+        }
+        self.eval_tokens(&self.tokens[..end]).ok()
     }
 
     /// The four bases of Programmer mode's current value.
@@ -377,7 +422,142 @@ impl Calculator {
 
     /// Applies one key. `now` (seconds since 1970) stamps a history entry.
     pub fn apply(&mut self, cmd: Cmd, now: u64) {
-        todo!("RED: apply")
+        let programmer = self.mode.is_programmer();
+        match cmd {
+            Cmd::Digit(d) => self.digit(d),
+            Cmd::Point => {
+                if programmer {
+                    return;
+                }
+                if self.editing {
+                    if let Some(Tok::Num(text)) = self.tokens.last_mut() {
+                        if !text.contains('.') && !text.contains('E') {
+                            if text.is_empty() || text == "-" {
+                                text.push('0');
+                            }
+                            text.push('.');
+                        }
+                    }
+                    return;
+                }
+                self.begin_operand();
+                self.tokens.push(Tok::Num("0.".to_string()));
+                self.editing = true;
+            }
+            Cmd::Op(op) => self.operator(op),
+            Cmd::Func(f) => {
+                if programmer {
+                    return;
+                }
+                if !self.wrap_operand(Tok::Func(f)) {
+                    if self.just_evaluated || self.error.is_some() {
+                        self.fresh();
+                    }
+                    self.tokens.push(Tok::Func(f));
+                    self.tokens.push(Tok::LParen);
+                }
+            }
+            Cmd::Not => {
+                if !programmer {
+                    return;
+                }
+                if !self.wrap_operand(Tok::Not) {
+                    if self.just_evaluated || self.error.is_some() {
+                        self.fresh();
+                    }
+                    self.tokens.push(Tok::Not);
+                }
+            }
+            Cmd::Post(p) => {
+                if programmer && p == Post::Percent {
+                    return;
+                }
+                if self.just_evaluated {
+                    if self.result.is_none() {
+                        return;
+                    }
+                    self.continue_with_result();
+                }
+                self.finish_number();
+                if self.last_ends_operand() {
+                    self.tokens.push(Tok::Post(p));
+                }
+            }
+            Cmd::Negate => self.negate(),
+            Cmd::Exp => {
+                if programmer || !self.editing {
+                    return;
+                }
+                if let Some(Tok::Num(text)) = self.tokens.last_mut() {
+                    if !text.contains('E') {
+                        if text.ends_with('.') {
+                            text.pop();
+                        }
+                        text.push('E');
+                    }
+                }
+            }
+            Cmd::Const(c) => {
+                if programmer {
+                    return;
+                }
+                self.begin_operand();
+                self.tokens.push(Tok::Const(c));
+            }
+            Cmd::LParen => {
+                self.begin_operand();
+                self.tokens.push(Tok::LParen);
+            }
+            Cmd::RParen => {
+                if self.just_evaluated || self.open_parens() == 0 {
+                    return;
+                }
+                self.finish_number();
+                if self.last_ends_operand() {
+                    self.tokens.push(Tok::RParen);
+                }
+            }
+            Cmd::Equals => self.equals(now),
+            Cmd::ClearEntry => {
+                if self.just_evaluated || self.error.is_some() {
+                    self.clear();
+                } else if self.editing {
+                    self.tokens.pop();
+                    self.editing = false;
+                }
+            }
+            Cmd::Clear => self.clear(),
+            Cmd::Backspace => self.backspace(),
+            Cmd::MemStore => {
+                if let Some(v) = self.current_value() {
+                    self.memory.store(&self.memory_text(&v));
+                }
+            }
+            Cmd::MemClear => self.memory.clear(),
+            Cmd::MemRecall => {
+                let Some(text) = self.memory.recall().map(str::to_string) else {
+                    return;
+                };
+                if let Some(lit) = self.memory_literal(&text) {
+                    self.begin_operand();
+                    self.finish_number();
+                    self.tokens.push(Tok::Num(lit));
+                }
+            }
+            Cmd::MemAdd | Cmd::MemSub => {
+                let Some(v) = self.current_value() else {
+                    return;
+                };
+                let operand = self.memory_text(&v);
+                let subtract = cmd == Cmd::MemSub;
+                self.memory.update(|top| {
+                    let a = Num::parse(top).ok()?;
+                    let b = Num::parse(&operand).ok()?;
+                    let r = if subtract { a.sub(&b) } else { a.add(&b) };
+                    r.ok().map(|n| n.to_literal())
+                });
+            }
+        }
     }
 
     /// The memory keeps decimal text, whatever the mode.
@@ -780,8 +960,59 @@ impl Calculator {
 /// mode's `a`-`f`, `&` `|` `^` (XOR) `~` `<` `>` and `%` (mod).
 #[must_use]
 pub fn char_command(c: char, mode: CalcMode) -> Option<Cmd> {
-        todo!("RED: char_command")
+    if let Some(d) = c.to_digit(10) {
+        return Some(Cmd::Digit(d as u8));
     }
+    let programmer = mode.is_programmer();
+    if programmer {
+        if let Some(d) = c.to_digit(16) {
+            return Some(Cmd::Digit(d as u8));
+        }
+        return match c {
+            '+' => Some(Cmd::Op(BinOp::Add)),
+            '-' => Some(Cmd::Op(BinOp::Sub)),
+            '*' | 'x' => Some(Cmd::Op(BinOp::Mul)),
+            '/' => Some(Cmd::Op(BinOp::Div)),
+            '%' => Some(Cmd::Op(BinOp::Mod)),
+            '&' => Some(Cmd::Op(BinOp::And)),
+            '|' => Some(Cmd::Op(BinOp::Or)),
+            '^' => Some(Cmd::Op(BinOp::Xor)),
+            '~' => Some(Cmd::Not),
+            '<' => Some(Cmd::Op(BinOp::Shl)),
+            '>' => Some(Cmd::Op(BinOp::Shr)),
+            '(' => Some(Cmd::LParen),
+            ')' => Some(Cmd::RParen),
+            '=' => Some(Cmd::Equals),
+            _ => None,
+        };
+    }
+    let scientific = mode == CalcMode::Scientific;
+    match c {
+        '.' | ',' => Some(Cmd::Point),
+        '+' => Some(Cmd::Op(BinOp::Add)),
+        '-' => Some(Cmd::Op(BinOp::Sub)),
+        '*' | 'x' | 'X' => Some(Cmd::Op(BinOp::Mul)),
+        '/' => Some(Cmd::Op(BinOp::Div)),
+        '%' => Some(Cmd::Post(Post::Percent)),
+        '=' => Some(Cmd::Equals),
+        '@' => Some(Cmd::Func(Func::Sqrt)),
+        'q' => Some(Cmd::Post(Post::Square)),
+        'r' => Some(Cmd::Func(Func::Recip)),
+        '(' => Some(Cmd::LParen),
+        ')' => Some(Cmd::RParen),
+        '^' if scientific => Some(Cmd::Op(BinOp::Pow)),
+        '!' if scientific => Some(Cmd::Post(Post::Factorial)),
+        's' if scientific => Some(Cmd::Func(Func::Sin)),
+        'o' if scientific => Some(Cmd::Func(Func::Cos)),
+        't' if scientific => Some(Cmd::Func(Func::Tan)),
+        'n' if scientific => Some(Cmd::Func(Func::Ln)),
+        'l' if scientific => Some(Cmd::Func(Func::Log)),
+        'p' if scientific => Some(Cmd::Const(Const::Pi)),
+        'e' if scientific => Some(Cmd::Const(Const::E)),
+        'E' if scientific => Some(Cmd::Exp),
+        _ => None,
+    }
+}
 
 /// The keys with names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

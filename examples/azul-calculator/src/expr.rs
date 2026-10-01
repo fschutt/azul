@@ -385,15 +385,168 @@ fn expects_operand(prev: Option<&Tok>) -> bool {
 /// Turns typed or pasted text into tokens: `1,280 x 0.19`, `sin(30)+2^10`,
 /// `2pi`, `5!`, `√2`, `50 + 10%`; in Programmer mode `2A5F and FF`, `1 << 4`.
 pub fn tokenize(text: &str, domain: Domain) -> Result<Vec<Tok>, CalcError> {
-        todo!("RED: tokenize")
+    let chars: Vec<char> = text.chars().collect();
+    let mut out: Vec<Tok> = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c.is_whitespace() {
+            i += 1;
+            continue;
+        }
+        // Programmer mode: a word that is an operator, else hex digits.
+        if let Domain::Integer(base) = domain {
+            if c.is_ascii_alphanumeric() {
+                let start = i;
+                while i < chars.len() && chars[i].is_ascii_alphanumeric() {
+                    i += 1;
+                }
+                let word: String = chars[start..i].iter().collect::<String>().to_lowercase();
+                if let Some(tok) = operator_word(&word) {
+                    out.push(tok);
+                    continue;
+                }
+                if word == "x" {
+                    out.push(Tok::Op(BinOp::Mul));
+                    continue;
+                }
+                let digits = word
+                    .strip_prefix("0x")
+                    .filter(|_| base == Base::Hex)
+                    .unwrap_or(word.as_str());
+                let digits = digits.strip_prefix("0b").filter(|_| base == Base::Bin).unwrap_or(digits);
+                let digits = digits.strip_prefix("0o").filter(|_| base == Base::Oct).unwrap_or(digits);
+                if digits.is_empty() || !digits.chars().all(|d| d.is_digit(base.radix())) {
+                    return Err(CalcError::Syntax(format!(
+                        "\"{word}\" is not a {} number",
+                        base.label()
+                    )));
+                }
+                out.push(Tok::Num(digits.to_uppercase()));
+                continue;
+            }
+        } else if c.is_ascii_digit() || (c == '.' && chars.get(i + 1).is_some_and(char::is_ascii_digit)) {
+            let start = i;
+            while i < chars.len() {
+                let d = chars[i];
+                if d.is_ascii_digit() || d == '.' {
+                    i += 1;
+                } else if d == ',' && chars.get(i + 1).is_some_and(char::is_ascii_digit) {
+                    i += 1; // a grouping comma
+                } else if (d == 'e' || d == 'E')
+                    && (chars.get(i + 1).is_some_and(char::is_ascii_digit)
+                        || (matches!(chars.get(i + 1), Some('+' | '-'))
+                            && chars.get(i + 2).is_some_and(char::is_ascii_digit)))
+                {
+                    i += 2;
+                    while i < chars.len() && chars[i].is_ascii_digit() {
+                        i += 1;
+                    }
+                    break;
+                } else {
+                    break;
+                }
+            }
+            let literal: String = chars[start..i].iter().filter(|c| **c != ',').collect();
+            if literal.matches('.').count() > 1 {
+                return Err(CalcError::Syntax(format!("{literal:?} has two points")));
+            }
+            out.push(Tok::Num(literal));
+            continue;
+        } else if c.is_alphabetic() {
+            let start = i;
+            while i < chars.len() && chars[i].is_alphabetic() {
+                i += 1;
+            }
+            let mut word: String = chars[start..i].iter().collect();
+            // The two names that end in digits: log2 and pow10.
+            for (stem, digits) in [("log", "2"), ("pow", "10")] {
+                let follows: String = chars[i..].iter().take(digits.len()).collect();
+                let after = chars.get(i + digits.len());
+                if word.eq_ignore_ascii_case(stem)
+                    && follows == digits
+                    && !after.is_some_and(char::is_ascii_digit)
+                {
+                    word.push_str(digits);
+                    i += digits.len();
+                }
+            }
+            let lower = word.to_lowercase();
+            let tok = match lower.as_str() {
+                "pi" | "\u{3c0}" => Tok::Const(Const::Pi),
+                "e" => Tok::Const(Const::E),
+                "mod" => Tok::Op(BinOp::Mod),
+                "x" => Tok::Op(BinOp::Mul),
+                _ => match Func::by_name(&lower) {
+                    Some(f) => Tok::Func(f),
+                    None => return Err(CalcError::Syntax(format!("unknown name \"{word}\""))),
+                },
+            };
+            out.push(tok);
+            continue;
+        }
+        let next = chars.get(i + 1).copied();
+        let tok = match c {
+            '+' => {
+                if expects_operand(out.last()) {
+                    i += 1;
+                    continue; // a plus sign changes nothing
+                }
+                Tok::Op(BinOp::Add)
+            }
+            '-' | '\u{2212}' => {
+                if expects_operand(out.last()) {
+                    Tok::Neg
+                } else {
+                    Tok::Op(BinOp::Sub)
+                }
+            }
+            '*' | '\u{d7}' | '\u{b7}' => Tok::Op(BinOp::Mul),
+            '/' | '\u{f7}' | ':' => Tok::Op(BinOp::Div),
+            '^' => Tok::Op(BinOp::Pow),
+            '%' => Tok::Post(Post::Percent),
+            '!' => Tok::Post(Post::Factorial),
+            '\u{b2}' => Tok::Post(Post::Square),
+            '\u{b3}' => Tok::Post(Post::Cube),
+            '(' | '[' => Tok::LParen,
+            ')' | ']' => Tok::RParen,
+            '\u{3c0}' => Tok::Const(Const::Pi),
+            '\u{221a}' => Tok::Func(Func::Sqrt),
+            '\u{221b}' => Tok::Func(Func::Cbrt),
+            '&' => Tok::Op(BinOp::And),
+            '|' => Tok::Op(BinOp::Or),
+            '~' => Tok::Not,
+            '<' if next == Some('<') => {
+                i += 1;
+                Tok::Op(BinOp::Shl)
+            }
+            '>' if next == Some('>') => {
+                i += 1;
+                Tok::Op(BinOp::Shr)
+            }
+            other => return Err(CalcError::Syntax(format!("unexpected \"{other}\""))),
+        };
+        out.push(tok);
+        i += 1;
     }
+    Ok(out)
+}
 
 /// The tokens with the implicit multiplications written out: `2π` is
 /// `2 x π`, `3(4)` is `3 x (4)`, `(1)(2)` is `(1) x (2)`.
 #[must_use]
 pub fn with_implicit_mul(tokens: &[Tok]) -> Vec<Tok> {
-        todo!("RED: with_implicit_mul")
+    let mut out: Vec<Tok> = Vec::with_capacity(tokens.len());
+    for t in tokens {
+        if let Some(prev) = out.last() {
+            if prev.ends_operand() && t.starts_operand() && !matches!(t, Tok::Neg) {
+                out.push(Tok::Op(BinOp::Mul));
+            }
+        }
+        out.push(t.clone());
     }
+    out
+}
 
 /// How many `(` are still open.
 #[must_use]
@@ -531,14 +684,48 @@ fn tok_text(t: &Tok) -> String {
 /// Parses tokens (implicit multiplications are added first; open
 /// parentheses close at the end).
 pub fn parse(tokens: &[Tok]) -> Result<Expr, CalcError> {
-        todo!("RED: parse")
+    if tokens.is_empty() {
+        return Err(syntax("Empty expression"));
     }
+    let toks = with_implicit_mul(tokens);
+    let mut p = Parser { toks: &toks, pos: 0 };
+    let e = p.expr(0)?;
+    match p.peek() {
+        None => Ok(e),
+        Some(Tok::RParen) => Err(syntax("Unmatched \")\"")),
+        Some(other) => Err(CalcError::Syntax(format!("unexpected {}", tok_text(other)))),
+    }
+}
 
 /// The expression line: `1,280 × 0.19`, `sin(30) + 2^10`, `√(2)`, `5!`.
 #[must_use]
 pub fn display(tokens: &[Tok], grouping: bool, programmer: bool) -> String {
-        todo!("RED: display")
+    let mut out = String::new();
+    for t in tokens {
+        match t {
+            Tok::Op(op) => {
+                let spaced = !matches!(op, BinOp::Pow);
+                if spaced {
+                    out.push(' ');
+                    out.push_str(op.symbol());
+                    out.push(' ');
+                } else {
+                    out.push_str(op.symbol());
+                }
+            }
+            Tok::Num(n) => {
+                if programmer {
+                    out.push_str(n);
+                } else {
+                    out.push_str(&crate::num::format_typed(n, grouping));
+                }
+            }
+            Tok::Not => out.push_str("NOT "),
+            other => out.push_str(&tok_text(other)),
+        }
     }
+    out
+}
 
 // ==== Decimal evaluation ====
 
@@ -687,8 +874,46 @@ fn eval_func(f: Func, v: &Num, angle: AngleUnit) -> Result<Num, CalcError> {
 
 /// Evaluates over decimals; trigonometric functions use `angle`.
 pub fn eval_dec(e: &Expr, angle: AngleUnit) -> Result<Num, CalcError> {
-        todo!("RED: eval_dec")
+    match e {
+        Expr::Num(text) => Num::parse(text),
+        Expr::Const(c) => Ok(c.value()),
+        Expr::Neg(x) => Ok(eval_dec(x, angle)?.neg()),
+        Expr::Not(_) => Err(syntax("NOT needs Programmer mode")),
+        Expr::Bin(op, l, r) => {
+            // The percent rules: a + b% and a - b% take b percent OF a.
+            if let (BinOp::Add | BinOp::Sub, Expr::Post(Post::Percent, pct)) = (op, r.as_ref()) {
+                let base = eval_dec(l, angle)?;
+                let delta = base.mul(&eval_dec(pct, angle)?)?.percent()?;
+                return if *op == BinOp::Add {
+                    base.add(&delta)
+                } else {
+                    base.sub(&delta)
+                };
+            }
+            let a = eval_dec(l, angle)?;
+            let b = eval_dec(r, angle)?;
+            match op {
+                BinOp::Add => a.add(&b),
+                BinOp::Sub => a.sub(&b),
+                BinOp::Mul => a.mul(&b),
+                BinOp::Div => a.div(&b),
+                BinOp::Mod => a.rem(&b),
+                BinOp::Pow => a.pow(&b),
+                _ => Err(CalcError::Syntax(format!("{} needs Programmer mode", op.symbol()))),
+            }
+        }
+        Expr::Func(f, x) => eval_func(*f, &eval_dec(x, angle)?, angle),
+        Expr::Post(p, x) => {
+            let v = eval_dec(x, angle)?;
+            match p {
+                Post::Percent => v.percent(),
+                Post::Factorial => v.factorial(),
+                Post::Square => v.mul(&v),
+                Post::Cube => v.mul(&v)?.mul(&v),
+            }
+        }
     }
+}
 
 /// Text to a decimal result (paste, tests).
 pub fn evaluate_text(text: &str, angle: AngleUnit) -> Result<Num, CalcError> {
@@ -701,8 +926,80 @@ pub fn evaluate_text(text: &str, angle: AngleUnit) -> Result<Num, CalcError> {
 /// Evaluates over Programmer mode's integers: every step wraps to the word;
 /// literals are in `base`.
 pub fn eval_int(e: &Expr, word: WordSize, base: Base) -> Result<i128, CalcError> {
-        todo!("RED: eval_int")
+    let w = |v: i128| word.wrap(v);
+    match e {
+        Expr::Num(text) => programmer::parse_int(text, base, word),
+        Expr::Neg(x) => Ok(w(eval_int(x, word, base)?.wrapping_neg())),
+        Expr::Not(x) => Ok(w(!eval_int(x, word, base)?)),
+        Expr::Bin(op, l, r) => {
+            let a = eval_int(l, word, base)?;
+            let b = eval_int(r, word, base)?;
+            Ok(match op {
+                BinOp::Add => w(a.wrapping_add(b)),
+                BinOp::Sub => w(a.wrapping_sub(b)),
+                BinOp::Mul => w(a.wrapping_mul(b)),
+                BinOp::Div => {
+                    if b == 0 {
+                        return Err(CalcError::DivideByZero);
+                    }
+                    w(a.wrapping_div(b))
+                }
+                BinOp::Mod => {
+                    if b == 0 {
+                        return Err(CalcError::DivideByZero);
+                    }
+                    w(a.wrapping_rem(b))
+                }
+                BinOp::Pow => {
+                    if b < 0 {
+                        return Err(CalcError::InvalidInput);
+                    }
+                    let (mut result, mut square, mut n) = (1i128, a, b);
+                    while n > 0 {
+                        if n & 1 == 1 {
+                            result = w(result.wrapping_mul(square));
+                        }
+                        square = w(square.wrapping_mul(square));
+                        n >>= 1;
+                    }
+                    result
+                }
+                BinOp::And => w(a & b),
+                BinOp::Or => w(a | b),
+                BinOp::Xor => w(a ^ b),
+                BinOp::Nand => w(!(a & b)),
+                BinOp::Nor => w(!(a | b)),
+                BinOp::Shl => programmer::shift_left(a, b, word)?,
+                BinOp::Shr => programmer::shift_right(a, b, word)?,
+                BinOp::Rol => programmer::rotate_left(a, b, word)?,
+                BinOp::Ror => programmer::rotate_right(a, b, word)?,
+            })
+        }
+        Expr::Post(Post::Square, x) => {
+            let v = eval_int(x, word, base)?;
+            Ok(w(v.wrapping_mul(v)))
+        }
+        Expr::Post(Post::Cube, x) => {
+            let v = eval_int(x, word, base)?;
+            Ok(w(w(v.wrapping_mul(v)).wrapping_mul(v)))
+        }
+        Expr::Post(Post::Factorial, x) => {
+            let v = eval_int(x, word, base)?;
+            if v < 0 {
+                return Err(CalcError::InvalidInput);
+            }
+            let mut acc = 1i128;
+            for i in 2..=v.min(200) {
+                acc = w(acc.wrapping_mul(i));
+            }
+            Ok(acc)
+        }
+        Expr::Post(Post::Percent, _) => Err(syntax("% needs Standard or Scientific mode")),
+        Expr::Const(_) | Expr::Func(..) => {
+            Err(syntax("Functions need Standard or Scientific mode"))
+        }
     }
+}
 
 #[cfg(test)]
 mod tests {
