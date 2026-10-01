@@ -5707,45 +5707,77 @@ pub struct TableCellInfo {
     pub rowspan: usize,
 }
 
+/// A `table-column` box (`<col>`), or a column group that has none and
+/// stands for its columns itself: the grid columns `start..start + span`.
+#[derive(Copy, Debug, Clone)]
+pub(crate) struct TableColumnBox {
+    /// Layout-tree index of the `<col>` (or of the childless `<colgroup>`).
+    pub(crate) node_index: usize,
+    /// Layout-tree index of the column group it belongs to.
+    pub(crate) group: Option<usize>,
+    pub(crate) start: usize,
+    pub(crate) span: usize,
+}
+
+/// A column group (`<colgroup>`): the grid columns `start..start + span`.
+#[derive(Copy, Debug, Clone)]
+pub(crate) struct TableColumnGroupBox {
+    pub(crate) node_index: usize,
+    pub(crate) start: usize,
+    pub(crate) span: usize,
+}
+
 /// Table layout context - holds all information needed for table layout
 #[derive(Debug)]
-struct TableLayoutContext {
+pub(crate) struct TableLayoutContext {
     /// Information about each column
-    columns: Vec<TableColumnInfo>,
+    pub(crate) columns: Vec<TableColumnInfo>,
     /// Information about each cell
-    cells: Vec<TableCellInfo>,
+    pub(crate) cells: Vec<TableCellInfo>,
     /// Number of rows in the table
-    num_rows: usize,
+    pub(crate) num_rows: usize,
     /// Whether to use fixed or auto layout algorithm
-    use_fixed_layout: bool,
+    pub(crate) use_fixed_layout: bool,
     /// Computed height for each row
-    row_heights: Vec<f32>,
+    pub(crate) row_heights: Vec<f32>,
     /// Computed baseline offset for each row (distance from row top to row baseline)
-    row_baselines: Vec<f32>,
+    pub(crate) row_baselines: Vec<f32>,
     // +spec:inline-formatting-context:440ca9 - border-collapse/border-spacing/visibility:collapse
     // table properties (CSS 2.2 §17.5-17.6)
     /// Border collapse mode
-    border_collapse: StyleBorderCollapse,
+    pub(crate) border_collapse: StyleBorderCollapse,
     /// Border spacing (only used when `border_collapse` is Separate)
-    border_spacing: LayoutBorderSpacing,
+    pub(crate) border_spacing: LayoutBorderSpacing,
     /// CSS 2.2 Section 17.4: Index of table-caption child, if any
-    caption_index: Option<usize>,
+    pub(crate) caption_index: Option<usize>,
     //   from display without forcing table re-layout
     /// CSS 2.2 Section 17.6: Rows with visibility:collapse (dynamic effects)
     /// Set of row indices that have visibility:collapse
-    collapsed_rows: std::collections::HashSet<usize>,
+    pub(crate) collapsed_rows: std::collections::HashSet<usize>,
     /// CSS 2.2 Section 17.6: Columns with visibility:collapse (dynamic effects)
     /// Set of column indices that have visibility:collapse
-    collapsed_columns: std::collections::HashSet<usize>,
+    pub(crate) collapsed_columns: std::collections::HashSet<usize>,
     /// Rows that are hidden-empty (zero height, border-spacing on only one side)
-    hidden_empty_rows: std::collections::HashSet<usize>,
+    pub(crate) hidden_empty_rows: std::collections::HashSet<usize>,
     /// Layout tree indices for each row (row index → layout node index)
-    row_node_indices: Vec<usize>,
+    pub(crate) row_node_indices: Vec<usize>,
+    /// Per row: the layout-tree index of the row group it sits in (`None`
+    /// for a row straight under the table).
+    pub(crate) row_groups: Vec<Option<usize>>,
+    /// The column boxes (`<col>`), in column order.
+    pub(crate) column_boxes: Vec<TableColumnBox>,
+    /// The column groups (`<colgroup>`), in column order.
+    pub(crate) column_groups: Vec<TableColumnGroupBox>,
     /// Per-column rowspan occupancy: for column `c`, the number of upcoming rows
     /// (including the current one during processing) still covered by a cell that
     /// began in an earlier row with rowspan > 1. Decremented after each row.
     /// Used so a later row's cells skip columns already taken by a spanning cell.
     col_occupied: Vec<usize>,
+    /// The used horizontal `border-spacing` (0 in the collapsing model),
+    /// resolved once in `layout_table_fc`.
+    pub(crate) h_spacing: f32,
+    /// The used vertical `border-spacing` (0 in the collapsing model).
+    pub(crate) v_spacing: f32,
 }
 
 impl TableLayoutContext {
@@ -5764,8 +5796,69 @@ impl TableLayoutContext {
             collapsed_columns: std::collections::HashSet::new(),
             hidden_empty_rows: std::collections::HashSet::new(),
             row_node_indices: Vec::new(),
+            row_groups: Vec::new(),
+            column_boxes: Vec::new(),
+            column_groups: Vec::new(),
             col_occupied: Vec::new(),
+            h_spacing: 0.0,
+            v_spacing: 0.0,
         }
+    }
+
+    /// The grid column after the last column box so far.
+    fn column_box_end(&self) -> usize {
+        self.column_boxes.last().map_or(0, |c| c.start + c.span)
+    }
+
+    /// Append a column box for the next `span` grid columns.
+    fn push_column_box(&mut self, node_index: usize, group: Option<usize>, span: usize) {
+        let start = self.column_box_end();
+        self.column_boxes.push(TableColumnBox {
+            node_index,
+            group,
+            start,
+            span: span.max(1),
+        });
+    }
+
+    /// The last column box has `visibility: collapse` (CSS 2.2 17.6).
+    fn collapse_last_column_box(&mut self) {
+        if let Some(c) = self.column_boxes.last().copied() {
+            self.collapsed_columns.extend(c.start..c.start + c.span);
+        }
+    }
+
+    /// The column box covering grid column `col`.
+    pub(crate) fn column_box_at(&self, col: usize) -> Option<&TableColumnBox> {
+        self.column_boxes
+            .iter()
+            .find(|c| (c.start..c.start + c.span).contains(&col))
+    }
+
+    /// The column group covering grid column `col`.
+    pub(crate) fn column_group_at(&self, col: usize) -> Option<&TableColumnGroupBox> {
+        self.column_groups
+            .iter()
+            .find(|g| (g.start..g.start + g.span).contains(&col))
+    }
+
+    /// Per grid slot (`row * columns + column`), the index into `cells` of
+    /// the cell covering it.
+    pub(crate) fn slot_owners(&self) -> Vec<Option<usize>> {
+        let cols = self.columns.len();
+        let mut owners = vec![None; self.num_rows * cols];
+        for (i, cell) in self.cells.iter().enumerate() {
+            for r in cell.row..(cell.row + cell.rowspan).min(self.num_rows) {
+                for c in cell.column..(cell.column + cell.colspan).min(cols) {
+                    if let Some(slot) = owners.get_mut(r * cols + c) {
+                        if slot.is_none() {
+                            *slot = Some(i);
+                        }
+                    }
+                }
+            }
+        }
+        owners
     }
 }
 
@@ -6569,6 +6662,14 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
 
     // Phase 1: Analyze table structure
     let mut table_ctx = analyze_table_structure(tree, node_index, ctx)?;
+    debug_log!(
+        ctx,
+        "Table structure: {} rows, {} columns, {} cells, caption: {}",
+        table_ctx.num_rows,
+        table_ctx.columns.len(),
+        table_ctx.cells.len(),
+        table_ctx.caption_index.is_some()
+    );
 
     // The cell spacing (0 in the collapsing model): the columns share the
     // content width minus one spacing per gutter, the outer two included
@@ -6592,6 +6693,9 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     // table border handling Read border properties
     table_ctx.border_collapse = get_border_collapse_property(ctx, &table_node);
     table_ctx.border_spacing = get_border_spacing_property(ctx, &table_node);
+    // The spacing resolved above, for the span widths and the fixed layout.
+    table_ctx.h_spacing = h_spacing;
+    table_ctx.v_spacing = v_spacing;
 
     debug_log!(
         ctx,
@@ -6849,16 +6953,22 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
 
 // +spec:display-property:f47f8a - Table structure analysis: caption positioning,
 // row/column/row-group traversal per CSS 2.2 §17.4-17.5
-/// Analyze the table structure to identify rows, cells, and columns
-fn analyze_table_structure<T: ParsedFontTrait>(
+/// Analyze the table structure: its caption, its column boxes, its rows (in
+/// grid order, each with the row group it belongs to) and its cells with
+/// their grid slots (CSS 2.2 17.5 cell placement).
+///
+/// This is THE placement of a table's grid: the table's layout, the
+/// collapsing border model's edge resolution ([`resolve_collapsed_borders`])
+/// and the table's painting (`paint_table_items` in `display_list.rs`) all
+/// read it, so a cell sits in the same slot for each of them. It reads the
+/// tree and the cascade and nothing else.
+pub(crate) fn analyze_table_structure<T: ParsedFontTrait>(
     tree: &LayoutTree,
     table_index: usize,
-    ctx: &mut LayoutContext<'_, T>,
+    ctx: &LayoutContext<'_, T>,
 ) -> Result<TableLayoutContext> {
     let mut table_ctx = TableLayoutContext::new();
-
-    let table_node = tree
-        .get(LayoutNodeId::new(table_index))
+    tree.get(LayoutNodeId::new(table_index))
         .ok_or(LayoutError::InvalidTree)?;
 
     // +spec:width-calculation:0a2766 - table internal elements form rectangular grid of
@@ -6896,99 +7006,506 @@ fn analyze_table_structure<T: ParsedFontTrait>(
         .chain(footer)
         .collect();
     for child_idx in visual_order {
-        if let Some(child) = tree.get(LayoutNodeId::new(child_idx)) {
-            // Check if this is a table caption
-            if matches!(child.formatting_context, FormattingContext::TableCaption) {
-                debug_log!(ctx, "Found table caption at index {}", child_idx);
+        let Some(child) = tree.get(LayoutNodeId::new(child_idx)) else {
+            continue;
+        };
+        match child.formatting_context {
+            FormattingContext::TableCaption => {
                 table_ctx.caption_index = Some(child_idx);
-                continue;
             }
-
-            // CSS 2.2 Section 17.2: Check for column groups
-            if matches!(
-                child.formatting_context,
-                FormattingContext::TableColumnGroup
-            ) {
-                analyze_table_colgroup(tree, child_idx, &table_ctx, ctx)?;
-                continue;
+            // CSS 2.2 Section 17.2: column groups contain columns
+            FormattingContext::TableColumnGroup => {
+                analyze_table_colgroup(tree, child_idx, &mut table_ctx, ctx);
             }
-
-            // Check if this is a table row or row group
-            match child.formatting_context {
-                FormattingContext::TableRow => {
-                    analyze_table_row(tree, child_idx, &mut table_ctx, ctx)?;
-                }
-                FormattingContext::TableRowGroup => {
-                    // Process rows within the row group
-                    for &row_idx in tree.children(child_idx) {
-                        if let Some(row) = tree.get(LayoutNodeId::new(row_idx)) {
-                            if matches!(row.formatting_context, FormattingContext::TableRow) {
-                                analyze_table_row(tree, row_idx, &mut table_ctx, ctx)?;
-                            }
-                        }
+            FormattingContext::TableRow => {
+                analyze_table_row(tree, child_idx, None, &mut table_ctx, ctx)?;
+            }
+            FormattingContext::TableRowGroup => {
+                // Process rows within the row group
+                for &row_idx in tree.children(child_idx) {
+                    let is_row = tree
+                        .get(LayoutNodeId::new(row_idx))
+                        .is_some_and(|row| matches!(row.formatting_context, FormattingContext::TableRow));
+                    if is_row {
+                        analyze_table_row(tree, row_idx, Some(child_idx), &mut table_ctx, ctx)?;
                     }
                 }
-                _ => {}
             }
+            // A `table-column` straight under the table (no column group).
+            _ if is_table_column_box(tree, child_idx) => {
+                let span = table_column_span(ctx.styled_dom, child);
+                table_ctx.push_column_box(child_idx, None, span);
+                if is_visibility_collapsed(ctx, child) {
+                    table_ctx.collapse_last_column_box();
+                }
+            }
+            _ => {}
         }
     }
-
-    debug_log!(
-        ctx,
-        "Table structure: {} rows, {} columns, {} cells{}",
-        table_ctx.num_rows,
-        table_ctx.columns.len(),
-        table_ctx.cells.len(),
-        if table_ctx.caption_index.is_some() {
-            ", has caption"
-        } else {
-            ""
-        }
-    );
+    // A collapsed column box past the last cell names no grid column.
+    let num_cols = table_ctx.columns.len();
+    table_ctx.collapsed_columns.retain(|&c| c < num_cols);
 
     Ok(table_ctx)
 }
 
-/// Analyze a table column group to identify columns and track collapsed columns
+/// Is this layout node a `table-column` box (`<col>`)? Column boxes
+/// establish no formatting context, so the display type tells them apart.
+fn is_table_column_box(tree: &LayoutTree, index: usize) -> bool {
+    tree.warm(LayoutNodeId::new(index))
+        .is_some_and(|w| w.computed_style.display == LayoutDisplay::TableColumn)
+}
+
+/// How many grid columns a `<col>` / `<colgroup>` stands for: its `span`
+/// (carried as `AttributeType::ColSpan`, `Dom::create_col`), 1 by default.
+fn table_column_span(styled_dom: &StyledDom, node: &LayoutNodeHot) -> usize {
+    node.dom_node_id
+        .map_or(1, |dom_id| get_cell_spans(styled_dom, dom_id).0)
+}
+
+/// Analyze a table column group: its `table-column` children become column
+/// boxes; a group without any stands for `span` columns itself (HTML
+/// `<colgroup span>`).
 ///
 /// - CSS 2.2 Section 17.2: Column groups contain columns
 /// - CSS 2.2 Section 17.6: Columns can have visibility:collapse
 fn analyze_table_colgroup<T: ParsedFontTrait>(
     tree: &LayoutTree,
     colgroup_index: usize,
-    table_ctx: &TableLayoutContext,
-    ctx: &mut LayoutContext<'_, T>,
-) -> Result<()> {
-    let colgroup_node = tree
-        .get(LayoutNodeId::new(colgroup_index))
-        .ok_or(LayoutError::InvalidTree)?;
-
-    // Check if the colgroup itself has visibility:collapse
-    if is_visibility_collapsed(ctx, colgroup_node) {
-        // All columns in this group should be collapsed
-        // TODO: For now, just mark the group (actual column indices will be determined later)
-        debug_log!(
-            ctx,
-            "Column group at index {} has visibility:collapse",
-            colgroup_index
+    table_ctx: &mut TableLayoutContext,
+    ctx: &LayoutContext<'_, T>,
+) {
+    let Some(colgroup_node) = tree.get(LayoutNodeId::new(colgroup_index)) else {
+        return;
+    };
+    let group_collapsed = is_visibility_collapsed(ctx, colgroup_node);
+    let start = table_ctx.column_box_end();
+    for &col_idx in tree.children(colgroup_index) {
+        if !is_table_column_box(tree, col_idx) {
+            continue;
+        }
+        let Some(col_node) = tree.get(LayoutNodeId::new(col_idx)) else {
+            continue;
+        };
+        table_ctx.push_column_box(
+            col_idx,
+            Some(colgroup_index),
+            table_column_span(ctx.styled_dom, col_node),
         );
+        if group_collapsed || is_visibility_collapsed(ctx, col_node) {
+            table_ctx.collapse_last_column_box();
+        }
+    }
+    if table_ctx.column_box_end() == start {
+        table_ctx.push_column_box(
+            colgroup_index,
+            Some(colgroup_index),
+            table_column_span(ctx.styled_dom, colgroup_node),
+        );
+        if group_collapsed {
+            table_ctx.collapse_last_column_box();
+        }
+    }
+    table_ctx.column_groups.push(TableColumnGroupBox {
+        node_index: colgroup_index,
+        start,
+        span: table_ctx.column_box_end() - start,
+    });
+}
+
+/// The collapsing border model's grid edges (CSS 2.2 17.6.2): for every
+/// edge between two grid slots, or between a slot and the outside of the
+/// table, the ONE border that wins there (`None`: no border - every
+/// participant is `none`, one of them is `hidden`, or the edge runs inside
+/// a spanning cell).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct CollapsedBorders {
+    pub(crate) num_rows: usize,
+    pub(crate) num_cols: usize,
+    /// `(num_rows + 1) * num_cols` edges: the edge above row `r` in column
+    /// `c` is `r * num_cols + c` (row line `num_rows` is the bottom edge).
+    pub(crate) horizontal: Vec<Option<BorderInfo>>,
+    /// `num_rows * (num_cols + 1)` edges: the edge left of column `c` in
+    /// row `r` is `r * (num_cols + 1) + c` (column line `num_cols` is the
+    /// right edge).
+    pub(crate) vertical: Vec<Option<BorderInfo>>,
+}
+
+impl CollapsedBorders {
+    /// The edge above row `row_line` (the table's bottom edge at
+    /// `num_rows`) in column `col`.
+    pub(crate) fn horizontal_at(&self, row_line: usize, col: usize) -> Option<BorderInfo> {
+        if col >= self.num_cols || row_line > self.num_rows {
+            return None;
+        }
+        self.horizontal
+            .get(row_line * self.num_cols + col)
+            .copied()
+            .flatten()
     }
 
-    // Check for individual column elements within the group
-    for &col_idx in tree.children(colgroup_index) {
-        if let Some(col_node) = tree.get(LayoutNodeId::new(col_idx)) {
-            // Note: Individual columns don't have a FormattingContext::TableColumn
-            // They are represented as children of TableColumnGroup
-            // Check visibility:collapse on each column
-            if is_visibility_collapsed(ctx, col_node) {
-                // We need to determine the actual column index this represents
-                // For now, we'll track it during cell analysis
-                debug_log!(ctx, "Column at index {} has visibility:collapse", col_idx);
-            }
+    /// The edge left of column line `col_line` (the table's right edge at
+    /// `num_cols`) in row `row`.
+    pub(crate) fn vertical_at(&self, row: usize, col_line: usize) -> Option<BorderInfo> {
+        if col_line > self.num_cols || row >= self.num_rows {
+            return None;
+        }
+        self.vertical
+            .get(row * (self.num_cols + 1) + col_line)
+            .copied()
+            .flatten()
+    }
+
+    /// A cell's used border widths: half of the widest edge along each of
+    /// its sides (a spanning cell touches several).
+    pub(crate) fn cell_border(&self, cell: &TableCellInfo) -> EdgeSizes {
+        let row_end = (cell.row + cell.rowspan).min(self.num_rows);
+        let col_end = (cell.column + cell.colspan).min(self.num_cols);
+        EdgeSizes {
+            top: half_of_widest((cell.column..col_end).map(|c| self.horizontal_at(cell.row, c))),
+            bottom: half_of_widest((cell.column..col_end).map(|c| self.horizontal_at(row_end, c))),
+            left: half_of_widest((cell.row..row_end).map(|r| self.vertical_at(r, cell.column))),
+            right: half_of_widest((cell.row..row_end).map(|r| self.vertical_at(r, col_end))),
         }
     }
 
-    Ok(())
+    /// The table's used border widths: half of the widest edge on each of
+    /// its sides; the other half of every outer edge spills into the margin
+    /// (CSS 2.2 17.6.2, as browsers take it for all four sides).
+    pub(crate) fn table_border(&self) -> EdgeSizes {
+        EdgeSizes {
+            top: half_of_widest((0..self.num_cols).map(|c| self.horizontal_at(0, c))),
+            bottom: half_of_widest(
+                (0..self.num_cols).map(|c| self.horizontal_at(self.num_rows, c)),
+            ),
+            left: half_of_widest((0..self.num_rows).map(|r| self.vertical_at(r, 0))),
+            right: half_of_widest(
+                (0..self.num_rows).map(|r| self.vertical_at(r, self.num_cols)),
+            ),
+        }
+    }
+}
+
+/// Half the width of the widest of `edges` (0 without any).
+fn half_of_widest(edges: impl Iterator<Item = Option<BorderInfo>>) -> f32 {
+    edges
+        .map(|e| e.map_or(0.0, |b| b.width))
+        .fold(0.0f32, f32::max)
+        * 0.5
+}
+
+/// The border that wins one grid edge (CSS 2.2 17.6.2.1) among
+/// `participants`, listed left / top first: `hidden` anywhere suppresses
+/// the edge, a `none` or zero-width border takes no part, then
+/// [`BorderInfo::resolve_conflict`] decides - width, style, element - and
+/// on a full tie the earlier (further left / further up) one stays.
+fn collapse_edge(participants: &[BorderInfo]) -> Option<BorderInfo> {
+    if participants.iter().any(|b| b.style == BorderStyle::Hidden) {
+        return None;
+    }
+    let mut winner: Option<BorderInfo> = None;
+    for b in participants {
+        if b.style == BorderStyle::None || b.width <= 0.0 {
+            continue;
+        }
+        winner = Some(match winner {
+            None => *b,
+            Some(w) => BorderInfo::resolve_conflict(&w, b).unwrap_or(w),
+        });
+    }
+    winner
+}
+
+/// Resolve every grid edge of a `border-collapse: collapse` table (CSS 2.2
+/// 17.6.2.1). The borders that meet on an edge are those of the cells on
+/// either side of it, of the rows and row groups it bounds, of the columns
+/// and column groups it bounds, and of the table on its outside.
+///
+/// One resolution for the layout (half of each edge goes into the cells'
+/// and the table's box, [`apply_collapsed_table_borders`]) and for the
+/// painting (`paint_collapsed_table_borders` in `display_list.rs`).
+#[allow(clippy::too_many_lines)] // one participant list per edge kind
+pub(crate) fn resolve_collapsed_borders<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    table_index: usize,
+    grid: &TableLayoutContext,
+) -> CollapsedBorders {
+    const TOP: usize = 0;
+    const RIGHT: usize = 1;
+    const BOTTOM: usize = 2;
+    const LEFT: usize = 3;
+
+    let rows = grid.num_rows;
+    let cols = grid.columns.len();
+    let mut out = CollapsedBorders {
+        num_rows: rows,
+        num_cols: cols,
+        horizontal: vec![None; (rows + 1) * cols],
+        vertical: vec![None; rows * (cols + 1)],
+    };
+    if rows == 0 || cols == 0 {
+        return out;
+    }
+
+    let sides = |index: usize, source: BorderSource| -> [BorderInfo; 4] {
+        tree.get(LayoutNodeId::new(index)).map_or_else(
+            || {
+                let none = BorderInfo::new(
+                    0.0,
+                    BorderStyle::None,
+                    ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 0,
+                    },
+                    source,
+                );
+                [none; 4]
+            },
+            |node| {
+                let (top, right, bottom, left) = get_border_info(ctx, node, source);
+                [top, right, bottom, left]
+            },
+        )
+    };
+
+    let owners = grid.slot_owners();
+    let owner = |r: usize, c: usize| owners.get(r * cols + c).copied().flatten();
+    let cell_sides: Vec<[BorderInfo; 4]> = grid
+        .cells
+        .iter()
+        .map(|cell| sides(cell.node_index, BorderSource::Cell))
+        .collect();
+    let row_sides: Vec<[BorderInfo; 4]> = (0..rows)
+        .map(|r| {
+            grid.row_node_indices
+                .get(r)
+                .map_or_else(|| sides(usize::MAX, BorderSource::Row), |&i| sides(i, BorderSource::Row))
+        })
+        .collect();
+    let group_of = |r: usize| grid.row_groups.get(r).copied().flatten();
+    let group_sides: BTreeMap<usize, [BorderInfo; 4]> = (0..rows)
+        .filter_map(|r| group_of(r))
+        .map(|g| (g, sides(g, BorderSource::RowGroup)))
+        .collect();
+    let first_in_group = |r: usize| r == 0 || group_of(r - 1) != group_of(r);
+    let last_in_group = |r: usize| r + 1 >= rows || group_of(r + 1) != group_of(r);
+    let column_sides: Vec<Option<(TableColumnBox, [BorderInfo; 4])>> = (0..cols)
+        .map(|c| {
+            grid.column_box_at(c)
+                .map(|b| (*b, sides(b.node_index, BorderSource::Column)))
+        })
+        .collect();
+    let column_group_sides: Vec<Option<(TableColumnGroupBox, [BorderInfo; 4])>> = (0..cols)
+        .map(|c| {
+            grid.column_group_at(c)
+                .map(|g| (*g, sides(g.node_index, BorderSource::ColumnGroup)))
+        })
+        .collect();
+    let table = sides(table_index, BorderSource::Table);
+
+    let mut participants: Vec<BorderInfo> = Vec::with_capacity(12);
+
+    // Horizontal edges: row line `r` (0 = the table's top), column `c`.
+    for r in 0..=rows {
+        for c in 0..cols {
+            let above = if r > 0 { owner(r - 1, c) } else { None };
+            let below = if r < rows { owner(r, c) } else { None };
+            if above.is_some() && above == below {
+                continue; // inside a cell that spans both rows
+            }
+            participants.clear();
+            if let Some(a) = above {
+                participants.push(cell_sides[a][BOTTOM]);
+            }
+            if let Some(b) = below {
+                participants.push(cell_sides[b][TOP]);
+            }
+            if r > 0 {
+                participants.push(row_sides[r - 1][BOTTOM]);
+            }
+            if r < rows {
+                participants.push(row_sides[r][TOP]);
+            }
+            if r > 0 && last_in_group(r - 1) {
+                if let Some(g) = group_of(r - 1).and_then(|g| group_sides.get(&g)) {
+                    participants.push(g[BOTTOM]);
+                }
+            }
+            if r < rows && first_in_group(r) {
+                if let Some(g) = group_of(r).and_then(|g| group_sides.get(&g)) {
+                    participants.push(g[TOP]);
+                }
+            }
+            if r == 0 || r == rows {
+                let side = if r == 0 { TOP } else { BOTTOM };
+                if let Some((_, s)) = &column_sides[c] {
+                    participants.push(s[side]);
+                }
+                if let Some((_, s)) = &column_group_sides[c] {
+                    participants.push(s[side]);
+                }
+                participants.push(table[side]);
+            }
+            out.horizontal[r * cols + c] = collapse_edge(&participants);
+        }
+    }
+
+    // Vertical edges: row `r`, column line `c` (0 = the table's left).
+    for r in 0..rows {
+        for c in 0..=cols {
+            let left = if c > 0 { owner(r, c - 1) } else { None };
+            let right = if c < cols { owner(r, c) } else { None };
+            if left.is_some() && left == right {
+                continue; // inside a cell that spans both columns
+            }
+            participants.clear();
+            if let Some(l) = left {
+                participants.push(cell_sides[l][RIGHT]);
+            }
+            if let Some(rt) = right {
+                participants.push(cell_sides[rt][LEFT]);
+            }
+            if c == 0 || c == cols {
+                let side = if c == 0 { LEFT } else { RIGHT };
+                participants.push(row_sides[r][side]);
+                if let Some(g) = group_of(r).and_then(|g| group_sides.get(&g)) {
+                    participants.push(g[side]);
+                }
+            }
+            if c > 0 {
+                if let Some((b, s)) = &column_sides[c - 1] {
+                    if b.start + b.span == c {
+                        participants.push(s[RIGHT]);
+                    }
+                }
+            }
+            if c < cols {
+                if let Some((b, s)) = &column_sides[c] {
+                    if b.start == c {
+                        participants.push(s[LEFT]);
+                    }
+                }
+            }
+            if c > 0 {
+                if let Some((g, s)) = &column_group_sides[c - 1] {
+                    if g.start + g.span == c {
+                        participants.push(s[RIGHT]);
+                    }
+                }
+            }
+            if c < cols {
+                if let Some((g, s)) = &column_group_sides[c] {
+                    if g.start == c {
+                        participants.push(s[LEFT]);
+                    }
+                }
+            }
+            if c == 0 {
+                participants.push(table[LEFT]);
+            } else if c == cols {
+                participants.push(table[RIGHT]);
+            }
+            out.vertical[r * (cols + 1) + c] = collapse_edge(&participants);
+        }
+    }
+
+    out
+}
+
+/// The collapsing border model's box geometry (CSS 2.2 17.6.2): a cell is
+/// laid out with half of each collapsed edge as its border, the table with
+/// half of its widest outer edge on each side and no padding ("in this
+/// model, a table does not have padding").
+///
+/// Written into the boxes BEFORE anything is measured (the intrinsic pass
+/// calls this first): the table's shrink-to-fit width, the column
+/// measurement and the cells' final layout all read the box props, so
+/// patching them here is what makes every one of them see the same table.
+/// The unresolved props are patched too, or a parent's re-resolution
+/// (`layout_bfc` re-resolves its children's box props) undid it. Idempotent:
+/// it starts from the cascade every time.
+pub(crate) fn apply_collapsed_table_borders<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+) {
+    let tables: Vec<usize> = tree
+        .nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| matches!(n.formatting_context, FormattingContext::Table))
+        .map(|(i, _)| i)
+        .collect();
+    for table_index in tables {
+        let Some(table) = tree.get(LayoutNodeId::new(table_index)) else {
+            continue;
+        };
+        if get_border_collapse_property(ctx, table) != StyleBorderCollapse::Collapse {
+            continue;
+        }
+        let Ok(grid) = analyze_table_structure(tree, table_index, ctx) else {
+            continue;
+        };
+        let borders = resolve_collapsed_borders(ctx, tree, table_index, &grid);
+        let table_border = if borders.num_rows == 0 || borders.num_cols == 0 {
+            // No grid to collapse with: the table's own border stands.
+            let (t, r, b, l) = get_border_info(ctx, table, BorderSource::Table);
+            let used = |e: BorderInfo| {
+                if matches!(e.style, BorderStyle::None | BorderStyle::Hidden) {
+                    0.0
+                } else {
+                    e.width
+                }
+            };
+            EdgeSizes {
+                top: used(t),
+                right: used(r),
+                bottom: used(b),
+                left: used(l),
+            }
+        } else {
+            borders.table_border()
+        };
+        set_collapsed_box(tree, table_index, table_border, true);
+        for cell in &grid.cells {
+            set_collapsed_box(tree, cell.node_index, borders.cell_border(cell), false);
+        }
+    }
+}
+
+/// Give a node of a collapsed table its used border widths (and, for the
+/// table, no padding), in the resolved AND the unresolved box props.
+fn set_collapsed_box(tree: &mut LayoutTree, index: usize, border: EdgeSizes, no_padding: bool) {
+    use azul_css::props::basic::pixel::PixelValue;
+
+    use crate::solver3::geometry::{PackedBoxProps, UnresolvedEdge};
+
+    if let Some(hot) = tree.nodes.get_mut(index) {
+        let mut bp = hot.box_props.unpack();
+        bp.border = border;
+        if no_padding {
+            bp.padding = EdgeSizes::default();
+        }
+        hot.box_props = PackedBoxProps::pack(&bp);
+    }
+    if let Some(cold) = tree.cold.get_mut(index) {
+        cold.unresolved_box_props.border = UnresolvedEdge::new(
+            PixelValue::px(border.top),
+            PixelValue::px(border.right),
+            PixelValue::px(border.bottom),
+            PixelValue::px(border.left),
+        );
+        if no_padding {
+            cold.unresolved_box_props.padding = UnresolvedEdge::new(
+                PixelValue::px(0.0),
+                PixelValue::px(0.0),
+                PixelValue::px(0.0),
+                PixelValue::px(0.0),
+            );
+        }
+    }
 }
 
 /// Read the HTML `colspan` / `rowspan` of a table cell from its DOM node.
@@ -7016,12 +7533,15 @@ pub(crate) fn get_cell_spans(styled_dom: &StyledDom, dom_id: NodeId) -> (usize, 
 
 // +spec:display-property:7f167c - Table grid cell placement: rows fill table top-to-bottom, cells
 // placed left-to-right with colspan/rowspan
-/// Analyze a table row to identify cells and update column count
+/// Analyze a table row: place its cells in the grid (CSS 2.2 17.5) and
+/// grow the column count. `group` is the layout index of the row group the
+/// row sits in (`None` for a row straight under the table).
 fn analyze_table_row<T: ParsedFontTrait>(
     tree: &LayoutTree,
     row_index: usize,
+    group: Option<usize>,
     table_ctx: &mut TableLayoutContext,
-    ctx: &mut LayoutContext<'_, T>,
+    ctx: &LayoutContext<'_, T>,
 ) -> Result<()> {
     // +spec:inline-formatting-context:3f8091 - table visual layout: cells occupy grid cells,
     // row/column spanning
@@ -7035,10 +7555,13 @@ fn analyze_table_row<T: ParsedFontTrait>(
         table_ctx.row_node_indices.resize(row_num + 1, 0);
     }
     table_ctx.row_node_indices[row_num] = row_index;
+    if table_ctx.row_groups.len() <= row_num {
+        table_ctx.row_groups.resize(row_num + 1, None);
+    }
+    table_ctx.row_groups[row_num] = group;
 
     // CSS 2.2 Section 17.6: Check if this row has visibility:collapse
     if is_visibility_collapsed(ctx, row_node) {
-        debug_log!(ctx, "Row {} has visibility:collapse", row_num);
         table_ctx.collapsed_rows.insert(row_num);
     }
 
