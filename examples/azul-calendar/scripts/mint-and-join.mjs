@@ -4,9 +4,11 @@
 //   1. starts the meet dev server (azul-apps cf-workers/meet/dev-server.mjs, in memory);
 //   2. starts AzCalendar headless with an empty temporary data folder (AZCAL_DATA) and the dev
 //      server as its meeting server (AZMEET_WORKER);
-//   3. through AzCalendar's debug server: clicks "Next week" (so the event, next Monday
-//      09:00 - 10:00, is days ahead, as calendar meetings are), "New event", focuses the title
-//      field (#event-title) and types a title, clicks "Add AzMeet link", clicks "Save event";
+//   3. through AzCalendar's debug server (started on its Week view): clicks Forward
+//      (#view-next, so the event, next Monday 09:00 - 10:00, is days ahead, as calendar
+//      meetings are), clicks Monday 09:05 in the week (a draft and its popover), focuses the
+//      title field (#draft-title) and types a title, presses "Add AzMeet link" (#draft-meet)
+//      and Save (#draft-save) the way a screen reader does;
 //   4. waits until AzCalendar registered the link it made with the dev server (AZCAL_SYNCED:
 //      links are made in the app, so they work offline, and registered as soon as the server
 //      answers; the dev server needs scripts/cal2/meet-000*.patch), then asserts the event is
@@ -118,7 +120,7 @@ const launched = [];
 const TITLE = 'Team sync';
 const ROOM_LINK = /^azlin:\/\/meet\/([0-9a-z]{26})$/;
 const EVENT_FILE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/;
-/** The toolbar's week, "5 - 11 October 2026" / "28 September - 4 October 2026" (week.rs). */
+/** The view's title on the Week view, "5 - 11 October 2026" / "28 September - 4 October 2026". */
 const WEEK_TITLE = /^\d{1,2}( [A-Z][a-z]+( \d{4})?)? - \d{1,2} [A-Z][a-z]+ \d{4}$/;
 /** How long the meet Worker keeps a meeting's room after it ends (ROOM_GRACE_SECONDS). */
 const ROOM_GRACE_MS = 2 * 3600 * 1000;
@@ -241,6 +243,46 @@ async function mustOp(debugPort, op) {
   return answer;
 }
 
+/** Whether a node matches `selector` in the app's window. */
+async function exists(debugPort, selector) {
+  const answer = await debugOp(debugPort, { op: 'get_node_layout', selector });
+  return answer?.status !== 'error';
+}
+
+/** A node's laid-out rect (window coordinates, before any scrolling) and its id. */
+async function layoutOf(debugPort, selector) {
+  const value = (await mustOp(debugPort, { op: 'get_node_layout', selector }))?.data?.value ?? {};
+  if (!value.rect) throw new Error(`${selector} has no laid-out rect: ${JSON.stringify(value)}`);
+  return { node: value.node_id, rect: value.rect };
+}
+
+/** How far the scroll box `node` is scrolled down. */
+async function scrollY(debugPort, node) {
+  const states = (await mustOp(debugPort, { op: 'get_scroll_states' }))?.data?.value?.scroll_states ?? [];
+  const state = states.find((s) => s.node_id === node);
+  return state ? Number(state.scroll_y) : 0;
+}
+
+/** Clicks the week's day `day` (0 = Monday) at `minute`, with 08:00 scrolled to the top. */
+async function clickTime(debugPort, day, minute) {
+  const hourPx = (await layoutOf(debugPort, '#week-grid')).rect.height / 24;
+  await mustOp(debugPort, { op: 'scroll_node_to', selector: '#week-scroll', x: 0, y: 8 * hourPx });
+  await sleep(300);
+  const scroll = await layoutOf(debugPort, '#week-scroll');
+  const col = (await layoutOf(debugPort, `#day-${day}`)).rect;
+  const y = col.y + (minute / 60) * hourPx - (await scrollY(debugPort, scroll.node));
+  const top = scroll.rect.y;
+  if (y < top + 2 || y > top + scroll.rect.height - 2) {
+    throw new Error(`minute ${minute} of day ${day} is not in view (y ${y})`);
+  }
+  return mustOp(debugPort, { op: 'click', x: col.x + col.width / 2, y });
+}
+
+/** A screen reader's press on a control (the popover's are reached this way headless). */
+async function press(debugPort, selector) {
+  return mustOp(debugPort, { op: 'accessibility_action', action: 'default', selector });
+}
+
 /** Clicks the first node whose text contains `text` (the debug server's click op). */
 async function click(debugPort, text) {
   return mustOp(debugPort, { op: 'click', text });
@@ -278,7 +320,7 @@ try {
   log(`dev server up on ${worker}`);
 
   // AZMEET_NAME / AZMEET_RELAY are for the AzMeet that "Join meeting" starts (it inherits them).
-  const cal = start('azcalendar', calBin, [], {
+  const cal = start('azcalendar', calBin, ['--screen', 'week'], {
     AZ_BACKEND: 'headless',
     AZ_DEBUG: String(debugCal),
     AZCAL_DATA: data,
@@ -287,25 +329,25 @@ try {
     AZMEET_NAME: 'Cal',
     AZMEET_RELAY: 'off',
   });
-  await until("AzCalendar's week view", () => shows(debugCal, 'New event'));
+  await until("AzCalendar's week view", () => exists(debugCal, '#week-scroll'));
   if (eventFiles().length !== 0) throw new Error('the data folder is not empty at the start');
 
   // New event next week (a meeting that is over cannot get a room): title, AzMeet link, save.
   const shownWeek = (await texts(debugCal)).find((t) => WEEK_TITLE.test(t));
-  await click(debugCal, 'Next week');
+  await mustOp(debugCal, { op: 'click', selector: '#view-next' });
   await until('the next week', async () => {
     const title = (await texts(debugCal)).find((t) => WEEK_TITLE.test(t));
     return title && title !== shownWeek;
   });
-  await click(debugCal, 'New event');
-  await until('the new-event form', () => shows(debugCal, 'Add AzMeet link'));
-  await mustOp(debugCal, { op: 'focus_node', selector: '#event-title' });
+  await clickTime(debugCal, 0, 9 * 60 + 5);
+  await until('the draft and its popover', () => exists(debugCal, '#draft-title'));
+  await mustOp(debugCal, { op: 'focus_node', selector: '#draft-title' });
   await sleep(200);
   await mustOp(debugCal, { op: 'text_input', text: TITLE });
   await sleep(300);
-  await click(debugCal, 'Add AzMeet link');
-  await until('the form to say a link will be minted', () => shows(debugCal, 'A new AzMeet link is made'));
-  await click(debugCal, 'Save event');
+  await press(debugCal, '#draft-meet');
+  await until('the popover to say a link will be made', () => shows(debugCal, 'A new AzMeet link is made'));
+  await press(debugCal, '#draft-save');
 
   const link = await until('AzCalendar to save the event (AZCAL_LINK on stdout)', async () => {
     const minted = printed(cal.out, 'AZCAL_LINK');
