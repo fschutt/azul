@@ -151,8 +151,8 @@ const VIDEO_KBPS: u32 = 400;
 const AUDIO_KBPS: u64 = 2304;
 /// What the camera and the screen tracks are called in the window, by `track_slot`.
 const SOURCES: [&str; 2] = ["camera", "screen"];
-const PUMP_MS: u64 = 15;
-const STATS_EVERY_TICKS: u32 = 130;
+/// How often the statistics are gathered (and the report re-sent, and the plan re-made).
+const STATS_EVERY_MS: u64 = 2000;
 
 /// The meeting server when `AZMEET_WORKER` is not set: the deployed `meet` Worker (azul-apps
 /// `cf-workers/meet/README.md`, "Deploy"), baked in at build time with
@@ -388,7 +388,15 @@ struct MeetState {
     link_status: String,
     /// One line under the header: why the demo runs, or what the meeting server said.
     notice: String,
-    ticks: u32,
+    /// When (`now_ms`) the statistics were gathered last.
+    stats_at_ms: u64,
+    /// The statistics overlay is open.
+    stats_open: bool,
+    /// The statistics text the overlay showed last: the window changes for the statistics only
+    /// while the overlay is open and its text moved.
+    stats_shown: Vec<String>,
+    /// How often the pump runs (`pace.rs`).
+    pace: pace::PumpPace,
     mic_on: bool,
     cam_on: bool,
     screen_on: bool,
@@ -470,7 +478,10 @@ impl MeetState {
             remotes: Vec::new(),
             link_status: String::from("binding"),
             notice: String::new(),
-            ticks: 0,
+            stats_at_ms: 0,
+            stats_open: false,
+            stats_shown: Vec::new(),
+            pace: pace::PumpPace::new(),
             mic_on: false,
             cam_on: false,
             screen_on: false,
@@ -1484,7 +1495,9 @@ extern "C" fn pump_link(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
     let mut refresh = false;
     // The newest picture of each (peer, track), shown once every event is taken in.
     let mut pictures: BTreeMap<(u64, u32), RawImage> = BTreeMap::new();
+    let mut had_events = false;
     while let Some(event) = endpoint.recv().into_option() {
+        had_events = true;
         let Some(mut s) = data.downcast_mut::<MeetState>() else {
             continue;
         };
@@ -1508,9 +1521,11 @@ extern "C" fn pump_link(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
         pump_pattern(&mut s);
     }
     pump_tone(&mut data, &mut info);
+    let mut rearm = None;
     if let Some(mut s) = data.downcast_mut::<MeetState>() {
-        s.ticks = s.ticks.wrapping_add(1);
-        if s.ticks % STATS_EVERY_TICKS == 0 && !s.remotes.is_empty() {
+        let now = now_ms(&s);
+        if !s.remotes.is_empty() && now.saturating_sub(s.stats_at_ms) >= STATS_EVERY_MS {
+            s.stats_at_ms = now;
             network_tick(&mut s, &endpoint, &mut info.callback_info);
             let lines: Vec<String> = s
                 .remotes
@@ -1536,14 +1551,51 @@ extern "C" fn pump_link(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
             for line in network_lines(&s) {
                 eprintln!("[azmeet] {}: {line}", s.name);
             }
-            refresh = true;
+            // The statistics show only in their overlay: nothing on screen changes for them
+            // while it is closed, or while its text stands still.
+            if s.stats_open {
+                let shown = stats_lines(&s);
+                if shown != s.stats_shown {
+                    s.stats_shown = shown;
+                    refresh = true;
+                }
+            }
         }
+        // Media flows (or is due) when something arrived, this side sends audio or video to
+        // someone, or a stream is being decoded: the pump runs fast; else it slows down.
+        let busy = had_events
+            || (!s.remotes.is_empty() && (s.mic_on || !my_streams(&s).is_empty()));
+        rearm = s.pace.after_pump(busy, now);
+    }
+    if let Some(interval) = rearm {
+        // A timer keeps its interval: a new pace is a new timer, and this one ends.
+        let get_time = info.callback_info.get_system_time_fn();
+        info.callback_info.add_timer(
+            TimerId::unique(),
+            Timer::create(data.clone(), pump_link, get_time)
+                .with_interval(Duration::System(SystemTimeDiff::from_millis(interval))),
+        );
+        return if refresh {
+            TimerCallbackReturn::terminate_and_refresh_dom()
+        } else {
+            TimerCallbackReturn::terminate_unchanged()
+        };
     }
     if refresh {
         TimerCallbackReturn::continue_and_refresh_dom()
     } else {
         TimerCallbackReturn::continue_unchanged()
     }
+}
+
+/// What the statistics overlay shows: the codec, the link, every stream sent and received, the
+/// audio, the network plan.
+fn stats_lines(s: &MeetState) -> Vec<String> {
+    let mut lines = vec![codec_status(s), s.link_status.clone()];
+    lines.extend(video_lines(s));
+    lines.extend(audio_lines(s));
+    lines.extend(network_lines(s));
+    lines
 }
 
 // ==== Audio: packets out on the audio track, jitter buffers in, a playout thread ====
@@ -4505,7 +4557,7 @@ fn start_pumping(data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
     info.add_timer(
         TimerId::unique(),
         Timer::create(peer.clone(), pump_link, get_time)
-            .with_interval(Duration::System(SystemTimeDiff::from_millis(PUMP_MS))),
+            .with_interval(Duration::System(SystemTimeDiff::from_millis(pace::BUSY_MS))),
     );
     let in_rooms = peer
         .downcast_ref::<MeetState>()
