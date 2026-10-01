@@ -219,8 +219,8 @@ struct CalendarRef {
     id: String,
 }
 
-/// The date navigator: the month the navigator shows, inline, today ringed, the view's day
-/// selected (when it is in that month).
+/// The date navigator: the month the navigator shows, inline, today ringed, the days the view
+/// shows lit (`DatePicker::with_range`), the view's day selected when it is in that month.
 fn date_navigator(s: &CalState, app: &RefAny) -> Dom {
     let (year, month) = s.nav_month;
     let day = if (s.anchor.year(), s.anchor.month()) == (year, month) {
@@ -228,9 +228,16 @@ fn date_navigator(s: &CalState, app: &RefAny) -> Dom {
     } else {
         0
     };
+    let state = |d: NaiveDate| DatePickerState {
+        year: d.year().max(1) as u32,
+        month: d.month(),
+        day: d.day(),
+    };
+    let (first, last) = views::visible_range(s.view, s.anchor);
     DatePicker::create(year.max(1) as u32, month, day)
         .with_inline(true)
         .with_today(s.today.year().max(1) as u32, s.today.month(), s.today.day())
+        .with_range(state(first), state(last))
         .with_accessibility_name("Date navigator")
         .with_on_change(app.clone(), on_nav_date)
         .dom()
