@@ -1700,6 +1700,46 @@ mod label_convention {
                     .with_status(AzString::from("3 of 12"))
                     .dom(),
             ),
+            (
+                "timeline",
+                super::timeline::Timeline::create(
+                    super::timeline::TimelineTrackVec::from_vec(vec![
+                        super::timeline::TimelineTrack::create(
+                            1,
+                            AzString::from("V1"),
+                            super::timeline::TimelineTrackKind::Video,
+                        )
+                        .with_clip(
+                            super::timeline::TimelineClip::create(
+                                11,
+                                0.0,
+                                2.0,
+                                AzString::from("pier.mp4"),
+                            )
+                            .with_selected(true),
+                        ),
+                        super::timeline::TimelineTrack::create(
+                            2,
+                            AzString::from("A1"),
+                            super::timeline::TimelineTrackKind::Audio,
+                        )
+                        .with_clip(
+                            super::timeline::TimelineClip::create(
+                                21,
+                                0.5,
+                                3.0,
+                                AzString::from("voice.wav"),
+                            )
+                            .with_tint(super::timeline::TimelineClipTint::Audio),
+                        ),
+                    ]),
+                    10.0,
+                )
+                .with_playhead(1.0)
+                .with_view(0.0, 80.0)
+                .with_view_width(800.0)
+                .dom(),
+            ),
         ];
         // The app shells, each with placeholder content (`shells::fixtures`).
         all.extend(super::shells::fixtures::every_shell());
@@ -2626,6 +2666,7 @@ mod theme_contrast {
         "utility_shell",
         "call_shell",
         "mobile_shell",
+        "timeline",
     ];
 
     /// A widget added to the manifest must land in a group, or it is simply
