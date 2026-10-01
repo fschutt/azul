@@ -2732,13 +2732,13 @@ fn want_of(s: &MeetState, viewer: u64, origin: u64, track: u32) -> u16 {
     sync_of(s, viewer).map_or(0, |sync| sync.want(origin, track))
 }
 
-fn decodes_h264_of(s: &MeetState, key: u64) -> bool {
+/// Whether the participant with key `key` decodes H.264: this side's own probe, a peer's caps
+/// message; `None` while a peer's caps have not arrived.
+fn decodes_h264_of(s: &MeetState, key: u64) -> Option<bool> {
     if key == s.me {
-        return s.video.decodes_h264;
+        return Some(s.video.decodes_h264);
     }
-    s.remotes
-        .iter()
-        .any(|r| r.key == key && r.h264 == Some(true))
+    s.remotes.iter().find(|r| r.key == key).and_then(|r| r.h264)
 }
 
 fn encodes_h264_of(s: &MeetState, key: u64) -> bool {
@@ -2750,24 +2750,30 @@ fn encodes_h264_of(s: &MeetState, key: u64) -> bool {
         .any(|r| r.key == key && r.encodes == Some(true))
 }
 
-/// Which stream each of `peers` gets of `origin`'s `track` (`routes::assign`).
+/// Which stream each of `peers` gets of `origin`'s `track` (`routes::assign`), in the codec
+/// `video_wire::wire_codec` picks.
 fn assignment_among(
     s: &MeetState,
     peers: &[u64],
     origin: u64,
     track: u32,
 ) -> BTreeMap<u64, routes::Stream> {
+    let sender_h264 = encodes_h264_of(s, origin);
     let viewers: Vec<routes::Viewer> = peers
         .iter()
         .copied()
         .filter(|viewer| *viewer != origin)
-        .map(|viewer| routes::Viewer {
-            key: viewer,
-            need: want_of(s, viewer, origin, track),
-            h264: decodes_h264_of(s, viewer),
+        .filter_map(|viewer| {
+            // A viewer whose caps have not arrived gets nothing yet - not JPEG.
+            let codec = video_wire::wire_codec(sender_h264, decodes_h264_of(s, viewer))?;
+            Some(routes::Viewer {
+                key: viewer,
+                need: want_of(s, viewer, origin, track),
+                h264: codec == Codec::H264,
+            })
         })
         .collect();
-    routes::assign(&viewers, encodes_h264_of(s, origin))
+    routes::assign(&viewers, sender_h264)
 }
 
 /// Which stream each participant of the plan gets of `origin`'s `track`.
