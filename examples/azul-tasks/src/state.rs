@@ -421,8 +421,31 @@ impl Tasks {
 
     // ==== Drafts ====
 
-    /// Writes the title and notes typed in the detail pane into their task.
+    /// Writes the name and group typed in the list settings into their list.
+    pub fn commit_list_drafts(&mut self) {
+        let Some(li) = self.list_index(&self.drafts.list.clone()) else {
+            return;
+        };
+        let name = self.drafts.list_name.trim().to_string();
+        let group = self.drafts.list_group.trim().to_string();
+        let mut changed = false;
+        if !name.is_empty() && self.lists[li].name != name {
+            self.lists[li].name = name;
+            changed = true;
+        }
+        if self.lists[li].group != group {
+            self.lists[li].group = group;
+            changed = true;
+        }
+        if changed {
+            self.save_list(li);
+        }
+    }
+
+    /// Writes the title and notes typed in the detail pane into their task (and the list
+    /// settings' name and group into their list).
     pub fn commit_drafts(&mut self) {
+        self.commit_list_drafts();
         let Some(i) = self.index_of(&self.drafts.task.clone()) else {
             return;
         };
