@@ -37,25 +37,42 @@ impl BackstagePage {
     /// What the page list says.
     #[must_use]
     pub const fn label(self) -> &'static str {
-        todo!()
+        match self {
+            BackstagePage::Info => "Info",
+            BackstagePage::Open => "Open & Export",
+            BackstagePage::Print => "Print",
+            BackstagePage::Calendars => "Calendars",
+            BackstagePage::Options => "Options",
+            BackstagePage::About => "About",
+        }
     }
 
     /// The page's name after `backstage-` in `--screen`.
     #[must_use]
     pub const fn name(self) -> &'static str {
-        todo!()
+        match self {
+            BackstagePage::Info => "info",
+            BackstagePage::Open => "open",
+            BackstagePage::Print => "print",
+            BackstagePage::Calendars => "calendars",
+            BackstagePage::Options => "options",
+            BackstagePage::About => "about",
+        }
     }
 
     /// The page at `index` of the list.
     #[must_use]
     pub fn at(index: usize) -> Option<BackstagePage> {
-        todo!()
+        BackstagePage::ALL.get(index).copied()
     }
 
     /// The page's index in the list.
     #[must_use]
     pub fn index(self) -> usize {
-        todo!()
+        BackstagePage::ALL
+            .iter()
+            .position(|p| *p == self)
+            .unwrap_or(0)
     }
 }
 
@@ -126,7 +143,64 @@ impl Args {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        todo!()
+        let argv: Vec<String> = argv.into_iter().map(Into::into).collect();
+        let mut a = Args::default();
+        let mut i = 0;
+        while i < argv.len() {
+            let arg = argv[i].as_str();
+            let (name, inline) = match arg.split_once('=') {
+                Some((n, v)) if n.starts_with("--") => (n, Some(v.to_string())),
+                _ => (arg, None),
+            };
+            let mut value = |what: &str| -> Result<String, String> {
+                if let Some(v) = inline.clone() {
+                    return Ok(v);
+                }
+                i += 1;
+                argv.get(i)
+                    .cloned()
+                    .ok_or_else(|| format!("{name} needs a {what}\n\n{HELP}"))
+            };
+            match name {
+                "-h" | "--help" => return Err(HELP.to_string()),
+                "--screen" => {
+                    let v = value("name")?;
+                    a.screen = Some(
+                        screen_of(&v)
+                            .ok_or_else(|| format!("--screen: unknown {v:?}\n\n{HELP}"))?,
+                    );
+                }
+                "--theme" => {
+                    let v = value("theme")?;
+                    if !matches!(v.as_str(), "flat" | "flora") {
+                        return Err(format!("--theme: expected flat or flora, got {v:?}"));
+                    }
+                    a.theme = Some(v);
+                }
+                "--mode" => {
+                    let v = value("mode")?;
+                    a.mode = Some(match v.as_str() {
+                        "light" => Mode::Light,
+                        "dark" => Mode::Dark,
+                        other => {
+                            return Err(format!("--mode: expected light or dark, got {other:?}"))
+                        }
+                    });
+                }
+                "--sample" => a.sample = true,
+                "--date" => {
+                    let v = value("date")?;
+                    a.date = Some(
+                        NaiveDate::parse_from_str(&v, "%Y-%m-%d")
+                            .map_err(|_| format!("--date: expected YYYY-MM-DD, got {v:?}"))?,
+                    );
+                }
+                "--data" => a.data = Some(PathBuf::from(value("folder")?)),
+                other => return Err(format!("unknown option {other:?}\n\n{HELP}")),
+            }
+            i += 1;
+        }
+        Ok(a)
     }
 }
 

@@ -21,19 +21,134 @@ fn at(h: u32, m: u32) -> NaiveTime {
 /// The "Work" calendar of the sample, with the id `id`.
 #[must_use]
 pub fn work_calendar(id: &str) -> Calendar {
-    todo!()
+    Calendar {
+        id: id.to_string(),
+        name: String::from("Work"),
+        colour: Colour::Green,
+    }
 }
 
 /// The sample events around `today`, their ids drawn from `ids`, the work ones in the calendar
 /// `work`.
 pub fn sample_events(today: NaiveDate, work: &str, mut ids: impl FnMut() -> String) -> Vec<Event> {
-    todo!()
+    let monday = week::week_start(today);
+    let day = |weekday: Weekday| monday + Duration::days(i64::from(weekday.num_days_from_monday()));
+    let mut out = Vec::new();
+    let mut add = |mut e: Event, calendar: &str, f: &dyn Fn(&mut Event)| {
+        e.calendar = calendar.to_string();
+        f(&mut e);
+        if let Ok(e) = e.check() {
+            out.push(e);
+        }
+    };
+    if let Ok(e) = Event::create(
+        &ids(),
+        "Team standup",
+        day(Weekday::Mon),
+        at(9, 30),
+        at(9, 45),
+        None,
+    ) {
+        add(e, work, &|e: &mut Event| {
+            e.repeat = Some(
+                Rule::new(Freq::Weekly).with_by_day(
+                    [
+                        Weekday::Mon,
+                        Weekday::Tue,
+                        Weekday::Wed,
+                        Weekday::Thu,
+                        Weekday::Fri,
+                    ]
+                    .into_iter()
+                    .map(ByDay::every)
+                    .collect(),
+                ),
+            );
+        });
+    }
+    if let Ok(e) = Event::create(
+        &ids(),
+        "Sprint review",
+        day(Weekday::Fri),
+        at(14, 0),
+        at(15, 0),
+        None,
+    ) {
+        add(e, work, &|e: &mut Event| {
+            e.location = String::from("Room 4");
+            e.repeat = Some(
+                Rule::new(Freq::Weekly)
+                    .with_interval(2)
+                    .with_by_day(vec![ByDay::every(Weekday::Fri)]),
+            );
+        });
+    }
+    if let Ok(e) = Event::create(
+        &ids(),
+        "Lunch with Ana",
+        day(Weekday::Wed),
+        at(12, 30),
+        at(13, 30),
+        None,
+    ) {
+        add(e, "", &|e: &mut Event| {
+            e.location = String::from("Corner cafe")
+        });
+    }
+    if let Ok(e) = Event::create(
+        &ids(),
+        "Dentist",
+        day(Weekday::Thu),
+        at(16, 0),
+        at(16, 45),
+        None,
+    ) {
+        add(e, "", &|e: &mut Event| e.reminder = Some(60));
+    }
+    if let Ok(e) = Event::create(
+        &ids(),
+        "Yoga",
+        day(Weekday::Tue),
+        at(18, 0),
+        at(19, 0),
+        None,
+    ) {
+        add(e, "", &|e: &mut Event| {
+            e.repeat = Some(Rule::new(Freq::Weekly))
+        });
+    }
+    let next_friday = day(Weekday::Fri) + Duration::days(7);
+    if let Ok(e) = Event::create_all_day(
+        &ids(),
+        "Long weekend",
+        next_friday,
+        next_friday + Duration::days(2),
+    ) {
+        add(e, "", &|_: &mut Event| {});
+    }
+    let first = today.with_day(1).unwrap_or(today);
+    if let Ok(e) = Event::create_all_day(&ids(), "Rent", first, first) {
+        add(e, "", &|e: &mut Event| {
+            e.repeat = Some(Rule::new(Freq::Monthly))
+        });
+    }
+    out
 }
 
 /// Writes the sample into `data_dir` unless it holds events already; answers how many events
 /// were written.
 pub fn write_sample(data_dir: &Path, today: NaiveDate) -> std::io::Result<usize> {
-    todo!()
+    let (existing, _) = event::load_all(data_dir);
+    if !existing.is_empty() {
+        return Ok(0);
+    }
+    let work = work_calendar(&calendars::new_calendar_id());
+    calendars::save(data_dir, &work)?;
+    let events = sample_events(today, &work.id, event::new_event_id);
+    for e in &events {
+        event::save(data_dir, e)?;
+    }
+    Ok(events.len())
 }
 
 #[cfg(test)]
