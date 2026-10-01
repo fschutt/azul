@@ -12,13 +12,14 @@ parse-checked with `rustfmt --edition 2021 --check`. Report: `scripts/TASKS_2026
 - `446a1411e` model GREEN (recur, model, parse, views, reminders, store, sample, args)
 - `f4304a933` state.rs, `3c0c554fe` jobs.rs, `025da1f9c` nav.rs (UI modules, not yet declared in lib.rs)
 
-## IN PROGRESS
+## IN PROGRESS (finished)
 
 - UI written: state.rs, jobs.rs, nav.rs, list.rs (`5acb8c983`), detail.rs (`f4886366a`, `f494ee873`), listedit.rs (`eb13dce20`), chrome.rs (`ec8f10b3e`), backstage.rs (`a0504a540`), lib.rs (`5c37a8edc`).
 - Compile-read done (scratchpad `methods.py` checks every called method against the generated bindings; only false positives). `scripts/aztasks_e2e.py` written (`29f35763f`).
 - G1 done: `81898c7b6` RED / `003181699` GREEN (get_node_attribute reads the contenteditable / tabindex flags); the app uses it (`8f86dae74`).
 - G2 done: `49d53f845` RED / `9205c10f3` GREEN (TreeView::with_on_node_drop, ShellNavigationPane NodeDropped; AzShells' match names it); AzTasks uses it (`ae62f7e0e`).
-- NEXT STEP: a last read of the UI for compile errors; then the report `scripts/TASKS_2026_10_01.md` (what was built, commits, api.json list, least-sure spots, test commands, what is left) and commit it.
+- Report written: `scripts/TASKS_2026_10_01.md`.
+- NEXT STEP: none - the task is complete; on a resume, only re-check MAIL2's badge API (`wt/mail2` tree_view.rs) against nav.rs and answer the parent's build errors.
 
 - App UI on PimShell, one module per file, each committed when written:
   `state.rs` (the app state + mutations) -> `jobs.rs` (Thread jobs, the write queue pump)
