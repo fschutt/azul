@@ -29,6 +29,11 @@ use azul_css::{impl_option_inner, AzString, U8Vec};
 #[cfg(feature = "video-native")]
 pub mod demux;
 
+// MP4 container I/O for apps (an editor's seek-and-decode, an export's mux):
+// `Mp4Demuxer` / `Mp4Muxer`. The handles are always present; the `mp4` crate
+// behind them is `video-native`'s.
+pub mod container;
+
 // Streaming decode worker for the VideoWidget: runs the VK decode on a background
 // framework Thread (off-main), exactly like the map's tile_fetch_worker. The
 // hardware decode inside is video-native-gated; the worker fn is always present.
