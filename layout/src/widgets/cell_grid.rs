@@ -1085,3 +1085,794 @@ impl From<CellGrid> for Dom {
         g.dom()
     }
 }
+
+// ---- A1 names ----
+
+/// "A" .. "Z", "AA" .. "XFD" for a 0-based column.
+#[allow(clippy::cast_possible_truncation)] // a remainder of 26 fits a u8
+pub(crate) fn column_letters(index: u32) -> String {
+    let mut n = u64::from(index) + 1;
+    let mut out = Vec::new();
+    while n > 0 {
+        let rem = ((n - 1) % 26) as u8;
+        out.push(b'A' + rem);
+        n = (n - 1) / 26;
+    }
+    out.reverse();
+    String::from_utf8(out).unwrap_or_default()
+}
+
+/// The cell an A1 reference names: letters then digits, `$` signs allowed,
+/// case ignored. `None` for anything else (an empty string, "A0", "1A").
+#[allow(clippy::cast_possible_truncation)] // both bounded by u32::MAX above
+pub(crate) fn parse_a1(label: &str) -> Option<CellGridCellRef> {
+    let s = label.trim();
+    let mut chars = s.chars().peekable();
+    if chars.peek() == Some(&'$') {
+        chars.next();
+    }
+    let mut column: u64 = 0;
+    let mut letters = 0;
+    while let Some(c) = chars.peek().copied() {
+        if c.is_ascii_alphabetic() {
+            column = column * 26 + u64::from(c.to_ascii_uppercase() as u8 - b'A' + 1);
+            letters += 1;
+            chars.next();
+            if letters > 3 {
+                return None;
+            }
+        } else {
+            break;
+        }
+    }
+    if letters == 0 {
+        return None;
+    }
+    if chars.peek() == Some(&'$') {
+        chars.next();
+    }
+    let digits: String = chars.collect();
+    if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let row: u64 = digits.parse().ok()?;
+    if row == 0 || row > u64::from(u32::MAX) || column > u64::from(u32::MAX) {
+        return None;
+    }
+    Some(CellGridCellRef::create((row - 1) as u32, (column - 1) as u32))
+}
+
+// ---- geometry: which rows and columns are in view, and where ----
+
+/// The px of the line drawn after the frozen rows / columns.
+pub(crate) const FREEZE_LINE_PX: f32 = 2.0;
+/// How close to a header's edge the pointer must be to resize, in px.
+pub(crate) const RESIZE_GRIP_PX: f32 = 4.0;
+/// The fill handle's side, in px.
+pub(crate) const FILL_HANDLE_PX: f32 = 7.0;
+/// The smallest size a drag resizes a column or row to, in px at 100 %.
+pub(crate) const MIN_RESIZE_PX: f32 = 4.0;
+
+/// One row or column in view: which, where it starts (px from the grid's
+/// top / left edge, zoom applied) and how big it is.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Band {
+    pub index: u32,
+    pub start: f32,
+    pub size: f32,
+}
+
+impl Band {
+    pub(crate) fn end(&self) -> f32 {
+        self.start + self.size
+    }
+}
+
+/// Where everything the grid shows sits.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Geometry {
+    /// The frozen rows, then the scrolled rows in view (hidden ones left out).
+    pub rows: Vec<Band>,
+    /// The frozen columns, then the scrolled columns in view.
+    pub columns: Vec<Band>,
+    /// How many of `rows` are frozen (the freeze line follows them).
+    pub frozen_rows: usize,
+    /// How many of `columns` are frozen.
+    pub frozen_columns: usize,
+    /// The header column's width (0 without headers), zoom applied.
+    pub header_width: f32,
+    /// The header row's height (0 without headers), zoom applied.
+    pub header_height: f32,
+    /// The scrolled rows that fit WHOLLY (a PageDown moves by that many).
+    pub page_rows: u32,
+    /// The scrolled columns that fit wholly.
+    pub page_columns: u32,
+}
+
+/// The size of column / row `index`: its override, else the default; px at
+/// 100 %.
+pub(crate) fn size_at(overrides: &[CellGridSize], index: u32, default: f32) -> f32 {
+    overrides
+        .iter()
+        .rev()
+        .find(|s| s.index == index)
+        .map_or(default, |s| s.size)
+        .max(0.0)
+}
+
+/// The bands of one axis: the frozen ones `0..frozen`, the freeze line,
+/// then the scrolled ones from `first` until `extent` px are covered (the
+/// band straddling the edge included). Returns the bands, how many are
+/// frozen and how many scrolled bands fit wholly.
+#[allow(clippy::too_many_arguments)]
+fn axis_bands(
+    count: u32,
+    frozen: u32,
+    first: u32,
+    overrides: &[CellGridSize],
+    default: f32,
+    zoom: f32,
+    origin: f32,
+    extent: f32,
+) -> (Vec<Band>, usize, u32) {
+    let mut bands = Vec::new();
+    let mut at = origin;
+    let frozen = frozen.min(count);
+    for index in 0..frozen {
+        let size = size_at(overrides, index, default) * zoom;
+        if size <= 0.0 {
+            continue;
+        }
+        bands.push(Band {
+            index,
+            start: at,
+            size,
+        });
+        at += size;
+    }
+    let frozen_bands = bands.len();
+    if frozen > 0 {
+        at += FREEZE_LINE_PX;
+    }
+    let mut whole = 0u32;
+    let mut index = first.max(frozen);
+    // A guard against a sheet of hidden rows: never walk more than this
+    // many hidden bands in a row.
+    let mut hidden_run = 0u32;
+    while index < count && at < extent {
+        let size = size_at(overrides, index, default) * zoom;
+        if size <= 0.0 {
+            hidden_run += 1;
+            if hidden_run > 100_000 {
+                break;
+            }
+            index += 1;
+            continue;
+        }
+        hidden_run = 0;
+        bands.push(Band {
+            index,
+            start: at,
+            size,
+        });
+        at += size;
+        if at <= extent {
+            whole += 1;
+        }
+        index += 1;
+    }
+    (bands, frozen_bands, whole.max(1))
+}
+
+/// The geometry of `grid` as it is built now.
+pub(crate) fn geometry(grid: &CellGrid) -> Geometry {
+    let zoom = if grid.zoom.is_finite() && grid.zoom > 0.0 {
+        grid.zoom
+    } else {
+        1.0
+    };
+    let (header_width, header_height) = if grid.show_headers {
+        (grid.header_width * zoom, grid.header_height * zoom)
+    } else {
+        (0.0, 0.0)
+    };
+    let (columns, frozen_columns, page_columns) = axis_bands(
+        grid.column_count,
+        grid.frozen_columns,
+        grid.view.left_column,
+        grid.column_widths.as_ref(),
+        grid.default_column_width,
+        zoom,
+        header_width,
+        grid.viewport_width.max(0.0),
+    );
+    let (rows, frozen_rows, page_rows) = axis_bands(
+        grid.row_count,
+        grid.frozen_rows,
+        grid.view.top_row,
+        grid.row_heights.as_ref(),
+        grid.default_row_height,
+        zoom,
+        header_height,
+        grid.viewport_height.max(0.0),
+    );
+    Geometry {
+        rows,
+        columns,
+        frozen_rows,
+        frozen_columns,
+        header_width,
+        header_height,
+        page_rows,
+        page_columns,
+    }
+}
+
+/// What a point of the grid is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Hit {
+    /// The top-left corner: select everything.
+    Corner,
+    /// A column header.
+    ColumnHeader(u32),
+    /// The right edge of a column header: resize it.
+    ColumnEdge(u32),
+    /// A row header.
+    RowHeader(u32),
+    /// The bottom edge of a row header.
+    RowEdge(u32),
+    /// A cell.
+    Cell(CellGridCellRef),
+    /// The fill handle.
+    FillHandle,
+    /// Outside every band (below the last row, right of the last column).
+    Nothing,
+}
+
+/// The band of `bands` at `p`, else the nearest one before it (a point on
+/// the freeze line belongs to the frozen band before it).
+fn band_at(bands: &[Band], p: f32) -> Option<Band> {
+    let mut found = None;
+    for b in bands {
+        if p >= b.start {
+            found = Some(*b);
+        } else {
+            break;
+        }
+    }
+    found.filter(|b| p < b.end() + FREEZE_LINE_PX)
+}
+
+/// What is at `(x, y)` - px relative to the grid's top-left corner.
+pub(crate) fn hit_test(geo: &Geometry, fill_handle: Option<(f32, f32)>, x: f32, y: f32) -> Hit {
+    if let Some((hx, hy)) = fill_handle {
+        let half = FILL_HANDLE_PX / 2.0 + 1.0;
+        if (x - hx).abs() <= half && (y - hy).abs() <= half {
+            return Hit::FillHandle;
+        }
+    }
+    if y < geo.header_height {
+        if x < geo.header_width {
+            return Hit::Corner;
+        }
+        return match band_at(&geo.columns, x) {
+            Some(b) if b.end() - x <= RESIZE_GRIP_PX && x <= b.end() => Hit::ColumnEdge(b.index),
+            // The grip reaches a little into the NEXT column too.
+            Some(b) if x - b.start <= RESIZE_GRIP_PX / 2.0 => {
+                match geo.columns.iter().rev().find(|c| c.end() <= b.start + 0.5) {
+                    Some(prev) => Hit::ColumnEdge(prev.index),
+                    None => Hit::ColumnHeader(b.index),
+                }
+            }
+            Some(b) => Hit::ColumnHeader(b.index),
+            None => Hit::Nothing,
+        };
+    }
+    if x < geo.header_width {
+        return match band_at(&geo.rows, y) {
+            Some(b) if b.end() - y <= RESIZE_GRIP_PX && y <= b.end() => Hit::RowEdge(b.index),
+            Some(b) => Hit::RowHeader(b.index),
+            None => Hit::Nothing,
+        };
+    }
+    match (band_at(&geo.rows, y), band_at(&geo.columns, x)) {
+        (Some(r), Some(c)) => Hit::Cell(CellGridCellRef::create(r.index, c.index)),
+        _ => Hit::Nothing,
+    }
+}
+
+/// The cell under `(x, y)`, the nearest cell in view when the point lies
+/// past the last row or column (a drag that left the grid keeps a target).
+pub(crate) fn nearest_cell(geo: &Geometry, x: f32, y: f32) -> Option<CellGridCellRef> {
+    let pick = |bands: &[Band], p: f32| -> Option<u32> {
+        let first = bands.first()?;
+        if p < first.start {
+            return Some(first.index);
+        }
+        Some(
+            bands
+                .iter()
+                .rev()
+                .find(|b| p >= b.start)
+                .map_or(first.index, |b| b.index),
+        )
+    };
+    Some(CellGridCellRef::create(
+        pick(&geo.rows, y)?,
+        pick(&geo.columns, x)?,
+    ))
+}
+
+/// The rectangle of `range` in view: `(x, y, width, height)`, clipped to
+/// the bands shown; `None` when no part of it is in view.
+pub(crate) fn range_rect(geo: &Geometry, range: &CellGridRange) -> Option<(f32, f32, f32, f32)> {
+    let span = |bands: &[Band], lo: u32, hi: u32| -> Option<(f32, f32)> {
+        let inside: Vec<&Band> = bands
+            .iter()
+            .filter(|b| b.index >= lo && b.index <= hi)
+            .collect();
+        let first = inside.first()?;
+        let last = inside.last()?;
+        Some((first.start, last.end()))
+    };
+    let (x0, x1) = span(&geo.columns, range.first.column, range.last.column)?;
+    let (y0, y1) = span(&geo.rows, range.first.row, range.last.row)?;
+    Some((x0, y0, x1 - x0, y1 - y0))
+}
+
+// ---- navigation: keys and clicks to the next view ----
+
+/// A direction of the cell cursor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Dir {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+/// What navigation needs to know about the grid besides the view.
+pub(crate) struct Bounds<'a> {
+    pub row_count: u32,
+    pub column_count: u32,
+    pub content_rows: u32,
+    pub content_columns: u32,
+    pub frozen_rows: u32,
+    pub frozen_columns: u32,
+    pub column_widths: &'a [CellGridSize],
+    pub row_heights: &'a [CellGridSize],
+    /// Rows / columns a page holds.
+    pub page_rows: u32,
+    pub page_columns: u32,
+}
+
+impl Bounds<'_> {
+    fn hidden(&self, dir: Dir, index: u32) -> bool {
+        match dir {
+            Dir::Up | Dir::Down => size_at(self.row_heights, index, 1.0) <= 0.0,
+            Dir::Left | Dir::Right => size_at(self.column_widths, index, 1.0) <= 0.0,
+        }
+    }
+
+    /// One visible step from `cell` in `dir`; `cell` itself at the edge.
+    pub(crate) fn step(&self, cell: CellGridCellRef, dir: Dir) -> CellGridCellRef {
+        let mut c = cell;
+        loop {
+            let next = match dir {
+                Dir::Up if c.row > 0 => CellGridCellRef::create(c.row - 1, c.column),
+                Dir::Down if c.row + 1 < self.row_count => CellGridCellRef::create(c.row + 1, c.column),
+                Dir::Left if c.column > 0 => CellGridCellRef::create(c.row, c.column - 1),
+                Dir::Right if c.column + 1 < self.column_count => {
+                    CellGridCellRef::create(c.row, c.column + 1)
+                }
+                _ => return cell,
+            };
+            let index = match dir {
+                Dir::Up | Dir::Down => next.row,
+                Dir::Left | Dir::Right => next.column,
+            };
+            if !self.hidden(dir, index) {
+                return next;
+            }
+            c = next;
+        }
+    }
+
+    /// `n` visible steps (at most to the edge).
+    pub(crate) fn steps(&self, cell: CellGridCellRef, dir: Dir, n: u32) -> CellGridCellRef {
+        let mut c = cell;
+        for _ in 0..n {
+            let next = self.step(c, dir);
+            if next == c {
+                break;
+            }
+            c = next;
+        }
+        c
+    }
+
+    /// The last row / column index in `dir`.
+    fn sheet_edge(&self, cell: CellGridCellRef, dir: Dir) -> CellGridCellRef {
+        match dir {
+            Dir::Up => CellGridCellRef::create(0, cell.column),
+            Dir::Down => CellGridCellRef::create(self.row_count.saturating_sub(1), cell.column),
+            Dir::Left => CellGridCellRef::create(cell.row, 0),
+            Dir::Right => CellGridCellRef::create(cell.row, self.column_count.saturating_sub(1)),
+        }
+    }
+
+    /// Whether `cell` lies past the data in `dir` (nothing more to find).
+    fn past_content(&self, cell: CellGridCellRef, dir: Dir) -> bool {
+        match dir {
+            Dir::Down => cell.row + 1 >= self.content_rows,
+            Dir::Right => cell.column + 1 >= self.content_columns,
+            Dir::Up => cell.row == 0,
+            Dir::Left => cell.column == 0,
+        }
+    }
+
+    /// Ctrl + arrow (Excel): from a cell with data whose neighbour has data,
+    /// to the last cell of that run; otherwise to the next cell with data,
+    /// or the sheet's edge when there is none.
+    pub(crate) fn data_edge(
+        &self,
+        cell: CellGridCellRef,
+        dir: Dir,
+        has_data: &mut dyn FnMut(CellGridCellRef) -> bool,
+    ) -> CellGridCellRef {
+        let next = self.step(cell, dir);
+        if next == cell {
+            return cell;
+        }
+        if has_data(cell) && has_data(next) {
+            let mut c = next;
+            loop {
+                let n = self.step(c, dir);
+                if n == c || !has_data(n) {
+                    return c;
+                }
+                c = n;
+            }
+        }
+        let mut c = next;
+        loop {
+            if has_data(c) {
+                return c;
+            }
+            if self.past_content(c, dir) {
+                return self.sheet_edge(c, dir);
+            }
+            let n = self.step(c, dir);
+            if n == c {
+                return c;
+            }
+            c = n;
+        }
+    }
+}
+
+/// The corner of the current range opposite the anchor: the end a Shift
+/// key or a drag moves.
+pub(crate) fn moving_end(view: &CellGridView) -> CellGridCellRef {
+    let r = view.current_range();
+    let a = view.anchor;
+    CellGridCellRef::create(
+        if r.first.row == a.row { r.last.row } else { r.first.row },
+        if r.first.column == a.column {
+            r.last.column
+        } else {
+            r.first.column
+        },
+    )
+}
+
+/// The view with the cursor on `cell`: alone (`extend` and `add` off), the
+/// current range grown from the anchor to `cell` (`extend`), or a new range
+/// beside the others (`add`, Ctrl + click).
+pub(crate) fn select(view: &CellGridView, cell: CellGridCellRef, extend: bool, add: bool) -> CellGridView {
+    let mut next = view.clone();
+    let mut ranges: Vec<CellGridRange> = view.ranges.as_ref().to_vec();
+    if extend {
+        let range = CellGridRange::spanning(view.anchor, cell);
+        match ranges.last_mut() {
+            Some(last) => *last = range,
+            None => ranges.push(range),
+        }
+        next.active = view.anchor;
+    } else if add {
+        ranges.push(CellGridRange::create(cell));
+        next.active = cell;
+        next.anchor = cell;
+    } else {
+        ranges = alloc::vec![CellGridRange::create(cell)];
+        next.active = cell;
+        next.anchor = cell;
+    }
+    next.ranges = CellGridRangeVec::from_vec(ranges);
+    next
+}
+
+/// Scrolls the view so `cell` is in view: the scrolled window moves the
+/// least that shows it; a frozen row / column is always in view.
+pub(crate) fn reveal(view: &mut CellGridView, b: &Bounds<'_>, cell: CellGridCellRef) {
+    if cell.row >= b.frozen_rows {
+        if cell.row < view.top_row {
+            view.top_row = cell.row;
+        } else if cell.row >= view.top_row.saturating_add(b.page_rows) {
+            view.top_row = cell.row + 1 - b.page_rows.max(1);
+        }
+    }
+    if cell.column >= b.frozen_columns {
+        if cell.column < view.left_column {
+            view.left_column = cell.column;
+        } else if cell.column >= view.left_column.saturating_add(b.page_columns) {
+            view.left_column = cell.column + 1 - b.page_columns.max(1);
+        }
+    }
+    view.top_row = view.top_row.max(b.frozen_rows);
+    view.left_column = view.left_column.max(b.frozen_columns);
+}
+
+/// The view after scrolling `rows` / `columns` whole bands (negative: up /
+/// left), clamped to the sheet; the selection stays.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to 0..count
+pub(crate) fn scroll_by(view: &CellGridView, b: &Bounds<'_>, rows: i64, columns: i64) -> CellGridView {
+    let mut next = view.clone();
+    let clamp = |at: u32, by: i64, lo: u32, count: u32| -> u32 {
+        let hi = i64::from(count.saturating_sub(1)).max(i64::from(lo));
+        (i64::from(at) + by).clamp(i64::from(lo), hi) as u32
+    };
+    next.top_row = clamp(view.top_row.max(b.frozen_rows), rows, b.frozen_rows, b.row_count);
+    next.left_column = clamp(
+        view.left_column.max(b.frozen_columns),
+        columns,
+        b.frozen_columns,
+        b.column_count,
+    );
+    next
+}
+
+/// A navigation key's answer: the next view, and whether the cursor moved
+/// (Select) or only the window did (Scroll).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Navigated {
+    pub view: CellGridView,
+    pub kind: CellGridEventKind,
+}
+
+/// The keys the grid navigates with (no edit in progress). `shift` / `ctrl`
+/// as held; `None` for a key the grid leaves alone.
+pub(crate) fn navigate(
+    view: &CellGridView,
+    b: &Bounds<'_>,
+    key: VirtualKeyCode,
+    shift: bool,
+    ctrl: bool,
+    has_data: &mut dyn FnMut(CellGridCellRef) -> bool,
+) -> Option<Navigated> {
+    use VirtualKeyCode as K;
+    let from = if shift { moving_end(view) } else { view.active };
+    let dir = match key {
+        K::Up => Some(Dir::Up),
+        K::Down => Some(Dir::Down),
+        K::Left => Some(Dir::Left),
+        K::Right => Some(Dir::Right),
+        _ => None,
+    };
+    let target = if let Some(dir) = dir {
+        if ctrl {
+            b.data_edge(from, dir, has_data)
+        } else {
+            b.step(from, dir)
+        }
+    } else {
+        match key {
+            K::PageDown => {
+                let to = b.steps(from, Dir::Down, b.page_rows.max(1));
+                let mut next = select(view, to, shift, false);
+                next = scroll_by(&next, b, i64::from(b.page_rows.max(1)), 0);
+                reveal(&mut next, b, to);
+                return Some(Navigated {
+                    view: next,
+                    kind: CellGridEventKind::Select,
+                });
+            }
+            K::PageUp => {
+                let to = b.steps(from, Dir::Up, b.page_rows.max(1));
+                let mut next = select(view, to, shift, false);
+                next = scroll_by(&next, b, -i64::from(b.page_rows.max(1)), 0);
+                reveal(&mut next, b, to);
+                return Some(Navigated {
+                    view: next,
+                    kind: CellGridEventKind::Select,
+                });
+            }
+            K::Home if ctrl => CellGridCellRef::create(0, 0),
+            K::Home => CellGridCellRef::create(from.row, 0),
+            K::End if ctrl => CellGridCellRef::create(
+                b.content_rows.saturating_sub(1),
+                b.content_columns.saturating_sub(1),
+            ),
+            K::Space if ctrl && shift => {
+                return Some(select_all(view, b));
+            }
+            K::Space if ctrl => {
+                let mut next = view.clone();
+                let range = CellGridRange::spanning(
+                    CellGridCellRef::create(0, view.active.column),
+                    CellGridCellRef::create(b.row_count.saturating_sub(1), view.active.column),
+                );
+                next.ranges = CellGridRangeVec::from_vec(alloc::vec![range]);
+                next.anchor = next.active;
+                return Some(Navigated {
+                    view: next,
+                    kind: CellGridEventKind::Select,
+                });
+            }
+            K::Space if shift => {
+                let mut next = view.clone();
+                let range = CellGridRange::spanning(
+                    CellGridCellRef::create(view.active.row, 0),
+                    CellGridCellRef::create(view.active.row, b.column_count.saturating_sub(1)),
+                );
+                next.ranges = CellGridRangeVec::from_vec(alloc::vec![range]);
+                next.anchor = next.active;
+                return Some(Navigated {
+                    view: next,
+                    kind: CellGridEventKind::Select,
+                });
+            }
+            K::A if ctrl => return Some(select_all(view, b)),
+            K::Return | K::NumpadEnter => {
+                let to = b.step(view.active, if shift { Dir::Up } else { Dir::Down });
+                let mut next = select(view, to, false, false);
+                reveal(&mut next, b, to);
+                return Some(Navigated {
+                    view: next,
+                    kind: CellGridEventKind::Select,
+                });
+            }
+            K::Tab => {
+                let to = b.step(view.active, if shift { Dir::Left } else { Dir::Right });
+                let mut next = select(view, to, false, false);
+                reveal(&mut next, b, to);
+                return Some(Navigated {
+                    view: next,
+                    kind: CellGridEventKind::Select,
+                });
+            }
+            _ => return None,
+        }
+    };
+    let mut next = select(view, target, shift, false);
+    reveal(&mut next, b, target);
+    Some(Navigated {
+        view: next,
+        kind: CellGridEventKind::Select,
+    })
+}
+
+/// Everything selected (Ctrl+A), the cursor kept.
+fn select_all(view: &CellGridView, b: &Bounds<'_>) -> Navigated {
+    let mut next = view.clone();
+    next.ranges = CellGridRangeVec::from_vec(alloc::vec![CellGridRange::spanning(
+        CellGridCellRef::create(0, 0),
+        CellGridCellRef::create(b.row_count.saturating_sub(1), b.column_count.saturating_sub(1)),
+    )]);
+    next.anchor = next.active;
+    Navigated {
+        view: next,
+        kind: CellGridEventKind::Select,
+    }
+}
+
+// ---- the wheel ----
+
+/// The wheel travel (px) that scrolls one row.
+pub(crate) const WHEEL_PX_PER_ROW: f32 = 20.0;
+/// The most rows / columns one wheel event scrolls (a momentum burst must
+/// not fly through the sheet).
+pub(crate) const WHEEL_MAX_STEPS: i64 = 12;
+
+/// Adds `delta` px to the running `travel` and returns the whole steps it
+/// unlocks (at most `WHEEL_MAX_STEPS` either way), keeping the remainder.
+pub(crate) fn wheel_steps(travel: &mut f32, delta: f32, px_per_step: f32) -> i64 {
+    if !delta.is_finite() || !px_per_step.is_finite() || px_per_step <= 0.0 {
+        return 0;
+    }
+    *travel += delta;
+    #[allow(clippy::cast_possible_truncation)]
+    let steps = ((*travel / px_per_step) as i64).clamp(-WHEEL_MAX_STEPS, WHEEL_MAX_STEPS);
+    #[allow(clippy::cast_precision_loss)]
+    {
+        *travel -= steps as f32 * px_per_step;
+    }
+    steps
+}
+
+#[cfg(feature = "std")]
+thread_local! {
+    // The wheel travel not yet turned into whole rows / columns. Thread-local
+    // like the time picker's: one pointer scrolls at a time, and the grid's
+    // view is an FFI struct the app rebuilds on every step.
+    static WHEEL_TRAVEL: core::cell::Cell<(f32, f32)> = const { core::cell::Cell::new((0.0, 0.0)) };
+}
+
+/// [`wheel_steps`] on the thread's running travel: (rows, columns).
+fn take_wheel(dx: f32, dy: f32, px_per_row: f32, px_per_column: f32) -> (i64, i64) {
+    #[cfg(feature = "std")]
+    {
+        WHEEL_TRAVEL.with(|cell| {
+            let (mut tx, mut ty) = cell.get();
+            let rows = wheel_steps(&mut ty, dy, px_per_row);
+            let columns = wheel_steps(&mut tx, dx, px_per_column);
+            cell.set((tx, ty));
+            (rows, columns)
+        })
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        let (mut tx, mut ty) = (0.0, 0.0);
+        (
+            wheel_steps(&mut ty, dy, px_per_row),
+            wheel_steps(&mut tx, dx, px_per_column),
+        )
+    }
+}
+
+// ---- the clipboard flavours ----
+
+/// One field of tab-separated text: quoted (`"` doubled) when it holds a
+/// tab, a line break or starts with a quote, so a spreadsheet reads it back
+/// as one cell.
+fn tsv_field(field: &str) -> String {
+    if field.contains(['\t', '\n', '\r']) || field.starts_with('"') {
+        alloc::format!("\"{}\"", field.replace('"', "\"\""))
+    } else {
+        String::from(field)
+    }
+}
+
+/// Rows of cells as tab-separated text (what Excel puts on the clipboard).
+pub(crate) fn cells_to_tsv(rows: &[Vec<String>]) -> String {
+    let mut out = String::new();
+    for (i, row) in rows.iter().enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        let fields: Vec<String> = row.iter().map(|f| tsv_field(f)).collect();
+        out.push_str(&fields.join("\t"));
+    }
+    out
+}
+
+fn html_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// Rows of cells as an HTML table (the rich flavour a word processor or a
+/// mail pastes as a table).
+pub(crate) fn cells_to_html(rows: &[Vec<String>]) -> String {
+    let mut out = String::from("<table>");
+    for row in rows {
+        out.push_str("<tr>");
+        for cell in row {
+            out.push_str("<td>");
+            out.push_str(&html_escape(cell));
+            out.push_str("</td>");
+        }
+        out.push_str("</tr>");
+    }
+    out.push_str("</table>");
+    out
+}
