@@ -41,6 +41,9 @@ pub struct Sanitized {
     /// media rule, or a `color-scheme` / `supported-color-schemes` meta or declaration that names
     /// `dark`. Then its paper follows the app's mode; otherwise it is always white.
     pub has_dark_rules: bool,
+    /// The web pictures kept as `<img src>` ([`sanitize_with`] with pictures on), each once,
+    /// in order: what the app downloads and registers under its address.
+    pub remote_images: Vec<String>,
 }
 
 /// See the module documentation.
@@ -48,6 +51,14 @@ pub fn sanitize(html: &str) -> Sanitized {
     let mut s = Sanitizer::default();
     s.run(html);
     s.finish()
+}
+
+/// [`sanitize`], or - with `pictures` (the reader clicked "download pictures") - the same with
+/// every web picture (`http:` / `https:`) kept as `<img src alt width height/>` and listed in
+/// [`Sanitized::remote_images`]. A tracking pixel stays out either way, and a picture that is
+/// not on the web (`cid:` - an attached one -, `data:`, anything else) stays a placeholder.
+pub fn sanitize_with(html: &str, pictures: bool) -> Sanitized {
+    todo!()
 }
 
 /// Tags deeper than this keep their text only.
@@ -460,6 +471,7 @@ impl Sanitizer {
             xhtml,
             blocked_images: self.blocked_images,
             has_dark_rules: self.has_dark_rules,
+            remote_images: Vec::new(),
         }
     }
 }
@@ -1317,6 +1329,34 @@ mod tests {
             ),
             "Name after"
         );
+    }
+
+    /// "Download pictures": web pictures come back as images the app fetches; a tracking
+    /// pixel, an attached picture (`cid:`) and anything not on the web do not.
+    #[test]
+    fn downloaded_pictures_keep_their_web_images_and_list_them() {
+        let html = "<p>a<img src=\"https://cdn.example/logo.png\" alt=\"Logo\" width=\"120\" \
+                    height=\"40px\">b<img src=\"cid:part1@example\" alt=\"Inline\">\
+                    <img src=\"https://t.example/o.gif\" width=1 height=1>\
+                    <img src=\"javascript:alert(1)\"><img src=https://cdn.example/logo.png></p>";
+        let off = sanitize(html);
+        assert_eq!(off, sanitize_with(html, false), "off is the plain sanitizer");
+        assert_eq!(off.blocked_images, 5);
+        assert!(off.remote_images.is_empty());
+        assert!(!off.xhtml.contains("<img"), "{}", off.xhtml);
+        let on = sanitize_with(html, true);
+        assert_eq!(on.remote_images, vec![String::from("https://cdn.example/logo.png")]);
+        assert!(
+            on.xhtml.contains(
+                "<img src=\"https://cdn.example/logo.png\" alt=\"Logo\" width=\"120\" height=\"40\"/>"
+            ),
+            "{}",
+            on.xhtml
+        );
+        assert!(!on.xhtml.contains("t.example"), "a tracking pixel stays out: {}", on.xhtml);
+        assert!(!on.xhtml.contains("javascript"), "{}", on.xhtml);
+        assert!(on.xhtml.contains("[image: Inline]"), "an attached picture: {}", on.xhtml);
+        assert_eq!(on.blocked_images, 3, "the pixel, the attached one and the script one");
     }
 
     /// A 1x1 or hidden image is a tracking pixel: blocked, and not even a placeholder shows.
