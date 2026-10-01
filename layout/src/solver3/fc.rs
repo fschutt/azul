@@ -517,6 +517,23 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
         constraints.available_size
     );
 
+    // A table cell holding loose text and only inline-level children is ONE
+    // inline formatting context (`cell_is_inline_formatting_context`): in the
+    // table's min/max-content measurement, which lays the cell out through
+    // here, exactly as in its final pass (`layout_cell_for_height`). Laid out
+    // as a BFC, its text child was a block-level box sized at its MAX-content
+    // width (`calculate_used_size_for_node`'s `Inline` arm), the cell's
+    // content width took that, and its min-content came out equal to its max.
+    let cell_is_ifc = matches!(node.formatting_context, FormattingContext::TableCell)
+        && node
+            .dom_node_id
+            .is_some_and(|dom_id| cell_is_inline_formatting_context(ctx.styled_dom, dom_id));
+    if cell_is_ifc {
+        let _p = crate::probe::Probe::span("fc_table_cell_ifc");
+        return layout_ifc(ctx, text_cache, tree, node_index, constraints)
+            .map(BfcLayoutResult::from_output);
+    }
+
     // +spec:block-formatting-context:06a24f - CSS 2.2 § 9.4: block-level boxes → BFC, inline-level
     // → IFC +spec:block-formatting-context:9428cf - block container can establish both BFC and
     // IFC simultaneously +spec:inline-formatting-context:8bfe73 - display:flow generates inline
@@ -7568,6 +7585,29 @@ fn distribute_cell_width_across_columns(
     }
 }
 
+/// Does this cell establish an INLINE formatting context: loose text, and
+/// only inline-level children (CSS 2.2 9.4.2)?
+///
+/// Then it is laid out as ONE IFC - in the final pass
+/// ([`layout_cell_for_height`]) and in the table's min/max-content
+/// measurement alike ([`layout_formatting_context`]). The measurement used to
+/// lay such a cell out as a BFC: its text child became a block-level box,
+/// sized by `calculate_used_size_for_node`'s `Inline` arm at its MAX-content
+/// width, and the cell's content width took that - so a cell's min-content
+/// came out equal to its max, no column of prose ever shrank below its
+/// longest line, and a 220px table of prose ran its cells 360px wide.
+fn cell_is_inline_formatting_context(styled_dom: &StyledDom, cell_dom_id: NodeId) -> bool {
+    let any_text = cell_dom_id
+        .az_children(&styled_dom.node_hierarchy.as_container())
+        .any(|child_id| {
+            matches!(
+                styled_dom.node_data.as_container()[child_id].get_node_type(),
+                NodeType::Text(_)
+            )
+        });
+    any_text && crate::solver3::layout_tree::has_only_inline_children(styled_dom, cell_dom_id)
+}
+
 /// Layout a cell with its computed column width to determine its content height
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
                                  // (one branch per case)
@@ -7605,17 +7645,7 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
     // container's). Laid out as one IFC, the block was not laid out and the
     // clearing below wiped its text. Only a cell whose children are ALL
     // inline-level establishes an inline formatting context (9.4.2).
-    let styled_dom = ctx.styled_dom;
-    let any_text = cell_dom_id
-        .az_children(&styled_dom.node_hierarchy.as_container())
-        .any(|child_id| {
-            matches!(
-                styled_dom.node_data.as_container()[child_id].get_node_type(),
-                NodeType::Text(_)
-            )
-        });
-    let has_text_children = any_text
-        && crate::solver3::layout_tree::has_only_inline_children(styled_dom, cell_dom_id);
+    let has_text_children = cell_is_inline_formatting_context(ctx.styled_dom, cell_dom_id);
 
     debug_table_layout!(
         ctx,
