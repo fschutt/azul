@@ -43,23 +43,49 @@ pub struct ChatMessage {
     pub text: String,
 }
 
-/// The bytes of a chat message.
+/// The bytes of a chat message. The text is cut to [`MAX_CHAT_BYTES`] (see [`clean_text`]).
 pub fn encode_chat(message: &WireChat) -> Vec<u8> {
-    let _ = message;
-    Vec::new()
+    let text = cut(&message.text, MAX_CHAT_BYTES);
+    let mut out = Vec::with_capacity(16 + text.len());
+    out.push(KIND_CHAT);
+    out.push(VERSION);
+    out.extend_from_slice(&message.seq.to_be_bytes());
+    out.extend_from_slice(&message.sent_ms.to_be_bytes());
+    out.extend_from_slice(&(text.len() as u16).to_be_bytes());
+    out.extend_from_slice(text.as_bytes());
+    out
 }
 
 /// A chat message; `None` for another kind, another version's layout, or a short message.
 pub fn decode_chat(bytes: &[u8]) -> Option<WireChat> {
-    let _ = bytes;
-    None
+    if bytes.len() < 16 || bytes[0] != KIND_CHAT || bytes[1] != VERSION {
+        return None;
+    }
+    let seq = u32::from_be_bytes(bytes[2..6].try_into().ok()?);
+    let sent_ms = u64::from_be_bytes(bytes[6..14].try_into().ok()?);
+    let len = usize::from(u16::from_be_bytes(bytes[14..16].try_into().ok()?));
+    let text = bytes.get(16..16 + len)?;
+    let text = std::str::from_utf8(text).ok()?.to_string();
+    Some(WireChat { seq, sent_ms, text })
 }
 
 /// `text` trimmed, cut to at most `max` bytes at a character boundary; `None` when nothing is
 /// left.
 pub fn clean_text(text: &str, max: usize) -> Option<String> {
-    let _ = (text, max);
-    None
+    let text = cut(text.trim(), max).trim_end();
+    (!text.is_empty()).then(|| text.to_string())
+}
+
+/// The longest start of `text` of at most `max` bytes that ends at a character boundary.
+fn cut(text: &str, max: usize) -> &str {
+    if text.len() <= max {
+        return text;
+    }
+    let mut end = max;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
 }
 
 /// The panel's messages, oldest first, and how many arrived while it was closed.
@@ -81,15 +107,55 @@ impl ChatLog {
     /// A message written here as `me` called `name`: listed, and its bytes to send to everyone.
     /// `None` for an empty message.
     pub fn compose(&mut self, me: u64, name: &str, text: &str, now_ms: u64) -> Option<Vec<u8>> {
-        let _ = (me, name, text, now_ms);
-        None
+        let text = clean_text(text, MAX_CHAT_BYTES)?;
+        self.sent = self.sent.wrapping_add(1);
+        let wire = WireChat {
+            seq: self.sent,
+            sent_ms: now_ms,
+            text,
+        };
+        let bytes = encode_chat(&wire);
+        self.seen.insert((me, wire.seq));
+        self.push(ChatMessage {
+            from: me,
+            mine: true,
+            name: name.to_string(),
+            text: wire.text,
+        });
+        Some(bytes)
     }
 
     /// A message that arrived from the peer `from` called `name`; `panel_open` says whether it
     /// is read at once. True when it was listed (a new message).
     pub fn receive(&mut self, from: u64, name: &str, bytes: &[u8], panel_open: bool) -> bool {
-        let _ = (from, name, bytes, panel_open);
-        false
+        let Some(wire) = decode_chat(bytes) else {
+            return false;
+        };
+        let Some(text) = clean_text(&wire.text, MAX_CHAT_BYTES) else {
+            return false;
+        };
+        if !self.seen.insert((from, wire.seq)) {
+            return false;
+        }
+        self.push(ChatMessage {
+            from,
+            mine: false,
+            name: name.to_string(),
+            text,
+        });
+        if !panel_open {
+            self.unread = self.unread.saturating_add(1);
+        }
+        true
+    }
+
+    /// Lists `message`, dropping the oldest beyond [`MAX_MESSAGES`].
+    fn push(&mut self, message: ChatMessage) {
+        self.messages.push(message);
+        if self.messages.len() > MAX_MESSAGES {
+            let extra = self.messages.len() - MAX_MESSAGES;
+            self.messages.drain(..extra);
+        }
     }
 
     /// The messages, oldest first.
@@ -103,7 +169,9 @@ impl ChatLog {
     }
 
     /// The panel was opened: everything is read.
-    pub fn mark_read(&mut self) {}
+    pub fn mark_read(&mut self) {
+        self.unread = 0;
+    }
 }
 
 #[cfg(test)]
