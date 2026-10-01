@@ -52,6 +52,9 @@ pub struct View<'a> {
     pub look: &'a Look,
     /// The body text size in px.
     pub font_px: f32,
+    /// The check boxes tick (the editor); a read-only view (a version, a
+    /// print) draws them without.
+    pub interactive: bool,
 }
 
 // ==== Rendering ====
@@ -188,26 +191,27 @@ fn block_dom(view: &View<'_>, index: usize, block: &Block, app: &RefAny) -> Dom 
             let icon = if *checked { "check_box" } else { "check_box_outline_blank" };
             let name = if *checked { "Uncheck" } else { "Check" };
             let top = ((line - 20.0) / 2.0).max(0.0);
-            item.with_child(
-                Dom::create_div()
-                    .with_class("note-check")
-                    .with_attribute(AttributeType::ContentEditable(false))
-                    .with_css(format!(
-                        "position: absolute; left: 2px; top: {top}px; width: 20px; height: 20px; \
-                         cursor: pointer; color: {};",
-                        if *checked { look.muted } else { look.accent }
-                    ))
-                    .with_accessibility_name(name)
-                    .with_callback(
-                        EventFilter::Hover(HoverEventFilter::Click),
-                        RefAny::new(BlockRef {
-                            app: app.clone(),
-                            block: index,
-                        }),
-                        on_check_click,
-                    )
-                    .with_child(Dom::create_icon(icon).with_css("font-size: 20px;")),
-            )
+            let mut check = Dom::create_div()
+                .with_class("note-check")
+                .with_attribute(AttributeType::ContentEditable(false))
+                .with_css(format!(
+                    "position: absolute; left: 2px; top: {top}px; width: 20px; height: 20px; \
+                     cursor: pointer; color: {};",
+                    if *checked { look.muted } else { look.accent }
+                ))
+                .with_accessibility_name(name)
+                .with_child(Dom::create_icon(icon).with_css("font-size: 20px;"));
+            if view.interactive {
+                check = check.with_callback(
+                    EventFilter::Hover(HoverEventFilter::Click),
+                    RefAny::new(BlockRef {
+                        app: app.clone(),
+                        block: index,
+                    }),
+                    on_check_click,
+                );
+            }
+            item.with_child(check)
         }
         BlockKind::Quote => with_runs(Dom::create_blockquote(), block, look).with_css(format!(
             "{base} margin-top: 4px; margin-bottom: 8px; padding-left: 12px; border-left: 3px solid {}; \

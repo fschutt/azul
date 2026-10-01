@@ -784,6 +784,52 @@ pub fn status_text(note: &Note) -> String {
     out
 }
 
+/// One line of a comparison: kept, removed (only in the old text) or added.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Change {
+    Kept,
+    Removed,
+    Added,
+}
+
+/// The lines of `old` and `new` as a comparison (the longest common
+/// subsequence of lines); `None` for texts too long to compare here.
+#[must_use]
+pub fn line_diff(old: &str, new: &str) -> Option<Vec<(Change, String)>> {
+    let a: Vec<&str> = old.lines().collect();
+    let b: Vec<&str> = new.lines().collect();
+    if a.len().saturating_mul(b.len()) > 4_000_000 {
+        return None;
+    }
+    // lcs[i][j]: the common lines of a[i..] and b[j..].
+    let mut lcs = vec![vec![0u32; b.len() + 1]; a.len() + 1];
+    for i in (0..a.len()).rev() {
+        for j in (0..b.len()).rev() {
+            lcs[i][j] = if a[i] == b[j] {
+                lcs[i + 1][j + 1] + 1
+            } else {
+                lcs[i + 1][j].max(lcs[i][j + 1])
+            };
+        }
+    }
+    let (mut i, mut j) = (0, 0);
+    let mut out = Vec::new();
+    while i < a.len() || j < b.len() {
+        if i < a.len() && j < b.len() && a[i] == b[j] {
+            out.push((Change::Kept, a[i].to_string()));
+            i += 1;
+            j += 1;
+        } else if j < b.len() && (i == a.len() || lcs[i][j + 1] >= lcs[i + 1][j]) {
+            out.push((Change::Added, b[j].to_string()));
+            j += 1;
+        } else {
+            out.push((Change::Removed, a[i].to_string()));
+            i += 1;
+        }
+    }
+    Some(out)
+}
+
 /// The preview line of a list row: the first line, else the tags.
 #[must_use]
 pub fn row_preview(note: &Note) -> String {
@@ -1000,6 +1046,21 @@ mod tests {
         assert!(n.add_tag("#Ideas"));
         assert!(!n.add_tag("ideas"), "once, ignoring case");
         assert!(n.remove_tag("IDEAS"));
+    }
+
+    #[test]
+    fn a_line_diff_keeps_common_lines_and_marks_the_rest() {
+        let diff = line_diff("a\nb\nc\n", "a\nc\nd\n").expect("short texts compare");
+        assert_eq!(
+            diff,
+            vec![
+                (Change::Kept, "a".to_string()),
+                (Change::Removed, "b".to_string()),
+                (Change::Kept, "c".to_string()),
+                (Change::Added, "d".to_string()),
+            ]
+        );
+        assert_eq!(line_diff("", "x").expect("compares"), vec![(Change::Added, "x".to_string())]);
     }
 
     #[test]

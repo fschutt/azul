@@ -1054,6 +1054,7 @@ fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
         images: &s.images,
         look,
         font_px: s.settings.text_size.px(),
+        interactive: true,
     };
     pane.add_child(
         Dom::create_div()
@@ -1250,6 +1251,7 @@ fn export_pdf(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
             images: &s.images,
             look: &look::LIGHT,
             font_px: 15.0,
+            interactive: false,
         };
         let page = Dom::create_body()
             .with_css("margin: 0px; padding: 72px; background: white; font-family: sans-serif;")
