@@ -341,3 +341,379 @@ extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, index: 
 extern "C" fn on_backstage_back(mut data: RefAny, mut info: CallbackInfo) -> Update {
     run_action(&mut data, &mut info, Action::CloseBackstage)
 }
+
+// ==== Actions (the ribbon, the backstage's buttons, the window's keys) ====
+
+/// What a ribbon button, a backstage button or a key does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Action {
+    NewMail,
+    Reply,
+    ReplyAll,
+    Forward,
+    Delete,
+    Move,
+    /// Quick Steps > Done: mark the selection read.
+    Done,
+    SendReceive,
+    CancelSendReceive,
+    ToggleRead,
+    ToggleFlag,
+    MarkAllRead,
+    UnreadOnly,
+    ReverseSort,
+    ToggleNavigation,
+    ToggleReading,
+    ToggleTodo,
+    PlainText,
+    ThemeFlat,
+    ThemeFlora,
+    ModeLight,
+    ModeDark,
+    OpenFile,
+    AddAccount,
+    AccountSettings,
+    CloseBackstage,
+}
+
+struct ActionRef {
+    app: RefAny,
+    action: Action,
+}
+
+fn action_ref(app: &RefAny, action: Action) -> RefAny {
+    RefAny::new(ActionRef {
+        app: app.clone(),
+        action,
+    })
+}
+
+extern "C" fn on_action(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, action)) = data
+        .downcast_ref::<ActionRef>()
+        .map(|r| (r.app.clone(), r.action))
+    else {
+        return Update::DoNothing;
+    };
+    run_action(&mut app, &mut info, action)
+}
+
+/// The UIDs of the selected messages.
+fn selected_uids(s: &MailApp) -> Vec<u32> {
+    s.selection
+        .rows
+        .as_ref()
+        .iter()
+        .filter_map(|&i| match s.rows.get(i as usize) {
+            Some(ListRow::Message(uid)) => Some(*uid),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Sets AzMail's read mark of `uids` (all read, or all unread) and saves the folder's marks.
+fn mark_read(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny, uids: &[u32], read: bool) {
+    if uids.is_empty() {
+        return;
+    }
+    for uid in uids {
+        s.flags.read.insert(*uid, read);
+    }
+    s.refresh_unread_count();
+    let flags = s.flags.clone();
+    crate::save_flags(s, info, app, flags);
+}
+
+/// Runs `action` on the app.
+pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Action) -> Update {
+    with_app(data, |s, app| {
+        match action {
+            Action::NewMail => ui_compose::open_compose(s, info, app, ComposeKind::New),
+            Action::Reply | Action::ReplyAll | Action::Forward => {
+                let kind = match action {
+                    Action::Reply => ComposeKind::Reply,
+                    Action::ReplyAll => ComposeKind::ReplyAll,
+                    _ => ComposeKind::Forward,
+                };
+                if s.open.as_ref().is_some_and(|o| o.view.is_some()) {
+                    ui_compose::open_compose(s, info, app, kind);
+                } else {
+                    s.notice = String::from("Select a message first.");
+                }
+            }
+            Action::Delete | Action::Move => {
+                s.notice = String::from(
+                    "AzMail keeps the server's folders as they are (it receives read-only); \
+                     deleting and moving come with two-way sync.",
+                );
+            }
+            Action::Done => {
+                let uids = selected_uids(s);
+                mark_read(s, info, app, &uids, true);
+            }
+            Action::SendReceive => crate::start_sync(s, info, app),
+            Action::CancelSendReceive => crate::stop_sync(s, info),
+            Action::ToggleRead => {
+                let uids = selected_uids(s);
+                let all_read = uids.iter().all(|uid| {
+                    s.entries
+                        .iter()
+                        .find(|e| e.uid == *uid)
+                        .is_some_and(|e| s.flags.is_read(e))
+                });
+                mark_read(s, info, app, &uids, !all_read);
+            }
+            Action::ToggleFlag => {
+                let uids = selected_uids(s);
+                for uid in &uids {
+                    let flagged = s
+                        .entries
+                        .iter()
+                        .find(|e| e.uid == *uid)
+                        .is_some_and(|e| s.flags.is_flagged(e));
+                    s.flags.flagged.insert(*uid, !flagged);
+                }
+                if !uids.is_empty() {
+                    let flags = s.flags.clone();
+                    crate::save_flags(s, info, app, flags);
+                }
+            }
+            Action::MarkAllRead => {
+                let uids: Vec<u32> = s.entries.iter().map(|e| e.uid).collect();
+                mark_read(s, info, app, &uids, true);
+            }
+            Action::UnreadOnly => {
+                s.scope = if s.scope == 1 { 0 } else { 1 };
+                s.first_row = 0;
+                s.rebuild_view();
+            }
+            Action::ReverseSort => {
+                s.newest_first = !s.newest_first;
+                s.first_row = 0;
+                s.rebuild_view();
+            }
+            Action::ToggleNavigation => s.nav_collapsed = !s.nav_collapsed,
+            Action::ToggleReading => s.show_reading = !s.show_reading,
+            Action::ToggleTodo => s.show_todo = !s.show_todo,
+            Action::PlainText => s.plain_text = !s.plain_text,
+            Action::ThemeFlat => info.set_theme("flat"),
+            Action::ThemeFlora => info.set_theme("flora"),
+            Action::ModeLight => info.set_mode(OptionDarkLightMode::Some(DarkLightMode::Light)),
+            Action::ModeDark => info.set_mode(OptionDarkLightMode::Some(DarkLightMode::Dark)),
+            Action::OpenFile => s.backstage = Some(PAGE_INFO),
+            Action::AddAccount => ui_account::open_wizard(s, None),
+            Action::AccountSettings => ui_account::open_settings(s),
+            Action::CloseBackstage => {
+                let saving = s.editor.as_ref().is_some_and(|e| e.saving);
+                if s.backstage.is_some() && !s.accounts.is_empty() && !saving {
+                    s.backstage = None;
+                    s.editor = None;
+                }
+            }
+        }
+        Update::RefreshDom
+    })
+    .unwrap_or(Update::DoNothing)
+}
+
+// ==== The ribbon ====
+
+fn ribbon(s: &MailApp, app: &RefAny) -> Dom {
+    let button = |icon: &str, label: &str, action: Action| {
+        RibbonButton::create(icon, label)
+            .with_on_click(action_ref(app, action), on_action as ButtonOnClickCallbackType)
+    };
+    let big = |icon: &str, label: &str, action: Action| {
+        RibbonItem::LargeButton(button(icon, label, action))
+    };
+    let small = |icon: &str, label: &str, action: Action| {
+        RibbonItem::SmallButton(button(icon, label, action))
+    };
+    let toggle = |icon: &str, label: &str, action: Action, on: bool| {
+        RibbonItem::SmallButton(button(icon, label, action).with_toggled(on))
+    };
+    let syncing = matches!(s.sync, SyncState::Running { .. });
+
+    let home = RibbonTab::create("Home")
+        .with_group(RibbonGroup::create("New").with_item(big("mail", "New E-mail", Action::NewMail)))
+        .with_group(RibbonGroup::create("Delete").with_item(big("delete", "Delete", Action::Delete)))
+        .with_group(
+            RibbonGroup::create("Respond")
+                .with_item(big("reply", "Reply", Action::Reply))
+                .with_item(big("reply_all", "Reply All", Action::ReplyAll))
+                .with_item(big("forward", "Forward", Action::Forward)),
+        )
+        .with_group(
+            RibbonGroup::create("Quick Steps")
+                .with_item(small("done", "Done", Action::Done))
+                .with_item(small("group", "Team E-mail", Action::NewMail))
+                .with_item(small("reply", "Reply & Delete", Action::Reply)),
+        )
+        .with_group(
+            RibbonGroup::create("Move")
+                .with_item(small("drive_file_move", "Move", Action::Move))
+                .with_item(small("rule", "Rules", Action::Move)),
+        )
+        .with_group(
+            RibbonGroup::create("Tags")
+                .with_item(small("mark_email_unread", "Unread/Read", Action::ToggleRead))
+                .with_item(small("flag", "Follow Up", Action::ToggleFlag)),
+        )
+        .with_group(RibbonGroup::create("Find").with_item(toggle(
+            "filter_list",
+            "Unread Mail",
+            Action::UnreadOnly,
+            s.scope == 1,
+        )))
+        .with_group(
+            RibbonGroup::create("Send/Receive")
+                .with_item(big("sync", "Send/Receive All Folders", Action::SendReceive)),
+        );
+    let send_receive = RibbonTab::create("Send / Receive").with_group(
+        RibbonGroup::create("Send & Receive")
+            .with_item(big("sync", "Send/Receive All Folders", Action::SendReceive))
+            .with_item(toggle("cancel", "Cancel All", Action::CancelSendReceive, syncing)),
+    );
+    let folder = RibbonTab::create("Folder")
+        .with_group(
+            RibbonGroup::create("Clean Up")
+                .with_item(small("mark_email_read", "Mark All as Read", Action::MarkAllRead)),
+        )
+        .with_group(
+            RibbonGroup::create("Actions")
+                .with_item(small("refresh", "Update Folder", Action::SendReceive)),
+        );
+    let view = RibbonTab::create("View")
+        .with_group(RibbonGroup::create("Arrangement").with_item(toggle(
+            "swap_vert",
+            "Reverse Sort",
+            Action::ReverseSort,
+            !s.newest_first,
+        )))
+        .with_group(
+            RibbonGroup::create("Layout")
+                .with_item(toggle(
+                    "view_sidebar",
+                    "Navigation Pane",
+                    Action::ToggleNavigation,
+                    !s.nav_collapsed,
+                ))
+                .with_item(toggle(
+                    "chrome_reader_mode",
+                    "Reading Pane",
+                    Action::ToggleReading,
+                    s.show_reading,
+                ))
+                .with_item(toggle("checklist", "To-Do Bar", Action::ToggleTodo, s.show_todo)),
+        )
+        .with_group(
+            RibbonGroup::create("Message")
+                .with_item(toggle("notes", "Plain Text", Action::PlainText, s.plain_text)),
+        )
+        .with_group(
+            RibbonGroup::create("Look")
+                .with_item(small("crop_square", "Flat", Action::ThemeFlat))
+                .with_item(small("spa", "Flora", Action::ThemeFlora))
+                .with_item(small("light_mode", "Light", Action::ModeLight))
+                .with_item(small("dark_mode", "Dark", Action::ModeDark)),
+        );
+    Ribbon::create(vec![home, send_receive, folder, view])
+        .with_app_button(RibbonAppButton::create("File").with_on_click(
+            action_ref(app, Action::OpenFile),
+            on_action as ButtonOnClickCallbackType,
+        ))
+        .with_active_tab(s.ribbon_tab)
+        .with_on_tab_click(app.clone(), on_ribbon_tab as RibbonOnTabClickCallbackType)
+        .dom_desktop()
+}
+
+extern "C" fn on_ribbon_tab(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
+    with_app(&mut data, |s, _| {
+        s.ribbon_tab = index;
+        Update::RefreshDom
+    })
+    .unwrap_or(Update::DoNothing)
+}
+
+// ==== The status bar ====
+
+fn status_bar(s: &MailApp, app: &RefAny) -> Dom {
+    let unread = s.view.iter().filter(|e| !s.flags.is_read(e)).count();
+    let mut segments = Vec::new();
+    if !s.search.is_empty() || s.scope == 1 {
+        segments.push(StatusBarSegment::create("Filter applied"));
+    }
+    segments.push(StatusBarSegment::create(format!("Items: {}", s.view.len())));
+    segments.push(StatusBarSegment::create(format!("Unread: {unread}")));
+    if !s.notice.is_empty() {
+        segments.push(StatusBarSegment::create(s.notice.as_str()));
+    }
+    let (label, kind) = match &s.sync {
+        SyncState::Running {
+            status, percent, ..
+        } => (format!("{status} ({percent:.0}%)"), StatusBarSyncKind::Syncing),
+        SyncState::Done(text) => (text.clone(), StatusBarSyncKind::Connected),
+        SyncState::Failed(text) => (text.clone(), StatusBarSyncKind::Error),
+        SyncState::Idle if s.accounts.is_empty() => {
+            (String::from("Offline"), StatusBarSyncKind::Offline)
+        }
+        SyncState::Idle => (String::from("Connected"), StatusBarSyncKind::Connected),
+    };
+    StatusBar::create(segments)
+        .with_sync(StatusBarSync::create(label, kind).with_on_click(
+            action_ref(app, Action::SendReceive),
+            on_action as ButtonOnClickCallbackType,
+        ))
+        .dom()
+}
+
+// ==== The To-Do bar ====
+
+fn todo_bar(s: &MailApp, app: &RefAny) -> Dom {
+    let tasks: Vec<ToDoTask> = s
+        .tasks
+        .iter()
+        .map(|t| ToDoTask::create(t.id, t.title.as_str()).with_done(t.done))
+        .collect();
+    ToDoBar::create(s.calendar.0, s.calendar.1, s.calendar.2)
+        .with_today(s.today.0, s.today.1, s.today.2)
+        .with_appointments_empty("No upcoming appointments.")
+        .with_task_line("Type a new task", s.task_text.as_str())
+        .with_tasks(tasks)
+        .with_on_pick(app.clone(), on_todo_event as ToDoBarOnEventCallbackType)
+        .with_on_task(app.clone(), on_todo_event as ToDoBarOnEventCallbackType)
+        .dom()
+}
+
+extern "C" fn on_todo_event(mut data: RefAny, _info: CallbackInfo, event: ToDoBarEvent) -> Update {
+    with_app(&mut data, |s, _| {
+        match event.kind {
+            ToDoBarEventKind::DatePicked => {
+                s.calendar = (event.date.year, event.date.month, event.date.day);
+            }
+            ToDoBarEventKind::TaskAdded => {
+                let title = event.text.as_str().trim().to_string();
+                if title.is_empty() {
+                    return Update::DoNothing;
+                }
+                s.tasks.push(Task {
+                    id: s.next_task,
+                    title,
+                    done: false,
+                });
+                s.next_task += 1;
+                s.task_text.clear();
+            }
+            ToDoBarEventKind::TaskToggled => {
+                if let Some(task) = s.tasks.iter_mut().find(|t| t.id == event.id) {
+                    task.done = !task.done;
+                }
+            }
+            ToDoBarEventKind::TaskOpened | ToDoBarEventKind::AppointmentOpened => {
+                return Update::DoNothing;
+            }
+        }
+        Update::RefreshDom
+    })
+    .unwrap_or(Update::DoNothing)
+}
