@@ -10,8 +10,11 @@ parse-checked with `rustfmt --edition 2021 --check`. Report: `scripts/TASKS_2026
 - `8a1582114` progress file
 - `7f1da5f98` model RED (crate scaffolding, registration: workspace member, test members, CI step)
 - `446a1411e` model GREEN (recur, model, parse, views, reminders, store, sample, args)
+- `f4304a933` state.rs, `3c0c554fe` jobs.rs, `025da1f9c` nav.rs (UI modules, not yet declared in lib.rs)
 
 ## IN PROGRESS
+
+- NEXT STEP: write `list.rs` (quick add + chips, list header, sections, task rows, drag, row callbacks), commit; then `detail.rs`, `chrome.rs`, `lib.rs`.
 
 - App UI on PimShell, one module per file, each committed when written:
   `state.rs` (the app state + mutations) -> `jobs.rs` (Thread jobs, the write queue pump)
