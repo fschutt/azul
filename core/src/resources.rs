@@ -2040,6 +2040,20 @@ impl ImageRef {
         matches!(self.get_data(), DecodedImage::NullImage { .. })
     }
 
+    /// The `src` a placeholder image carries: the XML loaders make `<img
+    /// src="..">` a [`DecodedImage::NullImage`] whose tag is the src's bytes
+    /// (the picture is the app's to supply, through the image cache under that
+    /// src). `None` for any other image, or a placeholder without a src.
+    #[must_use]
+    pub fn source_tag(&self) -> Option<&str> {
+        match self.get_data() {
+            DecodedImage::NullImage { tag, .. } if !tag.is_empty() => {
+                core::str::from_utf8(tag).ok()
+            }
+            _ => None,
+        }
+    }
+
     #[must_use]
     pub const fn is_gl_texture(&self) -> bool {
         matches!(self.get_data(), DecodedImage::Gl(_))

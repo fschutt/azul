@@ -659,6 +659,10 @@ pub struct ResolvedContent<'a> {
     pub overlay: Option<&'a ContentOverlay>,
     pub styled_dom: &'a StyledDom,
     pub dom_id: DomId,
+    /// The window's image cache: a placeholder `<img src>` from markup shows
+    /// the picture the app cached under its src. `None` where there is no
+    /// window (the DOM is then authoritative).
+    pub image_cache: Option<&'a azul_core::resources::ImageCache>,
 }
 
 impl ResolvedContent<'_> {
@@ -696,7 +700,18 @@ impl ResolvedContent<'_> {
     fn dom_image(&self, node_id: NodeId) -> Option<ImageRef> {
         let node_data = self.styled_dom.node_data.as_container();
         match node_data.get(node_id)?.get_node_type() {
-            NodeType::Image(image_ref) => Some(image_ref.as_ref().clone()),
+            NodeType::Image(image_ref) => {
+                let image = image_ref.as_ref();
+                // `<img src>` from markup is a placeholder carrying its src:
+                // the picture is the one the app cached under that src (the
+                // ids `background-image: url(..)` resolves against), if any.
+                let cached = image.source_tag().and_then(|src| {
+                    self.image_cache?
+                        .get_css_image_id(&azul_css::AzString::from(src))
+                        .cloned()
+                });
+                Some(cached.unwrap_or_else(|| image.clone()))
+            }
             _ => None,
         }
     }
@@ -1044,6 +1059,7 @@ mod tests {
             overlay: Some(&overlay),
             styled_dom: &styled_dom,
             dom_id: dom0(),
+            image_cache: None,
         };
         assert_eq!(
             resolved.image_for_paint(node).map(|i| i.get_hash()),
@@ -1056,6 +1072,7 @@ mod tests {
             overlay: None,
             styled_dom: &styled_dom,
             dom_id: dom0(),
+            image_cache: None,
         };
         assert!(resolved.image_for_paint(node).is_none());
     }
@@ -1107,6 +1124,7 @@ mod tests {
             overlay: Some(&overlay),
             styled_dom: &styled,
             dom_id: dom0(),
+            image_cache: None,
         };
         let base = resolved.children_for_node(root);
         assert_eq!(base.len(), 2);
@@ -1135,6 +1153,7 @@ mod tests {
             overlay: Some(&overlay),
             styled_dom: &styled,
             dom_id: dom0(),
+            image_cache: None,
         };
         let with_insert = resolved.children_for_node(root);
         assert_eq!(with_insert.len(), 3);
@@ -1156,6 +1175,7 @@ mod tests {
             overlay: Some(&overlay),
             styled_dom: &styled,
             dom_id: dom0(),
+            image_cache: None,
         };
         let with_both = resolved.children_for_node(root);
         assert_eq!(

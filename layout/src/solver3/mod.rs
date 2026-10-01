@@ -330,6 +330,7 @@ impl<T: ParsedFontTrait> LayoutContext<'_, T> {
             overlay: self.content_overlay,
             styled_dom: self.styled_dom,
             dom_id: self.styled_dom.dom_id,
+            image_cache: Some(self.image_cache),
         }
     }
 

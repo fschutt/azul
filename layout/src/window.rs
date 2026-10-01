@@ -8968,6 +8968,7 @@ impl LayoutWindow {
             overlay: Some(&self.content_overlay),
             styled_dom: &lr.styled_dom,
             dom_id,
+            image_cache: Some(&self.image_cache),
         }
         .image_for_paint(node_id);
 
