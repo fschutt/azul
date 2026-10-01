@@ -512,7 +512,8 @@ fn meet_toggle(d: &Draft, app: &RefAny) -> Dom {
                 CheckBox::create(d.add_meet)
                     .with_on_toggle(app.clone(), on_draft_meet_toggled)
                     .with_accessibility_name("Add AzMeet link")
-                    .dom(),
+                    .dom()
+                    .with_id("draft-meet"),
             )
             .with_child(
                 Dom::create_span_with_text("Add AzMeet link")

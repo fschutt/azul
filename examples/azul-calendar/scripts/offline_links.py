@@ -5,8 +5,9 @@
      a sync interval of a second (AZCAL_SYNC_SECONDS=1), and a meeting server address where
      NOTHING listens yet (AZMEET_WORKER=http://127.0.0.1:<free port>);
   2. the window never says there is no meeting server;
-  3. "New event": title "Offline sync", "Add AzMeet link", "Save event": the event file is
-     written AT ONCE, with an azlin://meet/<room id> link marked `pending` (AZCAL_LINK on stdout);
+  3. a click on Wednesday 10:00 in the week: the draft's popover, title "Offline sync",
+     "Add AzMeet link", Save: the event file is written AT ONCE, with an azlin://meet/<room id>
+     link marked `pending` (AZCAL_LINK on stdout);
   4. starts the meet dev server (azul-apps cf-workers/meet/dev-server.mjs, in memory) on that
      port: AzCalendar registers the room it made (AZCAL_SYNCED), the file loses `pending` and
      gains the server's code and the meeting's times in UTC, and the dev server knows the room
@@ -44,11 +45,15 @@ sys.dont_write_bytecode = True
 from week_interactions import (  # noqa: E402  (the same debug-server client, not a copy)
     Debug,
     Failure,
+    Week,
     event_files,
     find_binary,
     main_repo,
+    popover_open,
+    press,
     read_event,
     tail,
+    type_title,
 )
 
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
@@ -123,7 +128,7 @@ def run(opts, logs, children):
     )
     cal_out = os.path.join(logs, "azcalendar.out")
     app = subprocess.Popen(
-        [binary],
+        [binary, "--screen", "week"],
         env=env,
         stdout=open(cal_out, "w"),
         stderr=open(os.path.join(logs, "azcalendar.err"), "w"),
@@ -131,22 +136,26 @@ def run(opts, logs, children):
     )
     children.append(app)
     dbg = Debug(opts.port, opts.timeout)
-    dbg.until("the week view", lambda: dbg.shows("New event"))
+    dbg.until("the week view", lambda: dbg.exists("#week-scroll"))
 
     # 2. No "there is no meeting server".
     if dbg.shows("No meeting server"):
         raise Failure("the window says there is no meeting server")
 
-    # 3. A new event with a link, while nothing answers at the meeting server's address.
-    dbg.must({"op": "click", "text": "New event"})
-    dbg.until("the new-event form", lambda: dbg.shows("Add AzMeet link"))
+    # 3. A new event with a link, while nothing answers at the meeting server's address: made in
+    # the week's popover (the event editor is a window of its own, which a headless run does not
+    # reach yet).
+    week = Week(dbg)
+    week.scroll_to_minute(9 * 60)
+    x, y = week.point(2, 10 * 60 + 5)
+    dbg.must({"op": "click", "x": x, "y": y})
+    dbg.until("the draft and its popover", lambda: popover_open(dbg))
     if dbg.shows("No meeting server"):
-        raise Failure("the form says there is no meeting server")
-    dbg.must({"op": "focus_node", "selector": "#event-title"})
-    dbg.must({"op": "text_input", "text": TITLE})
-    dbg.must({"op": "click", "text": "Add AzMeet link"})
-    dbg.until("the form to say a link will be made", lambda: dbg.shows("A new AzMeet link is made"))
-    dbg.must({"op": "click", "text": "Save event"})
+        raise Failure("the popover says there is no meeting server")
+    type_title(dbg, TITLE)
+    press(dbg, "#draft-meet")
+    dbg.until("the popover to say a link will be made", lambda: dbg.shows("A new AzMeet link is made"))
+    press(dbg, "#draft-save")
     files = dbg.until("the event file, written at once (offline)", lambda: event_files(data) or None)
     name = files[0]
     event = read_event(data, name)
