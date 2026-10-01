@@ -10039,3 +10039,94 @@ mod autotest_generated {
         );
     }
 }
+
+/// `get_node_attribute` answers for the attributes a node keeps as FLAGS too
+/// (`Dom::with_contenteditable`, `Dom::with_tab_index`), as HTML spells them:
+/// an app's single-key shortcuts ask whether the focus is in a text field.
+#[cfg(all(test, feature = "std", feature = "widgets"))]
+mod node_attribute_flag_tests {
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        callbacks::Update,
+        dom::{Dom, DomId, DomNodeId, EventFilter, HoverEventFilter, TabIndex},
+        id::NodeId,
+        refany::RefAny,
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+
+    use super::CallbackInfo;
+    use crate::widgets::roving::test_support as rv;
+
+    /// What the probe read: `(attribute, value)`.
+    type Seen = Arc<Mutex<Vec<(String, Option<String>)>>>;
+
+    extern "C" fn probe(mut data: RefAny, info: CallbackInfo) -> Update {
+        let node = info.get_hit_node();
+        if let Some(seen) = data.downcast_ref::<Seen>() {
+            let mut seen = seen.lock().expect("probe log");
+            for name in ["contenteditable", "tabindex"] {
+                let value = info
+                    .get_node_attribute(node, name)
+                    .map(|v| v.as_str().to_string());
+                seen.push((name.to_string(), value));
+            }
+        }
+        Update::DoNothing
+    }
+
+    /// The node's `contenteditable` and `tabindex` as a callback on it reads them.
+    fn ask(dom: Dom) -> Vec<(String, Option<String>)> {
+        let seen: Seen = Arc::new(Mutex::new(Vec::new()));
+        let dom = dom.with_callback(
+            EventFilter::Hover(HoverEventFilter::Click),
+            RefAny::new(seen.clone()),
+            probe as usize,
+        );
+        let styled = StyledDom::create_from_dom(dom);
+        let root = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
+        };
+        rv::fire(&styled, root, EventFilter::Hover(HoverEventFilter::Click))
+            .expect("the probe runs on its node");
+        let out = seen.lock().expect("probe log").clone();
+        out
+    }
+
+    #[test]
+    fn a_contenteditable_node_reports_its_contenteditable_attribute() {
+        let seen = ask(
+            Dom::create_div()
+                .with_contenteditable(true)
+                .with_tab_index(TabIndex::Auto),
+        );
+        assert_eq!(
+            seen,
+            vec![
+                ("contenteditable".to_string(), Some("true".to_string())),
+                ("tabindex".to_string(), Some("0".to_string())),
+            ]
+        );
+    }
+
+    #[test]
+    fn tab_indices_read_as_html_spells_them() {
+        let seen = ask(Dom::create_div().with_tab_index(TabIndex::NoKeyboardFocus));
+        assert_eq!(seen[1], ("tabindex".to_string(), Some("-1".to_string())));
+        let seen = ask(Dom::create_div().with_tab_index(TabIndex::OverrideInParent(3)));
+        assert_eq!(seen[1], ("tabindex".to_string(), Some("3".to_string())));
+    }
+
+    #[test]
+    fn a_plain_node_reports_neither() {
+        let seen = ask(Dom::create_div());
+        assert_eq!(
+            seen,
+            vec![
+                ("contenteditable".to_string(), None),
+                ("tabindex".to_string(), None),
+            ]
+        );
+    }
+}
