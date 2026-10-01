@@ -17,17 +17,16 @@ updates by dirty rect); tests; `scripts/azphoto_e2e.py`; report `scripts/PHOTO_2
 - the app crate (see NEXT)
 
 ## NEXT
-- DONE: engine piece (829b9a1a9 RED; 8a344ccfd, 279bae778, 383672264 GREEN); skeleton
-  af9a50285; raster RED 58e0bffeb..772ee1b48; raster GREEN 33943cbe5..38a2028d8 (geom, tile,
-  blend, adjust, layer, selection, filter, transform, brush, history, document, engine);
-  b21469443 test slips. The raster core type-checks and its 53 tests PASS in the scratchpad
-  (scratchpad/photo/tc/run_raster_tests.sh: rustc against a stub azul, no cargo).
-- next: src/view.rs (viewport: zoom/pan mapping, checkerboard, nearest/box sampling of the
-  composite, marching ants, render a view rect into a BGRA buffer) + tests -> commit;
-  src/storage.rs (doc.json model with serde, tile keys photo/<uuid>/layers/<id>/<tx>_<ty>.png,
-  save/load through azul_storage::Drive, encode via azul RawImage) + tests -> commit;
-  src/args.rs -> commit; then lib.rs UI in pieces (state, layout, canvas callbacks, tools,
-  panels, menus, threads) committing each.
+- DONE (app so far): view.rs 63795c3db (11 tests pass in scratch), storage.rs 84d7673b7,
+  args.rs 1be2d10a3 (4 tests pass in scratch).
+- next: src/state.rs (pure: Tool enum + options, PhotoState { engine: Box<dyn RasterEngine>,
+  view, view_buf, drag, overlays, colors }, pointer_down/move/up -> Effects { view rect,
+  dom }, zoom/pan, refresh_view) + tests -> commit;
+  then src/codec.rs (RawImage -> RGBA8, PNG/JPEG encode via azul) -> commit;
+  src/jobs.rs (Thread jobs: open/save/load/list/export) -> commit;
+  src/canvas.rs (RenderImageCallback, change_node_image_rect, pointer/wheel/ants timer) -> commit;
+  src/ui.rs (shell, menus, options bar, tools, panels, status bar, sheets) in pieces -> commit;
+  lib.rs start() + sample (examples/assets/images/cat_image.jpg via include_bytes).
 
 ## Decisions (made unattended, noted here)
 - The canvas is ONE image node: a `RenderImageCallback` renders the VIEWPORT (the visible part
