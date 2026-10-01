@@ -387,6 +387,30 @@ fn make_zip(drive: &dyn Drive, items: &[SourceItem], zip_key: &str) -> Result<u6
     Ok(len)
 }
 
+/// Ctrl+Z of a new folder or file: it goes only while it is still what
+/// was created - an empty folder, an empty file - never with what the user
+/// put in since.
+fn undo_create(drive: &dyn Drive, key: &str) -> Result<(), DriveError> {
+    let still_new = if key.ends_with('/') {
+        storage_ops::list_all(drive, key)?
+            .iter()
+            .all(|o| o.key == key)
+    } else {
+        drive.head(key)?.size == 0
+    };
+    if !still_new {
+        return Err(DriveError::InvalidKey {
+            key: key.to_string(),
+            reason: "it is not empty any more; delete it instead",
+        });
+    }
+    if key.ends_with('/') {
+        drive.delete_folder(key)
+    } else {
+        drive.delete(key)
+    }
+}
+
 fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
     match job {
         Job::List {
@@ -495,8 +519,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
                     .iter()
                     .try_for_each(|(now, before)| drive.rename(now, before))
                     .and_then(|()| match &remove {
-                        Some(key) if key.ends_with('/') => drive.delete_folder(key),
-                        Some(key) => drive.delete(key),
+                        Some(key) => undo_create(&*drive, key),
                         None => Ok(()),
                     })
             };

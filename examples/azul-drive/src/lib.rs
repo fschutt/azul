@@ -1404,7 +1404,10 @@ fn env_path(var: &str) -> Option<PathBuf> {
 extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |info, app, s| {
         let place = s.place.clone();
+        // `--screen settings` opens on the backstage, which a visit closes.
+        let backstage = s.backstage;
         go(info, app, s, place, false);
+        s.backstage = backstage;
     })
 }
 
