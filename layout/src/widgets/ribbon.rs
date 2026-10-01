@@ -5104,6 +5104,91 @@ mod tests {
         );
     }
 
+    /// Office greys a command that cannot run and its tooltip says why
+    /// ("Paste: copy or cut something first"). A disabled ribbon button keeps
+    /// its place and its keyboard stop, never runs the app's callback, drops
+    /// the hover / pressed paint, is dimmed, is announced as unavailable with
+    /// the reason as its description, and shows the reason as a tooltip when
+    /// the pointer rests on it or it is clicked.
+    #[test]
+    fn a_disabled_button_is_dimmed_inert_and_says_why() {
+        extern "C" fn app_click(_: RefAny, _: CallbackInfo) -> Update {
+            Update::RefreshDom
+        }
+        let reason = "Nothing to paste: copy or cut something first";
+        let rb = small_btn("content_paste", "Paste")
+            .with_on_click(RefAny::new(7u32), app_click)
+            .with_disabled(AzString::from(reason));
+        assert!(rb.is_disabled());
+        assert_eq!(rb.disabled_reason.as_str(), reason);
+        assert!(!small_btn("content_paste", "Paste").is_disabled());
+
+        let node = render_item(RibbonItem::SmallButton(rb));
+        assert!(has_class(&node, "__azul-native-button"), "still the Button widget");
+        assert!(has_class(&node, RIBBON_DISABLED_CLASS));
+
+        let a11y = node
+            .root
+            .get_accessibility_info()
+            .expect("a ribbon button is announced");
+        assert!(
+            a11y.states
+                .as_ref()
+                .contains(&azul_core::a11y::AccessibilityState::Unavailable),
+            "announced as unavailable"
+        );
+        assert_eq!(
+            a11y.description.as_ref().map(|d| d.as_str()),
+            Some(reason),
+            "the reason is the description"
+        );
+
+        // Dimmed, and no hover / pressed paint left.
+        let mut dimmed = false;
+        for (prop, conditions) in node.root.style.iter_inline_properties() {
+            let states: Vec<&DynamicSelector> = conditions
+                .as_ref()
+                .iter()
+                .filter(|c| {
+                    matches!(
+                        c,
+                        DynamicSelector::PseudoState(PseudoStateType::Hover | PseudoStateType::Active)
+                    )
+                })
+                .collect();
+            assert!(states.is_empty(), "a disabled button has no {states:?} paint: {prop:?}");
+            if let CssProperty::Opacity(o) = prop {
+                if o.get_property().map_or(false, |o| o.inner.normalized() < 0.75) {
+                    dimmed = true;
+                }
+            }
+        }
+        assert!(dimmed, "a disabled button is dimmed");
+
+        // The app's callback is gone; what is left shows the reason.
+        let callbacks = node.root.get_callbacks().as_ref();
+        assert!(!callbacks.is_empty(), "hover and click show the reason");
+        for cb in callbacks {
+            let mut data = cb.refany.clone();
+            assert!(
+                data.downcast_ref::<u32>().is_none(),
+                "the app's click data is not attached to a disabled button"
+            );
+            assert!(
+                data.downcast_ref::<DisabledReason>().is_some(),
+                "every callback of a disabled button carries its reason"
+            );
+        }
+        let events: Vec<EventFilter> = callbacks.iter().map(|cb| cb.event).collect();
+        for wanted in [
+            EventFilter::Hover(HoverEventFilter::MouseEnter),
+            EventFilter::Hover(HoverEventFilter::MouseLeave),
+            EventFilter::Hover(HoverEventFilter::Click),
+        ] {
+            assert!(events.contains(&wanted), "{wanted:?} in {events:?}");
+        }
+    }
+
     // ------------------------------------------------------------------
     // Interactive states (declared by the theme module, with dark twins)
     // ------------------------------------------------------------------

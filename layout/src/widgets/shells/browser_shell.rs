@@ -427,6 +427,38 @@ mod browser_shell_tests {
         assert!(tc::has_class(&column.children.as_ref()[1], ADDRESS_BAR_CLASS));
     }
 
+    /// Explorer's View > Navigation pane: the tree can be hidden. The shell
+    /// then lays out the content (and the preview) alone, and F6 skips the
+    /// hidden pane; shown is the default.
+    #[test]
+    fn s5_hides_the_navigation_pane_when_asked_and_f6_skips_it() {
+        assert!(BrowserShell::create(slot(), slot(), slot()).tree_visible);
+        let hidden = full().with_tree_visible(false);
+        assert!(!hidden.tree_visible);
+        let dom = hidden.clone().with_theme(UiTheme::Flat).dom();
+        assert_eq!(
+            ids(&dom),
+            vec![
+                "shell-title",
+                "shell-ribbon",
+                ADDRESS_BAR_ID,
+                CONTENT_ID,
+                PREVIEW_ID,
+                DETAILS_ID,
+                "shell-status"
+            ]
+        );
+        assert_eq!(
+            hidden
+                .office_shell()
+                .cycle_ids()
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>(),
+            vec![CONTENT_ID, PREVIEW_ID, DETAILS_ID]
+        );
+    }
+
     #[test]
     fn s5_without_a_ribbon_still_has_its_address_bar() {
         let dom = BrowserShell::create(slot(), slot(), slot())

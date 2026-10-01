@@ -867,6 +867,73 @@ mod address_bar_tests {
         );
     }
 
+    /// Explorer's "Recent locations" chevron sits right of Forward: with
+    /// `with_recent(true)` the bar grows that button, which reports `Recent`
+    /// (the app opens its menu of places); without it the bar is unchanged.
+    #[test]
+    fn the_recent_locations_chevron_follows_forward_and_reports_recent() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let plain = bar(&log).with_theme(UiTheme::Flat).dom();
+        assert_eq!(plain.children.as_ref().len(), 6, "no chevron unless asked");
+        assert!(!bar(&log).show_recent);
+
+        let styled = StyledDom::create_from_dom(
+            bar(&log)
+                .with_recent(true)
+                .with_theme(UiTheme::Flat)
+                .dom(),
+        );
+        let parts = children(&styled, NodeId::new(0));
+        assert_eq!(parts.len(), 7, "back, forward, recent, up, field, refresh, search");
+        let chevron = children(&styled, parts[2])[0];
+        assert!(click(&styled, chevron).is_some(), "the chevron takes the click");
+        assert_eq!(
+            events(&log),
+            vec![(AddressBarEventKind::Recent, 0, String::new())]
+        );
+    }
+
+    /// An arrow that cannot go is not only inert: it LOOKS unavailable
+    /// (dimmed) and is announced so, like Explorer's greyed Back arrow.
+    #[test]
+    fn an_arrow_that_cannot_go_is_dimmed_and_announced_unavailable() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        for theme in checks::BOTH {
+            // Back and Up can go, Forward cannot.
+            let dom = bar(&log).with_theme(theme).dom();
+            let parts = dom.children.as_ref();
+            let dimmed = |node: &Dom| {
+                node.root
+                    .style
+                    .iter_inline_properties()
+                    .any(|(p, _)| match p {
+                        CssProperty::Opacity(o) => {
+                            o.get_property().map_or(false, |o| o.inner.normalized() < 0.75)
+                        }
+                        _ => false,
+                    })
+            };
+            let unavailable = |node: &Dom| {
+                node.children.as_ref()[0]
+                    .root
+                    .get_accessibility_info()
+                    .map_or(false, |a| {
+                        a.states
+                            .as_ref()
+                            .contains(&azul_core::a11y::AccessibilityState::Unavailable)
+                    })
+            };
+            assert!(has_class(&parts[1], NAV_DISABLED_CLASS), "{}", theme.name());
+            assert!(dimmed(&parts[1]), "{}: Forward is dimmed", theme.name());
+            assert!(unavailable(&parts[1]), "{}: Forward is unavailable", theme.name());
+            for i in [0, 2, 4] {
+                assert!(!has_class(&parts[i], NAV_DISABLED_CLASS), "{}: part {i}", theme.name());
+                assert!(!dimmed(&parts[i]), "{}: part {i} is not dimmed", theme.name());
+                assert!(!unavailable(&parts[i]), "{}: part {i}", theme.name());
+            }
+        }
+    }
+
     #[test]
     fn a_crumb_click_goes_there_and_its_chevron_opens_the_menu_without_starting_an_edit() {
         let log: Log = Arc::new(Mutex::new(Vec::new()));
