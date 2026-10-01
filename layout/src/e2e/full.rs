@@ -9051,6 +9051,14 @@ const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
          an impossibility: proving a tree node still maps to a live DOM node needs an A11yNodeId \
          -> NodeId walk that does not exist here yet",
     ),
+    (
+        "thread_owner",
+        "HAS node-keyed state (thread -> owner node) and is remapped in `remap_node_ids` like the \
+         others: a binding follows its node or orphans the thread, which the module's unit tests \
+         and the headless `the_worker_of_a_node_that_unmounts_is_told_to_stop...` test pin. Not \
+         asserted here: an orphan leaves only once its worker THREAD has returned, which no \
+         deterministic scenario step can wait for, so an invariant over it would be a race",
+    ),
 ];
 
 fn eval_assert_manager_invariants(
@@ -10181,6 +10189,13 @@ fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
              process-global whose only reader (`drain_tray_events`) consumes what it returns, so \
              measuring it would swallow the click the app was about to receive, and the tray is \
              the app's, so a change could not be attributed to this window",
+        ),
+        (
+            "thread_owner",
+            "its state moves when a background worker THREAD finishes (an orphan is retired by \
+             the next thread poll after its worker returned), not when the measured pass runs: a \
+             fingerprint would report changes the scenario did not cause. Its node keys follow \
+             `remap_node_ids`, which every other node-keyed manager's fingerprint already covers",
         ),
     ];
     #[cfg(not(feature = "a11y"))]
