@@ -8,6 +8,12 @@ Brief: scratchpad/LENIENT_go.md (lenient XML/HTML, components audit, paste parse
 ## IN PROGRESS
 - Design: one tree construction (`azul_core::xml::html`) for every loader; a lenient
   HTML tokenizer in core; the strict loaders keep xmlparser as their tokenizer.
+- Drafted (uncommitted, kept until the RED commit lands): core/src/xml_html.rs (type-checked
+  and clippy-clean in a stub harness), core/src/xml_entities.rs + scripts/gen_html_entities.py.
+  A line-by-line Python mirror (scratchpad/lenient/mirror.py) builds Chrome's tree for 16/18
+  corpus mails (the 2 others: foster parenting, a documented simplification) and 43/50 snippets
+  (the 7 others: comment nodes, control characters dropped on purpose, simplified adoption).
+- Next: layout adapters (strict tree + document loaders onto the builder, FastDomSink), tests.
 
 ## NEXT
 1. RED: lenient parse of the mail corpus + E-XML-3 (the two loaders agree).
