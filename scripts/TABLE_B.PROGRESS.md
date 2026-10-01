@@ -3,6 +3,25 @@
 Task: table parity with Chrome, part B (borders, spans, fixed layout, cell sizing rules).
 Brief: scratchpad `TABLE_B_go.md`; house rules `wave4_common.md`. Nothing is compiled here.
 
+## REPLAY onto TABLE-A (branch `wt/table-b-on-a` from `1964f561e`) - CURRENT WORK
+Coordinator job: cherry-pick wt/table-b's commits in order onto the integration tip, resolving per
+report section 2 (A's structure and table_width kept, my logic ported, twins folded).
+- Done (wt/table-b -> port): cc018cdde, d2d3e41c3 -> dbf1989f1 (table_harness folded into A's
+  table_markup), 6ec2d9131 -> bc9d113fe (cell-width rule dropped: A's column model), 72e10c268 ->
+  8c3c1a0ee + 43f9a2105, aa2fa8076 -> 1f116c397, extra 1cc1d38df (rows/groups/cols no border),
+  bfc46b3c5 -> + 568aaafe9, b05da2bfb, 8a4ae1cc3 -> e58489580 (#[ignore] removed), 76da6ac30,
+  ef2673e6b -> a73764fe0, 6df89fe9b -> 7e948631a.
+- Last commit: see `git log -1`.
+- NEXT: cherry-pick 960298cfc (sizing intrinsic: take A's body, port: placement through
+  fc::analyze_table_structure, spanning after single cells via fc::distribute_cell_width_across_columns,
+  rowspan height growth), then d7235edda, 9cd2ca799(skip if conflict), 572733e5f, 36b59205f,
+  da2c0a9bc, b62b4bf22, bef5901f0, 7b7f1c1f4, e38be3f8e (fold column_box_widths into A's
+  table_width::column_element_widths: extend it with bare <col> and span), e3975795c, 5de5cfd0a
+  (skip: already applied), 51c16a9df / bc087a71f / 349d1418e (alignment: likely empty -> skip),
+  then report section "replayed onto A".
+- Decisions: A's model wins on cell width (a width neither raises nor lowers a column's min);
+  my table_harness.rs merged into A's tests/common/table_markup.rs.
+
 ## DONE
 - `d2d3e41c3` RED / `6ec2d9131` FIX: a cell's specified width sets its column
   (`cell_width_contribution`, `measure_cell_widths`; sizing.rs table cells).
