@@ -5,15 +5,18 @@ demo (examples/azul-setup), AzWidgets cards, tests, scripts/azsetup_e2e.py.
 Report: scripts/DIALOGS_2026_10_01.md. House rules: no cargo, no rust-analyzer.
 
 ## DONE
-- (none yet)
+- `c25644fe3` progress file.
+- `3e6011234` Phase 1 RED: dialog_kit, path_input, wizard_pages, wizard_layout
+  extensions (banner / side panel / blocked reason / can_go_back / sizes),
+  file::disk_space_for_new; manifest + contrast groups. Stubs are marked
+  `// RED stub` (scratchpad `dialogs/unstub.py` removes them).
 
 ## IN PROGRESS
-- Phase 1 (wizard): RED commit - dialog_kit, path_input, wizard_pages, wizard_layout
-  extensions (banner / side panel / blocked reason / can_go_back / sizes),
-  file::disk_space_for_new.
+- Phase 1 GREEN: stubs removed from wizard_pages / path_input (uncommitted);
+  next: file::disk_space_for_new, wizard_layout build (frames, reason, held
+  buttons, size), flat / flora `dialog_kit_look` + the wizard look's new parts.
 
 ## NEXT
-- Phase 1 GREEN (build + flat / flora looks).
 - Phase 2: shortcut_recorder, ShellSettingsLayout extensions (category icons, section
   keywords, footer), shells/settings_dialog (rows, search across categories with
   highlight, dirty tracking, Apply / OK / Cancel or instant, restore defaults, restart
