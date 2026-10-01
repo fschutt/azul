@@ -141,6 +141,49 @@ pub struct DebugRequest {
     pub response_tx: mpsc::Sender<DebugResponseData>,
 }
 
+/// Where a debug request goes ([`route_debug_request`]).
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DebugRoute {
+    /// This window serves it.
+    Mine,
+    /// The window registered under this slot serves it: this window hands it over
+    /// ([`forward_debug_request`]).
+    Forward(u64),
+    /// No window has the id the request names: it is answered with an error.
+    NoSuchWindow,
+}
+
+/// Which window's debug timer serves a request: the window it names (`window_id`), or - naming
+/// none - the first window that registered a debug timer (the app's first window). `me` is the
+/// asking timer's slot; `windows` the registered `(slot, window id)` pairs in registration
+/// order (the first window an id names, when two share it).
+#[cfg(feature = "std")]
+#[must_use]
+pub fn route_debug_request(target: Option<&str>, me: u64, windows: &[(u64, String)]) -> DebugRoute {
+    // Today's rule: whoever takes a request serves it, unless it names another window.
+    let mine = windows.iter().find(|(slot, _)| *slot == me).map(|(_, id)| id.as_str());
+    match target {
+        Some(t) if !t.is_empty() && mine != Some(t) => DebugRoute::NoSuchWindow,
+        _ => DebugRoute::Mine,
+    }
+}
+
+/// Hands `request` to the window registered under `slot` (its timer serves it at its next
+/// tick, [`take_forwarded_debug_requests`]).
+#[cfg(feature = "std")]
+pub fn forward_debug_request(slot: u64, request: DebugRequest) {
+    let _ = (slot, request);
+}
+
+/// The requests other windows handed to the window registered under `slot`, oldest first.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn take_forwarded_debug_requests(slot: u64) -> Vec<DebugRequest> {
+    let _ = slot;
+    Vec::new()
+}
+
 /// Response data from timer callback to HTTP thread (internal)
 #[cfg(feature = "std")]
 #[derive(Debug, Clone)]
@@ -21945,5 +21988,80 @@ mod selection_state_tests {
         );
         assert!(state.has_selection);
         assert_eq!(state.selection_count, 2);
+    }
+}
+
+/// The debug server reaches EVERY window of an app: a request names its window by `window_id`
+/// (AzMail's compose window is `azmail-compose-<n>`), a request naming none is the first
+/// window's, and the shared request queue no longer answers "consumed by the wrong window":
+/// the window that took a request for another hands it over.
+#[cfg(all(test, feature = "std", feature = "e2e-server"))]
+mod debug_routing_tests {
+    use super::*;
+
+    fn windows() -> Vec<(u64, String)> {
+        vec![
+            (1, String::from("azmail-main")),
+            (2, String::from("azmail-compose-1")),
+            (3, String::from("azmail-compose-2")),
+        ]
+    }
+
+    #[test]
+    fn a_request_naming_no_window_belongs_to_the_first_window() {
+        assert_eq!(route_debug_request(None, 1, &windows()), DebugRoute::Mine);
+        assert_eq!(
+            route_debug_request(None, 2, &windows()),
+            DebugRoute::Forward(1),
+            "a compose window that took it hands it to the main window"
+        );
+        assert_eq!(route_debug_request(Some(""), 3, &windows()), DebugRoute::Forward(1));
+    }
+
+    #[test]
+    fn a_request_naming_another_window_is_forwarded_to_it() {
+        assert_eq!(
+            route_debug_request(Some("azmail-compose-1"), 1, &windows()),
+            DebugRoute::Forward(2)
+        );
+        assert_eq!(
+            route_debug_request(Some("azmail-compose-1"), 2, &windows()),
+            DebugRoute::Mine
+        );
+    }
+
+    #[test]
+    fn a_request_naming_no_known_window_is_refused() {
+        assert_eq!(
+            route_debug_request(Some("nope"), 1, &windows()),
+            DebugRoute::NoSuchWindow
+        );
+    }
+
+    #[test]
+    fn forwarded_requests_wait_for_their_window_in_order() {
+        // Slots far from any a live timer would get in this test process.
+        let (a, b) = (900_001, 900_002);
+        let request = |id: u64| {
+            let (tx, _rx) = mpsc::channel();
+            DebugRequest {
+                request_id: id,
+                event: DebugEvent::GetState,
+                window_id: Some(String::from("azmail-compose-1")),
+                wait_for_render: false,
+                dom_id: None,
+                response_tx: tx,
+            }
+        };
+        forward_debug_request(a, request(1));
+        forward_debug_request(b, request(2));
+        forward_debug_request(a, request(3));
+        let got: Vec<u64> = take_forwarded_debug_requests(a)
+            .iter()
+            .map(|r| r.request_id)
+            .collect();
+        assert_eq!(got, vec![1, 3]);
+        assert!(take_forwarded_debug_requests(a).is_empty(), "taken once");
+        assert_eq!(take_forwarded_debug_requests(b).len(), 1);
     }
 }
