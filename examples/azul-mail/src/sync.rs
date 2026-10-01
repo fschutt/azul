@@ -910,6 +910,39 @@ mod tests {
     }
 
     #[test]
+    fn a_folder_azmail_made_locally_is_adopted_by_the_first_sync_not_moved_aside() {
+        // A draft saved before the server's Drafts folder was ever synced: the folder's state
+        // says UIDVALIDITY 0 ("local only"). The first sync keeps its files and index and
+        // fetches the server's messages from the start.
+        let sel = Selected {
+            uidvalidity: 9,
+            uid_next: Some(4),
+            exists: 3,
+        };
+        let local = FolderState::create("", "Drafts", 0);
+        assert_eq!(
+            plan_folder(Some(&local), &sel),
+            FolderPlan {
+                renumbered: None,
+                last_uid: 0,
+                nothing_new: false
+            }
+        );
+        let empty = Selected {
+            exists: 0,
+            ..sel
+        };
+        assert_eq!(
+            plan_folder(Some(&local), &empty),
+            FolderPlan {
+                renumbered: None,
+                last_uid: 0,
+                nothing_new: true
+            }
+        );
+    }
+
+    #[test]
     fn the_plan_follows_the_state_and_select() {
         let sel = |uidvalidity, uid_next, exists| Selected {
             uidvalidity,

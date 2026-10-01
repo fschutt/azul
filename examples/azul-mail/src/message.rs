@@ -113,6 +113,12 @@ pub struct MessageView {
     /// The HTML part, if the message has one (a plain-text message has none).
     pub html: Option<String>,
     pub attachments: Vec<Attachment>,
+    /// The Message-ID, bare (no angle brackets); empty without one.
+    pub message_id: String,
+    /// The Reply-To header as `Name <address>, ...`; empty without one.
+    pub reply_to: String,
+    /// The References header's ids, bare, oldest first.
+    pub references: Vec<String>,
 }
 
 /// The message view of a message's bytes; `None` when they are not a message.
@@ -146,6 +152,9 @@ pub fn parse_view(bytes: &[u8]) -> Option<MessageView> {
         text,
         html,
         attachments,
+        message_id: String::new(),
+        reply_to: String::new(),
+        references: Vec::new(),
     })
 }
 
@@ -339,6 +348,30 @@ Content-Type: text/html; charset=utf-8\r\n\
             .contains("<p>Everything must go</p>"));
         assert!(html.text.contains("Everything must go"), "{}", html.text);
         assert!(!html.text.contains("<p>"), "{}", html.text);
+    }
+
+    #[test]
+    fn the_view_knows_the_thread_a_reply_continues() {
+        const REPLY: &[u8] = b"Message-ID: <r-2@example.org>\r\n\
+From: Ben <ben@example.org>\r\n\
+Reply-To: Garden List <list@example.org>\r\n\
+To: ada@example.org\r\n\
+References: <root-0@example.org> <r-1@example.org>\r\n\
+In-Reply-To: <r-1@example.org>\r\n\
+Subject: Re: Garden\r\n\
+\r\n\
+Yes.\r\n";
+        let v = parse_view(REPLY).unwrap();
+        assert_eq!(v.message_id, "r-2@example.org");
+        assert_eq!(v.reply_to, "Garden List <list@example.org>");
+        assert_eq!(
+            v.references,
+            vec![String::from("root-0@example.org"), String::from("r-1@example.org")]
+        );
+        let plain = parse_view(PLAIN).unwrap();
+        assert_eq!(plain.message_id, "plain-1@example.org");
+        assert_eq!(plain.reply_to, "");
+        assert!(plain.references.is_empty());
     }
 
     #[test]

@@ -28,12 +28,15 @@
 
 pub mod account;
 pub mod auth;
+pub mod compose;
 pub mod folders;
 pub mod html;
 pub mod imap_client;
+pub mod listing;
 pub mod message;
 pub mod mutf7;
 pub mod send;
+pub mod sending;
 pub mod store;
 pub mod sync;
 
