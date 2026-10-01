@@ -353,6 +353,8 @@ struct AccountFile {
     format: String,
     version: u64,
     email: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    name: String,
     username: String,
     imap: Server,
     smtp: Server,
@@ -368,6 +370,7 @@ pub fn to_json(account: &Account) -> String {
         format: FORMAT.to_string(),
         version: VERSION,
         email: account.email.clone(),
+        name: account.name.trim().to_string(),
         username: account.username.clone(),
         imap: account.imap.clone(),
         smtp: account.smtp.clone(),
@@ -402,7 +405,7 @@ pub fn from_json(text: &str) -> Result<Account, AccountError> {
     Ok(Account {
         id,
         email: file.email,
-        name: String::new(),
+        name: file.name.trim().to_string(),
         username: file.username,
         imap: file.imap,
         smtp: file.smtp,
@@ -471,7 +474,17 @@ impl Account {
     /// The From line: `Name <address>` (the name quoted when it holds a special character), or
     /// the address alone without a name.
     pub fn sender(&self) -> String {
-        todo!()
+        let name = self.name.trim();
+        if name.is_empty() {
+            return self.email.clone();
+        }
+        // RFC 5322: a display name with a special character is a quoted string.
+        if name.chars().any(|c| "()<>[]:;@\\,.\"".contains(c)) {
+            let quoted = name.replace('\\', "\\\\").replace('"', "\\\"");
+            format!("\"{quoted}\" <{}>", self.email)
+        } else {
+            format!("{name} <{}>", self.email)
+        }
     }
 }
 
@@ -522,7 +535,7 @@ impl AccountForm {
     pub fn from_account(account: &Account) -> AccountForm {
         AccountForm {
             email: account.email.clone(),
-            name: String::new(),
+            name: account.name.clone(),
             username: account.username.clone(),
             imap_host: account.imap.host.clone(),
             imap_port: account.imap.port.to_string(),
@@ -591,7 +604,7 @@ impl AccountForm {
         Ok(Account {
             id,
             email: self.email.trim().to_string(),
-            name: String::new(),
+            name: self.name.trim().to_string(),
             username: pick(&self.username, &defaults.username),
             imap: Server {
                 host: imap_host,
