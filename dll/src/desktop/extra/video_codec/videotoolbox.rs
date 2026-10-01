@@ -1739,4 +1739,157 @@ mod vt_tests {
              stamped with the wall clock"
         );
     }
+
+    /// A flat NV12 frame: every luma sample `luma`, neutral chroma, in
+    /// `format` (the matrix and range the bytes are in).
+    fn flat_nv12(luma: u8, w: u32, h: u32, format: RawImageFormat) -> VideoFrame {
+        let layout = Nv12Layout::new(w as usize, h as usize);
+        let mut bytes = vec![luma; layout.y_len()];
+        bytes.resize(layout.checked_total_len().expect("small"), 128);
+        VideoFrame::with_format(w, h, U8Vec::from_vec(bytes), format)
+    }
+
+    /// `nv12_frame`'s moving ramp, in `format`.
+    fn ramp_nv12(f: u32, w: u32, h: u32, format: RawImageFormat) -> VideoFrame {
+        let mut frame = nv12_frame(f, w, h);
+        frame.format = format;
+        frame
+    }
+
+    /// A Rec.601 camera (the SD presets, many external cameras) is encoded
+    /// as Rec.601: the session's colour tags come from the frames, not a
+    /// fixed Rec.709, and the decoder reads the stream's matrix by value
+    /// (`CFEqual`), so the receiver converts with the sender's matrix.
+    #[test]
+    fn a_rec601_frame_is_tagged_rec601_and_decodes_back_as_rec601() {
+        if VtLib::get().is_none() {
+            eprintln!("VideoToolbox unavailable — skipping");
+            return;
+        }
+        let (w, h) = (320u32, 240u32);
+        let mut enc = VtEncoder::open(w, h, 800).expect("encoder open");
+        let mut dec = VtDecoder::open_h264().expect("decoder open");
+        dec.set_output_format(RawImageFormat::NV12Rec601Video);
+        let mut decoded = Vec::new();
+        for f in 0..10u32 {
+            let chunk = enc.encode(&ramp_nv12(f, w, h, RawImageFormat::NV12Rec601Video), f == 0);
+            if !chunk.is_empty() {
+                decoded.extend(dec.decode(&chunk));
+            }
+        }
+        assert!(!decoded.is_empty(), "nothing decoded");
+        for frame in &decoded {
+            assert_eq!(frame.format, RawImageFormat::NV12Rec601Video);
+        }
+    }
+
+    /// A full-range frame ('420f': a camera or a screen share opened with a
+    /// full-range config) is encoded from a full-range buffer: its levels
+    /// arrive as they left. Copied into the fixed video-range ('420v') pool,
+    /// the encoder read 0..255 as 16..235 and a receiver asking for full
+    /// range got every level moved (64 came back near 56).
+    #[test]
+    fn a_full_range_frame_keeps_its_levels_through_the_codec() {
+        if VtLib::get().is_none() {
+            eprintln!("VideoToolbox unavailable — skipping");
+            return;
+        }
+        let (w, h) = (320u32, 240u32);
+        let mut enc = VtEncoder::open(w, h, 2000).expect("encoder open");
+        let mut dec = VtDecoder::open_h264().expect("decoder open");
+        dec.set_output_format(RawImageFormat::NV12Rec709Full);
+        let mut decoded = Vec::new();
+        for f in 0..8u32 {
+            let frame = flat_nv12(64, w, h, RawImageFormat::NV12Rec709Full);
+            let chunk = enc.encode(&frame, f == 0);
+            if !chunk.is_empty() {
+                decoded.extend(dec.decode(&chunk));
+            }
+        }
+        let last = decoded.last().expect("decoded pictures");
+        assert_eq!(last.format, RawImageFormat::NV12Rec709Full);
+        let centre = (h as usize / 2) * last.width as usize + last.width as usize / 2;
+        let luma = last.bytes.as_ref()[centre];
+        assert!(
+            (i32::from(luma) - 64).abs() <= 4,
+            "a full-range 64 came back as {luma}"
+        );
+    }
+
+    /// The tile a stream shows in changes size mid-stream (a window resize,
+    /// a switch to the speaker view): the next picture comes out at the new
+    /// size. The change used to wait for the next IDR - two seconds of
+    /// pictures at the old size in AzMeet, and never for a stream whose
+    /// random-access points are not IDRs or that stopped sending.
+    #[test]
+    fn an_output_size_change_mid_stream_takes_effect_at_the_next_picture() {
+        if VtLib::get().is_none() {
+            eprintln!("VideoToolbox unavailable — skipping");
+            return;
+        }
+        let (w, h) = (320u32, 240u32);
+        let mut enc = VtEncoder::open(w, h, 800).expect("encoder open");
+        let mut dec = VtDecoder::open_h264().expect("decoder open");
+        dec.set_output_format(RawImageFormat::NV12Rec709Video);
+        let mut sizes = Vec::new();
+        for f in 0..10u32 {
+            if f == 4 {
+                dec.set_output_size(160, 120);
+            }
+            // Only the first frame is a keyframe (the session's keyframe
+            // interval is 60).
+            let chunk = enc.encode(&nv12_frame(f, w, h), f == 0);
+            if !chunk.is_empty() {
+                for frame in dec.decode(&chunk) {
+                    sizes.push((f, frame.width, frame.height));
+                }
+            }
+        }
+        let before: Vec<_> = sizes.iter().filter(|(f, ..)| *f < 4).collect();
+        let after: Vec<_> = sizes.iter().filter(|(f, ..)| *f >= 4).collect();
+        assert!(!before.is_empty() && !after.is_empty(), "{sizes:?}");
+        assert!(
+            before.iter().all(|(_, w, h)| (*w, *h) == (320, 240)),
+            "{sizes:?}"
+        );
+        assert!(
+            after.iter().all(|(_, w, h)| (*w, *h) == (160, 120)),
+            "{sizes:?}"
+        );
+    }
+
+    /// The same for the pixel format: asked for BGRA mid-stream, the next
+    /// picture is BGRA.
+    #[test]
+    fn an_output_format_change_mid_stream_takes_effect_at_the_next_picture() {
+        if VtLib::get().is_none() {
+            eprintln!("VideoToolbox unavailable — skipping");
+            return;
+        }
+        let (w, h) = (320u32, 240u32);
+        let mut enc = VtEncoder::open(w, h, 800).expect("encoder open");
+        let mut dec = VtDecoder::open_h264().expect("decoder open");
+        dec.set_output_format(RawImageFormat::NV12Rec709Video);
+        let mut formats = Vec::new();
+        for f in 0..8u32 {
+            if f == 3 {
+                dec.set_output_format(RawImageFormat::BGRA8);
+            }
+            let chunk = enc.encode(&nv12_frame(f, w, h), f == 0);
+            if !chunk.is_empty() {
+                for frame in dec.decode(&chunk) {
+                    formats.push((f, frame.format, frame.bytes.as_ref().len()));
+                }
+            }
+        }
+        assert!(formats.iter().any(|(f, ..)| *f >= 3), "{formats:?}");
+        for (f, format, len) in &formats {
+            if *f < 3 {
+                assert!(format.is_nv12(), "{formats:?}");
+            } else {
+                assert_eq!(*format, RawImageFormat::BGRA8, "{formats:?}");
+                assert_eq!(*len, (w * h * 4) as usize, "{formats:?}");
+            }
+        }
+    }
 }
