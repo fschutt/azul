@@ -39,6 +39,7 @@ tested: AzCalculator         # dll_tests (decimals, the expression engine, progr
 tested: AzContacts           # dll_tests (vCard 3.0 / 4.0, the contact model, sorting, duplicates and merge, the file layout)
 tested: AzSetup              # dll_tests (the steps, the components, the simulated copying, the command line)
 tested: AzNotes              # dll_tests (the note model, Markdown round trip, front matter, storage jobs)
+tested: AzVideoCut           # dll_tests (edits + undo, compositor, export, decode plan, storage, switches)
 
 # ── members with genuinely no tests. The script verifies the claim by grepping
 #    for #[test]; if any of these grows one, it fails until it is moved up and

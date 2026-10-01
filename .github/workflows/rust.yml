@@ -756,6 +756,7 @@ jobs:
       - name: Run AzCalculator tests
       - name: Run AzSetup tests
       - name: Run AzNotes tests
+      - name: Run AzVideoCut tests
         env:
           AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
         run: |
@@ -774,6 +775,8 @@ jobs:
           ./scripts/zero_test_guard.sh --strict azul-setup-tests.txt
           cargo test -p AzNotes --lib --no-fail-fast 2>&1 | tee azul-notes-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-notes-tests.txt
+          cargo test -p AzVideoCut --lib --no-fail-fast 2>&1 | tee azul-videocut-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-videocut-tests.txt
 
       - name: Run AzMail tests (and the local IMAP test server's)
         env:
