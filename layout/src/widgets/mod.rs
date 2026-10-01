@@ -426,6 +426,12 @@ pub mod shortcut_recorder;
 /// again"), About box, progress dialog, login, find / replace; see
 /// `standard_dialogs.rs`.
 pub mod standard_dialogs;
+/// Timeline widget.
+///
+/// Tracks of clips under a time ruler, the playhead, zoom, snapping and the
+/// keyboard, only the clips in view rendered (a video editor's timeline, a
+/// calendar's day lanes, a slide show's animation pane); see `timeline.rs`.
+pub mod timeline;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
 
