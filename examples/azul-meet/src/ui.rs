@@ -332,8 +332,33 @@ fn tile(view: &CallView, t: &TileView, data: &RefAny, on_stage: bool) -> Dom {
     }
     Dom::create_div()
         .with_css(css.as_str())
+        .with_id(AzString::from(tile_id(t).as_str()))
         .with_child(picture)
         .with_child(text(&tile_label(t), TILE_LABEL))
+}
+
+/// A tile's DOM id, for scripts: `azmeet-tile-me-camera`, `azmeet-tile-ben-screen` (the name in
+/// lower case, every other character a dash).
+pub(crate) fn tile_id(t: &TileView) -> String {
+    let who = if t.me {
+        String::from("me")
+    } else {
+        t.name
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() {
+                    c.to_ascii_lowercase()
+                } else {
+                    '-'
+                }
+            })
+            .collect()
+    };
+    let kind = match t.kind {
+        TileKind::Camera => "camera",
+        TileKind::Screen => "screen",
+    };
+    format!("azmeet-tile-{who}-{kind}")
 }
 
 /// "Ada", "Ada · muted", "Ada's screen", "You".
@@ -932,4 +957,46 @@ fn choice(
         .with_accessibility_name(AzString::from(name))
         .with_on_choice_change(data.clone(), action)
         .dom()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tile(name: &str, me: bool, kind: TileKind) -> TileView {
+        TileView {
+            kind,
+            me,
+            name: name.to_string(),
+            marker: None,
+            muted: false,
+            speaking: false,
+        }
+    }
+
+    #[test]
+    fn a_tile_id_names_the_person_and_the_picture() {
+        assert_eq!(tile_id(&tile("Ada (you)", true, TileKind::Camera)), "azmeet-tile-me-camera");
+        assert_eq!(tile_id(&tile("Ben", false, TileKind::Screen)), "azmeet-tile-ben-screen");
+        assert_eq!(
+            tile_id(&tile("Cleo M.", false, TileKind::Camera)),
+            "azmeet-tile-cleo-m--camera"
+        );
+    }
+
+    #[test]
+    fn initials_are_the_first_letters_of_up_to_two_words() {
+        assert_eq!(initials("Ada Lovelace"), "AL");
+        assert_eq!(initials("ben"), "B");
+        assert_eq!(initials("a b c"), "AB");
+        assert_eq!(initials("   "), "?");
+    }
+
+    #[test]
+    fn a_tile_label_says_whose_screen_and_who_is_muted() {
+        let mut ada = tile("Ada", false, TileKind::Camera);
+        ada.muted = true;
+        assert_eq!(tile_label(&ada), "Ada · muted");
+        assert_eq!(tile_label(&tile("Ben", false, TileKind::Screen)), "Ben's screen");
+    }
 }
