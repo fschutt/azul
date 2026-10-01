@@ -76,6 +76,7 @@ mod audio;
 mod chat;
 mod rooms;
 mod routes;
+mod speaker;
 mod video_wire;
 
 use std::{
