@@ -527,11 +527,14 @@ def run(opts, logs):
     env.pop("AZMEET_WORKER", None)
     out = open(os.path.join(logs, "azcalendar.out"), "w")
     err = open(os.path.join(logs, "azcalendar.err"), "w")
-    app = subprocess.Popen([binary], env=env, stdout=out, stderr=err, stdin=subprocess.DEVNULL)
+    # The hours views are the week's; the window opens on the Week view whatever was saved.
+    app = subprocess.Popen(
+        [binary, "--screen", "week"], env=env, stdout=out, stderr=err, stdin=subprocess.DEVNULL
+    )
     failed = []
     try:
         dbg = Debug(opts.port, opts.timeout)
-        dbg.until("the week view", lambda: dbg.shows("This week"))
+        dbg.until("the week view", lambda: dbg.exists("#week-scroll"))
         if event_files(data):
             raise Failure("the data folder is not empty at the start")
         week = Week(dbg)
