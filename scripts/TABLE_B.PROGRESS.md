@@ -47,18 +47,15 @@ report section 2 (A's structure and table_width kept, my logic ported, twins fol
 - `572733e5f` RED row heights (7 WPT lines out) / GREEN `36b59205f` (baseline through blocks),
   `da2c0a9bc` (row/cell specified heights, baseline row growth), `b62b4bf22` (table height -> rows).
 
-## IN PROGRESS (last commit b62b4bf22)
-- next: RED for fixed layout - `layout/tests/a_fixed_table_takes_its_column_widths_from_its_first_row.rs`
-  (fixed only with a non-auto width; `col` widths; first-row cell px/% widths include padding and
-  border; auto columns share the rest; cells as wide as their column even with more padding) +
-  WPT fixed-table-layout-025/026/027 out. Then GREEN in `calculate_column_widths_fixed` and
-  `layout_table_fc` (`use_fixed_layout` needs a non-auto width), `col` widths in auto layout
-  (step 1, CSS 2.2 17.5.2.2 step 2), `layout_cell_for_height` content width clamped at 0.
+- `7b7f1c1f4` RED fixed layout (5 WPT lines out) / `e38be3f8e` GREEN (col widths, first-row cells
+  with padding/border, percentages of the columns' share, fixed only with a definite width,
+  content width clamped, col widths in auto layout).
+
+## IN PROGRESS (last commit e38be3f8e)
+- next: compile-free review of every changed region (`git diff 39092feee -- layout/src`), fix what
+  does not type-check by reading; then the report `scripts/TABLE_B_2026_10_01.md`.
 
 ## NEXT
-- `table-layout: fixed`: only with a non-auto width; `col` widths; percentages; padding/border in
-  the column width. WPT: fixed-table-layout-025..027.
-- Spans: single-span first, then by span; spread by max-content; rowspan heights incl. spacing.
 - Report `scripts/TABLE_B_2026_10_01.md`.
 
 ## Decisions (unattended)
