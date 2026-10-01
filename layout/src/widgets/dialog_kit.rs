@@ -264,7 +264,10 @@ pub(crate) const fn inner_theme(theme: OptionUiTheme) -> Option<UiTheme> {
 pub(crate) fn row_button(
     label: AzString,
     kind: crate::widgets::button::ButtonType,
-    click: Option<(azul_core::refany::RefAny, crate::widgets::button::ButtonOnClickCallbackType)>,
+    click: Option<(
+        azul_core::refany::RefAny,
+        crate::widgets::button::ButtonOnClickCallbackType,
+    )>,
     reason: Option<AzString>,
     theme: Option<UiTheme>,
     classes: (&'static str, &'static str),
@@ -303,6 +306,53 @@ pub(crate) fn row_button(
         .with_ids_and_classes(IdOrClassVec::from_vec(ids))
         .with_css_props(css)
         .with_child(dom)
+}
+
+/// A checkbox row: the box (named by `label`) and the label beside it,
+/// classed `class`. The box reports through `on_toggle` (its new state), a
+/// click on the label through `on_label` - both with `data`, the widget's
+/// own record of what the row is. The one shape every dialog widget's
+/// checkbox rows take ("I accept", an option, "Don't ask again").
+#[must_use]
+pub(crate) fn check_row(
+    label: &AzString,
+    checked: bool,
+    handlers: (
+        azul_core::refany::RefAny,
+        crate::widgets::check_box::CheckBoxOnToggleCallbackType,
+        crate::widgets::button::ButtonOnClickCallbackType,
+    ),
+    class: &'static str,
+    theme: Option<UiTheme>,
+    look: &DialogKitLook,
+) -> Dom {
+    use azul_core::{
+        callbacks::{CoreCallback, CoreCallbackData},
+        dom::{EventFilter, HoverEventFilter},
+        refany::OptionRefAny,
+    };
+    let (data, on_toggle, on_label) = handlers;
+    let mut check = crate::widgets::check_box::CheckBox::create(checked)
+        .with_accessibility_name(label.clone())
+        .with_on_toggle(data.clone(), on_toggle);
+    if let Some(t) = theme {
+        check = check.with_theme(t);
+    }
+    let text = line(label.clone(), CLICK_LABEL_BASE, &look.check_label).with_callbacks(
+        alloc::vec![CoreCallbackData {
+            event: EventFilter::Hover(HoverEventFilter::Click),
+            callback: CoreCallback {
+                cb: on_label as usize,
+                ctx: OptionRefAny::None,
+            },
+            refany: data,
+        }]
+        .into(),
+    );
+    Dom::create_div()
+        .with_ids_and_classes(self::class(class))
+        .with_css_props(part(ROW_MIDDLE_BASE, &look.check_row))
+        .with_children(DomVec::from_vec(alloc::vec![check.dom(), text]))
 }
 
 /// The class an inert button's box takes in the kit's rows.
@@ -464,7 +514,9 @@ pub(crate) static BUTTON_ROW_BASE: &[CssPropertyWithConditions] = &[
 /// A column that keeps its width in its row (a setting's label column).
 pub(crate) static FIXED_COLUMN_BASE: &[CssPropertyWithConditions] = &[
     simple(CssProperty::const_display(LayoutDisplay::Flex)),
-    simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+    simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
     simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
         inner: FloatValue::const_new(0),

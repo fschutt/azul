@@ -34,9 +34,9 @@ use alloc::vec::Vec;
 
 use azul_core::{
     a11y::{AccessibilityInfo, AccessibilityRole, AccessibilityState, AccessibilityStateVec},
-    callbacks::{CoreCallback, CoreCallbackData, Update},
-    dom::{Dom, DomVec, EventFilter, HoverEventFilter, TabIndex},
-    refany::{OptionRefAny, RefAny},
+    callbacks::Update,
+    dom::{Dom, DomVec, TabIndex},
+    refany::RefAny,
     window::{AzStringPair, StringPairVec},
 };
 use azul_css::{
@@ -52,10 +52,8 @@ use crate::{
     widgets::{
         alert::AlertKind,
         button::{Button, ButtonOnClickCallbackType},
-        check_box::{CheckBox, CheckBoxOnToggleCallbackType, CheckBoxState},
-        dialog_kit::{
-            self, DialogKitLook, CLICK_LABEL_BASE, FIXED_BASE, ROW_MIDDLE_BASE, SCROLL_BOX_BASE,
-        },
+        check_box::{CheckBoxOnToggleCallbackType, CheckBoxState},
+        dialog_kit::{self, DialogKitLook, FIXED_BASE, ROW_MIDDLE_BASE, SCROLL_BOX_BASE},
         info_bar::InfoBar,
         path_input::{PathInput, PathInputOnChangeCallbackType},
         progressbar::ProgressBar,
@@ -521,30 +519,18 @@ fn check_row(
         index,
         checked,
     });
-    let mut check = CheckBox::create(checked)
-        .with_accessibility_name(label.clone())
-        .with_on_toggle(
-            shared.clone(),
+    dialog_kit::check_row(
+        label,
+        checked,
+        (
+            shared,
             on_check_toggle as CheckBoxOnToggleCallbackType,
-        );
-    if let Some(t) = theme {
-        check = check.with_theme(t);
-    }
-    let text = dialog_kit::line(label.clone(), CLICK_LABEL_BASE, &look.check_label).with_callbacks(
-        alloc::vec![CoreCallbackData {
-            event: EventFilter::Hover(HoverEventFilter::Click),
-            callback: CoreCallback {
-                cb: on_check_label as usize,
-                ctx: OptionRefAny::None,
-            },
-            refany: shared,
-        }]
-        .into(),
-    );
-    Dom::create_div()
-        .with_ids_and_classes(dialog_kit::class(CHECK_ROW_CLASS))
-        .with_css_props(dialog_kit::part(ROW_MIDDLE_BASE, &look.check_row))
-        .with_children(DomVec::from_vec(alloc::vec![check.dom(), text]))
+            on_check_label as ButtonOnClickCallbackType,
+        ),
+        CHECK_ROW_CLASS,
+        theme,
+        look,
+    )
 }
 
 /// The option rows: an independent option a checkbox row (and its
@@ -1852,7 +1838,7 @@ mod wizard_pages_tests {
     use std::sync::{Arc, Mutex};
 
     use azul_core::{
-        dom::{DomId, DomNodeId, NodeId, NodeType},
+        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeId, NodeType},
         styled_dom::{NodeHierarchyItemId, StyledDom},
     };
 
