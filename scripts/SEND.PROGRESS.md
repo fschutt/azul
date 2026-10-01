@@ -19,9 +19,12 @@
 - 86b60af66 chore(send): progress file
 - 311a1dad0 feat(azmail): send.rs + azmail-send + the temporary micromail patch + supply chain
 - 72642e297 test(azmail): scripts/azmail_smtp_sink.py + scripts/azmail_send_test.py
+- 67d0d347a chore(send): progress
+- mini-mail-auth (branch azul-send-2026-10-01): 0f0592c + 62e06de REDs, 0e73dd3 fix (body
+  canonicalized by cb, simple keeps its last CRLF; 0.1.1)
 
 ## IN PROGRESS
-- report scripts/SEND_2026_10_01.md
+- report scripts/SEND_2026_10_01.md (next step: write it, commit it with this file)
 
 ## NEXT
 - (parent) build, run the suites listed in the report, publish micromail 0.2.0, drop the patch
