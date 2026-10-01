@@ -54,18 +54,22 @@ use azul::{
         BackstageOnNavSelectCallbackType, ButtonOnClickCallbackType,
         CellGridDataSourceCallbackType, CellGridOnEventCallbackType,
         CellGridStyleSourceCallbackType, RibbonOnTabClickCallbackType,
-        TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallbackType,
+        ShellSettingsLayoutOnCategoryCallbackType, TextInputOnTextInputCallbackType,
+        TextInputOnVirtualKeyDownCallbackType,
     },
     css::{DarkLightMode, HoverEventFilter},
     dialog::{FileDialog, FileOpenResult},
-    dom::{ButtonOnClickCallback, ClipboardContent},
+    dom::ButtonOnClickCallback,
     file::FilePath,
     option::{OptionColorU, OptionDarkLightMode, OptionFileTypeList, OptionRefAny, OptionString},
     pdf::Pdf,
     prelude::*,
-    shells::{DocumentShell, ShellThemeAccent, ShellThemeScope},
+    shells::{
+        DocumentShell, ShellSettingsLayout, ShellSettingsSection, ShellThemeAccent,
+        ShellThemeScope,
+    },
     str::String as AzString,
-    vec::{BackstageNavItemVec, CellGridSizeVec, StyledTextRunVec},
+    vec::{BackstageNavItemVec, CellGridSizeVec, StringVec},
     widgets::{
         Backstage, BackstageNavItem, Button, ButtonOnClick, CellGrid, CellGridCell,
         CellGridCellKind, CellGridCellRef, CellGridCellStyle, CellGridEditMode, CellGridEvent,
@@ -111,8 +115,8 @@ pub enum Screen {
 }
 
 /// The backstage's panes, in the nav's order.
-pub const BACKSTAGE_ITEMS: [&str; 8] = [
-    "Info", "New", "Open", "Save", "Save As", "Export", "Close", "About",
+pub const BACKSTAGE_ITEMS: [&str; 9] = [
+    "Info", "New", "Open", "Save", "Save As", "Export", "Close", "Options", "About",
 ];
 
 /// A side panel over the grid's right edge.
@@ -259,6 +263,8 @@ pub struct AppState {
     pub window: (f32, f32),
     /// The command line, until the window's startup has acted on it.
     pub args: Option<Args>,
+    /// The Options page's category.
+    pub settings_category: usize,
 }
 
 impl AppState {
@@ -294,6 +300,7 @@ impl AppState {
             workbooks: Vec::new(),
             window: (1280.0, 800.0),
             args: None,
+            settings_category: 0,
         }
     }
 
@@ -1784,7 +1791,7 @@ fn backstage(s: &AppState, app: &RefAny) -> Dom {
         .iter()
         .map(|label| {
             let item = BackstageNavItem::create(AzString::from(*label));
-            if *label == "About" {
+            if *label == "Options" {
                 item.with_gap_before()
             } else {
                 item
@@ -1886,6 +1893,30 @@ fn backstage(s: &AppState, app: &RefAny) -> Dom {
                     .with_on_click(app.clone(), on_new_blank as ButtonOnClickCallbackType)
                     .dom()
                     .with_css("flex-grow: 0; margin: 4px 0px; width: 220px;"),
+            );
+        }
+        "Options" => {
+            let mut appearance = Dom::create_div().with_css("display: flex; flex-direction: column;");
+            appearance.add_child(line("The look follows the app theme and the system's mode; pick them here."));
+            appearance.add_child(button("Flat", Action::ThemeFlat));
+            appearance.add_child(button("Flora", Action::ThemeFlora));
+            appearance.add_child(button("Light", Action::ModeLight));
+            appearance.add_child(button("Dark", Action::ModeDark));
+            let files = Dom::create_div()
+                .with_css("display: flex; flex-direction: column;")
+                .with_child(line(&format!("Data folder: {}", s.data_root.display())))
+                .with_child(line("Workbooks: sheets/<id>.xlsx with a sheets/<id>.json sidecar; exports: exports/."))
+                .with_child(line("Set AZSHEETS_DATA to use another folder."));
+            pane.add_child(
+                ShellSettingsLayout::create(StringVec::from(vec![
+                    AzString::from("Appearance"),
+                    AzString::from("Files"),
+                ]))
+                .with_active_category(s.settings_category)
+                .with_on_category(app.clone(), on_settings_category as ShellSettingsLayoutOnCategoryCallbackType)
+                .with_section(ShellSettingsSection::create(AzString::from("Appearance"), appearance))
+                .with_section(ShellSettingsSection::create(AzString::from("Files"), files))
+                .dom(),
             );
         }
         _ => {
@@ -2834,6 +2865,10 @@ extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, index: 
             _ => backstage_pane(info, app, s, index),
         }
     })
+}
+
+extern "C" fn on_settings_category(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    with_app(&mut data, &mut info, |_, _, s| s.settings_category = index)
 }
 
 extern "C" fn on_backstage_back(mut data: RefAny, mut info: CallbackInfo) -> Update {
