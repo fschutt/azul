@@ -2094,8 +2094,20 @@ pub fn calculate_used_size_for_node(
                         // For inline elements, 'auto' width is the intrinsic/max-content width
                         intrinsic.max_content_width
                     }
+                    // CSS 2.1 17.5.2.2: an auto-width table is as wide as
+                    // its columns want, within its containing block:
+                    // max(MIN, min(MAX, available)). Its MAX-content alone, as
+                    // this was, ran a 600px newsletter table 2886px wide at a
+                    // 760px viewport. (The intrinsic sizes carry the cell
+                    // spacing and the caption; a `width` is floored at MIN
+                    // below, after the box-sizing conversion.)
                     LayoutDisplay::Table | LayoutDisplay::InlineTable => {
-                        intrinsic.max_content_width
+                        let available_width = shrink_to_fit_available_width(cb_w, box_props);
+                        intrinsic
+                            .max_content_width
+                            .min(available_width)
+                            .max(intrinsic.min_content_width)
+                            .max(0.0)
                     }
                     // Table cells: during intrinsic measurement, intrinsic sizes
                     // aren't known yet (0). Use containing block width so content
@@ -2601,6 +2613,29 @@ pub fn calculate_used_size_for_node(
                 + box_props.border.bottom;
             (border_box_width, border_box_height)
         }
+    };
+
+    // CSS 2.1 17.5.2.2: a table is never narrower than its columns' minimum
+    // (MIN, carried by its intrinsic min-content: the columns, the cell
+    // spacing, the caption) - not with a smaller `width`, not under a
+    // `max-width`. Its border box is at least MIN plus its padding and
+    // border, whatever its box-sizing.
+    let border_box_width = if !is_vertical
+        && matches!(
+            display.unwrap_or_default(),
+            LayoutDisplay::Table | LayoutDisplay::InlineTable
+        )
+        && intrinsic.min_content_width.is_finite()
+    {
+        border_box_width.max(
+            intrinsic.min_content_width
+                + box_props.padding.left
+                + box_props.padding.right
+                + box_props.border.left
+                + box_props.border.right,
+        )
+    } else {
+        border_box_width
     };
 
     // +spec:block-formatting-context:c6fb58 - vertical writing modes swap layout dimensions

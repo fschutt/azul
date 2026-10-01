@@ -15,8 +15,8 @@ Brief: scratchpad `TABLE_A_go.md` (widths, row groups, presentational attributes
   replaced), layout_table_fc reads the table width from `used_size` and gives the columns the content
   width minus the spacing (`columns_width`).
 - (b) DONE (c06e62f4a col widths; next commit: sizing.rs intrinsic via table_width + px override exemptions).
-- Then (c): `calculate_used_size_for_node`: auto table = clamp(MIN, avail, MAX), border box floored at MIN.
-- Then (d): fc.rs `calculate_column_widths_auto_with_width` Step 2 via `distribute_to_columns` with
+- (c) DONE (next commit): auto table = clamp(MIN, avail, MAX), border box floored at MIN.
+- NEXT STEP (d): fc.rs `calculate_column_widths_auto_with_width` Step 2 via `distribute_to_columns` with
   percent/fixed from single-span cells and `<col>`s.
 
 ## NEXT
