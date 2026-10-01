@@ -3408,20 +3408,14 @@ pub(crate) mod fixtures {
         }
     }
 
-    /// Row 1 bold, B2 on a yellow fill.
+    /// Row 1 bold, the rest plain. (No app colours here: the fixture is
+    /// also the lint manifest's, whose theme checks are about the grid's
+    /// own looks; a user fill is a plain colour by design.)
     pub(crate) extern "C" fn looks(_: RefAny, cell: CellGridCellRef) -> CellGridCellStyle {
-        let mut s = CellGridCellStyle::default();
-        s.bold = cell.row == 0;
-        if cell.row == 1 && cell.column == 1 {
-            s.fill = Some(ColorU {
-                r: 255,
-                g: 235,
-                b: 59,
-                a: 255,
-            })
-            .into();
+        CellGridCellStyle {
+            bold: cell.row == 0,
+            ..CellGridCellStyle::default()
         }
-        s
     }
 
     /// A 1000 x 50 grid, 400 x 200 px (6 columns and 9 rows in view), the
