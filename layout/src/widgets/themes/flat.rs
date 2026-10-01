@@ -6027,3 +6027,54 @@ pub(crate) fn timeline_look() -> crate::widgets::timeline::TimelineLook {
 pub fn timeline(t: crate::widgets::timeline::Timeline) -> Dom {
     crate::widgets::timeline::build(t, &timeline_look())
 }
+// ==== selection_adorner ====
+//
+// The flat selection adorner is PowerPoint 2013's: a hairline grey frame,
+// white square handles ringed in the same grey, a round rotate handle on a
+// grey stem, the smart guides in the orange-red of Office's alignment
+// guides, the marquee a pale blue wash in a blue hairline; the canvas's
+// focus is the field ring inside it. At night the grey lightens, the handles
+// take the desktop's surface and the blue lifts.
+
+const ADORNER_FRAME_LIGHT: ColorU = ColorU::new(0x7A, 0x7A, 0x7A, 255);
+const ADORNER_FRAME_DARK: ColorU = ColorU::new(0xB4, 0xB4, 0xB4, 255);
+const ADORNER_HANDLE_LIGHT: ColorU = ColorU::new(0xFF, 0xFF, 0xFF, 255);
+const ADORNER_GUIDE_LIGHT: ColorU = ColorU::new(0xE0, 0x4E, 0x39, 255);
+const ADORNER_GUIDE_DARK: ColorU = ColorU::new(0xFF, 0x7B, 0x63, 255);
+const ADORNER_MARQUEE_LIGHT: ColorU = ColorU::new(0x2B, 0x57, 0x9A, 31);
+const ADORNER_MARQUEE_DARK: ColorU = ColorU::new(0x6C, 0xA0, 0xE8, 46);
+const ADORNER_MARQUEE_EDGE_LIGHT: ColorU = ColorU::new(0x2B, 0x57, 0x9A, 255);
+const ADORNER_MARQUEE_EDGE_DARK: ColorU = ColorU::new(0x6C, 0xA0, 0xE8, 255);
+
+/// Flat's selection-adorner look.
+#[must_use]
+pub(crate) fn selection_adorner_look() -> crate::widgets::selection_adorner::SelectionAdornerLook {
+    use super::decl;
+
+    let mut frame = decl::border(1).to_vec();
+    frame.extend(decl::themed_border_color(ADORNER_FRAME_LIGHT, ADORNER_FRAME_DARK));
+
+    let mut handle = decl::border(1).to_vec();
+    handle.extend(decl::themed_border_color(ADORNER_FRAME_LIGHT, ADORNER_FRAME_DARK));
+    handle.extend(decl::themed_fill(ADORNER_HANDLE_LIGHT, DARK_SUR));
+
+    let mut marquee = decl::themed_fill(ADORNER_MARQUEE_LIGHT, ADORNER_MARQUEE_DARK).to_vec();
+    marquee.extend(decl::border(1));
+    marquee.extend(decl::themed_border_color(
+        ADORNER_MARQUEE_EDGE_LIGHT,
+        ADORNER_MARQUEE_EDGE_DARK,
+    ));
+
+    crate::widgets::selection_adorner::SelectionAdornerLook {
+        root: decl::focus_halo_inset(FIELD_RING, DARK_ACC).to_vec(),
+        frame: frame.clone(),
+        group: frame,
+        editing: decl::themed_fill(ADORNER_FRAME_LIGHT, ADORNER_FRAME_DARK).to_vec(),
+        handle,
+        rotate: decl::radius(4).to_vec(),
+        stem: decl::themed_fill(ADORNER_FRAME_LIGHT, ADORNER_FRAME_DARK).to_vec(),
+        guide: decl::themed_fill(ADORNER_GUIDE_LIGHT, ADORNER_GUIDE_DARK).to_vec(),
+        marquee,
+        marker: None,
+    }
+}

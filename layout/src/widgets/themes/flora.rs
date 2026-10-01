@@ -7618,3 +7618,47 @@ pub(crate) fn timeline_look() -> crate::widgets::timeline::TimelineLook {
 pub fn timeline(t: crate::widgets::timeline::Timeline) -> Dom {
     crate::widgets::timeline::build(t, &timeline_look())
 }
+// ==== selection_adorner ====
+//
+// A flora selection adorner draws in the accent stone: the frame a hairline
+// of --fl-acc, the handles round paper buttons ringed in it, the rotate
+// handle a filled accent dot on an accent stem, the smart guides in clay,
+// the marquee a soft accent wash in an accent hairline; focus is the accent
+// halo inside the canvas. At night the accent lifts to its glow and the
+// handles take the night page.
+
+const ADORNER_GUIDE_LIGHT: ColorU = ColorU::new(0xB4, 0x5A, 0x3C, 255);
+const ADORNER_GUIDE_DARK: ColorU = ColorU::new(0xE0, 0x9A, 0x7A, 255);
+const ADORNER_MARQUEE_LIGHT: ColorU = ColorU::new(0x2F, 0x4A, 0x85, 28);
+const ADORNER_MARQUEE_DARK: ColorU = ColorU::new(0x7A, 0x93, 0xC6, 40);
+
+/// Flora's selection-adorner look.
+#[must_use]
+pub(crate) fn selection_adorner_look() -> crate::widgets::selection_adorner::SelectionAdornerLook {
+    use super::decl;
+
+    let mut frame = decl::border(1).to_vec();
+    frame.extend(decl::themed_border_color(LIGHT_ACC, DARK_GLOW));
+
+    let mut handle = decl::border(1).to_vec();
+    handle.extend(decl::themed_border_color(LIGHT_ACC, DARK_GLOW));
+    handle.extend(decl::themed_fill(LIGHT_PG, DARK_PG));
+    handle.extend(decl::radius(4));
+
+    let mut marquee = decl::themed_fill(ADORNER_MARQUEE_LIGHT, ADORNER_MARQUEE_DARK).to_vec();
+    marquee.extend(decl::border(1));
+    marquee.extend(decl::themed_border_color(LIGHT_ACC, DARK_GLOW));
+
+    crate::widgets::selection_adorner::SelectionAdornerLook {
+        root: decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW).to_vec(),
+        frame: frame.clone(),
+        group: frame,
+        editing: decl::themed_fill(LIGHT_GLOW, DARK_GLOW).to_vec(),
+        handle,
+        rotate: decl::themed_fill(LIGHT_ACC, DARK_GLOW).to_vec(),
+        stem: decl::themed_fill(LIGHT_ACC, DARK_GLOW).to_vec(),
+        guide: decl::themed_fill(ADORNER_GUIDE_LIGHT, ADORNER_GUIDE_DARK).to_vec(),
+        marquee,
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}
