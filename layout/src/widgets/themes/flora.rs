@@ -7434,6 +7434,15 @@ pub(crate) fn dialog_kit_look() -> crate::widgets::dialog_kit::DialogKitLook {
     icon_question.extend(decl::margin(0, 16, 0, 0));
     icon_question.extend(decl::themed_ink(LIGHT_ACC, DARK_GLOW));
 
+    let warning = AlertKind::Warning;
+    let mut notice = vec![kit::font_size(12)];
+    notice.extend(decl::margin(0, 12, 0, 12));
+    notice.extend(decl::themed_ink(warning.colors().2, warning.dark_colors().2));
+
+    let mut category_icon = vec![kit::font_size(16)];
+    category_icon.extend(decl::margin(0, 8, 0, 0));
+    category_icon.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
     let mut buttons = decl::padding(10, 16, 10, 16).to_vec();
     buttons.extend(flora_strip_above());
 
@@ -7469,6 +7478,11 @@ pub(crate) fn dialog_kit_look() -> crate::widgets::dialog_kit::DialogKitLook {
         icon_question,
         buttons,
         button: decl::margin(0, 0, 0, 8).to_vec(),
+        held: vec![CssPropertyWithConditions::simple(CssProperty::const_opacity(
+            StyleOpacity::const_new(50),
+        ))],
+        notice,
+        category_icon,
         marker: Some(super::style_kit::FLORA_CLASS),
     }
 }

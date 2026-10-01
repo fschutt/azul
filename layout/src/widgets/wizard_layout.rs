@@ -55,7 +55,7 @@ use azul_css::{
 use crate::{
     callbacks::{Callback, CallbackInfo},
     widgets::{
-        button::{Button, ButtonOnClickCallbackType, ButtonType},
+        button::{ButtonOnClickCallbackType, ButtonType},
         stepper::{Stepper, StepperOnStepChangeCallbackType, StepperState},
     },
 };
@@ -76,9 +76,6 @@ static BUTTONS_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
 ))];
 static SPACER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-wizard-layout-spacer",
-))];
-static BUTTON_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
-    "__azul-native-wizard-layout-button",
 ))];
 
 /// The banner's class (a Windows installer's band over the page).
@@ -644,9 +641,8 @@ extern "C" fn on_rail_step(mut data: RefAny, info: CallbackInfo, state: StepperS
 /// toolkit's own widgets, pinned to the layout's theme (or following the
 /// app theme with it).
 pub(crate) fn build(wizard: WizardLayout, look: &WizardLayoutLook) -> Dom {
-    use azul_core::{
-        a11y::{AccessibilityInfo, AccessibilityRole, AccessibilityState, AccessibilityStateVec},
-        dom::TabIndex,
+    use azul_core::a11y::{
+        AccessibilityInfo, AccessibilityRole, AccessibilityState, AccessibilityStateVec,
     };
     use crate::widgets::themes::theme_blocks::stack_parts;
 
@@ -754,33 +750,16 @@ pub(crate) fn build(wizard: WizardLayout, look: &WizardLayoutLook) -> Dom {
                   kind: ButtonType,
                   on_click: Option<ButtonOnClickCallbackType>,
                   reason: Option<AzString>| {
-        let inert = on_click.is_none();
-        let mut b = Button::with_type(label, kind);
-        if let Some(on_click) = on_click {
-            b = b.with_on_click(shared.clone(), on_click);
-        }
-        if let Some(theme) = theme {
-            b = b.with_theme(theme);
-        }
-        let mut dom = b.dom();
-        let mut classes: Vec<IdOrClass> = BUTTON_CLASS.to_vec();
-        let mut css = part(WIZARD_LAYOUT_BUTTON_BASE, &look.button);
-        if inert {
-            dom.set_tab_index(TabIndex::NoKeyboardFocus);
-            dom = dom.with_accessibility_assign(AccessibilityInfo {
-                states: AccessibilityStateVec::from_vec(alloc::vec![
-                    AccessibilityState::Unavailable
-                ]),
-                description: reason.filter(|r| !r.as_str().is_empty()).into(),
-                ..Default::default()
-            });
-            classes.push(Class(AzString::from_const_str(HELD_CLASS)));
-            css = stack_parts(&css, &CssPropertyWithConditionsVec::from_vec(look.held.clone()));
-        }
-        Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
-            .with_css_props(css)
-            .with_child(dom)
+        crate::widgets::dialog_kit::row_button(
+            label,
+            kind,
+            on_click.map(|cb| (shared.clone(), cb)),
+            reason,
+            theme,
+            ("__azul-native-wizard-layout-button", HELD_CLASS),
+            WIZARD_LAYOUT_BUTTON_BASE,
+            (&look.button, &look.held),
+        )
     };
     let mut buttons: Vec<Dom> = Vec::with_capacity(5);
     if !cancel_label.as_str().is_empty() {

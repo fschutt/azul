@@ -118,6 +118,12 @@ pub(crate) struct DialogKitLook {
     pub buttons: Vec<CssPropertyWithConditions>,
     /// The box around one button of a row (its spacing).
     pub button: Vec<CssPropertyWithConditions>,
+    /// Added to the box of an inert button (dimmed).
+    pub held: Vec<CssPropertyWithConditions>,
+    /// A notice in a button row ("Restart to apply some changes.").
+    pub notice: Vec<CssPropertyWithConditions>,
+    /// The glyph before a settings category's name.
+    pub category_icon: Vec<CssPropertyWithConditions>,
 
     /// The theme's marker class on every root, if it has one.
     pub marker: Option<&'static str>,
@@ -176,6 +182,9 @@ pub(crate) fn follow_look(structure: UiTheme) -> DialogKitLook {
         icon_question,
         buttons,
         button,
+        held,
+        notice,
+        category_icon,
     )
 }
 
@@ -244,6 +253,62 @@ pub(crate) fn line(
 pub(crate) const fn inner_theme(theme: OptionUiTheme) -> Option<UiTheme> {
     crate::widgets::shells::inner_theme(theme)
 }
+
+/// A button of a dialog's button row, in its box: with a click (`data`
+/// and `on_click`), or - with none - INERT: no click, no Tab stop,
+/// announced unavailable (described by `reason` when there is one), its box
+/// dimmed by the `held` skin. The one shape every dialog widget's buttons
+/// take (the wizard's Back / Next, a dialog's OK / Apply).
+#[allow(clippy::too_many_arguments)]
+#[must_use]
+pub(crate) fn row_button(
+    label: AzString,
+    kind: crate::widgets::button::ButtonType,
+    click: Option<(azul_core::refany::RefAny, crate::widgets::button::ButtonOnClickCallbackType)>,
+    reason: Option<AzString>,
+    theme: Option<UiTheme>,
+    classes: (&'static str, &'static str),
+    base: &[CssPropertyWithConditions],
+    skins: (&[CssPropertyWithConditions], &[CssPropertyWithConditions]),
+) -> Dom {
+    use azul_core::{
+        a11y::{AccessibilityInfo, AccessibilityState, AccessibilityStateVec},
+        dom::TabIndex,
+    };
+    let inert = click.is_none();
+    let mut b = crate::widgets::button::Button::with_type(label, kind);
+    if let Some((data, on_click)) = click {
+        b = b.with_on_click(data, on_click);
+    }
+    if let Some(theme) = theme {
+        b = b.with_theme(theme);
+    }
+    let mut dom = b.dom();
+    let mut ids: Vec<IdOrClass> = alloc::vec![Class(AzString::from_const_str(classes.0))];
+    let mut css = part(base, skins.0);
+    if inert {
+        dom.set_tab_index(TabIndex::NoKeyboardFocus);
+        dom = dom.with_accessibility_assign(AccessibilityInfo {
+            states: AccessibilityStateVec::from_vec(alloc::vec![AccessibilityState::Unavailable]),
+            description: reason.filter(|r| !r.as_str().is_empty()).into(),
+            ..Default::default()
+        });
+        ids.push(Class(AzString::from_const_str(classes.1)));
+        css = crate::widgets::themes::theme_blocks::stack_parts(
+            &css,
+            &CssPropertyWithConditionsVec::from_vec(skins.1.to_vec()),
+        );
+    }
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(ids))
+        .with_css_props(css)
+        .with_child(dom)
+}
+
+/// The class an inert button's box takes in the kit's rows.
+pub const HELD_CLASS: &str = "__azul-native-dialog-kit-held";
+/// The class of a button's box in the kit's rows.
+pub const BUTTON_BOX_CLASS: &str = "__azul-native-dialog-kit-button";
 
 // ---------------------------------------------------------------------------
 // Search matches
@@ -394,6 +459,15 @@ pub(crate) static BUTTON_ROW_BASE: &[CssPropertyWithConditions] = &[
         inner: FloatValue::const_new(0),
     })),
     simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// A button's box keeps its size in its row.
+pub(crate) static BUTTON_BOX_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
 ];
 
 /// A spacer that pushes the rest of its row to the right.
