@@ -800,7 +800,7 @@ extern "C" fn on_reply(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo)
     let Some(mut guard) = app.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    apply_reply(&mut info, &handle, &mut guard, reply, io);
+    apply_reply(&mut info, &handle, &mut *guard, reply, io);
     Update::RefreshDom
 }
 
@@ -2005,7 +2005,7 @@ fn with_app(
     let Some(mut guard) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    f(info, &app, &mut guard);
+    f(info, &app, &mut *guard);
     Update::RefreshDom
 }
 
