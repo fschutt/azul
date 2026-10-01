@@ -9,6 +9,9 @@ Brief: scratchpad/LENIENT_go.md (lenient XML/HTML, components audit, paste parse
   the_two_xml_loaders_build_one_tree.rs; stubs in core xml_html.rs + layout parse_html*
 - `946585e03` GREEN 1: core lenient loader + full entity table
 - `bc27da327` GREEN 2: layout strict loaders on the shared builder, FastDomSink, lenient API
+- `7280ef503` GREEN 3: core DOM builders lower-case names, foreign elements dropped only in svg, o:p = Span
+- `8a9e682d7` builder.rs twins (VOID_ELEMENTS / AUTO_CLOSE) -> core is_void_element / start_tag_closes
+- `86aa95f82` RED paste / `f35506a22` GREEN paste (lenient tree, o:p inline, Word mso-list lists)
 
 ## IN PROGRESS
 - Design: one tree construction (`azul_core::xml::html`) for every loader; a lenient
@@ -21,11 +24,12 @@ Brief: scratchpad/LENIENT_go.md (lenient XML/HTML, components audit, paste parse
 - The layout splice (both strict loaders onto the builder, FastDomSink, feed_xml_tokens) is
   parked at scratchpad/lenient/mod.rs.new (made by scratchpad/lenient/splice_loaders.py from the
   base file); layout/src/xml/mod.rs is back at base for the RED commit.
-- NEXT STEP (GREEN 3): core/src/xml.rs DOM builders (xml_node_to_dom_fast,
-  xml_node_to_fast_dom, collect_style_text): element names lower-cased instead of
-  normalize_casing; element_draws_nothing only for children inside an <svg>;
-  tag_to_node_type / tag_to_node_type_tag: an unknown foreign-prefixed tag (`o:p`) -> Span.
-  Then item 3 (paste), item 2 (components), report.
+- NEXT STEP: item 2 components. RED test layout/tests/builtin_elements_honour_their_html_arguments.rs
+  (ol start/type/reversed, li value, ul type, img width%/align/border/hspace, font face/size/color,
+  center, div/p/h align, body bgcolor/text) via parse_html_to_styled_dom + computed props / counters.
+  GREEN in core/src/xml.rs (builtin_data_model fields + apply_builtin_element_args presentational
+  hints) + layout/src/solver3/cache.rs compute_counters (reversed, li value).
+  Then list-style-position: inside (RED + root cause), report.
 
 ## NEXT
 1. RED: lenient parse of the mail corpus + E-XML-3 (the two loaders agree).
