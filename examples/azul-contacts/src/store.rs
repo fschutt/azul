@@ -24,38 +24,69 @@ pub const STORE_VERSION: Version = Version::V4;
 /// letters, digits, `-`, `_`, `.`, not starting with a dot, at most 100 long.
 #[must_use]
 pub fn is_safe_uid(uid: &str) -> bool {
-        todo!("RED: is_safe_uid")
-    }
+    !uid.is_empty()
+        && uid.len() <= 100
+        && !uid.starts_with('.')
+        && uid.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
 
 /// `contacts/<uid>.vcf`.
 #[must_use]
 pub fn contact_key(uid: &str) -> String {
-        todo!("RED: contact_key")
-    }
+    format!("{APP_FOLDER}/{uid}{SUFFIX}")
+}
 
 /// The UID of a contact file's key (`contacts/<uid>.vcf`).
 #[must_use]
 pub fn uid_of_key(key: &str) -> Option<String> {
-        todo!("RED: uid_of_key")
+    let name = key.strip_prefix(APP_FOLDER)?.strip_prefix('/')?;
+    if name.contains('/') {
+        return None; // not directly in the folder
     }
+    let uid = name.strip_suffix(SUFFIX)?;
+    is_safe_uid(uid).then(|| uid.to_string())
+}
 
 /// Gives a contact a new UID if it has none that can name a file.
 pub fn ensure_uid(c: &mut Contact) {
-        todo!("RED: ensure_uid")
+    if !is_safe_uid(&c.uid) {
+        c.uid = azul_appkit::data::new_uuid();
     }
+}
 
 /// The file of a contact: its key and its bytes.
 #[must_use]
 pub fn file_of(c: &Contact) -> (String, Vec<u8>) {
-        todo!("RED: file_of")
-    }
+    (contact_key(&c.uid), c.to_vcf(STORE_VERSION).into_bytes())
+}
 
 /// Reads the contact files (`(key, bytes)`, as the file jobs return them):
 /// the contacts, and what could not be read.
 #[must_use]
 pub fn load(files: &[(String, Vec<u8>)]) -> (Vec<Contact>, Vec<String>) {
-        todo!("RED: load")
+    let mut contacts = Vec::new();
+    let mut problems = Vec::new();
+    for (key, bytes) in files {
+        let Some(uid) = uid_of_key(key) else {
+            problems.push(format!("{key}: not a contact file name"));
+            continue;
+        };
+        let text = String::from_utf8_lossy(bytes);
+        let (mut cards, card_problems) = parse_vcf(&text);
+        problems.extend(card_problems.into_iter().map(|p| format!("{key}: {p}")));
+        if cards.is_empty() {
+            problems.push(format!("{key}: no vCard in the file"));
+            continue;
+        }
+        if cards.len() > 1 {
+            problems.push(format!("{key}: {} cards, the first is used", cards.len()));
+        }
+        let mut c = cards.swap_remove(0);
+        c.uid = uid;
+        contacts.push(c);
     }
+    (contacts, problems)
+}
 
 /// What an imported card is to the address book.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -80,20 +111,67 @@ pub struct ImportRow {
 /// The import preview of a `.vcf` text against the address book.
 #[must_use]
 pub fn import_preview(text: &str, existing: &[Contact]) -> (Vec<ImportRow>, Vec<String>) {
-        todo!("RED: import_preview")
+    let (cards, problems) = parse_vcf(text);
+    let mut rows: Vec<ImportRow> = Vec::new();
+    for mut c in cards {
+        let same_uid = (!c.uid.is_empty())
+            .then(|| existing.iter().position(|e| e.uid == c.uid))
+            .flatten();
+        let status = match same_uid {
+            Some(i) => ImportStatus::Update(i),
+            None => {
+                ensure_uid(&mut c);
+                let best = existing
+                    .iter()
+                    .enumerate()
+                    .map(|(i, e)| (i, similarity(&c, e).0))
+                    .filter(|(_, s)| *s >= THRESHOLD)
+                    .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+                match best {
+                    Some((i, s)) => ImportStatus::Duplicate(i, s),
+                    None => ImportStatus::New,
+                }
+            }
+        };
+        // Two cards of one file with one UID: the second gets its own.
+        if rows.iter().any(|r| r.contact.uid == c.uid) {
+            c.uid = azul_appkit::data::new_uuid();
+        }
+        let selected = status == ImportStatus::New;
+        rows.push(ImportRow {
+            contact: c,
+            status,
+            selected,
+        });
     }
+    (rows, problems)
+}
 
 /// The import summary: `55 new · 3 duplicates · 1 update`.
 #[must_use]
 pub fn import_summary(rows: &[ImportRow]) -> String {
-        todo!("RED: import_summary")
+    let new = rows.iter().filter(|r| r.status == ImportStatus::New).count();
+    let dup = rows.iter().filter(|r| matches!(r.status, ImportStatus::Duplicate(..))).count();
+    let upd = rows.iter().filter(|r| matches!(r.status, ImportStatus::Update(_))).count();
+    let mut parts = vec![format!("{new} new")];
+    if dup > 0 {
+        parts.push(format!("{dup} possible duplicate{}", if dup == 1 { "" } else { "s" }));
     }
+    if upd > 0 {
+        parts.push(format!("{upd} update{}", if upd == 1 { "" } else { "s" }));
+    }
+    parts.join(" \u{b7} ")
+}
 
 /// The chosen contacts as one `.vcf` text.
 #[must_use]
 pub fn export(contacts: &[Contact], indices: &[usize], version: Version) -> String {
-        todo!("RED: export")
-    }
+    let chosen: Vec<Contact> = indices
+        .iter()
+        .filter_map(|&i| contacts.get(i).cloned())
+        .collect();
+    write_vcf(&chosen, version)
+}
 
 #[cfg(test)]
 mod tests {
