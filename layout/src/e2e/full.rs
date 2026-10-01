@@ -12784,7 +12784,50 @@ pub(crate) fn parse_virtual_keycode(key: &str) -> Option<azul_core::window::Virt
         "meta" | "super" | "lwin" | "lmeta" => Some(VirtualKeyCode::LWin),
         "rwin" | "rmeta" => Some(VirtualKeyCode::RWin),
 
-        _ => None,
+        // Punctuation: the word, and the character for a printable key.
+        "plus" | "+" => Some(VirtualKeyCode::Plus),
+        "minus" | "-" => Some(VirtualKeyCode::Minus),
+        "equals" | "=" => Some(VirtualKeyCode::Equals),
+        "asterisk" | "*" => Some(VirtualKeyCode::Asterisk),
+        "slash" | "/" => Some(VirtualKeyCode::Slash),
+        "backslash" | "\\" => Some(VirtualKeyCode::Backslash),
+        "period" | "." => Some(VirtualKeyCode::Period),
+        "comma" | "," => Some(VirtualKeyCode::Comma),
+        "semicolon" | ";" => Some(VirtualKeyCode::Semicolon),
+        "colon" | ":" => Some(VirtualKeyCode::Colon),
+        "apostrophe" | "'" => Some(VirtualKeyCode::Apostrophe),
+        "grave" | "`" => Some(VirtualKeyCode::Grave),
+        "lbracket" | "[" => Some(VirtualKeyCode::LBracket),
+        "rbracket" | "]" => Some(VirtualKeyCode::RBracket),
+        "caret" | "^" => Some(VirtualKeyCode::Caret),
+        "at" | "@" => Some(VirtualKeyCode::At),
+        "underline" | "_" => Some(VirtualKeyCode::Underline),
+
+        // The numeric keypad: `numpad7` or `numpad_7`, `numpadadd` or `numpad_add`.
+        other => match other.strip_prefix("numpad") {
+            Some(rest) => match rest.strip_prefix('_').unwrap_or(rest) {
+                "0" => Some(VirtualKeyCode::Numpad0),
+                "1" => Some(VirtualKeyCode::Numpad1),
+                "2" => Some(VirtualKeyCode::Numpad2),
+                "3" => Some(VirtualKeyCode::Numpad3),
+                "4" => Some(VirtualKeyCode::Numpad4),
+                "5" => Some(VirtualKeyCode::Numpad5),
+                "6" => Some(VirtualKeyCode::Numpad6),
+                "7" => Some(VirtualKeyCode::Numpad7),
+                "8" => Some(VirtualKeyCode::Numpad8),
+                "9" => Some(VirtualKeyCode::Numpad9),
+                "add" => Some(VirtualKeyCode::NumpadAdd),
+                "subtract" => Some(VirtualKeyCode::NumpadSubtract),
+                "multiply" => Some(VirtualKeyCode::NumpadMultiply),
+                "divide" => Some(VirtualKeyCode::NumpadDivide),
+                "decimal" => Some(VirtualKeyCode::NumpadDecimal),
+                "comma" => Some(VirtualKeyCode::NumpadComma),
+                "enter" => Some(VirtualKeyCode::NumpadEnter),
+                "equals" => Some(VirtualKeyCode::NumpadEquals),
+                _ => None,
+            },
+            None => None,
+        },
     }
 }
 
