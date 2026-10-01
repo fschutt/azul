@@ -159,15 +159,16 @@ pub extern "C" fn on_close_requested(mut data: RefAny, mut info: CallbackInfo) -
         return Update::DoNothing;
     };
     let state = &mut *guard;
-    let pending = state.library.notes.iter().any(|n| n.dirty) || !state.saving.is_empty();
-    if !pending {
+    save_all(&mut info, &app, state, true);
+    if state.saving.is_empty() {
+        // Nothing on the way (a dirty note whose file already says the
+        // same is clean now): the close goes ahead.
         return Update::DoNothing;
     }
     let mut window = info.get_current_window_state();
     window.flags.close_requested = false;
     info.modify_window_state(window);
     state.closing = true;
-    save_all(&mut info, &app, state, true);
     Update::RefreshDom
 }
 
@@ -471,9 +472,12 @@ fn apply(info: &mut CallbackInfo, app: &RefAny, state: &mut AppState, outcome: O
                     let dirty = state.library.notes.iter().any(|n| n.dirty);
                     state.status = if dirty { Status::Editing } else { Status::Saved };
                     if state.closing {
+                        // Edits that came in meanwhile are saved too; the
+                        // window closes once nothing is on the way.
                         if dirty {
                             save_all(info, app, state, true);
-                        } else if state.saving.is_empty() {
+                        }
+                        if state.saving.is_empty() {
                             info.close_window();
                         }
                     }
