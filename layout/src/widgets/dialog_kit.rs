@@ -355,6 +355,14 @@ pub(crate) fn check_row(
         .with_children(DomVec::from_vec(alloc::vec![check.dom(), text]))
 }
 
+/// `percent` as a person reads it: "42 %", clamped to 0..100.
+#[must_use]
+pub(crate) fn percent_text(percent: f32) -> AzString {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let p = percent.clamp(0.0, 100.0).round() as u32;
+    AzString::from(alloc::format!("{p} %"))
+}
+
 /// The class an inert button's box takes in the kit's rows.
 pub const HELD_CLASS: &str = "__azul-native-dialog-kit-held";
 /// The class of a button's box in the kit's rows.

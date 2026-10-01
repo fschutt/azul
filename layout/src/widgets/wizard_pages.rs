@@ -1642,13 +1642,6 @@ page_theme_and_dom!(
     WizardProgressPage::create(0.0)
 );
 
-/// `percent` as a person reads it: "42 %", clamped to 0..100.
-fn percent_text(percent: f32) -> AzString {
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let p = percent.clamp(0.0, 100.0).round() as u32;
-    AzString::from(alloc::format!("{p} %"))
-}
-
 fn build_progress(page: WizardProgressPage, look: &DialogKitLook) -> Dom {
     let theme = dialog_kit::inner_theme(page.theme);
     let mut children: Vec<Dom> = Vec::new();
@@ -1669,7 +1662,7 @@ fn build_progress(page: WizardProgressPage, look: &DialogKitLook) -> Dom {
                 Dom::create_div()
                     .with_css_props(dialog_kit::part(GROW_COLUMN_BASE, &[]))
                     .with_child(bar.dom()),
-                dialog_kit::line(percent_text(page.percent), FIXED_BASE, &look.unit),
+                dialog_kit::line(dialog_kit::percent_text(page.percent), FIXED_BASE, &look.unit),
             ])),
     );
     children.push(
