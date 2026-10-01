@@ -31,6 +31,8 @@ imap-proto = "0.16"
 # MIME parsing for the index and the message view; full_encoding decodes every charset through
 # encoding_rs (already in azul's tree).
 mail-parser = { version = "0.11", features = ["full_encoding"] }
+# Base64 for a draft's parts and encoded-words (already in the tree under imap).
+base64 = "0.22"
 # TLS exactly as azul-layout's HTTP client has it: rustls with the pure-Rust RustCrypto provider
 # and the Mozilla roots.
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging"] }

@@ -45,43 +45,112 @@ impl ComposeKind {
     /// The word the window's title and the stdout line use ("new", "reply", "reply-all",
     /// "forward", "draft").
     pub fn name(self) -> &'static str {
-        todo!()
+        match self {
+            ComposeKind::New => "new",
+            ComposeKind::Reply => "reply",
+            ComposeKind::ReplyAll => "reply-all",
+            ComposeKind::Forward => "forward",
+            ComposeKind::Draft => "draft",
+        }
     }
 }
 
 /// The compose window's title, as Outlook writes it: "<subject> - Message (HTML)", "Untitled -
 /// Message (HTML)" before there is a subject.
 pub fn window_title(subject: &str) -> String {
-    todo!()
+    let subject = subject.trim();
+    if subject.is_empty() {
+        String::from("Untitled - Message (HTML)")
+    } else {
+        format!("{subject} - Message (HTML)")
+    }
 }
 
 /// `Re: <subject>`, unless the subject already starts with a reply prefix (Re, RE, AW, Aw, SV,
 /// Antw - any case, with the colon).
 pub fn reply_subject(subject: &str) -> String {
-    todo!()
+    if has_prefix(subject, REPLY_PREFIXES) {
+        subject.to_string()
+    } else {
+        format!("Re: {subject}")
+    }
 }
 
 /// `Fwd: <subject>`, unless the subject already starts with a forward prefix (Fwd, FW, WG, TR,
 /// Doorst - any case, with the colon).
 pub fn forward_subject(subject: &str) -> String {
-    todo!()
+    if has_prefix(subject, FORWARD_PREFIXES) {
+        subject.to_string()
+    } else {
+        format!("Fwd: {subject}")
+    }
 }
 
 /// The entries of an address line: split at commas and semicolons that are not inside quotes
 /// or angle brackets, trimmed, empty ones left out.
 pub fn split_addresses(line: &str) -> Vec<String> {
-    todo!()
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    let mut escaped = false;
+    let mut angle = 0usize;
+    for c in line.chars() {
+        if escaped {
+            escaped = false;
+            current.push(c);
+            continue;
+        }
+        match c {
+            '\\' if quoted => {
+                escaped = true;
+                current.push(c);
+            }
+            '"' => {
+                quoted = !quoted;
+                current.push(c);
+            }
+            '<' if !quoted => {
+                angle += 1;
+                current.push(c);
+            }
+            '>' if !quoted => {
+                angle = angle.saturating_sub(1);
+                current.push(c);
+            }
+            ',' | ';' if !quoted && angle == 0 => {
+                let entry = current.trim();
+                if !entry.is_empty() {
+                    out.push(entry.to_string());
+                }
+                current.clear();
+            }
+            _ => current.push(c),
+        }
+    }
+    let entry = current.trim();
+    if !entry.is_empty() {
+        out.push(entry.to_string());
+    }
+    out
 }
 
 /// The address of an entry: `ada@example.org` from `Ada <ada@example.org>`, `"L, Ada"
 /// <ada@example.org>` or `ada@example.org`; `None` when there is no address in it.
 pub fn bare_address(entry: &str) -> Option<String> {
-    todo!()
+    let entry = entry.trim();
+    let candidate = match (entry.rfind('<'), entry.rfind('>')) {
+        (Some(open), Some(close)) if open < close => entry[open + 1..close].trim(),
+        _ => entry,
+    };
+    crate::account::is_email(candidate).then(|| candidate.to_string())
 }
 
 /// Whether two entries name the same mailbox (their addresses, ignoring case).
 pub fn same_address(a: &str, b: &str) -> bool {
-    todo!()
+    match (bare_address(a), bare_address(b)) {
+        (Some(a), Some(b)) => a.eq_ignore_ascii_case(&b),
+        _ => false,
+    }
 }
 
 /// The header fields a reply or forward starts with.
@@ -100,12 +169,62 @@ pub struct StartFields {
 /// Reply All adds the original's other recipients (To to To, Cc to Cc), never `me`, each
 /// mailbox once. A reply to a message `me` sent goes to its recipients.
 pub fn reply_fields(original: &MessageView, me: &str, all: bool) -> StartFields {
-    todo!()
+    let from_me = split_addresses(&original.from)
+        .first()
+        .is_some_and(|sender| same_address(sender, me));
+    let mut to = if from_me {
+        split_addresses(&original.to)
+    } else if !original.reply_to.trim().is_empty() {
+        split_addresses(&original.reply_to)
+    } else {
+        split_addresses(&original.from)
+    };
+    let mut cc = Vec::new();
+    if all {
+        if !from_me {
+            to.extend(split_addresses(&original.to));
+        }
+        cc = split_addresses(&original.cc);
+    }
+    // Every mailbox once (To before Cc), never me, never an entry without an address.
+    let mut seen: Vec<String> = Vec::new();
+    let mut keep = |list: Vec<String>| -> Vec<String> {
+        list.into_iter()
+            .filter(|entry| match bare_address(entry) {
+                Some(address) => {
+                    let address = address.to_lowercase();
+                    let fresh = !same_address(entry, me) && !seen.contains(&address);
+                    if fresh {
+                        seen.push(address);
+                    }
+                    fresh
+                }
+                None => false,
+            })
+            .collect()
+    };
+    let to = keep(to);
+    let cc = keep(cc);
+    let (in_reply_to, references) = thread_of(original);
+    StartFields {
+        to: to.join(", "),
+        cc: cc.join(", "),
+        subject: reply_subject(&original.subject),
+        in_reply_to,
+        references,
+    }
 }
 
 /// A forward of `original`: no recipients, the subject, the thread.
 pub fn forward_fields(original: &MessageView) -> StartFields {
-    todo!()
+    let (in_reply_to, references) = thread_of(original);
+    StartFields {
+        to: String::new(),
+        cc: String::new(),
+        subject: forward_subject(&original.subject),
+        in_reply_to,
+        references,
+    }
 }
 
 /// A run of text in one style.
@@ -121,7 +240,10 @@ pub struct Run {
 
 impl Run {
     pub fn plain(text: &str) -> Run {
-        todo!()
+        Run {
+            text: text.to_string(),
+            ..Run::default()
+        }
     }
 }
 
@@ -145,12 +267,20 @@ pub struct Block {
 impl Block {
     /// A paragraph of plain `text` at quote depth `quote`.
     pub fn paragraph(quote: u8, text: &str) -> Block {
-        todo!()
+        Block {
+            quote,
+            kind: BlockKind::Paragraph,
+            runs: if text.is_empty() {
+                Vec::new()
+            } else {
+                vec![Run::plain(text)]
+            },
+        }
     }
 
     /// The block's text, every run's text joined.
     pub fn text(&self) -> String {
-        todo!()
+        self.runs.iter().map(|r| r.text.as_str()).collect()
     }
 }
 
@@ -163,50 +293,149 @@ pub struct MailDoc {
 impl MailDoc {
     /// One empty paragraph: where the caret starts in a new mail.
     pub fn empty() -> MailDoc {
-        todo!()
+        MailDoc {
+            blocks: vec![Block::paragraph(0, "")],
+        }
     }
 
     /// Plain text as paragraphs, one per line, `>` quotes as depth (plus `extra_quote`).
     pub fn from_plain(text: &str, extra_quote: u8) -> MailDoc {
-        todo!()
+        let blocks = quoted_blocks(text, extra_quote);
+        if blocks.is_empty() {
+            MailDoc::empty()
+        } else {
+            MailDoc { blocks }
+        }
     }
 
     /// A reply's body: an empty paragraph (the caret's), the quote header, and the original's
     /// text one level deeper.
     pub fn reply_quote(original: &MessageView, header: &str) -> MailDoc {
-        todo!()
+        let mut blocks = vec![Block::paragraph(0, ""), Block::paragraph(0, header)];
+        blocks.extend(quoted_blocks(&original.text, 1));
+        MailDoc { blocks }
     }
 
     /// A forward's body: an empty paragraph, the forwarded header block (From, Date, Subject,
     /// To, Cc), an empty line and the original's text.
     pub fn forward_quote(original: &MessageView, date: &str) -> MailDoc {
-        todo!()
+        let mut blocks = vec![
+            Block::paragraph(0, ""),
+            Block::paragraph(0, "---------- Forwarded message ----------"),
+            Block::paragraph(0, &format!("From: {}", original.from)),
+        ];
+        if !date.is_empty() {
+            blocks.push(Block::paragraph(0, &format!("Date: {date}")));
+        }
+        blocks.push(Block::paragraph(0, &format!("Subject: {}", original.subject)));
+        if !original.to.is_empty() {
+            blocks.push(Block::paragraph(0, &format!("To: {}", original.to)));
+        }
+        if !original.cc.is_empty() {
+            blocks.push(Block::paragraph(0, &format!("Cc: {}", original.cc)));
+        }
+        blocks.push(Block::paragraph(0, ""));
+        blocks.extend(quoted_blocks(&original.text, 0));
+        MailDoc { blocks }
     }
 
     /// Whether there is no text at all.
     pub fn is_blank(&self) -> bool {
-        todo!()
+        self.blocks.iter().all(|b| b.text().trim().is_empty())
     }
 
     /// The `text/plain` part: a line per block, `> ` per quote level, `- ` before a bullet,
     /// `1. ` (counting) before a numbered item, a link as `text <address>` (just the address
     /// when the text is the address). Lines end in `\n`.
     pub fn to_plain(&self) -> String {
-        todo!()
+        let mut out = String::new();
+        let mut number = 0usize;
+        let mut last_numbered_depth: Option<u8> = None;
+        for block in &self.blocks {
+            let prefix = match block.kind {
+                BlockKind::Paragraph => {
+                    last_numbered_depth = None;
+                    String::new()
+                }
+                BlockKind::Bullet => {
+                    last_numbered_depth = None;
+                    String::from("- ")
+                }
+                BlockKind::Numbered => {
+                    if last_numbered_depth != Some(block.quote) {
+                        number = 0;
+                    }
+                    number += 1;
+                    last_numbered_depth = Some(block.quote);
+                    format!("{number}. ")
+                }
+            };
+            let text: String = block.runs.iter().map(plain_run).collect();
+            let marks = "> ".repeat(usize::from(block.quote));
+            let line = format!("{marks}{prefix}{text}");
+            out.push_str(line.trim_end_matches(' ').trim_end_matches('\t'));
+            out.push('\n');
+        }
+        out
     }
 
     /// The `text/html` part: `<html><body>` with a `<div>` per paragraph (`<div><br></div>`
     /// for an empty one), bullets and numbered items in `<ul>` / `<ol>`, quote levels nested as
     /// `<blockquote type="cite">`, runs as `<b>` `<i>` `<u>` `<a href>`; text escaped.
     pub fn to_html(&self) -> String {
-        todo!()
+        let mut out = String::from("<html><body>");
+        let mut depth: u8 = 0;
+        let mut list: Option<BlockKind> = None;
+        for block in &self.blocks {
+            let list_kind = (block.kind != BlockKind::Paragraph).then_some(block.kind);
+            if list.is_some() && (list != list_kind || block.quote != depth) {
+                out.push_str(close_list(list));
+                list = None;
+            }
+            while depth > block.quote {
+                out.push_str("</blockquote>");
+                depth -= 1;
+            }
+            while depth < block.quote {
+                out.push_str("<blockquote type=\"cite\">");
+                depth += 1;
+            }
+            let inner: String = block.runs.iter().map(html_run).collect();
+            match block.kind {
+                BlockKind::Paragraph if inner.is_empty() => out.push_str("<div><br></div>"),
+                BlockKind::Paragraph => {
+                    out.push_str("<div>");
+                    out.push_str(&inner);
+                    out.push_str("</div>");
+                }
+                BlockKind::Bullet | BlockKind::Numbered => {
+                    if list.is_none() {
+                        out.push_str(if block.kind == BlockKind::Bullet { "<ul>" } else { "<ol>" });
+                        list = list_kind;
+                    }
+                    out.push_str("<li>");
+                    out.push_str(&inner);
+                    out.push_str("</li>");
+                }
+            }
+        }
+        out.push_str(close_list(list));
+        for _ in 0..depth {
+            out.push_str("</blockquote>");
+        }
+        out.push_str("</body></html>");
+        out
     }
 }
 
 /// The line before a reply's quote: `On Wed, 30 Sep 2026 at 10:42, Ada <ada@example.org>
 /// wrote:` (`date` as the reader's zone shows it; without a date: `<sender> wrote:`).
 pub fn quote_header(date: &str, from: &str) -> String {
-    todo!()
+    if date.is_empty() {
+        format!("{from} wrote:")
+    } else {
+        format!("On {date}, {from} wrote:")
+    }
 }
 
 /// An RFC 3339 date as the quote header writes it in `tz`: `Wed, 30 Sep 2026 at 10:42`; empty
@@ -215,7 +444,9 @@ pub fn header_date_in<Tz: chrono::TimeZone>(rfc3339: &str, tz: &Tz) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    todo!()
+    chrono::DateTime::parse_from_rfc3339(rfc3339.trim())
+        .map(|date| date.with_timezone(tz).format("%a, %-d %b %Y at %H:%M").to_string())
+        .unwrap_or_default()
 }
 
 /// Why a mail cannot be sent as it is.
@@ -256,39 +487,122 @@ pub struct ComposeFields {
 
 /// The mail to send: every address line split and checked, the body as text and HTML.
 pub fn outgoing(fields: &ComposeFields, attachments: Vec<Attachment>) -> Result<OutgoingMail, ComposeError> {
-    todo!()
+    if bare_address(&fields.from).is_none() {
+        return Err(ComposeError::NoSender);
+    }
+    let to = checked_line(&fields.to)?;
+    let cc = checked_line(&fields.cc)?;
+    let bcc = checked_line(&fields.bcc)?;
+    if to.is_empty() && cc.is_empty() && bcc.is_empty() {
+        return Err(ComposeError::NoRecipient);
+    }
+    Ok(OutgoingMail {
+        from: fields.from.trim().to_string(),
+        to,
+        cc,
+        bcc,
+        subject: fields.subject.clone(),
+        text_body: fields.body.to_plain(),
+        html_body: Some(fields.body.to_html()),
+        in_reply_to: fields.in_reply_to.clone(),
+        references: fields.references.clone(),
+        attachments,
+    })
 }
 
 /// The media type of a file by its extension (`application/octet-stream` for anything unknown).
 pub fn mime_type_for(file_name: &str) -> &'static str {
-    todo!()
+    let extension = file_name
+        .rsplit_once('.')
+        .map(|(_, ext)| ext.to_ascii_lowercase())
+        .unwrap_or_default();
+    match extension.as_str() {
+        "pdf" => "application/pdf",
+        "txt" | "text" | "log" => "text/plain",
+        "md" => "text/markdown",
+        "csv" => "text/csv",
+        "htm" | "html" => "text/html",
+        "ics" => "text/calendar",
+        "vcf" => "text/vcard",
+        "eml" => "message/rfc822",
+        "json" => "application/json",
+        "xml" => "application/xml",
+        "zip" => "application/zip",
+        "gz" => "application/gzip",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "heic" => "image/heic",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "mp4" => "video/mp4",
+        "mov" => "video/quicktime",
+        "doc" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xls" => "application/vnd.ms-excel",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "ppt" => "application/vnd.ms-powerpoint",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "odt" => "application/vnd.oasis.opendocument.text",
+        "ods" => "application/vnd.oasis.opendocument.spreadsheet",
+        _ => "application/octet-stream",
+    }
 }
 
 /// The next local UID for a draft in a folder whose index holds `existing`: one below the
 /// lowest local UID there, `LOCAL_UID_TOP` for the first.
 pub fn next_local_uid(existing: &[IndexEntry]) -> u32 {
-    todo!()
+    existing
+        .iter()
+        .map(|e| e.uid)
+        .filter(|uid| is_local_uid(*uid))
+        .min()
+        .map_or(LOCAL_UID_TOP, |lowest| lowest - 1)
 }
 
 /// Whether `uid` is a local one (a draft saved here).
 pub fn is_local_uid(uid: u32) -> bool {
-    todo!()
+    uid > LOCAL_UID_FLOOR
 }
 
 /// A Message-ID for a mail written here, bare (no angle brackets):
 /// `azmail.<secs>.<salt>@<the sender's domain>` (`localhost` without one).
 pub fn new_message_id(from: &str, now_secs: i64, salt: u64) -> String {
-    todo!()
+    let domain = bare_address(from)
+        .and_then(|address| crate::account::email_domain(&address))
+        .unwrap_or_else(|| String::from("localhost"));
+    format!("azmail.{now_secs}.{salt}@{domain}")
 }
 
 /// `secs` since 1970 as an RFC 5322 date in UTC (`Wed, 30 Sep 2026 08:42:00 +0000`).
 pub fn rfc5322_date(secs: i64) -> String {
-    todo!()
+    chrono::DateTime::<chrono::Utc>::from_timestamp(secs, 0)
+        .map(|d| d.format("%a, %d %b %Y %H:%M:%S +0000").to_string())
+        .unwrap_or_default()
 }
 
 /// A header value as RFC 2047 encoded-words when it is not plain ASCII (`=?UTF-8?B?..?=`).
 pub fn encode_header_value(value: &str) -> String {
-    todo!()
+    if value.is_ascii() && !value.contains(['\r', '\n']) {
+        return value.to_string();
+    }
+    // Encoded-words of at most 45 bytes of UTF-8 each (60 characters of base64), cut at
+    // character boundaries; a reader joins adjacent ones without the space between them.
+    let mut words = Vec::new();
+    let mut chunk = String::new();
+    for c in value.chars().filter(|c| *c != '\r' && *c != '\n') {
+        if chunk.len() + c.len_utf8() > 45 {
+            words.push(encoded_word(&chunk));
+            chunk.clear();
+        }
+        chunk.push(c);
+    }
+    if !chunk.is_empty() {
+        words.push(encoded_word(&chunk));
+    }
+    words.join(" ")
 }
 
 /// The draft as a message file: the headers (From, To, Cc, Bcc - a draft keeps its Bcc -,
@@ -296,19 +610,313 @@ pub fn encode_header_value(value: &str) -> String {
 /// `multipart/alternative` of the text and the HTML (base64, UTF-8), inside `multipart/mixed`
 /// with the attachments (base64) when there are any. Lines end in CRLF.
 pub fn draft_eml(mail: &OutgoingMail, date_secs: i64, message_id: &str) -> Vec<u8> {
-    todo!()
+    let mut out = String::new();
+    let mut header = |name: &str, value: &str| {
+        out.push_str(name);
+        out.push_str(": ");
+        out.push_str(value);
+        out.push_str("\r\n");
+    };
+    let addresses = |list: &[String]| list.iter().map(|a| encode_address(a)).collect::<Vec<_>>().join(", ");
+    header("From", &encode_address(&mail.from));
+    if !mail.to.is_empty() {
+        header("To", &addresses(&mail.to));
+    }
+    if !mail.cc.is_empty() {
+        header("Cc", &addresses(&mail.cc));
+    }
+    if !mail.bcc.is_empty() {
+        header("Bcc", &addresses(&mail.bcc));
+    }
+    header("Subject", &encode_header_value(&mail.subject));
+    header("Date", &rfc5322_date(date_secs));
+    header("Message-ID", &format!("<{message_id}>"));
+    if let Some(parent) = mail.in_reply_to.as_deref().filter(|p| !p.is_empty()) {
+        header("In-Reply-To", &format!("<{parent}>"));
+    }
+    if !mail.references.is_empty() {
+        let ids: Vec<String> = mail.references.iter().map(|r| format!("<{r}>")).collect();
+        header("References", &ids.join(" "));
+    }
+    header("MIME-Version", "1.0");
+    header("X-AzMail-Draft", "1");
+    // The boundaries hold `=_`, which no base64 line can: no part can contain them.
+    let alternative = format!("=_azmail_alt_{date_secs}");
+    let mixed = format!("=_azmail_mix_{date_secs}");
+    let text_part = |out: &mut String, media: &str, body: &str| {
+        out.push_str(&format!("Content-Type: {media}; charset=utf-8\r\n"));
+        out.push_str("Content-Transfer-Encoding: base64\r\n\r\n");
+        out.push_str(&base64_lines(body.as_bytes()));
+    };
+    let body_part = |out: &mut String| match mail.html_body.as_deref() {
+        Some(html) => {
+            out.push_str(&format!(
+                "Content-Type: multipart/alternative; boundary=\"{alternative}\"\r\n\r\n"
+            ));
+            out.push_str(&format!("--{alternative}\r\n"));
+            text_part(out, "text/plain", &mail.text_body);
+            out.push_str(&format!("--{alternative}\r\n"));
+            text_part(out, "text/html", html);
+            out.push_str(&format!("--{alternative}--\r\n"));
+        }
+        None => text_part(out, "text/plain", &mail.text_body),
+    };
+    if mail.attachments.is_empty() {
+        body_part(&mut out);
+    } else {
+        out.push_str(&format!(
+            "Content-Type: multipart/mixed; boundary=\"{mixed}\"\r\n\r\n"
+        ));
+        out.push_str(&format!("--{mixed}\r\n"));
+        body_part(&mut out);
+        for attachment in &mail.attachments {
+            out.push_str(&format!("--{mixed}\r\n"));
+            let name = file_name_parameter(&attachment.file_name);
+            let media = if attachment.mime_type.trim().is_empty() {
+                mime_type_for(&attachment.file_name)
+            } else {
+                attachment.mime_type.trim()
+            };
+            out.push_str(&format!("Content-Type: {media}; name{name}\r\n"));
+            out.push_str(&format!("Content-Disposition: attachment; filename{name}\r\n"));
+            out.push_str("Content-Transfer-Encoding: base64\r\n\r\n");
+            out.push_str(&base64_lines(&attachment.bytes));
+        }
+        out.push_str(&format!("--{mixed}--\r\n"));
+    }
+    out.into_bytes()
 }
 
 /// Saves a draft's message file under `uid` in the Drafts folder of `store` with its index
 /// line (replacing the draft's earlier file and line), and makes the folder known to the
 /// window (a state file that says it is local only, see `sync::plan_folder`). Returns the line.
 pub fn save_draft(store: &LocalFolder, uid: u32, eml: &[u8], now_secs: i64) -> std::io::Result<IndexEntry> {
-    todo!()
+    let mut index = read_drafts_index(store);
+    let (year, month) = crate::message::year_month(now_secs);
+    let path = store::message_key(DRAFTS_FOLDER, year, month, uid);
+    // The draft saved before, in another month's folder: replaced, not left behind.
+    if let Some(old) = index.iter().find(|e| e.uid == uid && e.path != path) {
+        let _ = store.delete(&old.path);
+    }
+    store.put(&path, eml, true)?;
+    let flags = [String::from("\\Seen"), String::from("\\Draft")];
+    let entry = crate::message::index_entry(uid, eml, &flags, Some(now_secs), &path);
+    index.retain(|e| e.uid != uid);
+    index.push(entry.clone());
+    write_drafts_index(store, &index)?;
+    Ok(entry)
 }
 
 /// Removes a draft (once it is sent): its file and its index line.
 pub fn delete_draft(store: &LocalFolder, uid: u32) -> std::io::Result<()> {
-    todo!()
+    let mut index = read_drafts_index(store);
+    let Some(at) = index.iter().position(|e| e.uid == uid) else {
+        return Ok(());
+    };
+    let entry = index.remove(at);
+    store.delete(&entry.path)?;
+    write_drafts_index(store, &index)
+}
+
+// ==== Helpers ====
+
+/// Reply prefixes: English, German (AW, Antw), Scandinavian (SV, VS), French (Ref).
+const REPLY_PREFIXES: &[&str] = &["re", "aw", "antw", "sv", "vs", "ref"];
+/// Forward prefixes: English (Fwd, FW), German (WG), French (TR), Dutch (Doorst).
+const FORWARD_PREFIXES: &[&str] = &["fwd", "fw", "wg", "tr", "doorst"];
+
+/// Whether `subject` starts with one of `prefixes` and a colon (`Re:`, `RE[2]:`), any case.
+fn has_prefix(subject: &str, prefixes: &[&str]) -> bool {
+    let Some((word, _)) = subject.trim_start().split_once(':') else {
+        return false;
+    };
+    let base = word.split('[').next().unwrap_or("").trim();
+    prefixes.iter().any(|p| base.eq_ignore_ascii_case(p))
+}
+
+/// The original's Message-ID (for In-Reply-To) and the References a reply carries: the
+/// original's, then its Message-ID.
+fn thread_of(original: &MessageView) -> (Option<String>, Vec<String>) {
+    let id = original.message_id.trim();
+    let mut references: Vec<String> = original
+        .references
+        .iter()
+        .map(|r| r.trim().to_string())
+        .filter(|r| !r.is_empty())
+        .collect();
+    if id.is_empty() {
+        return (None, references);
+    }
+    if references.last().map(String::as_str) != Some(id) {
+        references.push(id.to_string());
+    }
+    (Some(id.to_string()), references)
+}
+
+/// Plain text as paragraphs, `>` quotes as depth plus `extra`; no blocks for no text.
+fn quoted_blocks(text: &str, extra: u8) -> Vec<Block> {
+    crate::message::quote_lines(text)
+        .into_iter()
+        .map(|line| {
+            let depth = u8::try_from(line.level).unwrap_or(u8::MAX).saturating_add(extra);
+            Block::paragraph(depth, &line.text)
+        })
+        .collect()
+}
+
+/// A run in the text part: its text, a link as `text <address>`.
+fn plain_run(run: &Run) -> String {
+    match run.link.as_deref() {
+        Some(link) if run.text.trim().is_empty() || run.text.trim() == link => link.to_string(),
+        Some(link) => format!("{} <{link}>", run.text),
+        None => run.text.clone(),
+    }
+}
+
+/// Whether a link may go into the HTML part: web and mail addresses only.
+fn safe_link(link: &str) -> bool {
+    let lower = link.trim().to_ascii_lowercase();
+    ["https://", "http://", "mailto:"]
+        .iter()
+        .any(|scheme| lower.starts_with(scheme))
+}
+
+/// `text` escaped for HTML (`&`, `<`, `>`, and `"` for attribute values).
+fn escape_html(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// A run in the HTML part: escaped, then `<u>`, `<i>`, `<b>` and the link around it, inside
+/// out.
+fn html_run(run: &Run) -> String {
+    let mut html = escape_html(&run.text);
+    if run.underline {
+        html = format!("<u>{html}</u>");
+    }
+    if run.italic {
+        html = format!("<i>{html}</i>");
+    }
+    if run.bold {
+        html = format!("<b>{html}</b>");
+    }
+    if let Some(link) = run.link.as_deref().filter(|l| safe_link(l)) {
+        html = format!("<a href=\"{}\">{html}</a>", escape_html(link.trim()));
+    }
+    html
+}
+
+/// The end tag of an open list.
+fn close_list(list: Option<BlockKind>) -> &'static str {
+    match list {
+        Some(BlockKind::Bullet) => "</ul>",
+        Some(BlockKind::Numbered) => "</ol>",
+        _ => "",
+    }
+}
+
+/// An address line split, every entry checked.
+fn checked_line(line: &str) -> Result<Vec<String>, ComposeError> {
+    let entries = split_addresses(line);
+    match entries.iter().find(|e| bare_address(e).is_none()) {
+        Some(bad) => Err(ComposeError::BadAddress(bad.clone())),
+        None => Ok(entries),
+    }
+}
+
+/// `bytes` in base64, 76 characters a line, each line ending in CRLF.
+fn base64_lines(bytes: &[u8]) -> String {
+    use base64::Engine as _;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+    let mut out = String::with_capacity(encoded.len() + encoded.len() / 38 + 2);
+    for chunk in encoded.as_bytes().chunks(76) {
+        // Base64 is ASCII: every chunk is a whole str.
+        out.push_str(std::str::from_utf8(chunk).unwrap_or_default());
+        out.push_str("\r\n");
+    }
+    out
+}
+
+/// One RFC 2047 encoded-word: `=?UTF-8?B?<base64>?=`.
+fn encoded_word(text: &str) -> String {
+    use base64::Engine as _;
+    format!(
+        "=?UTF-8?B?{}?=",
+        base64::engine::general_purpose::STANDARD.encode(text.as_bytes())
+    )
+}
+
+/// An address entry for a header: a display name that is not plain ASCII as encoded-words, the
+/// `<address>` as it is.
+fn encode_address(entry: &str) -> String {
+    let entry = entry.trim();
+    if entry.is_ascii() {
+        return entry.to_string();
+    }
+    match entry.rfind('<') {
+        Some(open) => {
+            let name = entry[..open].trim().trim_matches('"').trim();
+            format!("{} {}", encode_header_value(name), &entry[open..])
+        }
+        None => encode_header_value(entry),
+    }
+}
+
+/// A file name as a MIME parameter value, after the parameter's name: `="plan.txt"`, or
+/// RFC 2231's `*=UTF-8''<percent-encoded>` for a name that is not plain ASCII or holds a quote.
+fn file_name_parameter(name: &str) -> String {
+    let name = name.trim();
+    if name.is_ascii() && !name.contains(['"', '\\', '\r', '\n']) {
+        return format!("=\"{name}\"");
+    }
+    let mut encoded = String::new();
+    for byte in name.bytes() {
+        if byte.is_ascii_alphanumeric() || b".-_~".contains(&byte) {
+            encoded.push(char::from(byte));
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    format!("*=UTF-8''{encoded}")
+}
+
+/// The Drafts folder's index; empty when there is none.
+fn read_drafts_index(store: &LocalFolder) -> Vec<IndexEntry> {
+    store
+        .get(&store::index_key(DRAFTS_FOLDER))
+        .map(|bytes| store::index_from_jsonl(&String::from_utf8_lossy(&bytes)))
+        .unwrap_or_default()
+}
+
+/// Writes the Drafts folder's index and its state: the synced state when the server's Drafts
+/// is synced, else one that says the folder is local only (UIDVALIDITY 0).
+fn write_drafts_index(store: &LocalFolder, index: &[IndexEntry]) -> std::io::Result<()> {
+    store.put(
+        &store::index_key(DRAFTS_FOLDER),
+        store::index_to_jsonl(index).as_bytes(),
+        true,
+    )?;
+    let mut state = store
+        .get(&store::state_key(DRAFTS_FOLDER))
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .and_then(|text| FolderState::from_json(&text))
+        .unwrap_or_else(|| FolderState::create("", "Drafts", 0));
+    state.messages = index.len() as u64;
+    store.put(
+        &store::state_key(DRAFTS_FOLDER),
+        state.to_json().as_bytes(),
+        true,
+    )
 }
 
 #[cfg(test)]

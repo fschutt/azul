@@ -179,6 +179,13 @@ pub fn plan_folder(state: Option<&FolderState>, selected: &Selected) -> FolderPl
                     .uid_next
                     .is_some_and(|next| next <= s.last_uid.saturating_add(1)),
         },
+        // A folder AzMail made itself (a draft saved before the server's folder was synced):
+        // adopted as it is, its messages fetched from the start.
+        Some(s) if s.uidvalidity == 0 => FolderPlan {
+            renumbered: None,
+            last_uid: 0,
+            nothing_new: empty,
+        },
         Some(s) => FolderPlan {
             renumbered: Some(s.uidvalidity),
             last_uid: 0,

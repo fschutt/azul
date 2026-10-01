@@ -135,6 +135,14 @@ impl LocalFolder {
         std::fs::read(self.path_of(key)?)
     }
 
+    /// Removes the object `key` (on an object store: DeleteObject). A missing one is no error.
+    pub fn delete(&self, key: &str) -> std::io::Result<()> {
+        match std::fs::remove_file(self.path_of(key)?) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            other => other,
+        }
+    }
+
     /// The size of the object `key`, or `None` when there is none.
     pub fn size_of(&self, key: &str) -> Option<u64> {
         let meta = std::fs::metadata(self.path_of(key).ok()?).ok()?;

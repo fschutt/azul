@@ -74,34 +74,90 @@ struct SendingFile {
 impl Sending {
     /// The file's contents (pretty JSON, ending in a newline).
     pub fn to_json(&self) -> String {
-        todo!()
+        let file = match &self.route {
+            Route::Direct => SendingFile {
+                format: FORMAT.to_string(),
+                version: VERSION,
+                route: String::from("direct"),
+                host: None,
+                port: None,
+                starttls: None,
+            },
+            Route::Smtp {
+                host,
+                port,
+                starttls,
+            } => SendingFile {
+                format: FORMAT.to_string(),
+                version: VERSION,
+                route: String::from("smtp"),
+                host: Some(host.clone()),
+                port: Some(*port),
+                starttls: Some(*starttls),
+            },
+        };
+        // Strings, numbers and booleans only: serializing cannot fail.
+        let mut text = serde_json::to_string_pretty(&file).unwrap_or_default();
+        text.push('\n');
+        text
     }
 
     /// Reads a sending file; `None` for anything that is not one this AzMail reads.
     pub fn from_json(text: &str) -> Option<Sending> {
-        todo!()
+        let file: SendingFile = serde_json::from_str(text).ok()?;
+        if file.format != FORMAT || !(1..=VERSION).contains(&file.version) {
+            return None;
+        }
+        let route = match file.route.as_str() {
+            "direct" => Route::Direct,
+            "smtp" => Route::Smtp {
+                host: file.host.filter(|h| !h.trim().is_empty())?.trim().to_string(),
+                port: file.port.filter(|p| *p > 0).unwrap_or(SUBMISSION_PORT),
+                starttls: file.starttls.unwrap_or(true),
+            },
+            _ => return None,
+        };
+        Some(Sending { route })
     }
 
     /// `<AzMail folder>/<account id>/sending.json`
     pub fn path(root: &Path, account_id: &str) -> PathBuf {
-        todo!()
+        crate::account::account_dir(root, account_id).join(SENDING_FILE)
     }
 
     /// The account's settings; the default (direct) when it has no file or one this AzMail
     /// cannot read.
     pub fn load(root: &Path, account_id: &str) -> Sending {
-        todo!()
+        std::fs::read_to_string(Sending::path(root, account_id))
+            .ok()
+            .and_then(|text| Sending::from_json(&text))
+            .unwrap_or_default()
     }
 
     /// Writes the account's file (atomically).
     pub fn save(&self, root: &Path, account_id: &str) -> std::io::Result<PathBuf> {
-        todo!()
+        let path = Sending::path(root, account_id);
+        crate::store::write_atomic(&path, self.to_json().as_bytes(), true)?;
+        Ok(path)
     }
 
     /// One line for the status bar and the settings page: "Direct delivery" or "SMTP
     /// localhost:2525" (", STARTTLS").
     pub fn describe(&self) -> String {
-        todo!()
+        match &self.route {
+            Route::Direct => String::from("Direct delivery"),
+            Route::Smtp {
+                host,
+                port,
+                starttls,
+            } => {
+                let mut text = format!("SMTP {host}:{port}");
+                if *starttls {
+                    text.push_str(", STARTTLS");
+                }
+                text
+            }
+        }
     }
 }
 
@@ -118,12 +174,49 @@ pub struct SendingForm {
 impl SendingForm {
     /// The form showing `sending`.
     pub fn from_sending(sending: &Sending) -> SendingForm {
-        todo!()
+        match &sending.route {
+            Route::Direct => SendingForm {
+                smtp: false,
+                host: String::new(),
+                port: SUBMISSION_PORT.to_string(),
+                starttls: true,
+            },
+            Route::Smtp {
+                host,
+                port,
+                starttls,
+            } => SendingForm {
+                smtp: true,
+                host: host.clone(),
+                port: port.to_string(),
+                starttls: *starttls,
+            },
+        }
     }
 
     /// The settings the form says, or what is wrong with it.
     pub fn to_sending(&self) -> Result<Sending, String> {
-        todo!()
+        if !self.smtp {
+            return Ok(Sending::default());
+        }
+        let host = self.host.trim();
+        if host.is_empty() || host.contains(char::is_whitespace) {
+            return Err(String::from("Enter the SMTP server's name, e.g. smtp.example.org."));
+        }
+        let port = match self.port.trim() {
+            "" => SUBMISSION_PORT,
+            text => match text.parse::<u16>() {
+                Ok(port) if port > 0 => port,
+                _ => return Err(String::from("The port is a number from 1 to 65535.")),
+            },
+        };
+        Ok(Sending {
+            route: Route::Smtp {
+                host: host.to_string(),
+                port,
+                starttls: self.starttls,
+            },
+        })
     }
 }
 

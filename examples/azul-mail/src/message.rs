@@ -152,9 +152,13 @@ pub fn parse_view(bytes: &[u8]) -> Option<MessageView> {
         text,
         html,
         attachments,
-        message_id: String::new(),
-        reply_to: String::new(),
-        references: Vec::new(),
+        message_id: message.message_id().unwrap_or_default().to_string(),
+        reply_to: addresses(message.reply_to()),
+        references: message
+            .references()
+            .as_text_list()
+            .map(|ids| ids.iter().map(|id| id.trim().to_string()).collect())
+            .unwrap_or_default(),
     })
 }
 
