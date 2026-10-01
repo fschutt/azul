@@ -66,7 +66,10 @@
 //! - `AZMEET_NO_FORWARD=1`: never forward other people's media; `AZMEET_ON_BATTERY=1`: report
 //!   running on battery (either ranks this side last for the backbone).
 //! - `AZMEET_LAYOUT=speaker` and `AZMEET_STAGE=<name>`: start in speaker view with that participant
-//!   on the stage (else the first by name); the toolbar switches between grid and speaker view.
+//!   pinned to the stage (else the active speaker, else the first); the controls switch between the
+//!   gallery and the speaker view.
+//! - `AZMEET_PANEL=people|chat|statistics|closed`: what the side panel shows at start (the
+//!   scripts open the statistics, whose lines they read).
 //! - `AZ_BACKEND=headless`: no audio device, camera or screen is opened: the microphone is the
 //!   tone (muted until switched on, unless `AZMEET_TEST_TONE=1`), received audio is counted, not
 //!   played, and the camera and the screen share are test patterns (off until switched on, unless
@@ -830,12 +833,35 @@ fn stats_sections(s: &MeetState) -> Vec<ui::StatSection> {
         lines,
     };
     vec![
+        section("People", roster_lines(s)),
         section("Microphones", s.mics.clone()),
         section("Speakers", s.speakers.clone()),
         section("Video", video),
         section("Audio", audio),
         section("Network", network_lines(s)),
     ]
+}
+
+/// The statistics' people lines: "Ada (you)", then "Ben · connected · muted" per participant
+/// (what the scripts read).
+fn roster_lines(s: &MeetState) -> Vec<String> {
+    people(s)
+        .into_iter()
+        .map(|person| {
+            let label = if person.status.is_empty() || person.name.ends_with("(you)") {
+                person.name
+            } else {
+                format!("{} · {}", person.name, person.status)
+            };
+            audio::person_line(
+                &label,
+                Some(audio::PeerState {
+                    muted: person.muted,
+                    deafened: person.deafened,
+                }),
+            )
+        })
+        .collect()
 }
 
 /// The cameras the settings offer: by facing (there is no camera list API).
@@ -2931,6 +2957,12 @@ fn configure_network(s: &mut MeetState) {
         ViewMode::Grid
     };
     s.stage_name = setting("AZMEET_STAGE").unwrap_or_default();
+    s.panel = match setting("AZMEET_PANEL").as_deref() {
+        Some("chat") => SidePanel::Chat,
+        Some("statistics") => SidePanel::Statistics,
+        Some("closed") => SidePanel::Closed,
+        _ => SidePanel::People,
+    };
     if let Some(endpoint) = s.endpoint.as_ref() {
         s.me = routes::peer_key(endpoint.endpoint_id().as_str());
     }

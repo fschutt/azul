@@ -180,6 +180,8 @@ export function appEnv(worker, name, debugPort, extra) {
     AZMEET_RELAY: 'off',
     AZMEET_TEST_TONE: '1',
     AZMEET_TEST_PATTERN: '1',
+    // The statistics panel shows the lines the readers below look for.
+    AZMEET_PANEL: 'statistics',
     ...extra,
   };
 }
