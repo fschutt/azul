@@ -1,0 +1,32 @@
+[package]
+name = "AzSetup"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzSetup - a complete fake installer for "AzOffice" on the public azul API:
+    the install wizard's reusable pages (welcome, license with "I accept"
+    gating Next, destination folder with Browse and the free space, a
+    component tree with sizes and the total, options, summary, progress that
+    simulates the copying with a timer, finish with "Launch now" / "Open
+    settings"), in the Windows installer's banner and the macOS installer's
+    side panel, on the utility shell with an app-drawn title row; a settings
+    window built from ShellSettingsDialog (every kind of setting, search,
+    Apply / OK / Cancel); the standard dialogs (the cancel question, the
+    About box on F1). It installs nothing. The headless E2E
+    (scripts/azsetup_e2e.py) walks the wizard.
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+
+[lib]
+name = "azsetup"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzSetup"
+path = "src/main.rs"
