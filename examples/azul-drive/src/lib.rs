@@ -409,6 +409,10 @@ pub(crate) struct DriveState {
     pub trash_serial: u32,
     /// The window's width, for the grid's rows (the arrow keys).
     pub window_width: f32,
+    /// The open folder's pictures as thumbnails (`None`: none can be made).
+    pub thumbnails: HashMap<String, Option<azul::image::ImageRef>>,
+    /// The pictures whose thumbnails are being made.
+    pub thumbnails_pending: HashSet<String>,
 }
 
 impl DriveState {
@@ -760,6 +764,8 @@ pub(crate) fn go(
     s.selection = Selection::default();
     s.selected_pin = None;
     s.preview = None;
+    s.thumbnails.clear();
+    s.thumbnails_pending.clear();
     s.loading = false;
     s.list_serial += 1;
     s.backstage = None;
@@ -1025,7 +1031,7 @@ pub(crate) extern "C" fn on_job_done(
         return Update::DoNothing;
     };
     let s = &mut *guard;
-    if !matches!(outcome, Outcome::Progress { .. }) {
+    if !matches!(outcome, Outcome::Progress { .. } | Outcome::Thumbnail { .. }) {
         s.running = s.running.saturating_sub(1);
     }
     match outcome {
@@ -1063,6 +1069,7 @@ pub(crate) extern "C" fn on_job_done(
                         );
                     }
                     actions::request_preview(&mut info, &handle, s);
+                    actions::request_thumbnails(&mut info, &handle, s);
                 }
                 Err(e) => s.error(format!("Could not list this folder: {e}")),
             }
@@ -1266,6 +1273,15 @@ pub(crate) extern "C" fn on_job_done(
                 s.error(format!("The settings could not be saved: {e}"));
             }
         }
+        Outcome::Thumbnail { key, image } => {
+            if s.thumbnails_pending.remove(&key) {
+                if image.is_some() {
+                    println!("AZDRIVE_THUMBNAIL {key}");
+                }
+                s.thumbnails.insert(key, image);
+            }
+        }
+        Outcome::ThumbnailsDone => {}
     }
     Update::RefreshDom
 }
@@ -1542,6 +1558,8 @@ pub fn start() {
         running: 0,
         trash_serial: 0,
         window_width: 1200.0,
+        thumbnails: HashMap::new(),
+        thumbnails_pending: HashSet::new(),
     };
     refresh_disks(&mut state);
 

@@ -961,10 +961,25 @@ fn icon_cell(s: &DriveState, app: &RefAny, entry: &Entry, layout: ViewLayout) ->
                 .with_child(check_box(s, app, entry)),
         );
     }
-    cell.add_child(
-        Dom::create_icon(AzString::from(icon_for(entry)))
-            .with_css(format!("font-size: {px}px; {}", icon_colour(entry))),
-    );
+    match s.thumbnails.get(&entry.key) {
+        // A picture shows itself (Explorer's thumbnails).
+        Some(Some(image)) => cell.add_child(
+            Dom::create_div()
+                .with_css(format!(
+                    "display: flex; flex-direction: row; align-items: center; \
+                     justify-content: center; width: {px}px; height: {px}px;"
+                ))
+                .with_child(
+                    Dom::create_image(image.clone())
+                        .with_class(AzString::from("azdrive-thumbnail"))
+                        .with_css(format!("max-width: {px}px; max-height: {px}px;")),
+                ),
+        ),
+        _ => cell.add_child(
+            Dom::create_icon(AzString::from(icon_for(entry)))
+                .with_css(format!("font-size: {px}px; {}", icon_colour(entry))),
+        ),
+    }
     if s.renaming.as_ref().is_some_and(|r| r.key == entry.key) {
         cell.add_child(rename_field(s, app));
     } else {

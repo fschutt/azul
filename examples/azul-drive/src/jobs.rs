@@ -156,6 +156,13 @@ pub(crate) enum Job {
         drive: LocalDrive,
         text: String,
     },
+    /// The pictures of the open folder as thumbnails for the icon layouts:
+    /// (key, size) each, one `Thumbnail` answer per picture.
+    Thumbnails {
+        drive: Arc<dyn Drive>,
+        items: Vec<(String, Option<u64>)>,
+        max_px: u32,
+    },
 }
 
 /// What a job answers, on the UI thread.
@@ -222,6 +229,13 @@ pub(crate) enum Outcome {
     SettingsSaved {
         result: Result<(), DriveError>,
     },
+    /// One picture's thumbnail (`None`: it could not be made).
+    Thumbnail {
+        key: String,
+        image: Option<ImageRef>,
+    },
+    /// The thumbnails job ended.
+    ThumbnailsDone,
 }
 
 /// A thread's start data: the job, taken out once.
@@ -337,6 +351,20 @@ fn make_preview(
         }
         _ => PreviewContent::Message(String::from("No preview available.")),
     }
+}
+
+/// Pictures bigger than this get no thumbnail (they are not fetched).
+pub(crate) const THUMBNAIL_MAX_BYTES: u64 = 8 * 1024 * 1024;
+
+/// One picture fetched, decoded and scaled down to `max_px`.
+fn make_thumbnail(drive: &dyn Drive, key: &str, max_px: u32) -> Option<ImageRef> {
+    let bytes = drive.get(key).ok()?;
+    let image = match RawImage::decode_image_bytes_any(U8VecRef::from(bytes.as_slice())) {
+        azul::error::ResultRawImageDecodeImageError::Ok(image) => image,
+        azul::error::ResultRawImageDecodeImageError::Err(_) => return None,
+    };
+    let thumbnail = image.thumbnail(max_px, max_px).into_option()?;
+    ImageRef::create_rawimage(thumbnail).into_option()
 }
 
 /// Every object under `prefix`, counted: bytes, files, folders.
@@ -600,6 +628,21 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
         Job::SaveSettings { drive, text } => Outcome::SettingsSaved {
             result: drive.put(crate::SETTINGS_KEY, text.as_bytes()),
         },
+        Job::Thumbnails {
+            drive,
+            items,
+            max_px,
+        } => {
+            for (key, size) in items {
+                let image = if size.is_some_and(|s| s <= THUMBNAIL_MAX_BYTES) {
+                    make_thumbnail(&*drive, &key, max_px)
+                } else {
+                    None
+                };
+                send(sender, Outcome::Thumbnail { key, image });
+            }
+            Outcome::ThumbnailsDone
+        }
     }
 }
 

@@ -2022,7 +2022,50 @@ pub(crate) fn set_layout(
 ) {
     s.settings.layout = layout;
     println!("AZDRIVE_LAYOUT {}", layout.name());
+    request_thumbnails(info, app, s);
     save_settings(info, app, s);
+}
+
+/// The icon layouts show pictures as thumbnails: the open folder's pictures
+/// (up to 8 MB, the first 120) are fetched, decoded and scaled down on ONE
+/// thread, one answer per picture.
+pub(crate) fn request_thumbnails(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    /// Pictures per folder that get a thumbnail.
+    const MAX_THUMBNAILS: usize = 120;
+    let wanted = matches!(
+        s.settings.layout,
+        ViewLayout::MediumIcons | ViewLayout::LargeIcons | ViewLayout::ExtraLargeIcons
+    );
+    if !wanted || s.current_drive().is_none() {
+        return;
+    }
+    let items: Vec<(String, Option<u64>)> = s
+        .visible_entries()
+        .into_iter()
+        .filter(|e| !e.is_folder && preview::preview_kind(&e.name) == preview::PreviewKind::Image)
+        .filter(|e| !s.thumbnails.contains_key(&e.key) && !s.thumbnails_pending.contains(&e.key))
+        .take(MAX_THUMBNAILS)
+        .map(|e| (e.key.clone(), e.size))
+        .collect();
+    if items.is_empty() {
+        return;
+    }
+    let Some(drive) = open_current(s) else {
+        return;
+    };
+    for (key, _) in &items {
+        s.thumbnails_pending.insert(key.clone());
+    }
+    spawn(
+        info,
+        app,
+        s,
+        Job::Thumbnails {
+            drive,
+            items,
+            max_px: 192,
+        },
+    );
 }
 
 /// Sort by `column` (a second click on the same column reverses it), or
