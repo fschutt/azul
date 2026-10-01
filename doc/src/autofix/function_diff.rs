@@ -1662,6 +1662,51 @@ mod tests {
             .collect()
     }
 
+    /// `autofix add T.*` must not export a standard trait's method (the
+    /// `default` constructors of 2026-10-01), must name a Rust `new` the way
+    /// the API names constructors (`create`), and must not re-add a method the
+    /// API already reaches under another name (`create` whose body calls `new`).
+    #[test]
+    fn the_add_candidates_skip_trait_impls_rename_new_and_skip_what_the_api_reaches() {
+        let mut ms: Vec<MethodDef> = methods(
+            r#"
+            impl T {
+                pub fn new(label: String) -> Self { todo!() }
+                pub fn new_with_icon(label: String, icon: String) -> Self { todo!() }
+                pub fn with_label(self, label: String) -> Self { todo!() }
+                fn private_helper(&self) {}
+            }
+            impl T { pub fn default() -> Self { todo!() } }
+        "#,
+        )
+        .into_values()
+        .collect();
+        for m in &mut ms {
+            if m.name == "default" {
+                m.from_trait = Some("Default".to_string());
+            }
+        }
+        let refs: Vec<&MethodDef> = ms.iter().collect();
+
+        let fresh = api_candidate_methods("T", &refs, "*", None);
+        let mut names: Vec<String> = fresh.iter().map(|m| api_name_of(m)).collect();
+        names.sort();
+        assert_eq!(names, vec!["create", "create_with_icon", "with_label"]);
+
+        let class: ClassData = serde_json::from_str(
+            r#"{"constructors": {"create": {"fn_args": [{"label": "String"}],
+                "fn_body": "azul_layout::widgets::t::T::new(label)"}}}"#,
+        )
+        .expect("test class parses");
+        let existing = api_candidate_methods("T", &refs, "*", Some(&class));
+        let mut names: Vec<String> = existing.iter().map(|m| api_name_of(m)).collect();
+        names.sort();
+        assert_eq!(names, vec!["create_with_icon", "with_label"], "`new` is reached by `create`");
+
+        let one = api_candidate_methods("T", &refs, "with_label", Some(&class));
+        assert_eq!(one.len(), 1);
+    }
+
     const SOURCE: &str = r#"
         impl T {
             pub fn add_component_library<R: Into<RegisterComponentLibraryFn>>(
