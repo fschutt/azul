@@ -3333,7 +3333,7 @@ impl PlatformWindow for HeadlessWindow {
     fn remove_threads(&mut self, thread_ids: &BTreeSet<azul_core::task::ThreadId>) {
         if let Some(lw) = self.common.layout_window.as_mut() {
             for id in thread_ids {
-                lw.threads.remove(id);
+                drop(lw.remove_thread(id));
             }
             if lw.threads.is_empty() {
                 self.stop_thread_poll_timer();
@@ -12039,6 +12039,179 @@ mod tests {
             .frame = azul_core::window::WindowFrame::Minimized;
         let tier = push_tile_frame(&mut window, "tile-a", [200, 40, 40, 255]);
         assert_eq!(tier, ProcessEventResult::DoNothing);
+    }
+
+    // --- The worker of a node that unmounts is told to stop ----------------
+    //
+    // PR #476 ledger, engine backlog 4: video decode / camera / screen
+    // capture / microphone workers kept running after their node left the
+    // DOM - `run_all_threads` only ever reaped FINISHED threads, and a capture
+    // or decode loop never finishes. The class: a worker one of a node's
+    // lifecycle callbacks started belongs to that node; when the node
+    // unmounts the worker is told to stop, and once it has, the next frame
+    // removes it from the window (and the thread poll stops with it).
+
+    #[derive(Debug, Default)]
+    struct WorkerProbe {
+        started: core::sync::atomic::AtomicBool,
+        told_to_stop: core::sync::atomic::AtomicBool,
+    }
+
+    #[derive(Debug, Clone)]
+    struct WorkerHost {
+        show: bool,
+        probe: Arc<WorkerProbe>,
+    }
+
+    #[derive(Debug, Clone)]
+    struct WorkerNode {
+        probe: Arc<WorkerProbe>,
+    }
+
+    /// A capture-style loop: runs until it is told to stop. Bounded (4 s),
+    /// so an engine that never tells it fails the test instead of leaking it.
+    extern "C" fn probe_worker(
+        mut init: RefAny,
+        _sender: azul_layout::thread::ThreadSender,
+        mut recv: azul_core::task::ThreadReceiver,
+    ) {
+        use core::sync::atomic::Ordering;
+
+        use azul_core::task::{OptionThreadSendMsg, ThreadSendMsg};
+
+        let Some(probe) = init.downcast_ref::<WorkerNode>().map(|n| n.probe.clone()) else {
+            return;
+        };
+        probe.started.store(true, Ordering::SeqCst);
+        for _ in 0..2000 {
+            if let OptionThreadSendMsg::Some(ThreadSendMsg::TerminateThread) = recv.recv() {
+                probe.told_to_stop.store(true, Ordering::SeqCst);
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+
+    /// The node's `AfterMount`: start its worker, like every capture widget.
+    extern "C" fn start_probe_worker(
+        mut data: RefAny,
+        mut info: azul_layout::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
+        use azul_layout::thread::{Thread, ThreadCallback};
+
+        let Some(node) = data.downcast_ref::<WorkerNode>().map(|n| (*n).clone()) else {
+            return azul_core::callbacks::Update::DoNothing;
+        };
+        let thread = Thread::create(
+            RefAny::new(node),
+            data.clone(),
+            ThreadCallback::new(probe_worker),
+        );
+        info.add_thread(azul_core::task::ThreadId::unique(), thread);
+        azul_core::callbacks::Update::DoNothing
+    }
+
+    extern "C" fn worker_host_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::{
+            callbacks::{CoreCallback, CoreCallbackData},
+            dom::{ComponentEventFilter, EventFilter},
+        };
+        let host = data
+            .downcast_ref::<WorkerHost>()
+            .map(|h| (*h).clone())
+            .expect("worker host");
+        let body = Dom::create_body().with_child(Dom::create_div().with_css("height: 10px;"));
+        if !host.show {
+            return body;
+        }
+        body.with_child(
+            Dom::create_div().with_css("height: 20px;").with_callbacks(
+                vec![CoreCallbackData {
+                    event: EventFilter::Component(ComponentEventFilter::AfterMount),
+                    callback: CoreCallback {
+                        cb: start_probe_worker as usize,
+                        ctx: azul_core::refany::OptionRefAny::None,
+                    },
+                    refany: RefAny::new(WorkerNode {
+                        probe: host.probe.clone(),
+                    }),
+                }]
+                .into(),
+            ),
+        )
+    }
+
+    fn window_thread_ids(window: &HeadlessWindow) -> Vec<azul_core::task::ThreadId> {
+        window
+            .common
+            .layout_window
+            .as_ref()
+            .map(|lw| lw.threads.keys().copied().collect())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn the_worker_of_a_node_that_unmounts_is_told_to_stop_and_is_gone_after_a_frame() {
+        use core::sync::atomic::Ordering;
+        use std::time::{Duration, Instant};
+
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let probe = Arc::new(WorkerProbe::default());
+        let state = Arc::new(RefCell::new(RefAny::new(WorkerHost {
+            show: true,
+            probe: probe.clone(),
+        })));
+        let mut window = make_window_sized(&state, worker_host_layout, 200.0, 100.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        let started = window_thread_ids(&window);
+        assert_eq!(started.len(), 1, "AfterMount starts the node's worker");
+        let tid = started[0];
+        assert!(window.thread_poll_timer_running);
+
+        // The next DOM drops the node.
+        {
+            let mut g = state.borrow_mut();
+            let r: &mut RefAny = &mut g;
+            if let Some(mut host) = r.downcast_mut::<WorkerHost>() {
+                host.show = false;
+            }
+        }
+        window.regenerate_layout().expect("the node unmounts");
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !probe.told_to_stop.load(Ordering::SeqCst) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(
+            probe.told_to_stop.load(Ordering::SeqCst),
+            "the unmount must tell the node's worker to stop (it ran on: started = {})",
+            probe.started.load(Ordering::SeqCst)
+        );
+
+        // Once the worker has returned, ONE frame of thread polling removes it.
+        let finished = |w: &HeadlessWindow| {
+            w.common
+                .layout_window
+                .as_ref()
+                .and_then(|lw| lw.threads.get(&tid))
+                .is_none_or(|t| t.ptr.lock().map_or(true, |inner| inner.is_finished()))
+        };
+        while !finished(&window) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(finished(&window), "the worker returns once it is told to stop");
+        let _ = window.invoke_thread_callbacks();
+        assert!(
+            window_thread_ids(&window).is_empty(),
+            "the stopped worker of the unmounted node is gone after a frame"
+        );
+        assert!(
+            !window.thread_poll_timer_running,
+            "no thread left, so the thread poll stops (an idle window polls nothing)"
+        );
     }
 }
 
