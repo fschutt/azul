@@ -356,3 +356,117 @@ fn menu_row(app: &RefAny, p: &Palette) -> Dom {
     }
     bar
 }
+
+// ==== Options bar and tools ====
+
+/// The options bar: the active tool's settings.
+fn options_bar(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
+    let s = &a.s;
+    let o = &s.opts;
+    let hint = |t: &str| text(t, &format!("font-size: 12px; color: {}; margin-right: 10px;", p.muted));
+    let mut bar = row(&format!("padding: 4px 8px; background: {}; flex-shrink: 0; min-height: 30px;", p.chrome))
+        .with_id("photo-options")
+        .with_child(text(s.tool.name(), &format!("font-size: 12px; font-weight: bold; color: {}; margin-right: 12px;", p.text)));
+    match s.tool {
+        Tool::Brush | Tool::Pencil | Tool::Eraser | Tool::CloneStamp => {
+            bar.add_child(number(app, "Size", s.brush_size(), Field::BrushSize, p));
+            if s.tool != Tool::Pencil {
+                bar.add_child(slider(app, "Hardness", o.hardness * 100.0, 0.0, 100.0, Field::Hardness, p));
+            }
+            bar.add_child(slider(app, "Opacity", o.opacity * 100.0, 1.0, 100.0, Field::Opacity, p));
+            bar.add_child(slider(app, "Flow", o.flow * 100.0, 1.0, 100.0, Field::Flow, p));
+            bar.add_child(check(app, "Pressure \u{2192} size", o.pressure_size, Field::PressureSize, p));
+            bar.add_child(check(app, "Pressure \u{2192} flow", o.pressure_flow, Field::PressureFlow, p));
+            if s.tool == Tool::CloneStamp {
+                bar.add_child(hint(match o.clone_source {
+                    Some(_) => "Source set (Alt-click to move it)",
+                    None => "Alt-click sets the source",
+                }));
+            }
+        }
+        Tool::MarqueeRect | Tool::MarqueeEllipse | Tool::Lasso => {
+            let modes: Vec<&str> = SelectMode::ALL.iter().map(|m| m.name()).collect();
+            let at = SelectMode::ALL.iter().position(|m| *m == o.select_mode).unwrap_or(0);
+            bar.add_child(segments(app, &modes, at, Field::SelectMode));
+            bar.add_child(Dom::create_div().with_css("width: 12px;"));
+            bar.add_child(number(app, "Feather", o.feather, Field::Feather, p));
+            bar.add_child(hint("Shift adds, Alt subtracts"));
+        }
+        Tool::MagicWand => {
+            let modes: Vec<&str> = SelectMode::ALL.iter().map(|m| m.name()).collect();
+            let at = SelectMode::ALL.iter().position(|m| *m == o.select_mode).unwrap_or(0);
+            bar.add_child(segments(app, &modes, at, Field::SelectMode));
+            bar.add_child(Dom::create_div().with_css("width: 12px;"));
+            bar.add_child(number(app, "Tolerance", f32::from(o.wand_tolerance), Field::WandTolerance, p));
+            bar.add_child(check(app, "Contiguous", o.wand_contiguous, Field::WandContiguous, p));
+            bar.add_child(check(app, "Sample all layers", o.sample_merged, Field::SampleMerged, p));
+        }
+        Tool::Bucket => {
+            bar.add_child(number(app, "Tolerance", f32::from(o.bucket_tolerance), Field::BucketTolerance, p));
+            bar.add_child(check(app, "Contiguous", o.bucket_contiguous, Field::BucketContiguous, p));
+        }
+        Tool::Gradient => {
+            bar.add_child(hint("Drag: foreground colour to background colour, in the selection"));
+        }
+        Tool::Shape => {
+            bar.add_child(segments(app, &["Rectangle", "Ellipse"], usize::from(o.shape_ellipse), Field::ShapeKind));
+            bar.add_child(hint("Filled with the foreground colour; Shift for a square"));
+        }
+        Tool::Crop => {
+            bar.add_child(hint("Drag the frame to keep; Image > Crop to Selection crops to the selection"));
+        }
+        Tool::Move => bar.add_child(hint("Drag to move the active layer")),
+        Tool::Eyedropper => bar.add_child(hint("Click picks the foreground colour, Alt-click the background")),
+        Tool::Hand | Tool::Zoom => {
+            bar.add_child(button(app, "Zoom In", Command::ZoomIn));
+            bar.add_child(button(app, "Zoom Out", Command::ZoomOut));
+            bar.add_child(button(app, "Fit", Command::Fit));
+            bar.add_child(button(app, "100 %", Command::ActualPixels));
+        }
+        Tool::Text => bar.add_child(hint(crate::state::TEXT_TOOL_NOTE)),
+    }
+    bar.add_child(Dom::create_div().with_css("flex-grow: 1;"));
+    if !s.status.is_empty() {
+        bar.add_child(text(&s.status, &format!("font-size: 12px; color: {};", p.muted)).with_id("photo-status-line"));
+    }
+    bar
+}
+
+/// The tools column, the colour chips under it.
+fn tools_column(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
+    let mut col = column(&format!("align-items: center; padding: 4px 0px; background: {};", p.chrome)).with_id("photo-tools");
+    for t in Tool::ALL {
+        let selected = t == a.s.tool;
+        let css = format!(
+            "margin: 1px; {}{}",
+            if selected { format!("background: {}; border-radius: 4px; ", p.selected) } else { String::new() },
+            if t.enabled() { "" } else { "opacity: 0.45;" }
+        );
+        col.add_child(
+            Button::create(AzString::from(""))
+                .with_icon(AzString::from(t.icon()))
+                .with_on_click(cmd(app, Command::Tool(t)), commands::on_command as ButtonOnClickCallbackType)
+                .dom()
+                .with_id(t.dom_id())
+                .with_css(css)
+                .with_accessibility_info(AccessibilityInfo::named(
+                    format!("{} ({})", t.name(), t.key()),
+                    AccessibilityRole::PushButton,
+                )),
+        );
+    }
+    let chip = |c: [u8; 4], id: &str| {
+        Dom::create_div()
+            .with_id(id)
+            .with_css(format!("width: 18px; height: 18px; background: {}; border: 1px solid {};", hex(c), p.line))
+    };
+    col.add_child(Dom::create_div().with_css("height: 8px;"));
+    col.add_child(
+        Dom::create_div()
+            .with_css("position: relative; width: 30px; height: 30px;")
+            .with_child(chip(a.s.bg, "photo-bg-chip").with_css("position: absolute; left: 10px; top: 10px;"))
+            .with_child(chip(a.s.fg, "photo-fg-chip").with_css("position: absolute; left: 0px; top: 0px;"))
+            .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), cmd(app, Command::SwapColors), commands::on_command),
+    );
+    col
+}
