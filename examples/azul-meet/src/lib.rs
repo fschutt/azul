@@ -80,6 +80,7 @@ mod rooms;
 mod routes;
 mod speaker;
 mod tiles;
+mod ui;
 mod video_wire;
 
 use std::{
@@ -391,8 +392,6 @@ struct MeetState {
     notice: String,
     /// When (`now_ms`) the statistics were gathered last.
     stats_at_ms: u64,
-    /// The statistics overlay is open.
-    stats_open: bool,
     /// The statistics text the overlay showed last: the window changes for the statistics only
     /// while the overlay is open and its text moved.
     stats_shown: Vec<String>,
@@ -465,6 +464,22 @@ struct MeetState {
     speaker: speaker::ActiveSpeaker,
     /// What the call's side panel shows.
     panel: SidePanel,
+    /// The chat field as typed.
+    chat_draft: String,
+    /// The settings screen is open, at this category (`ui::SETTINGS_CATEGORIES`).
+    settings_open: bool,
+    settings_category: usize,
+    /// The devices picked in the settings: an index into "System default" + the microphones /
+    /// speakers, and into `CAMERAS` (the camera's facing).
+    mic_choice: usize,
+    speaker_choice: usize,
+    camera_choice: usize,
+    /// The video quality this side asks for (`ui::QUALITY_LABELS`): automatic, data saver, low.
+    quality: usize,
+    /// The app theme (0 flat, 1 flora) and the mode (0 system, 1 light, 2 dark) the settings
+    /// show.
+    theme_index: usize,
+    mode_index: usize,
 }
 
 impl MeetState {
@@ -480,7 +495,6 @@ impl MeetState {
             link_status: String::from("binding"),
             notice: String::new(),
             stats_at_ms: 0,
-            stats_open: false,
             stats_shown: Vec::new(),
             pace: pace::PumpPace::new(),
             mic_on: false,
@@ -526,6 +540,15 @@ impl MeetState {
             chat: chat::ChatLog::new(),
             speaker: speaker::ActiveSpeaker::new(),
             panel: SidePanel::People,
+            chat_draft: String::new(),
+            settings_open: false,
+            settings_category: 0,
+            mic_choice: 0,
+            speaker_choice: 0,
+            camera_choice: 0,
+            quality: 0,
+            theme_index: 0,
+            mode_index: 0,
         }
     }
 }
@@ -537,6 +560,8 @@ enum SidePanel {
     People,
     /// The chat.
     Chat,
+    /// The statistics: devices, video, audio, network.
+    Statistics,
     /// Nothing: the tiles take the window.
     Closed,
 }
@@ -584,32 +609,11 @@ fn mic_level_percent(samples: &[f32]) -> f32 {
     ((db - METER_FLOOR_DB) / -METER_FLOOR_DB * 100.0).clamp(0.0, 100.0)
 }
 
-const TILE: &str = "width: 300px; height: 200px; margin: 8px; border-radius: 10px; background: \
-                    #2b2b38; display: flex; align-items: center; justify-content: center; color: \
-                    #99a; font-size: 17px; overflow: hidden;";
-const BTN: &str = "padding: 10px 18px; margin: 0 6px; border-radius: 8px; background: #3a3a4a; \
-                   color: #e6e6f0; font-size: 14px; white-space: nowrap; flex-shrink: 0;";
-const BTN_ON: &str = "padding: 10px 18px; margin: 0 6px; border-radius: 8px; background: #2f6db0; \
-                      color: #ffffff; font-size: 14px; white-space: nowrap; flex-shrink: 0;";
-const BTN_LEAVE: &str = "padding: 10px 18px; margin: 0 6px 0 24px; border-radius: 8px; \
-                         background: #b03a3a; color: #ffffff; font-size: 14px; white-space: \
-                         nowrap; flex-shrink: 0;";
-const NOTICE: &str = "padding: 6px 12px; font-size: 13px; color: #f0b060; background: #15151c;";
-/// The line under the meeting server field: it answers, or it does not.
-const SERVER_OK: &str = "font-size: 12px; color: #7fbf7f; margin-bottom: 22px;";
-const SERVER_TROUBLE: &str = "font-size: 12px; color: #f0b060; margin-bottom: 22px;";
-/// The speaker view's stage and its thumbnails. A tile's height is what it asks for until it is
-/// laid out (`IrohTileRole::rendition_height`); each sits well inside its rendition step.
-const STAGE: &str = "width: 568px; height: 320px; margin: 8px; border-radius: 10px; background: \
-                     #2b2b38; display: flex; align-items: center; justify-content: center; color: \
-                     #99a; font-size: 17px; overflow: hidden;";
-const THUMB: &str = "width: 142px; height: 80px; margin: 6px; border-radius: 8px; background: \
-                     #2b2b38; display: flex; align-items: center; justify-content: center; color: \
-                     #99a; font-size: 12px; overflow: hidden;";
+/// The height of a tile's box until it is laid out, by its role: a gallery tile, the stage, a
+/// filmstrip tile (the CallShell's 176 px wide cell at 16:9). A tile asks for the rendition of
+/// its height (`IrohTileRole::rendition_height`).
 const TILE_H: f32 = 200.0;
 const STAGE_H: f32 = 320.0;
-const THUMB_H: f32 = 80.0;
-/// A filmstrip tile's height: the CallShell's 176 px wide cell at 16:9.
 const FILMSTRIP_H: f32 = 99.0;
 
 fn track_slot(track: u32) -> Option<usize> {
@@ -623,48 +627,6 @@ fn track_slot(track: u32) -> Option<usize> {
 /// The marker of the tile showing `track` of the peer behind connection `handle`.
 fn tile_marker(handle: u64, track: u32) -> String {
     format!("azmeet-peer-{handle}-track-{track}")
-}
-
-/// The video tile with `marker` in the `css` box.
-fn remote_video_tile(marker: &str, css: &str) -> Dom {
-    Dom::create_div().with_css(css).with_child(
-        Dom::create_image(ImageRef::null_image(
-            FEED_W as usize,
-            FEED_H as usize,
-            RawImageFormat::RGBA8,
-            U8VecRef::from(&[][..]),
-        ))
-        .with_marker(OptionString::Some(AzString::from(marker)))
-        .with_css("width: 100%; height: 100%;"),
-    )
-}
-
-fn participant(name: &str, css: &str) -> Dom {
-    Dom::create_div()
-        .with_css(css)
-        .with_child(Dom::create_span_with_text(name))
-}
-
-fn device_col(title: &str, devices: &[String]) -> Dom {
-    let mut col =
-        Dom::create_div().with_css("display: flex; flex-direction: column; margin: 0 28px;");
-    col = col.with_child(
-        Dom::create_span_with_text(title)
-            .with_css("font-size: 13px; color: #8890a8; margin-bottom: 4px;"),
-    );
-    if devices.is_empty() {
-        col = col.with_child(
-            Dom::create_span_with_text("(none detected)").with_css("font-size: 13px; color: #667;"),
-        );
-    } else {
-        for d in devices {
-            col = col.with_child(
-                Dom::create_span_with_text(d.as_str())
-                    .with_css("font-size: 13px; color: #ccd; padding: 2px 0;"),
-            );
-        }
-    }
-    col
 }
 
 extern "C" fn on_devices_enumerated(
@@ -691,11 +653,14 @@ extern "C" fn on_devices_enumerated(
     Update::RefreshDom
 }
 
-extern "C" fn layout_first(data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+extern "C" fn layout_first(data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    // Reading the mode makes a light / dark switch rebuild the window.
+    let _mode = info.get_mode();
     peer_layout(data, 0)
 }
 
-extern "C" fn layout_second(data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+extern "C" fn layout_second(data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    let _mode = info.get_mode();
     peer_layout(data, 1)
 }
 
@@ -731,77 +696,6 @@ fn consumer_stream(id: u32) -> (u32, u16) {
     (id & 0xff, (id >> 8) as u16)
 }
 
-/// How a peer's `track` tile is shown: its role, the height it asks for until it is laid out, and
-/// its box.
-fn tile_kind(view: ViewMode, on_stage: bool, track: u32) -> (IrohTileRole, f32, &'static str) {
-    match (view, track) {
-        (ViewMode::Speaker, CAMERA_TRACK) if on_stage => (IrohTileRole::Stage, STAGE_H, STAGE),
-        (ViewMode::Speaker, CAMERA_TRACK) => (IrohTileRole::Filmstrip, THUMB_H, THUMB),
-        _ => (IrohTileRole::Gallery, TILE_H, TILE),
-    }
-}
-
-/// What the room parts of the window show.
-struct RoomView {
-    stage: Stage,
-    /// The meeting server field and the line under it.
-    server_text: String,
-    server_status: String,
-    server_ok: bool,
-    join_text: String,
-    link: String,
-    copied: bool,
-    /// "Ada (you)", then one "<name> · <status>" row per other participant.
-    roster: Vec<String>,
-}
-
-struct LayoutSnapshot {
-    header: String,
-    notice: String,
-    name: String,
-    linked: bool,
-    /// The solo fallback without any link shows placeholder participants.
-    placeholders: bool,
-    /// Markers of the remote video tiles to show and their boxes, the stage first.
-    remote_tiles: Vec<(String, &'static str)>,
-    /// Labels of the remote participants with no video tile yet, and their boxes.
-    waiting: Vec<(String, &'static str)>,
-    /// The box of this participant's own tiles.
-    self_css: &'static str,
-    /// The camera is on, but nobody shows it, so nothing is encoded or sent.
-    cam_culled: bool,
-    /// Speaker view (else grid).
-    speaker: bool,
-    /// The renditions of the camera and of the screen someone shows: one capture consumer each.
-    camera_renditions: Vec<u16>,
-    screen_renditions: Vec<u16>,
-    /// The network panel: plan, routes, role, this side's report, one line per peer.
-    network_lines: Vec<String>,
-    link_status: String,
-    mic: bool,
-    cam: bool,
-    screen: bool,
-    mic_level: f32,
-    mics: Vec<String>,
-    speakers: Vec<String>,
-    room: Option<RoomView>,
-    deafened: bool,
-    /// The microphone is the test tone, so no `MicrophoneWidget` is mounted.
-    tone_mic: bool,
-    /// "Audio from Ben: ..." for every connected peer whose audio arrived.
-    audio_lines: Vec<String>,
-    /// Audio packets sent since the start.
-    packets_sent: u32,
-    /// "Video: H.264 (VideoToolbox)" or "Video: JPEG (no encoder)".
-    codec_line: String,
-    /// "Sending camera: ..." per local track, "Video from Ben (camera): ..." per peer track.
-    video_lines: Vec<String>,
-    /// The camera and the screen share are test patterns, so no capture widget is mounted.
-    pattern_video: bool,
-    /// Show the "Drop a video packet" button.
-    video_debug: bool,
-}
-
 fn short_id(id: &str) -> &str {
     id.get(..10).unwrap_or(id)
 }
@@ -823,119 +717,264 @@ fn remote_name(s: &MeetState, node_id: &str) -> String {
     }
 }
 
-fn roster(s: &MeetState, room: &RoomSession) -> Vec<String> {
-    let me = format!("{} (you)", s.name);
-    let mut rows = vec![audio::person_line(&me, Some(my_state(s)))];
-    for p in &room.peers {
-        let remote = s.remotes.iter().find(|r| r.node_id == p.node_id);
-        let status = if remote.is_some() {
-            "connected"
-        } else if rooms::dials(&room.node_id, &p.node_id) {
-            "connecting"
-        } else {
-            "waiting for them to connect"
-        };
-        let label = format!("{} · {}", p.name, status);
-        rows.push(audio::person_line(&label, remote.and_then(|r| r.state)));
+/// The window's screen: the settings while open, the lobby before a meeting, else the call.
+fn ui_screen(s: &MeetState) -> ui::UiScreen {
+    if s.settings_open {
+        return ui::UiScreen::Settings;
     }
-    // Connected peers whose record expired from the server stay listed.
-    for r in &s.remotes {
-        if !room.peers.iter().any(|p| p.node_id == r.node_id) {
-            let label = format!("{} · connected", short_id(&r.node_id));
-            rows.push(audio::person_line(&label, r.state));
+    match &s.room {
+        Some(room) if matches!(room.stage, Stage::Start | Stage::Opening) => ui::UiScreen::Lobby,
+        _ => ui::UiScreen::Call,
+    }
+}
+
+/// The people panel: this side, then everyone the meeting server lists (and connected peers it
+/// no longer lists), or in the demo everyone connected.
+fn people(s: &MeetState) -> Vec<ui::PersonView> {
+    let now = now_ms(s);
+    let me = my_state(s);
+    let mut rows = vec![ui::PersonView {
+        name: format!("{} (you)", s.name),
+        status: String::from(if s.cam_on { "camera on" } else { "camera off" }),
+        muted: me.muted,
+        deafened: me.deafened,
+        speaking: false,
+    }];
+    let person = |name: String, status: &str, r: Option<&Remote>| ui::PersonView {
+        name,
+        status: status.to_string(),
+        muted: r.and_then(|r| r.state).is_some_and(|state| state.muted),
+        deafened: r.and_then(|r| r.state).is_some_and(|state| state.deafened),
+        speaking: r.is_some_and(|r| s.speaker.is_speaking(r.key, now)),
+    };
+    match &s.room {
+        Some(room) => {
+            for p in &room.peers {
+                let remote = s.remotes.iter().find(|r| r.node_id == p.node_id);
+                let status = if remote.is_some() {
+                    "connected"
+                } else if rooms::dials(&room.node_id, &p.node_id) {
+                    "connecting"
+                } else {
+                    "waiting for them to connect"
+                };
+                rows.push(person(p.name.clone(), status, remote));
+            }
+            // Connected peers whose record expired from the server stay listed.
+            for r in &s.remotes {
+                if !room.peers.iter().any(|p| p.node_id == r.node_id) {
+                    rows.push(person(short_id(&r.node_id).to_string(), "connected", Some(r)));
+                }
+            }
+        }
+        None => {
+            for r in &s.remotes {
+                rows.push(person(remote_name(s, &r.node_id), "connected", Some(r)));
+            }
         }
     }
     rows
 }
 
-fn snapshot(s: &MeetState) -> LayoutSnapshot {
-    let stage = stage_key(s);
-    let mut remotes: Vec<&Remote> = s.remotes.iter().collect();
-    // The stage first; the sort is stable, so the others keep their order.
-    remotes.sort_by_key(|r| Some(r.key) != stage);
-    let mut remote_tiles = Vec::new();
-    let mut waiting = Vec::new();
-    for r in remotes {
-        let on_stage = Some(r.key) == stage;
-        let shown: Vec<(String, &'static str)> = [CAMERA_TRACK, SCREEN_TRACK]
-            .into_iter()
-            .filter(|track| track_slot(*track).is_some_and(|slot| r.tracks[slot]))
-            .map(|track| {
-                (
-                    tile_marker(r.handle, track),
-                    tile_kind(s.view, on_stage, track).2,
-                )
-            })
-            .collect();
-        if shown.is_empty() {
-            waiting.push((
-                format!("{} · waiting for video", remote_name(s, &r.node_id)),
-                tile_kind(s.view, on_stage, CAMERA_TRACK).2,
-            ));
-        } else {
-            remote_tiles.extend(shown);
-        }
+/// The view of `tile`: this side's own, or a peer's (its stream's image node once a stream of it
+/// arrives, its microphone, whether it speaks).
+fn tile_view(s: &MeetState, tile: tiles::Tile, now: u64) -> ui::TileView {
+    let track = match tile.kind {
+        tiles::TileKind::Camera => CAMERA_TRACK,
+        tiles::TileKind::Screen => SCREEN_TRACK,
+    };
+    if tile.key == s.me {
+        return ui::TileView {
+            kind: tile.kind,
+            me: true,
+            name: format!("{} (you)", s.name),
+            marker: None,
+            muted: !s.mic_on,
+            speaking: false,
+        };
     }
-    if s.room.is_none() && s.endpoint.is_some() && s.remotes.is_empty() {
-        waiting.push((format!("{} · waiting for video", s.peer_name), TILE));
+    let remote = s.remotes.iter().find(|r| r.key == tile.key);
+    ui::TileView {
+        kind: tile.kind,
+        me: false,
+        name: remote.map_or_else(|| name_of(s, tile.key), |r| remote_name(s, &r.node_id)),
+        marker: remote.and_then(|r| {
+            let slot = track_slot(track)?;
+            r.tracks[slot].then(|| tile_marker(r.handle, track))
+        }),
+        muted: remote
+            .and_then(|r| r.state)
+            .is_some_and(|state| state.muted),
+        speaking: s.speaker.is_speaking(tile.key, now),
     }
-    let header = match &s.room {
-        Some(room) if !room.code.is_empty() => {
-            format!("AzMeet · meeting {} · {}", room.code, s.name)
-        }
+}
+
+/// The statistics panel: the devices, the video (codec, link, every stream), the audio and the
+/// network plan.
+fn stats_sections(s: &MeetState) -> Vec<ui::StatSection> {
+    let mut video = vec![codec_status(s), s.link_status.clone()];
+    video.extend(video_lines(s));
+    let source = if s.tone_mic {
+        format!("{TONE_HZ} Hz test tone")
+    } else {
+        String::from("microphone")
+    };
+    let mut audio = vec![if s.mic_on {
+        format!(
+            "Sending: {source}, 16-bit PCM, 20 ms packets, {} so far",
+            s.packetizer.next_sequence()
+        )
+    } else {
+        String::from("Sending: nothing (muted)")
+    }];
+    if s.deafened {
+        audio.push(String::from("Deafened: nothing is played"));
+    }
+    audio.extend(audio_lines(s));
+    let section = |title: &str, lines: Vec<String>| ui::StatSection {
+        title: title.to_string(),
+        lines,
+    };
+    vec![
+        section("Microphones", s.mics.clone()),
+        section("Speakers", s.speakers.clone()),
+        section("Video", video),
+        section("Audio", audio),
+        section("Network", network_lines(s)),
+    ]
+}
+
+/// The cameras the settings offer: by facing (there is no camera list API).
+const CAMERAS: [&str; 3] = ["Front camera", "Back camera", "External camera"];
+
+/// "System default", then `devices`.
+fn device_choices(devices: &[String]) -> Vec<String> {
+    let mut choices = vec![String::from("System default")];
+    choices.extend(devices.iter().cloned());
+    choices
+}
+
+/// Everything the window shows, from the state.
+fn snapshot(s: &MeetState) -> ui::CallView {
+    let now = now_ms(s);
+    let arr = arrangement(s);
+    let title = match &s.room {
+        Some(room) if !room.code.is_empty() => format!("AzMeet · meeting {} · {}", room.code, s.name),
         Some(_) => format!("AzMeet · {}", s.name),
-        None if s.endpoint.is_some() => format!(
-            "AzMeet · meeting {} · {} ({})",
-            s.meeting, s.name, s.backend
-        ),
+        None if s.endpoint.is_some() => {
+            format!("AzMeet · meeting {} · {} ({})", s.meeting, s.name, s.backend)
+        }
         None => format!("AzMeet · meeting {}", s.meeting),
     };
     let camera_renditions = my_renditions(s, CAMERA_TRACK);
-    LayoutSnapshot {
-        header,
+    let lobby = s.room.as_ref().map(|room| ui::LobbyView {
+        opening: room.stage == Stage::Opening,
+        server_text: room.server_text.clone(),
+        server_status: room.server_status.clone(),
+        server_ok: room.server_ok,
+        join_text: room.join_text.clone(),
+    });
+    ui::CallView {
+        screen: ui_screen(s),
+        title,
         notice: s.notice.clone(),
         name: s.name.clone(),
-        linked: s.endpoint.is_some(),
-        placeholders: s.room.is_none() && s.endpoint.is_none(),
-        remote_tiles,
-        waiting,
-        self_css: if s.view == ViewMode::Speaker {
-            THUMB
-        } else {
-            TILE
+        lobby,
+        stage: arr.stage.map(|tile| tile_view(s, tile, now)),
+        tiles: arr.tiles.iter().map(|tile| tile_view(s, *tile, now)).collect(),
+        panel: match s.panel {
+            SidePanel::People => ui::PanelView::People,
+            SidePanel::Chat => ui::PanelView::Chat,
+            SidePanel::Statistics => ui::PanelView::Statistics,
+            SidePanel::Closed => ui::PanelView::Closed,
         },
-        cam_culled: s.cam_on && !s.remotes.is_empty() && camera_renditions.is_empty(),
-        speaker: s.view == ViewMode::Speaker,
-        screen_renditions: my_renditions(s, SCREEN_TRACK),
-        camera_renditions,
-        network_lines: network_lines(s),
-        link_status: s.link_status.clone(),
+        people: people(s),
+        chat: s
+            .chat
+            .messages()
+            .iter()
+            .map(|m| ui::ChatLine {
+                name: m.name.clone(),
+                text: m.text.clone(),
+                mine: m.mine,
+            })
+            .collect(),
+        chat_unread: s.chat.unread(),
+        chat_draft: s.chat_draft.clone(),
+        stats: if s.panel == SidePanel::Statistics {
+            stats_sections(s)
+        } else {
+            Vec::new()
+        },
+        link: s.room.as_ref().map(|room| room.link.clone()).unwrap_or_default(),
+        copied: s.room.as_ref().is_some_and(|room| room.copied),
         mic: s.mic_on,
         cam: s.cam_on,
-        screen: s.screen_on,
-        mic_level: s.mic_level,
-        mics: s.mics.clone(),
-        speakers: s.speakers.clone(),
-        room: s.room.as_ref().map(|room| RoomView {
-            stage: room.stage,
-            server_text: room.server_text.clone(),
-            server_status: room.server_status.clone(),
-            server_ok: room.server_ok,
-            join_text: room.join_text.clone(),
-            link: room.link.clone(),
-            copied: room.copied,
-            roster: roster(s, room),
-        }),
+        screen_on: s.screen_on,
         deafened: s.deafened,
+        cam_culled: s.cam_on && !s.remotes.is_empty() && camera_renditions.is_empty(),
+        speaker_view: s.view == ViewMode::Speaker,
+        in_room: s.room.is_some(),
         tone_mic: s.tone_mic,
-        audio_lines: audio_lines(s),
-        packets_sent: s.packetizer.next_sequence(),
-        codec_line: codec_status(s),
-        video_lines: video_lines(s),
         pattern_video: s.pattern_video,
+        screen_renditions: my_renditions(s, SCREEN_TRACK),
+        camera_renditions,
+        mic_level: s.mic_level,
         video_debug: s.video_debug,
+        settings: ui::SettingsView {
+            category: s.settings_category,
+            mics: device_choices(&s.mics),
+            mic_choice: s.mic_choice,
+            speakers: device_choices(&s.speakers),
+            speaker_choice: s.speaker_choice,
+            cameras: CAMERAS.iter().map(|c| c.to_string()).collect(),
+            camera_choice: s.camera_choice,
+            quality: s.quality,
+            theme: s.theme_index,
+            mode: s.mode_index,
+            server: s
+                .room
+                .as_ref()
+                .map(|room| room.worker.clone())
+                .unwrap_or_else(|| String::from("none (local demo)")),
+            name: s.name.clone(),
+            codec: codec_status(s),
+        },
     }
 }
+
+/// The app's callbacks, as the window wires them (`ui::Actions`).
+const ACTIONS: ui::Actions = ui::Actions {
+    mic: mic_toggle,
+    cam: cam_toggle,
+    share: screen_toggle,
+    deafen: deafen_toggle,
+    view: view_toggle,
+    leave: on_leave,
+    panel: on_panel,
+    settings: on_settings_open,
+    settings_back: on_settings_back,
+    settings_category: on_settings_category,
+    copy_link: on_copy_link,
+    drop_packet: on_drop_video_packet,
+    chat_text: on_chat_text,
+    chat_key: on_chat_key,
+    chat_send: on_chat_send,
+    name_text: on_name_text,
+    server_text: on_server_text,
+    server_key: on_server_key,
+    server_blur: on_server_blur,
+    join_text: on_join_text,
+    new_meeting: on_new_meeting,
+    join: on_join,
+    mic_choice: on_mic_choice,
+    speaker_choice: on_speaker_choice,
+    camera_choice: on_camera_choice,
+    quality: on_quality,
+    theme: on_theme,
+    mode: on_mode,
+    key: on_key,
+};
 
 fn meet_layout(mut data: RefAny) -> Dom {
     let Some(view) = data.downcast_ref::<MeetState>().map(|s| snapshot(&s)) else {
@@ -953,386 +992,7 @@ fn meet_layout(mut data: RefAny) -> Dom {
     if first_layout {
         let _request = AudioDeviceList::enumerate(data.clone(), on_devices_enumerated);
     }
-
-    match &view.room {
-        Some(room) if matches!(room.stage, Stage::Start | Stage::Opening) => {
-            start_layout(&view, room, &data)
-        }
-        _ => call_layout(&view, &data),
-    }
-}
-
-/// The start screen: "New meeting" and "Join with a link".
-fn start_layout(view: &LayoutSnapshot, room: &RoomView, data: &RefAny) -> Dom {
-    let opening = room.stage == Stage::Opening;
-    let mut card = Dom::create_div().with_css(
-        "display: flex; flex-direction: column; width: 520px; padding: 28px; border-radius: \
-         14px; background: #17171f;",
-    );
-    card = card.with_child(
-        Dom::create_span_with_text("AzMeet")
-            .with_css("font-size: 26px; font-weight: bold; margin-bottom: 4px;"),
-    );
-    card = card.with_child(
-        Dom::create_span_with_text("Meeting server")
-            .with_css("font-size: 13px; color: #8890a8; margin-bottom: 6px;"),
-    );
-    card = card.with_child(
-        TextInput::create()
-            .with_text(room.server_text.as_str())
-            .with_placeholder(rooms::LOCAL_WORKER)
-            .with_on_text_input(data.clone(), on_server_text)
-            .with_on_virtual_key_down(data.clone(), on_server_key)
-            .with_on_focus_lost(data.clone(), on_server_blur)
-            .dom()
-            .with_css("margin-bottom: 4px;"),
-    );
-    card = card.with_child(
-        Dom::create_span_with_text(room.server_status.as_str()).with_css(if room.server_ok {
-            SERVER_OK
-        } else {
-            SERVER_TROUBLE
-        }),
-    );
-    card = card.with_child(
-        Button::with_type(
-            if opening {
-                "Please wait..."
-            } else {
-                "New meeting"
-            },
-            ButtonType::Primary,
-        )
-        .with_on_click(data.clone(), on_new_meeting)
-        .dom()
-        .with_css("margin-bottom: 26px;"),
-    );
-    card = card.with_child(
-        Dom::create_span_with_text("Join with a link")
-            .with_css("font-size: 14px; color: #ccd; margin-bottom: 6px;"),
-    );
-    card = card.with_child(
-        Dom::create_div()
-            .with_css("display: flex; flex-direction: row; align-items: center;")
-            .with_child(
-                TextInput::create()
-                    .with_text(room.join_text.as_str())
-                    .with_placeholder("azlin://meet/... or a code like xq4-8kd-2nm")
-                    .with_on_text_input(data.clone(), on_join_text)
-                    .dom()
-                    .with_css("flex-grow: 1; margin-right: 8px;"),
-            )
-            .with_child(
-                Button::create("Join")
-                    .with_on_click(data.clone(), on_join)
-                    .dom(),
-            ),
-    );
-    if !view.notice.is_empty() {
-        card = card.with_child(
-            Dom::create_span_with_text(view.notice.as_str())
-                .with_css("margin-top: 16px; font-size: 13px; color: #f0b060;"),
-        );
-    }
-    card = card.with_child(
-        Dom::create_span_with_text(format!("Others see you as {}", view.name).as_str())
-            .with_css("margin-top: 22px; font-size: 13px; color: #8890a8;"),
-    );
-    Dom::create_body()
-        .with_css(
-            "display: flex; flex-direction: column; height: 100%; margin: 0; background: \
-             #0e0e14; font-family: sans-serif; color: #e6e6f0;",
-        )
-        .with_child(title_row(None))
-        .with_child(
-            Dom::create_div()
-                .with_css(
-                    "display: flex; align-items: center; justify-content: center; flex-grow: 1; \
-                     min-height: 0px;",
-                )
-                .with_child(card),
-        )
-}
-
-/// The window's title row, drawn by azul (every AzMeet window is `NoTitle`, so
-/// macOS draws only the traffic lights). `fill` is the colour of the bar right
-/// below it, so the two read as one; `None` lets the page show through. No line
-/// under it, and the title in the page's light ink.
-fn title_row(fill: Option<ColorU>) -> Dom {
-    let mut bar = Titlebar::create("AzMeet").without_border_bottom();
-    if let Some(fill) = fill {
-        bar = bar.with_background(fill);
-    }
-    bar.title_color = ColorU::rgb(0xe6, 0xe6, 0xf0);
-    bar.dom()
-}
-
-/// The call: header, invite link and people (in a room), tiles, controls, devices and network.
-fn call_layout(view: &LayoutSnapshot, data: &RefAny) -> Dom {
-    let self_tile = if view.cam && !view.pattern_video {
-        // One consumer per rendition someone shows; none keeps the local preview only.
-        let mut camera = CameraWidget::create(CameraConfig {
-            output_format: VIDEO_FORMAT,
-            ..CameraConfig::default()
-        });
-        for height in &view.camera_renditions {
-            camera = camera.with_consumer(feed_consumer(CAMERA_TRACK, *height));
-        }
-        Dom::create_div().with_css(view.self_css).with_child(
-            camera
-                .with_on_consumer_frame(data.clone(), send_feed_frame)
-                .dom()
-                .with_css("width: 100%; height: 100%;"),
-        )
-    } else if view.cam && view.cam_culled {
-        participant(
-            "You · test pattern, not shown to anyone, not being sent",
-            view.self_css,
-        )
-    } else if view.cam {
-        participant("You · test pattern", view.self_css)
-    } else {
-        participant("You · camera off", view.self_css)
-    };
-
-    let mut grid = Dom::create_div().with_css(
-        "display: flex; flex-wrap: wrap; flex-grow: 1; align-content: flex-start; \
-         justify-content: center; padding: 12px;",
-    );
-    grid = grid.with_child(self_tile);
-    if view.screen && view.pattern_video {
-        grid = grid.with_child(participant("Your screen · test pattern", view.self_css));
-    } else if view.screen {
-        let mut screen = ScreenCaptureWidget::create(ScreenCaptureConfig {
-            output_format: VIDEO_FORMAT,
-            ..ScreenCaptureConfig::default()
-        });
-        for height in &view.screen_renditions {
-            screen = screen.with_consumer(feed_consumer(SCREEN_TRACK, *height));
-        }
-        grid = grid.with_child(
-            Dom::create_div().with_css(view.self_css).with_child(
-                screen
-                    .with_on_consumer_frame(data.clone(), send_feed_frame)
-                    .dom()
-                    .with_css("width: 100%; height: 100%;"),
-            ),
-        );
-    }
-    if view.placeholders {
-        grid = grid
-            .with_child(participant("Alice", TILE))
-            .with_child(participant("Bob", TILE))
-            .with_child(participant("Carol", TILE));
-    }
-    for (label, css) in &view.waiting {
-        grid = grid.with_child(participant(label, css));
-    }
-    for (marker, css) in &view.remote_tiles {
-        grid = grid.with_child(remote_video_tile(marker, css));
-    }
-    if view.room.is_some() && view.waiting.is_empty() && view.remote_tiles.is_empty() {
-        grid = grid.with_child(participant("Waiting for others to join", TILE));
-    }
-
-    let cam_label = match (view.cam, view.cam_culled) {
-        (true, true) => "Stop video (not shown to anyone, not being sent)",
-        (true, false) => "Stop video",
-        (false, _) => "Start video",
-    };
-    let mut toolbar = Dom::create_div()
-        .with_css("display: flex; justify-content: center; padding: 14px; background: #15151c;")
-        .with_child(toolbar_button(
-            if view.mic { "Mute" } else { "Unmute mic" },
-            if view.mic { BTN_ON } else { BTN },
-            data,
-            mic_toggle,
-        ))
-        .with_child(toolbar_button(
-            if view.deafened { "Undeafen" } else { "Deafen" },
-            if view.deafened { BTN_ON } else { BTN },
-            data,
-            deafen_toggle,
-        ))
-        .with_child(toolbar_button(
-            cam_label,
-            if view.cam { BTN_ON } else { BTN },
-            data,
-            cam_toggle,
-        ))
-        .with_child(toolbar_button(
-            if view.screen {
-                "Stop share"
-            } else {
-                "Share screen"
-            },
-            if view.screen { BTN_ON } else { BTN },
-            data,
-            screen_toggle,
-        ))
-        .with_child(toolbar_button(
-            if view.speaker {
-                "Grid view"
-            } else {
-                "Speaker view"
-            },
-            BTN,
-            data,
-            view_toggle,
-        ));
-    if view.video_debug {
-        toolbar = toolbar.with_child(toolbar_button(
-            "Drop a video packet",
-            BTN,
-            data,
-            on_drop_video_packet,
-        ));
-    }
-    if view.room.is_some() {
-        toolbar = toolbar.with_child(toolbar_button("Leave", BTN_LEAVE, data, on_leave));
-    }
-
-    let link_line = if view.linked {
-        format!("iroh · {}", view.link_status)
-    } else {
-        view.link_status.clone()
-    };
-    let mut video_col = vec![view.codec_line.clone(), link_line];
-    video_col.extend(view.video_lines.iter().cloned());
-    let mut devices_panel = Dom::create_div()
-        .with_css(
-            "display: flex; justify-content: center; padding: 10px 12px 16px 12px; background: \
-             #0e0e14; border-top: 1px solid #222;",
-        )
-        .with_child(device_col("Microphones", &view.mics))
-        .with_child(device_col("Speakers", &view.speakers))
-        .with_child(device_col("Video", &video_col))
-        .with_child(device_col("Audio", &audio_col(view)));
-    if !view.network_lines.is_empty() {
-        devices_panel = devices_panel.with_child(device_col("Network", &view.network_lines));
-    }
-
-    let mut body = Dom::create_body().with_css(
-        "display: flex; flex-direction: column; height: 100%; margin: 0; background: #0e0e14; \
-         font-family: sans-serif; color: #e6e6f0;",
-    );
-    body = body.with_child(title_row(Some(ColorU::rgb(0x15, 0x15, 0x1c))));
-    body = body.with_child(
-        Dom::create_span_with_text(view.header.as_str())
-            .with_css("padding: 12px; font-size: 18px; background: #15151c;"),
-    );
-    if !view.notice.is_empty() {
-        body = body.with_child(Dom::create_span_with_text(view.notice.as_str()).with_css(NOTICE));
-    }
-    if let Some(room) = &view.room {
-        body = body.with_child(
-            Dom::create_div()
-                .with_css(
-                    "display: flex; flex-direction: row; align-items: center; padding: 8px 12px; \
-                     background: #15151c; border-top: 1px solid #222;",
-                )
-                .with_child(
-                    Dom::create_span_with_text("Invite")
-                        .with_css("font-size: 13px; color: #8890a8; margin-right: 10px;"),
-                )
-                .with_child(
-                    Dom::create_span_with_text(room.link.as_str())
-                        .with_css("font-size: 13px; color: #ccd; flex-grow: 1; overflow: hidden;"),
-                )
-                .with_child(
-                    Button::create(if room.copied { "Copied" } else { "Copy link" })
-                        .with_on_click(data.clone(), on_copy_link)
-                        .dom(),
-                ),
-        );
-        let mut people = Dom::create_div().with_css(
-            "display: flex; flex-direction: row; flex-wrap: wrap; padding: 6px 12px; background: \
-             #15151c;",
-        );
-        for row in &room.roster {
-            people = people.with_child(
-                Dom::create_span_with_text(row.as_str())
-                    .with_css("font-size: 13px; color: #ccd; margin-right: 18px;"),
-            );
-        }
-        body = body.with_child(people);
-    }
-    if view.mic && !view.tone_mic {
-        body = body.with_child(
-            MicrophoneWidget::create(AudioConfig {
-                sample_rate: MIC_RATE,
-                channels: 1,
-            })
-            .with_on_frame(data.clone(), mic_on_frame)
-            .dom()
-            .with_css("width: 1px; height: 1px; overflow: hidden;"),
-        );
-    }
-    if view.mic {
-        body = body.with_child(
-            Dom::create_div()
-                .with_css(
-                    "display: flex; flex-direction: row; align-items: center; padding: 6px 12px; \
-                     background: #15151c;",
-                )
-                .with_child(Dom::create_span_with_text("Mic level").with_css(
-                    "font-size: 13px; color: #8890a8; margin-right: 10px; white-space: nowrap;",
-                ))
-                .with_child(
-                    ProgressBar::create(view.mic_level)
-                        .dom()
-                        .with_css("width: 200px;")
-                        .with_callback(
-                            EventFilter::Component(ComponentEventFilter::AfterMount),
-                            data.clone(),
-                            meter_mounted,
-                        )
-                        .with_callback(
-                            EventFilter::Component(ComponentEventFilter::BeforeUnmount),
-                            data.clone(),
-                            meter_unmounted,
-                        ),
-                ),
-        );
-    }
-    body.with_child(grid)
-        .with_child(toolbar)
-        .with_child(devices_panel)
-}
-
-/// A toolbar button: `label` in the `style` box, `on_click` on mouse-up.
-fn toolbar_button(label: &str, style: &str, data: &RefAny, on_click: CallbackType) -> Dom {
-    Dom::create_div()
-        .with_css(style)
-        .with_child(Dom::create_span_with_text(label))
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::MouseUp),
-            data.clone(),
-            on_click,
-        )
-}
-
-/// The devices panel's audio column: what is sent, then one line per peer heard.
-fn audio_col(view: &LayoutSnapshot) -> Vec<String> {
-    let source = if view.tone_mic {
-        format!("{TONE_HZ} Hz test tone")
-    } else {
-        String::from("microphone")
-    };
-    let sending = if view.mic {
-        format!(
-            "Sending: {source}, 16-bit PCM, 20 ms packets, {} so far",
-            view.packets_sent
-        )
-    } else {
-        String::from("Sending: nothing (muted)")
-    };
-    let mut lines = vec![sending];
-    if view.deafened {
-        lines.push(String::from("Deafened: nothing is played"));
-    }
-    lines.extend(view.audio_lines.iter().cloned());
-    lines
+    ui::meet_view(&view, &data, &ACTIONS)
 }
 
 extern "C" fn meter_mounted(mut data: RefAny, info: CallbackInfo) -> Update {
@@ -1554,7 +1214,7 @@ extern "C" fn pump_link(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
             }
             // The statistics show only in their overlay: nothing on screen changes for them
             // while it is closed, or while its text stands still.
-            if s.stats_open {
+            if s.panel == SidePanel::Statistics {
                 let shown = stats_lines(&s);
                 if shown != s.stats_shown {
                     s.stats_shown = shown;
