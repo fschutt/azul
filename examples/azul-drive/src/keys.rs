@@ -104,6 +104,8 @@ pub enum Command {
     },
     /// Ctrl+Space.
     ToggleFocused,
+    /// Ctrl+Shift+1..8: Explorer's layouts, Extra large icons (1) .. Content (8).
+    Layout(u8),
     /// A letter or digit typed: jump to the name starting with it.
     TypeAhead(char),
 }
@@ -141,6 +143,7 @@ pub fn command_for(key: Key, mods: Mods) -> Option<Command> {
         Key::F10 if shift => Command::ContextMenu,
         Key::Space if ctrl => Command::ToggleFocused,
         Key::Char('n') if ctrl && shift && !alt => Command::NewFolder,
+        Key::Char(c @ '1'..='8') if ctrl && shift && !alt => Command::Layout(c as u8 - b'0'),
         Key::Char('r') if plain_ctrl => Command::Refresh,
         Key::Char('f' | 'e') if plain_ctrl => Command::Search,
         Key::Char('c') if plain_ctrl => Command::Copy,

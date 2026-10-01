@@ -681,6 +681,11 @@ pub(crate) fn run_command(
             s.print_selection();
         }
         Command::TypeAhead(c) => type_ahead(info, app, s, c),
+        Command::Layout(n) => {
+            if let Some(layout) = ViewLayout::ALL.get(usize::from(n).saturating_sub(1)) {
+                set_layout(info, app, s, *layout);
+            }
+        }
     }
 }
 
