@@ -3,10 +3,12 @@
 //! line breaks, links, and the blocks a mail or a document is made of
 //! (paragraphs, headings, quotes, lists, preformatted text).
 //!
-//! The markup is read by the XML loader's own parser
-//! ([`crate::xml::parse_xml_string`]: its void elements, its auto-closing
-//! rules, its entity decoding), and nothing of it is used that this module
-//! does not name. What is not named goes one of two ways:
+//! The markup is read by the LENIENT loader
+//! ([`azul_core::xml::html::parse_html_nodes`]: the tree a browser builds -
+//! unquoted attributes, `<p>` and `<li>` left open, upper-case tags, Word's
+//! `<![if ..]>` and `<o:p>`, the HTML named references), and nothing of it is
+//! used that this module does not name. What is not named goes one of two
+//! ways:
 //!
 //! - DROPPED with its content: everything that runs, loads, styles or asks -
 //!   `script style link meta head title iframe frame frameset object embed
@@ -18,6 +20,11 @@
 //!   `section`, `table`, ...). Formatting is read off the element's tag and
 //!   its `style` attribute - `font-weight`, `font-style`, `text-decoration`,
 //!   how Google Docs and Word spell it - and carried by the text itself.
+//!
+//! Word writes a list as paragraphs (`style='mso-list:l0 level1 lfo1'`) whose
+//! marker - `1.`, a bullet - is text in a `mso-list:Ignore` element: such
+//! paragraphs, one after the other, are a list again (ordered when the marker
+//! is a number or a letter), and the marker goes.
 //!
 //! No attribute survives but an `<a>`'s `href`, and only an `http:`,
 //! `https:` or `mailto:` one; a link with any other target is its text.
@@ -97,28 +104,16 @@ pub struct PastedFragment {
     pub nodes: Vec<PastedNode>,
 }
 
-/// Sanitize `html` into a [`PastedFragment`]; `None` when the markup does
-/// not parse (the paste then falls back to the plain-text flavour).
+/// Sanitize `html` into a [`PastedFragment`]. Any markup parses (as a
+/// browser parses it); the `Option` is kept for the callers that fall back
+/// to the plain-text flavour.
 #[must_use]
 pub fn sanitize_html(html: &str) -> Option<PastedFragment> {
-    let roots = parse(html)?;
+    let roots = azul_core::xml::html::parse_html_nodes(html);
     let mut nodes = Vec::new();
     convert_children(&roots, PastedFormats::default(), false, &mut nodes, 0);
     tidy(&mut nodes, true);
     Some(PastedFragment { nodes })
-}
-
-/// The markup as the XML loader's parser reads it; `None` when it does not
-/// parse - or, without the `xml` feature, always (the paste then falls back
-/// to the plain text).
-#[cfg(feature = "xml")]
-fn parse(html: &str) -> Option<Vec<XmlNodeChild>> {
-    crate::xml::parse_xml_string(html).ok()
-}
-
-#[cfg(not(feature = "xml"))]
-fn parse(_html: &str) -> Option<Vec<XmlNodeChild>> {
-    None
 }
 
 impl PastedFragment {
@@ -357,6 +352,10 @@ fn collapse_white_space(text: &str) -> String {
     out
 }
 
+/// A Word list being gathered: its list id (`l0`), whether it is ordered,
+/// its items so far.
+type WordList = (String, bool, Vec<PastedNode>);
+
 fn convert_children(
     children: &[XmlNodeChild],
     formats: PastedFormats,
@@ -367,7 +366,35 @@ fn convert_children(
     if depth > MAX_DEPTH {
         return;
     }
+    // Word's list paragraphs, gathered into one list while they follow each
+    // other (white space between them aside).
+    let mut word_list: Option<WordList> = None;
     for child in children {
+        if let XmlNodeChild::Element(node) = child {
+            if let Some((id, ordered)) = word_list_of(node) {
+                let item = word_list_item(node, formats, pre, depth + 1);
+                match word_list.as_mut() {
+                    Some((open_id, open_ordered, items))
+                        if *open_id == id && *open_ordered == ordered =>
+                    {
+                        items.push(item);
+                    }
+                    _ => {
+                        flush_word_list(word_list.take(), out);
+                        word_list = Some((id, ordered, vec![item]));
+                    }
+                }
+                continue;
+            }
+        }
+        if word_list.is_some() {
+            if let XmlNodeChild::Text(text) = child {
+                if text.as_str().trim().is_empty() {
+                    continue;
+                }
+            }
+            flush_word_list(word_list.take(), out);
+        }
         match child {
             XmlNodeChild::Text(text) => {
                 let text = if pre {
@@ -382,6 +409,101 @@ fn convert_children(
             XmlNodeChild::Element(node) => convert_element(node, formats, pre, out, depth + 1),
         }
     }
+    flush_word_list(word_list.take(), out);
+}
+
+/// A gathered Word list as its list block.
+fn flush_word_list(list: Option<WordList>, out: &mut Vec<PastedNode>) {
+    if let Some((_, ordered, items)) = list {
+        let kind = if ordered {
+            PastedBlockKind::OrderedList
+        } else {
+            PastedBlockKind::UnorderedList
+        };
+        out.push(PastedNode::Block(kind, items));
+    }
+}
+
+/// A Word list paragraph as a list item (its marker dropped by
+/// [`convert_element`]).
+fn word_list_item(node: &XmlNode, formats: PastedFormats, pre: bool, depth: usize) -> PastedNode {
+    let tag = node.node_type.as_str().to_ascii_lowercase();
+    let formats = formats_of(node, &tag, formats);
+    let mut inner = Vec::new();
+    convert_children(node.children.as_ref(), formats, pre, &mut inner, depth);
+    tidy(&mut inner, false);
+    PastedNode::Block(PastedBlockKind::ListItem, inner)
+}
+
+/// The `mso-list` value of `node`'s `style`, lower-cased (`l0 level1 lfo1`,
+/// `ignore`).
+fn mso_list(node: &XmlNode) -> Option<String> {
+    let style = attribute(node, "style")?;
+    style.split(';').find_map(|declaration| {
+        let (name, value) = declaration.split_once(':')?;
+        name.trim()
+            .eq_ignore_ascii_case("mso-list")
+            .then(|| value.trim().to_ascii_lowercase())
+    })
+}
+
+/// A Word list paragraph's list: its id (`l0`) and whether it is ordered;
+/// `None` for any other element.
+fn word_list_of(node: &XmlNode) -> Option<(String, bool)> {
+    let value = mso_list(node)?;
+    if value.starts_with("ignore") || value == "none" {
+        return None;
+    }
+    let id = value.split_whitespace().next()?.to_string();
+    let ordered = word_list_marker(node, 0).is_some_and(|m| is_ordinal_marker(&m));
+    Some((id, ordered))
+}
+
+/// The text of a Word list paragraph's marker: its `mso-list:Ignore`
+/// element's.
+fn word_list_marker(node: &XmlNode, depth: usize) -> Option<String> {
+    if depth > MAX_DEPTH {
+        return None;
+    }
+    for child in node.children.as_ref() {
+        if let XmlNodeChild::Element(element) = child {
+            if mso_list(element).is_some_and(|v| v.starts_with("ignore")) {
+                let mut text = String::new();
+                text_of(element, &mut text, depth + 1);
+                return Some(text);
+            }
+            if let Some(marker) = word_list_marker(element, depth + 1) {
+                return Some(marker);
+            }
+        }
+    }
+    None
+}
+
+/// Every text below `node`, in order.
+fn text_of(node: &XmlNode, out: &mut String, depth: usize) {
+    if depth > MAX_DEPTH {
+        return;
+    }
+    for child in node.children.as_ref() {
+        match child {
+            XmlNodeChild::Text(text) => out.push_str(text.as_str()),
+            XmlNodeChild::Element(element) => text_of(element, out, depth + 1),
+        }
+    }
+}
+
+/// `1.`, `12)`, `a.`, `iv.`, `(b)`: a number or letters before `.` / `)` - an
+/// ordered list's marker (a bullet, Word's `o` and `\u{B7}` included, is not).
+fn is_ordinal_marker(marker: &str) -> bool {
+    let marker = marker.trim().trim_start_matches('(');
+    let Some(body) = marker
+        .strip_suffix('.')
+        .or_else(|| marker.strip_suffix(')'))
+    else {
+        return false;
+    };
+    !body.is_empty() && body.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
 fn convert_element(
@@ -392,7 +514,13 @@ fn convert_element(
     depth: usize,
 ) {
     let tag = node.node_type.as_str().to_ascii_lowercase();
-    if DROPPED.contains(&tag.as_str()) || tag.contains(':') && tag != "o:p" {
+    // Office's own elements go, except `<o:p>` (inline: its text is the
+    // paragraph's); Word's list marker (`mso-list:Ignore`) goes too - the
+    // list paragraph becomes a list item.
+    if DROPPED.contains(&tag.as_str())
+        || (tag.contains(':') && tag != "o:p")
+        || mso_list(node).is_some_and(|v| v.starts_with("ignore"))
+    {
         return;
     }
     let formats = formats_of(node, &tag, formats);
@@ -402,7 +530,7 @@ fn convert_element(
             out.push(PastedNode::Break);
             return;
         }
-        "p" | "o:p" | "tr" | "dt" | "dd" | "address" | "center" | "caption" => {
+        "p" | "tr" | "dt" | "dd" | "address" | "center" | "caption" => {
             Some(PastedBlockKind::Paragraph)
         }
         "div" | "section" | "article" | "header" | "footer" | "main" | "nav" | "aside"
