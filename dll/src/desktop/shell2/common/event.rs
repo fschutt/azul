@@ -4281,9 +4281,28 @@ pub trait PlatformWindow {
     /// `regenerate_layout` (both return paths). Each of those calls this —
     /// never one of the two helpers on its own.
     fn arm_animation_drivers_if_needed(&mut self) {
+        self.repace_frame_drivers();
         self.arm_caret_tween_timer_if_needed();
         self.arm_scroll_physics_timer_if_needed();
         self.arm_css_animation_timer_if_needed();
+    }
+
+    /// Re-register every RUNNING frame-paced driver whose interval is no
+    /// longer this window's frame interval (`LayoutWindow::
+    /// frame_drivers_off_pace`): the window moved to a monitor with another
+    /// refresh rate, or the rate / `max_frame_rate` changed. Same state, new
+    /// cadence; the OS timer of that id is replaced by `start_timer`.
+    fn repace_frame_drivers(&mut self) {
+        let off_pace = self
+            .get_layout_window()
+            .map(azul_layout::window::LayoutWindow::frame_drivers_off_pace)
+            .unwrap_or_default();
+        for (id, timer) in off_pace {
+            if let Some(lw) = self.get_layout_window_mut() {
+                lw.timers.insert(id, timer.clone());
+            }
+            self.start_timer(id.id, timer);
+        }
     }
 
     /// Can this window show anything right now? Not while it is hidden or

@@ -10264,11 +10264,32 @@ impl LayoutWindow {
             .frame_interval_nanos(self.monitor_refresh_rate_hz())
     }
 
-    /// The running frame-paced drivers whose interval is no longer this
-    /// window's frame interval, re-paced (RED stub).
+    /// The running frame-paced drivers (CSS animation driver, caret tween,
+    /// scroll physics) whose interval is no longer this window's
+    /// [`Self::frame_interval`], each re-paced to it - same `RefAny`, so its
+    /// state rides along. The shell re-registers them at the end of a pass
+    /// (`arm_animation_drivers_if_needed`).
+    ///
+    /// A driver is armed at the frame interval of the monitor the window is
+    /// on THEN, and used to keep it: dragged to a monitor with another rate
+    /// (or with the rate or `max_frame_rate` changed), a running glide went on
+    /// stepping at the old rate until it stopped and was re-armed.
     #[must_use]
     pub fn frame_drivers_off_pace(&self) -> Vec<(TimerId, Timer)> {
-        Vec::new()
+        use azul_core::task::{CARET_TWEEN_TIMER_ID, CSS_ANIMATION_TIMER_ID, SCROLL_MOMENTUM_TIMER_ID};
+        let interval = self.frame_interval();
+        [
+            CSS_ANIMATION_TIMER_ID,
+            CARET_TWEEN_TIMER_ID,
+            SCROLL_MOMENTUM_TIMER_ID,
+        ]
+        .into_iter()
+        .filter_map(|id| {
+            let timer = self.timers.get(&id)?;
+            (timer.interval.as_ref() != Some(&interval))
+                .then(|| (id, timer.clone().with_interval(interval)))
+        })
+        .collect()
     }
 
     /// [`Self::frame_interval_nanos`] as an engine [`Duration`].

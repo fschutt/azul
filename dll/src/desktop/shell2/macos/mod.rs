@@ -3480,6 +3480,20 @@ define_class!(
                             *guard = crate::desktop::display::refresh_monitors();
                         }
                     }
+                    // The window is on ANOTHER monitor now: say which (its
+                    // refresh rate is the window's frame interval), move the
+                    // display link to that display, and dispatch the monitor
+                    // change - whose pass ends by re-pacing the running
+                    // frame drivers (`repace_frame_drivers`). Only the
+                    // backing-properties notification did this, and AppKit
+                    // sends that one only when the SCALE changes: a move
+                    // between two 2x displays (a 60 Hz panel, a 120 Hz one)
+                    // kept the old monitor, its vsync and its frame interval.
+                    // A second call for a move that also changed the scale
+                    // finds nothing left to do.
+                    if let Err(e) = window.handle_dpi_change() {
+                        log_error!(LogCategory::Platform, "[macOS] monitor change error: {}", e);
+                    }
                 }
             }
         }
