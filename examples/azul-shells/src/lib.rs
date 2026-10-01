@@ -24,7 +24,8 @@ use azul::{
         ShellCommandPaletteOnRunCallbackType, ShellNavigationPaneOnEventCallbackType,
         ShellOnPaneFocusCallbackType,
     },
-    css::{DarkLightMode, WindowDecorations},
+    css::DarkLightMode,
+    dom::VirtualKeyCode,
     option::OptionDarkLightMode,
     prelude::*,
     shells::{
@@ -37,6 +38,7 @@ use azul::{
     },
     str::String as AzString,
     vec::{DomVec, StringVec},
+    window::WindowDecorations,
     widgets::{
         AddressBar, Button, DetailsPane, Ribbon, RibbonAppButton, RibbonButton, RibbonGroup,
         RibbonItem, RibbonTab, Segmented, SegmentedState, StatusBar, StatusBarSegment, Titlebar,
@@ -172,7 +174,7 @@ struct Shells {
 }
 
 fn strs(items: &[&str]) -> StringVec {
-    StringVec::from_vec(items.iter().map(|s| AzString::from(*s)).collect())
+    StringVec::from(items.iter().map(|s| AzString::from(*s)).collect::<Vec<_>>())
 }
 
 /// A slot's placeholder: a block named after the slot.
@@ -404,7 +406,7 @@ fn shell_dom(s: &Shells, app: &RefAny) -> Dom {
             .with_min_size(320.0, 480.0)
             .dom(),
         9 => CallShell::create(
-            DomVec::from_vec(vec![slot("You", "videocam"), slot("Anna", "person"), slot("Bob", "person")]),
+            DomVec::from(vec![slot("You", "videocam"), slot("Anna", "person"), slot("Bob", "person")]),
             bar(app, &["Mute", "Stop video", "Share", "Leave"]),
         )
         .with_header(title)

@@ -169,15 +169,14 @@ pub(crate) fn mail_section(data: &RefAny, m: &MailDemo, theme: UiTheme) -> Dom {
     let list = MessageList::create(m.rows())
         .with_scopes(strs(&["Alle", "Ungelesen"]), m.scope)
         .with_search(m.search.clone())
-        .with_search_placeholder("Posteingang durchsuchen (Strg+E)".into())
-        .with_sort("Anordnen nach:".into(), "Datum".into(), m.descending)
+        .with_search_placeholder("Posteingang durchsuchen (Strg+E)")
+        .with_sort("Anordnen nach:", "Datum", m.descending)
         .with_sort_direction_label(
             if m.descending {
                 "Neu nach alt"
             } else {
                 "Alt nach neu"
-            }
-            .into(),
+            },
         )
         .with_on_select(data.clone(), on_list)
         .with_on_open(data.clone(), on_list)
@@ -204,8 +203,8 @@ pub(crate) fn mail_section(data: &RefAny, m: &MailDemo, theme: UiTheme) -> Dom {
         AzString::from(format!("{from} <{}@example.com>", from.to_lowercase().replace(' ', "."))),
     )
     .with_date(AzString::from(format!("Mi 30.09.2026 {date}")))
-    .with_field("Gesendet".into(), AzString::from(format!("Mi 30.09.2026 {date}")))
-    .with_field("An".into(), "felix@example.com".into())
+    .with_field("Gesendet", AzString::from(format!("Mi 30.09.2026 {date}")))
+    .with_field("An", "felix@example.com")
     .with_body(
         Dom::create_div()
             .with_child(Dom::create_p_with_text(preview))
@@ -226,19 +225,18 @@ pub(crate) fn mail_section(data: &RefAny, m: &MailDemo, theme: UiTheme) -> Dom {
         pane = pane.with_info_bar(
             InfoBar::create(
                 "Klicken Sie hier, um Bilder herunterzuladen. Zum Schutz Ihrer Privatsphaere \
-                 wurden einige Bilder nicht automatisch heruntergeladen."
-                    .into(),
+                 wurden einige Bilder nicht automatisch heruntergeladen.",
             )
-            .with_icon("info".into())
-            .with_action("Bilder herunterladen".into()),
+            .with_icon("info")
+            .with_action("Bilder herunterladen"),
         );
     }
     let pane = pane.dom();
 
     let todo = ToDoBar::create(m.date.year, m.date.month, m.date.day)
         .with_today(2026, 9, 30)
-        .with_appointments_empty("Keine anstehenden Termine.".into())
-        .with_task_line("Neue Aufgabe eingeben".into(), "".into())
+        .with_appointments_empty("Keine anstehenden Termine.")
+        .with_task_line("Neue Aufgabe eingeben", "")
         .with_tasks(
             m.tasks
                 .iter()
@@ -248,7 +246,7 @@ pub(crate) fn mail_section(data: &RefAny, m: &MailDemo, theme: UiTheme) -> Dom {
                 })
                 .collect::<Vec<_>>(),
         )
-        .with_accessibility_name("Aufgabenleiste".into())
+        .with_accessibility_name("Aufgabenleiste")
         .with_on_pick(data.clone(), on_todo)
         .with_on_task(data.clone(), on_todo)
         .with_on_appointment(data.clone(), on_todo)
@@ -256,10 +254,10 @@ pub(crate) fn mail_section(data: &RefAny, m: &MailDemo, theme: UiTheme) -> Dom {
         .dom();
 
     let switcher = ModuleSwitcher::create(vec![
-        SwitcherModule::create("E-Mail".into(), "mail".into()),
-        SwitcherModule::create("Kalender".into(), "calendar_month".into()),
-        SwitcherModule::create("Kontakte".into(), "contacts".into()),
-        SwitcherModule::create("Aufgaben".into(), "task".into()),
+        SwitcherModule::create("E-Mail", "mail"),
+        SwitcherModule::create("Kalender", "calendar_month"),
+        SwitcherModule::create("Kontakte", "contacts"),
+        SwitcherModule::create("Aufgaben", "task"),
     ])
     .with_active(m.module)
     .with_collapsed(m.collapsed)
@@ -268,15 +266,14 @@ pub(crate) fn mail_section(data: &RefAny, m: &MailDemo, theme: UiTheme) -> Dom {
     .with_theme(theme)
     .dom();
 
-    let status = StatusBar::create(vec![StatusBarSegment::create("Filter angewendet".into())])
+    let status = StatusBar::create(vec![StatusBarSegment::create("Filter angewendet")])
         .with_sync(
             StatusBarSync::create(
                 if m.sync_error {
                     "Uebermittlungsfehler"
                 } else {
                     "Verbunden"
-                }
-                .into(),
+                },
                 if m.sync_error {
                     StatusBarSyncKind::Error
                 } else {
@@ -291,15 +288,15 @@ pub(crate) fn mail_section(data: &RefAny, m: &MailDemo, theme: UiTheme) -> Dom {
         .dom();
 
     let wizard = WizardLayout::create(
-        "Konto hinzufuegen".into(),
+        "Konto hinzufuegen",
         strs(&["Konto", "Server", "Fertig"]),
     )
     .with_current_step(m.wizard_step)
     .with_labels(
-        "Zurueck".into(),
-        "Weiter".into(),
-        "Fertig stellen".into(),
-        "Abbrechen".into(),
+        "Zurueck",
+        "Weiter",
+        "Fertig stellen",
+        "Abbrechen",
     )
     .with_page(Dom::create_p_with_text(match m.wizard_step {
         0 => "Ihre E-Mail-Adresse",
@@ -319,17 +316,17 @@ pub(crate) fn mail_section(data: &RefAny, m: &MailDemo, theme: UiTheme) -> Dom {
                     .with_css(WINDOW_CSS)
                     .with_child(
                         Dom::create_div()
-                            .with_css(&format!("{PANE_CSS} width: 300px;"))
+                            .with_css(format!("{PANE_CSS} width: 300px;"))
                             .with_child(list),
                     )
                     .with_child(
                         Dom::create_div()
-                            .with_css(&format!("{PANE_CSS} flex-grow: 1; min-width: 0px;"))
+                            .with_css(format!("{PANE_CSS} flex-grow: 1; min-width: 0px;"))
                             .with_child(pane),
                     )
                     .with_child(
                         Dom::create_div()
-                            .with_css(&format!("{PANE_CSS} width: 240px;"))
+                            .with_css(format!("{PANE_CSS} width: 240px;"))
                             .with_child(todo),
                     ),
             ),
