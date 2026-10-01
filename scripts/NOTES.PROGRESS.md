@@ -44,10 +44,15 @@ parse-checked with `rustfmt --edition 2021 --check`.
   `show_history(&mut CallbackInfo, &RefAny, &mut AppState)`, `overlay_dom(s, app, look)`,
   `settings_screen(s, app, look)`, `history_screen(s, app, look)`.
 
+- ui.rs parts e-g (`d7d0cb7ff` sheets + palette, `0c705f532` settings, `10d2b565f` View
+  interactive + line_diff, `361490786` history). The crate parses from lib.rs (rustfmt).
+- `27e956cdd` registration (Cargo.toml member, workspace_test_members, CI step).
+
 ## IN PROGRESS (precise next steps, in order)
-5. ui.rs parts e-g: e = overlays (palette + commands + on_run/on_query/on_close, new notebook
-   sheet, link sheet, confirm delete), f = settings, g = history.
-   (old plan follows) REQUIRED by lib.rs/jobs.rs: `pub extern "C" fn layout(RefAny,
+7. scripts/aznotes_e2e.py (model: examples/azul-shells/scripts/shells_e2e.py).
+8. A careful compile-in-head review pass over every AzNotes file (types, borrows, imports).
+9. Report scripts/NOTES_2026_10_01.md.
+   (old plan follows, done up to 6) REQUIRED by lib.rs/jobs.rs: `pub extern "C" fn layout(RefAny,
    LayoutCallbackInfo) -> Dom`, `pub const SETTINGS_SHORTCUTS: usize`, `pub const SETTINGS_ABOUT:
    usize`, `pub fn show_history(&mut CallbackInfo, &RefAny, &mut AppState)`. Pieces: (a) layout +
    title row + status bar + window callbacks (keys Ctrl+N/K/S/,/Escape, focus, close);
