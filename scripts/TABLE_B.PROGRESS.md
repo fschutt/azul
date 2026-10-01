@@ -39,15 +39,17 @@ report section 2 (A's structure and table_width kept, my logic ported, twins fol
   constraint (final pass untouched). Report: the parent removes the `#[ignore]` on
   `prose_cells_wrap_inside_a_220px_table` at merge (it is not in my base).
 
-## IN PROGRESS (last commit 8a4ae1cc3)
-- next: GREEN for `bfc46b3c5` - (1) sizing.rs `calculate_table_intrinsic_sizes` adds
-  (cols+1)*h / (rows+1)*v spacing via `fc::used_border_spacing`; (2) `layout_table_fc` hands the
-  column algorithms the content width minus (cols+1)*h; (3) `distribute_cell_width_across_columns`
-  and the sizing.rs spanning loop subtract the inner spacing; (4) `calculate_row_heights` gives a
-  spanning cell its inner spacing; (5) `empty-cells: hide` in display_list (cell bg + border).
+- GREEN for `bfc46b3c5`: `ef2673e6b` (spans after single cells, max-content spread, inner
+  spacing), `6df89fe9b` (spacing off before distribution, `cell_span_width`), `960298cfc`
+  (sizing.rs table intrinsic on the shared grid + spacing), `d7235edda` (empty-cells: hide).
+
+## IN PROGRESS (last commit d7235edda)
+- next: RED for row heights - new test file `layout/tests/a_rows_height_is_its_tallest_cell_or_its_own_height.rs`
+  (tr height, td height px incl. a text cell, box-sizing border-box td, table height spread over
+  rows, baseline alignment of block content) + WPT lines collapsing-border-model-003/009,
+  height-table-cell-001, table-vertical-align-baseline-001..004 out of the expectations.
 
 ## NEXT
-- FIX for the separated-model RED (`bfc46b3c5`).
 - Row heights: `tr` height, `td` height (box-sizing, IFC branch too), table height spread over
   rows, `vertical-align: baseline` across a row (block content too). WPT: collapsing-border-model-003/009.
 - `table-layout: fixed`: only with a non-auto width; `col` widths; percentages; padding/border in
