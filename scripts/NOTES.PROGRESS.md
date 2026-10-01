@@ -21,10 +21,15 @@ parse-checked with `rustfmt --edition 2021 --check`.
 
 - sample.rs: 8 sample notes (fixed ids `sample_id(n)`), 2 pinned, + empty `Archive`.
 
+- look.rs (colours per mode, text sizes); editor.rs PART 1 (rendering: host_dom, block_dom,
+  run_dom, print_dom; mapping: host_node, path_in_host, block_of, caret, selection,
+  focus_editor). editor.rs references (not yet written): `on_text_changed`,
+  `on_document_edit`, `on_editor_key`, `on_check_click` (part 2) and `crate::AppState`.
+
 ## IN PROGRESS (precise next steps, in order)
-3. editor.rs: Doc -> DOM of the contenteditable host (one child per block, one per run; check
-   box as an abspos contenteditable=false island AFTER the runs), the node -> block mapping,
-   and the pure edit-application helpers.
+3. editor.rs PART 2: the callbacks on_text_changed / on_document_edit / on_editor_key /
+   on_check_click + toolbar helpers (apply_format, apply_kind) on `crate::AppState`
+   (fields used: library, open, editor{typing, caret_block}, last_edit, status).
 4. lib.rs in pieces: AppState + start; threads/write-back; layout (PimShell: nav pane, message
    list, editor pane with title/tags/toolbar, status bar); callbacks (editor sync, structural
    edits, keys, toolbar, list, nav, palette, settings, history, export, autosave timer, close).
