@@ -1451,7 +1451,7 @@ mod tests {
             OCT_1,
             &mut fake,
         );
-        let SendStatus::Sent { message_id } = status else {
+        let SendStatus::Sent { message_id } = status.clone() else {
             panic!("{status:?}");
         };
         assert!(message_id.ends_with("@example.org") && !message_id.starts_with('<'));
@@ -1535,7 +1535,7 @@ mod tests {
             OCT_1,
             &mut first,
         );
-        let SendStatus::Queued { reason } = status else {
+        let SendStatus::Queued { reason } = status.clone() else {
             panic!("{status:?}");
         };
         assert!(
@@ -1609,7 +1609,7 @@ mod tests {
             OCT_1,
             &mut fake,
         );
-        let SendStatus::Failed { reason } = status else {
+        let SendStatus::Failed { reason } = status.clone() else {
             panic!("{status:?}");
         };
         assert!(
@@ -1666,7 +1666,7 @@ mod tests {
             OCT_1,
             &mut fake,
         );
-        let SendStatus::Failed { reason } = status else {
+        let SendStatus::Failed { reason } = status.clone() else {
             panic!("{status:?}");
         };
         assert!(
@@ -1696,7 +1696,7 @@ mod tests {
             OCT_1,
             &mut fake,
         );
-        let SendStatus::Queued { reason } = status else {
+        let SendStatus::Queued { reason } = status.clone() else {
             panic!("{status:?}");
         };
         assert!(
