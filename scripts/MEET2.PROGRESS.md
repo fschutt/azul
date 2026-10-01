@@ -21,15 +21,22 @@ here (house rule); Rust files are parse-checked with `rustfmt --check` / `--emit
 
 - `1f48ff658` RED / `b6e144d2e` feat: CallShell `stage` (speaker layout: stage over a filmstrip).
 
-## IN PROGRESS (last commit: b6e144d2e)
-- next: AzMeet pure modules, each RED then GREEN, committed one by one:
-  1. `examples/azul-meet/src/chat.rs` (wire kind 8 + ChatLog), 2. `speaker.rs` (active speaker),
-  3. video_wire KeyframePolicy with output lag + `wire_codec` (no JPEG before caps),
-  4. tile model (stage choice, culling of hidden / tiny tiles).
-  Then lib.rs integration (async codec drain in pump, chat, speaker, culling via
-  is_node_visible, adaptive pump), then `src/ui.rs` on CallShell, then scripts/azmeet_e2e.py.
-- AzMeet: async codec (drain encoders / decoders in the pump, keyframe policy with lag), no JPEG
-  to a peer whose caps have not arrived (macOS never defaults to JPEG), probe with flush.
+- `cc01c483c` RED / `68aec8715` feat: chat.rs (wire kind 8, ChatLog).
+- `623f02eb7` RED / `22bf62dd8` feat: speaker.rs (ActiveSpeaker, level_db).
+- `b42afb3f6` RED / `6fd1ad198` feat: video_wire KeyframePolicy with OUTPUT_LAG_PACKETS,
+  wire_codec (no JPEG before caps).
+- `16fbdfff9` RED / `d141d27b7` feat: tiles.rs (arrange: stage / tiles; tile_need culling).
+
+## IN PROGRESS (last commit: d141d27b7)
+- next: lib.rs integration, small commits:
+  a. async codec: send_h264 submits + `drain_h264` sends packets; pump drains every encoder and
+     decoder (`drain_decoders`), probe_encode/probe_decode use flush.
+  b. assignment_among: viewer caps unknown -> need 0 (wire_codec).
+  c. chat: MeetState.chat (ChatLog), receive kind 8 in receive_item, `send_chat`.
+  d. speaker: MeetState.speaker (ActiveSpeaker) fed in receive_audio (level_db of packets).
+  e. culling: measure_tiles reads is_node_visible + tiles::tile_need; my_wants via arrange roles.
+  f. pump: adaptive interval (15 ms with media, 250 ms idle) and no RefreshDom unless text changed.
+  Then src/ui.rs (CallShell view), then scripts/azmeet_e2e.py, report.
 
 ## NEXT (plan, in order)
 1. Engine video leftovers (RED then fix each):
