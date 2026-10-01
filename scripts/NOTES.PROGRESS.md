@@ -26,10 +26,14 @@ parse-checked with `rustfmt --edition 2021 --check`.
   focus_editor). editor.rs references (not yet written): `on_text_changed`,
   `on_document_edit`, `on_editor_key`, `on_check_click` (part 2) and `crate::AppState`.
 
+- editor.rs PART 2: EditorState/Typing, sync_text, on_text_changed, on_document_edit (split /
+  merge / ReplaceChildren incl. multi-block paste via Doc::replace_with), on_editor_key, on_check_click,
+  toolbar commands toggle_format / toggle_kind / indent / insert_rule / set_link.
+  REQUIRES in lib.rs: `pub struct AppState { pub library: Library, pub open: Option<String>,
+  pub editor: editor::EditorState, .. }`, `AppState::open_note_mut(&mut self) -> Option<&mut Note>`,
+  `AppState::edited(&mut self)`.
+
 ## IN PROGRESS (precise next steps, in order)
-3. editor.rs PART 2: the callbacks on_text_changed / on_document_edit / on_editor_key /
-   on_check_click + toolbar helpers (apply_format, apply_kind) on `crate::AppState`
-   (fields used: library, open, editor{typing, caret_block}, last_edit, status).
 4. lib.rs in pieces: AppState + start; threads/write-back; layout (PimShell: nav pane, message
    list, editor pane with title/tags/toolbar, status bar); callbacks (editor sync, structural
    edits, keys, toolbar, list, nav, palette, settings, history, export, autosave timer, close).

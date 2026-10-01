@@ -406,3 +406,590 @@ pub fn focus_editor(info: &mut CallbackInfo) {
         },
     );
 }
+
+/// The runs of a replacement fragment's block: its text with the formats
+/// its inline elements say (b / strong, i / em, u / ins, s / del, code).
+fn collect_runs(dom: &Dom, formats: FormatSet, out: &mut Vec<Run>) {
+    let mut formats = formats;
+    match &dom.root.node_type {
+        NodeType::Text(text) => {
+            let mut run = Run::plain(box_str(text));
+            formats.apply_to(&mut run);
+            crate::doc::push_run(out, run);
+            return;
+        }
+        NodeType::Br => {
+            let mut run = Run::plain("\n");
+            formats.apply_to(&mut run);
+            crate::doc::push_run(out, run);
+            return;
+        }
+        NodeType::Strong | NodeType::B => formats.bold = true,
+        NodeType::Em | NodeType::I => formats.italic = true,
+        NodeType::U | NodeType::Ins => formats.underline = true,
+        NodeType::S | NodeType::Del => formats.strike = true,
+        NodeType::Code => formats.code = true,
+        _ => {}
+    }
+    for child in dom.children.as_ref() {
+        collect_runs(child, formats, out);
+    }
+}
+
+/// The kind a pasted block's element stands for.
+fn kind_of_element(node_type: &NodeType) -> Option<BlockKind> {
+    Some(match node_type {
+        NodeType::P | NodeType::Div => BlockKind::Paragraph,
+        NodeType::H1 => BlockKind::Heading(1),
+        NodeType::H2 => BlockKind::Heading(2),
+        NodeType::H3 => BlockKind::Heading(3),
+        NodeType::H4 => BlockKind::Heading(4),
+        NodeType::H5 => BlockKind::Heading(5),
+        NodeType::H6 => BlockKind::Heading(6),
+        NodeType::Li => BlockKind::Bullet(0),
+        NodeType::BlockQuote => BlockKind::Quote,
+        NodeType::Pre => BlockKind::Code {
+            lang: String::new(),
+        },
+        _ => return None,
+    })
+}
+
+// ==== The editor's state ====
+
+/// The formats text typed at a caret takes, set by a format toggle at a
+/// collapsed caret (the engine keeps its own for what it paints; this is
+/// the model's half): kept while text is inserted where the last insertion
+/// ended, dropped by anything else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Typing {
+    pub block: usize,
+    pub at: usize,
+    pub formats: FormatSet,
+}
+
+/// What the editor remembers between callbacks.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EditorState {
+    pub typing: Option<Typing>,
+    /// The block the caret was last seen in (the toolbar's target when a
+    /// button took the focus).
+    pub caret_block: usize,
+}
+
+impl EditorState {
+    /// The typing style for an edit of `block` from `old` to `new`, moved
+    /// past the inserted text; `None` (and dropped) for any other edit.
+    pub fn typing_for(&mut self, block: usize, old: &str, new: &str) -> Option<FormatSet> {
+        let typing = self.typing.take()?;
+        let (prefix, suffix) = crate::doc::text_diff(old, new);
+        let removed = old.len() - prefix - suffix;
+        let inserted = new.len() - prefix - suffix;
+        if typing.block != block || removed != 0 || inserted == 0 || prefix != typing.at {
+            return None;
+        }
+        self.typing = Some(Typing {
+            at: prefix + inserted,
+            ..typing
+        });
+        Some(typing.formats)
+    }
+}
+
+// ==== The callbacks ====
+
+/// Folds the engine's unsynced text edits of the host into the open note
+/// and acks them. Returns `(changed, rebuild)`: a Markdown shortcut (with
+/// `shortcuts`) or a typing style the engine cannot paint asks for a new
+/// DOM.
+fn sync_text(state: &mut crate::AppState, info: &mut CallbackInfo, shortcuts: bool) -> (bool, bool) {
+    let edits = info.get_unsynced_text_edits();
+    let edits = edits.as_ref();
+    if edits.is_empty() {
+        return (false, false);
+    }
+    let mut max_revision = 0u64;
+    let mut changed = false;
+    let mut rebuild = false;
+    let open = state.open.clone();
+    for edit in edits {
+        max_revision = max_revision.max(edit.revision);
+        let Some(host) = host_node(info, edit.node.dom) else {
+            continue;
+        };
+        let Some(block) = block_of(info, host, edit.node) else {
+            continue; // not the note's text (a text field)
+        };
+        let Some(note) = open.as_deref().and_then(|id| state.library.get_mut(id)) else {
+            continue;
+        };
+        let Some(old) = note.doc.blocks.get(block).map(Block::flat) else {
+            continue;
+        };
+        let new = edit.text.as_str();
+        let typing = state.editor.typing_for(block, &old, new);
+        if note.doc.sync_block_text(block, new, typing) {
+            changed = true;
+            if typing.is_some_and(|t| t.code) {
+                rebuild = true;
+            }
+            if shortcuts {
+                let kind = note.doc.blocks[block].kind.clone();
+                if let Some(shortcut) = crate::doc::typed_shortcut(&kind, &old, new) {
+                    note.doc.apply_shortcut(block, &shortcut);
+                    rebuild = true;
+                }
+            }
+        }
+        state.editor.caret_block = block;
+    }
+    info.mark_text_revision_synced(max_revision);
+    (changed, rebuild)
+}
+
+/// `TextChanged` on the host: the typing goes into the model.
+pub extern "C" fn on_text_changed(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(mut guard) = data.downcast_mut::<crate::AppState>() else {
+        return Update::DoNothing;
+    };
+    let state = &mut *guard;
+    let (changed, rebuild) = sync_text(state, &mut info, true);
+    if changed {
+        state.edited();
+    }
+    if rebuild {
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
+}
+
+/// `DocumentEdit` on the host: Enter's split, Backspace's / Delete's merge,
+/// a delete, type-over or paste across blocks - applied to the model, then
+/// acknowledged so the engine places the caret at the edit's resume point.
+pub extern "C" fn on_document_edit(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(changeset) = info.get_document_edit_clone().into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(mut guard) = data.downcast_mut::<crate::AppState>() else {
+        return Update::DoNothing;
+    };
+    let state = &mut *guard;
+    let (synced, _) = sync_text(state, &mut info, false);
+    let Some(host) = host_node(&info, changeset.target.dom) else {
+        return Update::DoNothing;
+    };
+    let caret = caret(&info, host);
+    let open = state.open.clone();
+    let Some(note) = open.as_deref().and_then(|id| state.library.get_mut(id)) else {
+        return Update::DoNothing;
+    };
+    let applied = match &changeset.operation {
+        DocumentOperation::SplitNode(split) => block_of(&info, host, split.node)
+            .and_then(|b| {
+                let at = match caret {
+                    Some((cb, byte)) if cb == b => byte,
+                    _ => note.doc.blocks.get(b).map_or(0, |block| {
+                        bytes_before(block, split.at.child_index as usize)
+                            + split.at.text_byte.into_option().unwrap_or(0) as usize
+                    }),
+                };
+                note.doc.split_block(b, at)
+            })
+            .is_some(),
+        DocumentOperation::MergeNodes(merge) => {
+            match (block_of(&info, host, merge.first), block_of(&info, host, merge.second)) {
+                (Some(first), Some(second)) if second == first + 1 => note
+                    .doc
+                    .merge_into_previous(second, merge.join.text_byte.into_option().is_some())
+                    .is_some(),
+                _ => false,
+            }
+        }
+        DocumentOperation::ReplaceChildren(replace)
+            if path_in_host(&info, host, replace.parent).is_some_and(|p| p.is_empty()) =>
+        {
+            let (start, end) = (replace.start as usize, replace.end as usize);
+            let parts: Vec<&Dom> = replace.content.children.as_ref().iter().collect();
+            if parts.len() <= 1 {
+                let mut joined = String::new();
+                for part in &parts {
+                    dom_text(part, &mut joined);
+                }
+                note.doc.replace_blocks(start, end, &joined)
+            } else {
+                let parts = parts
+                    .into_iter()
+                    .map(|part| {
+                        let mut runs = Vec::new();
+                        collect_runs(part, FormatSet::default(), &mut runs);
+                        (kind_of_element(&part.root.node_type), runs)
+                    })
+                    .collect();
+                note.doc.replace_with(start, end, parts)
+            }
+        }
+        _ => false,
+    };
+    if applied {
+        info.mark_document_edit_applied(changeset.id);
+    } else {
+        eprintln!("[aznotes] a structural edit the model cannot mirror was dropped");
+    }
+    if applied || synced {
+        state.editor.typing = None;
+        state.edited();
+    }
+    // A new DOM either way: the applied edit, or (dropped) the engine's
+    // preview of an edit the model does not take.
+    Update::RefreshDom
+}
+
+/// The caret's block and byte, else the last block the caret was seen in.
+fn target(state: &crate::AppState, info: &CallbackInfo) -> Option<(DomNodeId, usize, usize)> {
+    let host = host_node(info, root_dom())?;
+    let (block, byte) = caret(info, host).unwrap_or((state.editor.caret_block, 0));
+    Some((host, block, byte))
+}
+
+/// Toggles `format`: over the selection in the model (a new DOM), or at a
+/// caret as the typing style of what is typed next (`engine`: also ask the
+/// engine to paint it, when no key default does).
+pub fn toggle_format(state: &mut crate::AppState, info: &mut CallbackInfo, format: Format, engine: bool) -> Update {
+    let Some((host, block, byte)) = target(state, info) else {
+        return Update::DoNothing;
+    };
+    let spans = selection(info, host);
+    let open = state.open.clone();
+    let Some(note) = open.as_deref().and_then(|id| state.library.get_mut(id)) else {
+        return Update::DoNothing;
+    };
+    if !spans.is_empty() {
+        // Set everywhere when one span lacks it, else clear everywhere.
+        let on = !spans.iter().all(|(b, s, e)| note.doc.has_format(*b, *s, *e, format));
+        let mut changed = false;
+        for (b, s, e) in spans {
+            if note.doc.has_format(b, s, e, format) != on {
+                changed |= note.doc.toggle_format(b, s, e, format);
+            }
+        }
+        if changed {
+            state.edited();
+            return Update::RefreshDom;
+        }
+        return Update::DoNothing;
+    }
+    let mut formats = FormatSet::default();
+    for f in Format::ALL {
+        formats.set(f, note.doc.has_format(block, byte, byte, f));
+    }
+    formats.set(format, !formats.has(format));
+    state.editor.typing = Some(Typing {
+        block,
+        at: byte,
+        formats,
+    });
+    if engine {
+        let engine_format = match format {
+            Format::Bold => Some(TextFormat::Bold),
+            Format::Italic => Some(TextFormat::Italic),
+            Format::Underline => Some(TextFormat::Underline),
+            Format::Strike => Some(TextFormat::Strikethrough),
+            Format::Code => None,
+        };
+        if let Some(f) = engine_format {
+            info.toggle_text_format(host, f);
+        }
+    }
+    Update::DoNothing
+}
+
+/// The blocks a block command acts on: those of the selection, else the
+/// caret's.
+fn command_blocks(state: &crate::AppState, info: &CallbackInfo) -> Vec<usize> {
+    let Some((host, block, _)) = target(state, info) else {
+        return Vec::new();
+    };
+    let mut blocks: Vec<usize> = selection(info, host).into_iter().map(|(b, _, _)| b).collect();
+    blocks.dedup();
+    if blocks.is_empty() {
+        blocks.push(block);
+    }
+    blocks
+}
+
+/// The toolbar's block buttons: the target blocks become `kind`, or
+/// paragraphs again when the first already is one of that family.
+pub fn toggle_kind(state: &mut crate::AppState, info: &mut CallbackInfo, kind: BlockKind) -> Update {
+    let blocks = command_blocks(state, info);
+    let Some(note) = state.open_note_mut() else {
+        return Update::DoNothing;
+    };
+    let Some(&first) = blocks.first() else {
+        return Update::DoNothing;
+    };
+    let undo = note
+        .doc
+        .blocks
+        .get(first)
+        .is_some_and(|b| b.kind.same_family(&kind));
+    let mut changed = false;
+    for b in blocks {
+        let Some(current) = note.doc.blocks.get(b).map(|blk| blk.kind.clone()) else {
+            continue;
+        };
+        let next = if undo {
+            BlockKind::Paragraph
+        } else if current.is_list() && kind.is_list() {
+            kind.with_indent(current.indent())
+        } else {
+            kind.clone()
+        };
+        changed |= note.doc.set_kind(b, next);
+    }
+    if changed {
+        note.doc.normalize();
+        state.edited();
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
+}
+
+/// Indents (`delta > 0`) or outdents the target list items.
+pub fn indent(state: &mut crate::AppState, info: &mut CallbackInfo, delta: i8) -> Update {
+    let blocks = command_blocks(state, info);
+    let Some(note) = state.open_note_mut() else {
+        return Update::DoNothing;
+    };
+    let mut changed = false;
+    for b in blocks {
+        changed |= note.doc.indent(b, delta);
+    }
+    if changed {
+        state.edited();
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
+}
+
+/// Inserts a horizontal rule after the caret's block, and an empty
+/// paragraph after it for the caret.
+pub fn insert_rule(state: &mut crate::AppState, info: &mut CallbackInfo) -> Update {
+    let Some((_, block, _)) = target(state, info) else {
+        return Update::DoNothing;
+    };
+    let Some(note) = state.open_note_mut() else {
+        return Update::DoNothing;
+    };
+    let at = note.doc.insert_after(block, Block::new(BlockKind::Rule, Vec::new()));
+    note.doc.insert_after(at, Block::paragraph(""));
+    state.edited();
+    Update::RefreshDom
+}
+
+/// Links (or unlinks, `None`) the selection.
+pub fn set_link(state: &mut crate::AppState, info: &mut CallbackInfo, url: Option<String>) -> Update {
+    let Some(host) = host_node(info, root_dom()) else {
+        return Update::DoNothing;
+    };
+    let spans = selection(info, host);
+    let Some(note) = state.open_note_mut() else {
+        return Update::DoNothing;
+    };
+    let mut changed = false;
+    for (b, s, e) in spans {
+        changed |= note.doc.set_link(b, s, e, url.clone());
+    }
+    if changed {
+        state.edited();
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
+}
+
+/// A click on a check item's box: tick or untick it.
+pub extern "C" fn on_check_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let (mut app, block) = match data.downcast_ref::<BlockRef>() {
+        Some(r) => (r.app.clone(), r.block),
+        None => return Update::DoNothing,
+    };
+    let Some(mut guard) = app.downcast_mut::<crate::AppState>() else {
+        return Update::DoNothing;
+    };
+    let state = &mut *guard;
+    // Typing the app has not folded in yet goes in first.
+    let _ = sync_text(state, &mut info, false);
+    let Some(note) = state.open_note_mut() else {
+        return Update::DoNothing;
+    };
+    if note.doc.toggle_check(block) {
+        state.edited();
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
+}
+
+/// The keys the editor handles itself (the engine's defaults do the
+/// rest): Enter in a code block (a line break), Enter on an empty list
+/// item (out of the list), Backspace at the start of a list item, heading,
+/// quote or code block (back to a paragraph), Tab / Shift+Tab in a list,
+/// and the format and block shortcuts.
+#[allow(clippy::too_many_lines)]
+pub extern "C" fn on_editor_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let keyboard = info.get_current_keyboard_state();
+    let Some(key) = keyboard.current_virtual_keycode.into_option() else {
+        return Update::DoNothing;
+    };
+    let modifiers = info.get_key_modifiers();
+    let primary = modifiers.ctrl || modifiers.meta;
+    let shift = modifiers.shift;
+    let Some(mut guard) = data.downcast_mut::<crate::AppState>() else {
+        return Update::DoNothing;
+    };
+    let state = &mut *guard;
+    let Some(host) = host_node(&info, root_dom()) else {
+        return Update::DoNothing;
+    };
+    let caret = caret(&info, host);
+    if let Some((block, _)) = caret {
+        state.editor.caret_block = block;
+    }
+    let collapsed = selection(&info, host).is_empty();
+
+    if primary {
+        let command = match (key, shift) {
+            (VirtualKeyCode::B, false) => Some(Command::Format(Format::Bold, false)),
+            (VirtualKeyCode::I, false) => Some(Command::Format(Format::Italic, false)),
+            (VirtualKeyCode::U, false) => Some(Command::Format(Format::Underline, false)),
+            (VirtualKeyCode::X, true) => Some(Command::Format(Format::Strike, true)),
+            (VirtualKeyCode::E, false) => Some(Command::Format(Format::Code, true)),
+            (VirtualKeyCode::Key0, false) => Some(Command::Kind(BlockKind::Paragraph)),
+            (VirtualKeyCode::Key1, false) => Some(Command::Kind(BlockKind::Heading(1))),
+            (VirtualKeyCode::Key2, false) => Some(Command::Kind(BlockKind::Heading(2))),
+            (VirtualKeyCode::Key3, false) => Some(Command::Kind(BlockKind::Heading(3))),
+            (VirtualKeyCode::Key7, true) => Some(Command::Kind(BlockKind::Numbered(0))),
+            (VirtualKeyCode::Key8, true) => Some(Command::Kind(BlockKind::Bullet(0))),
+            (VirtualKeyCode::Key9, true) => Some(Command::Kind(BlockKind::Check {
+                indent: 0,
+                checked: false,
+            })),
+            (VirtualKeyCode::Return, false) => Some(Command::Check),
+            _ => None,
+        };
+        let Some(command) = command else {
+            return Update::DoNothing;
+        };
+        let _ = sync_text(state, &mut info, false);
+        return match command {
+            Command::Format(format, engine) => {
+                // B / I / U at a caret: the engine's default action paints
+                // the typing style, the model records it. Over a selection
+                // the model formats and the engine's default is vetoed.
+                if !collapsed || engine {
+                    info.prevent_default();
+                }
+                toggle_format(state, &mut info, format, engine)
+            }
+            Command::Kind(kind) => {
+                info.prevent_default();
+                toggle_kind(state, &mut info, kind)
+            }
+            Command::Check => {
+                info.prevent_default();
+                let block = caret.map_or(state.editor.caret_block, |(b, _)| b);
+                match state.open_note_mut() {
+                    Some(note) if note.doc.toggle_check(block) => {
+                        state.edited();
+                        Update::RefreshDom
+                    }
+                    _ => Update::DoNothing,
+                }
+            }
+        };
+    }
+
+    let Some((block, byte)) = caret else {
+        return Update::DoNothing;
+    };
+    let kind = match state.open_note_mut().and_then(|n| n.doc.blocks.get(block)) {
+        Some(b) => (b.kind.clone(), b.is_empty()),
+        None => return Update::DoNothing,
+    };
+    let (kind, empty) = kind;
+    match key {
+        VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter if !shift && collapsed => {
+            if let BlockKind::Code { .. } = kind {
+                // A code block takes line breaks; Enter on its empty last
+                // line (the text ends in "\n") leaves it.
+                info.prevent_default();
+                let _ = sync_text(state, &mut info, false);
+                let text = state
+                    .open_note_mut()
+                    .and_then(|n| n.doc.blocks.get(block).map(Block::flat))
+                    .unwrap_or_default();
+                if byte >= text.len() && text.ends_with('\n') {
+                    if let Some(note) = state.open_note_mut() {
+                        let trimmed = text.trim_end_matches('\n').to_string();
+                        note.doc.sync_block_text(block, &trimmed, None);
+                        note.doc.insert_after(block, Block::paragraph(""));
+                    }
+                    state.edited();
+                    return Update::RefreshDom;
+                }
+                if let Some(node) = info
+                    .get_document_caret()
+                    .into_option()
+                    .and_then(|p| node_id(p.node))
+                {
+                    info.insert_text(root_dom(), node, "\n");
+                }
+                return Update::DoNothing;
+            }
+            if kind.is_list() && empty {
+                // Enter on an empty item leaves the list (a level at a time).
+                info.prevent_default();
+                let _ = sync_text(state, &mut info, false);
+                if let Some(note) = state.open_note_mut() {
+                    note.doc.indent(block, -1);
+                }
+                state.edited();
+                return Update::RefreshDom;
+            }
+            Update::DoNothing
+        }
+        VirtualKeyCode::Back if collapsed && byte == 0 && kind != BlockKind::Paragraph && kind.has_text() => {
+            // Backspace at the start of a list item, heading, quote or code
+            // block turns it back into a paragraph (a list item outdents
+            // first) instead of merging it into the block above.
+            info.prevent_default();
+            let _ = sync_text(state, &mut info, false);
+            if let Some(note) = state.open_note_mut() {
+                if kind.is_list() {
+                    note.doc.indent(block, -1);
+                } else {
+                    note.doc.set_kind(block, BlockKind::Paragraph);
+                }
+            }
+            state.edited();
+            Update::RefreshDom
+        }
+        VirtualKeyCode::Tab if kind.is_list() => {
+            info.prevent_default();
+            let _ = sync_text(state, &mut info, false);
+            indent(state, &mut info, if shift { -1 } else { 1 })
+        }
+        _ => Update::DoNothing,
+    }
+}
+
+/// A shortcut the editor runs.
+enum Command {
+    /// A format; `true`: no key default of the engine paints it.
+    Format(Format, bool),
+    Kind(BlockKind),
+    Check,
+}
