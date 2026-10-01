@@ -19,15 +19,15 @@ thread, monitor change re-reads the frame interval); dark "Dark" segment.
 - 3d. monitor change re-paces running drivers: RED dd959d321, GREEN
   ac42c3b6f (frame_drivers_off_pace + repace_frame_drivers; macOS
   windowDidChangeScreen now detects the monitor)
+- 4. Segmented dark pair: RED 2239d3f18, GREEN 75dd9c370 (system:accent-text
+  resolves as a readable pair on system:accent; css color.rs)
 
 ## IN PROGRESS
-- 4. Segmented "Dark" segment: white text on light-grey face in dark mode.
-  Last commit: ac42c3b6f. NEXT STEP: read layout/src/widgets/segmented.rs
-  and the Segmented parts in themes/flat.rs + flora.rs; find the selected
-  segment's dark pair (text + face); RED theme-contrast test; fix at root.
+- report scripts/LIFECYCLE_2026_10_01.md. Last commit: 75dd9c370. NEXT
+  STEP: write the report (built / commits / api.json / least-sure spots /
+  test commands / left), commit it with this file.
 
 ## NEXT
-- report scripts/LIFECYCLE_2026_10_01.md
 
 ## Decisions
 - ABI hash = FNV-1a 64 over a canonical, sorted, doc-free text of the IR
