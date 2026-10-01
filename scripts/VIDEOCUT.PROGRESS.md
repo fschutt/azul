@@ -27,12 +27,10 @@ Never put the word git inside a python heredoc (the sandbox refuses the command)
   TimelineEvent{Kind}, TimelineEdge, TimelineClipTint, TimelineTrackKind, TimelineOnEvent*).
 
 ## IN PROGRESS
-- GREEN app modules, one commit each, in this order: model.rs (Project/MediaItem/Sequence/Track/
-  Clip/Effects/Transition/Edit/EditError/History, SourceMarks, clip_from_marks), render.rs (Canvas,
-  generate, FrameSource, Generated, compose, scale_to), export.rs (rgba_to_i420, y4m_header,
-  append_y4m_frame, ExportRange, export_frames, even_size, is_keyframe, timestamp_us, OutputFormat,
-  output_name + the worker), decode.rs (feed_plan, media_ms, FrameCache, the reader over
-  azul::video), store.rs (keys, save/load/list), args.rs; then lib.rs UI in pieces.
+- DONE app modules: model, render, export, decode, store, args, sample (all committed).
+- lib.rs in pieces: A state (done), B jobs (done), C pictures + playback (done). NEXT: piece D
+  layout (replace the marker line `// ==== PIECE D: layout ====` in lib.rs), then E callbacks,
+  then F start(). Then registration, E2E, report.
 
 ## NEXT
 1. app GREEN modules (above), then lib.rs (state, layout on TimelineShell, callbacks, workers).
