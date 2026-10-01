@@ -4,10 +4,14 @@ Branch `wt/meet2` from `39092feee`. Report: `scripts/MEET2_2026_10_01.md`. Nothi
 here (house rule); Rust files are parse-checked with `rustfmt --check` / `--emit stdout`.
 
 ## DONE
-- (none yet)
+- `8720ac48b` RED / `d2c07bafa` fix: cut_frame keeps the worker a buffer with the frame's room.
+- `aff38599a` RED / `a79c61e21` fix: avfoundation reads the YCbCr matrix by value (CFEqual).
+- `bd8496003` RED / `19356b1db` fix: VideoToolbox encoder tags / range from the frames;
+  decoder matrix by CFEqual; output size / format changes at the next picture (OutputStage with
+  VTPixelTransferSession); CoreVideo pixel-format rule moved to capture_slot.rs (twin removed).
 
 ## IN PROGRESS
-- reading: examples/azul-meet, dll video_codec (videotoolbox.rs, stream.rs, mod.rs), the reports.
+- stream.rs output_format; codec worker (mod.rs).
 
 ## NEXT (plan, in order)
 1. Engine video leftovers (RED then fix each):
