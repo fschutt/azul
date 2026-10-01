@@ -399,6 +399,21 @@ pub mod video;
 /// The frame of a multi-page dialog: the steps rail, the current page and
 /// the Back / Next / Finish buttons; see `wizard_layout.rs`.
 pub mod wizard_layout;
+/// Dialog kit: the look and the parts the dialog-shaped widgets share (the
+/// wizard pages, the path input, the shortcut recorder, the settings rows,
+/// the standard dialogs); see `dialog_kit.rs`.
+pub mod dialog_kit;
+/// Path input widget.
+///
+/// A path field with a "Browse..." button that opens the folder (or file)
+/// picker; see `path_input.rs`.
+pub mod path_input;
+/// Wizard pages.
+///
+/// The reusable pages of an install wizard (welcome, license, destination,
+/// components, options, summary, progress, finish) for the wizard layout;
+/// see `wizard_pages.rs`.
+pub mod wizard_pages;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
 
@@ -1483,7 +1498,127 @@ mod label_convention {
                 .with_page(user_content())
                 .dom(),
             ),
-        
+            (
+                "wizard_layout (banner)",
+                super::wizard_layout::WizardLayout::create(
+                    AzString::from("AzOffice Setup"),
+                    labels(&["License", "Folder", "Install"]),
+                )
+                .with_current_step(1)
+                .with_style(super::wizard_layout::WizardLayoutStyle::Banner)
+                .with_subtitle(AzString::from("Where should AzOffice be installed?"))
+                .with_icon(AzString::from("install_desktop"))
+                .with_validation(AzString::from("Choose a folder to install into."))
+                .with_page(user_content())
+                .dom(),
+            ),
+            (
+                "wizard_layout (side panel)",
+                super::wizard_layout::WizardLayout::create(
+                    AzString::from("AzOffice Setup"),
+                    labels(&["Introduction", "License", "Installation", "Summary"]),
+                )
+                .with_current_step(2)
+                .with_style(super::wizard_layout::WizardLayoutStyle::SidePanel)
+                .with_icon(AzString::from("install_desktop"))
+                .with_can_go_back(false)
+                .with_page(user_content())
+                .dom(),
+            ),
+            (
+                "path_input",
+                super::path_input::PathInput::create(AzString::from("/opt/AzOffice"))
+                    .with_accessibility_name(AzString::from("Destination folder"))
+                    .dom(),
+            ),
+            (
+                "wizard welcome page",
+                super::wizard_pages::WizardWelcomePage::create(
+                    AzString::from("Welcome to the AzOffice Setup Wizard"),
+                    AzString::from("This will install AzOffice on your computer."),
+                )
+                .with_logo(AzString::from("install_desktop"))
+                .dom(),
+            ),
+            (
+                "wizard license page",
+                super::wizard_pages::WizardLicensePage::create(AzString::from(
+                    "Permission is hereby granted.\n\nThe software is provided as is.",
+                ))
+                .dom(),
+            ),
+            (
+                "wizard destination page",
+                super::wizard_pages::WizardDestinationPage::create(
+                    AzString::from("/opt/AzOffice"),
+                    1 << 30,
+                )
+                .with_available(1 << 29)
+                .dom(),
+            ),
+            (
+                "wizard components page",
+                super::wizard_pages::WizardComponentsPage::create(
+                    super::wizard_pages::WizardComponentVec::from_vec(vec![
+                        super::wizard_pages::WizardComponent::create(
+                            AzString::from("Program files"),
+                            300 << 20,
+                        )
+                        .with_required(true),
+                        super::wizard_pages::WizardComponent::create(
+                            AzString::from("Writer"),
+                            120 << 20,
+                        )
+                        .with_depth(1)
+                        .with_description(AzString::from("Documents and letters")),
+                    ]),
+                )
+                .dom(),
+            ),
+            (
+                "wizard options page",
+                super::wizard_pages::WizardOptionsPage::create(
+                    super::wizard_pages::WizardOptionVec::from_vec(vec![
+                        super::wizard_pages::WizardOption::create(
+                            AzString::from("Create a desktop shortcut"),
+                            true,
+                        )
+                        .with_description(AzString::from("On every user's desktop")),
+                        super::wizard_pages::WizardOption::create(AzString::from("For me only"), true)
+                            .with_group(1),
+                        super::wizard_pages::WizardOption::create(AzString::from("For all users"), false)
+                            .with_group(1),
+                    ]),
+                )
+                .dom(),
+            ),
+            (
+                "wizard summary page",
+                super::wizard_pages::WizardSummaryPage::create(
+                    azul_core::window::StringPairVec::from_const_slice(&[]),
+                )
+                .with_row(AzString::from("Destination folder"), AzString::from("/opt/AzOffice"))
+                .dom(),
+            ),
+            (
+                "wizard progress page",
+                super::wizard_pages::WizardProgressPage::create(42.0)
+                    .with_current_item(AzString::from("Copying azword.dll"))
+                    .with_log(labels(&["Created /opt/AzOffice"]))
+                    .with_show_log(true)
+                    .dom(),
+            ),
+            (
+                "wizard finish page",
+                super::wizard_pages::WizardFinishPage::create(
+                    AzString::from("Completing the AzOffice Setup Wizard"),
+                    AzString::from("Setup has installed AzOffice."),
+                )
+                .with_options(super::wizard_pages::WizardOptionVec::from_vec(vec![
+                    super::wizard_pages::WizardOption::create(AzString::from("Launch AzOffice now"), true),
+                ]))
+                .dom(),
+            ),
         ];
         // The app shells, each with placeholder content (`shells::fixtures`).
         all.extend(super::shells::fixtures::every_shell());
@@ -2317,6 +2452,16 @@ mod theme_contrast {
         "reading_pane",
         "todo_bar",
         "wizard_layout",
+        "wizard_layout (banner)",
+        "wizard_layout (side panel)",
+        "wizard welcome page",
+        "wizard license page",
+        "wizard destination page",
+        "wizard components page",
+        "wizard options page",
+        "wizard summary page",
+        "wizard progress page",
+        "wizard finish page",
     ];
     /// Controls a user types into, picks from or toggles.
     const INPUTS: &[&str] = &[
@@ -2349,6 +2494,7 @@ mod theme_contrast {
         "drop_down (optgroup)",
         "hidden_input",
         "date_picker (inline)",
+        "path_input",
     ];
     /// Navigation and application chrome.
     const CHROME: &[&str] = &[

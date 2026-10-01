@@ -7262,6 +7262,17 @@ pub(crate) fn wizard_layout_look() -> crate::widgets::wizard_layout::WizardLayou
         title,
         buttons,
         button: decl::margin(0, 0, 0, 8).to_vec(),
+        // RED: the frames are not drawn yet.
+        subtitle: Vec::new(),
+        banner: Vec::new(),
+        banner_title: Vec::new(),
+        banner_icon: Vec::new(),
+        side_panel: Vec::new(),
+        side_icon: Vec::new(),
+        side_step: Vec::new(),
+        side_step_current: Vec::new(),
+        reason: Vec::new(),
+        held: Vec::new(),
         marker: Some(super::style_kit::FLORA_CLASS),
     }
 }
@@ -7270,4 +7281,13 @@ pub(crate) fn wizard_layout_look() -> crate::widgets::wizard_layout::WizardLayou
 #[must_use]
 pub fn wizard_layout(w: crate::widgets::wizard_layout::WizardLayout) -> Dom {
     crate::widgets::wizard_layout::build(w, &wizard_layout_look())
+}
+
+// ==== dialog kit (wizard pages, path input, shortcut recorder, settings rows, standard dialogs) ====
+
+/// Flora's dialog-kit look.
+#[must_use]
+pub(crate) fn dialog_kit_look() -> crate::widgets::dialog_kit::DialogKitLook {
+    // RED: the look is not drawn yet.
+    crate::widgets::dialog_kit::DialogKitLook::default()
 }

@@ -1432,12 +1432,29 @@ fn disk_space_of(_path: &str) -> Option<DiskSpace> {
     None
 }
 
+/// The size and free space of the volume a NEW `path` would be created on:
+/// the volume of its nearest existing ancestor - what an installer asks
+/// about its destination ("C:\Program Files\AzOffice" does not exist yet;
+/// "C:\Program Files" answers for it). An existing path answers for itself.
+/// `None` when no ancestor exists or the platform cannot tell.
+#[must_use]
+pub fn disk_space_for_new(path: &str) -> Option<DiskSpace> {
+    disk_space(path) // RED stub
+}
+
 impl FilePath {
     /// The size and free space of the volume this path is on; `None` when the
     /// path does not exist or the platform cannot tell. See [`disk_space`].
     #[must_use]
     pub fn disk_space(&self) -> Option<DiskSpace> {
         disk_space(self.inner.as_str())
+    }
+
+    /// The size and free space of the volume this path WOULD be created on
+    /// (its nearest existing ancestor's). See [`disk_space_for_new`].
+    #[must_use]
+    pub fn disk_space_for_new(&self) -> Option<DiskSpace> {
+        disk_space_for_new(self.inner.as_str())
     }
 }
 
@@ -1503,6 +1520,27 @@ mod tests {
         let missing = path_join(temp_dir().as_str(), "azul-fb2-no-such-folder/deeper/still");
         assert_eq!(disk_space(missing.as_str()), None);
         assert_eq!(disk_space(""), None);
+    }
+
+    #[test]
+    #[cfg(all(feature = "std", any(all(unix, feature = "extra"), windows)))]
+    fn a_folder_that_does_not_exist_yet_reports_the_space_of_its_nearest_existing_folder() {
+        let temp = temp_dir();
+        let missing = path_join(temp.as_str(), "azul-dialogs-no-such-folder/AzOffice/bin");
+        let here = disk_space(temp.as_str()).expect("the temp folder's volume");
+        let there = disk_space_for_new(missing.as_str())
+            .expect("an installer's destination that does not exist yet has a volume");
+        assert_eq!(there.total, here.total, "the temp folder's volume answers");
+        assert_eq!(
+            FilePath::new(missing.clone()).disk_space_for_new().map(|s| s.total),
+            Some(here.total)
+        );
+        assert_eq!(
+            disk_space_for_new(temp.as_str()).map(|s| s.total),
+            Some(here.total),
+            "an existing folder answers for itself"
+        );
+        assert_eq!(disk_space_for_new(""), None);
     }
 }
 

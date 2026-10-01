@@ -12,7 +12,23 @@
 //! assistive technology the layout is a group named "<title>: step i of n,
 //! <step>"; the buttons are named by their labels.
 //!
-//! Key types: [`WizardLayout`], [`WizardEvent`], [`WizardEventKind`].
+//! Three frames ([`WizardLayoutStyle`]): the steps RAIL over the page (the
+//! default, an Office dialog), the BANNER of a Windows installer (the step's
+//! title and a subtitle on a white band, a glyph at its right, no rail) and
+//! the SIDE PANEL of the macOS installer (the steps listed down the left,
+//! the current one marked). An app may switch per page - Wizard97 shows the
+//! welcome and finish pages without the banner. The standard sizes
+//! ([`WizardLayoutSize`]) fix the frame at a classic installer's size;
+//! `Fill` takes the host's.
+//!
+//! A page's validation hook is [`WizardLayout::set_validation`]: a reason
+//! ("Accept the license agreement to continue.") holds Next - the button is
+//! inert, dimmed, announced unavailable and described by the reason, which
+//! the button row also shows. [`WizardLayout::can_go_back`] holds Back the
+//! same way (an installer's progress and finish pages).
+//!
+//! Key types: [`WizardLayout`], [`WizardEvent`], [`WizardEventKind`],
+//! [`WizardLayoutStyle`], [`WizardLayoutSize`].
 
 use alloc::vec::Vec;
 
@@ -65,6 +81,19 @@ static BUTTON_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-wizard-layout-button",
 ))];
 
+/// The banner's class (a Windows installer's band over the page).
+pub const BANNER_CLASS: &str = "__azul-native-wizard-layout-banner";
+/// The class of the row that holds the side panel beside the page.
+pub const BODY_CLASS: &str = "__azul-native-wizard-layout-body";
+/// The side panel's class (the macOS installer's step list).
+pub const SIDE_PANEL_CLASS: &str = "__azul-native-wizard-layout-side-panel";
+/// The class of one step of the side panel.
+pub const SIDE_STEP_CLASS: &str = "__azul-native-wizard-layout-side-step";
+/// The class of the reason a held Next shows in the button row.
+pub const REASON_CLASS: &str = "__azul-native-wizard-layout-reason";
+/// Added to the box of a held button.
+pub const HELD_CLASS: &str = "__azul-native-wizard-layout-held";
+
 /// What the user asked for.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -116,6 +145,64 @@ azul_core::impl_managed_callback! {
     extra_args:     [ event: WizardEvent ],
 }
 
+/// How a wizard frames its page.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum WizardLayoutStyle {
+    /// The steps rail over the page (an Office dialog).
+    #[default]
+    Rail,
+    /// A Windows installer: a banner with the step's title, the subtitle
+    /// and the glyph over the page; no rail.
+    Banner,
+    /// The macOS installer: the steps listed down a side panel at the left,
+    /// the current one marked, the glyph over them.
+    SidePanel,
+}
+
+/// The size a wizard's frame takes.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum WizardLayoutSize {
+    /// The host's size (a window the app sized, a backstage page).
+    #[default]
+    Fill,
+    /// 500 x 380: the NSIS / Inno Setup installer.
+    Compact,
+    /// 640 x 480: the classic wizard.
+    Classic,
+    /// 620 x 440: the macOS installer.
+    MacInstaller,
+    /// 800 x 600: a wizard with room for a list.
+    Large,
+}
+
+impl WizardLayoutSize {
+    /// The width in logical pixels (0 for `Fill`).
+    #[must_use]
+    pub const fn width(self) -> f32 {
+        match self {
+            Self::Fill => 0.0,
+            Self::Compact => 500.0,
+            Self::Classic => 640.0,
+            Self::MacInstaller => 620.0,
+            Self::Large => 800.0,
+        }
+    }
+
+    /// The height in logical pixels (0 for `Fill`).
+    #[must_use]
+    pub const fn height(self) -> f32 {
+        match self {
+            Self::Fill => 0.0,
+            Self::Compact => 380.0,
+            Self::Classic => 480.0,
+            Self::MacInstaller => 440.0,
+            Self::Large => 600.0,
+        }
+    }
+}
+
 /// A wizard: the steps rail, the current page and the Back / Next / Finish
 /// buttons.
 #[repr(C)]
@@ -139,12 +226,28 @@ pub struct WizardLayout {
     pub on_event: OptionWizardOnEvent,
     /// The current step, `0..steps.len()`.
     pub current_step: usize,
+    /// The line under the title (the banner's description of the step), or
+    /// empty for none.
+    pub subtitle: AzString,
+    /// The glyph of the banner (at its right) or of the side panel (over
+    /// the steps), a `Dom::create_icon` name, or empty for none.
+    pub icon: AzString,
+    /// Why Next is held ("Accept the license agreement to continue."), or
+    /// empty: a reason holds Next and the button row shows it.
+    pub blocked_reason: AzString,
     /// The widget theme this widget is PINNED to (`with_theme`), or `None`
     /// to follow the app theme.
     pub theme: crate::widgets::themes::OptionUiTheme,
+    /// How the page is framed: rail, banner or side panel.
+    pub style: WizardLayoutStyle,
+    /// The frame's size: the host's, or a standard installer size.
+    pub size: WizardLayoutSize,
     /// Whether Next (or Finish) does anything: unset while the page is not
     /// valid yet, the button is inert.
     pub can_go_next: bool,
+    /// Whether Back does anything (unset on an installer's progress and
+    /// finish pages); Back on the first step never does.
+    pub can_go_back: bool,
 }
 
 /// What a theme decides about a wizard layout: the SKIN of each part, laid
@@ -163,6 +266,26 @@ pub(crate) struct WizardLayoutLook {
     pub buttons: Vec<CssPropertyWithConditions>,
     /// The box around one button (its spacing).
     pub button: Vec<CssPropertyWithConditions>,
+    /// The subtitle under the title.
+    pub subtitle: Vec<CssPropertyWithConditions>,
+    /// The banner (a Windows installer's white band over the page).
+    pub banner: Vec<CssPropertyWithConditions>,
+    /// The banner's title (the step).
+    pub banner_title: Vec<CssPropertyWithConditions>,
+    /// The banner's glyph, at its right.
+    pub banner_icon: Vec<CssPropertyWithConditions>,
+    /// The side panel (the macOS installer's step list).
+    pub side_panel: Vec<CssPropertyWithConditions>,
+    /// The side panel's glyph, over the steps.
+    pub side_icon: Vec<CssPropertyWithConditions>,
+    /// One step of the side panel.
+    pub side_step: Vec<CssPropertyWithConditions>,
+    /// Added to the current step of the side panel.
+    pub side_step_current: Vec<CssPropertyWithConditions>,
+    /// The reason Next is held, in the button row.
+    pub reason: Vec<CssPropertyWithConditions>,
+    /// Added to the box of a held button (dimmed).
+    pub held: Vec<CssPropertyWithConditions>,
     /// The theme's marker class on the layout, if it has one.
     pub marker: Option<&'static str>,
 }
@@ -233,8 +356,14 @@ impl WizardLayout {
             cancel_label: AzString::from_const_str("Cancel"),
             on_event: None.into(),
             current_step: 0,
+            subtitle: AzString::from_const_str(""),
+            icon: AzString::from_const_str(""),
+            blocked_reason: AzString::from_const_str(""),
             theme: crate::widgets::themes::OptionUiTheme::None,
+            style: WizardLayoutStyle::Rail,
+            size: WizardLayoutSize::Fill,
             can_go_next: true,
+            can_go_back: true,
         }
     }
 
@@ -292,6 +421,87 @@ impl WizardLayout {
     #[must_use]
     pub const fn with_can_go_next(mut self, can_go_next: bool) -> Self {
         self.set_can_go_next(can_go_next);
+        self
+    }
+
+    /// Whether Back does anything (Back on the first step never does).
+    pub const fn set_can_go_back(&mut self, can_go_back: bool) {
+        self.can_go_back = can_go_back;
+    }
+
+    /// [`Self::set_can_go_back`] for the builder chain.
+    #[must_use]
+    pub const fn with_can_go_back(mut self, can_go_back: bool) -> Self {
+        self.set_can_go_back(can_go_back);
+        self
+    }
+
+    /// The page's validation hook: `reason` empty lets Next go; a reason
+    /// holds Next, and the button row says why.
+    pub fn set_validation(&mut self, reason: AzString) {
+        self.can_go_next = reason.as_str().is_empty();
+        self.blocked_reason = reason;
+    }
+
+    /// [`Self::set_validation`] for the builder chain.
+    #[must_use]
+    pub fn with_validation(mut self, reason: AzString) -> Self {
+        self.set_validation(reason);
+        self
+    }
+
+    /// Whether Next (or Finish) is held: unset `can_go_next` or a reason.
+    #[must_use]
+    pub fn is_next_held(&self) -> bool {
+        !self.can_go_next || !self.blocked_reason.as_str().is_empty()
+    }
+
+    /// The line under the title (the banner's description of the step).
+    pub fn set_subtitle(&mut self, subtitle: AzString) {
+        self.subtitle = subtitle;
+    }
+
+    /// [`Self::set_subtitle`] for the builder chain.
+    #[must_use]
+    pub fn with_subtitle(mut self, subtitle: AzString) -> Self {
+        self.set_subtitle(subtitle);
+        self
+    }
+
+    /// The glyph of the banner or the side panel (a `Dom::create_icon`
+    /// name).
+    pub fn set_icon(&mut self, icon: AzString) {
+        self.icon = icon;
+    }
+
+    /// [`Self::set_icon`] for the builder chain.
+    #[must_use]
+    pub fn with_icon(mut self, icon: AzString) -> Self {
+        self.set_icon(icon);
+        self
+    }
+
+    /// How the page is framed.
+    pub const fn set_style(&mut self, style: WizardLayoutStyle) {
+        self.style = style;
+    }
+
+    /// [`Self::set_style`] for the builder chain.
+    #[must_use]
+    pub const fn with_style(mut self, style: WizardLayoutStyle) -> Self {
+        self.set_style(style);
+        self
+    }
+
+    /// The frame's size.
+    pub const fn set_size(&mut self, size: WizardLayoutSize) {
+        self.size = size;
+    }
+
+    /// [`Self::set_size`] for the builder chain.
+    #[must_use]
+    pub const fn with_size(mut self, size: WizardLayoutSize) -> Self {
+        self.set_size(size);
         self
     }
 
@@ -443,9 +653,17 @@ pub(crate) fn build(wizard: WizardLayout, look: &WizardLayoutLook) -> Dom {
         cancel_label,
         on_event,
         current_step,
+        subtitle,
+        icon,
+        blocked_reason,
         theme,
+        style,
+        size,
         can_go_next,
+        can_go_back,
     } = wizard;
+    // RED: the frames, the validation reason and Back's hold are not built yet.
+    let _ = (subtitle, icon, blocked_reason, style, size, can_go_back);
     let theme = theme.into_option();
     let count = steps.as_ref().len();
     let step_label = steps
@@ -763,6 +981,229 @@ mod wizard_layout_tests {
                 &format!("wizard_layout built for {}", theme.name()),
                 &dom,
                 &[],
+            );
+        }
+    }
+    /// The declarations on `node` of type `ty`, as Debug strings.
+    fn declared(node: &Dom, ty: azul_css::props::property::CssPropertyType) -> Vec<String> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .filter(|(p, _)| p.get_type() == ty)
+            .map(|(p, _)| format!("{p:?}"))
+            .collect()
+    }
+
+    #[test]
+    fn a_reason_holds_next_and_the_button_row_says_why() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let reason = "Accept the license agreement to continue.";
+        for theme in checks::BOTH {
+            let held = wizard(&log, 1)
+                .with_validation(AzString::from(reason))
+                .with_theme(theme);
+            assert!(held.is_next_held());
+            let dom = held.dom();
+            let mut buttons = Vec::new();
+            texts(&dom.children.as_ref()[2], &mut buttons);
+            assert_eq!(
+                buttons,
+                vec!["Cancel", reason, "Back", "Next"],
+                "{}: the reason sits before Back",
+                theme.name()
+            );
+            let styled = StyledDom::create_from_dom(dom);
+            let next = button_labelled_any(&styled, "Next");
+            assert!(
+                rv::fire(&styled, id(next), EventFilter::Hover(HoverEventFilter::Click)).is_none(),
+                "{}: a held Next is inert",
+                theme.name()
+            );
+            let info = styled.node_data.as_ref()[next.index()]
+                .get_accessibility_info()
+                .expect("the Next button declares its role")
+                .clone();
+            assert!(
+                info.states
+                    .as_ref()
+                    .contains(&azul_core::a11y::AccessibilityState::Unavailable),
+                "{}: a held Next is announced unavailable",
+                theme.name()
+            );
+            assert_eq!(
+                info.description.as_ref().map(|d| d.as_str().to_string()),
+                Some(reason.to_string()),
+                "{}: a held Next is described by the reason",
+                theme.name()
+            );
+        }
+        let go = wizard(&log, 1).with_validation(AzString::from(""));
+        assert!(!go.is_next_held(), "an empty reason lets Next go");
+        assert!(go.can_go_next);
+    }
+
+    /// The node whose text reads `label`, walked up to the first node that
+    /// declares an accessibility role (a held button takes no focus).
+    fn button_labelled_any(styled: &StyledDom, label: &str) -> NodeId {
+        let hierarchy = styled.node_hierarchy.as_ref();
+        let nodes = styled.node_data.as_ref();
+        let mut node = node_labelled(styled, label);
+        loop {
+            if nodes[node.index()]
+                .get_accessibility_info()
+                .is_some_and(|i| i.role == azul_core::a11y::AccessibilityRole::PushButton)
+            {
+                return node;
+            }
+            node = hierarchy[node.index()]
+                .parent_id()
+                .expect("a button label sits in its button");
+        }
+    }
+
+    #[test]
+    fn back_is_inert_while_the_app_holds_it() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let styled = StyledDom::create_from_dom(
+            wizard(&log, 1)
+                .with_can_go_back(false)
+                .with_theme(UiTheme::Flat)
+                .dom(),
+        );
+        let back = button_labelled_any(&styled, "Back");
+        assert!(
+            rv::fire(&styled, id(back), EventFilter::Hover(HoverEventFilter::Click)).is_none(),
+            "Back is held on an installer's progress page"
+        );
+    }
+
+    #[test]
+    fn the_banner_shows_the_step_its_subtitle_and_the_glyph_and_no_rail() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        for theme in checks::BOTH {
+            let dom = wizard(&log, 1)
+                .with_style(WizardLayoutStyle::Banner)
+                .with_subtitle(AzString::from("Where should AzOffice be installed?"))
+                .with_icon(AzString::from("install_desktop"))
+                .with_theme(theme)
+                .dom();
+            let parts = dom.children.as_ref();
+            assert_eq!(parts.len(), 3, "{}: banner, page, buttons", theme.name());
+            let mut banner = Vec::new();
+            texts(&parts[0], &mut banner);
+            assert_eq!(
+                banner,
+                vec!["Server", "Where should AzOffice be installed?"],
+                "{}: the banner names the step, then the subtitle",
+                theme.name()
+            );
+            assert!(
+                theme_checks::nodes(&parts[0])
+                    .iter()
+                    .any(|(_, n)| matches!(n.root.get_node_type(), NodeType::Icon(_))),
+                "{}: the banner carries the glyph",
+                theme.name()
+            );
+            let mut page = Vec::new();
+            texts(&parts[1], &mut page);
+            assert_eq!(
+                page,
+                vec!["Your e-mail address"],
+                "{}: the banner replaces the title line",
+                theme.name()
+            );
+        }
+    }
+
+    #[test]
+    fn the_side_panel_lists_the_steps_down_the_left_and_marks_the_current_one() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        for theme in checks::BOTH {
+            let dom = wizard(&log, 1)
+                .with_style(WizardLayoutStyle::SidePanel)
+                .with_theme(theme)
+                .dom();
+            let parts = dom.children.as_ref();
+            assert_eq!(parts.len(), 2, "{}: the body row, the buttons", theme.name());
+            let body = parts[0].children.as_ref();
+            assert_eq!(body.len(), 2, "{}: the side panel beside the page", theme.name());
+            let steps = theme_checks::find_all(&body[0], SIDE_STEP_CLASS);
+            assert_eq!(steps.len(), 3, "{}: one row per step", theme.name());
+            let mut labels = Vec::new();
+            for s in &steps {
+                texts(s, &mut labels);
+            }
+            assert!(
+                labels.iter().any(|t| t == "Server"),
+                "{}: the steps are listed: {labels:?}",
+                theme.name()
+            );
+            let current: Vec<bool> = steps
+                .iter()
+                .map(|s| {
+                    s.root.get_accessibility_info().is_some_and(|i| {
+                        i.states
+                            .as_ref()
+                            .contains(&azul_core::a11y::AccessibilityState::Selected)
+                    })
+                })
+                .collect();
+            assert_eq!(current, vec![false, true, false], "{}", theme.name());
+            let mut page = Vec::new();
+            texts(&body[1], &mut page);
+            assert_eq!(page, vec!["Add account", "Your e-mail address"], "{}", theme.name());
+        }
+    }
+
+    #[test]
+    fn a_standard_size_fixes_the_frame_and_fill_takes_the_host() {
+        use azul_css::props::property::CssPropertyType;
+        assert_eq!(
+            (WizardLayoutSize::Classic.width(), WizardLayoutSize::Classic.height()),
+            (640.0, 480.0)
+        );
+        assert_eq!(WizardLayoutSize::Compact.width(), 500.0);
+        assert_eq!(WizardLayoutSize::MacInstaller.height(), 440.0);
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let classic = wizard(&log, 0)
+            .with_size(WizardLayoutSize::Classic)
+            .with_theme(UiTheme::Flat)
+            .dom();
+        assert!(
+            declared(&classic, CssPropertyType::Width)
+                .iter()
+                .any(|d| d.contains("640")),
+            "the classic frame is 640 wide: {:?}",
+            declared(&classic, CssPropertyType::Width)
+        );
+        assert!(declared(&classic, CssPropertyType::Height)
+            .iter()
+            .any(|d| d.contains("480")));
+        let fill = wizard(&log, 0).with_theme(UiTheme::Flat).dom();
+        assert!(declared(&fill, CssPropertyType::Width).is_empty(), "Fill sets no width");
+    }
+
+    #[test]
+    fn the_banner_and_the_side_panel_follow_the_app_theme() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        for style in [WizardLayoutStyle::Banner, WizardLayoutStyle::SidePanel] {
+            checks::assert_follows_the_app_theme(
+                "wizard_layout (frame)",
+                || {
+                    wizard(&log, 1)
+                        .with_style(style)
+                        .with_icon(AzString::from("install_desktop"))
+                        .with_validation(AzString::from("Choose a folder."))
+                        .dom()
+                },
+                |t: UiTheme| {
+                    wizard(&log, 1)
+                        .with_style(style)
+                        .with_icon(AzString::from("install_desktop"))
+                        .with_validation(AzString::from("Choose a folder."))
+                        .with_theme(t)
+                        .dom()
+                },
             );
         }
     }
