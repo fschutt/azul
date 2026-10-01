@@ -9,18 +9,18 @@ Task: AzCalculator (F1/F2/F6/F7 vehicle) + AzContacts (A4). Report: scripts/SMAL
 - 75f052000 feat(appkit): the shared app skeleton and its settings page (GREEN)
 - 02a3d355f test(azcalculator): the calculator's model (RED)
 - 8fccfdc91 feat(azcalculator): the calculator's model (GREEN)
+- 2c1c8a6b2, 93e30c7bd wip(azcalculator): ui.rs pieces
+- c2ce0f107 feat(azcalculator): the window (ui.rs wired into lib.rs)
 
 ## IN PROGRESS
-- AzCalculator UI (NEXT 3), lib.rs in pieces
+- scripts/azcalculator_e2e.py
 
 ## NEXT
-3. NEXT STEP: AzCalculator UI in examples/azul-calculator/src/lib.rs (replace the stub `start()`): state
-   struct App { kit: RefAny, calc: Calculator, screen, panel (history/memory), convert + date state }, layout on
-   UtilityShell (title row = appkit::ui::title_row, modes = Segmented [Standard, Scientific, Programmer, Date,
-   Convert]), keypad grids per mode, window key handler (appkit::ui::handle_key first), Paste via
-   FocusEventFilter::Paste, history load/save via appkit::ui::spawn_file_jobs (calculator/history.jsonl),
-   stdout lines AZCALC_* for the E2E. Write it in pieces (state+start, then layout, then callbacks), commit each.
-   Then the E2E scripts/azcalculator_e2e.py. AzCalculator UI on UtilityShell + E2E scripts/azcalculator_e2e.py + registration.
+3. NEXT STEP: scripts/azcalculator_e2e.py (model on examples/azul-shells/scripts/shells_e2e.py): start
+   AzCalculator headless with --data-dir <tmp> --sample, click keys by #key-* ids, type with key_down
+   (digits, plus, asterisk, enter), assert AZCALC_DISPLAY lines + #calc-result text, history file content,
+   modes (Scientific sin(30)+2^10, Programmer 2A5F bases), Convert 42.195 km, Date, settings page
+   (#appkit-settings, theme flora + mode dark), screenshots. Then AzContacts.
 4. AzContacts model (RED, GREEN): vCard 3.0/4.0 parse/write, contacts model, sort/index, duplicates + merge,
    storage layout contacts/<uuid>.vcf, sample data.
 5. AzContacts UI on PimShell + E2E scripts/azcontacts_e2e.py + registration.
