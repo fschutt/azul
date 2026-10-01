@@ -381,6 +381,27 @@ impl VideoEncoder {
     /// are output-callback shaped, so submit and poll are separate steps on
     /// every target. (Stub backends accept frames and never produce a chunk.)
     pub fn encode(&self, frame: VideoFrame, force_keyframe: bool) -> bool {
+        self.submit(frame, force_keyframe, None)
+    }
+
+    /// Submit one `VideoFrame` stamped with its own presentation time,
+    /// `timestamp_us` microseconds from the start of the stream - what an
+    /// EXPORT does: it renders frames far faster than they play, and the
+    /// rate control spends bits by the time between the stamps, so a frame
+    /// [`encode`](Self::encode) stamps with the wall clock would get a
+    /// fraction of the bitrate. Stamps must rise; one encoder takes one kind
+    /// of stamp. Otherwise as [`encode`](Self::encode).
+    pub fn encode_at(&self, frame: VideoFrame, timestamp_us: u64, force_keyframe: bool) -> bool {
+        self.submit(
+            frame,
+            force_keyframe,
+            Some(i64::try_from(timestamp_us).unwrap_or(i64::MAX)),
+        )
+    }
+
+    /// [`encode`](Self::encode) / [`encode_at`](Self::encode_at): the wall
+    /// clock's stamp when `micros` is `None`.
+    fn submit(&self, frame: VideoFrame, force_keyframe: bool, micros: Option<i64>) -> bool {
         let Some(inner) = (unsafe { (self.ptr as *mut EncoderInner).as_mut() }) else {
             return false;
         };
@@ -389,13 +410,16 @@ impl VideoEncoder {
         if let Some(vt) = inner.vt.as_mut() {
             // NV12 goes into a pooled '420v' buffer as it is, BGRA as it is,
             // RGBA swizzled (see `VtEncoder::encode`).
-            let chunk = vt.encode(&frame, force_keyframe);
+            let chunk = match micros {
+                Some(micros) => vt.encode_at(&frame, force_keyframe, micros),
+                None => vt.encode(&frame, force_keyframe),
+            };
             if !chunk.is_empty() {
                 inner.packets.push_back(U8Vec::from_vec(chunk));
             }
             return true;
         }
-        let _ = (frame, force_keyframe);
+        let _ = (frame, force_keyframe, micros);
         true
     }
 

@@ -1035,9 +1035,18 @@ impl VtEncoder {
     }
 
     /// Encode one frame (NV12, BGRA8 or RGBA8, at the session's size) →
-    /// Annex-B chunk(s). Empty while VT buffers, or for a frame of the wrong
-    /// size.
+    /// Annex-B chunk(s), stamped with the wall clock (a live call). Empty
+    /// while VT buffers, or for a frame of the wrong size.
     pub(super) fn encode(&mut self, frame: &VideoFrame, force_keyframe: bool) -> Vec<u8> {
+        let micros = i64::try_from(self.started.elapsed().as_micros()).unwrap_or(i64::MAX);
+        self.encode_at(frame, force_keyframe, micros)
+    }
+
+    /// [`Self::encode`] with the frame's own presentation time, in
+    /// microseconds: an export renders frames far faster than they play,
+    /// and the rate control spends bits by the time between the stamps.
+    /// One session takes one kind of stamp (they must rise).
+    pub(super) fn encode_at(&mut self, frame: &VideoFrame, force_keyframe: bool, micros: i64) -> Vec<u8> {
         let lib = match VtLib::get() {
             Some(l) => l,
             None => return Vec::new(),
@@ -1055,7 +1064,6 @@ impl VtEncoder {
                 return Vec::new();
             };
 
-            let micros = i64::try_from(self.started.elapsed().as_micros()).unwrap_or(i64::MAX);
             let pts = CMTime::new(micros, 1_000_000);
             let mut props: CFDictionaryRef = core::ptr::null();
             let mut props_owned: *mut c_void = core::ptr::null_mut();
