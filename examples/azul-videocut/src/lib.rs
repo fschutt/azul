@@ -87,7 +87,7 @@ use crate::{
         Edge, Edit, Effects, Frame, MediaItem, MediaSource, Project, SourceMarks, TrackKind,
         Transition, TransitionKind,
     },
-    render::{compose, fit_within, scale_to, Canvas, FrameSource, Generated},
+    render::{compose, fit_within, scale_to, Canvas, FrameSource},
 };
 
 // ==== constants ====
@@ -1966,6 +1966,9 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     }
     let timeline_focused = focus_has_class(&info, "__azul-native-timeline-lanes");
+    if cmd && matches!(key, VirtualKeyCode::I) {
+        return on_import(data, info);
+    }
     let Some(mut guard) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
@@ -1993,10 +1996,6 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         VirtualKeyCode::E if cmd => {
             app.export.open = true;
             Update::RefreshDom
-        }
-        VirtualKeyCode::I if cmd => {
-            drop(guard);
-            return on_import(data, info);
         }
         _ if cmd => return Update::DoNothing,
         VirtualKeyCode::Space => toggle_play(&mut info, &app_ref, app),
