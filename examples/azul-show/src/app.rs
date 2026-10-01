@@ -1,0 +1,380 @@
+//! The app's state: the editing session (if a deck is open), the screen and
+//! view, the backstage page, the canvas's zoom and its transient drawing
+//! (snap guides, marquee), the pictures, the slide show in flight; and the
+//! [`Command`]s the ribbon, the backstage, the menus and the keys run.
+
+use std::{collections::HashMap, path::PathBuf, time::Instant};
+
+use azul::{
+    callbacks::RefAny,
+    image::ImageRef,
+    widgets::{AdornerFrame, AdornerGuide},
+};
+
+use crate::{
+    args::Args,
+    editor::Editor,
+    model::{
+        Align, AnimationEffect, Background, Blank, ChartKind, Color, LayoutKind, ShapeKind,
+        ShowState, SlideSize, TransitionKind, ZOrder,
+    },
+    storage::DeckSummary,
+};
+
+/// What the editor area shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum View {
+    /// The rail, the slide, the notes.
+    Normal,
+    /// The slide sorter.
+    Sorter,
+    /// The outline.
+    Outline,
+    /// The notes page.
+    NotesPage,
+}
+
+impl View {
+    /// The status bar's view buttons, in order.
+    pub const ALL: [View; 4] = [View::Normal, View::Sorter, View::Outline, View::NotesPage];
+
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            View::Normal => "Normal",
+            View::Sorter => "Slide Sorter",
+            View::Outline => "Outline View",
+            View::NotesPage => "Notes Page",
+        }
+    }
+
+    #[must_use]
+    pub const fn icon(self) -> &'static str {
+        match self {
+            View::Normal => "view_compact",
+            View::Sorter => "grid_view",
+            View::Outline => "format_list_bulleted",
+            View::NotesPage => "sticky_note_2",
+        }
+    }
+
+    #[must_use]
+    pub fn index(self) -> usize {
+        View::ALL.iter().position(|v| *v == self).unwrap_or(0)
+    }
+}
+
+/// The backstage's pages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackstagePage {
+    Info,
+    New,
+    Open,
+    Save,
+    Export,
+    Close,
+    Options,
+}
+
+impl BackstagePage {
+    /// The navigation, top to bottom.
+    pub const NAV: [BackstagePage; 7] = [
+        BackstagePage::Info,
+        BackstagePage::New,
+        BackstagePage::Open,
+        BackstagePage::Save,
+        BackstagePage::Export,
+        BackstagePage::Close,
+        BackstagePage::Options,
+    ];
+
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            BackstagePage::Info => "Info",
+            BackstagePage::New => "New",
+            BackstagePage::Open => "Open",
+            BackstagePage::Save => "Save",
+            BackstagePage::Export => "Export",
+            BackstagePage::Close => "Close",
+            BackstagePage::Options => "Options",
+        }
+    }
+
+    #[must_use]
+    pub fn index(self) -> usize {
+        BackstagePage::NAV.iter().position(|p| *p == self).unwrap_or(0)
+    }
+}
+
+/// The window's screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Screen {
+    /// The ribbon and a view.
+    Editor,
+    /// File: the backstage.
+    Backstage,
+    /// The slide show (the presenter view is a second window).
+    Show,
+}
+
+/// A build or a transition playing in the show.
+#[derive(Debug, Clone)]
+pub struct Play {
+    /// The elements whose build plays (empty for a transition).
+    pub ids: Vec<u64>,
+    /// A transition from this slide to the current one.
+    pub transition_from: Option<usize>,
+    pub started: Instant,
+    pub duration_ms: u32,
+}
+
+impl Play {
+    /// 0..1, how far it has played.
+    #[must_use]
+    pub fn progress(&self) -> f32 {
+        let ms = self.started.elapsed().as_secs_f32() * 1000.0;
+        (ms / self.duration_ms.max(1) as f32).clamp(0.0, 1.0)
+    }
+
+    #[must_use]
+    pub fn done(&self) -> bool {
+        self.progress() >= 1.0
+    }
+}
+
+/// The slide show in flight.
+#[derive(Debug, Clone)]
+pub struct ShowRuntime {
+    pub state: ShowState,
+    pub started: Instant,
+    /// The presenter window is open.
+    pub presenter: bool,
+    pub play: Option<Play>,
+    /// Digits typed for "number + Enter".
+    pub typed: String,
+    /// The view to go back to.
+    pub return_view: View,
+}
+
+/// Everything the app holds.
+pub struct AppState {
+    pub editor: Option<Editor>,
+    pub screen: Screen,
+    pub view: View,
+    pub page: BackstagePage,
+    pub ribbon_tab: usize,
+    /// The canvas's zoom in percent; `None` fits the slide to the window.
+    pub zoom: Option<f32>,
+    pub show_notes: bool,
+    /// The snap guides of the drag in flight, handed back to the adorner.
+    pub guides: Vec<AdornerGuide>,
+    /// The marquee of the drag in flight.
+    pub marquee: Option<AdornerFrame>,
+    /// The open deck's pictures, decoded, by media key.
+    pub media: HashMap<String, ImageRef>,
+    /// The decks File > Open lists.
+    pub decks: Vec<DeckSummary>,
+    /// File > New: the theme, its colour variant, the font scheme, the size.
+    pub new_theme: usize,
+    pub new_variant: usize,
+    pub new_fonts: usize,
+    pub new_size: SlideSize,
+    pub show: Option<ShowRuntime>,
+    /// `<data root>`: decks are under `<data root>/show/`.
+    pub data_root: PathBuf,
+    /// The status bar's last message ("Saved", an error).
+    pub message: String,
+    /// Storage jobs in flight.
+    pub busy: usize,
+    pub settings_category: usize,
+    pub args: Args,
+    /// The element whose text gets the focus after the next layout.
+    pub focus_text: Option<u64>,
+}
+
+impl AppState {
+    #[must_use]
+    pub fn new(args: Args, data_root: PathBuf) -> Self {
+        Self {
+            editor: None,
+            screen: Screen::Editor,
+            view: View::Normal,
+            page: BackstagePage::New,
+            ribbon_tab: 0,
+            zoom: None,
+            show_notes: true,
+            guides: Vec::new(),
+            marquee: None,
+            media: HashMap::new(),
+            decks: Vec::new(),
+            new_theme: 1,
+            new_variant: 0,
+            new_fonts: 0,
+            new_size: SlideSize::Wide,
+            show: None,
+            data_root,
+            message: String::new(),
+            busy: 0,
+            settings_category: 0,
+            args,
+            focus_text: None,
+        }
+    }
+
+    /// The canvas's px per slide unit in a `window_w` x `window_h` window:
+    /// the zoom, or the slide fitted into the room the normal view leaves.
+    #[must_use]
+    pub fn canvas_scale(&self, window_w: f32, window_h: f32) -> f32 {
+        if let Some(percent) = self.zoom {
+            return (percent / 100.0).clamp(0.05, 4.0);
+        }
+        let (sw, sh) = self
+            .editor
+            .as_ref()
+            .map_or((1920.0, 1080.0), |e| (e.deck.size.width(), e.deck.size.height()));
+        fit_scale(window_w, window_h, sw, sh, self.show_notes)
+    }
+
+    /// The fitted zoom in percent (the status bar's slider shows it).
+    #[must_use]
+    pub fn zoom_percent(&self, window_w: f32, window_h: f32) -> f32 {
+        (self.canvas_scale(window_w, window_h) * 100.0).round()
+    }
+}
+
+/// The room the normal view leaves the slide: the window minus the rail,
+/// the format pane, the title row, the ribbon, the status bar, the notes
+/// and a margin; the slide fitted into it.
+#[must_use]
+pub fn fit_scale(window_w: f32, window_h: f32, slide_w: f32, slide_h: f32, notes: bool) -> f32 {
+    let room_w = window_w - 210.0 - 270.0 - 48.0;
+    let room_h = window_h - 32.0 - 128.0 - 28.0 - if notes { 120.0 } else { 0.0 } - 48.0;
+    (room_w / slide_w).min(room_h / slide_h).clamp(0.05, 4.0)
+}
+
+/// Everything the user can ask for, from the ribbon, the backstage, a
+/// context menu or a key.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Command {
+    // ---- file ----
+    OpenBackstage(BackstagePage),
+    CloseBackstage,
+    NewDeck,
+    NewTheme(usize),
+    NewVariant(usize),
+    NewFonts(usize),
+    NewSize(SlideSize),
+    OpenDeck(String),
+    OpenSample,
+    RefreshDecks,
+    Save,
+    ExportPdf,
+    ExportImages,
+    CloseDeck,
+    // ---- edit ----
+    Undo,
+    Redo,
+    Cut,
+    Copy,
+    Paste,
+    Duplicate,
+    Delete,
+    SelectAll,
+    // ---- slides ----
+    NewSlide(LayoutKind),
+    Layout(LayoutKind),
+    ResetSlide,
+    AddSection,
+    ToggleHidden,
+    DuplicateSlides,
+    DeleteSlides,
+    // ---- text ----
+    Bold,
+    Italic,
+    Underline,
+    Strike,
+    Align(Align),
+    Bullets,
+    Indent(i8),
+    Grow(i32),
+    TextColor(Option<Color>),
+    Font(Option<String>),
+    // ---- drawing / insert ----
+    Shape(ShapeKind),
+    TextBox,
+    Table,
+    Chart(ChartKind),
+    Video,
+    Picture,
+    Arrange(ZOrder),
+    Group,
+    Ungroup,
+    Fill(Option<Color>),
+    Outline(Option<Color>),
+    // ---- design ----
+    Theme(usize),
+    Variant(usize),
+    FontScheme(usize),
+    SlideSize(SlideSize),
+    Background(Option<Background>, bool),
+    // ---- transitions / animations ----
+    Transition(TransitionKind),
+    TransitionDuration(i32),
+    TransitionToAll,
+    Animation(Option<AnimationEffect>),
+    MoveAnimation(i32),
+    // ---- slide show ----
+    StartShow { from_current: bool },
+    ShowNext,
+    ShowPrev,
+    ShowEnd,
+    ShowBlank(Blank),
+    ShowGoto(usize),
+    // ---- view ----
+    View(View),
+    Zoom(i32),
+    ZoomFit,
+    ToggleNotes,
+    RibbonTab(usize),
+    // ---- app ----
+    AppTheme(String),
+    Mode(Option<bool>),
+    SettingsCategory(usize),
+}
+
+/// A button's payload: the app and the command it runs.
+pub struct CommandData {
+    pub app: RefAny,
+    pub cmd: Command,
+}
+
+/// The payload of a control that runs `cmd` on `app`.
+#[must_use]
+pub fn command(app: &RefAny, cmd: Command) -> RefAny {
+    RefAny::new(CommandData {
+        app: app.clone(),
+        cmd,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_fitted_slide_fills_the_room_left_by_the_chrome() {
+        let s = fit_scale(1280.0, 800.0, 1920.0, 1080.0, true);
+        assert!(s > 0.35 && s < 0.45, "{s}");
+        let without_notes = fit_scale(1280.0, 800.0, 1920.0, 1080.0, false);
+        assert!(without_notes >= s);
+        assert_eq!(fit_scale(10.0, 10.0, 1920.0, 1080.0, true), 0.05, "never below 5%");
+    }
+
+    #[test]
+    fn the_views_and_pages_know_their_place() {
+        assert_eq!(View::Outline.index(), 2);
+        assert_eq!(BackstagePage::Open.index(), 2);
+        assert_eq!(BackstagePage::NAV.len(), 7);
+    }
+}
