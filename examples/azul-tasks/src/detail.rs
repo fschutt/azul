@@ -651,6 +651,8 @@ extern "C" fn on_done(mut data: RefAny, mut info: CallbackInfo, _state: CheckBox
 
 extern "C" fn on_title_text(mut data: RefAny, _info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
     if let Some(mut s) = data.downcast_mut::<Tasks>() {
+        // The drafts follow the selection before they take the typing.
+        s.sync_drafts();
         s.drafts.title = state.get_text().as_str().to_string();
     }
     KEEP
@@ -687,6 +689,7 @@ extern "C" fn on_title_blur(mut data: RefAny, mut info: CallbackInfo, _state: Te
 
 extern "C" fn on_notes_text(mut data: RefAny, _info: CallbackInfo, state: TextAreaState) -> OnTextInputReturn {
     if let Some(mut s) = data.downcast_mut::<Tasks>() {
+        s.sync_drafts();
         s.drafts.notes = area_text(&state);
     }
     KEEP
@@ -695,6 +698,7 @@ extern "C" fn on_notes_text(mut data: RefAny, _info: CallbackInfo, state: TextAr
 extern "C" fn on_notes_blur(mut data: RefAny, mut info: CallbackInfo, state: TextAreaState) -> Update {
     let text = area_text(&state);
     crate::with_tasks(&mut data, &mut info, |_info, _app, s| {
+        s.sync_drafts();
         s.drafts.notes = text;
         s.commit_drafts();
     })
@@ -732,6 +736,7 @@ extern "C" fn on_step_remove(mut data: RefAny, mut info: CallbackInfo) -> Update
 
 extern "C" fn on_step_text(mut data: RefAny, _info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
     if let Some(mut s) = data.downcast_mut::<Tasks>() {
+        s.sync_drafts();
         s.drafts.step = state.get_text().as_str().to_string();
     }
     KEEP
@@ -1009,6 +1014,7 @@ extern "C" fn on_tag_remove(mut data: RefAny, mut info: CallbackInfo, _state: Ch
 
 extern "C" fn on_tag_text(mut data: RefAny, _info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
     if let Some(mut s) = data.downcast_mut::<Tasks>() {
+        s.sync_drafts();
         s.drafts.tag = state.get_text().as_str().to_string();
     }
     KEEP
