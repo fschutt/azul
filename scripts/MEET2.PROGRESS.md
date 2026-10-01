@@ -39,11 +39,14 @@ here (house rule); Rust files are parse-checked with `rustfmt --check` / `--emit
   sizing, `bb65a4029` tile ids), lib.rs swap to ui (`45aabf5ae`), callbacks (`a446d8589`), args
   wiring (`ec48019dc`), statistics people + AZMEET_PANEL (`e5fd9cf2b`).
 
-## IN PROGRESS (last commit: bb65a4029)
-- next: `scripts/azmeet_e2e.py` (dev server + Ada AUTOCREATE + Ben JOIN, each under run_capped.sh
-  1000 MB / 120 s; asserts each window has the other's tile #azmeet-tile-<name>-camera, decodes
-  the other's video (statistics), a chat message arrives (stdout AZMEET_CHAT + chat panel)); then
-  the chat-field layout test (layout/tests), the CPU probe script, the report.
+- `c479c4f2d` scripts/azmeet_e2e.py; `ce07ec20d` chat-field layout test; `45856dda1`
+  scripts/azmeet_cpu.py; `22eb8785a` RED / `690c82f3c` VideoEncoder::is_hardware; `92e7cea54`
+  AzMeet reports hardware encode; `184f4847a` lobby device pickers.
+
+## IN PROGRESS (last commit: 184f4847a)
+- next: a compile-review read of lib.rs / ui.rs (names, borrows, removed items), fix what it finds;
+  then the report scripts/MEET2_2026_10_01.md (api.json list, least-sure spots, test commands,
+  LIFECYCLE needs, what is left) and the final progress.
 
 ## NEXT (plan, in order)
 1. Engine video leftovers (RED then fix each):
