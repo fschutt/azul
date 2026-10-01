@@ -36,10 +36,15 @@ Brief: scratchpad `SHOW_go.md`; house rules: scratchpad `wave4_common.md`. Repor
 - The app UI (`examples/azul-show/src/`). DONE: text.rs 0e128010c, render.rs 1441e2df3, storage.rs
   c75706697, args.rs 44196ab6d, editor.rs a4e73ff3b (pure session + tests), themes.rs 57a7d5570.
   (scratchpad tc_pure.py type-checks model + editor + themes standalone; gen.py lists generated API.)
-  NEXT STEP, one commit each: `app.rs` (AppState, Screen / View / BackstagePage, ShowRuntime, the
-  Command enum + CommandData), `commands.rs` (apply_command), `ribbon.rs`, `backstage.rs`, `views.rs`
-  (normal / sorter / outline / notes page, format pane, status bar), `show.rs` (show + presenter),
-  `lib.rs` (mod decls, layouts, widget / text / notes callbacks, storage thread, timers, start).
+  app.rs ea1a81bd9, commands.rs 9267cb03e, ribbon.rs 383775a66, backstage.rs b3581f940.
+  NEXT STEP, one commit each: `views.rs` (normal: rail ThumbnailStrip + SelectionAdorner canvas with
+  `SLIDE_ID` + notes TextArea + format pane + status bar; sorter; outline; notes page; the adorner /
+  strip / notes / outline / text-edit extern callbacks), `show.rs` (show screen + presenter layout,
+  keys, play tick, presenter timer), `lib.rs` (mod decls, main layout, presenter_layout,
+  on_presenter_created, on_play_tick, focus_text_soon, spawn_storage + storage thread + writeback,
+  window keys, start). lib.rs is referenced by commands.rs (crate::presenter_layout,
+  crate::on_presenter_created, crate::on_play_tick, crate::focus_text_soon, crate::spawn_storage)
+  and views::SLIDE_ID.
 
 ## NEXT
 
