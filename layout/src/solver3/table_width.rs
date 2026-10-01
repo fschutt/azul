@@ -21,11 +21,17 @@
 //! - the min-content of a column is its cells' min-content - a `width` does not raise it (only
 //!   `min-width` does, through the cell's own intrinsic sizes).
 
-use azul_core::{dom::NodeId, styled_dom::StyledDom};
+use azul_core::{
+    dom::{FormattingContext, NodeId},
+    styled_dom::StyledDom,
+};
 use azul_css::props::layout::{dimensions::LayoutWidth, LayoutBoxSizing};
 
-use crate::solver3::getters::{
-    get_css_box_sizing, get_css_width, get_element_font_size, get_root_font_size, MultiValue,
+use crate::solver3::{
+    getters::{
+        get_css_box_sizing, get_css_width, get_element_font_size, get_root_font_size, MultiValue,
+    },
+    layout_tree::{LayoutNodeId, LayoutTree},
 };
 
 /// What one column asks of the table (border-box widths, px).
@@ -84,6 +90,48 @@ pub fn specified_width(styled_dom: &StyledDom, dom_id: NodeId, h_extras: f32) ->
         _ => w.max(0.0) + h_extras,
     };
     SpecifiedWidth::Fixed(border_box)
+}
+
+/// The widths the table's `<colgroup>` / `<col>` elements give its columns,
+/// by column index, in document order (`Auto` where none is given): a
+/// `<col>`'s own `width`, else its group's; a group without `<col>`s is one
+/// column. (`span` is not read: one column per element.)
+#[must_use]
+pub fn column_element_widths(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree,
+    table_index: usize,
+) -> Vec<SpecifiedWidth> {
+    let width_of = |index: usize| {
+        tree.get(LayoutNodeId::new(index))
+            .and_then(|n| n.dom_node_id)
+            .map_or(SpecifiedWidth::Auto, |dom| {
+                specified_width(styled_dom, dom, 0.0)
+            })
+    };
+    let mut out = Vec::new();
+    for &child in tree.children(table_index) {
+        let is_group = tree
+            .get(LayoutNodeId::new(child))
+            .is_some_and(|n| matches!(n.formatting_context, FormattingContext::TableColumnGroup));
+        if !is_group {
+            continue;
+        }
+        let group = width_of(child);
+        let cols = tree.children(child);
+        if cols.is_empty() {
+            out.push(group);
+        }
+        for &col in cols {
+            let own = width_of(col);
+            out.push(if own == SpecifiedWidth::Auto {
+                group
+            } else {
+                own
+            });
+        }
+    }
+    out
 }
 
 /// A column being built from its cells: the cells' widest min-content, the
