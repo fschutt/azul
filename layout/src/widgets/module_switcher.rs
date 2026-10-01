@@ -341,9 +341,16 @@ impl ModuleSwitcher {
     /// the app theme picks.
     #[must_use]
     pub fn dom(self) -> Dom {
-        // RED: the switcher is not built yet.
-        let _ = self;
-        Dom::create_div()
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::module_switcher(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::module_switcher(self),
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                crate::widgets::themes::flat::module_switcher,
+                crate::widgets::themes::flora::module_switcher,
+            ),
+        }
     }
 }
 

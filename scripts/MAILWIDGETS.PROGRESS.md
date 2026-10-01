@@ -16,20 +16,21 @@ RED-first (date_picker inline mode + today, list_view lazy-load hook never wired
   `scroll_window_of` + `on_lazy_load_scroll` wired, statusbar `sync_dom`, info_bar build + flat /
   flora looks (`// ==== info_bar ====` appended in both theme files; flora `statusbar_style` and the
   two `date_picker` theme fns edited in place - 4 lines each).
-- (next hash) RED C: message_list, reading_pane, todo_bar, module_switcher, wizard_layout (full
+- `4f643014e` RED C: message_list, reading_pane, todo_bar, module_switcher, wizard_layout (full
   API + bases + `build` + tests, `dom()` stubbed), `OptionInfoBar`, manifest entries
   "message_list", "reading_pane", "todo_bar", "module_switcher", "module_switcher (collapsed)",
   "wizard_layout" in their contrast groups.
+- (next hash) GREEN D: real `dom()` in the five files; `// ==== <widget> ====` looks appended to
+  flat.rs / flora.rs (+ shared strokes `flat_strip_below/above`, `flat_sheet`,
+  `flora_strip_below/above`, `flora_leaf`, `flora_label`); `decl::border_top`.
 
 ## IN PROGRESS
-- GREEN D: real `dom()` in the five files + `// ==== <widget> ====` looks appended to flat.rs /
-  flora.rs (message_list, reading_pane, todo_bar, module_switcher, wizard_layout).
+- Showcase cards: `examples/azul-widgets/src/mail.rs` (a "Mail" section: MessageList, ReadingPane
+  with InfoBar, ToDoBar, ModuleSwitcher, StatusBar with sync, WizardLayout), wired into lib.rs.
 
 ## NEXT
-1. GREEN D (above).
-2. Showcase cards in `examples/azul-widgets/src/mail.rs` (needs api.json via autofix before it
-   compiles - say so in the report).
-3. Report `scripts/MAILWIDGETS_2026_09_30.md`.
+1. Showcase cards (above) - they compile only after the parent runs autofix for the new API.
+2. Report `scripts/MAILWIDGETS_2026_09_30.md`.
 
 ## Open questions
 - No sibling worktree has `layout/src/widgets/shells/` or a `NavigationPane`: the ModuleSwitcher is

@@ -346,9 +346,16 @@ impl WizardLayout {
     /// the app theme picks.
     #[must_use]
     pub fn dom(self) -> Dom {
-        // RED: the layout is not built yet.
-        let _ = self;
-        Dom::create_div()
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::wizard_layout(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::wizard_layout(self),
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                crate::widgets::themes::flat::wizard_layout,
+                crate::widgets::themes::flora::wizard_layout,
+            ),
+        }
     }
 }
 

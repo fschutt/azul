@@ -479,3 +479,22 @@ pub(crate) fn on_base(
     part.extend_from_slice(skin);
     part
 }
+
+// ==== mail widgets: a top rule ====
+
+/// `border-top: <width>px solid`, no colour (pair it with
+/// [`themed_border_top_color`]): the hairline over a footer or a button
+/// row - [`border_bottom`]'s twin for the other edge.
+#[must_use]
+pub(crate) const fn border_top(width_px: isize) -> [CssPropertyWithConditions; 2] {
+    [
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
+            LayoutBorderTopWidth::const_px(width_px),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(
+            StyleBorderTopStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+    ]
+}

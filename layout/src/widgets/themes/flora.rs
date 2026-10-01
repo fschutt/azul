@@ -6905,3 +6905,369 @@ pub(crate) fn info_bar_look() -> crate::widgets::info_bar::InfoBarLook {
 pub fn info_bar(b: crate::widgets::info_bar::InfoBar) -> Dom {
     crate::widgets::info_bar::build(b, &info_bar_look())
 }
+
+// ==== mail widgets: shared strokes ====
+//
+// What the mail panes share in flora: the toolbar strip (--fl-strip) closed
+// by a --fl-bd hairline below or above (a search row, a sort band, a
+// footer, a button row) and the leaf (--fl-sur) the list and the message
+// sit on, in --fl-ink.
+
+/// A toolbar strip closed by a hairline below.
+fn flora_strip_below() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = decl::themed_fill(LIGHT_STRIP, DARK_STRIP).to_vec();
+    v.extend(decl::border_bottom(1));
+    v.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+    v
+}
+
+/// A toolbar strip opened by a hairline above.
+fn flora_strip_above() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = decl::themed_fill(LIGHT_STRIP, DARK_STRIP).to_vec();
+    v.extend(decl::border_top(1));
+    v.extend(decl::themed_border_top_color(LIGHT_BD, DARK_BD));
+    v
+}
+
+/// The leaf: the UI face in the ink on the surface.
+fn flora_leaf() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = vec![
+        super::style_kit::font_size(13),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    v.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    v.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    v
+}
+
+/// Flora's small label: bold, tracked out, in --fl-soft1 (`.fl-label`).
+fn flora_label() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = vec![
+        super::style_kit::font_size(11),
+        decl::bold(),
+        decl::letter_spacing_em(0.08),
+    ];
+    v.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    v
+}
+
+// ==== message_list ====
+//
+// A flora message list is a leaf under a toolbar strip and a sort band: the
+// rows a --fl-sep hairline apart, the sender in --fl-ink (bold when unread),
+// the subject and the date in --fl-soft1, the preview in --fl-soft2, the
+// glyphs in brass; a row washes to the radio row's hover under the pointer,
+// the selected one sits on the track colour, focus is the accent halo
+// inside; a group header is `.fl-label` on the strip. At night every ink
+// and wash takes its night value.
+
+/// Flora's message-list look.
+#[must_use]
+pub(crate) fn message_list_look() -> crate::widgets::message_list::MessageListLook {
+    use super::{decl, style_kit as kit};
+
+    let mut toolbar = decl::padding(6, 8, 6, 8).to_vec();
+    toolbar.extend(flora_strip_below());
+
+    let mut sort = vec![kit::font_size(12)];
+    sort.extend(decl::padding(4, 8, 4, 8));
+    sort.extend(flora_strip_below());
+    sort.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut row = decl::padding(6, 8, 6, 8).to_vec();
+    row.extend(decl::border_bottom(1));
+    row.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+    row.extend(decl::hover_fill(
+        RADIO_GROUP_HOVER_LIGHT,
+        RADIO_GROUP_HOVER_DARK,
+    ));
+    row.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+
+    let mut group = flora_label();
+    group.extend(decl::padding(4, 8, 3, 8));
+    group.extend(flora_strip_below());
+
+    let mut icon = vec![kit::font_size(18)];
+    icon.extend(decl::margin(0, 10, 0, 0));
+    icon.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
+    let mut subject = vec![kit::font_size(12)];
+    subject.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    let mut preview = vec![kit::font_size(12)];
+    preview.extend(decl::themed_ink(LIGHT_SOFT2, DARK_SOFT2));
+    let mut date = vec![kit::font_size(12)];
+    date.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    date.extend(decl::margin(0, 0, 2, 10));
+    let mut attachment = vec![kit::font_size(14)];
+    attachment.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
+    crate::widgets::message_list::MessageListLook {
+        list: flora_leaf(),
+        toolbar,
+        search: decl::margin(0, 6, 0, 0).to_vec(),
+        scopes: Vec::new(),
+        sort,
+        rows: Vec::new(),
+        row,
+        row_unread: Vec::new(),
+        row_selected: decl::themed_fill(LIGHT_TRACK, DARK_TRACK).to_vec(),
+        group,
+        icon,
+        from: Vec::new(),
+        from_unread: vec![decl::bold()],
+        subject,
+        preview,
+        date,
+        attachment,
+        flag: decl::margin(0, 0, 0, 4).to_vec(),
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}
+
+/// The flora message list.
+#[must_use]
+pub fn message_list(l: crate::widgets::message_list::MessageList) -> Dom {
+    crate::widgets::message_list::build(l, &message_list_look())
+}
+
+// ==== reading_pane ====
+//
+// A flora reading pane is the message on a leaf: the subject large and
+// semibold over the sender line, the header fields in a block under a
+// --fl-bd hairline with the keys as `.fl-label`, the body on the same leaf,
+// and the people footer a toolbar strip over a hairline. At night the night
+// leaf and inks.
+
+/// Flora's reading-pane look.
+#[must_use]
+pub(crate) fn reading_pane_look() -> crate::widgets::reading_pane::ReadingPaneLook {
+    use super::{decl, style_kit as kit};
+
+    let mut header = decl::padding(14, 16, 10, 16).to_vec();
+    header.extend(decl::border_bottom(1));
+    header.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut subject = vec![kit::font_size(20), decl::semibold()];
+    subject.extend(decl::margin(0, 0, 4, 0));
+
+    let mut date = vec![kit::font_size(12)];
+    date.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    date.extend(decl::margin(0, 0, 0, 12));
+
+    let mut fields = vec![kit::font_size(12)];
+    fields.extend(decl::padding(8, 16, 8, 16));
+    fields.extend(decl::border_bottom(1));
+    fields.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut field_key = flora_label();
+    field_key.push(CssPropertyWithConditions::simple(CssProperty::const_width(
+        LayoutWidth::const_px(56),
+    )));
+    field_key.extend(decl::margin(0, 8, 0, 0));
+
+    let mut attachments = decl::padding(6, 16, 6, 16).to_vec();
+    attachments.extend(decl::border_bottom(1));
+    attachments.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut footer = vec![kit::font_size(12)];
+    footer.extend(decl::padding(8, 16, 8, 16));
+    footer.extend(flora_strip_above());
+
+    crate::widgets::reading_pane::ReadingPaneLook {
+        pane: flora_leaf(),
+        header,
+        subject,
+        sender_line: vec![kit::font_size(12)],
+        date,
+        notice: Vec::new(),
+        fields,
+        field_key,
+        field_value: Vec::new(),
+        attachments,
+        body: decl::padding(16, 16, 16, 16).to_vec(),
+        footer,
+        footer_line: decl::margin(0, 0, 0, 8).to_vec(),
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}
+
+/// The flora reading pane.
+#[must_use]
+pub fn reading_pane(p: crate::widgets::reading_pane::ReadingPane) -> Dom {
+    crate::widgets::reading_pane::build(p, &reading_pane_look())
+}
+
+// ==== todo_bar ====
+//
+// A flora To-Do bar is a toolbar strip in a column: the calendar at the
+// top, the appointments between two --fl-bd hairlines (`.fl-label` tone
+// when there are none), the task line, and the tasks a --fl-sep hairline
+// apart, a done task's date in --fl-soft2. At night the night strip and
+// inks.
+
+/// Flora's To-Do bar look.
+#[must_use]
+pub(crate) fn todo_bar_look() -> crate::widgets::todo_bar::ToDoBarLook {
+    use super::{decl, style_kit as kit};
+
+    let mut bar = vec![
+        kit::font_size(13),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    bar.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    bar.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+    bar.extend(decl::padding(10, 10, 10, 10));
+
+    let mut appointments = decl::padding(6, 4, 6, 4).to_vec();
+    appointments.extend(decl::border_top(1));
+    appointments.extend(decl::themed_border_top_color(LIGHT_BD, DARK_BD));
+    appointments.extend(decl::border_bottom(1));
+    appointments.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut empty = vec![kit::font_size(12)];
+    empty.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    empty.extend(decl::padding(4, 0, 4, 0));
+
+    let mut task = decl::padding(4, 0, 4, 0).to_vec();
+    task.extend(decl::border_bottom(1));
+    task.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut task_due = vec![kit::font_size(11)];
+    task_due.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    task_due.extend(decl::margin(0, 0, 0, 6));
+
+    crate::widgets::todo_bar::ToDoBarLook {
+        bar,
+        calendar: decl::margin(0, 0, 10, 0).to_vec(),
+        appointments,
+        appointment: decl::padding(2, 0, 2, 0).to_vec(),
+        empty,
+        task_input: decl::margin(8, 0, 8, 0).to_vec(),
+        tasks: Vec::new(),
+        task,
+        task_done: decl::themed_ink(LIGHT_SOFT2, DARK_SOFT2).to_vec(),
+        task_title: decl::margin(0, 0, 0, 6).to_vec(),
+        task_due,
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}
+
+/// The flora To-Do bar.
+#[must_use]
+pub fn todo_bar(b: crate::widgets::todo_bar::ToDoBar) -> Dom {
+    crate::widgets::todo_bar::build(b, &todo_bar_look())
+}
+
+// ==== module_switcher ====
+//
+// A flora module switcher is a column of toolbar keys on the strip: each
+// key under a --fl-bd hairline, the glyph in brass beside the label in
+// --fl-ink, the key washing to the radio row's hover under the pointer and
+// the active one pressed into the track colour; focus is the accent halo
+// inside. The chevron is a small quiet key. At night the night strip and
+// inks.
+
+/// Flora's module-switcher look.
+#[must_use]
+pub(crate) fn module_switcher_look() -> crate::widgets::module_switcher::ModuleSwitcherLook {
+    use super::{decl, style_kit as kit};
+
+    let mut switcher = vec![
+        kit::font_size(14),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    switcher.extend(flora_strip_above());
+
+    let mut chevron_row = decl::padding(2, 4, 2, 4).to_vec();
+    chevron_row.extend(decl::border_bottom(1));
+    chevron_row.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut chevron = decl::padding(2, 6, 2, 6).to_vec();
+    chevron.extend(decl::radius(3));
+    chevron.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+    chevron.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+    chevron.push(CssPropertyWithConditions::simple(CssProperty::const_cursor(
+        StyleCursor::Default,
+    )));
+    chevron.extend(decl::hover_fill(
+        RADIO_GROUP_HOVER_LIGHT,
+        RADIO_GROUP_HOVER_DARK,
+    ));
+    chevron.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+
+    let mut module = decl::padding(9, 12, 9, 12).to_vec();
+    module.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+    module.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    module.extend(decl::border_bottom(1));
+    module.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+    module.push(CssPropertyWithConditions::simple(CssProperty::const_cursor(
+        StyleCursor::Default,
+    )));
+    module.extend(decl::hover_fill(
+        RADIO_GROUP_HOVER_LIGHT,
+        RADIO_GROUP_HOVER_DARK,
+    ));
+    module.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+
+    let mut module_icon = vec![kit::font_size(20)];
+    module_icon.extend(decl::margin(0, 10, 0, 0));
+    module_icon.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
+    crate::widgets::module_switcher::ModuleSwitcherLook {
+        switcher,
+        chevron_row,
+        chevron,
+        module,
+        module_active: decl::themed_fill(LIGHT_TRACK, DARK_TRACK).to_vec(),
+        module_label: vec![kit::font_size(14), decl::semibold()],
+        module_icon,
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}
+
+/// The flora module switcher.
+#[must_use]
+pub fn module_switcher(s: crate::widgets::module_switcher::ModuleSwitcher) -> Dom {
+    crate::widgets::module_switcher::build(s, &module_switcher_look())
+}
+
+// ==== wizard_layout ====
+//
+// A flora wizard is a dialog of paper: the rail on a toolbar strip over a
+// hairline, the page on the leaf with its title semibold, the buttons on a
+// strip under a hairline. At night the night strip, leaf and inks.
+
+/// Flora's wizard-layout look.
+#[must_use]
+pub(crate) fn wizard_layout_look() -> crate::widgets::wizard_layout::WizardLayoutLook {
+    use super::{decl, style_kit as kit};
+
+    let mut rail = decl::padding(12, 16, 12, 16).to_vec();
+    rail.extend(flora_strip_below());
+
+    let mut title = vec![kit::font_size(18), decl::semibold()];
+    title.extend(decl::margin(0, 0, 12, 0));
+
+    let mut buttons = decl::padding(10, 16, 10, 16).to_vec();
+    buttons.extend(flora_strip_above());
+
+    crate::widgets::wizard_layout::WizardLayoutLook {
+        layout: flora_leaf(),
+        rail,
+        page: decl::padding(16, 16, 16, 16).to_vec(),
+        title,
+        buttons,
+        button: decl::margin(0, 0, 0, 8).to_vec(),
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}
+
+/// The flora wizard layout.
+#[must_use]
+pub fn wizard_layout(w: crate::widgets::wizard_layout::WizardLayout) -> Dom {
+    crate::widgets::wizard_layout::build(w, &wizard_layout_look())
+}

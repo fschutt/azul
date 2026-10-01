@@ -5324,3 +5324,354 @@ pub(crate) fn info_bar_look() -> crate::widgets::info_bar::InfoBarLook {
 pub fn info_bar(b: crate::widgets::info_bar::InfoBar) -> Dom {
     crate::widgets::info_bar::build(b, &info_bar_look())
 }
+
+// ==== mail widgets: shared strokes ====
+//
+// What the mail panes share in the flat look: the window-surface strip
+// under a hairline (a search row, a sort band, a footer, a button row) and
+// the page-coloured sheet the list and the message sit on.
+
+/// A strip of the window surface closed by a hairline below.
+fn flat_strip_below() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec();
+    v.extend(decl::border_bottom(1));
+    v.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+    v
+}
+
+/// A strip of the window surface opened by a hairline above.
+fn flat_strip_above() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec();
+    v.extend(decl::border_top(1));
+    v.extend(decl::themed_border_top_color(LIGHT_BD, DARK_BD));
+    v
+}
+
+/// The sheet: the UI face in the ink on the page colour.
+fn flat_sheet() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = vec![
+        super::style_kit::font_size(13),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    v.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    v.extend(decl::themed_fill(LIGHT_PG, DARK_PG));
+    v
+}
+
+// ==== message_list ====
+//
+// The flat message list is Outlook 2010's on Windows 7: a white list under
+// a search strip and a sort band on the window surface, the rows a hairline
+// apart, the sender in the ink and bold when unread, the subject, the
+// preview and the date in the secondary inks, the glyphs in the tile's
+// steel blue; a row washes to the row-hover blue under the pointer, the
+// selected one takes the selection blue, focus is an inset ring; a group
+// header is a band of the strip colour. At night the desktop's surfaces and
+// inks and the tree's dark selection.
+
+/// Flat's message-list look.
+#[must_use]
+pub(crate) fn message_list_look() -> crate::widgets::message_list::MessageListLook {
+    use super::{decl, style_kit as kit};
+
+    let mut toolbar = decl::padding(6, 8, 6, 8).to_vec();
+    toolbar.extend(flat_strip_below());
+
+    let mut sort = vec![kit::font_size(12)];
+    sort.extend(decl::padding(3, 8, 3, 8));
+    sort.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+    sort.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    sort.extend(decl::border_bottom(1));
+    sort.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut row = decl::padding(5, 8, 5, 8).to_vec();
+    row.extend(decl::border_bottom(1));
+    row.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+    row.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
+    row.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+
+    let mut group = vec![kit::font_size(12), decl::semibold()];
+    group.extend(decl::padding(3, 8, 3, 8));
+    group.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+    group.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
+    group.extend(decl::border_bottom(1));
+    group.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut icon = vec![kit::font_size(18)];
+    icon.extend(decl::margin(0, 8, 0, 0));
+    icon.extend(decl::themed_ink(TILE_ICON_LIGHT, TILE_ICON_DARK));
+
+    let mut subject = vec![kit::font_size(12)];
+    subject.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    let mut preview = vec![kit::font_size(12)];
+    preview.extend(decl::themed_ink(LIGHT_SOFT2, DARK_SOFT2));
+    let mut date = vec![kit::font_size(12)];
+    date.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    date.extend(decl::margin(0, 0, 2, 8));
+    let mut attachment = vec![kit::font_size(14)];
+    attachment.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    crate::widgets::message_list::MessageListLook {
+        list: flat_sheet(),
+        toolbar,
+        search: decl::margin(0, 6, 0, 0).to_vec(),
+        scopes: Vec::new(),
+        sort,
+        rows: Vec::new(),
+        row,
+        row_unread: Vec::new(),
+        row_selected: decl::themed_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK).to_vec(),
+        group,
+        icon,
+        from: Vec::new(),
+        from_unread: vec![decl::bold()],
+        subject,
+        preview,
+        date,
+        attachment,
+        flag: decl::margin(0, 0, 0, 4).to_vec(),
+        marker: None,
+    }
+}
+
+/// The flat message list.
+#[must_use]
+pub fn message_list(l: crate::widgets::message_list::MessageList) -> Dom {
+    crate::widgets::message_list::build(l, &message_list_look())
+}
+
+// ==== reading_pane ====
+//
+// The flat reading pane is Outlook's: the message on the page colour, its
+// subject large and semibold over the sender line, the header fields in a
+// block under a hairline with the keys in the secondary ink set right, the
+// body on the same sheet, and the people footer a strip of the window
+// surface over a hairline. At night the desktop's surfaces and inks.
+
+/// Flat's reading-pane look.
+#[must_use]
+pub(crate) fn reading_pane_look() -> crate::widgets::reading_pane::ReadingPaneLook {
+    use super::{decl, style_kit as kit};
+
+    let mut header = decl::padding(12, 16, 8, 16).to_vec();
+    header.extend(decl::border_bottom(1));
+    header.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut subject = vec![kit::font_size(20), decl::semibold()];
+    subject.extend(decl::margin(0, 0, 4, 0));
+
+    let mut date = vec![kit::font_size(12)];
+    date.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    date.extend(decl::margin(0, 0, 0, 12));
+
+    let mut fields = vec![kit::font_size(12)];
+    fields.extend(decl::padding(8, 16, 8, 16));
+    fields.extend(decl::border_bottom(1));
+    fields.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut field_key = vec![CssPropertyWithConditions::simple(CssProperty::const_width(
+        LayoutWidth::const_px(56),
+    ))];
+    field_key.extend(decl::margin(0, 6, 0, 0));
+    field_key.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut attachments = decl::padding(6, 16, 6, 16).to_vec();
+    attachments.extend(decl::border_bottom(1));
+    attachments.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut footer = vec![kit::font_size(12)];
+    footer.extend(decl::padding(8, 16, 8, 16));
+    footer.extend(flat_strip_above());
+
+    crate::widgets::reading_pane::ReadingPaneLook {
+        pane: flat_sheet(),
+        header,
+        subject,
+        sender_line: vec![kit::font_size(12)],
+        date,
+        notice: Vec::new(),
+        fields,
+        field_key,
+        field_value: Vec::new(),
+        attachments,
+        body: decl::padding(16, 16, 16, 16).to_vec(),
+        footer,
+        footer_line: decl::margin(0, 0, 0, 8).to_vec(),
+        marker: None,
+    }
+}
+
+/// The flat reading pane.
+#[must_use]
+pub fn reading_pane(p: crate::widgets::reading_pane::ReadingPane) -> Dom {
+    crate::widgets::reading_pane::build(p, &reading_pane_look())
+}
+
+// ==== todo_bar ====
+//
+// The flat To-Do bar is Outlook's: a column of the window surface, the
+// calendar at the top, the appointments between two hairlines in the
+// secondary ink when there are none, the task line, and the tasks a
+// hairline apart, a done task's date dimmed. At night the desktop's
+// surfaces and inks.
+
+/// Flat's To-Do bar look.
+#[must_use]
+pub(crate) fn todo_bar_look() -> crate::widgets::todo_bar::ToDoBarLook {
+    use super::{decl, style_kit as kit};
+
+    let mut bar = vec![
+        kit::font_size(13),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    bar.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    bar.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    bar.extend(decl::padding(8, 8, 8, 8));
+
+    let mut appointments = decl::padding(6, 4, 6, 4).to_vec();
+    appointments.extend(decl::border_top(1));
+    appointments.extend(decl::themed_border_top_color(LIGHT_BD, DARK_BD));
+    appointments.extend(decl::border_bottom(1));
+    appointments.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut empty = vec![kit::font_size(12)];
+    empty.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    empty.extend(decl::padding(4, 0, 4, 0));
+
+    let mut task = decl::padding(3, 0, 3, 0).to_vec();
+    task.extend(decl::border_bottom(1));
+    task.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut task_due = vec![kit::font_size(11)];
+    task_due.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    task_due.extend(decl::margin(0, 0, 0, 6));
+
+    crate::widgets::todo_bar::ToDoBarLook {
+        bar,
+        calendar: decl::margin(0, 0, 8, 0).to_vec(),
+        appointments,
+        appointment: decl::padding(2, 0, 2, 0).to_vec(),
+        empty,
+        task_input: decl::margin(6, 0, 6, 0).to_vec(),
+        tasks: Vec::new(),
+        task,
+        task_done: decl::themed_ink(LIGHT_SOFT2, DARK_SOFT2).to_vec(),
+        task_title: decl::margin(0, 0, 0, 6).to_vec(),
+        task_due,
+        marker: None,
+    }
+}
+
+/// The flat To-Do bar.
+#[must_use]
+pub fn todo_bar(b: crate::widgets::todo_bar::ToDoBar) -> Dom {
+    crate::widgets::todo_bar::build(b, &todo_bar_look())
+}
+
+// ==== module_switcher ====
+//
+// The flat module switcher is Outlook 2010's: big flat keys on the window
+// surface, each under a hairline, the glyph in the tile's steel blue beside
+// the label, the key washing to the row-hover blue under the pointer and
+// the active one pressed into the selection blue; focus is an inset ring.
+// The chevron is a small flat key. At night the desktop's surfaces, the
+// tree's dark selection.
+
+/// Flat's module-switcher look.
+#[must_use]
+pub(crate) fn module_switcher_look() -> crate::widgets::module_switcher::ModuleSwitcherLook {
+    use super::{decl, style_kit as kit};
+
+    let mut switcher = vec![
+        kit::font_size(14),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    switcher.extend(flat_strip_above());
+
+    let mut chevron_row = decl::padding(2, 4, 2, 4).to_vec();
+    chevron_row.extend(decl::border_bottom(1));
+    chevron_row.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut chevron = decl::padding(2, 6, 2, 6).to_vec();
+    chevron.extend(decl::radius(3));
+    chevron.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    chevron.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    chevron.push(CssPropertyWithConditions::simple(CssProperty::const_cursor(
+        StyleCursor::Default,
+    )));
+    chevron.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
+    chevron.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+
+    let mut module = decl::padding(8, 12, 8, 12).to_vec();
+    module.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    module.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    module.extend(decl::border_bottom(1));
+    module.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+    module.push(CssPropertyWithConditions::simple(CssProperty::const_cursor(
+        StyleCursor::Default,
+    )));
+    module.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
+    module.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+
+    let mut module_icon = vec![kit::font_size(20)];
+    module_icon.extend(decl::margin(0, 8, 0, 0));
+    module_icon.extend(decl::themed_ink(TILE_ICON_LIGHT, TILE_ICON_DARK));
+
+    crate::widgets::module_switcher::ModuleSwitcherLook {
+        switcher,
+        chevron_row,
+        chevron,
+        module,
+        module_active: decl::themed_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK).to_vec(),
+        module_label: vec![kit::font_size(14)],
+        module_icon,
+        marker: None,
+    }
+}
+
+/// The flat module switcher.
+#[must_use]
+pub fn module_switcher(s: crate::widgets::module_switcher::ModuleSwitcher) -> Dom {
+    crate::widgets::module_switcher::build(s, &module_switcher_look())
+}
+
+// ==== wizard_layout ====
+//
+// The flat wizard is an Office dialog: the rail on a strip of the window
+// surface over a hairline, the page on the page colour with its title
+// semibold, the buttons on a strip under a hairline. At night the desktop's
+// surfaces and inks.
+
+/// Flat's wizard-layout look.
+#[must_use]
+pub(crate) fn wizard_layout_look() -> crate::widgets::wizard_layout::WizardLayoutLook {
+    use super::{decl, style_kit as kit};
+
+    let mut rail = decl::padding(12, 16, 12, 16).to_vec();
+    rail.extend(flat_strip_below());
+
+    let mut title = vec![kit::font_size(18), decl::semibold()];
+    title.extend(decl::margin(0, 0, 12, 0));
+
+    let mut buttons = decl::padding(10, 16, 10, 16).to_vec();
+    buttons.extend(flat_strip_above());
+
+    crate::widgets::wizard_layout::WizardLayoutLook {
+        layout: flat_sheet(),
+        rail,
+        page: decl::padding(16, 16, 16, 16).to_vec(),
+        title,
+        buttons,
+        button: decl::margin(0, 0, 0, 8).to_vec(),
+        marker: None,
+    }
+}
+
+/// The flat wizard layout.
+#[must_use]
+pub fn wizard_layout(w: crate::widgets::wizard_layout::WizardLayout) -> Dom {
+    crate::widgets::wizard_layout::build(w, &wizard_layout_look())
+}

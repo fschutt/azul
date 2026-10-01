@@ -917,9 +917,16 @@ impl MessageList {
     /// the app theme picks.
     #[must_use]
     pub fn dom(self) -> Dom {
-        // RED: the list is not built yet.
-        let _ = self;
-        Dom::create_div()
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::message_list(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::message_list(self),
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                crate::widgets::themes::flat::message_list,
+                crate::widgets::themes::flora::message_list,
+            ),
+        }
     }
 }
 
