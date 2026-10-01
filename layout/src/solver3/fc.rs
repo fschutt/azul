@@ -6301,6 +6301,21 @@ fn get_table_layout_property<T: ParsedFontTrait>(
         .unwrap_or(LayoutTableLayout::Auto)
 }
 
+/// Does the table have a width of its own (a length, a percentage, a
+/// `calc()`)? `auto` and the intrinsic keywords do not count.
+fn table_has_definite_width<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    node: &LayoutNodeHot,
+) -> bool {
+    node.dom_node_id.is_some_and(|dom_id| {
+        let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+        matches!(
+            get_css_width(ctx.styled_dom, dom_id, node_state),
+            MultiValue::Exact(LayoutWidth::Px(_) | LayoutWidth::Calc(_))
+        )
+    })
+}
+
 /// Get the border-collapse property for a table node
 fn get_border_collapse_property<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
@@ -6701,7 +6716,10 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     // algorithm +spec:width-calculation:7a5b23 - table-layout property determines fixed vs auto
     // algorithm (CSS 2.2 §17.5.2) Phase 2: Read CSS properties and determine layout algorithm
     let table_layout = get_table_layout_property(ctx, &table_node);
-    table_ctx.use_fixed_layout = matches!(table_layout, LayoutTableLayout::Fixed);
+    // The fixed algorithm fixes the table's width: browsers lay a
+    // `table-layout: fixed` table whose width is `auto` out automatically.
+    table_ctx.use_fixed_layout = matches!(table_layout, LayoutTableLayout::Fixed)
+        && table_has_definite_width(ctx, &table_node);
 
     // +spec:containing-block:cc1453 - collapsing border model: border-collapse property drives
     // table border handling Read border properties
@@ -7737,131 +7755,173 @@ fn calculate_column_widths_fixed<T: ParsedFontTrait>(
     if num_cols == 0 {
         return;
     }
-
-    let num_visible_cols = num_cols - table_ctx.collapsed_columns.len();
-    if num_visible_cols == 0 {
+    let collapsed = table_ctx.collapsed_columns.clone();
+    let visible: Vec<usize> = (0..num_cols).filter(|c| !collapsed.contains(c)).collect();
+    if visible.is_empty() {
         for col in &mut table_ctx.columns {
             col.computed_width = Some(0.0);
         }
         return;
     }
 
-    // Step 1 (column elements) is skipped because column elements don't store
-    // explicit widths in the current table structure analysis.
-    // Step 2: Check first-row cells for explicit width properties.
-    let mut col_has_width = vec![false; num_cols];
+    // Step 1: a `<col>` with a width sets its column.
+    let mut widths: Vec<Option<f32>> = column_box_widths(
+        ctx.styled_dom,
+        tree,
+        table_ctx,
+        ctx.viewport_size,
+        Some(available_width),
+    );
 
-    for cell_info in &table_ctx.cells {
-        if cell_info.row != 0 {
-            continue; // Only consider cells in the first row
-        }
-        if table_ctx.collapsed_columns.contains(&cell_info.column) {
+    // Step 2: otherwise a first-row cell with a width sets its column(s) -
+    // its width plus its horizontal padding and border; a spanning cell's
+    // width covers the spacing between its columns and is split evenly
+    // over those still open.
+    for cell_info in table_ctx.cells.iter().filter(|c| c.row == 0) {
+        if collapsed.contains(&cell_info.column) {
             continue;
         }
+        let Some(cell) = tree.get(LayoutNodeId::new(cell_info.node_index)) else {
+            continue;
+        };
+        let Some(dom_id) = cell.dom_node_id else {
+            continue;
+        };
+        let Some(w) = fixed_layout_width(
+            ctx.styled_dom,
+            dom_id,
+            &cell.box_props.unpack(),
+            available_width,
+            ctx.viewport_size,
+        ) else {
+            continue;
+        };
+        let span_end = (cell_info.column + cell_info.colspan).min(num_cols);
+        let span: Vec<usize> = (cell_info.column..span_end)
+            .filter(|c| !collapsed.contains(c))
+            .collect();
+        let open: Vec<usize> = span
+            .iter()
+            .copied()
+            .filter(|&c| widths[c].is_none())
+            .collect();
+        if open.is_empty() {
+            continue;
+        }
+        let taken: f32 = span.iter().filter_map(|&c| widths[c]).sum();
+        let inner = table_ctx.h_spacing * span.len().saturating_sub(1) as f32;
+        let per_column = (w - inner - taken).max(0.0) / open.len() as f32;
+        for c in open {
+            widths[c] = Some(per_column);
+        }
+    }
 
-        // Look up the cell's CSS width via its dom_node_id
+    // Step 3: the other columns share what is left, equally.
+    let used: f32 = visible.iter().filter_map(|&c| widths[c]).sum();
+    let open: Vec<usize> = visible
+        .iter()
+        .copied()
+        .filter(|&c| widths[c].is_none())
+        .collect();
+    if !open.is_empty() {
+        let per_column = (available_width - used).max(0.0) / open.len() as f32;
+        for &c in &open {
+            widths[c] = Some(per_column);
+        }
+    }
+
+    // Step 4: a table wider than its columns (every column has a width)
+    // gives them the extra, in proportion to their widths (evenly when all
+    // are 0).
+    let total: f32 = visible.iter().filter_map(|&c| widths[c]).sum();
+    if open.is_empty() && available_width > total {
+        let extra = available_width - total;
+        for &c in &visible {
+            let share = if total > 0.0 {
+                widths[c].unwrap_or(0.0) / total
+            } else {
+                1.0 / visible.len() as f32
+            };
+            widths[c] = Some(widths[c].unwrap_or(0.0) + extra * share);
+        }
+    }
+
+    for (c, col) in table_ctx.columns.iter_mut().enumerate() {
+        col.computed_width = Some(if collapsed.contains(&c) {
+            0.0
+        } else {
+            widths[c].unwrap_or(0.0)
+        });
+    }
+}
+
+/// A cell's (or a `<col>`'s) width for the fixed table layout, as a border
+/// box: a length as [`cell_specified_border_box_width`] reads it, a
+/// percentage of the columns' share of the table as the content width plus
+/// the padding and border (WPT fixed-table-layout-025/026). `None` for
+/// `auto` and the intrinsic keywords.
+fn fixed_layout_width(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    bp: &BoxProps,
+    columns_width: f32,
+    viewport: LogicalSize,
+) -> Option<f32> {
+    if let Some(w) = cell_specified_border_box_width(styled_dom, dom_id, bp, viewport) {
+        return Some(w);
+    }
+    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    let MultiValue::Exact(LayoutWidth::Px(px)) = get_css_width(styled_dom, dom_id, node_state)
+    else {
+        return None;
+    };
+    if px.metric != SizeMetric::Percent {
+        return None;
+    }
+    let w = px.number.get() / 100.0 * columns_width;
+    if !w.is_finite() {
+        return None;
+    }
+    let extras = bp.padding.left + bp.padding.right + bp.border.left + bp.border.right;
+    Some(match get_css_box_sizing(styled_dom, dom_id, node_state) {
+        MultiValue::Exact(azul_css::props::layout::LayoutBoxSizing::BorderBox) => w.max(extras),
+        _ => w.max(0.0) + extras,
+    })
+}
+
+/// The width each grid column takes from its `<col>` box (a column group
+/// without columns counts as its columns' box): a border-box length, a
+/// percentage of `columns_width` when one is given, `None` where no column
+/// box sets one. A column box has no padding and, for its width, no border.
+fn column_box_widths(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree,
+    table_ctx: &TableLayoutContext,
+    viewport: LogicalSize,
+    columns_width: Option<f32>,
+) -> Vec<Option<f32>> {
+    let mut out: Vec<Option<f32>> = vec![None; table_ctx.columns.len()];
+    let no_box = BoxProps::default();
+    for column_box in &table_ctx.column_boxes {
         let Some(dom_id) = tree
-            .get(LayoutNodeId::new(cell_info.node_index))
+            .get(LayoutNodeId::new(column_box.node_index))
             .and_then(|n| n.dom_node_id)
         else {
             continue;
         };
-
-        let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-        let css_width = get_css_width(ctx.styled_dom, dom_id, node_state);
-
-        let explicit_px = match css_width.unwrap_or_default() {
-            LayoutWidth::Px(px) => resolve_size_metric(
-                px.metric,
-                px.number.get(),
-                available_width,
-                ctx.viewport_size,
-                get_element_font_size(ctx.styled_dom, dom_id, node_state),
-                get_root_font_size(ctx.styled_dom, node_state),
-            ),
-            LayoutWidth::Auto
-            | LayoutWidth::MinContent
-            | LayoutWidth::MaxContent
-            | LayoutWidth::Calc(_)
-            | LayoutWidth::FitContent(_) => continue,
+        let width = match columns_width {
+            Some(base) => fixed_layout_width(styled_dom, dom_id, &no_box, base, viewport),
+            None => cell_specified_border_box_width(styled_dom, dom_id, &no_box, viewport),
         };
-
-        if cell_info.colspan == 1 {
-            table_ctx.columns[cell_info.column].computed_width = Some(explicit_px);
-            col_has_width[cell_info.column] = true;
-        } else {
-            let mut visible_span_count = 0;
-            for offset in 0..cell_info.colspan {
-                let col_idx = cell_info.column + offset;
-                if col_idx < num_cols && !table_ctx.collapsed_columns.contains(&col_idx) {
-                    visible_span_count += 1;
-                }
-            }
-            if visible_span_count > 0 {
-                let per_col = explicit_px / visible_span_count as f32;
-                for offset in 0..cell_info.colspan {
-                    let col_idx = cell_info.column + offset;
-                    if col_idx < num_cols
-                        && !table_ctx.collapsed_columns.contains(&col_idx)
-                        && !col_has_width[col_idx]
-                    {
-                        table_ctx.columns[col_idx].computed_width = Some(per_col);
-                        col_has_width[col_idx] = true;
-                    }
-                }
-            }
+        let Some(width) = width else {
+            continue;
+        };
+        let end = (column_box.start + column_box.span).min(out.len());
+        for slot in out.iter_mut().take(end).skip(column_box.start) {
+            *slot = Some(width);
         }
     }
-
-    let used_width: f32 = table_ctx
-        .columns
-        .iter()
-        .enumerate()
-        .filter(|(idx, _)| col_has_width[*idx] && !table_ctx.collapsed_columns.contains(idx))
-        .filter_map(|(_, c)| c.computed_width)
-        .sum();
-    let remaining_width = (available_width - used_width).max(0.0);
-    let num_remaining = table_ctx
-        .columns
-        .iter()
-        .enumerate()
-        .filter(|(idx, _)| !col_has_width[*idx] && !table_ctx.collapsed_columns.contains(idx))
-        .count();
-
-    if num_remaining > 0 {
-        let width_per_remaining = remaining_width / num_remaining as f32;
-        for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
-            if table_ctx.collapsed_columns.contains(&col_idx) {
-                col.computed_width = Some(0.0);
-            } else if !col_has_width[col_idx] {
-                col.computed_width = Some(width_per_remaining);
-            }
-        }
-    }
-
-    // Set collapsed columns to zero width
-    for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
-        if table_ctx.collapsed_columns.contains(&col_idx) {
-            col.computed_width = Some(0.0);
-        }
-    }
-
-    let total_col_width: f32 = table_ctx
-        .columns
-        .iter()
-        .filter_map(|c| c.computed_width)
-        .sum();
-    if available_width > total_col_width && num_visible_cols > 0 {
-        let extra = available_width - total_col_width;
-        let extra_per_col = extra / num_visible_cols as f32;
-        for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
-            if !table_ctx.collapsed_columns.contains(&col_idx) {
-                if let Some(ref mut w) = col.computed_width {
-                    *w += extra_per_col;
-                }
-            }
-        }
-    }
+    out
 }
 
 /// Recursively clear the layout cache for every node in a subtree.
@@ -8182,6 +8242,15 @@ fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
             spanning.push((cell_info, min_width, max_width));
         }
     }
+    // A `<col>` with a definite width is its column's width (CSS 2.2
+    // 17.5.2.2 step 2), never below what the column's own cells need.
+    let col_widths = column_box_widths(ctx.styled_dom, tree, table_ctx, ctx.viewport_size, None);
+    for (col, width) in table_ctx.columns.iter_mut().zip(col_widths) {
+        if let Some(w) = width {
+            col.min_width = col.min_width.max(w);
+            col.max_width = col.min_width;
+        }
+    }
     spanning.sort_by_key(|(cell, _, _)| cell.colspan);
     for (cell_info, min_width, max_width) in spanning {
         distribute_cell_width_across_columns(
@@ -8439,11 +8508,14 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
 
     // cell_width is the border-box width (includes padding/border from column
     // width calculation) but layout functions need content-box width
-    let content_width = cell_width
+    // A fixed column narrower than the cell's padding leaves no room, never
+    // less than none.
+    let content_width = (cell_width
         - padding.cross_start(writing_mode)
         - padding.cross_end(writing_mode)
         - border.cross_start(writing_mode)
-        - border.cross_end(writing_mode);
+        - border.cross_end(writing_mode))
+    .max(0.0);
 
     debug_table_layout!(
         ctx,
