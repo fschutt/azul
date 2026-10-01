@@ -1676,6 +1676,570 @@ impl HeadlessWindow {
 
     // === Lifecycle ===
 
+    /// One turn of this window's loop: the injected events, the virtual views, the
+    /// accessibility actions, (root only) the notifications and global hotkeys, the timers and
+    /// threads with the frames they ask for, and a close the callbacks requested. `run()` turns
+    /// it for the root window; [`Self::pump_children`] for every child window.
+    pub fn pump_once(&mut self, is_root: bool) {
+        // ── Phase 1: Process injected events ─────────────────
+        let mut events_need_redraw = false;
+        // The strongest ProcessEventResult of this drain — decides whether
+        // the frame below may rebuild the DOM or must keep it (see
+        // service_frame).
+        let mut events_result = azul_core::events::ProcessEventResult::DoNothing;
+        while let Some(event) = self.poll_event() {
+            match event {
+                HeadlessEvent::Close => {
+                    self.close();
+                }
+                HeadlessEvent::FileHover { x, y, paths } => {
+                    // MWA-A4: same ingress the OS backends perform —
+                    // position + hit test + hovered-file into the manager,
+                    // then an event pass (dispatches HoveredFile).
+                    use azul_core::window::CursorPosition;
+                    self.snapshot_window_state_baseline("headless.run.file_hover");
+                    let pos = LogicalPosition { x, y };
+                    self.common.mouse_state_mut().cursor_position =
+                        CursorPosition::InWindow(pos);
+                    self.update_hit_test_at(pos);
+                    if let Some(lw) = self.common.layout_window.as_mut() {
+                        // MWA-B7: full multi-file list, like the OS shells.
+                        lw.file_drop_manager
+                            .set_hovered_files(paths.into_iter().map(Into::into).collect());
+                    }
+                    let r = self.process_window_events(0);
+                    events_result = events_result.max(r);
+                    if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                        events_need_redraw = true;
+                    }
+                }
+                HeadlessEvent::FileDrop { x, y, paths } => {
+                    use azul_core::window::CursorPosition;
+                    self.snapshot_window_state_baseline("headless.run.file_drop");
+                    let pos = LogicalPosition { x, y };
+                    self.common.mouse_state_mut().cursor_position =
+                        CursorPosition::InWindow(pos);
+                    self.update_hit_test_at(pos);
+                    if let Some(lw) = self.common.layout_window.as_mut() {
+                        lw.file_drop_manager
+                            .set_dropped_files(paths.into_iter().map(Into::into).collect());
+                    }
+                    let r = self.process_window_events(0);
+                    events_result = events_result.max(r);
+                    if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                        events_need_redraw = true;
+                    }
+                    // Post-pass cleanup, mirroring the OS backends: the
+                    // drop is a one-shot; hover state ends with it.
+                    if let Some(lw) = self.common.layout_window.as_mut() {
+                        lw.file_drop_manager.set_dropped_file(None);
+                        lw.file_drop_manager.set_hovered_file(None);
+                        lw.file_drop_manager.clear_hover_cancelled();
+                    }
+                }
+                HeadlessEvent::FileHoverCancel => {
+                    self.snapshot_window_state_baseline("headless.run.file_hover_cancel");
+                    if let Some(lw) = self.common.layout_window.as_mut() {
+                        // Some→None flags the cancel; the pass dispatches
+                        // HoveredFileCancelled, then we clear the flag.
+                        lw.file_drop_manager.set_hovered_file(None);
+                    }
+                    let r = self.process_window_events(0);
+                    events_result = events_result.max(r);
+                    if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                        events_need_redraw = true;
+                    }
+                    if let Some(lw) = self.common.layout_window.as_mut() {
+                        lw.file_drop_manager.clear_hover_cancelled();
+                    }
+                }
+                HeadlessEvent::ScrollPhased {
+                    delta_x,
+                    delta_y,
+                    source,
+                } => {
+                    self.snapshot_window_state_baseline("headless.run.scroll_phased");
+                    if let Some(lw) = self.common.layout_window.as_mut() {
+                        lw.scroll_manager.note_scroll_phase(source);
+                        lw.scroll_manager.pending_wheel_event = Some(LogicalPosition {
+                            x: delta_x,
+                            y: delta_y,
+                        });
+                    }
+                    let r = self.process_window_events(0);
+                    events_result = events_result.max(r);
+                    events_need_redraw = true;
+                }
+                HeadlessEvent::Pen {
+                    x,
+                    y,
+                    pressure,
+                    tilt_x,
+                    tilt_y,
+                    in_contact,
+                    is_eraser,
+                } => {
+                    self.snapshot_window_state_baseline("headless.run.pen");
+                    if let Some(lw) = self.common.layout_window.as_mut() {
+                        lw.gesture_drag_manager.update_pen_state_full(
+                            LogicalPosition { x, y },
+                            pressure,
+                            (tilt_x, tilt_y),
+                            in_contact,
+                            is_eraser,
+                            false,
+                            1,
+                            0.0,
+                            0.0,
+                            0,
+                        );
+                    }
+                    let r = self.process_window_events(0);
+                    events_result = events_result.max(r);
+                    events_need_redraw = true;
+                }
+                HeadlessEvent::PenBarrel { squeeze } => {
+                    self.snapshot_window_state_baseline("headless.run.pen_barrel");
+                    if let Some(lw) = self.common.layout_window.as_mut() {
+                        lw.gesture_drag_manager.note_pen_barrel_gesture(squeeze);
+                    }
+                    let r = self.process_window_events(0);
+                    events_result = events_result.max(r);
+                }
+                HeadlessEvent::Gesture { gesture } => {
+                    self.snapshot_window_state_baseline("headless.run.gesture");
+                    if let Some(lw) = self.common.layout_window.as_mut() {
+                        lw.gesture_drag_manager.inject_native_gesture(gesture);
+                    }
+                    let r = self.process_window_events(0);
+                    events_result = events_result.max(r);
+                    events_need_redraw = true;
+                }
+                HeadlessEvent::Gamepad { state } => {
+                    self.snapshot_window_state_baseline("headless.run.gamepad");
+                    if let Some(lw) = self.common.layout_window.as_mut() {
+                        lw.gamepad_manager.set_state(state);
+                    }
+                    let r = self.process_window_events(0);
+                    events_result = events_result.max(r);
+                }
+                HeadlessEvent::Sensor { reading } => {
+                    self.snapshot_window_state_baseline("headless.run.sensor");
+                    if let Some(lw) = self.common.layout_window.as_mut() {
+                        lw.sensor_manager.set_reading(reading);
+                    }
+                    let r = self.process_window_events(0);
+                    events_result = events_result.max(r);
+                }
+                HeadlessEvent::Composition { text, commit } => {
+                    self.snapshot_window_state_baseline("headless.run.composition");
+                    if let Some(lw) = self.common.layout_window.as_mut() {
+                        if commit {
+                            lw.text_edit_manager.commit_composition(text.clone());
+                        } else {
+                            let caret = text.len() as i32;
+                            lw.text_edit_manager.set_preedit(text.clone(), caret, caret);
+                        }
+                    }
+                    let r = self.process_window_events(0);
+                    events_result = events_result.max(r);
+                    events_need_redraw = true;
+                }
+                HeadlessEvent::Hotplug {
+                    is_monitor,
+                    connected,
+                } => {
+                    self.snapshot_window_state_baseline("headless.run.hotplug");
+                    if let Some(lw) = self.common.layout_window.as_mut() {
+                        if is_monitor {
+                            lw.device_event_manager.note_monitor(connected);
+                        } else {
+                            lw.device_event_manager.note_device(connected);
+                        }
+                    }
+                    let r = self.process_window_events(0);
+                    events_result = events_result.max(r);
+                }
+                HeadlessEvent::RawMotion { dx, dy } => {
+                    self.snapshot_window_state_baseline("headless.run.raw_motion");
+                    // The real backends drop raw motion unless the pointer
+                    // is locked, so the harness applies the same gate —
+                    // a test that forgets to lock should see nothing,
+                    // exactly as the app would.
+                    let locked = self
+                        .common
+                        .current_window_state()
+                        .mouse_state
+                        .is_cursor_locked;
+                    if locked {
+                        if let Some(lw) = self.common.layout_window.as_mut() {
+                            lw.device_event_manager.note_raw_motion(dx, dy, 1);
+                        }
+                    }
+                    let r = self.process_window_events(0);
+                    events_result = events_result.max(r);
+                }
+                HeadlessEvent::Dial { delta_rad } => {
+                    self.snapshot_window_state_baseline("headless.run.dial");
+                    if let Some(lw) = self.common.layout_window.as_mut() {
+                        lw.gesture_drag_manager.update_dial_state(
+                            azul_layout::managers::gesture::DialState {
+                                device_id: 1,
+                                delta_rad,
+                                detent_count: 0.0,
+                                pressed: false,
+                                contact_position: azul_core::geom::OptionLogicalPosition::None,
+                            },
+                        );
+                    }
+                    let r = self.process_window_events(0);
+                    events_result = events_result.max(r);
+                }
+                HeadlessEvent::Modifiers {
+                    shift,
+                    ctrl,
+                    alt,
+                    meta,
+                    caps_lock,
+                    num_lock,
+                } => {
+                    self.snapshot_window_state_baseline("headless.run.modifiers");
+                    {
+                        let ks = self.common.keyboard_state_mut();
+                        ks.modifiers = azul_core::events::KeyModifiers {
+                            shift,
+                            ctrl,
+                            alt,
+                            meta,
+                        };
+                        ks.locks = azul_core::window::KeyLocks {
+                            caps_lock,
+                            num_lock,
+                            scroll_lock: false,
+                        };
+                    }
+                    let r = self.process_window_events(0);
+                    events_result = events_result.max(r);
+                }
+                HeadlessEvent::MouseMove { x, y } => {
+                    use azul_core::window::CursorPosition;
+                    self.snapshot_window_state_baseline("headless.run.mouse_move");
+                    let pos = LogicalPosition { x, y };
+                    self.common.mouse_state_mut().cursor_position =
+                        CursorPosition::InWindow(pos);
+                    // MWA-C-scroll: a held scrollbar thumb takes the motion
+                    // (the press router's other half, the same shared
+                    // helper every desktop backend calls). It records the
+                    // cursor and swallows the delta, so it does not surface
+                    // as a MouseMove event later.
+                    let thumb_drag = PlatformWindow::route_pointer_move(
+                        self,
+                        pos,
+                        "headless.mouse_move.scrollbar_drag",
+                    );
+                    if let Some(r) = thumb_drag {
+                        events_result = events_result.max(r);
+                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                            events_need_redraw = true;
+                        }
+                    } else {
+                        self.update_hit_test_at(pos);
+                        record_headless_input(self, false, false); // MWA-A4
+                        let r = self.process_window_events(0);
+                        events_result = events_result.max(r);
+                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                            events_need_redraw = true;
+                        }
+                    }
+                }
+                HeadlessEvent::MouseDown { button } => {
+                    self.snapshot_window_state_baseline("headless.run.mouse_down");
+                    // MWA-C-scroll: the press router first, scrollbar then
+                    // content (the same shared helper every desktop
+                    // backend calls). A press a scrollbar takes is
+                    // recorded and swallowed: it must not surface as a
+                    // MouseDown event later.
+                    let press_at = self
+                        .common
+                        .current_window_state()
+                        .mouse_state
+                        .cursor_position
+                        .get_position();
+                    let routed = match press_at {
+                        Some(p) => PlatformWindow::route_pointer_press(
+                            self,
+                            p,
+                            button,
+                            "headless.mouse_down.scrollbar_click",
+                        ),
+                        None => None,
+                    };
+                    if let Some(r) = routed {
+                        events_result = events_result.max(r);
+                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                            events_need_redraw = true;
+                        }
+                    } else {
+                        match button {
+                            azul_core::events::MouseButton::Left => {
+                                self.common.mouse_state_mut().left_down = true;
+                            }
+                            azul_core::events::MouseButton::Right => {
+                                self.common.mouse_state_mut().right_down = true;
+                            }
+                            azul_core::events::MouseButton::Middle => {
+                                self.common.mouse_state_mut().middle_down = true;
+                            }
+                            _ => {}
+                        }
+                        record_headless_input(self, true, false); // MWA-A4
+                        let r = self.process_window_events(0);
+                        events_result = events_result.max(r);
+                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                            events_need_redraw = true;
+                        }
+                    }
+                }
+                HeadlessEvent::MouseUp { button } => {
+                    self.snapshot_window_state_baseline("headless.run.mouse_up");
+                    // MWA-C-scroll: the primary release lets go of a held
+                    // thumb and clears the button its press latched (the
+                    // shared helper). The button event is not stopped
+                    // (`scrollbar_stops_the_button_event`): the pass below
+                    // still runs, and finds no delta left to turn into a
+                    // MouseUp.
+                    let release_at = self
+                        .common
+                        .current_window_state()
+                        .mouse_state
+                        .cursor_position
+                        .get_position();
+                    if let Some(p) = release_at {
+                        if PlatformWindow::end_scrollbar_drag(
+                            self,
+                            p,
+                            button,
+                            "headless.mouse_up.scrollbar_drag",
+                        )
+                        .is_some()
+                        {
+                            events_need_redraw = true;
+                        }
+                    }
+                    match button {
+                        azul_core::events::MouseButton::Left => {
+                            self.common.mouse_state_mut().left_down = false;
+                        }
+                        azul_core::events::MouseButton::Right => {
+                            self.common.mouse_state_mut().right_down = false;
+                        }
+                        azul_core::events::MouseButton::Middle => {
+                            self.common.mouse_state_mut().middle_down = false;
+                        }
+                        _ => {}
+                    }
+                    record_headless_input(self, false, true); // MWA-A4
+                    let r = self.process_window_events(0);
+                    events_result = events_result.max(r);
+                    if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                        events_need_redraw = true;
+                    }
+                }
+                HeadlessEvent::KeyDown { virtual_keycode } => {
+                    self.snapshot_window_state_baseline("headless.run.key_down");
+                    self.common.keyboard_state_mut().current_virtual_keycode =
+                        azul_core::window::OptionVirtualKeyCode::Some(virtual_keycode);
+                    self.common
+                        .keyboard_state_mut()
+                        .pressed_virtual_keycodes
+                        .insert_hm_item(virtual_keycode);
+                    let r = self.process_window_events(0);
+                    events_result = events_result.max(r);
+                    if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                        events_need_redraw = true;
+                    }
+                }
+                HeadlessEvent::KeyUp { virtual_keycode } => {
+                    self.snapshot_window_state_baseline("headless.run.key_up");
+                    self.common.keyboard_state_mut().current_virtual_keycode =
+                        azul_core::window::OptionVirtualKeyCode::None;
+                    self.common
+                        .keyboard_state_mut()
+                        .pressed_virtual_keycodes
+                        .remove_hm_item(&virtual_keycode);
+                    let r = self.process_window_events(0);
+                    events_result = events_result.max(r);
+                    if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                        events_need_redraw = true;
+                    }
+                }
+                HeadlessEvent::TextInput { text } => {
+                    // This arm used to be an empty stub, which silently
+                    // swallowed injected text (and made
+                    // `synthesize_character_input` a no-op end to end).
+                    self.snapshot_window_state_baseline("headless.run.text_input");
+                    let r = self.apply_text_input_event(&text);
+                    events_result = events_result.max(r);
+                    if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                        events_need_redraw = true;
+                    }
+                }
+                HeadlessEvent::Resize { width, height } => {
+                    self.snapshot_window_state_baseline("headless.run.resize");
+                    self.common
+                        .update_window_state(event::WindowStateSource::Os, |ws| {
+                            ws.size.dimensions.width = width;
+                            ws.size.dimensions.height = height;
+                        });
+                    // Tag the upcoming regenerate_layout with the REAL
+                    // reason, same as `simulate_resize()` — the two
+                    // headless resize entry points used to disagree
+                    // (this one left the implicit RefreshDom), so the
+                    // user's LayoutCallback saw a phantom non-resize
+                    // relayout depending on which API drove the resize.
+                    self.common
+                        .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
+                    // Same shape as the ten sibling arms: run the pass so
+                    // the size diff dispatches `WindowResize` — the one
+                    // backend CI runs used to be the one backend that
+                    // never fired it (the F4 class), and the un-passed
+                    // delta tripped the AZ_VALIDATE assertion at the next
+                    // `process_timers_and_threads()`.
+                    let r = self.process_window_events(0);
+                    events_result = events_result.max(r);
+                    if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                        events_need_redraw = true;
+                    }
+                    events_need_redraw = true;
+                }
+                HeadlessEvent::Scroll { delta_x, delta_y } => {
+                    let r = self.apply_wheel_scroll_event(delta_x, delta_y);
+                    events_result = events_result.max(r);
+                    if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                        events_need_redraw = true;
+                    }
+                }
+            }
+        }
+        // MWA-C-virtual_view: drain queued VirtualView re-invocations
+        // FIRST so their queue-time reasons (EdgeScrolled/DomRecreated)
+        // reach the user callback — headless previously relied solely on
+        // the full regenerate below, which resets invocation flags and
+        // re-invokes everything as InitialRender (queue never drained,
+        // reasons untestable in E2E).
+        // One drain for every backend (re-invoke in place + CPU hit-tester
+        // rebuild). A non-empty queue owes a frame even if a view declined
+        // to rebuild, as before.
+        let had_virtual_view_updates = self
+            .common
+            .layout_window
+            .as_ref()
+            .is_some_and(|lw| !lw.pending_virtual_view_updates.is_empty());
+        self.common.drain_virtual_view_updates();
+        if had_virtual_view_updates {
+            events_need_redraw = true;
+        }
+
+        if events_need_redraw {
+            self.service_frame(events_result);
+        }
+
+        // ── Phase 1b: Apply queued accessibility actions ─────
+        // The same slot `run.rs` gives the four desktop backends: actions
+        // arrive off-loop (there, from an accesskit bus; here, from
+        // `inject_accessibility_action`) and are drained by the frame pump
+        // after input and before timers. Without this call the queue would
+        // fill and nothing would ever read it — which is exactly the state
+        // headless a11y was in.
+        #[cfg(feature = "a11y")]
+        self.process_accessibility_actions();
+
+        // The notification mailbox and the global hotkeys belong to the process: the root
+        // window pumps them, a child window must not take its parent's deliveries.
+        if is_root {
+            // ── Phase 1c: Native notifications ───────────────────
+            // The slot the desktop loops give their notification pump. Here
+            // the backend RECORDS instead of showing (`AZ_BACKEND=headless`,
+            // see desktop/notifications), and any event queued into the
+            // mailbox - by a test - runs its notification's callback through
+            // the same `invoke_menu_callback` path the OS shells use.
+            let deliveries = crate::desktop::notifications::pump_notifications();
+            if !deliveries.is_empty()
+                && crate::desktop::notifications::invoke_deliveries(self, deliveries)
+            {
+                self.service_frame(
+                    azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow,
+                );
+            }
+
+            // ── Phase 1c: Global hotkeys ─────────────────────────
+            // Presses parked by the simulated backend (`simulate`, the
+            // AZ_E2E `global_hotkey` op) run their callbacks against this
+            // window - the slot the desktop run loops give them, next to the
+            // tray pump - and a status change this window's `layout()` read
+            // asks for one more pass.
+            let hotkey_result = crate::desktop::global_hotkey::pump_headless(self);
+            if !matches!(
+                hotkey_result,
+                azul_core::events::ProcessEventResult::DoNothing
+            ) {
+                self.service_frame(hotkey_result);
+            }
+        }
+
+        // ── Phase 2: Tick timers and threads ─────────────────
+        // Use the shared PlatformWindow trait method to invoke
+        // expired timer callbacks and poll background threads.
+        let needs_redraw = self.process_timers_and_threads();
+
+        // In the CPU-only path there is no GPU compositor that can
+        // handle scroll-offset-only or repaint-only updates.  Every
+        // visual change (including scroll) requires a full display
+        // list rebuild, so we re-render on any redraw signal — but
+        // the relayout-only request decides WHICH pass runs: an in-place DOM
+        // mutation (debug-server DOM ops, restyle, runtime text edit) must
+        // re-run layout on the EXISTING StyledDom. Sending it through the
+        // full `regenerate_layout()` is not a slower way to get the same
+        // answer: that path bails out on `is_layout_equivalent(old, new)`,
+        // which after an in-place mutation compares the DOM with itself,
+        // reports "unchanged", and skips layout — leaving the old shaped
+        // text and geometry on screen forever.
+        if needs_redraw {
+            // process_timers_and_threads already routed the tier: it
+            // raised the regeneration request only for real RefreshDom
+            // returns and relayout-only for in-place mutations. Passing
+            // ShouldReRenderCurrentWindow here just says "a frame is
+            // owed"; service_frame consumes the flags to pick the pass.
+            self.service_frame(
+                azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow,
+            );
+        }
+
+        // ── Phase 2b: Honour `flags.close_requested` ─────────
+        // `CallbackChange::CloseWindow` — the cross-platform "quit" API a
+        // callback or timer uses — does not close anything itself: it sets
+        // `flags.close_requested` and relies on the shell's loop to consume
+        // it. Every desktop backend does (the Linux run loop's
+        // `close_requested() → close()` check, Windows' WM_PAINT/WndProc
+        // checks, macOS's sync_window_state) — headless did NOT, so an app
+        // whose exit path is `window.close()` from a callback kept its loop
+        // alive forever: the flag was set, `DoNothing` came back, and
+        // `while self.is_open()` never terminated. With an active timer the
+        // loop even kept polling at 60 Hz, which is exactly the
+        // "self-test never exits after the last window closes" hang.
+        // Checked here — after events (Phase 1), a11y actions (Phase 1b)
+        // and timers/threads (Phase 2), the three places a callback can
+        // run — so a close requested anywhere this iteration exits before
+        // the condvar wait instead of after a wake that may never come.
+        if self.common.current_window_state().flags.close_requested {
+            log_info!(
+                LogCategory::EventLoop,
+                "[Headless] close_requested by callback — closing window"
+            );
+            self.close();
+        }
+    }
+
     /// Spawns a window for every pending create request and pumps the open child windows
     /// (one turn of each), dropping the closed ones.
     pub fn pump_children(&mut self) {
@@ -1694,7 +2258,10 @@ impl HeadlessWindow {
                 self.common.fc_cache.clone(),
                 self.font_registry.clone(),
             ) {
-                Ok(child) => self.children.push(child),
+                Ok(mut child) => {
+                    child.start_as_child();
+                    self.children.push(child);
+                }
                 Err(e) => {
                     log_error!(
                         LogCategory::Window,
@@ -1704,18 +2271,37 @@ impl HeadlessWindow {
                 }
             }
         }
+        let mut opened_by_children = Vec::new();
         self.children.retain_mut(|child| {
-            while let Some(ev) = child.poll_event() {
-                if let HeadlessEvent::Close = ev {
-                    child.close();
-                }
-            }
-            if child.common.current_window_state().flags.close_requested {
-                child.close();
-            }
-            child.pending_window_creates.clear();
+            child.pump_once(false);
+            opened_by_children.append(&mut child.pending_window_creates);
             child.is_open()
         });
+        self.pending_window_creates.extend(opened_by_children);
+    }
+
+    /// Whether this window's loop must poll (it has timers or threads in flight): the
+    /// parent's wait polls while one of its children does.
+    fn wants_polling(&self) -> bool {
+        self.thread_poll_timer_running
+            || self
+                .common
+                .layout_window
+                .as_ref()
+                .is_some_and(|lw| !lw.timers.is_empty() || !lw.threads.is_empty())
+    }
+
+    /// A child window's start, as `run()` starts the root: its create callback, then its
+    /// first layout.
+    fn start_as_child(&mut self) {
+        self.invoke_create_callback();
+        if let Err(e) = self.regenerate_layout() {
+            log_warn!(
+                LogCategory::Layout,
+                "[Headless] WARNING: a child window's initial layout failed: {}",
+                e
+            );
+        }
     }
 
     /// Poll the next event from the queue.
@@ -2614,559 +3200,7 @@ impl HeadlessWindow {
         }
 
         while self.is_open() {
-            // ── Phase 1: Process injected events ─────────────────
-            let mut events_need_redraw = false;
-            // The strongest ProcessEventResult of this drain — decides whether
-            // the frame below may rebuild the DOM or must keep it (see
-            // service_frame).
-            let mut events_result = azul_core::events::ProcessEventResult::DoNothing;
-            while let Some(event) = self.poll_event() {
-                match event {
-                    HeadlessEvent::Close => {
-                        self.close();
-                    }
-                    HeadlessEvent::FileHover { x, y, paths } => {
-                        // MWA-A4: same ingress the OS backends perform —
-                        // position + hit test + hovered-file into the manager,
-                        // then an event pass (dispatches HoveredFile).
-                        use azul_core::window::CursorPosition;
-                        self.snapshot_window_state_baseline("headless.run.file_hover");
-                        let pos = LogicalPosition { x, y };
-                        self.common.mouse_state_mut().cursor_position =
-                            CursorPosition::InWindow(pos);
-                        self.update_hit_test_at(pos);
-                        if let Some(lw) = self.common.layout_window.as_mut() {
-                            // MWA-B7: full multi-file list, like the OS shells.
-                            lw.file_drop_manager
-                                .set_hovered_files(paths.into_iter().map(Into::into).collect());
-                        }
-                        let r = self.process_window_events(0);
-                        events_result = events_result.max(r);
-                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-                            events_need_redraw = true;
-                        }
-                    }
-                    HeadlessEvent::FileDrop { x, y, paths } => {
-                        use azul_core::window::CursorPosition;
-                        self.snapshot_window_state_baseline("headless.run.file_drop");
-                        let pos = LogicalPosition { x, y };
-                        self.common.mouse_state_mut().cursor_position =
-                            CursorPosition::InWindow(pos);
-                        self.update_hit_test_at(pos);
-                        if let Some(lw) = self.common.layout_window.as_mut() {
-                            lw.file_drop_manager
-                                .set_dropped_files(paths.into_iter().map(Into::into).collect());
-                        }
-                        let r = self.process_window_events(0);
-                        events_result = events_result.max(r);
-                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-                            events_need_redraw = true;
-                        }
-                        // Post-pass cleanup, mirroring the OS backends: the
-                        // drop is a one-shot; hover state ends with it.
-                        if let Some(lw) = self.common.layout_window.as_mut() {
-                            lw.file_drop_manager.set_dropped_file(None);
-                            lw.file_drop_manager.set_hovered_file(None);
-                            lw.file_drop_manager.clear_hover_cancelled();
-                        }
-                    }
-                    HeadlessEvent::FileHoverCancel => {
-                        self.snapshot_window_state_baseline("headless.run.file_hover_cancel");
-                        if let Some(lw) = self.common.layout_window.as_mut() {
-                            // Some→None flags the cancel; the pass dispatches
-                            // HoveredFileCancelled, then we clear the flag.
-                            lw.file_drop_manager.set_hovered_file(None);
-                        }
-                        let r = self.process_window_events(0);
-                        events_result = events_result.max(r);
-                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-                            events_need_redraw = true;
-                        }
-                        if let Some(lw) = self.common.layout_window.as_mut() {
-                            lw.file_drop_manager.clear_hover_cancelled();
-                        }
-                    }
-                    HeadlessEvent::ScrollPhased {
-                        delta_x,
-                        delta_y,
-                        source,
-                    } => {
-                        self.snapshot_window_state_baseline("headless.run.scroll_phased");
-                        if let Some(lw) = self.common.layout_window.as_mut() {
-                            lw.scroll_manager.note_scroll_phase(source);
-                            lw.scroll_manager.pending_wheel_event = Some(LogicalPosition {
-                                x: delta_x,
-                                y: delta_y,
-                            });
-                        }
-                        let r = self.process_window_events(0);
-                        events_result = events_result.max(r);
-                        events_need_redraw = true;
-                    }
-                    HeadlessEvent::Pen {
-                        x,
-                        y,
-                        pressure,
-                        tilt_x,
-                        tilt_y,
-                        in_contact,
-                        is_eraser,
-                    } => {
-                        self.snapshot_window_state_baseline("headless.run.pen");
-                        if let Some(lw) = self.common.layout_window.as_mut() {
-                            lw.gesture_drag_manager.update_pen_state_full(
-                                LogicalPosition { x, y },
-                                pressure,
-                                (tilt_x, tilt_y),
-                                in_contact,
-                                is_eraser,
-                                false,
-                                1,
-                                0.0,
-                                0.0,
-                                0,
-                            );
-                        }
-                        let r = self.process_window_events(0);
-                        events_result = events_result.max(r);
-                        events_need_redraw = true;
-                    }
-                    HeadlessEvent::PenBarrel { squeeze } => {
-                        self.snapshot_window_state_baseline("headless.run.pen_barrel");
-                        if let Some(lw) = self.common.layout_window.as_mut() {
-                            lw.gesture_drag_manager.note_pen_barrel_gesture(squeeze);
-                        }
-                        let r = self.process_window_events(0);
-                        events_result = events_result.max(r);
-                    }
-                    HeadlessEvent::Gesture { gesture } => {
-                        self.snapshot_window_state_baseline("headless.run.gesture");
-                        if let Some(lw) = self.common.layout_window.as_mut() {
-                            lw.gesture_drag_manager.inject_native_gesture(gesture);
-                        }
-                        let r = self.process_window_events(0);
-                        events_result = events_result.max(r);
-                        events_need_redraw = true;
-                    }
-                    HeadlessEvent::Gamepad { state } => {
-                        self.snapshot_window_state_baseline("headless.run.gamepad");
-                        if let Some(lw) = self.common.layout_window.as_mut() {
-                            lw.gamepad_manager.set_state(state);
-                        }
-                        let r = self.process_window_events(0);
-                        events_result = events_result.max(r);
-                    }
-                    HeadlessEvent::Sensor { reading } => {
-                        self.snapshot_window_state_baseline("headless.run.sensor");
-                        if let Some(lw) = self.common.layout_window.as_mut() {
-                            lw.sensor_manager.set_reading(reading);
-                        }
-                        let r = self.process_window_events(0);
-                        events_result = events_result.max(r);
-                    }
-                    HeadlessEvent::Composition { text, commit } => {
-                        self.snapshot_window_state_baseline("headless.run.composition");
-                        if let Some(lw) = self.common.layout_window.as_mut() {
-                            if commit {
-                                lw.text_edit_manager.commit_composition(text.clone());
-                            } else {
-                                let caret = text.len() as i32;
-                                lw.text_edit_manager.set_preedit(text.clone(), caret, caret);
-                            }
-                        }
-                        let r = self.process_window_events(0);
-                        events_result = events_result.max(r);
-                        events_need_redraw = true;
-                    }
-                    HeadlessEvent::Hotplug {
-                        is_monitor,
-                        connected,
-                    } => {
-                        self.snapshot_window_state_baseline("headless.run.hotplug");
-                        if let Some(lw) = self.common.layout_window.as_mut() {
-                            if is_monitor {
-                                lw.device_event_manager.note_monitor(connected);
-                            } else {
-                                lw.device_event_manager.note_device(connected);
-                            }
-                        }
-                        let r = self.process_window_events(0);
-                        events_result = events_result.max(r);
-                    }
-                    HeadlessEvent::RawMotion { dx, dy } => {
-                        self.snapshot_window_state_baseline("headless.run.raw_motion");
-                        // The real backends drop raw motion unless the pointer
-                        // is locked, so the harness applies the same gate —
-                        // a test that forgets to lock should see nothing,
-                        // exactly as the app would.
-                        let locked = self
-                            .common
-                            .current_window_state()
-                            .mouse_state
-                            .is_cursor_locked;
-                        if locked {
-                            if let Some(lw) = self.common.layout_window.as_mut() {
-                                lw.device_event_manager.note_raw_motion(dx, dy, 1);
-                            }
-                        }
-                        let r = self.process_window_events(0);
-                        events_result = events_result.max(r);
-                    }
-                    HeadlessEvent::Dial { delta_rad } => {
-                        self.snapshot_window_state_baseline("headless.run.dial");
-                        if let Some(lw) = self.common.layout_window.as_mut() {
-                            lw.gesture_drag_manager.update_dial_state(
-                                azul_layout::managers::gesture::DialState {
-                                    device_id: 1,
-                                    delta_rad,
-                                    detent_count: 0.0,
-                                    pressed: false,
-                                    contact_position: azul_core::geom::OptionLogicalPosition::None,
-                                },
-                            );
-                        }
-                        let r = self.process_window_events(0);
-                        events_result = events_result.max(r);
-                    }
-                    HeadlessEvent::Modifiers {
-                        shift,
-                        ctrl,
-                        alt,
-                        meta,
-                        caps_lock,
-                        num_lock,
-                    } => {
-                        self.snapshot_window_state_baseline("headless.run.modifiers");
-                        {
-                            let ks = self.common.keyboard_state_mut();
-                            ks.modifiers = azul_core::events::KeyModifiers {
-                                shift,
-                                ctrl,
-                                alt,
-                                meta,
-                            };
-                            ks.locks = azul_core::window::KeyLocks {
-                                caps_lock,
-                                num_lock,
-                                scroll_lock: false,
-                            };
-                        }
-                        let r = self.process_window_events(0);
-                        events_result = events_result.max(r);
-                    }
-                    HeadlessEvent::MouseMove { x, y } => {
-                        use azul_core::window::CursorPosition;
-                        self.snapshot_window_state_baseline("headless.run.mouse_move");
-                        let pos = LogicalPosition { x, y };
-                        self.common.mouse_state_mut().cursor_position =
-                            CursorPosition::InWindow(pos);
-                        // MWA-C-scroll: a held scrollbar thumb takes the motion
-                        // (the press router's other half, the same shared
-                        // helper every desktop backend calls). It records the
-                        // cursor and swallows the delta, so it does not surface
-                        // as a MouseMove event later.
-                        let thumb_drag = PlatformWindow::route_pointer_move(
-                            &mut self,
-                            pos,
-                            "headless.mouse_move.scrollbar_drag",
-                        );
-                        if let Some(r) = thumb_drag {
-                            events_result = events_result.max(r);
-                            if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-                                events_need_redraw = true;
-                            }
-                        } else {
-                            self.update_hit_test_at(pos);
-                            record_headless_input(&mut self, false, false); // MWA-A4
-                            let r = self.process_window_events(0);
-                            events_result = events_result.max(r);
-                            if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-                                events_need_redraw = true;
-                            }
-                        }
-                    }
-                    HeadlessEvent::MouseDown { button } => {
-                        self.snapshot_window_state_baseline("headless.run.mouse_down");
-                        // MWA-C-scroll: the press router first, scrollbar then
-                        // content (the same shared helper every desktop
-                        // backend calls). A press a scrollbar takes is
-                        // recorded and swallowed: it must not surface as a
-                        // MouseDown event later.
-                        let press_at = self
-                            .common
-                            .current_window_state()
-                            .mouse_state
-                            .cursor_position
-                            .get_position();
-                        let routed = match press_at {
-                            Some(p) => PlatformWindow::route_pointer_press(
-                                &mut self,
-                                p,
-                                button,
-                                "headless.mouse_down.scrollbar_click",
-                            ),
-                            None => None,
-                        };
-                        if let Some(r) = routed {
-                            events_result = events_result.max(r);
-                            if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-                                events_need_redraw = true;
-                            }
-                        } else {
-                            match button {
-                                azul_core::events::MouseButton::Left => {
-                                    self.common.mouse_state_mut().left_down = true;
-                                }
-                                azul_core::events::MouseButton::Right => {
-                                    self.common.mouse_state_mut().right_down = true;
-                                }
-                                azul_core::events::MouseButton::Middle => {
-                                    self.common.mouse_state_mut().middle_down = true;
-                                }
-                                _ => {}
-                            }
-                            record_headless_input(&mut self, true, false); // MWA-A4
-                            let r = self.process_window_events(0);
-                            events_result = events_result.max(r);
-                            if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-                                events_need_redraw = true;
-                            }
-                        }
-                    }
-                    HeadlessEvent::MouseUp { button } => {
-                        self.snapshot_window_state_baseline("headless.run.mouse_up");
-                        // MWA-C-scroll: the primary release lets go of a held
-                        // thumb and clears the button its press latched (the
-                        // shared helper). The button event is not stopped
-                        // (`scrollbar_stops_the_button_event`): the pass below
-                        // still runs, and finds no delta left to turn into a
-                        // MouseUp.
-                        let release_at = self
-                            .common
-                            .current_window_state()
-                            .mouse_state
-                            .cursor_position
-                            .get_position();
-                        if let Some(p) = release_at {
-                            if PlatformWindow::end_scrollbar_drag(
-                                &mut self,
-                                p,
-                                button,
-                                "headless.mouse_up.scrollbar_drag",
-                            )
-                            .is_some()
-                            {
-                                events_need_redraw = true;
-                            }
-                        }
-                        match button {
-                            azul_core::events::MouseButton::Left => {
-                                self.common.mouse_state_mut().left_down = false;
-                            }
-                            azul_core::events::MouseButton::Right => {
-                                self.common.mouse_state_mut().right_down = false;
-                            }
-                            azul_core::events::MouseButton::Middle => {
-                                self.common.mouse_state_mut().middle_down = false;
-                            }
-                            _ => {}
-                        }
-                        record_headless_input(&mut self, false, true); // MWA-A4
-                        let r = self.process_window_events(0);
-                        events_result = events_result.max(r);
-                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-                            events_need_redraw = true;
-                        }
-                    }
-                    HeadlessEvent::KeyDown { virtual_keycode } => {
-                        self.snapshot_window_state_baseline("headless.run.key_down");
-                        self.common.keyboard_state_mut().current_virtual_keycode =
-                            azul_core::window::OptionVirtualKeyCode::Some(virtual_keycode);
-                        self.common
-                            .keyboard_state_mut()
-                            .pressed_virtual_keycodes
-                            .insert_hm_item(virtual_keycode);
-                        let r = self.process_window_events(0);
-                        events_result = events_result.max(r);
-                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-                            events_need_redraw = true;
-                        }
-                    }
-                    HeadlessEvent::KeyUp { virtual_keycode } => {
-                        self.snapshot_window_state_baseline("headless.run.key_up");
-                        self.common.keyboard_state_mut().current_virtual_keycode =
-                            azul_core::window::OptionVirtualKeyCode::None;
-                        self.common
-                            .keyboard_state_mut()
-                            .pressed_virtual_keycodes
-                            .remove_hm_item(&virtual_keycode);
-                        let r = self.process_window_events(0);
-                        events_result = events_result.max(r);
-                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-                            events_need_redraw = true;
-                        }
-                    }
-                    HeadlessEvent::TextInput { text } => {
-                        // This arm used to be an empty stub, which silently
-                        // swallowed injected text (and made
-                        // `synthesize_character_input` a no-op end to end).
-                        self.snapshot_window_state_baseline("headless.run.text_input");
-                        let r = self.apply_text_input_event(&text);
-                        events_result = events_result.max(r);
-                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-                            events_need_redraw = true;
-                        }
-                    }
-                    HeadlessEvent::Resize { width, height } => {
-                        self.snapshot_window_state_baseline("headless.run.resize");
-                        self.common
-                            .update_window_state(event::WindowStateSource::Os, |ws| {
-                                ws.size.dimensions.width = width;
-                                ws.size.dimensions.height = height;
-                            });
-                        // Tag the upcoming regenerate_layout with the REAL
-                        // reason, same as `simulate_resize()` — the two
-                        // headless resize entry points used to disagree
-                        // (this one left the implicit RefreshDom), so the
-                        // user's LayoutCallback saw a phantom non-resize
-                        // relayout depending on which API drove the resize.
-                        self.common
-                            .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
-                        // Same shape as the ten sibling arms: run the pass so
-                        // the size diff dispatches `WindowResize` — the one
-                        // backend CI runs used to be the one backend that
-                        // never fired it (the F4 class), and the un-passed
-                        // delta tripped the AZ_VALIDATE assertion at the next
-                        // `process_timers_and_threads()`.
-                        let r = self.process_window_events(0);
-                        events_result = events_result.max(r);
-                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-                            events_need_redraw = true;
-                        }
-                        events_need_redraw = true;
-                    }
-                    HeadlessEvent::Scroll { delta_x, delta_y } => {
-                        let r = self.apply_wheel_scroll_event(delta_x, delta_y);
-                        events_result = events_result.max(r);
-                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-                            events_need_redraw = true;
-                        }
-                    }
-                }
-            }
-            // MWA-C-virtual_view: drain queued VirtualView re-invocations
-            // FIRST so their queue-time reasons (EdgeScrolled/DomRecreated)
-            // reach the user callback — headless previously relied solely on
-            // the full regenerate below, which resets invocation flags and
-            // re-invokes everything as InitialRender (queue never drained,
-            // reasons untestable in E2E).
-            // One drain for every backend (re-invoke in place + CPU hit-tester
-            // rebuild). A non-empty queue owes a frame even if a view declined
-            // to rebuild, as before.
-            let had_virtual_view_updates = self
-                .common
-                .layout_window
-                .as_ref()
-                .is_some_and(|lw| !lw.pending_virtual_view_updates.is_empty());
-            self.common.drain_virtual_view_updates();
-            if had_virtual_view_updates {
-                events_need_redraw = true;
-            }
-
-            if events_need_redraw {
-                self.service_frame(events_result);
-            }
-
-            // ── Phase 1b: Apply queued accessibility actions ─────
-            // The same slot `run.rs` gives the four desktop backends: actions
-            // arrive off-loop (there, from an accesskit bus; here, from
-            // `inject_accessibility_action`) and are drained by the frame pump
-            // after input and before timers. Without this call the queue would
-            // fill and nothing would ever read it — which is exactly the state
-            // headless a11y was in.
-            #[cfg(feature = "a11y")]
-            self.process_accessibility_actions();
-
-            // ── Phase 1c: Native notifications ───────────────────
-            // The slot the desktop loops give their notification pump. Here
-            // the backend RECORDS instead of showing (`AZ_BACKEND=headless`,
-            // see desktop/notifications), and any event queued into the
-            // mailbox - by a test - runs its notification's callback through
-            // the same `invoke_menu_callback` path the OS shells use.
-            let deliveries = crate::desktop::notifications::pump_notifications();
-            if !deliveries.is_empty()
-                && crate::desktop::notifications::invoke_deliveries(&mut self, deliveries)
-            {
-                self.service_frame(
-                    azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow,
-                );
-            }
-
-            // ── Phase 1c: Global hotkeys ─────────────────────────
-            // Presses parked by the simulated backend (`simulate`, the
-            // AZ_E2E `global_hotkey` op) run their callbacks against this
-            // window - the slot the desktop run loops give them, next to the
-            // tray pump - and a status change this window's `layout()` read
-            // asks for one more pass.
-            let hotkey_result = crate::desktop::global_hotkey::pump_headless(&mut self);
-            if !matches!(
-                hotkey_result,
-                azul_core::events::ProcessEventResult::DoNothing
-            ) {
-                self.service_frame(hotkey_result);
-            }
-
-            // ── Phase 2: Tick timers and threads ─────────────────
-            // Use the shared PlatformWindow trait method to invoke
-            // expired timer callbacks and poll background threads.
-            let needs_redraw = self.process_timers_and_threads();
-
-            // In the CPU-only path there is no GPU compositor that can
-            // handle scroll-offset-only or repaint-only updates.  Every
-            // visual change (including scroll) requires a full display
-            // list rebuild, so we re-render on any redraw signal — but
-            // the relayout-only request decides WHICH pass runs: an in-place DOM
-            // mutation (debug-server DOM ops, restyle, runtime text edit) must
-            // re-run layout on the EXISTING StyledDom. Sending it through the
-            // full `regenerate_layout()` is not a slower way to get the same
-            // answer: that path bails out on `is_layout_equivalent(old, new)`,
-            // which after an in-place mutation compares the DOM with itself,
-            // reports "unchanged", and skips layout — leaving the old shaped
-            // text and geometry on screen forever.
-            if needs_redraw {
-                // process_timers_and_threads already routed the tier: it
-                // raised the regeneration request only for real RefreshDom
-                // returns and relayout-only for in-place mutations. Passing
-                // ShouldReRenderCurrentWindow here just says "a frame is
-                // owed"; service_frame consumes the flags to pick the pass.
-                self.service_frame(
-                    azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow,
-                );
-            }
-
-            // ── Phase 2b: Honour `flags.close_requested` ─────────
-            // `CallbackChange::CloseWindow` — the cross-platform "quit" API a
-            // callback or timer uses — does not close anything itself: it sets
-            // `flags.close_requested` and relies on the shell's loop to consume
-            // it. Every desktop backend does (the Linux run loop's
-            // `close_requested() → close()` check, Windows' WM_PAINT/WndProc
-            // checks, macOS's sync_window_state) — headless did NOT, so an app
-            // whose exit path is `window.close()` from a callback kept its loop
-            // alive forever: the flag was set, `DoNothing` came back, and
-            // `while self.is_open()` never terminated. With an active timer the
-            // loop even kept polling at 60 Hz, which is exactly the
-            // "self-test never exits after the last window closes" hang.
-            // Checked here — after events (Phase 1), a11y actions (Phase 1b)
-            // and timers/threads (Phase 2), the three places a callback can
-            // run — so a close requested anywhere this iteration exits before
-            // the condvar wait instead of after a wake that may never come.
-            if self.common.current_window_state().flags.close_requested {
-                log_info!(
-                    LogCategory::EventLoop,
-                    "[Headless] close_requested by callback — closing window"
-                );
-                self.close();
-            }
+            self.pump_once(true);
 
             // ── Phase 3 + 4: spawn and pump the child windows ─────
             self.pump_children();
@@ -3225,17 +3259,20 @@ impl HeadlessWindow {
                 // Consume the flag and loop again WITHOUT waiting, so the
                 // work the wake announced is serviced now.
                 guard.woken = false;
-            } else if has_timers || self.thread_poll_timer_running || has_hotkeys {
+            } else if has_timers
+                || self.thread_poll_timer_running
+                || has_hotkeys
+                || self.children.iter().any(HeadlessWindow::wants_polling)
+            {
                 // Threads and simulated hotkeys are only seen by polling: once
                 // per frame. Timers alone: until the next one is due, never
                 // sooner than a frame - an idle debug poll (2 s) no longer
                 // wakes this loop 60 times a second, and anything that has
                 // work (a request, a timer change, an injected event)
-                // notifies the condvar.
-                // Child windows are pumped by THIS loop (Phase 4): with any
-                // open, keep the frame poll for them as before.
-                let wait = if self.thread_poll_timer_running || has_hotkeys || !children.is_empty()
-                {
+                // notifies the condvar. A child window with timers or threads
+                // (pumped by this loop) keeps the frame poll too.
+                let children_poll = self.children.iter().any(HeadlessWindow::wants_polling);
+                let wait = if self.thread_poll_timer_running || has_hotkeys || children_poll {
                     poll_interval
                 } else {
                     let get_time = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
