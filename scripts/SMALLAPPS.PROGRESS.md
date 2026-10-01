@@ -14,14 +14,20 @@ Task: AzCalculator (F1/F2/F6/F7 vehicle) + AzContacts (A4). Report: scripts/SMAL
 - c64368968 test(e2e): azlin_e2e.py shared driver
 - 30d459a21 test(azcalculator): scripts/azcalculator_e2e.py
 - 392058389 / f176d2f3b azcontacts vcard.rs (RED / GREEN)
+- 66d7fae9b/afee1f564 contact.rs; 0d194a6e3/28a5ca6ed book.rs; 887b60931/89f0b41ef dupes.rs; 15a67f7d0/b85fc8269 store.rs; a5111bd72/716a23d94 sample.rs (RED/GREEN)
 
 ## IN PROGRESS
-- contact.rs: the Contact model and its vCard mapping
+- AzContacts UI: ui.rs piece 1 (state + start)
 
 ## NEXT
 3. DONE (calculator UI + E2E).
-4. NEXT STEP: AzContacts model in examples/azul-contacts/src (RED, GREEN): vcard.rs first: vCard 3.0/4.0 parse/write, contacts model, sort/index, duplicates + merge,
-   storage layout contacts/<uuid>.vcf, sample data.
+4. DONE: AzContacts model (vcard, contact, book, dupes, store, sample), RED + GREEN each.
+5. NEXT STEP: AzContacts UI in examples/azul-contacts/src/ui.rs written in pieces (ui.rs not in lib.rs until the
+   last piece): state + start (kit, load all contacts/*.vcf via appkit file jobs GetAll, --sample writes
+   sample_book files when empty), then layout (PimShell: navigation = ShellNavigationPane groups All /
+   Favourites / groups / Duplicates; list = search TextInput + sort Segmented + A-Z bar + rows Avatar+name;
+   reading = card view / edit form / import preview / merge screen), then callbacks; stdout AZCONTACTS_*.
+   Then scripts/azcontacts_e2e.py, then the report.
 5. AzContacts UI on PimShell + E2E scripts/azcontacts_e2e.py + registration.
 6. Report.
 
