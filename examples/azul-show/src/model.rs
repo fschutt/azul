@@ -689,7 +689,27 @@ impl Element {
     /// Moves the element to `frame`; a group maps its children from its
     /// old box onto the new one.
     pub fn set_frame(&mut self, frame: Frame) {
-        let _ = frame;
+        let from = self.frame;
+        if let ElementKind::Group { children } = &mut self.kind {
+            // A turn of the group turns every member about the group's
+            // centre and adds to its own rotation.
+            let turn = frame.rotation - from.rotation;
+            let (cx, cy) = frame.center();
+            let (s, c) = turn.to_radians().sin_cos();
+            for child in children.iter_mut() {
+                let mut f = child.frame.mapped(&from, &frame);
+                if turn.abs() > f32::EPSILON {
+                    let (x, y) = f.center();
+                    let (dx, dy) = (x - cx, y - cy);
+                    let (nx, ny) = (cx + dx * c - dy * s, cy + dx * s + dy * c);
+                    f.x = nx - f.w / 2.0;
+                    f.y = ny - f.h / 2.0;
+                    f.rotation += turn;
+                }
+                child.set_frame(f);
+            }
+        }
+        self.frame = frame;
     }
 
     /// The element and, for a group, every element inside it, depth first.
@@ -771,8 +791,76 @@ impl LayoutKind {
     /// text's size and alignment, and whether its paragraphs are bullets.
     #[must_use]
     pub fn placeholders(self, size: SlideSize) -> Vec<PlaceholderSpec> {
-        let _ = size;
-        Vec::new()
+        use PlaceholderRole::{Body, Body2, Heading, Heading2, Subtitle, Title};
+
+        let width = size.width();
+        let margin = (width * 0.0625).round();
+        let full = width - 2.0 * margin;
+        let gap = 60.0;
+        let column = (full - gap) / 2.0;
+        let right = margin + column + gap;
+        let spec = |role: PlaceholderRole,
+                    frame: Frame,
+                    text_size: f32,
+                    align: Align,
+                    valign: VAlign,
+                    bullets: bool| PlaceholderSpec {
+            role,
+            frame,
+            size: text_size,
+            align,
+            valign,
+            bullets,
+        };
+        let title = spec(
+            Title,
+            Frame::new(margin, 60.0, full, 160.0),
+            60.0,
+            Align::Left,
+            VAlign::Middle,
+            false,
+        );
+        match self {
+            Self::TitleSlide => vec![
+                spec(Title, Frame::new(margin, 300.0, full, 240.0), 88.0, Align::Center, VAlign::Bottom, false),
+                spec(Subtitle, Frame::new(margin, 570.0, full, 160.0), 40.0, Align::Center, VAlign::Top, false),
+            ],
+            Self::TitleAndContent => vec![
+                title,
+                spec(Body, Frame::new(margin, 260.0, full, 740.0), 36.0, Align::Left, VAlign::Top, true),
+            ],
+            Self::SectionHeader => vec![
+                spec(Title, Frame::new(margin, 380.0, full, 220.0), 80.0, Align::Left, VAlign::Bottom, false),
+                spec(Subtitle, Frame::new(margin, 620.0, full, 140.0), 36.0, Align::Left, VAlign::Top, false),
+            ],
+            Self::TwoContent => vec![
+                title,
+                spec(Body, Frame::new(margin, 260.0, column, 740.0), 32.0, Align::Left, VAlign::Top, true),
+                spec(Body2, Frame::new(right, 260.0, column, 740.0), 32.0, Align::Left, VAlign::Top, true),
+            ],
+            Self::Comparison => vec![
+                title,
+                spec(Heading, Frame::new(margin, 250.0, column, 100.0), 40.0, Align::Left, VAlign::Bottom, false),
+                spec(Body, Frame::new(margin, 360.0, column, 640.0), 32.0, Align::Left, VAlign::Top, true),
+                spec(Heading2, Frame::new(right, 250.0, column, 100.0), 40.0, Align::Left, VAlign::Bottom, false),
+                spec(Body2, Frame::new(right, 360.0, column, 640.0), 32.0, Align::Left, VAlign::Top, true),
+            ],
+            Self::TitleOnly => vec![title],
+            Self::Blank => Vec::new(),
+        }
+    }
+}
+
+impl PlaceholderRole {
+    /// The role whose content fills this one when a new layout lacks the
+    /// old role: a subtitle becomes the body and the body the subtitle.
+    #[must_use]
+    pub const fn stand_in(self) -> Option<PlaceholderRole> {
+        match self {
+            Self::Body => Some(Self::Subtitle),
+            Self::Subtitle => Some(Self::Body),
+            _ => None,
+        }
     }
 }
 
@@ -944,36 +1032,136 @@ impl Slide {
     /// Moves the elements `ids` in the z-order (PowerPoint's Arrange
     /// commands; the selection keeps its own order).
     pub fn reorder(&mut self, ids: &[u64], how: ZOrder) {
-        let _ = (ids, how);
+        let selected = |e: &Element| ids.contains(&e.id);
+        match how {
+            ZOrder::BringToFront | ZOrder::SendToBack => {
+                let (mut picked, mut rest): (Vec<Element>, Vec<Element>) =
+                    core::mem::take(&mut self.elements).into_iter().partition(|e| selected(e));
+                if how == ZOrder::BringToFront {
+                    rest.append(&mut picked);
+                    self.elements = rest;
+                } else {
+                    picked.append(&mut rest);
+                    self.elements = picked;
+                }
+            }
+            ZOrder::BringForward => {
+                // From the top down: a selected element steps over the
+                // unselected one right above it.
+                for i in (0..self.elements.len().saturating_sub(1)).rev() {
+                    if selected(&self.elements[i]) && !selected(&self.elements[i + 1]) {
+                        self.elements.swap(i, i + 1);
+                    }
+                }
+            }
+            ZOrder::SendBackward => {
+                for i in 1..self.elements.len() {
+                    if selected(&self.elements[i]) && !selected(&self.elements[i - 1]) {
+                        self.elements.swap(i, i - 1);
+                    }
+                }
+            }
+        }
     }
 
     /// Groups the elements `ids` (two or more) into one group element
     /// `group_id`, in the place of the topmost of them; its frame is the box
     /// around them. `None` when fewer than two of `ids` are on the slide.
     pub fn group(&mut self, ids: &[u64], group_id: u64) -> Option<u64> {
-        let _ = (ids, group_id);
-        None
+        let members: Vec<usize> = self
+            .elements
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| ids.contains(&e.id))
+            .map(|(i, _)| i)
+            .collect();
+        if members.len() < 2 {
+            return None;
+        }
+        let top = *members.last()?;
+        // The group stands where the topmost member stood, among the others.
+        let at = top + 1 - members.len();
+        let mut children = Vec::with_capacity(members.len());
+        for &i in members.iter().rev() {
+            children.push(self.elements.remove(i));
+        }
+        children.reverse();
+        let frame = Frame::union(children.iter().map(|c| &c.frame))?;
+        self.elements
+            .insert(at, Element::new(group_id, frame, ElementKind::Group { children }));
+        Some(group_id)
     }
 
     /// Ungroups `group_id`: its children take its place in the z-order.
     /// Returns the children's ids (empty when it is no group).
     pub fn ungroup(&mut self, group_id: u64) -> Vec<u64> {
-        let _ = group_id;
-        Vec::new()
+        let Some(at) = self.index_of(group_id) else {
+            return Vec::new();
+        };
+        if !matches!(self.elements[at].kind, ElementKind::Group { .. }) {
+            return Vec::new();
+        }
+        let group = self.elements.remove(at);
+        let ElementKind::Group { children } = group.kind else {
+            return Vec::new();
+        };
+        let ids = children.iter().map(|c| c.id).collect();
+        for (k, child) in children.into_iter().enumerate() {
+            self.elements.insert(at + k, child);
+        }
+        ids
     }
 
     /// The click steps of the slide's builds: each step is the ids of the
     /// elements that animate on that click, in order.
     #[must_use]
     pub fn build_steps(&self) -> Vec<Vec<u64>> {
-        Vec::new()
+        let mut builds: Vec<(u32, usize, u64)> = self
+            .elements
+            .iter()
+            .enumerate()
+            .filter_map(|(i, e)| e.animation.map(|a| (a.order, i, e.id)))
+            .collect();
+        builds.sort_by_key(|&(order, i, _)| (order, i));
+        let mut steps: Vec<Vec<u64>> = Vec::new();
+        let mut last = None;
+        for (order, _, id) in builds {
+            if last == Some(order) {
+                if let Some(step) = steps.last_mut() {
+                    step.push(id);
+                }
+            } else {
+                steps.push(vec![id]);
+                last = Some(order);
+            }
+        }
+        steps
     }
 
     /// Whether `element` is on screen after `step` clicks of the builds.
     #[must_use]
     pub fn visible_at(&self, element: &Element, step: usize) -> bool {
-        let _ = (element, step);
-        true
+        let Some(build) = element.animation else {
+            return true;
+        };
+        let Some(played_on) = self
+            .build_steps()
+            .iter()
+            .position(|s| s.contains(&element.id))
+        else {
+            return true;
+        };
+        match build.effect.class() {
+            AnimationClass::Entrance => step > played_on,
+            AnimationClass::Exit => step <= played_on,
+            AnimationClass::Emphasis => true,
+        }
+    }
+
+    /// The build step (0-based click) on which `element` plays, if any.
+    #[must_use]
+    pub fn build_step_of(&self, element: u64) -> Option<usize> {
+        self.build_steps().iter().position(|s| s.contains(&element))
     }
 }
 
@@ -1021,27 +1209,93 @@ impl Deck {
 
     /// Inserts a new slide of `layout` at `at` (clamped); returns its index.
     pub fn add_slide(&mut self, at: usize, layout: LayoutKind) -> usize {
-        let _ = (at, layout);
-        0
+        let at = at.min(self.slides.len());
+        let id = self.mint();
+        let mut next = self.next_id;
+        let slide = Slide::new(id, layout, self.size, &mut || {
+            let v = next;
+            next += 1;
+            v
+        });
+        self.next_id = next;
+        self.slides.insert(at, slide);
+        at
+    }
+
+    /// New ids for `element` and everything inside it.
+    fn renumber(&mut self, element: &mut Element) {
+        element.id = self.mint();
+        if let ElementKind::Group { children } = &mut element.kind {
+            for child in children.iter_mut() {
+                self.renumber(child);
+            }
+        }
+    }
+
+    /// A copy of `element` with new ids (a paste, Ctrl+D).
+    pub fn copy_element(&mut self, element: &Element) -> Element {
+        let mut copy = element.clone();
+        self.renumber(&mut copy);
+        copy
     }
 
     /// A copy of slide `index` (new ids) right after it; returns its index.
     pub fn duplicate_slide(&mut self, index: usize) -> Option<usize> {
-        let _ = index;
-        None
+        let mut copy = self.slides.get(index)?.clone();
+        copy.id = self.mint();
+        copy.section = None;
+        for element in copy.elements.iter_mut() {
+            self.renumber(element);
+        }
+        self.slides.insert(index + 1, copy);
+        Some(index + 1)
     }
 
     /// Deletes the slides `indices`; the deck keeps at least one slide.
     pub fn delete_slides(&mut self, indices: &[usize]) {
-        let _ = indices;
+        let mut doomed: Vec<usize> = indices.to_vec();
+        doomed.sort_unstable();
+        doomed.dedup();
+        for i in doomed.into_iter().rev() {
+            if i < self.slides.len() && self.slides.len() > 1 {
+                let gone = self.slides.remove(i);
+                // A section that started on the deleted slide starts on the next one.
+                if let (Some(section), Some(next)) = (gone.section, self.slides.get_mut(i)) {
+                    if next.section.is_none() {
+                        next.section = Some(section);
+                    }
+                }
+            }
+        }
     }
 
     /// Moves the slides `indices` (keeping their order) so they stand
     /// before the slide that was at `to` (`to == len` = the end). Returns
     /// their new indices.
     pub fn move_slides(&mut self, indices: &[usize], to: usize) -> Vec<usize> {
-        let _ = (indices, to);
-        Vec::new()
+        let mut picked: Vec<usize> = indices
+            .iter()
+            .copied()
+            .filter(|&i| i < self.slides.len())
+            .collect();
+        picked.sort_unstable();
+        picked.dedup();
+        if picked.is_empty() {
+            return Vec::new();
+        }
+        let to = to.min(self.slides.len());
+        let before = picked.iter().filter(|&&i| i < to).count();
+        let mut moving = Vec::with_capacity(picked.len());
+        for &i in picked.iter().rev() {
+            moving.push(self.slides.remove(i));
+        }
+        moving.reverse();
+        let at = to - before;
+        let n = moving.len();
+        for (k, slide) in moving.into_iter().enumerate() {
+            self.slides.insert(at + k, slide);
+        }
+        (at..at + n).collect()
     }
 
     /// Gives slide `index` the layout `layout`: the content of every
@@ -1050,18 +1304,96 @@ impl Deck {
     /// placeholder the new layout has no role for stays where it is when it
     /// holds text and goes when empty; new roles get empty placeholders.
     pub fn apply_layout(&mut self, index: usize, layout: LayoutKind) {
-        let _ = (index, layout);
+        if index >= self.slides.len() {
+            return;
+        }
+        let specs = layout.placeholders(self.size);
+        let elements = core::mem::take(&mut self.slides[index].elements);
+        let (mut old, free): (Vec<Element>, Vec<Element>) =
+            elements.into_iter().partition(|e| e.placeholder.is_some());
+        let mut out = Vec::with_capacity(specs.len() + old.len() + free.len());
+        for spec in &specs {
+            let found = old
+                .iter()
+                .position(|e| e.placeholder == Some(spec.role))
+                .or_else(|| {
+                    spec.role
+                        .stand_in()
+                        .and_then(|r| old.iter().position(|e| e.placeholder == Some(r)))
+                });
+            match found {
+                Some(i) => {
+                    let mut e = old.remove(i);
+                    e.frame = spec.frame;
+                    e.placeholder = Some(spec.role);
+                    if let Some(body) = e.body_mut() {
+                        body.size = spec.size;
+                        body.valign = spec.valign;
+                        body.prompt = spec.role.prompt().to_string();
+                        for p in &mut body.paragraphs {
+                            p.bullet = spec.bullets;
+                            p.align = spec.align;
+                        }
+                    }
+                    out.push(e);
+                }
+                None => {
+                    let id = self.mint();
+                    out.push(spec.element(id));
+                }
+            }
+        }
+        // Placeholders the new layout has no room for: kept when they hold
+        // something, dropped when empty.
+        out.extend(
+            old.into_iter()
+                .filter(|e| e.body().map_or(true, |b| !b.is_empty())),
+        );
+        out.extend(free);
+        let slide = &mut self.slides[index];
+        slide.elements = out;
+        slide.layout = layout;
     }
 
     /// Puts slide `index`'s placeholders back where its layout puts them.
     pub fn reset_slide(&mut self, index: usize) {
-        let _ = index;
+        let Some(slide) = self.slides.get_mut(index) else {
+            return;
+        };
+        let specs = slide.layout.placeholders(self.size);
+        for e in &mut slide.elements {
+            let Some(role) = e.placeholder else {
+                continue;
+            };
+            if let Some(spec) = specs.iter().find(|s| s.role == role) {
+                e.set_frame(spec.frame);
+                if let Some(body) = e.body_mut() {
+                    body.size = spec.size;
+                    body.valign = spec.valign;
+                }
+            }
+        }
     }
 
     /// Changes the slide size: every frame scales horizontally with the
     /// width (the height is the same in both sizes).
     pub fn set_size(&mut self, size: SlideSize) {
-        let _ = size;
+        fn scale(e: &mut Element, k: f32) {
+            e.frame.x *= k;
+            e.frame.w *= k;
+            if let ElementKind::Group { children } = &mut e.kind {
+                for c in children.iter_mut() {
+                    scale(c, k);
+                }
+            }
+        }
+        let k = size.width() / self.size.width();
+        for slide in &mut self.slides {
+            for e in &mut slide.elements {
+                scale(e, k);
+            }
+        }
+        self.size = size;
     }
 
     /// The indices of the slides the show visits, in order.
@@ -1082,13 +1414,22 @@ impl Deck {
     /// `deck.json`.
     #[must_use]
     pub fn to_json(&self) -> String {
-        String::new()
+        serde_json::to_string_pretty(self).unwrap_or_default()
     }
 
     /// Reads `deck.json`; a file of another format or a newer version is refused.
     pub fn from_json(text: &str) -> Result<Self, String> {
-        let _ = text;
-        Err(String::from("not implemented"))
+        let deck: Deck = serde_json::from_str(text).map_err(|e| format!("deck.json: {e}"))?;
+        if deck.format != DECK_FORMAT {
+            return Err(format!("not a deck file (format {:?})", deck.format));
+        }
+        if deck.version > DECK_VERSION {
+            return Err(format!(
+                "deck.json version {} is newer than this app reads ({DECK_VERSION})",
+                deck.version
+            ));
+        }
+        Ok(deck)
     }
 }
 
@@ -1127,38 +1468,99 @@ impl ShowState {
     /// The show from slide `from` (the next shown slide at or after it).
     #[must_use]
     pub fn start(deck: &Deck, from: usize) -> Self {
-        let _ = deck;
+        let shown = deck.shown_slides();
+        let slide = shown
+            .iter()
+            .copied()
+            .find(|&i| i >= from)
+            .or_else(|| shown.last().copied())
+            .unwrap_or(0);
         Self {
-            slide: from,
+            slide,
             step: 0,
             blank: None,
             ended: false,
         }
     }
 
+    fn steps_of(deck: &Deck, slide: usize) -> usize {
+        deck.slides.get(slide).map_or(0, |s| s.build_steps().len())
+    }
+
     /// Space / Right / Down / click: the next build step, else the next shown slide.
     pub fn next(&mut self, deck: &Deck) -> ShowMove {
-        let _ = deck;
-        ShowMove::Stay
+        if self.blank.take().is_some() || self.ended {
+            return ShowMove::Stay;
+        }
+        if self.step < Self::steps_of(deck, self.slide) {
+            self.step += 1;
+            return ShowMove::Step;
+        }
+        match self.upcoming(deck) {
+            Some(next) => {
+                self.slide = next;
+                self.step = 0;
+                ShowMove::Slide
+            }
+            None => {
+                self.ended = true;
+                ShowMove::End
+            }
+        }
     }
 
     /// Left / Up / Backspace: the build step before, else the previous
     /// shown slide with all its steps played.
     pub fn prev(&mut self, deck: &Deck) -> ShowMove {
-        let _ = deck;
-        ShowMove::Stay
+        if self.blank.take().is_some() {
+            return ShowMove::Stay;
+        }
+        if self.ended {
+            self.ended = false;
+            return ShowMove::Slide;
+        }
+        if self.step > 0 {
+            self.step -= 1;
+            return ShowMove::Step;
+        }
+        match deck
+            .shown_slides()
+            .into_iter()
+            .rev()
+            .find(|&i| i < self.slide)
+        {
+            Some(prev) => {
+                self.slide = prev;
+                self.step = Self::steps_of(deck, prev);
+                ShowMove::Slide
+            }
+            None => ShowMove::Stay,
+        }
+    }
+
+    /// The presenter's strip or a number + Enter: slide `index`, no builds played.
+    pub fn goto(&mut self, deck: &Deck, index: usize) {
+        if index < deck.slides.len() {
+            self.slide = index;
+            self.step = 0;
+            self.ended = false;
+            self.blank = None;
+        }
     }
 
     /// B / W: a black or white screen, again to take it down.
     pub fn toggle_blank(&mut self, blank: Blank) {
-        let _ = blank;
+        self.blank = if self.blank == Some(blank) {
+            None
+        } else {
+            Some(blank)
+        };
     }
 
     /// The shown slide after the current one, for the presenter's "next".
     #[must_use]
     pub fn upcoming(&self, deck: &Deck) -> Option<usize> {
-        let _ = deck;
-        None
+        deck.shown_slides().into_iter().find(|&i| i > self.slide)
     }
 }
 
