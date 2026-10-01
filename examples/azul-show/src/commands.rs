@@ -232,9 +232,9 @@ fn play(s: &mut AppState, app: &RefAny, info: &mut CallbackInfo, play: Play) {
     let Some(rt) = s.show.as_mut() else {
         return;
     };
-    let running = rt.play.is_some();
     rt.play = Some(play);
-    if !running {
+    if !s.playing_timer {
+        s.playing_timer = true;
         let timer = Timer::create(app.clone(), crate::on_play_tick, info.get_system_time_fn())
             .with_interval(Duration::System(SystemTimeDiff::from_millis(16)));
         info.add_timer(TimerId::unique(), timer);
@@ -491,6 +491,7 @@ pub fn apply(app: &RefAny, s: &mut AppState, cmd: Command, info: &mut CallbackIn
             return Update::RefreshDom;
         }
         C::Mode(dark) => {
+            s.mode_choice = *dark;
             info.set_mode(match dark {
                 Some(true) => OptionDarkLightMode::Some(DarkLightMode::Dark),
                 Some(false) => OptionDarkLightMode::Some(DarkLightMode::Light),

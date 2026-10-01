@@ -191,6 +191,10 @@ pub struct AppState {
     pub args: Args,
     /// The element whose text gets the focus after the next layout.
     pub focus_text: Option<u64>,
+    /// The mode the user chose (Options): dark, light, or the system's.
+    pub mode_choice: Option<bool>,
+    /// The build / transition player's timer is running.
+    pub playing_timer: bool,
 }
 
 impl AppState {
@@ -219,6 +223,8 @@ impl AppState {
             settings_category: 0,
             args,
             focus_text: None,
+            mode_choice: None,
+            playing_timer: false,
         }
     }
 
@@ -243,12 +249,17 @@ impl AppState {
     }
 }
 
+/// The rail's share of the window (the shell's navigation split).
+pub const NAVIGATION_RATIO: f32 = 0.17;
+/// The document's share of the rest (the format pane has the remainder).
+pub const DOCUMENT_RATIO: f32 = 0.78;
+
 /// The room the normal view leaves the slide: the window minus the rail,
 /// the format pane, the title row, the ribbon, the status bar, the notes
 /// and a margin; the slide fitted into it.
 #[must_use]
 pub fn fit_scale(window_w: f32, window_h: f32, slide_w: f32, slide_h: f32, notes: bool) -> f32 {
-    let room_w = window_w - 210.0 - 270.0 - 48.0;
+    let room_w = window_w * (1.0 - NAVIGATION_RATIO) * DOCUMENT_RATIO - 48.0;
     let room_h = window_h - 32.0 - 128.0 - 28.0 - if notes { 120.0 } else { 0.0 } - 48.0;
     (room_w / slide_w).min(room_h / slide_h).clamp(0.05, 4.0)
 }
