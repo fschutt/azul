@@ -12,6 +12,7 @@ Brief: scratchpad/LENIENT_go.md (lenient XML/HTML, components audit, paste parse
 - `7280ef503` GREEN 3: core DOM builders lower-case names, foreign elements dropped only in svg, o:p = Span
 - `8a9e682d7` builder.rs twins (VOID_ELEMENTS / AUTO_CLOSE) -> core is_void_element / start_tag_closes
 - `86aa95f82` RED paste / `f35506a22` GREEN paste (lenient tree, o:p inline, Word mso-list lists)
+- `a69f5195f` RED components / `e6045f05f` GREEN presentational hints / `cb1f1eead` GREEN counters
 
 ## IN PROGRESS
 - Design: one tree construction (`azul_core::xml::html`) for every loader; a lenient
@@ -24,12 +25,9 @@ Brief: scratchpad/LENIENT_go.md (lenient XML/HTML, components audit, paste parse
 - The layout splice (both strict loaders onto the builder, FastDomSink, feed_xml_tokens) is
   parked at scratchpad/lenient/mod.rs.new (made by scratchpad/lenient/splice_loaders.py from the
   base file); layout/src/xml/mod.rs is back at base for the RED commit.
-- NEXT STEP: item 2 components. RED test layout/tests/builtin_elements_honour_their_html_arguments.rs
-  (ol start/type/reversed, li value, ul type, img width%/align/border/hspace, font face/size/color,
-  center, div/p/h align, body bgcolor/text) via parse_html_to_styled_dom + computed props / counters.
-  GREEN in core/src/xml.rs (builtin_data_model fields + apply_builtin_element_args presentational
-  hints) + layout/src/solver3/cache.rs compute_counters (reversed, li value).
-  Then list-style-position: inside (RED + root cause), report.
+- NEXT STEP: list-style-position: inside (find the root cause; the CSS has no `list-style`
+  shorthand - check it), then the report scripts/LENIENT_2026_10_01.md (api.json list:
+  Xml::create_from_html; least-sure spots; test commands; what is left).
 
 ## NEXT
 1. RED: lenient parse of the mail corpus + E-XML-3 (the two loaders agree).
