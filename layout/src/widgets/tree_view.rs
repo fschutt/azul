@@ -3245,6 +3245,43 @@ mod autotest_generated {
         assert_eq!(toggles(&log), vec![(1, true)], "open node 1 (Home) to load it");
         assert!(rv::prevented(&changes));
     }
+
+    /// A file manager's tree takes drops: items dragged onto a row land in
+    /// that folder. With a drop hook every row reports its node on a Drop
+    /// (and stops it there); without one the rows take no drops.
+    #[test]
+    fn a_drop_on_a_row_reports_its_node_when_the_app_listens_for_drops() {
+        let log = new_log();
+        let tv = TreeView::new(drives_tree())
+            .with_on_node_drop(RefAny::new(log.clone()), cb(record_click));
+        assert!(tv.on_node_drop.is_some());
+        let styled = tree_page(tv);
+        let (update, changes) = rv::fire(
+            &styled,
+            row_labelled(&styled, "Home"),
+            EventFilter::Hover(HoverEventFilter::Drop),
+        )
+        .expect("a row carries a drop handler");
+        assert_eq!(entries(&log), vec![1], "node 1 (Home)");
+        assert_eq!(update, Update::RefreshDom, "the app's verdict is forwarded");
+        assert!(
+            changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::StopPropagation)),
+            "the drop stops at the row"
+        );
+
+        let bare = tree_page(TreeView::new(drives_tree()));
+        assert!(
+            rv::fire(
+                &bare,
+                row_labelled(&bare, "Home"),
+                EventFilter::Hover(HoverEventFilter::Drop),
+            )
+            .is_none(),
+            "no hook, no drop handler"
+        );
+    }
 }
 
 /// The tree's two looks (W5b). Flat is the established field; flora is a
