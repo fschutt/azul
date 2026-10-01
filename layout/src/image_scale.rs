@@ -659,6 +659,53 @@ mod tests {
         }
     }
 
+    // --- thumbnails --------------------------------------------------------
+
+    /// A file manager's Large icons show pictures as thumbnails: an image
+    /// scaled down to a box, its aspect kept, never enlarged, as straight
+    /// RGBA8 - a few kilobytes on the GPU instead of the whole photo.
+    #[test]
+    fn a_thumbnail_fits_the_box_keeps_the_aspect_and_never_enlarges() {
+        use azul_core::resources::{RawImage, RawImageData};
+        use azul_css::{F32Vec, U8Vec};
+
+        assert_eq!(fit_within(400, 200, 100, 100), (100, 50));
+        assert_eq!(fit_within(200, 400, 100, 100), (50, 100));
+        assert_eq!(fit_within(40, 20, 100, 100), (40, 20), "never enlarged");
+        assert_eq!(fit_within(1000, 1, 10, 10), (10, 1), "at least one pixel");
+        assert_eq!(fit_within(0, 10, 10, 10), (0, 0), "nothing to fit");
+
+        let green = RawImage {
+            pixels: RawImageData::U8(U8Vec::from_vec([0u8, 200, 0, 255].repeat(8))),
+            width: 4,
+            height: 2,
+            premultiplied_alpha: false,
+            data_format: RawImageFormat::RGBA8,
+            tag: U8Vec::from_vec(Vec::new()),
+        };
+        let thumb = thumbnail(&green, 2, 2).expect("an RGBA8 source scales");
+        assert_eq!((thumb.width, thumb.height), (2, 1));
+        assert_eq!(thumb.data_format, RawImageFormat::RGBA8);
+        match &thumb.pixels {
+            RawImageData::U8(bytes) => {
+                assert_eq!(bytes.as_ref(), &[0, 200, 0, 255, 0, 200, 0, 255]);
+            }
+            other => panic!("not 8-bit pixels: {other:?}"),
+        }
+        let small = thumbnail(&green, 100, 100).expect("a small source");
+        assert_eq!((small.width, small.height), (4, 2), "a small image keeps its size");
+
+        let hdr = RawImage {
+            pixels: RawImageData::F32(F32Vec::from_vec(Vec::new())),
+            width: 2,
+            height: 2,
+            premultiplied_alpha: false,
+            data_format: RawImageFormat::RGBAF32,
+            tag: U8Vec::from_vec(Vec::new()),
+        };
+        assert!(thumbnail(&hdr, 2, 2).is_none(), "a float image is not sampled");
+    }
+
     // --- consumers ---------------------------------------------------------
 
     #[test]
