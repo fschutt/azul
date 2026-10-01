@@ -248,3 +248,317 @@ extern "C" fn on_caret_timer(_data: RefAny, info: TimerCallbackInfo) -> TimerCal
     callback_info.reset_editor_content(host, false);
     TimerCallbackReturn::terminate_unchanged()
 }
+
+// ==== The window ====
+
+/// The compose this window shows (its layout callback's context).
+fn compose_id_of(info: &LayoutCallbackInfo) -> Option<u64> {
+    let mut ctx = info.get_ctx().into_option()?;
+    let id = ctx.downcast_ref::<ComposeKey>().map(|k| k.0);
+    id
+}
+
+/// A compose window's layout.
+pub(crate) extern "C" fn layout_compose(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    let _mode = info.get_mode();
+    let app = data.clone();
+    let Some(id) = compose_id_of(&info) else {
+        return Dom::create_body();
+    };
+    let Some(guard) = data.downcast_ref::<MailApp>() else {
+        return Dom::create_body();
+    };
+    let s = &*guard;
+    let Some(c) = s.composes.iter().find(|c| c.id == id) else {
+        return Dom::create_body()
+            .with_child(Dom::create_span_with_text("This message was closed."));
+    };
+    let mut document = Dom::create_div()
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+        .with_child(header_block(c, &app));
+    if c.show_link {
+        document.add_child(link_bar(c, &app));
+    }
+    if !c.attachments.is_empty() {
+        document.add_child(attachments_row(c, &app));
+    }
+    document.add_child(editor_dom(c, &app));
+    let shell = DocumentShell::create(document)
+        .with_ribbon(compose_ribbon(c, &app))
+        .with_status_bar(status_bar(c));
+    let column = Dom::create_div()
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+        .with_child(
+            Titlebar::create(compose::window_title(&c.subject))
+                .without_border_bottom()
+                .dom(),
+        )
+        .with_child(shell.dom());
+    Dom::create_body()
+        .with_css("display: flex; flex-direction: column; margin: 0px;")
+        .with_child(
+            ShellThemeScope::create(column)
+                .with_accent(ShellThemeAccent::Blue)
+                .dom(),
+        )
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::VirtualKeyDown),
+            compose_ref(&app, id),
+            on_compose_key,
+        )
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::CloseRequested),
+            compose_ref(&app, id),
+            on_compose_close_requested,
+        )
+}
+
+/// What a ribbon button or a key does in the compose window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ComposeAction {
+    Send,
+    Save,
+    Discard,
+    Bold,
+    Italic,
+    Underline,
+    Bullets,
+    Numbering,
+    AttachFile,
+    ToggleLink,
+    InsertLink,
+    RemoveAttachment(usize),
+}
+
+struct ComposeActionRef {
+    app: RefAny,
+    id: u64,
+    action: ComposeAction,
+}
+
+fn action_ref(app: &RefAny, id: u64, action: ComposeAction) -> RefAny {
+    RefAny::new(ComposeActionRef {
+        app: app.clone(),
+        id,
+        action,
+    })
+}
+
+fn compose_ribbon(c: &Compose, app: &RefAny) -> Dom {
+    let button = |icon: &str, label: &str, action: ComposeAction| {
+        RibbonButton::create(icon, label).with_on_click(
+            action_ref(app, c.id, action),
+            on_compose_action as ButtonOnClickCallbackType,
+        )
+    };
+    let small = |icon: &str, label: &str, action: ComposeAction| {
+        RibbonItem::SmallButton(button(icon, label, action))
+    };
+    let message = RibbonTab::create("Message")
+        .with_group(
+            RibbonGroup::create("Basic Text")
+                .with_item(small("format_bold", "Bold", ComposeAction::Bold))
+                .with_item(small("format_italic", "Italic", ComposeAction::Italic))
+                .with_item(small("format_underlined", "Underline", ComposeAction::Underline))
+                .with_item(small("format_list_bulleted", "Bullets", ComposeAction::Bullets))
+                .with_item(small("format_list_numbered", "Numbering", ComposeAction::Numbering)),
+        )
+        .with_group(
+            RibbonGroup::create("Include")
+                .with_item(RibbonItem::LargeButton(button(
+                    "attach_file",
+                    "Attach File",
+                    ComposeAction::AttachFile,
+                )))
+                .with_item(RibbonItem::SmallButton(
+                    button("link", "Link", ComposeAction::ToggleLink).with_toggled(c.show_link),
+                )),
+        )
+        .with_group(
+            RibbonGroup::create("Save")
+                .with_item(small("save", "Save Draft", ComposeAction::Save))
+                .with_item(small("delete", "Discard", ComposeAction::Discard)),
+        );
+    Ribbon::create(vec![message]).dom_desktop()
+}
+
+/// A compose field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ComposeField {
+    To,
+    Cc,
+    Bcc,
+    Subject,
+    Link,
+}
+
+struct ComposeFieldRef {
+    app: RefAny,
+    id: u64,
+    field: ComposeField,
+}
+
+fn field_input(app: &RefAny, id: u64, field: ComposeField, value: &str, dom_id: &str) -> Dom {
+    TextInput::create()
+        .with_text(value)
+        .with_on_text_input(
+            RefAny::new(ComposeFieldRef {
+                app: app.clone(),
+                id,
+                field,
+            }),
+            on_compose_field as TextInputOnTextInputCallbackType,
+        )
+        .dom()
+        .with_id(dom_id)
+        .with_css("flex-grow: 1;")
+}
+
+/// Send beside the From / To / Cc / Bcc / Subject rows.
+fn header_block(c: &Compose, app: &RefAny) -> Dom {
+    let row = |label: &str, field: Dom| {
+        Dom::create_div()
+            .with_css("display: flex; flex-direction: row; align-items: center; margin-bottom: 4px;")
+            .with_child(
+                Dom::create_span_with_text(label)
+                    .with_css("width: 64px; flex-shrink: 0; font-size: 13px;"),
+            )
+            .with_child(field)
+    };
+    let send_label = match &c.status {
+        ComposeStatus::Sending => "Sending...",
+        ComposeStatus::Queued(_) => "Queued",
+        _ => "Send",
+    };
+    let send = Button::with_type(send_label, ButtonType::Primary)
+        .with_icon("send")
+        .with_on_click(
+            action_ref(app, c.id, ComposeAction::Send),
+            on_compose_action as ButtonOnClickCallbackType,
+        )
+        .dom()
+        .with_id("compose-send")
+        .with_css("width: 72px; min-height: 64px; margin-right: 10px;");
+    let fields = Dom::create_div()
+        .with_css("display: flex; flex-direction: column; flex-grow: 1;")
+        .with_child(row(
+            "From",
+            Dom::create_span_with_text(c.from.as_str()).with_css("font-size: 13px;"),
+        ))
+        .with_child(row(
+            "To...",
+            field_input(app, c.id, ComposeField::To, &c.to, "compose-to"),
+        ))
+        .with_child(row(
+            "Cc...",
+            field_input(app, c.id, ComposeField::Cc, &c.cc, "compose-cc"),
+        ))
+        .with_child(row(
+            "Bcc...",
+            field_input(app, c.id, ComposeField::Bcc, &c.bcc, "compose-bcc"),
+        ))
+        .with_child(row(
+            "Subject:",
+            field_input(app, c.id, ComposeField::Subject, &c.subject, "compose-subject"),
+        ));
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: row; padding: 10px 14px 6px 14px; flex-shrink: 0;")
+        .with_child(send)
+        .with_child(fields)
+}
+
+/// Insert Link: the address, and the button that makes the selection (or the address) a link.
+fn link_bar(c: &Compose, app: &RefAny) -> Dom {
+    Dom::create_div()
+        .with_css(
+            "display: flex; flex-direction: row; align-items: center; padding: 0px 14px 6px \
+             96px; flex-shrink: 0;",
+        )
+        .with_child(Dom::create_span_with_text("Address:").with_css("font-size: 13px; margin-right: 8px;"))
+        .with_child(field_input(app, c.id, ComposeField::Link, &c.link, "compose-link"))
+        .with_child(
+            Button::create("Insert Link")
+                .with_on_click(
+                    action_ref(app, c.id, ComposeAction::InsertLink),
+                    on_compose_action as ButtonOnClickCallbackType,
+                )
+                .dom()
+                .with_css("margin-left: 8px;"),
+        )
+}
+
+/// The attached files, each with Remove.
+fn attachments_row(c: &Compose, app: &RefAny) -> Dom {
+    let mut row = Dom::create_div().with_css(
+        "display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; padding: 0px \
+         14px 6px 96px; flex-shrink: 0;",
+    );
+    row.add_child(Dom::create_span_with_text("Attached:").with_css("font-size: 13px; margin-right: 8px;"));
+    for (i, file) in c.attachments.iter().enumerate() {
+        row.add_child(
+            Dom::create_span_with_text(format!("{} ({} KB)", file.name, (file.size + 1023) / 1024))
+                .with_css("font-size: 13px; margin-right: 4px;"),
+        );
+        row.add_child(
+            Button::create("Remove")
+                .with_on_click(
+                    action_ref(app, c.id, ComposeAction::RemoveAttachment(i)),
+                    on_compose_action as ButtonOnClickCallbackType,
+                )
+                .dom()
+                .with_css("margin-right: 12px;"),
+        );
+    }
+    row
+}
+
+/// The editor: the model's host, with the engine's edit events.
+fn editor_dom(c: &Compose, app: &RefAny) -> Dom {
+    let host = c
+        .body
+        .clone()
+        .with_callback(
+            EventFilter::Focus(FocusEventFilter::TextChanged),
+            compose_ref(app, c.id),
+            on_compose_text_changed,
+        )
+        .with_callback(
+            EventFilter::Focus(FocusEventFilter::DocumentEdit),
+            compose_ref(app, c.id),
+            on_compose_document_edit,
+        );
+    Dom::create_div()
+        .with_css(
+            "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; padding: 0px \
+             14px 14px 14px;",
+        )
+        .with_child(host)
+}
+
+/// The status line: what Save / Send did.
+fn status_bar(c: &Compose) -> Dom {
+    let text = match &c.status {
+        ComposeStatus::Editing => match c.kind {
+            ComposeKind::Reply | ComposeKind::ReplyAll => String::from("Reply"),
+            ComposeKind::Forward => String::from("Forward"),
+            ComposeKind::Draft => String::from("Draft"),
+            ComposeKind::New => String::from("New message"),
+        },
+        ComposeStatus::Saving => String::from("Saving the draft..."),
+        ComposeStatus::Saved(at) => format!("Draft saved at {at}."),
+        ComposeStatus::Sending => String::from("Sending..."),
+        ComposeStatus::Queued(reason) => {
+            format!("In the Outbox, sent with the next Send/Receive: {reason}")
+        }
+        ComposeStatus::Failed(reason) => format!("Not sent: {reason}"),
+        ComposeStatus::Problem(text) => text.clone(),
+    };
+    let mut segments = vec![StatusBarSegment::create(text)];
+    if !c.attachments.is_empty() {
+        segments.push(StatusBarSegment::create(format!(
+            "{} attachment(s)",
+            c.attachments.len()
+        )));
+    }
+    StatusBar::create(segments).dom()
+}
