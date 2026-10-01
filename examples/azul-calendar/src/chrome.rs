@@ -382,3 +382,398 @@ fn todo_bar(s: &CalState, app: &RefAny) -> Dom {
     .with_id("todo-bar")
 }
 
+// ==== Backstage ====
+
+/// FILE: the pages, Options and About under a gap.
+fn backstage(s: &CalState, app: &RefAny, page: BackstagePage) -> Dom {
+    let items: Vec<BackstageNavItem> = BackstagePage::ALL
+        .iter()
+        .map(|p| {
+            let item = BackstageNavItem::create(p.label());
+            if *p == BackstagePage::Options {
+                item.with_gap_before()
+            } else {
+                item
+            }
+        })
+        .collect();
+    let content = match page {
+        BackstagePage::Info => info_page(s, app),
+        BackstagePage::Open => open_page(s, app),
+        BackstagePage::Print => print_page(app),
+        BackstagePage::Calendars => calendars_page(s, app),
+        BackstagePage::Options => options_page(s, app),
+        BackstagePage::About => about_page(),
+    };
+    Backstage::create(items)
+        .with_active_item(page.index())
+        .with_on_nav_select(app.clone(), on_backstage_nav)
+        .with_on_back(app.clone(), on_backstage_back)
+        .with_content(content.with_id(format!("backstage-{}", page.name())))
+        .dom()
+}
+
+fn page_title(text: &str) -> Dom {
+    Dom::create_span_with_text(text).with_css("font-size: 28px; margin-bottom: 8px;")
+}
+
+fn heading(text: &str) -> Dom {
+    Dom::create_span_with_text(text)
+        .with_css("font-size: 16px; font-weight: bold; margin-top: 22px; margin-bottom: 4px;")
+}
+
+fn note(text: &str) -> Dom {
+    Dom::create_span_with_text(text).with_css(format!("font-size: 12px; {SECONDARY} margin-top: 4px;"))
+}
+
+fn line(children: Vec<Dom>) -> Dom {
+    let mut row = Dom::create_div()
+        .with_css("display: flex; flex-direction: row; align-items: center; margin-top: 8px;");
+    for c in children {
+        row.add_child(c);
+    }
+    row
+}
+
+fn button(label: &str, id: &str, app: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
+    Button::create(label)
+        .with_on_click(app.clone(), cb)
+        .dom()
+        .with_id(id)
+        .with_css("margin-right: 8px;")
+}
+
+fn primary(label: &str, id: &str, app: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
+    Button::with_type(label, ButtonType::Primary)
+        .with_on_click(app.clone(), cb)
+        .dom()
+        .with_id(id)
+        .with_css("margin-right: 8px;")
+}
+
+/// A text field growing to its row's width.
+fn text_field(
+    text: &str,
+    placeholder: &str,
+    name: &str,
+    id: &str,
+    data: RefAny,
+    cb: TextInputOnTextInputCallbackType,
+) -> Dom {
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-width: 0; margin-right: 8px;")
+        .with_child(
+            TextInput::create()
+                .with_text(text)
+                .with_placeholder(placeholder)
+                .with_accessibility_name(name)
+                .with_on_text_input(data, cb)
+                .dom()
+                .with_id(id),
+        )
+}
+
+fn choices(labels: Vec<String>, selected: usize, name: &str, id: &str, data: RefAny, cb: azul::callbacks::DropDownOnChoiceChangeCallbackType) -> Dom {
+    DropDown::create(StringVec::from(
+        labels.into_iter().map(AzString::from).collect::<Vec<AzString>>(),
+    ))
+    .with_selected(selected)
+    .with_accessibility_name(name)
+    .with_on_choice_change(data, cb)
+    .dom()
+    .with_id(id)
+    .with_css("margin-right: 8px;")
+}
+
+/// How the meeting links stand, in a sentence.
+fn sync_status(s: &CalState) -> String {
+    match (s.pending_links(), s.sync_error.is_empty()) {
+        (0, _) => String::from("Every meeting link is on the meeting server."),
+        (1, true) => String::from("1 meeting link is being sent to the meeting server."),
+        (n, true) => format!("{n} meeting links are being sent to the meeting server."),
+        (1, false) => format!("1 meeting link waits: {}", s.sync_error),
+        (n, false) => format!("{n} meeting links wait: {}", s.sync_error),
+    }
+}
+
+/// Info: where the calendar is, what it holds, the meeting server.
+fn info_page(s: &CalState, app: &RefAny) -> Dom {
+    let repeating = s.events.iter().filter(|e| e.repeat.is_some()).count();
+    Dom::create_div()
+        .with_css(PAGE)
+        .with_child(page_title("Calendar information"))
+        .with_child(heading("Calendar"))
+        .with_child(note(&format!(
+            "{} events ({repeating} repeating) in {} calendars, {} tasks.",
+            s.events.len(),
+            s.calendars.len(),
+            s.tasks.len()
+        )))
+        .with_child(note(&format!("Data folder: {}", s.data_dir.display())))
+        .with_child(heading("Meeting server"))
+        .with_child(note(&s.server))
+        .with_child(note(&sync_status(s)))
+        .with_child(line(vec![button(
+            "Sync meeting links now",
+            "info-sync",
+            app,
+            crate::on_sync_now,
+        )]))
+}
+
+/// The calendars' names for a list, with one choice more at the end (`last`).
+fn calendar_names(s: &CalState, last: &str) -> Vec<String> {
+    let mut names: Vec<String> = s.calendars.iter().map(|c| c.name.clone()).collect();
+    names.push(last.to_string());
+    names
+}
+
+/// Open & Export: import an .ics file (a path, or Browse), into a calendar; export one (or
+/// all) as an .ics file.
+fn open_page(s: &CalState, app: &RefAny) -> Dom {
+    let mut page = Dom::create_div()
+        .with_css(PAGE)
+        .with_child(page_title("Open & Export"))
+        .with_child(heading("Import an iCalendar file (.ics)"))
+        .with_child(note(
+            "Events from Outlook, Google Calendar, Apple Calendar and others. An event imported \
+             again is updated, not added twice.",
+        ))
+        .with_child(line(vec![
+            text_field(
+                &s.import_path,
+                "/path/to/calendar.ics",
+                "File to import",
+                "import-path",
+                app.clone(),
+                on_import_path,
+            ),
+            button("Browse\u{2026}", "import-browse", app, on_import_browse),
+        ]))
+        .with_child(line(vec![
+            Dom::create_span_with_text("Into").with_css(format!("margin-right: 8px; {SECONDARY}")),
+            choices(
+                calendar_names(s, "A new calendar named after the file"),
+                s.import_calendar.min(s.calendars.len()),
+                "Import into",
+                "import-calendar",
+                app.clone(),
+                on_import_calendar,
+            ),
+            primary("Import", "import-run", app, on_import_run),
+        ]))
+        .with_child(heading("Export a calendar as an iCalendar file"))
+        .with_child(line(vec![
+            text_field(
+                &s.export_path,
+                "/path/to/calendar.ics",
+                "File to export to",
+                "export-path",
+                app.clone(),
+                on_export_path,
+            ),
+            button("Browse\u{2026}", "export-browse", app, on_export_browse),
+        ]))
+        .with_child(line(vec![
+            Dom::create_span_with_text("Calendar")
+                .with_css(format!("margin-right: 8px; {SECONDARY}")),
+            choices(
+                calendar_names(s, "All calendars"),
+                s.export_calendar.min(s.calendars.len()),
+                "Calendar to export",
+                "export-calendar",
+                app.clone(),
+                on_export_calendar,
+            ),
+            primary("Export", "export-run", app, on_export_run),
+        ]));
+    if !s.io_message.is_empty() {
+        let css = if s.io_failed {
+            ERROR.to_string()
+        } else {
+            format!("font-size: 13px; margin-top: 12px; {SECONDARY}")
+        };
+        page.add_child(
+            Dom::create_span_with_text(s.io_message.as_str())
+                .with_id("io-message")
+                .with_css(css),
+        );
+    }
+    page
+}
+
+/// Print: later.
+fn print_page(app: &RefAny) -> Dom {
+    ShellEmptyState::create("Printing comes later")
+        .with_icon("print")
+        .with_detail("Meanwhile, Open & Export saves a calendar as an .ics file.")
+        .with_action_label("Open & Export")
+        .with_on_action(app.clone(), on_open_page)
+        .dom()
+}
+
+/// Calendars: each with its name (Enter renames), colour and Remove; and a new one.
+fn calendars_page(s: &CalState, app: &RefAny) -> Dom {
+    let mut page = Dom::create_div()
+        .with_css(PAGE)
+        .with_child(page_title("Calendars"))
+        .with_child(note(
+            "Press Enter in a name to rename its calendar. Removing a calendar moves its events \
+             into the first one.",
+        ));
+    let colours: Vec<String> = Colour::ALL.iter().map(|c| c.label().to_string()).collect();
+    for (index, c) in s.calendars.iter().enumerate() {
+        let target = || {
+            RefAny::new(CalendarRef {
+                app: app.clone(),
+                id: c.id.clone(),
+            })
+        };
+        let mut row = vec![
+            Dom::create_div().with_css(format!(
+                "width: 14px; height: 14px; border-radius: 3px; margin-right: 8px; flex-shrink: \
+                 0; {}",
+                c.colour.swatch_css()
+            )),
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: column; flex-grow: 1; min-width: 0; margin-right: 8px;")
+                .with_child(
+                    TextInput::create()
+                        .with_text(c.name.as_str())
+                        .with_accessibility_name(format!("Name of {}", c.name))
+                        .with_on_virtual_key_down(target(), on_calendar_rename as TextInputOnVirtualKeyDownCallbackType)
+                        .dom()
+                        .with_id(format!("calendar-name-{index}")),
+                ),
+            choices(
+                colours.clone(),
+                Colour::ALL.iter().position(|x| *x == c.colour).unwrap_or(0),
+                &format!("Colour of {}", c.name),
+                &format!("calendar-colour-{index}"),
+                target(),
+                on_calendar_colour,
+            ),
+        ];
+        if !c.is_default() {
+            row.push(
+                Button::create("Remove")
+                    .with_on_click(target(), on_calendar_remove)
+                    .dom()
+                    .with_id(format!("calendar-remove-{index}")),
+            );
+        }
+        page.add_child(line(row));
+    }
+    page.add_child(heading("New calendar"));
+    page.add_child(line(vec![
+        text_field(
+            &s.calendar_name,
+            "Name",
+            "New calendar's name",
+            "calendar-new",
+            app.clone(),
+            on_new_calendar_name,
+        ),
+        primary("Add", "calendar-add", app, on_calendar_add),
+    ]));
+    if !s.calendar_error.is_empty() {
+        page.add_child(Dom::create_span_with_text(s.calendar_error.as_str()).with_css(ERROR));
+    }
+    page
+}
+
+/// Options: the meeting server, and the look.
+fn options_page(s: &CalState, app: &RefAny) -> Dom {
+    let mut server = Dom::create_div()
+        .with_css("display: flex; flex-direction: column;")
+        .with_child(Dom::create_span_with_text("Meeting server").with_css(LABEL))
+        .with_child(line(vec![text_field(
+            &s.server_text,
+            "https://meet.example.com",
+            "Meeting server",
+            "settings-server",
+            app.clone(),
+            on_server_text,
+        )]))
+        .with_child(note(
+            "AzMeet links are made on this computer, so they work offline; this server gets \
+             them as soon as it answers.",
+        ))
+        .with_child(note(&sync_status(s)));
+    if !s.server_error.is_empty() {
+        server.add_child(Dom::create_span_with_text(s.server_error.as_str()).with_css(ERROR));
+    }
+    let server = server.with_child(line(vec![
+        button("Sync now", "settings-sync", app, crate::on_sync_now),
+        primary("Save", "settings-save", app, on_server_save),
+    ]));
+    let check = |checked: bool, label: &str, id: &str, cb: CheckBoxOnToggleCallbackType| {
+        line(vec![
+            CheckBox::create(checked)
+                .with_accessibility_name(label)
+                .with_on_toggle(app.clone(), cb)
+                .dom()
+                .with_id(id),
+            Dom::create_span_with_text(label).with_css("margin-left: 6px;"),
+        ])
+    };
+    let look = Dom::create_div()
+        .with_css("display: flex; flex-direction: column;")
+        .with_child(Dom::create_span_with_text("Theme and mode").with_css(LABEL))
+        .with_child(line(vec![
+            button("Flat", "settings-flat", app, on_flat),
+            button("Flora", "settings-flora", app, on_flora),
+            button("Light", "settings-light", app, on_light),
+            button("Dark", "settings-dark", app, on_dark),
+        ]))
+        .with_child(check(s.todo_bar, "Show the To-Do bar", "settings-todo", on_todo_checked))
+        .with_child(check(
+            !s.nav_folded,
+            "Show the navigation pane",
+            "settings-navigation",
+            on_navigation_checked,
+        ));
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0;")
+        .with_child(
+            ShellSettingsLayout::create(StringVec::from(vec![
+                AzString::from("Meeting server"),
+                AzString::from("Appearance"),
+            ]))
+            .with_section(ShellSettingsSection::create("Meeting server", server))
+            .with_section(ShellSettingsSection::create("Appearance", look))
+            .with_active_category(s.options_category)
+            .with_on_category(app.clone(), on_options_category)
+            .dom(),
+        )
+}
+
+/// About: what this is, and its keys.
+fn about_page() -> Dom {
+    let keys = [
+        ("Ctrl / Cmd + N", "New appointment"),
+        ("Ctrl / Cmd + Shift + Q", "New meeting"),
+        ("Ctrl / Cmd + Alt + 1 .. 6", "Day, Work Week, Week, Month, Schedule View, List"),
+        ("Ctrl / Cmd + T", "Today"),
+        ("Alt + Left / Right", "Back, forward"),
+        ("F6 / Shift + F6", "The next / previous pane"),
+        ("Ctrl / Cmd + S", "Save & Close, in the event window"),
+    ];
+    let mut page = Dom::create_div()
+        .with_css(PAGE)
+        .with_child(page_title("AzCalendar"))
+        .with_child(note(&format!("Version {}", env!("CARGO_PKG_VERSION"))))
+        .with_child(note(
+            "A calendar like Outlook's, on the azul GUI toolkit: events are files, AzMeet links \
+             are made offline, .ics files come in and go out.",
+        ))
+        .with_child(heading("Keyboard shortcuts"));
+    for (key, what) in keys {
+        page.add_child(line(vec![
+            Dom::create_span_with_text(key).with_css("width: 220px; flex-shrink: 0; font-weight: bold;"),
+            Dom::create_span_with_text(what),
+        ]));
+    }
+    page
+}
+
