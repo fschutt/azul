@@ -508,6 +508,12 @@ pub fn outgoing(fields: &ComposeFields, attachments: Vec<Attachment>) -> Result<
     })
 }
 
+/// The mail a DRAFT is saved as: like [`outgoing`], but nothing is checked - a draft may have
+/// no recipient yet, or half an address.
+pub fn draft_mail(fields: &ComposeFields, attachments: Vec<Attachment>) -> OutgoingMail {
+    todo!()
+}
+
 /// The media type of a file by its extension (`application/octet-stream` for anything unknown).
 pub fn mime_type_for(file_name: &str) -> &'static str {
     let extension = file_name
@@ -1041,6 +1047,24 @@ mod tests {
             ..fields()
         };
         assert_eq!(outgoing(&no_from, Vec::new()).unwrap_err(), ComposeError::NoSender);
+    }
+
+    #[test]
+    fn a_draft_is_saved_as_typed_even_without_recipients() {
+        let half = ComposeFields {
+            to: String::from("Ben Okaf"),
+            cc: String::new(),
+            bcc: String::new(),
+            ..fields()
+        };
+        let mail = draft_mail(&half, Vec::new());
+        assert_eq!(mail.to, vec![String::from("Ben Okaf")]);
+        assert!(mail.cc.is_empty() && mail.bcc.is_empty());
+        assert_eq!(mail.subject, "Re: Garden plan");
+        assert_eq!(mail.text_body, "See you.\n");
+        assert_eq!(mail.in_reply_to.as_deref(), Some("garden-1@example.org"));
+        let full = outgoing(&fields(), Vec::new()).unwrap();
+        assert_eq!(draft_mail(&fields(), Vec::new()), full, "a complete draft is the mail itself");
     }
 
     #[test]
