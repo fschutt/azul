@@ -906,7 +906,7 @@ impl ListView {
     /// `(total, total)` once scrolled past the end.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
     #[must_use]
-    pub fn visible_row_range(
+    pub(crate) fn visible_row_range(
         scroll_y: f32,
         viewport_height: f32,
         row_height: f32,
