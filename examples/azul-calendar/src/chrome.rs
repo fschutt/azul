@@ -777,3 +777,798 @@ fn about_page() -> Dom {
     page
 }
 
+// ==== Callbacks: ribbon, menu, views ====
+
+/// Runs `f` on the app's state.
+fn with_state(data: &mut RefAny, f: impl FnOnce(&mut CalState) -> Update) -> Update {
+    match data.downcast_mut::<CalState>() {
+        Some(mut s) => f(&mut *s),
+        None => Update::DoNothing,
+    }
+}
+
+fn show_view(data: &mut RefAny, view: ViewKind) -> Update {
+    with_state(data, |s| {
+        s.set_view(view);
+        Update::RefreshDom
+    })
+}
+
+pub(crate) extern "C" fn on_view_day(mut data: RefAny, _info: CallbackInfo) -> Update {
+    show_view(&mut data, ViewKind::Day)
+}
+
+pub(crate) extern "C" fn on_view_work_week(mut data: RefAny, _info: CallbackInfo) -> Update {
+    show_view(&mut data, ViewKind::WorkWeek)
+}
+
+pub(crate) extern "C" fn on_view_week(mut data: RefAny, _info: CallbackInfo) -> Update {
+    show_view(&mut data, ViewKind::Week)
+}
+
+pub(crate) extern "C" fn on_view_month(mut data: RefAny, _info: CallbackInfo) -> Update {
+    show_view(&mut data, ViewKind::Month)
+}
+
+pub(crate) extern "C" fn on_view_schedule(mut data: RefAny, _info: CallbackInfo) -> Update {
+    show_view(&mut data, ViewKind::Schedule)
+}
+
+pub(crate) extern "C" fn on_view_agenda(mut data: RefAny, _info: CallbackInfo) -> Update {
+    show_view(&mut data, ViewKind::Agenda)
+}
+
+/// VIEW > Calendar: back from the list to the week.
+extern "C" fn on_view_calendar(mut data: RefAny, _info: CallbackInfo) -> Update {
+    with_state(&mut data, |s| {
+        if s.view == ViewKind::Agenda {
+            s.set_view(ViewKind::Week);
+            Update::RefreshDom
+        } else {
+            Update::DoNothing
+        }
+    })
+}
+
+/// Go To Today: the view moves to today.
+pub(crate) extern "C" fn on_today(mut data: RefAny, _info: CallbackInfo) -> Update {
+    with_state(&mut data, |s| {
+        s.today = chrono::Local::now().date_naive();
+        let today = s.today;
+        s.backstage = None;
+        s.set_anchor(today);
+        Update::RefreshDom
+    })
+}
+
+/// Next 7 Days: the list, from today.
+extern "C" fn on_next_seven_days(mut data: RefAny, _info: CallbackInfo) -> Update {
+    with_state(&mut data, |s| {
+        let today = s.today;
+        s.set_view(ViewKind::Agenda);
+        s.set_anchor(today);
+        Update::RefreshDom
+    })
+}
+
+extern "C" fn on_share(mut data: RefAny, _info: CallbackInfo) -> Update {
+    with_state(&mut data, |s| {
+        s.notice = String::from(
+            "Sharing calendars comes later. Meanwhile, FILE > Open & Export saves a calendar as \
+             an .ics file anyone can import.",
+        );
+        Update::RefreshDom
+    })
+}
+
+fn open_page(data: &mut RefAny, page: BackstagePage) -> Update {
+    with_state(data, |s| {
+        s.backstage = Some(page);
+        Update::RefreshDom
+    })
+}
+
+/// FILE: the backstage, on Info.
+extern "C" fn on_file(mut data: RefAny, _info: CallbackInfo) -> Update {
+    open_page(&mut data, BackstagePage::Info)
+}
+
+/// Open Calendar / Open & Export: the backstage page that imports and exports .ics files.
+pub(crate) extern "C" fn on_open_page(mut data: RefAny, _info: CallbackInfo) -> Update {
+    open_page(&mut data, BackstagePage::Open)
+}
+
+pub(crate) extern "C" fn on_calendars_page(mut data: RefAny, _info: CallbackInfo) -> Update {
+    open_page(&mut data, BackstagePage::Calendars)
+}
+
+pub(crate) extern "C" fn on_options_page(mut data: RefAny, _info: CallbackInfo) -> Update {
+    open_page(&mut data, BackstagePage::Options)
+}
+
+extern "C" fn on_backstage_nav(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
+    with_state(&mut data, |s| {
+        s.backstage = BackstagePage::at(index).or(s.backstage);
+        Update::RefreshDom
+    })
+}
+
+extern "C" fn on_backstage_back(mut data: RefAny, _info: CallbackInfo) -> Update {
+    with_state(&mut data, |s| {
+        s.backstage = None;
+        Update::RefreshDom
+    })
+}
+
+extern "C" fn on_ribbon_tab(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
+    with_state(&mut data, |s| {
+        s.ribbon_tab = index;
+        Update::RefreshDom
+    })
+}
+
+extern "C" fn on_options_category(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
+    with_state(&mut data, |s| {
+        s.options_category = index;
+        Update::RefreshDom
+    })
+}
+
+/// Shows or folds the navigation pane, and keeps it so for the next start.
+fn set_navigation(s: &mut CalState, shown: bool) {
+    s.nav_folded = !shown;
+    s.save_setting(&settings::line(
+        settings::NAVIGATION_FOLDED_KEY,
+        if s.nav_folded { "1" } else { "0" },
+    ));
+}
+
+/// Shows or hides the To-Do bar, and keeps it so for the next start.
+fn set_todo_bar(s: &mut CalState, shown: bool) {
+    s.todo_bar = shown;
+    s.save_setting(&settings::line(
+        settings::TODO_BAR_KEY,
+        if shown { "1" } else { "0" },
+    ));
+}
+
+extern "C" fn on_toggle_navigation(mut data: RefAny, _info: CallbackInfo) -> Update {
+    with_state(&mut data, |s| {
+        let shown = s.nav_folded;
+        set_navigation(s, shown);
+        Update::RefreshDom
+    })
+}
+
+extern "C" fn on_toggle_todo(mut data: RefAny, _info: CallbackInfo) -> Update {
+    with_state(&mut data, |s| {
+        let shown = !s.todo_bar;
+        set_todo_bar(s, shown);
+        Update::RefreshDom
+    })
+}
+
+extern "C" fn on_navigation_checked(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: CheckBoxState,
+) -> Update {
+    with_state(&mut data, |s| {
+        set_navigation(s, state.checked);
+        Update::RefreshDom
+    })
+}
+
+extern "C" fn on_todo_checked(mut data: RefAny, _info: CallbackInfo, state: CheckBoxState) -> Update {
+    with_state(&mut data, |s| {
+        set_todo_bar(s, state.checked);
+        Update::RefreshDom
+    })
+}
+
+extern "C" fn on_flat(_data: RefAny, mut info: CallbackInfo) -> Update {
+    info.set_theme("flat");
+    Update::DoNothing
+}
+
+extern "C" fn on_flora(_data: RefAny, mut info: CallbackInfo) -> Update {
+    info.set_theme("flora");
+    Update::DoNothing
+}
+
+extern "C" fn on_light(_data: RefAny, mut info: CallbackInfo) -> Update {
+    info.set_mode(OptionDarkLightMode::Some(DarkLightMode::Light));
+    Update::DoNothing
+}
+
+extern "C" fn on_dark(_data: RefAny, mut info: CallbackInfo) -> Update {
+    info.set_mode(OptionDarkLightMode::Some(DarkLightMode::Dark));
+    Update::DoNothing
+}
+
+// ==== Callbacks: navigation pane ====
+
+/// The date navigator: a day picked moves the view there; ‹ / › turn the navigator's month
+/// and leave the view where it is.
+extern "C" fn on_nav_date(mut data: RefAny, _info: CallbackInfo, state: DatePickerState) -> Update {
+    let Some(date) = crate::picked(state) else {
+        return Update::DoNothing;
+    };
+    with_state(&mut data, |s| {
+        let month = (date.year(), date.month());
+        if month == s.nav_month {
+            s.set_anchor(date);
+        } else {
+            s.nav_month = month;
+        }
+        Update::RefreshDom
+    })
+}
+
+/// A calendar's box in "My calendars": shown or hidden, kept for the next start.
+extern "C" fn on_calendar_shown(mut data: RefAny, _info: CallbackInfo, state: CheckBoxState) -> Update {
+    let Some((mut app, id)) = data
+        .downcast_ref::<CalendarRef>()
+        .map(|r| (r.app.clone(), r.id.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    with_state(&mut app, |s| {
+        if state.checked {
+            s.hidden.remove(&id);
+        } else {
+            s.hidden.insert(id);
+        }
+        let value = calendars::hidden_value(&s.hidden);
+        s.save_setting(&settings::line(settings::HIDDEN_CALENDARS_KEY, &value));
+        Update::RefreshDom
+    })
+}
+
+/// Starts the azul app `name` (found as AzMeet is: its `<NAME>_BIN`, else next to AzCalendar).
+fn launch_app(s: &mut CalState, name: &str, variable: &str) {
+    let program = meeting::sibling_program(
+        std::env::var(variable).ok().as_deref(),
+        std::env::current_exe().ok().as_deref(),
+        name,
+    );
+    match program.filter(|p| p.is_file()) {
+        Some(program) => match std::process::Command::new(&program)
+            .env_remove("AZ_DEBUG")
+            .stdin(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(child) => {
+                s.notice = format!("Opening {name}\u{2026}");
+                s.launched.push(child);
+            }
+            Err(e) => s.notice = format!("{name} could not be started: {e}"),
+        },
+        None => s.notice = format!("{name} is not installed next to AzCalendar."),
+    }
+}
+
+/// The module switcher (Mail starts AzMail; Contacts and Tasks are not built yet) and the
+/// pane's fold chevron.
+extern "C" fn on_navigation_event(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    event: ShellNavigationPaneEvent,
+) -> Update {
+    with_state(&mut data, |s| match event.kind {
+        ShellNavigationPaneEventKind::ModuleSelected => match event.index {
+            CALENDAR_MODULE => Update::DoNothing,
+            0 => {
+                launch_app(s, "AzMail", "AZMAIL_BIN");
+                Update::RefreshDom
+            }
+            other => {
+                let name = MODULES.get(other).map_or("This module", |(label, _)| label);
+                s.notice = format!("{name} is not part of this build yet.");
+                Update::RefreshDom
+            }
+        },
+        ShellNavigationPaneEventKind::CollapseToggled => {
+            set_navigation(s, event.expand);
+            Update::RefreshDom
+        }
+        _ => Update::DoNothing,
+    })
+}
+
+// ==== Callbacks: To-Do bar ====
+
+extern "C" fn on_todo_event(mut data: RefAny, mut info: CallbackInfo, event: ToDoBarEvent) -> Update {
+    match event.kind {
+        ToDoBarEventKind::DatePicked => {
+            let Some(date) = crate::picked(event.date) else {
+                return Update::DoNothing;
+            };
+            with_state(&mut data, |s| {
+                s.set_anchor(date);
+                Update::RefreshDom
+            })
+        }
+        ToDoBarEventKind::TaskAdded => {
+            let title = event.text.as_str().to_string();
+            with_state(&mut data, |s| {
+                s.task_text.clear();
+                if let Some(task) = tasks::new_task(&title) {
+                    match tasks::save(&s.data_dir, &task) {
+                        Ok(_) => {
+                            s.tasks.push(task);
+                            tasks::sort(&mut s.tasks);
+                        }
+                        Err(e) => s.notice = format!("The task could not be saved: {e}"),
+                    }
+                }
+                Update::RefreshDom
+            })
+        }
+        ToDoBarEventKind::TaskToggled => with_state(&mut data, |s| {
+            let Some(task) = s.tasks.get_mut(event.id as usize) else {
+                return Update::DoNothing;
+            };
+            task.done = !task.done;
+            let task = task.clone();
+            if let Err(e) = tasks::save(&s.data_dir, &task) {
+                s.notice = format!("The task could not be saved: {e}");
+            }
+            tasks::sort(&mut s.tasks);
+            Update::RefreshDom
+        }),
+        ToDoBarEventKind::AppointmentOpened => {
+            let Some((id, date)) = data.downcast_ref::<CalState>().and_then(|s| {
+                upcoming(&s)
+                    .get(event.index)
+                    .map(|o| (s.events[o.index].id.clone(), o.first))
+            }) else {
+                return Update::DoNothing;
+            };
+            editor_ui::open_event(&mut data, &mut info, &id, date)
+        }
+        ToDoBarEventKind::TaskOpened => Update::DoNothing,
+    }
+}
+
+// ==== Callbacks: Open & Export ====
+
+fn set_text(data: &mut RefAny, state: &TextInputState, field: fn(&mut CalState) -> &mut String) -> OnTextInputReturn {
+    let text = state.get_text().as_str().to_string();
+    with_state(data, |s| {
+        *field(s) = text;
+        Update::DoNothing
+    });
+    crate::typed()
+}
+
+extern "C" fn on_import_path(mut data: RefAny, _info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+    set_text(&mut data, &state, |s| &mut s.import_path)
+}
+
+extern "C" fn on_export_path(mut data: RefAny, _info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+    set_text(&mut data, &state, |s| &mut s.export_path)
+}
+
+extern "C" fn on_new_calendar_name(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
+    set_text(&mut data, &state, |s| &mut s.calendar_name)
+}
+
+extern "C" fn on_server_text(mut data: RefAny, _info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+    set_text(&mut data, &state, |s| &mut s.server_text)
+}
+
+extern "C" fn on_import_calendar(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
+    with_state(&mut data, |s| {
+        s.import_calendar = index;
+        Update::DoNothing
+    })
+}
+
+extern "C" fn on_export_calendar(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
+    with_state(&mut data, |s| {
+        s.export_calendar = index;
+        Update::DoNothing
+    })
+}
+
+/// Browse: the system's open dialog; the file picked goes into the path field.
+extern "C" fn on_import_browse(data: RefAny, _info: CallbackInfo) -> Update {
+    let _request = FileDialog::open_file(
+        "Import an iCalendar file",
+        OptionString::None,
+        OptionFileTypeList::None,
+        data,
+        on_import_picked as ResumeCallbackType,
+    );
+    Update::DoNothing
+}
+
+extern "C" fn on_import_picked(mut data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
+    let Some(path) = FileOpenResult::downcast(result)
+        .into_option()
+        .and_then(|picked| picked.path.into_option())
+    else {
+        return Update::DoNothing;
+    };
+    with_state(&mut data, |s| {
+        s.import_path = path.inner.as_str().to_string();
+        Update::RefreshDom
+    })
+}
+
+/// Browse: the system's save dialog; the file chosen goes into the path field.
+extern "C" fn on_export_browse(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let suggested = data
+        .downcast_ref::<CalState>()
+        .map(|s| ics::file_name_for(&export_name(&s)))
+        .unwrap_or_else(|| String::from("calendar.ics"));
+    let _request = FileDialog::save_file(
+        "Export an iCalendar file",
+        suggested.as_str(),
+        data,
+        on_export_picked as ResumeCallbackType,
+    );
+    Update::DoNothing
+}
+
+extern "C" fn on_export_picked(mut data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
+    let Some(path) = SaveTargetResult::downcast(result)
+        .into_option()
+        .and_then(|picked| picked.target.into_option())
+        .and_then(|target| target.as_path().into_option())
+    else {
+        return Update::DoNothing;
+    };
+    with_state(&mut data, |s| {
+        s.export_path = path.inner.as_str().to_string();
+        Update::RefreshDom
+    })
+}
+
+/// Says what an import or export did (or why it did not).
+fn report(s: &mut CalState, failed: bool, message: String) {
+    if failed {
+        eprintln!("[azcalendar] {message}");
+    }
+    s.io_failed = failed;
+    s.io_message = message;
+}
+
+/// Import: reads the file, and writes each of its events as an event file of the calendar
+/// chosen (or of a new calendar named after the file). An event whose iCalendar UID is one the
+/// calendar has already is updated, not added. The view moves to the first one.
+extern "C" fn on_import_run(mut data: RefAny, _info: CallbackInfo) -> Update {
+    with_state(&mut data, |s| {
+        import(s);
+        Update::RefreshDom
+    })
+}
+
+fn import(s: &mut CalState) {
+    let typed = s.import_path.trim().to_string();
+    if typed.is_empty() {
+        report(s, true, String::from("Give the file to import, or Browse for it."));
+        return;
+    }
+    let path = PathBuf::from(&typed);
+    let text = match std::fs::read(&path) {
+        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+        Err(e) => {
+            report(s, true, format!("Could not read {typed}: {e}"));
+            return;
+        }
+    };
+    let parsed = match ics::parse(&text, &chrono::Local) {
+        Ok(parsed) => parsed,
+        Err(e) => {
+            report(s, true, format!("{typed}: {e}"));
+            return;
+        }
+    };
+    let calendar = if s.import_calendar < s.calendars.len() {
+        s.calendars[s.import_calendar].id.clone()
+    } else {
+        let name = parsed
+            .name
+            .clone()
+            .or_else(|| {
+                path.file_stem()
+                    .map(|stem| stem.to_string_lossy().into_owned())
+            })
+            .unwrap_or_else(|| String::from("Imported"));
+        let made = Calendar {
+            id: calendars::new_calendar_id(),
+            name,
+            colour: calendars::next_colour(&s.calendars),
+        };
+        if let Err(e) = calendars::save(&s.data_dir, &made) {
+            report(s, true, format!("Could not make the calendar {:?}: {e}", made.name));
+            return;
+        }
+        let id = made.id.clone();
+        s.calendars.push(made);
+        id
+    };
+    let (mut added, mut updated) = (0usize, 0usize);
+    let mut problems = parsed.notes.clone();
+    let mut first: Option<NaiveDate> = None;
+    for imported in &parsed.events {
+        let existing = if imported.uid.is_empty() {
+            None
+        } else {
+            s.events
+                .iter()
+                .find(|e| e.ical_uid() == imported.uid)
+                .map(|e| e.id.clone())
+        };
+        let id = existing.clone().unwrap_or_else(event::new_event_id);
+        let made = match imported.to_event(&id, &calendar) {
+            Ok(made) => made,
+            Err(e) => {
+                problems.push(format!("{:?} is left out: {e}.", imported.title));
+                continue;
+            }
+        };
+        let date = made.date;
+        match s.store_event(made) {
+            Ok(_) if existing.is_some() => updated += 1,
+            Ok(_) => added += 1,
+            Err(message) => {
+                problems.push(message);
+                continue;
+            }
+        }
+        first = Some(first.map_or(date, |f: NaiveDate| f.min(date)));
+    }
+    println!("AZCAL_IMPORTED {} {}", added + updated, path.display());
+    let file = path
+        .file_name()
+        .map_or(typed.clone(), |n| n.to_string_lossy().into_owned());
+    let mut message = format!("Imported {added} new and {updated} updated event(s) from {file}.");
+    for problem in problems.iter().take(5) {
+        message.push(' ');
+        message.push_str(problem);
+    }
+    let failed = added + updated == 0;
+    report(s, failed, message);
+    if let Some(day) = first {
+        s.notice = s.io_message.clone();
+        s.backstage = None;
+        s.set_anchor(day);
+    }
+}
+
+/// The name of the calendar Export writes (all of them: "AzCalendar").
+fn export_name(s: &CalState) -> String {
+    s.calendars
+        .get(s.export_calendar)
+        .map_or_else(|| String::from("AzCalendar"), |c| c.name.clone())
+}
+
+/// Export: the chosen calendar's events (or all) as an .ics file, at the path given (else in
+/// the Documents folder, named after the calendar).
+extern "C" fn on_export_run(mut data: RefAny, _info: CallbackInfo) -> Update {
+    with_state(&mut data, |s| {
+        export(s);
+        Update::RefreshDom
+    })
+}
+
+fn export(s: &mut CalState) {
+    let name = export_name(s);
+    let path = if s.export_path.trim().is_empty() {
+        let folder = FilePath::get_document_dir()
+            .into_option()
+            .map(|dir| PathBuf::from(dir.inner.as_str()))
+            .unwrap_or_else(|| s.data_dir.clone());
+        folder.join(ics::file_name_for(&name))
+    } else {
+        PathBuf::from(s.export_path.trim())
+    };
+    let chosen = s.calendars.get(s.export_calendar).map(|c| c.id.clone());
+    let events: Vec<&event::Event> = s
+        .events
+        .iter()
+        .filter(|e| chosen.as_ref().map_or(true, |id| s.calendar_id_of(e) == *id))
+        .collect();
+    let text = ics::write(&events, &name, chrono::Utc::now().naive_utc());
+    let count = events.len();
+    match std::fs::write(&path, text) {
+        Ok(()) => {
+            println!("AZCAL_EXPORTED {count} {}", path.display());
+            s.export_path = path.display().to_string();
+            report(s, false, format!("Exported {count} event(s) to {}.", path.display()));
+        }
+        Err(e) => report(s, true, format!("Could not write {}: {e}", path.display())),
+    }
+}
+
+// ==== Callbacks: Calendars ====
+
+/// Enter in a calendar's name renames it.
+extern "C" fn on_calendar_rename(
+    mut data: RefAny,
+    info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
+    let key = info
+        .get_current_keyboard_state()
+        .current_virtual_keycode
+        .into_option();
+    if !matches!(key, Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter)) {
+        return crate::typed();
+    }
+    let name = state.get_text().as_str().trim().to_string();
+    let Some((mut app, id)) = data
+        .downcast_ref::<CalendarRef>()
+        .map(|r| (r.app.clone(), r.id.clone()))
+    else {
+        return crate::typed();
+    };
+    let update = with_state(&mut app, |s| {
+        if name.is_empty() {
+            s.calendar_error = String::from("A calendar needs a name.");
+            return Update::RefreshDom;
+        }
+        let Some(c) = s.calendars.iter_mut().find(|c| c.id == id) else {
+            return Update::DoNothing;
+        };
+        c.name = name;
+        let c = c.clone();
+        s.calendar_error = match calendars::save(&s.data_dir, &c) {
+            Ok(_) => String::new(),
+            Err(e) => format!("Could not save the calendar: {e}"),
+        };
+        Update::RefreshDom
+    });
+    OnTextInputReturn {
+        update,
+        valid: TextInputValid::Yes,
+    }
+}
+
+extern "C" fn on_calendar_colour(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
+    let Some((mut app, id)) = data
+        .downcast_ref::<CalendarRef>()
+        .map(|r| (r.app.clone(), r.id.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    let Some(colour) = Colour::ALL.get(index).copied() else {
+        return Update::DoNothing;
+    };
+    with_state(&mut app, |s| {
+        let Some(c) = s.calendars.iter_mut().find(|c| c.id == id) else {
+            return Update::DoNothing;
+        };
+        c.colour = colour;
+        let c = c.clone();
+        s.calendar_error = match calendars::save(&s.data_dir, &c) {
+            Ok(_) => String::new(),
+            Err(e) => format!("Could not save the calendar: {e}"),
+        };
+        Update::RefreshDom
+    })
+}
+
+/// Remove: the calendar's events move into the default calendar, then its file goes.
+extern "C" fn on_calendar_remove(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some((mut app, id)) = data
+        .downcast_ref::<CalendarRef>()
+        .map(|r| (r.app.clone(), r.id.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    with_state(&mut app, |s| {
+        if id.is_empty() {
+            return Update::DoNothing;
+        }
+        let moving: Vec<event::Event> = s
+            .events
+            .iter()
+            .filter(|e| e.calendar == id)
+            .cloned()
+            .collect();
+        for mut e in moving {
+            e.calendar = String::new();
+            if let Err(message) = s.store_event(e) {
+                s.calendar_error = message;
+                return Update::RefreshDom;
+            }
+        }
+        if let Err(e) = calendars::remove(&s.data_dir, &id) {
+            s.calendar_error = format!("Could not remove the calendar: {e}");
+            return Update::RefreshDom;
+        }
+        s.calendars.retain(|c| c.id != id);
+        s.hidden.remove(&id);
+        s.import_calendar = 0;
+        s.export_calendar = 0;
+        s.calendar_error.clear();
+        Update::RefreshDom
+    })
+}
+
+/// Add: a new calendar with the name typed, in the next colour.
+extern "C" fn on_calendar_add(mut data: RefAny, _info: CallbackInfo) -> Update {
+    with_state(&mut data, |s| {
+        let name = s.calendar_name.trim().to_string();
+        if name.is_empty() {
+            s.calendar_error = String::from("Give the new calendar a name.");
+            return Update::RefreshDom;
+        }
+        if s
+            .calendars
+            .iter()
+            .any(|c| c.name.eq_ignore_ascii_case(&name))
+        {
+            s.calendar_error = format!("There is a calendar named {name:?} already.");
+            return Update::RefreshDom;
+        }
+        let made = Calendar {
+            id: calendars::new_calendar_id(),
+            name,
+            colour: calendars::next_colour(&s.calendars),
+        };
+        match calendars::save(&s.data_dir, &made) {
+            Ok(_) => {
+                s.calendars.push(made);
+                s.calendar_name.clear();
+                s.calendar_error.clear();
+            }
+            Err(e) => s.calendar_error = format!("Could not save the calendar: {e}"),
+        }
+        Update::RefreshDom
+    })
+}
+
+// ==== Callbacks: Options ====
+
+/// Saves the meeting server. Links still waiting are registered with the new one (nobody could
+/// have joined them anywhere yet); registered ones stay with the server that has their room.
+extern "C" fn on_server_save(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app = data.clone();
+    with_state(&mut data, |s| {
+        let Some(server) = meet_rooms::normalize_server(&s.server_text) else {
+            s.server_error = String::from(
+                "Give the meeting server's address, such as https://meet.example.com or \
+                 http://127.0.0.1:8787.",
+            );
+            return Update::RefreshDom;
+        };
+        if let Err(e) = meeting::save_server(&settings::path(&s.data_dir), &server) {
+            s.server_error = format!("Could not save the setting: {e}");
+            return Update::RefreshDom;
+        }
+        eprintln!("[azcalendar] meeting server: {server}");
+        let moving: Vec<event::Event> = s
+            .events
+            .iter()
+            .filter(|e| {
+                e.meeting
+                    .as_ref()
+                    .is_some_and(|m| m.pending && m.server != server)
+            })
+            .cloned()
+            .collect();
+        for mut e in moving {
+            if let Some(m) = e.meeting.as_mut() {
+                m.server = server.clone();
+            }
+            if let Err(message) = s.store_event(e) {
+                eprintln!("[azcalendar] {message}");
+            }
+        }
+        s.server = server.clone();
+        s.server_text = server;
+        s.server_error.clear();
+        s.sync_refused.clear();
+        crate::sync_links(s, &mut info, &app);
+        Update::RefreshDom
+    })
+}
