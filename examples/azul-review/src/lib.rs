@@ -125,7 +125,7 @@ pub fn run() {
     let app = App::create(data, AppConfig::create());
     let mut window = WindowCreateOptions::create(ui::layout);
     window.window_state.title = "AzReview".into();
-    window.window_state.flags.decorations = azul::css::WindowDecorations::NoTitle;
+    window.window_state.flags.decorations = azul::window::WindowDecorations::NoTitle;
     app.run(window);
 }
 

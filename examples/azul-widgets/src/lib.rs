@@ -1,4 +1,5 @@
-use azul::css::{SpinnerStyle, WindowDecorations};
+use azul::css::SpinnerStyle;
+use azul::window::WindowDecorations;
 use azul::dom::{
     AccordionOnToggleCallback, AlertOnDismissCallback, AttributeNameValue, AttributeType,
     BreadcrumbOnNavigateCallback, ChipOnRemoveCallback, ComboBoxOnSelectCallback,

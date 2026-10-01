@@ -1,5 +1,5 @@
 use azul::{
-    css::WindowDecorations,
+    window::WindowDecorations,
     dom::GeolocationProbeConfig,
     prelude::*,
     sensor::SensorKind,

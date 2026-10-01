@@ -60,7 +60,7 @@ use std::{
 
 use azul::{
     callbacks::CallbackType,
-    css::{WindowBackgroundMaterial, WindowDecorations},
+    css::WindowBackgroundMaterial,
     dom::{ClipboardContent, DomId, DomNodeId, NodeHierarchyItemId, NodeId, VirtualKeyCode},
     error::HttpError,
     file::FilePath,
@@ -76,7 +76,7 @@ use azul::{
         ButtonType, CheckBoxState, DatePicker, DatePickerState, OnTextInputReturn, TextInputState,
         TextInputValid, TimePicker, TimePickerState, Titlebar,
     },
-    window::TransientWindowConfig,
+    window::{TransientWindowConfig, WindowDecorations},
 };
 use chrono::{Datelike, NaiveDate, NaiveTime};
 use event::{Event, EventError, Meeting};

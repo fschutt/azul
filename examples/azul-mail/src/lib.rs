@@ -43,7 +43,7 @@ use std::{collections::HashMap, path::PathBuf};
 
 use account::{Account, AccountForm, Secret};
 use azul::{
-    css::WindowDecorations,
+    window::WindowDecorations,
     error::KeyringResult,
     file::FilePath,
     option::{OptionKeyringResult, OptionThreadSendMsg},

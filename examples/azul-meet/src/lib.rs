@@ -89,12 +89,12 @@ use azul::{
         CallbackInfo, CallbackType, TimerCallbackInfo, TimerCallbackReturn, UpdateImageType,
     },
     camera::CameraConfig,
-    css::{LogicalSize, PhysicalPositionI32, Srgb, WindowDecorations, WindowPosition},
+    css::{LogicalSize, PhysicalPositionI32, Srgb, WindowPosition},
     dom::{Callback, ClipboardContent, DomNodeId, NodeId, VirtualKeyCode},
     error::{HttpError, ResultRawImageDecodeImageError, ResultU8VecEncodeImageError},
     file::FilePath,
     http::{HttpGetResult, HttpMethod, HttpRequestConfig},
-    image::{ImageRef, RawImage, RawImageData, RawImageFormat, VideoDecoder, VideoEncoder},
+    image::{ImageRef, RawImage, RawImageData, RawImageFormat},
     iroh::{
         IrohConfig, IrohEndpoint, IrohEvent, IrohEventKind, IrohLoadBalancer, IrohPeerCapacity,
         IrohRelayMode, IrohTileRole,
@@ -114,7 +114,8 @@ use azul::{
         OnTextInputReturn, ProgressBar, ScreenCaptureWidget, TextInputState, TextInputValid,
         Titlebar,
     },
-    window::{HwAcceleration, PlatformCapability, Vsync},
+    video::{VideoDecoder, VideoEncoder},
+    window::{HwAcceleration, PlatformCapability, Vsync, WindowDecorations},
 };
 use rooms::{Dialed, PeerRecord, Relay, RoomKey};
 use video_wire::{Codec, Control, Message};

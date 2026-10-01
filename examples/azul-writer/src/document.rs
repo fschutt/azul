@@ -400,7 +400,7 @@ fn compute_break_paths_with_fonts(
     content: &Dom,
     fonts: Option<FontCacheSnapshot>,
 ) -> Vec<Vec<u32>> {
-    use azul::css::StyledDom;
+    use azul::dom::StyledDom;
 
     let styled_dom = {
         let _p = crate::perf::Phase::start("    dom_clone+cascade");
@@ -902,7 +902,7 @@ mod save_round_trip_tests {
 
 #[cfg(test)]
 mod pdf_export_tests {
-    use azul::css::StyledDom;
+    use azul::dom::StyledDom;
 
     use super::*;
 

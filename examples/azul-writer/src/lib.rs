@@ -16,7 +16,7 @@ use azul::{
         CallbackInfo, LayoutCallbackInfo, RefAny, TimerCallbackInfo,
         TimerCallbackReturn, Update, WriteBackCallback,
     },
-    css::{DocumentOperation, LayoutSize, SystemStyleDependency, WindowDecorations},
+    css::{DocumentOperation, LayoutSize, SystemStyleDependency},
     dialog::{FileDialog, FileOpenResult, SaveTargetResult},
     dom::{Callback, Dom, DomId, DomNodeId},
     file::FilePath,
@@ -32,7 +32,7 @@ use azul::{
     },
     time::{Duration, SystemTimeDiff},
     widgets::SliderState,
-    window::{WindowCreateOptions, WindowFrame},
+    window::{WindowCreateOptions, WindowDecorations, WindowFrame},
 };
 
 pub use crate::args::Args;

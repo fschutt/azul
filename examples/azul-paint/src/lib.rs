@@ -1,6 +1,7 @@
 use azul::{
     callbacks::{CallbackType, RenderImageCallbackInfo},
-    css::{PhysicalSizeU32, WindowDecorations},
+    css::PhysicalSizeU32,
+    window::WindowDecorations,
     dialog::{FileDialog, FileOpenResult, SaveTargetResult},
     dom::RenderImageCallback,
     error::{ResultRawImageDecodeImageError, ResultU8VecEncodeImageError, ResultU8VecFileError},
