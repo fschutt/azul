@@ -1,4 +1,751 @@
-//! Timeline widget - tracks of clips under a time ruler, with a playhead.
+//! Timeline widget - tracks of clips under a time ruler, with a playhead:
+//! a video editor's timeline (Premiere's V1..Vn / A1..An), a calendar's day
+//! lanes, a slide show's animation pane.
+//!
+//! ```text
+//! ┌ 00:00:02:10 ┬ 00:00 ──── 00:01 ──── 00:02 ─▼── 00:03 ──── ┐  the ruler row
+//! │ V1  👁 🔒   │ [ pier     ][ market            ]│           │
+//! │ V2  👁 🔒   │                                  │           │  the lanes
+//! │ A1  🔊 🔒   │        [ voice           ]       │           │
+//! ├─────────────┴──[======]─────────────────────────────────────┤  the scroll bar
+//! ```
+//!
+//! THE APP OWNS EVERYTHING: the tracks and their clips (with every clip's
+//! selection), the playhead, the view (`view_start` and the zoom,
+//! `pixels_per_second`), the snapping switch. The widget reports what the
+//! user asked for through ONE hook, `on_event` ([`TimelineEvent`]): seek the
+//! playhead, scroll or zoom the view, select / open / move / trim a clip,
+//! click an empty lane, delete, toggle a track's mute or lock - and the app
+//! changes its model and rebuilds.
+//!
+//! THOUSANDS OF CLIPS: the app hands over every clip (data is cheap); the
+//! widget renders only the clips that intersect the view
+//! ([`visible_window`], from `view_start` over `view_width` pixels) and only
+//! the ruler ticks in view. Scrolling is the scroll bar under the lanes (a
+//! press or drag reports `Scroll` with the new `view_start`) and the keys;
+//! the widget never takes the wheel (`widgets::wheel_ownership`): an app that
+//! wants wheel-scrolling or Ctrl+wheel zoom listens on its own container and
+//! reports through the same model.
+//!
+//! POINTER: a press or drag on the ruler seeks (scrubs); a press on a clip
+//! selects it (Shift / Ctrl reported) and a drag moves it - to another track
+//! too - or, near its left / right edge, trims it; the clip follows the
+//! pointer live and snaps to the playhead, the sequence's start and every
+//! other clip edge within [`SNAP_PX`] when `snapping` is on; the release
+//! reports ONE `Move` or `Trim`. A double-click opens a clip (a source
+//! monitor). A locked track's clips do not take presses.
+//!
+//! KEYBOARD (the lanes are the one Tab stop, a slider named "Timeline"
+//! valued by the playhead's timecode): Left / Right step the playhead a
+//! frame (Shift: a second), Home / End go to the ends, Up / Down to the
+//! previous / next edit point, `+` / `-` zoom about the playhead, `\` zooms
+//! to fit, Delete / Backspace delete (Shift: ripple delete). Letters and
+//! Space are left to the app (its tools, J / K / L, I / O).
+//!
+//! Key types: [`Timeline`], [`TimelineTrack`], [`TimelineClip`],
+//! [`TimelineEvent`].
+
+use alloc::{format, string::String, vec::Vec};
+
+use azul_core::{
+    a11y::{AccessibilityInfo, AccessibilityRole, AccessibilityState, AccessibilityStateVec},
+    callbacks::{CoreCallback, CoreCallbackData, Update},
+    dom::{Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClassVec, TabIndex},
+    events::FocusEventFilter,
+    refany::{OptionRefAny, RefAny},
+    resources::{ImageRef, OptionImageRef},
+    window::VirtualKeyCode,
+};
+use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
+    props::{
+        basic::{length::FloatValue, pixel::PixelValue},
+        layout::{
+            LayoutAlignItems, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow, LayoutFlexShrink,
+            LayoutHeight, LayoutLeft, LayoutMinHeight, LayoutMinWidth, LayoutOverflow,
+            LayoutPosition, LayoutTop, LayoutWidth,
+        },
+        property::{CssProperty, StyleWhiteSpaceValue},
+        style::{StyleCursor, StyleUserSelect, StyleWhiteSpace},
+    },
+    AzString,
+};
+
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::{
+        button::{Button, ButtonOnClickCallbackType, ButtonType},
+        themes::{OptionUiTheme, UiTheme},
+    },
+};
+
+// ---- classes ----
+
+/// The widget's root.
+pub const TIMELINE_CLASS: &str = "__azul-native-timeline";
+/// The ruler row: the corner over the headers, then the ruler.
+pub const HEAD_CLASS: &str = "__azul-native-timeline-head";
+/// The corner over the track headers (the playhead's timecode).
+pub const CORNER_CLASS: &str = "__azul-native-timeline-corner";
+/// The time ruler.
+pub const RULER_CLASS: &str = "__azul-native-timeline-ruler";
+/// A ruler tick (a labelled major one or a minor one).
+pub const TICK_CLASS: &str = "__azul-native-timeline-tick";
+/// A major tick's label.
+pub const TICK_LABEL_CLASS: &str = "__azul-native-timeline-tick-label";
+/// The playhead's head on the ruler.
+pub const RULER_HEAD_CLASS: &str = "__azul-native-timeline-ruler-head";
+/// The row of the track headers and the lanes.
+pub const BODY_CLASS: &str = "__azul-native-timeline-body";
+/// The column of track headers.
+pub const HEADERS_CLASS: &str = "__azul-native-timeline-headers";
+/// One track's header.
+pub const HEADER_CLASS: &str = "__azul-native-timeline-track-header";
+/// A track header's name.
+pub const TRACK_NAME_CLASS: &str = "__azul-native-timeline-track-name";
+/// A track header's mute (audio) / show (video) toggle.
+pub const MUTE_CLASS: &str = "__azul-native-timeline-mute";
+/// A track header's lock toggle.
+pub const LOCK_CLASS: &str = "__azul-native-timeline-lock";
+/// The lanes: the keyboard stop, holding a lane per track and the playhead.
+pub const LANES_CLASS: &str = "__azul-native-timeline-lanes";
+/// One track's lane.
+pub const LANE_CLASS: &str = "__azul-native-timeline-lane";
+/// A clip.
+pub const CLIP_CLASS: &str = "__azul-native-timeline-clip";
+/// A selected clip.
+pub const CLIP_SELECTED_CLASS: &str = "__azul-native-timeline-clip-selected";
+/// A disabled clip (drawn dimmed).
+pub const CLIP_DISABLED_CLASS: &str = "__azul-native-timeline-clip-disabled";
+/// A clip's thumbnail.
+pub const CLIP_THUMB_CLASS: &str = "__azul-native-timeline-clip-thumbnail";
+/// A clip's label.
+pub const CLIP_LABEL_CLASS: &str = "__azul-native-timeline-clip-label";
+/// A clip's detail line.
+pub const CLIP_DETAIL_CLASS: &str = "__azul-native-timeline-clip-detail";
+/// The playhead line over the lanes.
+pub const PLAYHEAD_CLASS: &str = "__azul-native-timeline-playhead";
+/// The scroll bar under the lanes.
+pub const SCROLL_CLASS: &str = "__azul-native-timeline-scroll";
+/// The scroll bar's track.
+pub const SCROLL_TRACK_CLASS: &str = "__azul-native-timeline-scroll-track";
+/// The scroll bar's thumb: the view's share of the sequence.
+pub const THUMB_CLASS: &str = "__azul-native-timeline-thumb";
+
+// ---- metrics ----
+
+/// The least distance between two labelled ruler ticks, in px.
+pub const MIN_TICK_PX: f32 = 64.0;
+/// How near (in px) a dragged edge must come to a snap point to snap.
+pub const SNAP_PX: f32 = 8.0;
+/// How near (in px) to a clip's edge a press trims instead of moving.
+pub const EDGE_PX: f32 = 6.0;
+/// The zoom step of `+` / `-`.
+pub const ZOOM_STEP: f32 = 1.25;
+/// The zoom limits, px per second.
+pub const MIN_PPS: f32 = 0.05;
+/// See [`MIN_PPS`].
+pub const MAX_PPS: f32 = 4000.0;
+/// A track's height when the app sets none.
+pub const DEFAULT_TRACK_HEIGHT: f32 = 44.0;
+/// The ruler row's height.
+pub const RULER_HEIGHT: f32 = 26.0;
+/// The scroll bar's height.
+pub const SCROLL_HEIGHT: f32 = 12.0;
+/// The track headers' width when the app sets none.
+pub const DEFAULT_HEADER_WIDTH: f32 = 112.0;
+
+// ---- data ----
+
+/// What a track holds: picture, sound, or anything else (a calendar's
+/// lane). Decides the header's first toggle: "Show / Hide" for video,
+/// "Mute / Unmute" for the rest.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum TimelineTrackKind {
+    /// A video track (V1, V2, ...).
+    #[default]
+    Video,
+    /// An audio track (A1, A2, ...).
+    Audio,
+    /// Any other lane.
+    Generic,
+}
+
+/// A clip's colour family, painted by the theme in both modes (Premiere's
+/// label colours, kept to what the themes can pair).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum TimelineClipTint {
+    /// A video clip.
+    #[default]
+    Video,
+    /// An audio clip.
+    Audio,
+    /// A title / generated clip.
+    Title,
+    /// The accent (a nested sequence, a highlighted span).
+    Accent,
+    /// A quiet clip (a gap filler, a placeholder).
+    Muted,
+}
+
+/// One clip: a span of a track.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct TimelineClip {
+    /// Where the clip starts on the timeline, in seconds.
+    pub start: f64,
+    /// How long it is, in seconds.
+    pub duration: f64,
+    /// The app's id, reported back with every action on the clip.
+    pub id: u64,
+    /// The clip's name ("pier.mp4").
+    pub label: AzString,
+    /// A second line ("00:00:03:12", "Cross dissolve"), or empty for none.
+    pub detail: AzString,
+    /// A picture at the clip's head (a video frame), or none.
+    pub thumbnail: OptionImageRef,
+    /// The clip's colour family.
+    pub tint: TimelineClipTint,
+    /// Drawn and announced as selected.
+    pub selected: bool,
+    /// Disabled (it does not play): drawn dimmed.
+    pub disabled: bool,
+}
+
+impl TimelineClip {
+    /// Clip `id` named `label` from `start` for `duration` seconds.
+    #[must_use]
+    pub fn create(id: u64, start: f64, duration: f64, label: AzString) -> Self {
+        Self {
+            start,
+            duration,
+            id,
+            label,
+            detail: AzString::from_const_str(""),
+            thumbnail: OptionImageRef::None,
+            tint: TimelineClipTint::Video,
+            selected: false,
+            disabled: false,
+        }
+    }
+
+    /// The second line.
+    #[must_use]
+    pub fn with_detail(mut self, detail: AzString) -> Self {
+        self.detail = detail;
+        self
+    }
+
+    /// The picture at the clip's head.
+    #[must_use]
+    pub fn with_thumbnail(mut self, thumbnail: ImageRef) -> Self {
+        self.thumbnail = OptionImageRef::Some(thumbnail);
+        self
+    }
+
+    /// The colour family.
+    #[must_use]
+    pub const fn with_tint(mut self, tint: TimelineClipTint) -> Self {
+        self.tint = tint;
+        self
+    }
+
+    /// Selected.
+    #[must_use]
+    pub const fn with_selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
+        self
+    }
+
+    /// Disabled.
+    #[must_use]
+    pub const fn with_disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+
+    /// Where the clip ends, in seconds.
+    #[must_use]
+    pub fn end(&self) -> f64 {
+        self.start + self.duration
+    }
+}
+
+impl_option!(
+    TimelineClip,
+    OptionTimelineClip,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+impl_vec!(
+    TimelineClip,
+    TimelineClipVec,
+    TimelineClipVecDestructor,
+    TimelineClipVecDestructorType,
+    TimelineClipVecSlice,
+    OptionTimelineClip
+);
+impl_vec_clone!(TimelineClip, TimelineClipVec, TimelineClipVecDestructor);
+impl_vec_debug!(TimelineClip, TimelineClipVec);
+impl_vec_mut!(TimelineClip, TimelineClipVec);
+
+azul_css::impl_vec_partialeq!(TimelineClip, TimelineClipVec);
+
+/// One track: a header and a lane of clips.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct TimelineTrack {
+    /// The app's id.
+    pub id: u64,
+    /// The clips, in any order (they should not overlap).
+    pub clips: TimelineClipVec,
+    /// The header's name ("V1", "A2").
+    pub name: AzString,
+    /// The lane's height in px (0: [`DEFAULT_TRACK_HEIGHT`]).
+    pub height: f32,
+    /// Picture, sound or other.
+    pub kind: TimelineTrackKind,
+    /// Muted (audio) or hidden (video): the header's first toggle is on.
+    pub muted: bool,
+    /// Locked: its clips take no presses, the header's lock is on.
+    pub locked: bool,
+}
+
+impl TimelineTrack {
+    /// An empty track `id` named `name`.
+    #[must_use]
+    pub fn create(id: u64, name: AzString, kind: TimelineTrackKind) -> Self {
+        Self {
+            id,
+            clips: TimelineClipVec::from_const_slice(&[]),
+            name,
+            height: 0.0,
+            kind,
+            muted: false,
+            locked: false,
+        }
+    }
+
+    /// The clips.
+    #[must_use]
+    pub fn with_clips(mut self, clips: TimelineClipVec) -> Self {
+        self.clips = clips;
+        self
+    }
+
+    /// Adds a clip.
+    pub fn add_clip(&mut self, clip: TimelineClip) {
+        let mut clips = core::mem::replace(&mut self.clips, TimelineClipVec::from_const_slice(&[]))
+            .into_library_owned_vec();
+        clips.push(clip);
+        self.clips = TimelineClipVec::from_vec(clips);
+    }
+
+    /// [`Self::add_clip`] for the builder chain.
+    #[must_use]
+    pub fn with_clip(mut self, clip: TimelineClip) -> Self {
+        self.add_clip(clip);
+        self
+    }
+
+    /// The lane's height in px.
+    #[must_use]
+    pub const fn with_height(mut self, height: f32) -> Self {
+        self.height = height;
+        self
+    }
+
+    /// Muted / hidden.
+    #[must_use]
+    pub const fn with_muted(mut self, muted: bool) -> Self {
+        self.muted = muted;
+        self
+    }
+
+    /// Locked.
+    #[must_use]
+    pub const fn with_locked(mut self, locked: bool) -> Self {
+        self.locked = locked;
+        self
+    }
+
+    /// The lane's height in px, the default when unset.
+    #[must_use]
+    pub fn lane_height(&self) -> f32 {
+        if self.height > 0.0 {
+            self.height
+        } else {
+            DEFAULT_TRACK_HEIGHT
+        }
+    }
+}
+
+impl_option!(
+    TimelineTrack,
+    OptionTimelineTrack,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+impl_vec!(
+    TimelineTrack,
+    TimelineTrackVec,
+    TimelineTrackVecDestructor,
+    TimelineTrackVecDestructorType,
+    TimelineTrackVecSlice,
+    OptionTimelineTrack
+);
+impl_vec_clone!(TimelineTrack, TimelineTrackVec, TimelineTrackVecDestructor);
+impl_vec_debug!(TimelineTrack, TimelineTrackVec);
+impl_vec_mut!(TimelineTrack, TimelineTrackVec);
+
+azul_css::impl_vec_partialeq!(TimelineTrack, TimelineTrackVec);
+
+// ---- events ----
+
+/// What the user asked the timeline for.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum TimelineEventKind {
+    /// Move the playhead to `time` (the ruler, the keys).
+    #[default]
+    Seek,
+    /// Scroll the view: `time` is the new `view_start`.
+    Scroll,
+    /// Zoom: `value` is the new px per second, `time` the new `view_start`
+    /// that keeps the anchor (the playhead) where it is on screen.
+    Zoom,
+    /// Zoom so the whole sequence fits the view (the app knows its width).
+    ZoomToFit,
+    /// A clip was pressed: `clip_id` on `track`, `time` where (the
+    /// playhead when unknown), `shift` / `ctrl` held.
+    Select,
+    /// A clip was double-clicked: open it (`clip_id`, `track`).
+    Open,
+    /// A clip was dragged: `clip_id` from `track` (its index) to the track
+    /// with index `value`, starting at `time`.
+    Move,
+    /// A clip's `edge` was dragged to `time`.
+    Trim,
+    /// An empty part of lane `track` was pressed at `time`.
+    LaneClick,
+    /// Delete / Backspace on the timeline; `shift`: ripple delete.
+    Delete,
+    /// Track `track`'s mute (audio) / show (video) toggle was clicked.
+    ToggleMute,
+    /// Track `track`'s lock toggle was clicked.
+    ToggleLock,
+}
+
+/// Which edge of a clip a trim moved.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum TimelineEdge {
+    /// The in point (the clip's start).
+    #[default]
+    Start,
+    /// The out point (the clip's end).
+    End,
+}
+
+/// One request of the user, for the app's `on_event`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TimelineEvent {
+    /// A time in seconds (see [`TimelineEventKind`]).
+    pub time: f64,
+    /// A second value: the zoom's px per second, a move's target track.
+    pub value: f64,
+    /// The clip, or 0.
+    pub clip_id: u64,
+    /// The track's index, or 0.
+    pub track: usize,
+    /// What was asked.
+    pub kind: TimelineEventKind,
+    /// The edge a trim moved.
+    pub edge: TimelineEdge,
+    /// Shift was held.
+    pub shift: bool,
+    /// Ctrl (or Cmd) was held.
+    pub ctrl: bool,
+}
+
+impl TimelineEvent {
+    /// A `kind` event at `time`, nothing else set.
+    #[must_use]
+    pub const fn create(kind: TimelineEventKind, time: f64) -> Self {
+        Self {
+            time,
+            value: 0.0,
+            clip_id: 0,
+            track: 0,
+            kind,
+            edge: TimelineEdge::Start,
+            shift: false,
+            ctrl: false,
+        }
+    }
+}
+
+/// Callback invoked for a request of the user.
+pub type TimelineOnEventCallbackType = extern "C" fn(RefAny, CallbackInfo, TimelineEvent) -> Update;
+impl_widget_callback!(
+    TimelineOnEvent,
+    OptionTimelineOnEvent,
+    TimelineOnEventCallback,
+    TimelineOnEventCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        TimelineOnEventCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: TIMELINE_ON_EVENT_INVOKER,
+    invoker_ty:     AzTimelineOnEventCallbackInvoker,
+    thunk_fn:       az_timeline_on_event_callback_thunk,
+    setter_fn:      AzApp_setTimelineOnEventCallbackInvoker,
+    from_handle_fn: AzTimelineOnEventCallback_createFromHostHandle,
+    from_handle_byref_fn: AzTimelineOnEventCallback_createFromHostHandleByref,
+    extra_args:     [ event: TimelineEvent ],
+}
+
+// ---- the widget ----
+
+/// The timeline: a ruler row over the track headers and the lanes, a
+/// scroll bar under them.
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct Timeline {
+    /// The sequence's length in seconds.
+    pub duration: f64,
+    /// The playhead, in seconds.
+    pub playhead: f64,
+    /// The first second in view.
+    pub view_start: f64,
+    /// The tracks, top to bottom.
+    pub tracks: TimelineTrackVec,
+    /// The user's requests.
+    pub on_event: OptionTimelineOnEvent,
+    /// The lanes' accessible name ("Timeline").
+    pub accessibility_name: AzString,
+    /// The zoom: px per second.
+    pub pixels_per_second: f32,
+    /// Frames per second: the keys' frame step and the timecodes.
+    pub fps: f32,
+    /// How wide the lanes are on screen, in px - the app's estimate (its
+    /// window's width will do): the widget renders the clips and ticks of
+    /// that much time from `view_start`, and a clip past it is cut off
+    /// where the lanes end anyway.
+    pub view_width: f32,
+    /// The track headers' width in px (0: [`DEFAULT_HEADER_WIDTH`]).
+    pub header_width: f32,
+    /// The widget theme this widget is PINNED to (`with_theme`), or `None`
+    /// to follow the app theme.
+    pub theme: OptionUiTheme,
+    /// Dragged edges snap to the playhead and the other clips' edges.
+    pub snapping: bool,
+}
+
+impl Timeline {
+    /// A timeline of `tracks` over a sequence `duration` seconds long, the
+    /// playhead and the view at 0, 50 px a second, 25 fps, snapping on.
+    #[must_use]
+    pub fn create(tracks: TimelineTrackVec, duration: f64) -> Self {
+        Self {
+            duration,
+            playhead: 0.0,
+            view_start: 0.0,
+            tracks,
+            on_event: None.into(),
+            accessibility_name: AzString::from_const_str("Timeline"),
+            pixels_per_second: 50.0,
+            fps: 25.0,
+            view_width: 1200.0,
+            header_width: 0.0,
+            theme: OptionUiTheme::None,
+            snapping: true,
+        }
+    }
+
+    /// The playhead, in seconds.
+    pub fn set_playhead(&mut self, playhead: f64) {
+        self.playhead = playhead;
+    }
+
+    /// [`Self::set_playhead`] for the builder chain.
+    #[must_use]
+    pub fn with_playhead(mut self, playhead: f64) -> Self {
+        self.set_playhead(playhead);
+        self
+    }
+
+    /// The view: the first second in view and the zoom (px per second).
+    pub fn set_view(&mut self, view_start: f64, pixels_per_second: f32) {
+        self.view_start = view_start;
+        self.pixels_per_second = pixels_per_second;
+    }
+
+    /// [`Self::set_view`] for the builder chain.
+    #[must_use]
+    pub fn with_view(mut self, view_start: f64, pixels_per_second: f32) -> Self {
+        self.set_view(view_start, pixels_per_second);
+        self
+    }
+
+    /// How wide the lanes are on screen, in px (an estimate is fine).
+    pub fn set_view_width(&mut self, view_width: f32) {
+        self.view_width = view_width;
+    }
+
+    /// [`Self::set_view_width`] for the builder chain.
+    #[must_use]
+    pub fn with_view_width(mut self, view_width: f32) -> Self {
+        self.set_view_width(view_width);
+        self
+    }
+
+    /// Frames per second.
+    pub fn set_fps(&mut self, fps: f32) {
+        self.fps = fps;
+    }
+
+    /// [`Self::set_fps`] for the builder chain.
+    #[must_use]
+    pub fn with_fps(mut self, fps: f32) -> Self {
+        self.set_fps(fps);
+        self
+    }
+
+    /// The track headers' width in px.
+    pub fn set_header_width(&mut self, header_width: f32) {
+        self.header_width = header_width;
+    }
+
+    /// [`Self::set_header_width`] for the builder chain.
+    #[must_use]
+    pub fn with_header_width(mut self, header_width: f32) -> Self {
+        self.set_header_width(header_width);
+        self
+    }
+
+    /// Snapping on or off.
+    pub fn set_snapping(&mut self, snapping: bool) {
+        self.snapping = snapping;
+    }
+
+    /// [`Self::set_snapping`] for the builder chain.
+    #[must_use]
+    pub fn with_snapping(mut self, snapping: bool) -> Self {
+        self.set_snapping(snapping);
+        self
+    }
+
+    /// The lanes' accessible name.
+    pub fn set_accessibility_name(&mut self, name: AzString) {
+        self.accessibility_name = name;
+    }
+
+    /// [`Self::set_accessibility_name`] for the builder chain.
+    #[must_use]
+    pub fn with_accessibility_name(mut self, name: AzString) -> Self {
+        self.set_accessibility_name(name);
+        self
+    }
+
+    /// The user's requests.
+    pub fn set_on_event<C: Into<TimelineOnEventCallback>>(&mut self, data: RefAny, callback: C) {
+        self.on_event = Some(TimelineOnEvent {
+            refany: data,
+            callback: callback.into(),
+        })
+        .into();
+    }
+
+    /// [`Self::set_on_event`] for the builder chain.
+    #[must_use]
+    pub fn with_on_event<C: Into<TimelineOnEventCallback>>(mut self, data: RefAny, callback: C) -> Self {
+        self.set_on_event(data, callback);
+        self
+    }
+
+    /// Pin the widget theme; unset, the timeline follows the app theme.
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// Replaces `self` with an empty timeline and returns the original.
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
+        let mut s = Self::create(TimelineTrackVec::from_const_slice(&[]), 0.0);
+        core::mem::swap(&mut s, self);
+        s
+    }
+
+    /// `seconds` as a timecode at `fps`: `HH:MM:SS:FF` (negative times read
+    /// as zero). The same text the corner and the lanes' value show, for
+    /// an app's monitors.
+    #[must_use]
+    pub fn format_timecode(seconds: f64, fps: f32) -> AzString {
+        AzString::from(timecode(seconds, fps))
+    }
+
+    /// Where `time` is, in px from the lanes' left edge, in this view.
+    #[must_use]
+    pub fn x_of(&self, time: f64) -> f32 {
+        x_of(time, self.view_start, self.pixels_per_second)
+    }
+
+    /// The time at `x` px from the lanes' left edge, in this view.
+    #[must_use]
+    pub fn time_at(&self, x: f32) -> f64 {
+        time_at(x, self.view_start, self.pixels_per_second)
+    }
+
+    /// The timeline's DOM. The look comes from the theme module
+    /// (`themes::flat::timeline` / `themes::flora::timeline`); `None`
+    /// carries both looks, each in its `@theme(<name>)` block, and the app
+    /// theme picks.
+    #[must_use]
+    pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::timeline(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::timeline(self),
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                crate::widgets::themes::flat::timeline,
+                crate::widgets::themes::flora::timeline,
+            ),
+        }
+    }
+}
+
+impl Default for Timeline {
+    fn default() -> Self {
+        Self::create(TimelineTrackVec::from_const_slice(&[]), 0.0)
+    }
+}
+
+impl From<Timeline> for Dom {
+    fn from(t: Timeline) -> Self {
+        t.dom()
+    }
+}
+
+// ==== PIECE 2: the time math (pure, unit-tested) ====
+
+// ==== PIECE 3: the callbacks ====
+
+// ==== PIECE 4: the build ====
 
 #[cfg(test)]
 #[path = "timeline_tests.rs"]
