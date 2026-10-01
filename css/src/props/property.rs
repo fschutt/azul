@@ -53,7 +53,7 @@ use crate::{
     props::basic::{error::InvalidValueErr, pixel::PixelValueWithAuto},
 };
 
-const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 31] = [
+const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 32] = [
     (CombinedCssPropertyType::BorderRadius, "border-radius"),
     (CombinedCssPropertyType::Overflow, "overflow"),
     (
@@ -86,6 +86,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 31] = [
     // +spec:writing-modes:798cca - inset-block/inset-inline shorthand properties
     (CombinedCssPropertyType::InsetBlock, "inset-block"),
     (CombinedCssPropertyType::InsetInline, "inset-inline"),
+    (CombinedCssPropertyType::ListStyle, "list-style"),
     // SVG's `fill` IS a background: an SVG shape's box is clipped to its own
     // geometry, so filling the box fills the shape. Aliasing it here rather
     // than adding a parallel paint model is what lets all three spellings -
@@ -613,6 +614,9 @@ pub enum CombinedCssPropertyType {
     /// `inset-inline` shorthand: sets `inset-inline-start` + `inset-inline-end`
     /// (maps to `left` + `right` in horizontal-tb writing mode)
     InsetInline,
+    /// `list-style` shorthand: sets `list-style-type` + `list-style-position`
+    /// (`list-style-image` is not supported and ignored)
+    ListStyle,
 }
 
 impl fmt::Display for CombinedCssPropertyType {
@@ -3800,7 +3804,7 @@ pub fn parse_combined_css_property(
         Background, BackgroundColor, BackgroundImage, Border, BorderBottom, BorderColor,
         BorderLeft, BorderRadius, BorderRight, BorderStyle, BorderTop, BorderWidth, BoxShadow,
         ColumnRule, Columns, Flex, Font, Gap, Grid, GridArea, GridGap, InsetBlock, InsetInline,
-        Margin, Overflow, OverscrollBehavior, Padding, TextBox,
+        ListStyle, Margin, Overflow, OverscrollBehavior, Padding, TextBox,
     };
 
     macro_rules! convert_value {
@@ -3974,12 +3978,19 @@ pub fn parse_combined_css_property(
         InsetInline => {
             vec![CssPropertyType::Left, CssPropertyType::Right]
         }
+        ListStyle => {
+            vec![
+                CssPropertyType::ListStyleType,
+                CssPropertyType::ListStylePosition,
+            ]
+        }
     };
 
     // For Overflow, "auto" is a typed value (LayoutOverflow::Auto), not the generic CSS keyword,
     // so we must not intercept it here and let the specific parser handle it below.
     let has_typed_auto = matches!(key, Overflow);
-    let has_typed_none = false; // Currently no combined properties have typed "none"
+    // `list-style: none` is the TYPE `none` (no marker), not the CSS keyword.
+    let has_typed_none = matches!(key, ListStyle);
 
     match value {
         "auto" if !has_typed_auto => return Ok(keys.into_iter().map(CssProperty::auto).collect()),
@@ -4604,6 +4615,38 @@ pub fn parse_combined_css_property(
             Ok(vec![
                 CssProperty::Left(start.into()),
                 CssProperty::Right(end.into()),
+            ])
+        }
+        // CSS Lists 3: `list-style: <type> || <position> || <image>`, each at
+        // most once, in any order; an omitted one is reset to its initial value
+        // (`disc`, `outside`); `none` is the type. An image (`url(..)`) is not
+        // supported and ignored.
+        ListStyle => {
+            let mut list_type = None;
+            let mut position = None;
+            for part in value.split_whitespace() {
+                if position.is_none() {
+                    if let Ok(p) = parse_style_list_style_position(part) {
+                        position = Some(p);
+                        continue;
+                    }
+                }
+                if list_type.is_none() {
+                    if let Ok(t) = parse_style_list_style_type(part) {
+                        list_type = Some(t);
+                        continue;
+                    }
+                }
+                if part.starts_with("url(") {
+                    continue;
+                }
+                return Err(CssParsingError::InvalidValue(InvalidValueErr(value)));
+            }
+            Ok(vec![
+                CssProperty::ListStyleType(CssPropertyValue::Exact(list_type.unwrap_or_default())),
+                CssProperty::ListStylePosition(CssPropertyValue::Exact(
+                    position.unwrap_or_default(),
+                )),
             ])
         }
     }
