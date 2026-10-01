@@ -17,16 +17,18 @@ updates by dirty rect); tests; `scripts/azphoto_e2e.py`; report `scripts/PHOTO_2
 - the app crate (see NEXT)
 
 ## NEXT
-- DONE (app so far): view.rs 63795c3db (11 tests pass in scratch), storage.rs 84d7673b7,
-  args.rs 1be2d10a3 (4 tests pass in scratch).
-- next: src/state.rs (pure: Tool enum + options, PhotoState { engine: Box<dyn RasterEngine>,
-  view, view_buf, drag, overlays, colors }, pointer_down/move/up -> Effects { view rect,
-  dom }, zoom/pan, refresh_view) + tests -> commit;
-  then src/codec.rs (RawImage -> RGBA8, PNG/JPEG encode via azul) -> commit;
-  src/jobs.rs (Thread jobs: open/save/load/list/export) -> commit;
-  src/canvas.rs (RenderImageCallback, change_node_image_rect, pointer/wheel/ants timer) -> commit;
-  src/ui.rs (shell, menus, options bar, tools, panels, status bar, sheets) in pieces -> commit;
-  lib.rs start() + sample (examples/assets/images/cat_image.jpg via include_bytes).
+- DONE (app): view 63795c3db, storage 84d7673b7, args 1be2d10a3, state 051a51d95+69ca8c842
+  (77 tests pass in scratch: raster+view+state), codec 45e77d5b3, lib+jobs d1c39ff03,
+  canvas 1e24ff93f, commands 97f537f08.
+- next: src/ui.rs - `pub extern "C" fn layout(data, info) -> Dom` (mode -> s.set_dark,
+  canvas_image None), start screen, CanvasShell (menu row from one Menu table + native
+  with_menu_bar on macOS, options bar per tool, tools column with ids Tool::dom_id, doc tab,
+  canvas = rulers + canvas::canvas_dom, panels Color/Layers/Adjustments/Properties/
+  History/Navigator, StatusBar with CURSOR_MARKER), sheets (New, Export, Image/Canvas size,
+  Blur, Sharpen, Rotate, Feather, About, Settings on ShellSettingsLayout), window key
+  callback canvas::on_key. Write in pieces, commit each.
+- then: registration (root Cargo.toml member, workspace_test_members.txt, rust.yml step),
+  scripts/azphoto_e2e.py, report scripts/PHOTO_2026_10_01.md.
 
 ## Decisions (made unattended, noted here)
 - The canvas is ONE image node: a `RenderImageCallback` renders the VIEWPORT (the visible part
