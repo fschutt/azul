@@ -20,7 +20,10 @@
 //!
 //! Not compiled by the author (house rule); expected RED before the fix.
 
-use crate::table_harness::{count_colour, laid_out, near, page, pixels_differing, rect, render};
+use crate::table_markup::{
+    count_colour, laid_out_page as laid_out, near_tenth as near, page, pixels_differing, rect,
+    render,
+};
 
 const RED: (u8, u8, u8) = (255, 0, 0);
 
@@ -36,7 +39,11 @@ fn a_cell_takes_half_of_each_collapsed_edge_and_the_table_the_outer_half() {
     let t = rect(&lw, "t");
     let c = rect(&lw, "c");
     assert!(near(t.size.width, 220.0), "table width: {}", t.size.width);
-    assert!(near(t.size.height, 120.0), "table height: {}", t.size.height);
+    assert!(
+        near(t.size.height, 120.0),
+        "table height: {}",
+        t.size.height
+    );
     assert!(near(c.size.width, 170.0), "cell width: {}", c.size.width);
     assert!(near(c.size.height, 70.0), "cell height: {}", c.size.height);
     assert!(
@@ -100,7 +107,11 @@ fn a_grid_of_20px_borders_is_one_100px_square_painted_by_the_winners() {
         "",
         "<div style=\"width: 100px; height: 100px; background: green\"></div>",
     );
-    assert_eq!(count_colour(&render(&test), RED), 0, "no losing border paints");
+    assert_eq!(
+        count_colour(&render(&test), RED),
+        0,
+        "no losing border paints"
+    );
     assert_eq!(
         pixels_differing(&test, &reference),
         0,
