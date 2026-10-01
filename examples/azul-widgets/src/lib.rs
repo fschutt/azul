@@ -21,6 +21,7 @@ use azul::{
 
 mod forms;
 mod hotkeys;
+mod mail;
 mod notifications;
 mod video;
 
@@ -76,6 +77,9 @@ struct Showcase {
     /// The "Every input type" form and the "Raw HTML inputs" form (see
     /// `forms.rs`).
     form: forms::FormDemo,
+    /// The "Mail" section's values: the Outlook-style mail widgets (see
+    /// `mail.rs`).
+    mail: mail::MailDemo,
 }
 
 const CHOICES: &[&str] = &["Red", "Green", "Blue"];
@@ -1074,6 +1078,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // raw HTML the engine turns into the same widgets.
     let every_input = forms::every_input_section(&data, &s.form, theme);
     let raw_inputs = forms::raw_inputs_section(&data, &s.form, theme);
+    // The Outlook-style mail widgets.
+    let mail = mail::mail_section(&data, &s.mail, theme);
 
     let heading = Dom::create_h1_with_text("Azul Widget Showcase").with_css(
         "font-size: 26px; font-weight: bold; color: system:text; margin-top: 0px; \
@@ -1148,6 +1154,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 .with_child(navigation)
                 .with_child(overlays)
                 .with_child(datetime)
+                .with_child(mail)
                 .with_child(every_input)
                 .with_child(raw_inputs),
         )
@@ -1435,6 +1442,7 @@ pub fn start() {
         mode_index: 0,
         widget_theme: UiTheme::Flat,
         form: forms::FormDemo::create(),
+        mail: mail::MailDemo::create(),
     });
     // `None` follows the desktop - the default, spelled out: an app that
     // starts pinned passes `OptionDarkLightMode::Some(DarkLightMode::Dark)`.

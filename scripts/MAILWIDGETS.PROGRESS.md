@@ -20,17 +20,19 @@ RED-first (date_picker inline mode + today, list_view lazy-load hook never wired
   API + bases + `build` + tests, `dom()` stubbed), `OptionInfoBar`, manifest entries
   "message_list", "reading_pane", "todo_bar", "module_switcher", "module_switcher (collapsed)",
   "wizard_layout" in their contrast groups.
-- (next hash) GREEN D: real `dom()` in the five files; `// ==== <widget> ====` looks appended to
+- `d8525a81b` GREEN D: real `dom()` in the five files; `// ==== <widget> ====` looks appended to
   flat.rs / flora.rs (+ shared strokes `flat_strip_below/above`, `flat_sheet`,
   `flora_strip_below/above`, `flora_leaf`, `flora_label`); `decl::border_top`.
+- (next hash) showcase "Mail" section (`examples/azul-widgets/src/mail.rs`, wired in lib.rs) and
+  the report `scripts/MAILWIDGETS_2026_09_30.md`.
 
 ## IN PROGRESS
-- Showcase cards: `examples/azul-widgets/src/mail.rs` (a "Mail" section: MessageList, ReadingPane
-  with InfoBar, ToDoBar, ModuleSwitcher, StatusBar with sync, WizardLayout), wired into lib.rs.
+- nothing: the task is complete; the parent compiles, runs autofix for the api.json list in the
+  report (section 6), runs the test commands (section 8) and builds the showcase.
 
 ## NEXT
-1. Showcase cards (above) - they compile only after the parent runs autofix for the new API.
-2. Report `scripts/MAILWIDGETS_2026_09_30.md`.
+- (if resumed) anything the parent's compile reports: the least-sure spots are in the report,
+  section 7.
 
 ## Open questions
 - No sibling worktree has `layout/src/widgets/shells/` or a `NavigationPane`: the ModuleSwitcher is
