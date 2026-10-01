@@ -24,6 +24,7 @@ use azul_core::{
 };
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    impl_option, impl_option_inner,
     props::{
         basic::length::FloatValue,
         layout::{
@@ -238,6 +239,13 @@ impl From<InfoBar> for Dom {
         b.dom()
     }
 }
+
+impl_option!(
+    InfoBar,
+    OptionInfoBar,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
 /// The strip's DOM in `look`: strip [glyph?, text, action?]. Every part is
 /// its base (the structure), then the look's skin; the action is a link

@@ -250,6 +250,11 @@ pub mod map_themes;
 /// Renders a window's `Menu` as a horizontal bar; items open dropdowns via the
 /// unified `WindowPosition::RelativeToParentWindow` popup path.
 pub mod menubar;
+/// Message list widget.
+///
+/// A mail window's middle pane: a search row, the sort header and the
+/// virtualised, grouped message rows; see `message_list.rs`.
+pub mod message_list;
 /// Microphone-capture widget (P7) — same "dumb widget" architecture as the
 /// capture widgets, audio instead of video (no GL): a background thread feeds
 /// each `AudioFrame` to the user's `on_frame` hook.
@@ -261,6 +266,12 @@ pub mod microphone;
 /// HTML `showModal()`: a titled panel over a dimmed backdrop covering the window, Escape closes
 /// it; a front-end over `dialog`; see `modal.rs`.
 pub mod modal;
+/// Module switcher widget.
+///
+/// The big Mail / Calendar / Contacts / Tasks buttons at the foot of a
+/// mail window's navigation pane, and their collapsed strip; see
+/// `module_switcher.rs`.
+pub mod module_switcher;
 /// Node graph widget
 pub mod node_graph;
 /// Same as text input, but only allows numeric input
@@ -287,6 +298,12 @@ pub mod quick_access;
 /// Vertical/horizontal group of mutually-exclusive options (exactly one selected) with a circular
 /// indicator; see `radio_group.rs`.
 pub mod radio_group;
+/// Reading pane widget.
+///
+/// A mail window's open message: header, notice strip, fields,
+/// attachments, the body on paper and the people footer; see
+/// `reading_pane.rs`.
+pub mod reading_pane;
 /// Ribbon widget
 pub mod ribbon;
 /// WAI-ARIA "roving tabindex" shared by the composite widgets (radio group,
@@ -361,6 +378,11 @@ pub mod titlebar;
 /// (auto-timeout needs a host timer — see the file's TODO2); a near-clone of `alert.rs` positioned
 /// as an overlay; see `toast.rs`.
 pub mod toast;
+/// To-Do bar widget.
+///
+/// A mail window's right column: the mini calendar, the appointments, a
+/// task line and the task list; see `todo_bar.rs`.
+pub mod todo_bar;
 /// Tooltip widget.
 ///
 /// Shows a small text popup near an anchor on hover; see `tooltip.rs`.
@@ -372,6 +394,11 @@ pub mod tree_view;
 ///
 /// See `video.rs`.
 pub mod video;
+/// Wizard layout widget.
+///
+/// The frame of a multi-page dialog: the steps rail, the current page and
+/// the Back / Next / Finish buttons; see `wizard_layout.rs`.
+pub mod wizard_layout;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
 
@@ -1358,6 +1385,105 @@ mod label_convention {
                 ))
                 .dom(),
             ),
+            (
+                "message_list",
+                super::message_list::MessageList::create(
+                    super::message_list::MessageRowVec::from_vec(vec![
+                        super::message_list::MessageRow::create_group(AzString::from("Today")),
+                        super::message_list::MessageRow::create(
+                            1,
+                            AzString::from("Google Mail-Team"),
+                            AzString::from("Welcome"),
+                        )
+                        .with_date(AzString::from("21:12"))
+                        .with_unread(true)
+                        .with_selected(true),
+                        super::message_list::MessageRow::create(
+                            2,
+                            AzString::from("Alice"),
+                            AzString::from("Invoice"),
+                        )
+                        .with_attachment(true),
+                    ]),
+                )
+                .with_scopes(labels(&["All", "Unread"]), 0)
+                .dom(),
+            ),
+            (
+                "reading_pane",
+                super::reading_pane::ReadingPane::create(
+                    AzString::from("Welcome"),
+                    AzString::from("Google Mail-Team <mail-noreply@google.com>"),
+                )
+                .with_date(AzString::from("21:12"))
+                .with_field(AzString::from("To"), AzString::from("felix@example.com"))
+                .with_attachments(labels(&["invoice.pdf"]))
+                .with_info_bar(
+                    super::info_bar::InfoBar::create(AzString::from(
+                        "Click here to download pictures.",
+                    ))
+                    .with_action(AzString::from("Download pictures")),
+                )
+                .with_body(user_content())
+                .with_people(labels(&["GM"]), AzString::from("More about: Google Mail-Team"))
+                .dom(),
+            ),
+            (
+                "todo_bar",
+                super::todo_bar::ToDoBar::create(2026, 9, 12)
+                    .with_today(2026, 9, 30)
+                    .with_tasks(super::todo_bar::ToDoTaskVec::from_vec(vec![
+                        super::todo_bar::ToDoTask::create(1, AzString::from("Reply to Alice"))
+                            .with_due(AzString::from("Today")),
+                        super::todo_bar::ToDoTask::create(2, AzString::from("Book flights"))
+                            .with_done(true),
+                    ]))
+                    .dom(),
+            ),
+            (
+                "module_switcher",
+                super::module_switcher::ModuleSwitcher::create(
+                    super::module_switcher::SwitcherModuleVec::from_vec(vec![
+                        super::module_switcher::SwitcherModule::create(
+                            AzString::from("Mail"),
+                            AzString::from("mail"),
+                        ),
+                        super::module_switcher::SwitcherModule::create(
+                            AzString::from("Calendar"),
+                            AzString::from("calendar_month"),
+                        ),
+                    ]),
+                )
+                .dom(),
+            ),
+            (
+                "module_switcher (collapsed)",
+                super::module_switcher::ModuleSwitcher::create(
+                    super::module_switcher::SwitcherModuleVec::from_vec(vec![
+                        super::module_switcher::SwitcherModule::create(
+                            AzString::from("Mail"),
+                            AzString::from("mail"),
+                        ),
+                        super::module_switcher::SwitcherModule::create(
+                            AzString::from("Calendar"),
+                            AzString::from("calendar_month"),
+                        ),
+                    ]),
+                )
+                .with_collapsed(true)
+                .dom(),
+            ),
+            (
+                "wizard_layout",
+                super::wizard_layout::WizardLayout::create(
+                    AzString::from("Add account"),
+                    labels(&["Address", "Server", "Done"]),
+                )
+                .with_current_step(1)
+                .with_page(user_content())
+                .dom(),
+            ),
+        
         ];
         // The app shells, each with placeholder content (`shells::fixtures`).
         all.extend(super::shells::fixtures::every_shell());
@@ -2188,6 +2314,9 @@ mod theme_contrast {
         "tabs (content)",
         "tooltip",
         "form",
+        "reading_pane",
+        "todo_bar",
+        "wizard_layout",
     ];
     /// Controls a user types into, picks from or toggles.
     const INPUTS: &[&str] = &[
@@ -2240,6 +2369,9 @@ mod theme_contrast {
         "tabs (header)",
         "titlebar",
         "tree_view",
+        "message_list",
+        "module_switcher",
+        "module_switcher (collapsed)",
         // The app shells (`shells::fixtures::every_shell`): window chrome.
         "office_shell",
         "navigation_pane",
