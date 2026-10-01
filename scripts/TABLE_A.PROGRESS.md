@@ -6,9 +6,10 @@ Brief: scratchpad `TABLE_A_go.md` (widths, row groups, presentational attributes
 ## DONE
 - 6e3e48548 progress file
 - e719d122e RED: layout tests (5 files + common/table_markup.rs) + core/tests/xml_attributes.rs
+- bc6361f65 FIX item 3: presentational attributes (attribute table keeps them, StyledDom creation maps them), UA table defaults
 
 ## IN PROGRESS
-- FIX item 3 (presentational attributes)
+- FIX items 1/4/5 (table width, column distribution, nested tables)
 
 ## NEXT
 1. RED: layout tests (width cap, row groups, attributes, percent columns, nested tables) + core test
@@ -27,3 +28,7 @@ Brief: scratchpad `TABLE_A_go.md` (widths, row groups, presentational attributes
 
 ## Open questions
 - none yet
+
+## Notes
+- Parent (after outage): on main the `cell_is_ifc` early return in layout_formatting_context was REVERTED;
+  do not rely on it. TABLE-B owns prose-cell min-content measurement.
