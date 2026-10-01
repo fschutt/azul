@@ -452,12 +452,14 @@ fn item_parts(data: &mut RefAny) -> Option<(RefAny, String, bool)> {
 }
 
 /// An item takes clicks, a double-click, the right button, a drag and (a
-/// folder) a drop.
-fn interactive(app: &RefAny, entry: &Entry, dom: Dom) -> Dom {
+/// folder) a drop. An item being renamed does not drag: a drag in its field
+/// selects text.
+fn interactive(s: &DriveState, app: &RefAny, entry: &Entry, dom: Dom) -> Dom {
     let data = item_ref(app, entry);
+    let renaming = s.renaming.as_ref().is_some_and(|r| r.key == entry.key);
     let mut dom = dom
         .with_class(AzString::from("azdrive-item"))
-        .with_attribute(AttributeType::Draggable(true))
+        .with_attribute(AttributeType::Draggable(!renaming))
         .with_callback(
             EventFilter::Hover(HoverEventFilter::Click),
             data.clone(),
@@ -898,7 +900,7 @@ fn details_row(s: &DriveState, app: &RefAny, entry: &Entry) -> Dom {
                 .with_child(cell),
         );
     }
-    interactive(app, entry, row)
+    interactive(s, app, entry, row)
 }
 
 /// A row of the Content layout: icon, name and type, date and size.
@@ -940,7 +942,7 @@ fn content_row(s: &DriveState, app: &RefAny, entry: &Entry) -> Dom {
             .with_child(Dom::create_span_with_text(AzString::from(modified)))
             .with_child(Dom::create_span_with_text(AzString::from(size))),
     );
-    interactive(app, entry, row)
+    interactive(s, app, entry, row)
 }
 
 /// A cell of the icon layouts: the big icon over the name.
@@ -977,7 +979,7 @@ fn icon_cell(s: &DriveState, app: &RefAny, entry: &Entry, layout: ViewLayout) ->
             ),
         );
     }
-    interactive(app, entry, cell)
+    interactive(s, app, entry, cell)
 }
 
 /// A cell of the List and Small icons layouts: a small icon beside the name.
@@ -992,7 +994,7 @@ fn inline_cell(s: &DriveState, app: &RefAny, entry: &Entry, layout: ViewLayout) 
         cell.add_child(check_box(s, app, entry));
     }
     cell.add_child(name_cell(s, app, entry, 18.0));
-    interactive(app, entry, cell)
+    interactive(s, app, entry, cell)
 }
 
 /// A tile of the Tiles layout (the Tile widget: icon, name, type and size).
@@ -1022,9 +1024,9 @@ fn tile_cell(s: &DriveState, app: &RefAny, entry: &Entry) -> Dom {
             .with_css("display: flex; flex-direction: row; align-items: center;")
             .with_child(check_box(s, app, entry))
             .with_child(tile);
-        return interactive(app, entry, row);
+        return interactive(s, app, entry, row);
     }
-    interactive(app, entry, tile)
+    interactive(s, app, entry, tile)
 }
 
 /// The items of one group in the layout.
