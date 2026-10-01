@@ -17,15 +17,19 @@ Task: AzCalculator (F1/F2/F6/F7 vehicle) + AzContacts (A4). Report: scripts/SMAL
 - 66d7fae9b/afee1f564 contact.rs; 0d194a6e3/28a5ca6ed book.rs; 887b60931/89f0b41ef dupes.rs; 15a67f7d0/b85fc8269 store.rs; a5111bd72/716a23d94 sample.rs (RED/GREEN)
 - 8d1010329, d1ac2b4ae wip(azcontacts): ui.rs pieces 1-2
 - 75d7df15f wip(azcontacts): callbacks 3a; 6148ee264 feat(azcontacts): the window
+- 1604b0505 test(azcontacts): scripts/azcontacts_e2e.py
+- 10cacc7bd docs(smallapps): the report
 
 ## IN PROGRESS
-- scripts/azcontacts_e2e.py
+- nothing - task complete
 
 ## NEXT
 3. DONE (calculator UI + E2E).
 4. DONE: AzContacts model (vcard, contact, book, dupes, store, sample), RED + GREEN each.
 5. DONE: AzContacts UI (6148ee264).
-6. NEXT STEP: scripts/azcontacts_e2e.py on scripts/azlin_e2e.py (start with --data-dir tmp --sample and a
+ALL DONE: azcontacts_e2e.py (1604b0505), report scripts/SMALLAPPS_2026_10_01.md (10cacc7bd). Nothing left
+for this task; the parent compiles, runs the suites and the two E2E scripts (commands in the report).
+6. (done) scripts/azcontacts_e2e.py on scripts/azlin_e2e.py (start with --data-dir tmp --sample and a
    fixture .vcf as a positional file -> import preview; wait AZCONTACTS_LOADED 300 + SAMPLE_WRITTEN 300; search
    "krug" -> VIEW 1; click a row -> SELECTED; New -> type names -> Save -> SAVED + file exists; edit email bad ->
    PROBLEMS; duplicates -> merge -> MERGED + file deleted; jump bar; settings flora/dark; screenshots).
