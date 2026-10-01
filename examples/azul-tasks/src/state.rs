@@ -733,6 +733,27 @@ impl Tasks {
         gone
     }
 
+    /// Adds the sample lists and tasks (the empty state's "Add the sample tasks").
+    pub fn add_sample(&mut self, now: NaiveDateTime) {
+        let mut mint = new_id;
+        let (lists, tasks) = crate::sample::sample(now, &mut mint);
+        let first_list = self.lists.len();
+        let first_task = self.tasks.len();
+        let base = self.lists.iter().map(|l| l.order).max().unwrap_or(0);
+        for mut l in lists {
+            l.order += base;
+            self.lists.push(l);
+        }
+        self.tasks.extend(tasks);
+        for i in first_list..self.lists.len() {
+            self.save_list(i);
+        }
+        for i in first_task..self.tasks.len() {
+            self.save_task(i);
+        }
+        self.notice = "Sample lists and tasks were added.".to_string();
+    }
+
     // ==== Loading ====
 
     /// Takes in what the files said; an empty folder gets a first list ("Tasks"), or the
@@ -747,17 +768,7 @@ impl Tasks {
         self.loaded = true;
         if self.lists.is_empty() && self.tasks.is_empty() {
             if self.sample_requested {
-                let mut mint = new_id;
-                let (lists, tasks) = crate::sample::sample(now, &mut mint);
-                self.lists = lists;
-                self.tasks = tasks;
-                for i in 0..self.lists.len() {
-                    self.save_list(i);
-                }
-                for i in 0..self.tasks.len() {
-                    self.save_task(i);
-                }
-                self.notice = "Sample lists and tasks were added.".to_string();
+                self.add_sample(now);
             } else {
                 self.new_list("Tasks", "");
             }
