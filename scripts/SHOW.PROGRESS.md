@@ -36,15 +36,11 @@ Brief: scratchpad `SHOW_go.md`; house rules: scratchpad `wave4_common.md`. Repor
 - The app UI (`examples/azul-show/src/`). DONE: text.rs 0e128010c, render.rs 1441e2df3, storage.rs
   c75706697, args.rs 44196ab6d, editor.rs a4e73ff3b (pure session + tests), themes.rs 57a7d5570.
   (scratchpad tc_pure.py type-checks model + editor + themes standalone; gen.py lists generated API.)
-  app.rs ea1a81bd9, commands.rs 9267cb03e, ribbon.rs 383775a66, backstage.rs b3581f940.
-  NEXT STEP, one commit each: `views.rs` (normal: rail ThumbnailStrip + SelectionAdorner canvas with
-  `SLIDE_ID` + notes TextArea + format pane + status bar; sorter; outline; notes page; the adorner /
-  strip / notes / outline / text-edit extern callbacks), `show.rs` (show screen + presenter layout,
-  keys, play tick, presenter timer), `lib.rs` (mod decls, main layout, presenter_layout,
-  on_presenter_created, on_play_tick, focus_text_soon, spawn_storage + storage thread + writeback,
-  window keys, start). lib.rs is referenced by commands.rs (crate::presenter_layout,
-  crate::on_presenter_created, crate::on_play_tick, crate::focus_text_soon, crate::spawn_storage)
-  and views::SLIDE_ID.
+  app.rs ea1a81bd9, commands.rs 9267cb03e, ribbon.rs 383775a66, backstage.rs b3581f940,
+  views.rs 71d67741e, show.rs 2962e5bf2, lib.rs + main.rs 302ea04b3. The app is complete (uncompiled).
+  NEXT STEP: a careful review pass over the app files against the generated API (gen.py) for
+  compile errors; then scripts/azshow_e2e.py (new deck, add slides with layouts, type a title, move a
+  shape, reorder in the sorter, start the show and step), then the report.
 
 ## NEXT
 
