@@ -50,6 +50,9 @@ pub enum Job {
     List,
     /// Stores a picture under the deck's `media/` as `name`.
     PutMedia { deck: String, name: String, bytes: Vec<u8> },
+    /// Reads a picture the user picked and stores it under the deck's
+    /// `media/` (a fresh name, the file's extension).
+    ImportFile { deck: String, path: PathBuf },
 }
 
 /// What came back.
@@ -150,6 +153,28 @@ pub fn run_job(drive: &dyn Drive, job: Job) -> Outcome {
             decks.sort_by(|a, b| b.modified.cmp(&a.modified).then_with(|| a.title.cmp(&b.title)));
             Ok(decks)
         })()),
+        Job::ImportFile { deck, path } => match std::fs::read(&path) {
+            Ok(bytes) => {
+                let ext = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(str::to_ascii_lowercase)
+                    .unwrap_or_else(|| String::from("png"));
+                let stem = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect::<String>())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| String::from("picture"));
+                let nanos = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.subsec_nanos())
+                    .unwrap_or(0);
+                let name = format!("{stem}-{nanos:08x}.{ext}");
+                run_job(drive, Job::PutMedia { deck, name, bytes })
+            }
+            Err(e) => Outcome::MediaStored(Err(format!("{}: {e}", path.display()))),
+        },
         Job::PutMedia { deck, name, bytes } => {
             let media = format!("media/{name}");
             Outcome::MediaStored(
