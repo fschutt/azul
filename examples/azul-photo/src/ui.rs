@@ -740,3 +740,144 @@ fn panels(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
         .with_child(adjustments_panel(app, p))
         .with_child(history_panel(app, a, p))
 }
+
+// ==== Canvas area, tab, status ====
+
+/// A ruler step (document pixels) that leaves at least ~60 logical px
+/// between labels.
+fn ruler_step(zoom: f32, hidpi: f32) -> i32 {
+    const STEPS: [i32; 13] = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000];
+    let per_px = zoom / hidpi.max(0.1);
+    STEPS
+        .into_iter()
+        .find(|s| *s as f32 * per_px >= 60.0)
+        .unwrap_or(20000)
+}
+
+/// The top (`horizontal`) or left ruler: a label every step.
+fn ruler(a: &PhotoApp, p: &Palette, horizontal: bool) -> Dom {
+    let hidpi = a.hidpi.max(0.1);
+    let v = &a.s.view;
+    let step = ruler_step(v.zoom, hidpi);
+    let (pan, len) = if horizontal {
+        (v.pan_x, v.width as f32)
+    } else {
+        (v.pan_y, v.height as f32)
+    };
+    let first = ((-pan / v.zoom) / step as f32).floor() as i32 * step;
+    let mut r = Dom::create_div()
+        .with_id(if horizontal { "photo-ruler-x" } else { "photo-ruler-y" })
+        .with_css(format!(
+            "position: relative; overflow: hidden; background: {}; {}",
+            p.ruler,
+            if horizontal { "height: 18px; flex-grow: 1;" } else { "width: 18px; height: 100%;" }
+        ));
+    let mut d = first;
+    let mut guard = 0;
+    while guard < 200 {
+        guard += 1;
+        let at = (d as f32 * v.zoom + pan) / hidpi;
+        if at > len / hidpi {
+            break;
+        }
+        if at >= 0.0 {
+            let css = if horizontal {
+                format!("position: absolute; left: {:.1}px; top: 1px; font-size: 9px; color: {};", at + 2.0, p.muted)
+            } else {
+                format!("position: absolute; top: {:.1}px; left: 1px; font-size: 9px; color: {};", at + 2.0, p.muted)
+            };
+            let tick = if horizontal {
+                format!("position: absolute; left: {at:.1}px; top: 0px; width: 1px; height: 18px; background: {};", p.line)
+            } else {
+                format!("position: absolute; top: {at:.1}px; left: 0px; height: 1px; width: 18px; background: {};", p.line)
+            };
+            r.add_child(Dom::create_div().with_css(tick));
+            r.add_child(text(&d.to_string(), &css));
+        }
+        d += step;
+    }
+    r
+}
+
+/// The rulers around the canvas node.
+fn canvas_area(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
+    column("flex-grow: 1; min-height: 0px; min-width: 0px;")
+        .with_child(
+            row("flex-shrink: 0;")
+                .with_child(Dom::create_div().with_css(format!("width: 18px; height: 18px; background: {};", p.ruler)))
+                .with_child(ruler(a, p, true)),
+        )
+        .with_child(
+            row("flex-grow: 1; min-height: 0px; align-items: stretch;")
+                .with_child(ruler(a, p, false))
+                .with_child(canvas::canvas_dom(app, a.s.tool)),
+        )
+}
+
+/// The document's tab: its name, a dot for unsaved changes, close.
+fn doc_tab(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
+    row(&format!("padding: 2px 8px; background: {}; flex-shrink: 0;", p.chrome))
+        .with_child(
+            row(&format!("padding: 2px 8px; background: {}; border-radius: 4px 4px 0px 0px;", p.panel))
+                .with_id("photo-doc-tab")
+                .with_child(text(
+                    &format!("{}{}", a.s.name, if a.s.modified { " \u{25cf}" } else { "" }),
+                    &format!("font-size: 12px; color: {}; margin-right: 6px;", p.text),
+                ))
+                .with_child(icon_button(app, "close", "Close the document", Command::CloseDocument)),
+        )
+}
+
+fn status_bar(a: &PhotoApp) -> Dom {
+    let (w, h) = a.s.engine.size();
+    let mut segments = vec![
+        StatusBarSegment::create(AzString::from(a.s.view.percent_label())).with_marker(AzString::from("photo-zoom")),
+        StatusBarSegment::create(AzString::from(format!("{w} x {h} px \u{b7} RGBA 8-bit"))),
+        StatusBarSegment::create(AzString::from(canvas::cursor_label(a))).with_marker(AzString::from(canvas::CURSOR_MARKER)),
+    ];
+    if a.busy > 0 {
+        segments.push(StatusBarSegment::create(AzString::from("Working...")));
+    }
+    StatusBar::create(segments).dom().with_id("photo-status")
+}
+
+// ==== Start screen ====
+
+fn start_screen(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
+    let mut recent = column("margin-top: 16px; min-width: 360px;").with_id("photo-recent");
+    if a.recent.is_empty() {
+        recent.add_child(
+            ShellEmptyState::create(AzString::from("No saved documents yet"))
+                .with_icon(AzString::from("photo_library"))
+                .with_detail(AzString::from("Documents you save appear here."))
+                .dom(),
+        );
+    } else {
+        recent.add_child(text("RECENT", &format!("font-size: 11px; font-weight: bold; color: {}; margin-bottom: 4px;", p.muted)));
+        for (i, d) in a.recent.iter().enumerate().take(12) {
+            recent.add_child(
+                row("margin-bottom: 2px;")
+                    .with_child(button(app, &d.name, Command::OpenRecent(d.uuid.clone())).with_id(format!("recent-{i}")))
+                    .with_child(text(&format!("{} x {} px", d.width, d.height), &format!("font-size: 12px; color: {}; margin-left: 8px;", p.muted))),
+            );
+        }
+    }
+    column(&format!("flex-grow: 1; align-items: center; justify-content: center; background: {};", p.panel))
+        .with_id("photo-start")
+        .with_child(text("AzPhoto", &format!("font-size: 28px; font-weight: bold; color: {}; margin-bottom: 12px;", p.text)))
+        .with_child(
+            row("")
+                .with_child(button(app, "Open...", Command::Open).with_id("start-open").with_css("margin-right: 8px;"))
+                .with_child(button(app, "New image...", Command::Sheet(Sheet::NewImage)).with_id("start-new").with_css("margin-right: 8px;"))
+                .with_child(button(app, "Open sample", Command::OpenSample).with_id("start-sample")),
+        )
+        .with_child(text(
+            "Opens PNG \u{b7} JPEG \u{b7} WebP \u{b7} GIF (first frame) \u{b7} BMP \u{b7} TIFF \u{b7} TGA",
+            &format!("font-size: 12px; color: {}; margin-top: 10px;", p.muted),
+        ))
+        .with_child(text(
+            "Not yet: RAW \u{b7} HEIC \u{b7} AVIF \u{b7} PSD (no decoders in azul)",
+            &format!("font-size: 12px; color: {}; margin-top: 2px;", p.muted),
+        ))
+        .with_child(recent)
+}
