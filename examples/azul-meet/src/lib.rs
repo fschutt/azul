@@ -72,6 +72,7 @@
 //!   played, and the camera and the screen share are test patterns (off until switched on, unless
 //!   `AZMEET_TEST_PATTERN=1`).
 
+mod args;
 mod audio;
 mod chat;
 mod pace;
