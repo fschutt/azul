@@ -18,7 +18,11 @@ Branch `wt/mail2` from `39092feee`. Worktree
 
 ## IN PROGRESS
 
-- App UI (NEXT step 3), in pieces, each committed:
+- App UI (NEXT step 3), in pieces, each committed. Done: a (`a7add8cae`/`94d8ea0ee`), b
+  (`968973d2a`), c (`ffff895d3`, `f3d582151`, `d1c39f4bd`), d part 1 (`ae989a728`: state +
+  start + skeleton files). NEXT: d part 2 = lib.rs keyring callbacks, sync (prepare/spawn/thread/
+  event, from MAIL1's code in scratchpad `mail2/lib_mail1.rs` lines 1307-1628), the IO thread
+  (account / flags / settings writes off the UI thread).
   a. compose.rs `draft_mail` (lenient OutgoingMail for drafts) RED + GREEN
   b. args.rs (`--screen --theme --mode --sample --size`) + tests
   c. editor.rs (MailDoc <-> Dom for the Path-2 editor; text sync; structural edit apply)
