@@ -107,11 +107,15 @@ const DECODER_EMITS_DECODE_ORDER: bool = cfg!(any(target_os = "macos", target_os
 
 /// The decoder of one `<video>` session, on the worker's own thread (off the
 /// UI thread already: each chunk's pictures come back from `decode` at once,
-/// which the media clock places by the chunk's presentation time).
+/// which the media clock places by the chunk's presentation time), handing
+/// frames out in the widget config's `output_format`: BGRA8 by default, as
+/// VideoToolbox renders them (no swizzle either way), NV12 for the GPU's YUV
+/// path.
 #[cfg_attr(not(feature = "video-native"), allow(dead_code))]
 fn open_session_decoder(output_format: azul_core::resources::RawImageFormat) -> super::VideoDecoder {
-    let _ = output_format;
-    super::VideoDecoder::open_on_this_thread(false /* h264 */)
+    let decoder = super::VideoDecoder::open_on_this_thread(false /* h264 */);
+    decoder.set_output_format(output_format);
+    decoder
 }
 
 /// One control message from the widget, decoded.
