@@ -512,3 +512,65 @@ pub(super) fn close(handle: u64) {
         }
     }
 }
+
+#[cfg(all(test, target_os = "macos"))]
+mod matrix_tests {
+    use core::ptr::NonNull;
+
+    use azul_core::resources::RawImageFormat;
+    use objc2_core_foundation::{CFRetained, CFString};
+    use objc2_core_video::{
+        kCVImageBufferYCbCrMatrixKey, CVAttachmentMode, CVPixelBuffer, CVPixelBufferCreate,
+        CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags, CVPixelBufferUnlockBaseAddress,
+    };
+
+    use super::{publish_pixel_buffer, PIXEL_FORMAT_420V};
+    use crate::desktop::extra::capture_slot::CaptureSlot;
+
+    /// A buffer's YCbCr matrix is read by VALUE. The attachment a capture or
+    /// a decoder sets comes from the format description (CoreMedia's
+    /// `kCMFormatDescriptionYCbCrMatrix_ITU_R_601_4`): "the same string" as
+    /// CoreVideo's `kCVImageBufferYCbCrMatrix_ITU_R_601_4`, not the same
+    /// pointer. Compared by address, a Rec.601 camera read as Rec.709 and its
+    /// picture showed with the wrong hue. 720 lines, so the "no attachment"
+    /// fallback would say Rec.709 too: only the attachment can say 601.
+    #[test]
+    fn a_rec601_matrix_named_by_an_equal_string_reads_as_rec601() {
+        let mut raw: *mut CVPixelBuffer = core::ptr::null_mut();
+        let status = unsafe {
+            CVPixelBufferCreate(
+                None,
+                1280,
+                720,
+                PIXEL_FORMAT_420V,
+                None,
+                NonNull::from(&mut raw),
+            )
+        };
+        assert_eq!(status, 0, "CVPixelBufferCreate");
+        let pb: CFRetained<CVPixelBuffer> =
+            unsafe { CFRetained::from_raw(NonNull::new(raw).expect("a pixel buffer")) };
+        // The same characters as CoreVideo's constant, in a string of its own.
+        let matrix = CFString::from_str("ITU_R_601_4");
+        unsafe {
+            pb.set_attachment(
+                kCVImageBufferYCbCrMatrixKey,
+                &matrix,
+                CVAttachmentMode::ShouldPropagate,
+            );
+        }
+        let slot = CaptureSlot::new();
+        unsafe {
+            CVPixelBufferLockBaseAddress(&pb, CVPixelBufferLockFlags(1));
+            publish_pixel_buffer(&slot, &pb, false);
+            CVPixelBufferUnlockBaseAddress(&pb, CVPixelBufferLockFlags(1));
+        }
+        let mut seq = 0;
+        let mut out = Vec::new();
+        let (w, h, format) = slot
+            .take_newer(&mut seq, &mut out, std::time::Duration::from_millis(10))
+            .expect("the buffer was published");
+        assert_eq!((w, h), (1280, 720));
+        assert_eq!(format, RawImageFormat::NV12Rec601Video);
+    }
+}
