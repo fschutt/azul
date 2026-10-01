@@ -6251,7 +6251,7 @@ pub(crate) fn collect_style_text(node: &XmlNode, out: &mut Vec<String>, depth: u
 /// `<style>` belongs to this family too but is handled separately at the call
 /// site: its text is not nothing, it is a stylesheet, and it is lifted onto
 /// the element that contains it.
-pub(crate) fn element_draws_nothing(raw_tag: &str, normalized_tag: &str) -> bool {
+pub fn element_draws_nothing(raw_tag: &str, normalized_tag: &str) -> bool {
     if normalized_tag == "metadata" {
         return true;
     }

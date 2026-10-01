@@ -963,6 +963,11 @@ pub struct TreeBuilder {
     /// node is one run, also across a comment or a tag it ignores
     /// (`a<!-- x -->b`, `a</font>b` with no `<font>` open).
     pending_text: String,
+    /// How many `<p>` / `<li>` `<dd>` `<dt>` are open: a block start looks
+    /// for one only when there is one (ten thousand nested `<div>`s are not
+    /// searched ten thousand times).
+    open_paragraphs: usize,
+    open_list_items: usize,
 }
 
 impl TreeBuilder {
@@ -978,6 +983,8 @@ impl TreeBuilder {
             head_seen: false,
             body_open: false,
             pending_text: String::new(),
+            open_paragraphs: 0,
+            open_list_items: 0,
         }
     }
 
@@ -1043,6 +1050,7 @@ impl TreeBuilder {
         self.sink_open(sink, name, attributes);
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1);
+        self.count_open(&key, true);
         self.stack.push(OpenElement {
             key,
             id,
@@ -1066,6 +1074,7 @@ impl TreeBuilder {
         let Some(e) = self.stack.pop() else {
             return;
         };
+        self.count_open(&e.key, false);
         self.sink_close(sink);
         if self.rules.html() && is_marker_element(&e.key) {
             // A cell closed: what was opened in it is not reopened outside.
@@ -1077,7 +1086,23 @@ impl TreeBuilder {
         }
     }
 
+    fn count_open(&mut self, key: &str, opened: bool) {
+        let counter = match key {
+            "p" => &mut self.open_paragraphs,
+            "li" | "dd" | "dt" => &mut self.open_list_items,
+            _ => return,
+        };
+        if opened {
+            *counter += 1;
+        } else {
+            *counter = counter.saturating_sub(1);
+        }
+    }
+
     fn close_p_in_button_scope(&mut self, sink: &mut dyn TreeSink) {
+        if self.open_paragraphs == 0 {
+            return;
+        }
         if let Some(i) = self.find_in_scope("p", Scope::Button) {
             self.pop_to(sink, i);
         }
@@ -1086,6 +1111,9 @@ impl TreeBuilder {
     /// An `<li>` closes the open `<li>` (a `<dd>` / `<dt>` the open `<dd>`
     /// or `<dt>`) - not one of an outer list.
     fn close_list_item(&mut self, sink: &mut dyn TreeSink, names: &[&str]) {
+        if self.open_list_items == 0 {
+            return;
+        }
         for i in (0..self.stack.len()).rev() {
             let key = self.stack[i].key.as_str();
             if names.contains(&key) {

@@ -21,104 +21,21 @@ use std::path::Path;
 #[cfg(feature = "svg")]
 pub mod svg;
 
-/// Decodes XML/HTML entities in a string.
-/// Handles standard XML entities: &lt; &gt; &amp; &apos; &quot;, `&nbsp;`,
-/// numeric character references: &#60; &#x3C;, and the other HTML named
-/// references (`azul_core::xml::html_named_entity`: `&copy;`, `&eacute;` ...).
-/// Returns `Cow::Borrowed` when no entities are found (zero-alloc fast path).
+/// Decodes the character references in a string by XML's rules with HTML's
+/// names (the strict loaders' text and attribute values):
+/// `azul_core::xml::html::decode_character_references` in
+/// `CharRefMode::Xml` - `&lt;` `&amp;` ..., the numeric references, and the
+/// HTML Standard's 2231 names (`&copy;`, `&NotEqualTilde;`), each ended by
+/// its `;`. Returns `Cow::Borrowed` when there is nothing to decode.
 fn decode_xml_entities(s: &str) -> std::borrow::Cow<'_, str> {
-    // Fast path: if no ampersand, no entities to decode
-    if !s.contains('&') {
-        return std::borrow::Cow::Borrowed(s);
-    }
-    decode_xml_entities_slow(s)
+    azul_core::xml::html::decode_character_references(s, azul_core::xml::html::CharRefMode::Xml)
 }
 
+/// [`decode_xml_entities`], always allocating (the twin the tests compare
+/// the borrowing path with).
+#[cfg(test)]
 fn decode_xml_entities_slow(s: &str) -> std::borrow::Cow<'_, str> {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-
-    while let Some(c) = chars.next() {
-        if c == '&' {
-            // Collect the entity reference
-            let mut entity = String::new();
-            let mut found_semicolon = false;
-
-            while let Some(&next) = chars.peek() {
-                if next == ';' {
-                    chars.next();
-                    found_semicolon = true;
-                    break;
-                }
-                if !next.is_alphanumeric() && next != '#' {
-                    break;
-                }
-                entity.push(chars.next().unwrap());
-                if entity.len() > 10 {
-                    // Entity too long, not a valid entity
-                    break;
-                }
-            }
-
-            if found_semicolon {
-                // Try to decode the entity
-                match entity.as_str() {
-                    "lt" => result.push('<'),
-                    "gt" => result.push('>'),
-                    "amp" => result.push('&'),
-                    "apos" => result.push('\''),
-                    "quot" => result.push('"'),
-                    "nbsp" => result.push('\u{00A0}'),
-                    s if s.starts_with('#') => {
-                        // Numeric character reference
-                        let num_str = &s[1..];
-                        let code_point = if num_str.starts_with('x') || num_str.starts_with('X') {
-                            // Hexadecimal
-                            u32::from_str_radix(&num_str[1..], 16).ok()
-                        } else {
-                            // Decimal
-                            num_str.parse::<u32>().ok()
-                        };
-                        if let Some(cp) = code_point {
-                            if let Some(ch) = char::from_u32(cp) {
-                                result.push(ch);
-                            } else {
-                                // Invalid code point, keep original
-                                result.push('&');
-                                result.push_str(&entity);
-                                result.push(';');
-                            }
-                        } else {
-                            // Parse failed, keep original
-                            result.push('&');
-                            result.push_str(&entity);
-                            result.push(';');
-                        }
-                    }
-                    // The other HTML named references (`&copy;`, `&mdash;`,
-                    // `&eacute;` ...): the one table in azul-core.
-                    s => {
-                        if let Some(ch) = azul_core::xml::html_named_entity(s) {
-                            result.push(ch);
-                        } else {
-                            // Unknown entity, keep original
-                            result.push('&');
-                            result.push_str(&entity);
-                            result.push(';');
-                        }
-                    }
-                }
-            } else {
-                // No semicolon found, not a valid entity reference
-                result.push('&');
-                result.push_str(&entity);
-            }
-        } else {
-            result.push(c);
-        }
-    }
-
-    std::borrow::Cow::Owned(result)
+    std::borrow::Cow::Owned(decode_xml_entities(s).into_owned())
 }
 
 pub use azul_core::xml::*;
@@ -290,11 +207,10 @@ pub fn parse_xml_to_styled_dom(xml: &str) -> Result<StyledDom, XmlError> {
     //   [XML] create_from_fast_dom    : +XX MiB in YY ms
     // to locate which sub-phase of the parse-cascade dominates the
     // RSS jump seen between `page start` and `xml parsed`.
-    static MEM_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    let mem_on = *MEM_ENABLED.get_or_init(azul_core::profile::memory_enabled);
+    let mem_on = memory_profile_enabled();
 
     let rss0 = if mem_on { peak_rss_bytes() } else { 0 };
-    let (mut fast_dom, css) = parse_xml_to_fast_dom_with_css(xml)?;
+    let (fast_dom, css) = parse_xml_to_fast_dom_with_css(xml)?;
     if mem_on {
         let rss1 = peak_rss_bytes();
         eprintln!(
@@ -302,7 +218,33 @@ pub fn parse_xml_to_styled_dom(xml: &str) -> Result<StyledDom, XmlError> {
             (rss1.saturating_sub(rss0)) as f64 / 1024.0 / 1024.0,
         );
     }
+    Ok(styled_document(fast_dom, css, mem_on))
+}
 
+/// HTML as a browser reads it, straight into a `StyledDom`: the LENIENT twin
+/// of [`parse_xml_to_styled_dom`] (the same arena, the same `<head>` and
+/// `<style>` handling; the tokenizer and the tree construction of
+/// [`parse_html_string`]). Never fails.
+#[must_use]
+pub fn parse_html_to_styled_dom(source: &str) -> StyledDom {
+    let (fast_dom, css) = parse_html_to_fast_dom_with_css(source);
+    styled_document(fast_dom, css, memory_profile_enabled())
+}
+
+/// Whether `AZ_PROFILE=memory` asks for the per-phase RSS breakdown.
+fn memory_profile_enabled() -> bool {
+    static MEM_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *MEM_ENABLED.get_or_init(azul_core::profile::memory_enabled)
+}
+
+/// A document loader's arena and stylesheets as a `StyledDom`: the
+/// stylesheets merged into one global sheet, then the cascade.
+#[allow(clippy::cast_precision_loss)] // bounded layout/render numeric cast
+fn styled_document(
+    mut fast_dom: azul_core::dom::FastDom,
+    css: Vec<Css>,
+    mem_on: bool,
+) -> StyledDom {
     let rss1 = if mem_on { peak_rss_bytes() } else { 0 };
     // Attach CSS to the FastDom
     if !css.is_empty() {
@@ -355,7 +297,7 @@ pub fn parse_xml_to_styled_dom(xml: &str) -> Result<StyledDom, XmlError> {
         );
     }
 
-    Ok(styled)
+    styled
 }
 
 /// Resident-set bytes for RSS checkpoints — mirrors servo-shot's
@@ -385,46 +327,344 @@ const fn peak_rss_bytes() -> u64 {
     0
 }
 
-/// Internal: parse XML into `FastDom` + collected CSS stylesheets.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
-#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose
-                                                               // layout/render/parse routine (one
-                                                               // branch per case)
-fn parse_xml_to_fast_dom_with_css(
-    xml: &str,
-) -> Result<(azul_core::dom::FastDom, Vec<Css>), XmlError> {
-    use azul_core::{
-        dom::{NodeData, NodeType},
-        xml::CompactDomBuilder,
-    };
-    use xmlparser::{
-        ElementEnd::{Close, Empty, Open},
-        Token::{Attribute, ElementEnd, ElementStart, Text},
-        Tokenizer,
-    };
+/// One open element of the document loader's arena ([`FastDomSink`]).
+#[derive(Debug, Clone, Copy)]
+struct FastOpen {
+    /// In the arena (not inside the `<head>`, not an element that draws
+    /// nothing).
+    emitted: bool,
+    /// Keeps its subtree out of the arena.
+    hides: bool,
+    body: bool,
+    svg: bool,
+    style: bool,
+}
 
-    const ESTIMATED_BYTES_PER_NODE: usize = 20;
+/// The document loader's [`html::TreeSink`]: the elements straight into a
+/// `FastDom` arena (`CompactDomBuilder`, no `XmlNode` tree in between).
+///
+/// The `<head>` stays out of the arena but its `<style>`s are collected, as
+/// every `<style>` is; text that is only white space is dropped outside the
+/// `<body>`; inside an `<svg>`, an element that draws nothing (`<metadata>`,
+/// a foreign namespace's editor state) is left out with its subtree - as the
+/// tree loader's DOM builder leaves it out.
+struct FastDomSink<'k> {
+    builder: CompactDomBuilder,
+    /// One bump arena for every AzString produced during this parse —
+    /// id/class tokens, text nodes, etc. Replaces ~1k small heap allocs
+    /// with a handful of 64 KiB chunks. Each AzString carries its own
+    /// Arc reference to the arena, so the arena survives until the last
+    /// string is dropped (typically when the StyledDom is dropped).
+    str_arena: azul_css::corety::StringArena,
+    /// The parser's key map, computed once (the `style` attributes).
+    css_key_map: &'k azul_css::props::property::CssKeyMap,
+    css: Vec<Css>,
+    open: Vec<FastOpen>,
+    /// Open elements that keep their subtree out of the arena.
+    hidden: usize,
+    /// Open `<body>`s: inside one, white space is text.
+    bodies: usize,
+    /// Open `<svg>`s in the arena.
+    svgs: usize,
+    /// The text of the open `<style>`.
+    style: Option<String>,
+}
 
-    const VOID_ELEMENTS: &[&str] = &[
-        "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
-        "source", "track", "wbr",
-    ];
+impl<'k> FastDomSink<'k> {
+    fn new(source_len: usize, css_key_map: &'k azul_css::props::property::CssKeyMap) -> Self {
+        const ESTIMATED_BYTES_PER_NODE: usize = 20;
+        Self {
+            builder: CompactDomBuilder::with_capacity(source_len / ESTIMATED_BYTES_PER_NODE),
+            str_arena: azul_css::corety::StringArena::new(),
+            css_key_map,
+            css: Vec::new(),
+            open: Vec::new(),
+            hidden: 0,
+            bodies: 0,
+            svgs: 0,
+            style: None,
+        }
+    }
 
-    // Lowercase `src` into `dst`, reusing `dst`'s existing capacity.
-    // Zero-alloc when dst's capacity is already ≥ src.len() AND no uppercase
-    // conversion is needed (the happy path for HTML5 where tags are lowercase).
-    fn lowercase_into(dst: &mut String, src: &str) {
-        dst.clear();
-        if src.bytes().all(|b| !b.is_ascii_uppercase()) {
-            dst.push_str(src);
-        } else {
-            dst.reserve(src.len());
-            for b in src.bytes() {
-                dst.push(b.to_ascii_lowercase() as char);
+    fn finish(self) -> (azul_core::dom::FastDom, Vec<Css>) {
+        let Self {
+            builder,
+            str_arena,
+            css,
+            ..
+        } = self;
+        // Drop the arena handle explicitly. AzStrings already embedded in
+        // the FastDom keep the backing bytes alive via their cloned Arc refs.
+        drop(str_arena);
+        (builder.finish(), css)
+    }
+}
+
+impl html::TreeSink for FastDomSink<'_> {
+    fn open_element(&mut self, name: &str, attributes: &[(String, String)]) {
+        // The `<head>` and a `<style>` are not nodes of the document (a
+        // stylesheet is collected; the tree loader's DOM builder lifts it onto
+        // its parent element), nor, inside an `<svg>`, an element that draws
+        // nothing.
+        let hides = name == "head"
+            || name == "style"
+            || (self.svgs > 0 && element_draws_nothing(name, name));
+        let emitted = self.hidden == 0 && !hides;
+        if emitted {
+            open_fast_node(
+                &mut self.builder,
+                &mut self.str_arena,
+                name,
+                attributes,
+                self.css_key_map,
+            );
+        }
+        let style = name == "style";
+        if style {
+            self.style = Some(String::new());
+        }
+        let body = name == "body";
+        let svg = emitted && name == "svg";
+        self.hidden += usize::from(hides);
+        self.bodies += usize::from(body);
+        self.svgs += usize::from(svg);
+        self.open.push(FastOpen {
+            emitted,
+            hides,
+            body,
+            svg,
+            style,
+        });
+    }
+
+    fn close_element(&mut self) {
+        let Some(open) = self.open.pop() else {
+            return;
+        };
+        if open.emitted {
+            self.builder.close_node();
+        }
+        self.hidden -= usize::from(open.hides);
+        self.bodies -= usize::from(open.body);
+        self.svgs -= usize::from(open.svg);
+        if open.style {
+            if let Some(text) = self.style.take() {
+                if !text.is_empty() {
+                    self.css.push(Css::from_string(text.into()));
+                }
             }
         }
     }
 
+    fn text(&mut self, text: &str) {
+        if let Some(style) = self.style.as_mut() {
+            style.push_str(text);
+            return;
+        }
+        if self.hidden > 0 {
+            return;
+        }
+        // Skip whitespace-only text at <html> level (between </head> and <body>)
+        // but keep whitespace inside <body> (it's significant for inline layout)
+        if self.bodies > 0 || !text.trim().is_empty() {
+            let text = self.str_arena.intern(text);
+            self.builder.add_leaf(
+                azul_core::dom::NodeData::create_text_do_not_use_without_block_level_wrapper(text),
+            );
+        }
+    }
+}
+
+/// Open the arena node of a `tag` element (lower-case) with its attributes.
+#[allow(clippy::too_many_lines)] // large but cohesive: one element, every attribute kind
+fn open_fast_node(
+    builder: &mut CompactDomBuilder,
+    str_arena: &mut azul_css::corety::StringArena,
+    tag: &str,
+    attrs: &[(String, String)],
+    css_key_map: &azul_css::props::property::CssKeyMap,
+) {
+    use azul_core::dom::{NodeData, NodeType};
+
+    let node_type = tag_to_node_type(tag);
+    let mut nd = NodeData::create_node(node_type);
+
+    // `<transient-window open="true" anchor="bottom" …>`: the config rides
+    // INSIDE the NodeType, so its attributes are applied onto that payload
+    // rather than stored as generic attributes. Done before the generic
+    // loop so the keys it consumes never reach `attr_vec`.
+    let mut transient_cfg = match nd.get_node_type() {
+        NodeType::TransientWindow(c) => Some(*c),
+        _ => None,
+    };
+
+    // `attr_vec`: what the popup config leaves on the node
+    // (`tearoff-zone`); `settings`: every other attribute.
+    let mut attr_vec: Vec<azul_core::dom::AttributeType> = Vec::new();
+    let mut settings: Vec<(u8, azul_core::xml::attributes::NodeSetting)> = Vec::new();
+    for (key, value) in attrs {
+        if let Some(cfg) = transient_cfg.as_mut() {
+            if cfg.apply_attr(key.as_str(), value.as_str()) {
+                // `tearoff="zone:<selector>"`: the MODE rides in the
+                // config (it is `Copy`), the selector - a string - stays
+                // on the node as its `tearoff-zone` attribute, where the
+                // engine's drop handling reads it.
+                if key == "tearoff" {
+                    if let Some(selector) = value.trim().strip_prefix("zone:") {
+                        attr_vec.push(azul_core::dom::AttributeType::Custom(
+                            azul_core::dom::AttributeNameValue {
+                                attr_name: str_arena.intern("tearoff-zone"),
+                                value: str_arena.intern(selector.trim()),
+                            },
+                        ));
+                    }
+                }
+                continue;
+            }
+        }
+        // Every other attribute through the ONE table core's loader and
+        // the code generator read too (`azul_core::xml::attributes`).
+        if let Some(setting) =
+            azul_core::xml::attributes::setting_of(tag, key.as_str(), value.as_str())
+        {
+            settings.push(setting);
+        }
+    }
+    azul_core::xml::attributes::apply_settings(
+        &mut nd,
+        azul_core::xml::attributes::ordered(settings.into_iter()),
+        Vec::new(),
+        Some(css_key_map),
+        &mut |s: &str| str_arena.intern(s),
+    );
+
+    // The element's COMPONENT arguments (`<a href target rel>`,
+    // `<img src alt>`): the fields its builtin component declares,
+    // filled from the attributes and landed on the node by the same
+    // functions core's loader and the builtin render fn use.
+    azul_core::xml::apply_builtin_args_from_attributes(
+        tag,
+        attrs.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+        &mut nd,
+    );
+
+    // ---- Fluent / l10n handling ----
+    // `<p data-l10n="greeting_key" data-l10n-name="Alice">` stays a
+    // `<p>`: its `data-l10n-*` arguments go on the element, and the key
+    // becomes its first child (below, once the element is open) - the
+    // shape core's XML builders produce. We do a second pass over the
+    // same attrs slice rather than keeping state inside the match
+    // because we need all of them to be visible at once.
+    let l10n_key = attrs
+        .iter()
+        .find(|(k, _)| k.as_str() == "data-l10n")
+        .map(|(_, v)| v.as_str())
+        .filter(|v| !v.is_empty());
+    if l10n_key.is_some() {
+        // Collect data-l10n-* arguments.
+        let fluent_args = azul_core::dom::FluentArgKVVec::from_l10n_attributes(
+            attrs.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+        );
+        if !fluent_args.is_empty() {
+            nd.fluent_args = Some(Box::new(fluent_args));
+        }
+    }
+
+    if !attr_vec.is_empty() {
+        let mut all = nd.attributes().clone().into_library_owned_vec();
+        all.extend(attr_vec);
+        nd.set_attributes(all.into());
+    }
+    // Write the parsed popup config back into the node's payload.
+    if let Some(cfg) = transient_cfg {
+        nd.set_node_type(NodeType::TransientWindow(cfg));
+    }
+
+    builder.open_node(nd);
+
+    // The key, marked localizable, as the element's first child.
+    if let Some(key) = l10n_key {
+        builder.add_leaf(
+            NodeData::create_text_do_not_use_without_block_level_wrapper(
+                azul_css::corety::AzString::tr(key),
+            ),
+        );
+    }
+}
+
+/// The strict loaders' tokenizer (`xmlparser`: an XML syntax error is an
+/// error) feeding the one tree construction, [`html::TreeBuilder`], which
+/// both strict loaders and the lenient ones share - so the two loaders build
+/// one tree from one document. Text and attribute values are decoded by
+/// XML's rules (with HTML's names). Returns the start tag the input ended in
+/// when it was cut off (`<svg` and the end): the tree loader rejects it, the
+/// document loader keeps it.
+fn feed_xml_tokens(
+    tokenizer: Tokenizer<'_>,
+    builder: &mut html::TreeBuilder,
+    sink: &mut dyn html::TreeSink,
+) -> Result<Option<(String, Vec<(String, String)>)>, XmlError> {
+    use xmlparser::{ElementEnd, Token};
+
+    // A namespace prefix is part of the name: `<user:card/>` is the `card`
+    // component of library `user` (`ComponentMap::get_by_qualified_name`),
+    // `<svg:rect/>` a rect, and `</o:p>` closes an `<o:p>`, not a `<p>`.
+    fn qualified(prefix: &str, local: &str) -> String {
+        if prefix.is_empty() {
+            String::from(local)
+        } else {
+            format!("{prefix}:{local}")
+        }
+    }
+
+    let mut start: Option<(String, Vec<(String, String)>)> = None;
+    for token in tokenizer {
+        let token = token.map_err(|e| XmlError::ParserError(translate_xmlparser_error(e)))?;
+        match token {
+            Token::ElementStart { prefix, local, .. } => {
+                start = Some((qualified(prefix.as_str(), local.as_str()), Vec::new()));
+            }
+            Token::Attribute { local, value, .. } => {
+                if let Some((_, attributes)) = start.as_mut() {
+                    attributes.push((
+                        String::from(local.as_str()),
+                        decode_xml_entities(value.as_str()).into_owned(),
+                    ));
+                }
+            }
+            Token::ElementEnd {
+                end: ElementEnd::Open,
+                ..
+            } => {
+                if let Some((name, attributes)) = start.take() {
+                    builder.start_tag(sink, &name, attributes, false);
+                }
+            }
+            Token::ElementEnd {
+                end: ElementEnd::Empty,
+                ..
+            } => {
+                if let Some((name, attributes)) = start.take() {
+                    builder.start_tag(sink, &name, attributes, true);
+                }
+            }
+            Token::ElementEnd {
+                end: ElementEnd::Close(prefix, local),
+                ..
+            } => builder.end_tag(sink, &qualified(prefix.as_str(), local.as_str())),
+            Token::Text { text } => builder.text(sink, &decode_xml_entities(text.as_str())),
+            Token::Comment { text, .. } => builder.comment(sink, text.as_str()),
+            Token::Cdata { text, .. } => builder.cdata(sink, text.as_str()),
+            _ => {}
+        }
+    }
+    Ok(start)
+}
+
+/// Internal: parse XML into `FastDom` + collected CSS stylesheets.
+fn parse_xml_to_fast_dom_with_css(
+    xml: &str,
+) -> Result<(azul_core::dom::FastDom, Vec<Css>), XmlError> {
     // Strip BOM
     let xml = xml.strip_prefix('\u{FEFF}').unwrap_or(xml);
     let mut xml = xml.trim();
@@ -452,398 +692,33 @@ fn parse_xml_to_fast_dom_with_css(
         }
     }
 
-    let tokenizer = Tokenizer::from_fragment(xml, 0..xml.len());
-
-    let estimated_nodes = xml.len() / ESTIMATED_BYTES_PER_NODE;
-    let mut builder = CompactDomBuilder::with_capacity(estimated_nodes);
-    let mut collected_css: Vec<Css> = Vec::new();
-    let mut inside_style_tag = false;
-    let mut style_text = String::new();
-    // Track <head> depth: skip DOM nodes inside <head> (still collect <style> CSS).
-    // This ensures the FastDom contains only <html><body>... as the layout engine expects.
-    let mut head_depth: usize = 0;
-
-    // Temporary storage for current element's attributes
-    let mut current_tag: String = String::new();
-    let mut current_attrs: Vec<(String, String)> = Vec::new();
-    let mut pending_open = false;
-
     // Pre-compute the CSS key map once (used for style= attribute parsing)
     let css_key_map = azul_css::props::property::get_css_key_map();
-
-    // One bump arena for every AzString produced during this parse —
-    // id/class tokens, text nodes, etc. Replaces ~1k small heap allocs
-    // with a handful of 64 KiB chunks. Each AzString carries its own
-    // Arc reference to the arena, so the arena survives until the last
-    // string is dropped (typically when the StyledDom is dropped).
-    let mut str_arena = azul_css::corety::StringArena::new();
-
-    // Finalize the pending open element: create NodeData from tag + attrs, push to builder
-    // tag is already lowercase
-    let finalize_open =
-        |builder: &mut CompactDomBuilder,
-         str_arena: &mut azul_css::corety::StringArena,
-         tag: &str,
-         attrs: &[(String, String)],
-         css_key_map: &azul_css::props::property::CssKeyMap| {
-            let node_type = tag_to_node_type(tag);
-            let mut nd = NodeData::create_node(node_type);
-
-            // `<transient-window open="true" anchor="bottom" …>`: the config rides
-            // INSIDE the NodeType, so its attributes are applied onto that payload
-            // rather than stored as generic attributes. Done before the generic
-            // loop so the keys it consumes never reach `attr_vec`.
-            let mut transient_cfg = match nd.get_node_type() {
-                NodeType::TransientWindow(c) => Some(*c),
-                _ => None,
-            };
-
-            // `attr_vec`: what the popup config leaves on the node
-            // (`tearoff-zone`); `settings`: every other attribute.
-            let mut attr_vec: Vec<azul_core::dom::AttributeType> = Vec::new();
-            let mut settings: Vec<(u8, azul_core::xml::attributes::NodeSetting)> = Vec::new();
-            for (key, value) in attrs {
-                if let Some(cfg) = transient_cfg.as_mut() {
-                    if cfg.apply_attr(key.as_str(), value.as_str()) {
-                        // `tearoff="zone:<selector>"`: the MODE rides in the
-                        // config (it is `Copy`), the selector - a string - stays
-                        // on the node as its `tearoff-zone` attribute, where the
-                        // engine's drop handling reads it.
-                        if key == "tearoff" {
-                            if let Some(selector) = value.trim().strip_prefix("zone:") {
-                                attr_vec.push(azul_core::dom::AttributeType::Custom(
-                                    azul_core::dom::AttributeNameValue {
-                                        attr_name: str_arena.intern("tearoff-zone"),
-                                        value: str_arena.intern(selector.trim()),
-                                    },
-                                ));
-                            }
-                        }
-                        continue;
-                    }
-                }
-                // Every other attribute through the ONE table core's loader and
-                // the code generator read too (`azul_core::xml::attributes`).
-                if let Some(setting) =
-                    azul_core::xml::attributes::setting_of(tag, key.as_str(), value.as_str())
-                {
-                    settings.push(setting);
-                }
-            }
-            azul_core::xml::attributes::apply_settings(
-                &mut nd,
-                azul_core::xml::attributes::ordered(settings.into_iter()),
-                Vec::new(),
-                Some(css_key_map),
-                &mut |s: &str| str_arena.intern(s),
-            );
-
-            // The element's COMPONENT arguments (`<a href target rel>`,
-            // `<img src alt>`): the fields its builtin component declares,
-            // filled from the attributes and landed on the node by the same
-            // functions core's loader and the builtin render fn use.
-            azul_core::xml::apply_builtin_args_from_attributes(
-                tag,
-                attrs.iter().map(|(k, v)| (k.as_str(), v.as_str())),
-                &mut nd,
-            );
-
-            // ---- Fluent / l10n handling ----
-            // `<p data-l10n="greeting_key" data-l10n-name="Alice">` stays a
-            // `<p>`: its `data-l10n-*` arguments go on the element, and the key
-            // becomes its first child (below, once the element is open) - the
-            // shape core's XML builders produce. We do a second pass over the
-            // same attrs slice rather than keeping state inside the match
-            // because we need all of them to be visible at once.
-            let l10n_key = attrs
-                .iter()
-                .find(|(k, _)| k.as_str() == "data-l10n")
-                .map(|(_, v)| v.as_str())
-                .filter(|v| !v.is_empty());
-            if l10n_key.is_some() {
-                // Collect data-l10n-* arguments.
-                let fluent_args = azul_core::dom::FluentArgKVVec::from_l10n_attributes(
-                    attrs.iter().map(|(k, v)| (k.as_str(), v.as_str())),
-                );
-                if !fluent_args.is_empty() {
-                    nd.fluent_args = Some(Box::new(fluent_args));
-                }
-            }
-
-            if !attr_vec.is_empty() {
-                let mut all = nd.attributes().clone().into_library_owned_vec();
-                all.extend(attr_vec);
-                nd.set_attributes(all.into());
-            }
-            // Write the parsed popup config back into the node's payload.
-            if let Some(cfg) = transient_cfg {
-                nd.set_node_type(NodeType::TransientWindow(cfg));
-            }
-
-            builder.open_node(nd);
-
-            // The key, marked localizable, as the element's first child.
-            if let Some(key) = l10n_key {
-                builder.add_leaf(NodeData::create_text_do_not_use_without_block_level_wrapper(
-                    azul_css::corety::AzString::tr(key),
-                ));
-            }
-        };
-
-    let mut last_was_void = false;
-    let mut tag_stack: Vec<String> = Vec::new(); // for matching close tags
-
-    for token in tokenizer {
-        let token = token.map_err(|e| XmlError::ParserError(translate_xmlparser_error(e)))?;
-        match token {
-            ElementStart { prefix, local, .. } => {
-                // Flush any pending open element
-                if pending_open {
-                    let is_void = VOID_ELEMENTS.contains(&current_tag.as_str());
-                    if current_tag == "head" {
-                        head_depth += 1;
-                    }
-                    if head_depth == 0 {
-                        finalize_open(
-                            &mut builder,
-                            &mut str_arena,
-                            &current_tag,
-                            &current_attrs,
-                            &css_key_map,
-                        );
-                        if is_void {
-                            builder.close_node();
-                        }
-                    }
-                    if !is_void {
-                        tag_stack.push(core::mem::take(&mut current_tag));
-                    }
-                }
-
-                // Reuse the current_tag buffer — avoids ~1023 fresh String
-                // allocations per parse (one per ElementStart).
-                // A namespace prefix is part of the name: `<user:card/>` is
-                // the `card` component of library `user`
-                // (`ComponentMap::get_by_qualified_name`), `<svg:rect/>` a
-                // rect. Dropping it made every qualified tag its bare local
-                // name - a component instance an unknown element.
-                if prefix.as_str().is_empty() {
-                    lowercase_into(&mut current_tag, local.as_str());
-                } else {
-                    lowercase_into(&mut current_tag, prefix.as_str());
-                    current_tag.push(':');
-                    current_tag.push_str(&local.as_str().to_ascii_lowercase());
-                }
-                current_attrs.clear();
-                pending_open = true;
-                last_was_void = VOID_ELEMENTS.contains(&current_tag.as_str());
-            }
-            Attribute { local, value, .. } => {
-                // decode_xml_entities returns Cow::Borrowed when no entities
-                // are present (the common case), so `.into_owned()` is the
-                // only fresh allocation here. The key is copied via
-                // `to_string()` because we can't hold a borrow across token
-                // iterations. TODO: when we switch current_attrs to
-                // Vec<(&str, Cow<str>)> this becomes zero-alloc for the key.
-                current_attrs.push((
-                    local.to_string(),
-                    decode_xml_entities(value.as_str()).into_owned(),
-                ));
-            }
-            ElementEnd { end: Open, .. } => {
-                if pending_open {
-                    let is_void = VOID_ELEMENTS.contains(&current_tag.as_str());
-                    if current_tag == "style" {
-                        inside_style_tag = true;
-                        style_text.clear();
-                    }
-                    if current_tag == "head" {
-                        head_depth += 1;
-                    }
-                    if head_depth == 0 {
-                        finalize_open(
-                            &mut builder,
-                            &mut str_arena,
-                            &current_tag,
-                            &current_attrs,
-                            &css_key_map,
-                        );
-                        if is_void {
-                            builder.close_node();
-                        }
-                    }
-                    if !is_void {
-                        // Use take() instead of clone() — after pending_open=false,
-                        // current_tag is not read again until the next ElementStart
-                        // reassigns it via lowercase_into.
-                        tag_stack.push(core::mem::take(&mut current_tag));
-                    }
-                    pending_open = false;
-                }
-            }
-            ElementEnd { end: Empty, .. } => {
-                // Self-closing element: open + immediately close
-                if pending_open {
-                    if current_tag == "head" {
-                        head_depth += 1;
-                    }
-                    if head_depth == 0 {
-                        finalize_open(
-                            &mut builder,
-                            &mut str_arena,
-                            &current_tag,
-                            &current_attrs,
-                            &css_key_map,
-                        );
-                        builder.close_node();
-                    }
-                    if current_tag == "head" && head_depth > 0 {
-                        head_depth -= 1;
-                    }
-                    pending_open = false;
-                }
-            }
-            ElementEnd {
-                end: Close(_, close_value),
-                ..
-            } => {
-                if pending_open {
-                    let is_void = VOID_ELEMENTS.contains(&current_tag.as_str());
-                    if current_tag == "head" {
-                        head_depth += 1;
-                    }
-                    if head_depth == 0 {
-                        finalize_open(
-                            &mut builder,
-                            &mut str_arena,
-                            &current_tag,
-                            &current_attrs,
-                            &css_key_map,
-                        );
-                        if is_void {
-                            builder.close_node();
-                        }
-                    }
-                    if !is_void {
-                        tag_stack.push(core::mem::take(&mut current_tag));
-                    }
-                    pending_open = false;
-                }
-
-                let close_lower = close_value.as_str().to_ascii_lowercase();
-                let close_str = close_lower.as_str();
-                if VOID_ELEMENTS.contains(&close_str) {
-                    continue;
-                }
-
-                // If closing a <style> tag, parse collected CSS
-                if close_str == "style" && inside_style_tag {
-                    if !style_text.is_empty() {
-                        let parsed_css = Css::from_string(core::mem::take(&mut style_text).into());
-                        collected_css.push(parsed_css);
-                    }
-                    inside_style_tag = false;
-                }
-
-                // Pop until we find matching tag
-                while let Some(top) = tag_stack.last() {
-                    let is_match = top == close_str;
-                    let was_head = top == "head";
-                    // Pop this tag (unconditionally auto-close mismatched tags)
-                    let popped = tag_stack.pop().unwrap();
-                    if popped == "head" && head_depth > 0 {
-                        head_depth -= 1;
-                    }
-                    if head_depth == 0 && !was_head {
-                        builder.close_node();
-                    }
-                    if is_match {
-                        break;
-                    }
-                }
-            }
-            Text { text } => {
-                if pending_open {
-                    let is_void = VOID_ELEMENTS.contains(&current_tag.as_str());
-                    if current_tag == "style" {
-                        inside_style_tag = true;
-                        style_text.clear();
-                    }
-                    if current_tag == "head" {
-                        head_depth += 1;
-                    }
-                    if head_depth == 0 {
-                        finalize_open(
-                            &mut builder,
-                            &mut str_arena,
-                            &current_tag,
-                            &current_attrs,
-                            &css_key_map,
-                        );
-                        if is_void {
-                            builder.close_node();
-                        }
-                    }
-                    if !is_void {
-                        tag_stack.push(current_tag.clone());
-                    }
-                    pending_open = false;
-                }
-
-                let text_str = text.as_str();
-                if !text_str.is_empty() {
-                    if inside_style_tag {
-                        style_text.push_str(text_str);
-                    } else if head_depth == 0 {
-                        // Skip whitespace-only text at <html> level (between </head> and <body>)
-                        // but keep whitespace inside <body> (it's significant for inline layout)
-                        let inside_body = tag_stack.iter().any(|t| t == "body");
-                        if inside_body || !text_str.trim().is_empty() {
-                            let decoded = decode_xml_entities(text_str);
-                            builder.add_leaf(
-                                NodeData::create_text_do_not_use_without_block_level_wrapper(
-                                    str_arena.intern(&decoded),
-                                ),
-                            );
-                        }
-                    }
-                }
-            }
-            // `<style>` is a RAW-TEXT element in HTML: a `<!-- .. -->` or a
-            // CDATA section inside it is part of the sheet (the CSS parser
-            // ignores the top-level CDO / CDC markers), not a comment to drop.
-            // Outlook wraps every stylesheet this way.
-            xmlparser::Token::Comment { text, .. } if inside_style_tag => {
-                style_text.push_str("<!--");
-                style_text.push_str(text.as_str());
-                style_text.push_str("-->");
-            }
-            xmlparser::Token::Cdata { text, .. } if inside_style_tag => {
-                style_text.push_str(text.as_str());
-            }
-            _ => {}
-        }
+    let mut sink = FastDomSink::new(xml.len(), &css_key_map);
+    // The one tree construction, the names lower-cased (an HTML document
+    // written as XML: `<DIV>` is a div).
+    let mut builder = html::TreeBuilder::new(html::TreeRules::XmlFolded);
+    let cut_off = feed_xml_tokens(
+        Tokenizer::from_fragment(xml, 0..xml.len()),
+        &mut builder,
+        &mut sink,
+    )?;
+    // A start tag cut off by the end of the input still opens its element
+    // (the document loader always kept it), and every open element closes.
+    if let Some((name, attributes)) = cut_off {
+        builder.start_tag(&mut sink, &name, attributes, false);
     }
+    let _ = builder.finish(&mut sink);
+    Ok(sink.finish())
+}
 
-    // Close any remaining open elements
-    if pending_open {
-        finalize_open(
-            &mut builder,
-            &mut str_arena,
-            &current_tag,
-            &current_attrs,
-            &css_key_map,
-        );
-    }
-    while tag_stack.pop().is_some() {
-        builder.close_node();
-    }
-
-    // Drop the arena handle explicitly. AzStrings already embedded in
-    // the FastDom keep the backing bytes alive via their cloned Arc refs.
-    drop(str_arena);
-
-    Ok((builder.finish(), collected_css))
+/// The lenient twin of [`parse_xml_to_fast_dom_with_css`]: HTML as a browser
+/// reads it ([`html::parse_html_into`]), into the same arena.
+fn parse_html_to_fast_dom_with_css(source: &str) -> (azul_core::dom::FastDom, Vec<Css>) {
+    let css_key_map = azul_css::props::property::get_css_key_map();
+    let mut sink = FastDomSink::new(source.len(), &css_key_map);
+    html::parse_html_into(source, &mut sink);
+    sink.finish()
 }
 
 /// Loads, parses and builds a DOM from an XML file
@@ -885,77 +760,17 @@ pub fn domxml_from_file<I: AsRef<Path>>(file_path: I, component_map: &ComponentM
 /// Since the XML allows multiple root nodes, this function returns
 /// a `Vec<XmlNode>` - which are the "root" nodes, containing all their
 /// children recursively.
+///
+/// STRICT: `xmlparser` tokenizes (an XML syntax error is an error, and so is
+/// an element left open at the end); the tree construction is the one every
+/// loader shares ([`html::TreeBuilder`], [`html::TreeRules::Xml`]: the names
+/// as written, void elements, implied end tags, end tags matched within
+/// their scope). HTML as a browser reads it: [`parse_html_string`].
 #[cfg(feature = "xml")]
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 /// # Errors
 ///
 /// Returns an `XmlError` if the XML cannot be parsed.
 pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
-    use xmlparser::{
-        ElementEnd::{Close, Empty},
-        Token::{Attribute, ElementEnd, ElementStart, Text},
-        Tokenizer,
-    };
-
-    use self::XmlParseError::*;
-
-    // HTML5-lite parser: List of void elements that should auto-close
-    // See: https://developer.mozilla.org/en-US/docs/Glossary/Void_element
-    const VOID_ELEMENTS: &[&str] = &[
-        "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
-        "source", "track", "wbr",
-    ];
-
-    // HTML5-lite parser: Elements that auto-close when certain other elements are encountered
-    // Format: (element_name, closes_when_encountering)
-    const AUTO_CLOSE_RULES: &[(&str, &[&str])] = &[
-        // List items close when encountering another list item or when parent closes
-        ("li", &["li"]),
-        // Table cells/rows have complex closing rules
-        ("td", &["td", "th", "tr"]),
-        ("th", &["td", "th", "tr"]),
-        ("tr", &["tr"]),
-        // Paragraphs close on block-level elements
-        (
-            "p",
-            &[
-                "address",
-                "article",
-                "aside",
-                "blockquote",
-                "div",
-                "dl",
-                "fieldset",
-                "footer",
-                "form",
-                "h1",
-                "h2",
-                "h3",
-                "h4",
-                "h5",
-                "h6",
-                "header",
-                "hr",
-                "main",
-                "nav",
-                "ol",
-                "p",
-                "pre",
-                "section",
-                "table",
-                "ul",
-            ],
-        ),
-        // Option closes on another option or optgroup
-        ("option", &["option", "optgroup"]),
-        ("optgroup", &["optgroup"]),
-        // DD/DT close on each other
-        ("dd", &["dd", "dt"]),
-        ("dt", &["dd", "dt"]),
-    ];
-
-    let mut root_node = XmlNode::default();
-
     // Strip UTF-8 BOM if present (some W3C test files have it)
     let xml = xml.strip_prefix('\u{FEFF}').unwrap_or(xml);
     // The text as given: a parse error's line / column are counted in it, not
@@ -1001,214 +816,17 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
     let start = (xml.as_ptr() as usize).saturating_sub(full.as_ptr() as usize);
     let tokenizer = Tokenizer::from_fragment(full, start..start + xml.len());
 
-    // OPTIMIZED: Use a stack of raw pointers to avoid O(n*d) traversal on every token.
-    // This is safe because:
-    // 1. All pointers point into `root_node` which is owned and not moved
-    // 2. We never hold multiple mutable references simultaneously
-    // 3. The stack is only used within this function
-    let mut node_stack: Vec<*mut XmlNode> = vec![&raw mut root_node];
-
-    // Track which hierarchy level is a void element (shouldn't be pushed to hierarchy)
-    let mut last_was_void = false;
-
-    for token in tokenizer {
-        let token = token.map_err(|e| XmlError::ParserError(translate_xmlparser_error(e)))?;
-        match token {
-            ElementStart { prefix, local, .. } => {
-                // The prefix is part of the name (see the document parser).
-                let tag_name = if prefix.as_str().is_empty() {
-                    local.to_string()
-                } else {
-                    format!("{}:{}", prefix.as_str(), local.as_str())
-                };
-                let is_void_element = VOID_ELEMENTS.contains(&tag_name.as_str());
-
-                // HTML5-lite: If last element was a void element (like <img src="...">),
-                // pop it from hierarchy before processing the new element
-                if last_was_void {
-                    node_stack.pop();
-                    last_was_void = false;
-                }
-
-                // HTML5-lite: Check if we need to auto-close the current element
-                if node_stack.len() > 1 {
-                    // SAFETY: We only access the last element, which is valid
-                    let current_element = unsafe { &*node_stack[node_stack.len() - 1] };
-                    let current_tag = current_element.node_type.as_str();
-
-                    // Check if current element should auto-close when encountering this new tag
-                    for (element, closes_on) in AUTO_CLOSE_RULES {
-                        if current_tag == *element && closes_on.contains(&tag_name.as_str()) {
-                            // Auto-close the current element
-                            node_stack.pop();
-                            break;
-                        }
-                    }
-                }
-
-                // SAFETY: We access the last element which is valid
-                if let Some(&current_parent_ptr) = node_stack.last() {
-                    let current_parent = unsafe { &mut *current_parent_ptr };
-
-                    current_parent.children.push(XmlNodeChild::Element(XmlNode {
-                        node_type: tag_name.into(),
-                        attributes: StringPairVec::new().into(),
-                        children: Vec::new().into(),
-                    }));
-
-                    // Get pointer to the newly added child
-                    let children_len = current_parent.children.len();
-                    if let Some(XmlNodeChild::Element(ref mut new_child)) =
-                        current_parent.children.as_mut().get_mut(children_len - 1)
-                    {
-                        node_stack.push(std::ptr::from_mut::<XmlNode>(new_child));
-                    }
-
-                    last_was_void = is_void_element;
-                }
-            }
-            ElementEnd { end: Empty, .. } => {
-                // Pop hierarchy for all elements (including void elements after their attributes)
-                if node_stack.len() > 1 {
-                    node_stack.pop();
-                }
-                last_was_void = false;
-            }
-            ElementEnd {
-                end: Close(_, close_value),
-                ..
-            } => {
-                // HTML5-lite: If last element was a void element, pop it first
-                if last_was_void {
-                    node_stack.pop();
-                    last_was_void = false;
-                }
-
-                // HTML5-lite: Check if this is a void element - if so, ignore the closing tag
-                let is_void_element = VOID_ELEMENTS.contains(&close_value.as_str());
-                if is_void_element {
-                    // Void elements shouldn't have closing tags, but tolerate them
-                    continue;
-                }
-
-                // HTML5-lite: Auto-close any elements that should be closed
-                // Walk up the hierarchy and auto-close elements until we find a match
-                let close_value_str = close_value.as_str();
-
-                // Find matching element in stack (skip root at index 0)
-                let mut found_idx = None;
-                for i in (1..node_stack.len()).rev() {
-                    // SAFETY: All pointers in stack are valid
-                    let node = unsafe { &*node_stack[i] };
-                    if node.node_type.as_str() == close_value_str {
-                        found_idx = Some(i);
-                        break;
-                    }
-                }
-
-                if let Some(idx) = found_idx {
-                    // Pop all elements from current position to the matching element (inclusive)
-                    node_stack.truncate(idx);
-                }
-                // If no match found, just ignore (lenient HTML parsing)
-
-                last_was_void = false;
-            }
-            Attribute { local, value, .. } => {
-                // SAFETY: Last element in stack is valid
-                if let Some(&last_ptr) = node_stack.last() {
-                    let last = unsafe { &mut *last_ptr };
-                    // NOTE: Only lowercase the key ("local"), not the value!
-                    // Decode XML entities in attribute values as well
-                    last.attributes.push(azul_core::window::AzStringPair {
-                        key: local.to_string().into(),
-                        value: AzString::from(&*decode_xml_entities(value.as_str())),
-                    });
-                }
-            }
-            Text { text } => {
-                // HTML5-lite: If last element was a void element, pop it before adding text
-                if last_was_void {
-                    node_stack.pop();
-                    last_was_void = false;
-                }
-
-                // IMPORTANT: Preserve ALL text nodes including whitespace-only nodes.
-                // Whether whitespace is significant depends on the CSS `white-space` property,
-                // which is determined during layout, not during parsing.
-                //
-                // For example: <pre><span>    </span></pre> must preserve the 4 spaces.
-                //
-                // We only skip completely EMPTY text nodes (zero-length strings).
-                let text_str = text.as_str();
-
-                if !text_str.is_empty() {
-                    // SAFETY: Last element in stack is valid
-                    if let Some(&current_parent_ptr) = node_stack.last() {
-                        let current_parent = unsafe { &mut *current_parent_ptr };
-                        // Decode XML entities (e.g., &lt; -> <, &gt; -> >, etc.)
-                        let decoded_text = decode_xml_entities(text_str);
-                        // Add text as a child node
-                        current_parent
-                            .children
-                            .push(XmlNodeChild::Text(AzString::from(&*decoded_text)));
-                    }
-                }
-            }
-            // `<style>` is a RAW-TEXT element in HTML: a `<!-- .. -->` or a
-            // CDATA section inside it is part of the sheet (the CSS parser
-            // ignores the top-level CDO / CDC markers), not a comment to drop.
-            // Outlook wraps every stylesheet this way. Elsewhere a comment
-            // stays dropped.
-            xmlparser::Token::Comment { text, .. } => {
-                if let Some(&current_parent_ptr) = node_stack.last() {
-                    // SAFETY: Last element in stack is valid (as for `Text`)
-                    let current_parent = unsafe { &mut *current_parent_ptr };
-                    if current_parent
-                        .node_type
-                        .as_str()
-                        .eq_ignore_ascii_case("style")
-                    {
-                        let raw = format!("<!--{}-->", text.as_str());
-                        current_parent
-                            .children
-                            .push(XmlNodeChild::Text(AzString::from(raw.as_str())));
-                    }
-                }
-            }
-            xmlparser::Token::Cdata { text, .. } => {
-                if let Some(&current_parent_ptr) = node_stack.last() {
-                    // SAFETY: Last element in stack is valid (as for `Text`)
-                    let current_parent = unsafe { &mut *current_parent_ptr };
-                    if current_parent
-                        .node_type
-                        .as_str()
-                        .eq_ignore_ascii_case("style")
-                    {
-                        current_parent
-                            .children
-                            .push(XmlNodeChild::Text(AzString::from(text.as_str())));
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    // Clean up: if we ended with a void element, pop it
-    if last_was_void {
-        node_stack.pop();
-    }
-
-    // A well-formed document unwinds back to just the root sentinel. If an element was
-    // left open (e.g. a bare "<svg" with no closing bracket, which the fragment tokenizer
-    // yields as one ElementStart then cleanly ends), node_stack still holds it — reject
-    // it instead of returning a "valid" partial tree.
-    if node_stack.len() != 1 {
+    let mut builder = html::TreeBuilder::new(html::TreeRules::Xml);
+    let mut sink = html::XmlTreeSink::new();
+    let cut_off = feed_xml_tokens(tokenizer, &mut builder, &mut sink)?;
+    // A well-formed document closes every element it opens. A bare "<svg"
+    // with no closing bracket (the fragment tokenizer yields one
+    // ElementStart, then cleanly ends) is open too: rejected instead of
+    // returning a "valid" partial tree.
+    if cut_off.is_some() || builder.finish(&mut sink) != 0 {
         return Err(XmlError::UnclosedRootNode);
     }
-
-    Ok(root_node.children.into())
+    Ok(sink.finish())
 }
 
 #[cfg(feature = "xml")]
@@ -1228,10 +846,18 @@ pub fn parse_xml(s: &str) -> Result<Xml, XmlError> {
 
 /// HTML as a browser reads it - a mail, a paste, a page: the LENIENT loader.
 ///
-/// RED: still the strict loader (an XML syntax error gives no tree).
+/// Never fails: unquoted and bare attributes, upper-case names, `<br>`
+/// without its slash, `p` / `li` / `td` ... without their end tags, a stray
+/// end tag, `<` and `&` in text, Word's and Outlook's markup, the HTML named
+/// character references - from what a browser builds a tree from, this
+/// builds the same tree (`azul_core::xml::html`, which lists what its tree
+/// construction simplifies). A fragment is a document: its `<html>`,
+/// `<head>` and `<body>` are implied. The strict loaders
+/// ([`parse_xml_string`], [`parse_xml_to_styled_dom`]) stay strict: an XML
+/// syntax error is reported there.
 #[must_use]
 pub fn parse_html_string(source: &str) -> Vec<XmlNodeChild> {
-    parse_xml_string(source).unwrap_or_default()
+    html::parse_html_nodes(source)
 }
 
 /// [`parse_html_string`] as an [`Xml`] document (for [`dom_from_parsed_xml`]).
@@ -1240,14 +866,6 @@ pub fn parse_html(source: &str) -> Xml {
     Xml {
         root: parse_html_string(source).into(),
     }
-}
-
-/// HTML as a browser reads it, straight into a `StyledDom`.
-///
-/// RED: still the strict document loader.
-#[must_use]
-pub fn parse_html_to_styled_dom(source: &str) -> StyledDom {
-    parse_xml_to_styled_dom(source).unwrap_or_default()
 }
 
 // to_string(&self) -> String
@@ -1682,8 +1300,9 @@ mod autotest_generated {
     #[test]
     fn decode_xml_entities_keeps_unterminated_and_unknown_entities_verbatim() {
         for s in [
-            "&", "&&", "&lt", "&#", "&#x", "&foo;", "&LT;", // entity table is case-sensitive
-            "&Amp;", "& lt;", "a & b", "&;",
+            // The entity table is case-sensitive (`&LT;` is HTML's own
+            // upper-case name for `<`, `&lT;` is nothing).
+            "&", "&&", "&lt", "&#", "&#x", "&foo;", "&lT;", "&Amp;", "& lt;", "a & b", "&;",
         ] {
             assert_eq!(&*decode_xml_entities(s), s, "{s:?} must be preserved");
         }
