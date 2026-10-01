@@ -206,6 +206,14 @@ pub struct DatePicker {
     /// marks nothing. The picker cannot ask the clock itself: the app knows
     /// the time zone.
     pub today: OptionDatePickerState,
+    /// The first day of a range the grid lights - the days an app shows (a
+    /// calendar's week, work week or month) - with [`Self::range_end`] its
+    /// last: each day of it the displayed month has wears a wash under its
+    /// face's ring (and the in-range class, so a repaint keeps it). `None`
+    /// lights nothing.
+    pub range_start: OptionDatePickerState,
+    /// The last day of the lit range (see [`Self::range_start`]).
+    pub range_end: OptionDatePickerState,
     /// What the picker picks: a day, a month or an ISO week.
     pub mode: DatePickerMode,
     /// The widget theme this widget is PINNED to (`with_theme`), or `None`
@@ -1032,6 +1040,8 @@ impl DatePicker {
             accessibility_name: OptionString::None,
             name: OptionString::None,
             today: OptionDatePickerState::None,
+            range_start: OptionDatePickerState::None,
+            range_end: OptionDatePickerState::None,
             mode: DatePickerMode::Date,
             theme: crate::widgets::themes::OptionUiTheme::None,
             inline: false,
@@ -1116,6 +1126,21 @@ impl DatePicker {
     #[must_use]
     pub const fn with_today(mut self, year: u32, month: u32, day: u32) -> Self {
         self.set_today(year, month, day);
+        self
+    }
+
+    /// Light the days from `start` to `end`, both included, where the
+    /// displayed month has them (see [`Self::range_start`]): a calendar's
+    /// date navigator showing which days the calendar shows.
+    pub fn set_range(&mut self, start: DatePickerState, end: DatePickerState) {
+        self.range_start = OptionDatePickerState::Some(start);
+        self.range_end = OptionDatePickerState::Some(end);
+    }
+
+    /// [`Self::set_range`] for the builder chain.
+    #[must_use]
+    pub fn with_range(mut self, start: DatePickerState, end: DatePickerState) -> Self {
+        self.set_range(start, end);
         self
     }
 
@@ -6457,5 +6482,141 @@ mod inline_and_today_tests {
                 &[],
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod range_tests {
+    //! The lit range: a calendar's date navigator shows which days the
+    //! calendar shows (Outlook's week, work week or month in its navigator).
+    use azul_core::{
+        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeType},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+
+    use super::*;
+    use crate::{
+        callbacks::CallbackChange,
+        widgets::{
+            roving::test_support as rv,
+            themes::{theme_blocks::checks, theme_checks, UiTheme},
+        },
+    };
+
+    const IN_RANGE: &str = "__azul-native-date-picker-in-range";
+
+    fn day(year: u32, month: u32, day: u32) -> DatePickerState {
+        DatePickerState { year, month, day }
+    }
+
+    /// September 2026 with the 12th picked; the week of 28 September to
+    /// 4 October lit.
+    fn september_with_the_last_week() -> DatePicker {
+        DatePicker::create(2026, 9, 12)
+            .with_inline(true)
+            .with_today(2026, 9, 30)
+            .with_range(day(2026, 9, 28), day(2026, 10, 4))
+    }
+
+    /// The text of a `p > text` cell.
+    fn text_of(node: &Dom) -> Option<&str> {
+        match node.children.as_ref() {
+            [only] => match only.root.get_node_type() {
+                NodeType::Text(s) => Some(s.as_ref().as_str()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn lit(dom: &Dom) -> Vec<String> {
+        theme_checks::find_all(dom, IN_RANGE)
+            .into_iter()
+            .filter_map(|n| text_of(n).map(str::to_string))
+            .collect()
+    }
+
+    /// The cell whose number reads `label`.
+    fn cell_labelled(styled: &StyledDom, label: &str) -> DomNodeId {
+        let hierarchy = styled.node_hierarchy.as_ref();
+        for (i, nd) in styled.node_data.as_ref().iter().enumerate() {
+            if let NodeType::Text(s) = nd.get_node_type() {
+                if s.as_ref().as_str() == label {
+                    let p = hierarchy[i].parent_id().expect("a number sits in its cell");
+                    return DomNodeId {
+                        dom: DomId::ROOT_ID,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(p)),
+                    };
+                }
+            }
+        }
+        panic!("no cell reads {label:?}");
+    }
+
+    #[test]
+    fn the_days_of_the_range_the_month_has_are_lit_in_both_themes() {
+        for theme in checks::BOTH {
+            let dom = september_with_the_last_week().with_theme(theme).dom();
+            assert_eq!(lit(&dom), vec!["28", "29", "30"], "{}", theme.name());
+            let plain = theme_checks::nodes(&dom)
+                .into_iter()
+                .map(|(_, n)| n)
+                .find(|n| text_of(n) == Some("27"))
+                .expect("the 27th");
+            let washed = theme_checks::find_all(&dom, IN_RANGE)
+                .into_iter()
+                .find(|n| text_of(n) == Some("29"))
+                .expect("the 29th");
+            assert_ne!(
+                washed.root.get_style(),
+                plain.root.get_style(),
+                "{}: a lit day looks unlike a plain one",
+                theme.name()
+            );
+        }
+        // October shows the range's other end.
+        let october = DatePicker::create(2026, 10, 1)
+            .with_inline(true)
+            .with_range(day(2026, 9, 28), day(2026, 10, 4))
+            .with_theme(UiTheme::Flat)
+            .dom();
+        assert_eq!(lit(&october), vec!["1", "2", "3", "4"]);
+        // A month the range is not in lights nothing; nor does no range.
+        let november = DatePicker::create(2026, 11, 1)
+            .with_inline(true)
+            .with_range(day(2026, 9, 28), day(2026, 10, 4))
+            .with_theme(UiTheme::Flat)
+            .dom();
+        assert!(lit(&november).is_empty());
+        let none = DatePicker::create(2026, 9, 1).with_inline(true).dom();
+        assert!(lit(&none).is_empty());
+        // A whole month lit (a calendar's month view).
+        let month = DatePicker::create(2026, 2, 1)
+            .with_inline(true)
+            .with_range(day(2026, 2, 1), day(2026, 2, 28))
+            .with_theme(UiTheme::Flat)
+            .dom();
+        assert_eq!(lit(&month).len(), 28);
+    }
+
+    #[test]
+    fn a_pick_repaints_the_grid_and_the_range_stays_lit() {
+        let picker = september_with_the_last_week().with_theme(UiTheme::Flat);
+        let styled = StyledDom::create_from_dom(picker.dom());
+        let picked = cell_labelled(&styled, "7");
+        let (_, changes) = rv::fire(&styled, picked, EventFilter::Hover(HoverEventFilter::Click))
+            .expect("a day takes the click");
+        let style_of = |node: DomNodeId| {
+            let wanted = node.node.into_crate_internal();
+            changes.iter().find_map(|c| match c {
+                CallbackChange::SetNodeStyle { node_id, style, .. } if Some(*node_id) == wanted => {
+                    Some(format!("{style:?}"))
+                }
+                _ => None,
+            })
+        };
+        let lit = style_of(cell_labelled(&styled, "29")).expect("a lit day repainted");
+        let plain = style_of(cell_labelled(&styled, "27")).expect("a plain day repainted");
+        assert_ne!(lit, plain, "the wash survives the repaint");
     }
 }
