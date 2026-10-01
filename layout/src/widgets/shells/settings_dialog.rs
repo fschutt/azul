@@ -1180,3 +1180,250 @@ mod settings_dialog_model_tests {
         assert_eq!(dialog().settings.as_ref()[3].value.as_number(), 12.0);
     }
 }
+
+#[cfg(test)]
+mod settings_dialog_build_tests {
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeId, NodeType},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+
+    use super::{settings_dialog_fixtures::dialog, *};
+    use crate::widgets::{
+        dialog_kit::{HELD_CLASS, MARK_CLASS},
+        path_input::PATH_INPUT_CLASS,
+        roving::test_support as rv,
+        shells::settings_layout::{
+            CATEGORY_BADGE_CLASS, CATEGORY_CLASS, FOOTER_CLASS, SECTION_CLASS,
+        },
+        shortcut_recorder::RECORDER_CLASS,
+        themes::{theme_blocks::checks, theme_checks as tc},
+    };
+
+    type Log = Arc<Mutex<Vec<ShellSettingsEvent>>>;
+
+    extern "C" fn record(mut data: RefAny, _: CallbackInfo, event: ShellSettingsEvent) -> Update {
+        if let Some(log) = data.downcast_ref::<Log>() {
+            log.lock().expect("log").push(event);
+        }
+        Update::RefreshDom
+    }
+
+    fn texts(node: &Dom) -> Vec<String> {
+        tc::nodes(node)
+            .into_iter()
+            .filter_map(|(_, n)| match n.root.get_node_type() {
+                NodeType::Text(s) if !s.as_str().is_empty() => Some(s.as_str().to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn section_names(dom: &Dom) -> Vec<String> {
+        tc::find_all(dom, SECTION_CLASS)
+            .iter()
+            .filter_map(|s| {
+                s.root
+                    .get_accessibility_info()
+                    .and_then(|i| i.accessibility_name.as_ref().map(|n| n.as_str().to_string()))
+            })
+            .collect()
+    }
+
+    fn id(index: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(index))),
+        }
+    }
+
+    /// The first node at or above the text `label` that takes a click.
+    fn clickable(styled: &StyledDom, label: &str) -> usize {
+        let hierarchy = styled.node_hierarchy.as_ref();
+        let nodes = styled.node_data.as_ref();
+        let text = nodes
+            .iter()
+            .position(|n| matches!(n.get_node_type(), NodeType::Text(s) if s.as_str() == label))
+            .unwrap_or_else(|| panic!("no text {label:?}"));
+        let mut node = NodeId::new(text);
+        loop {
+            if nodes[node.index()]
+                .get_callbacks()
+                .as_ref()
+                .iter()
+                .any(|c| c.event == EventFilter::Hover(HoverEventFilter::Click))
+            {
+                return node.index();
+            }
+            node = hierarchy[node.index()]
+                .parent_id()
+                .unwrap_or_else(|| panic!("nothing above {label:?} takes a click"));
+        }
+    }
+
+    #[test]
+    fn the_active_category_shows_its_settings_in_their_sections() {
+        for theme in checks::BOTH {
+            let dom = dialog().with_theme(theme).dom();
+            assert_eq!(
+                section_names(&dom),
+                vec!["Startup", "Region", "Files"],
+                "{}",
+                theme.name()
+            );
+            let rows = tc::find_all(&dom, SETTING_ROW_CLASS);
+            assert_eq!(rows.len(), 3, "{}: General's three settings", theme.name());
+            let first = texts(rows[0]);
+            assert_eq!(first[0], "Reopen the last documents");
+            assert!(first.iter().any(|t| t == "Open what was open when AzOffice closed."), "the help line");
+            let badge = tc::find(rows[1], SETTING_RESTART_CLASS).expect("Language requires a restart");
+            assert_eq!(texts(badge), vec!["Requires restart"]);
+            assert!(tc::find(rows[0], SETTING_RESTART_CLASS).is_none());
+            assert!(tc::find(rows[2], PATH_INPUT_CLASS).is_some(), "a path is a PathInput");
+        }
+    }
+
+    #[test]
+    fn every_kind_of_value_gets_its_control() {
+        let editor = dialog().with_active_category(1).with_theme(UiTheme::Flat).dom();
+        assert!(tc::find(&editor, RECORDER_CLASS).is_some(), "a shortcut is recorded");
+        let all = texts(&editor);
+        assert!(all.iter().any(|t| t == "pt"), "a number shows its unit: {all:?}");
+        assert!(all.iter().any(|t| t == "Ctrl+Shift+P"), "the shortcut");
+        let appearance = dialog().with_active_category(2).with_theme(UiTheme::Flat).dom();
+        let all = texts(&appearance);
+        assert!(all.iter().any(|t| t == "100 %"), "a slider reads its value out: {all:?}");
+        for option in ["Light", "Dark", "System"] {
+            assert!(all.iter().any(|t| t == option), "the radio set shows {option}");
+        }
+    }
+
+    #[test]
+    fn a_search_finds_settings_in_every_category_marks_them_and_counts_them() {
+        for theme in checks::BOTH {
+            let dom = dialog()
+                .with_search(AzString::from("zoom"))
+                .with_theme(theme)
+                .dom();
+            assert_eq!(
+                section_names(&dom),
+                vec!["Editor: Text", "Appearance: Size"],
+                "{}",
+                theme.name()
+            );
+            let marks = tc::find_all(&dom, MARK_CLASS);
+            assert_eq!(marks.len(), 1, "{}: Interface zoom is marked", theme.name());
+            assert_eq!(texts(marks[0]), vec!["zoom"]);
+            let cats = tc::find_all(&dom, CATEGORY_CLASS);
+            let badges: Vec<Vec<String>> = cats
+                .iter()
+                .map(|c| tc::find(c, CATEGORY_BADGE_CLASS).map(texts).unwrap_or_default())
+                .collect();
+            assert_eq!(
+                badges,
+                vec![vec![], vec!["1".to_string()], vec!["1".to_string()]],
+                "{}",
+                theme.name()
+            );
+        }
+        let nothing = dialog()
+            .with_search(AzString::from("qqq"))
+            .with_theme(UiTheme::Flat)
+            .dom();
+        assert_eq!(section_names(&nothing), vec!["No settings match the search."]);
+    }
+
+    #[test]
+    fn a_changed_setting_is_marked_and_apply_waits_for_a_change() {
+        let fresh = dialog().with_theme(UiTheme::Flat).dom();
+        let footer = tc::find(&fresh, FOOTER_CLASS).expect("the button row");
+        assert_eq!(texts(footer), vec!["Restore defaults", "OK", "Cancel", "Apply"]);
+        assert_eq!(tc::find_all(footer, HELD_CLASS).len(), 1, "Apply is inert while nothing changed");
+        assert!(tc::find(&fresh, SETTING_MODIFIED_CLASS).is_none());
+
+        let mut changed = dialog();
+        changed.apply_event(ShellSettingsEvent::changed(0, ShellSettingValue::Toggle(false)));
+        let dom = changed.with_theme(UiTheme::Flat).dom();
+        let rows = tc::find_all(&dom, SETTING_ROW_CLASS);
+        assert!(tc::find(rows[0], SETTING_MODIFIED_CLASS).is_some(), "the changed row is marked");
+        assert!(tc::find(rows[1], SETTING_MODIFIED_CLASS).is_none());
+        let footer = tc::find(&dom, FOOTER_CLASS).expect("the button row");
+        assert!(tc::find_all(footer, HELD_CLASS).is_empty(), "Apply goes");
+    }
+
+    #[test]
+    fn an_instant_dialog_has_no_ok_cancel_or_apply_and_a_pending_restart_says_so() {
+        let mut d = dialog().with_apply_mode(ShellSettingsApplyMode::Instant);
+        let dom = d.clone().with_theme(UiTheme::Flora).dom();
+        let footer = tc::find(&dom, FOOTER_CLASS).expect("the button row");
+        assert_eq!(texts(footer), vec!["Restore defaults"]);
+        assert!(tc::find(&dom, SETTINGS_NOTICE_CLASS).is_none());
+        d.restart_pending = true;
+        let dom = d.with_theme(UiTheme::Flora).dom();
+        let notice = tc::find(&dom, SETTINGS_NOTICE_CLASS).expect("the notice");
+        assert_eq!(texts(notice), vec!["Restart to apply some changes."]);
+    }
+
+    #[test]
+    fn the_buttons_and_a_toggle_report_through_the_one_callback() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let d = dialog()
+            .with_active_category(0)
+            .with_on_event(RefAny::new(log.clone()), record as ShellSettingsDialogOnEventCallbackType)
+            .with_theme(UiTheme::Flat);
+        let styled = StyledDom::create_from_dom(d.clone().dom());
+        for label in ["OK", "Restore defaults", "Cancel"] {
+            rv::fire(
+                &styled,
+                id(clickable(&styled, label)),
+                EventFilter::Hover(HoverEventFilter::Click),
+            )
+            .unwrap_or_else(|| panic!("{label} takes the click"));
+        }
+        // The toggle: the switch named by the setting's label.
+        let nodes = styled.node_data.as_ref();
+        let switch = nodes
+            .iter()
+            .position(|n| {
+                n.get_accessibility_info().is_some_and(|i| {
+                    i.accessibility_name.as_ref().map(|s| s.as_str())
+                        == Some("Reopen the last documents")
+                }) && n
+                    .get_callbacks()
+                    .as_ref()
+                    .iter()
+                    .any(|c| c.event == EventFilter::Hover(HoverEventFilter::Click))
+            })
+            .expect("the switch");
+        rv::fire(&styled, id(switch), EventFilter::Hover(HoverEventFilter::Click)).expect("toggle");
+        let got = log.lock().expect("log").clone();
+        let kinds: Vec<ShellSettingsEventKind> = got.iter().map(|e| e.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                ShellSettingsEventKind::Ok,
+                ShellSettingsEventKind::RestoreDefaults,
+                ShellSettingsEventKind::Cancel,
+                ShellSettingsEventKind::Changed
+            ]
+        );
+        assert_eq!(got[1].index, 0, "the shown category's defaults");
+        assert_eq!((got[3].index, got[3].value.clone()), (0, ShellSettingValue::Toggle(false)));
+    }
+
+    #[test]
+    fn an_unpinned_dialog_follows_the_app_theme() {
+        checks::assert_follows_the_app_theme(
+            "settings_dialog",
+            || dialog().dom(),
+            |t: UiTheme| dialog().with_theme(t).dom(),
+        );
+        checks::assert_follows_the_app_theme(
+            "settings_dialog (search)",
+            || dialog().with_search(AzString::from("zoom")).dom(),
+            |t: UiTheme| dialog().with_search(AzString::from("zoom")).with_theme(t).dom(),
+        );
+    }
+}
