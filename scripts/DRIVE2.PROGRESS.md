@@ -14,15 +14,18 @@ details panes, a Properties dialog, Settings on ShellSettingsLayout, and a headl
   AddressBar recent chevron + dimmed arrows, BrowserShell `tree_visible`.
 
 ## IN PROGRESS
-- Last commit: `e2a27b26d`. Every module of the rebuilt app is written: lib.rs, jobs.rs, args.rs,
-  actions.rs, ui_panes.rs, ui_view.rs, ui_ribbon.rs, ui_dialogs.rs (all `wip(...)` commits).
-- NEXT STEP: review pass ("compile in the head"): cross-module names (actions::*, ui_*::*),
-  imports (unused / missing), borrows, api names against scratchpad api_new.json; fix in small
-  commits ("fix(azul-drive): ..."). Then scripts/azdrive_e2e.py, browse.py update, report.
+- Last commit: `dfaf7795d`. All app modules written and committed; `e133146a0` RED / `295052175`
+  GREEN Ctrl+Shift+1..8 layouts; `590e9d945` + `727a5e714` scripts/azdrive_e2e.py; `dfaf7795d`
+  browse.py follows the new UI; `1dc56a9d4` unused imports out.
+- NOW: two read-only review agents check the Rust for compile errors (lib/jobs/actions and
+  ui_*/model/fileops/...); apply their findings as "fix(azul-drive): ..." commits.
+- NEXT STEP after that: write scripts/DRIVE2_2026_10_01.md (what was built, commits, api.json
+  list: RibbonButton.disabled_reason + set/with_disabled/is_disabled, AddressBar.show_recent +
+  set/with_recent + AddressBarEventKind::Recent, BrowserShell.tree_visible + set/with_tree_visible;
+  least-sure spots; test commands; what is left) and commit it.
 
 ## NEXT
-- scripts/azdrive_e2e.py (headless), update examples/azul-drive/scripts/browse.py.
-- report scripts/DRIVE2_2026_10_01.md (api.json list, least-sure spots, test commands).
+- report; final progress update.
 
 ## Decisions (unattended run)
 - Details view: ListView is single-select with fixed column widths and the table code belongs to
