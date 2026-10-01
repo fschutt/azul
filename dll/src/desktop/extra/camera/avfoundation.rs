@@ -88,15 +88,14 @@ pub(crate) unsafe fn publish_pixel_buffer(
     let h = CVPixelBufferGetHeight(pb);
     let pixel_format = CVPixelBufferGetPixelFormatType(pb);
     if pixel_format == PIXEL_FORMAT_420V || pixel_format == PIXEL_FORMAT_420F {
-        // SAFETY: an attachment lookup on a live buffer; the value is only
-        // compared by address with the CoreVideo constant.
+        // SAFETY: an attachment lookup on a live buffer. The value is compared
+        // by VALUE (`==` on CF types is `CFEqual`): the attachment comes from
+        // the format description (CoreMedia's "same string"), which is not
+        // CoreVideo's constant by address.
         #[allow(deprecated)] // CVBufferGetAttachment: present on every macOS
         let rec601 = unsafe {
             match CVBufferGetAttachment(pb, kCVImageBufferYCbCrMatrixKey, core::ptr::null_mut()) {
-                Some(value) => core::ptr::eq(
-                    &*value as *const _ as *const u8,
-                    kCVImageBufferYCbCrMatrix_ITU_R_601_4 as *const _ as *const u8,
-                ),
+                Some(value) => *value == **kCVImageBufferYCbCrMatrix_ITU_R_601_4,
                 None => h < 720,
             }
         };
