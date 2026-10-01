@@ -706,3 +706,5 @@ mod the_list_style_shorthand_sets_the_marker_type_and_position;
 mod a_cells_specified_width_is_its_columns_width;
 #[path = "a_collapsed_table_shares_each_border_between_its_cells.rs"]
 mod a_collapsed_table_shares_each_border_between_its_cells;
+#[path = "a_separated_table_spaces_its_cells_and_paints_its_own_border.rs"]
+mod a_separated_table_spaces_its_cells_and_paints_its_own_border;
