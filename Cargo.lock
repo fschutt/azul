@@ -38,6 +38,7 @@ dependencies = [
  "imap",
  "imap-proto",
  "mail-parser",
+ "micromail 0.2.0",
  "rustls",
  "rustls-rustcrypto",
  "serde",
@@ -990,7 +991,7 @@ dependencies = [
  "lru",
  "lyon",
  "material-icons",
- "micromail",
+ "micromail 0.1.0",
  "minisign",
  "minisign-verify",
  "objc2 0.6.4",
@@ -5399,6 +5400,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "micromail"
+version = "0.2.0"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "log",
+ "microdns",
+ "mini-mail-auth",
+ "rand 0.8.8",
+ "rsa",
+ "rustls",
+ "rustls-rustcrypto",
+ "thiserror 1.0.69",
+ "webpki-roots",
+]
+
+[[package]]
 name = "miette"
 version = "7.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5427,6 +5446,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2d4139bb28d14ad1facf21d5eb8825051b326e172d216b39f6d31df53cc97862"
 dependencies = [
  "libmimalloc-sys",
+]
+
+[[package]]
+name = "mini-mail-auth"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b7889eb2f8513b5315bfe9383a08200ab9d73b47d4b831f04c6c74f773094b2"
+dependencies = [
+ "base64 0.22.1",
+ "rsa",
+ "sha2 0.10.9",
 ]
 
 [[package]]
