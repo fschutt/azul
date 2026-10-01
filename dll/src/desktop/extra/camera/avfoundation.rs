@@ -39,13 +39,12 @@ use objc2_core_video::{
 };
 use objc2_foundation::{NSArray, NSDictionary, NSNumber, NSObject, NSObjectProtocol, NSString};
 
-/// kCVPixelFormatType_32BGRA ('BGRA').
-const PIXEL_FORMAT_32BGRA: u32 = 0x42475241;
-/// kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange ('420v'): NV12, video range.
-pub(crate) const PIXEL_FORMAT_420V: u32 = 0x34323076;
-/// kCVPixelFormatType_420YpCbCr8BiPlanarFullRange ('420f'): NV12, full range.
-pub(crate) const PIXEL_FORMAT_420F: u32 = 0x34323066;
-
+// The CoreVideo pixel formats and the RawImageFormat -> pixel format rule
+// live with the slot, shared with the VideoToolbox codec.
+pub(crate) use crate::desktop::extra::capture_slot::{
+    cv_pixel_format_for, CV_PIXEL_FORMAT_420F as PIXEL_FORMAT_420F,
+    CV_PIXEL_FORMAT_420V as PIXEL_FORMAT_420V,
+};
 use crate::desktop::extra::capture_slot::CaptureSlot;
 
 struct DelegateIvars {
@@ -53,21 +52,6 @@ struct DelegateIvars {
     /// The widget asked for RGBA8: BGRA frames are swizzled (the old
     /// contract). Otherwise frames are published as they are.
     want_rgba: bool,
-}
-
-/// The CoreVideo pixel format to ask a capture output for, given the format
-/// the widget wants: NV12 ('420v', or '420f' for a full-range request) or
-/// 32-BGRA (BGRA8 and RGBA8 requests, and everything else).
-pub(crate) const fn cv_pixel_format_for(format: RawImageFormat) -> u32 {
-    if format.is_nv12() {
-        if format.is_full_range() {
-            PIXEL_FORMAT_420F
-        } else {
-            PIXEL_FORMAT_420V
-        }
-    } else {
-        PIXEL_FORMAT_32BGRA
-    }
 }
 
 /// Publish one locked pixel buffer into `slot` in the form it arrived in: a

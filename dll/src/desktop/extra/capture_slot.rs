@@ -28,6 +28,30 @@ use std::{
 
 use azul_core::resources::{Nv12Layout, RawImageFormat};
 
+/// kCVPixelFormatType_32BGRA ('BGRA').
+pub const CV_PIXEL_FORMAT_32BGRA: u32 = 0x4247_5241;
+/// kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange ('420v'): NV12, video range.
+pub const CV_PIXEL_FORMAT_420V: u32 = 0x3432_3076;
+/// kCVPixelFormatType_420YpCbCr8BiPlanarFullRange ('420f'): NV12, full range.
+pub const CV_PIXEL_FORMAT_420F: u32 = 0x3432_3066;
+
+/// The CoreVideo pixel format of a buffer holding frames in `format`: NV12
+/// ('420v', or '420f' for a full-range format) or 32-BGRA (BGRA8, RGBA8 and
+/// everything else). One rule for the Apple capture outputs and the
+/// VideoToolbox sessions (an encoder's source buffers, a decoder's output).
+#[must_use]
+pub const fn cv_pixel_format_for(format: RawImageFormat) -> u32 {
+    if format.is_nv12() {
+        if format.is_full_range() {
+            CV_PIXEL_FORMAT_420F
+        } else {
+            CV_PIXEL_FORMAT_420V
+        }
+    } else {
+        CV_PIXEL_FORMAT_32BGRA
+    }
+}
+
 struct Inner {
     /// The latest frame, tightly packed in `format`.
     bytes: Vec<u8>,

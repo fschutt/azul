@@ -17,17 +17,22 @@
 //!     `CMVideoFormatDescriptionCreateFromH264ParameterSets`; VCL NALs are re-prefixed with 4-byte
 //!     lengths and wrapped in a `CMSampleBuffer`.
 //!
-//! Frames go in as they come: an NV12 frame (the camera's '420v') is copied
-//! plane by plane into a buffer of the session's own pixel-buffer pool
-//! (IOSurface-backed, '420v' - the codec's 4:2:0, so VideoToolbox converts
-//! nothing); a BGRA frame into a BGRA buffer; only an RGBA frame is
-//! swizzled. The session is created for HARDWARE encode (required where the
-//! OS knows the key) with low-latency rate control where available (macOS
-//! 11.3+), realtime, no frame reordering, no frame delay; `settings()` says
-//! what it got. Decode hands out what `set_output_format` asked for (NV12 by
-//! default for a YUV tile, BGRA, or RGBA) at the size `set_output_size` asked
-//! for, scaled by VideoToolbox. H.265 is not wired yet (the demos are H.264,
-//! same scope as the Vulkan backend) — `open(h265=true)` yields the stub.
+//! Frames go in as they come: an NV12 frame (the camera's '420v' / '420f') is
+//! copied plane by plane into a buffer of the session's own pixel-buffer pool
+//! (IOSurface-backed, in the frame's own range - the codec's 4:2:0, so
+//! VideoToolbox converts nothing); a BGRA frame into a BGRA buffer; only an
+//! RGBA frame is swizzled. The session's source buffers and colour tags
+//! (Rec.601 / Rec.709) follow the frames: a frame in another matrix or range
+//! gets a session made for it. The session is created for HARDWARE encode
+//! (required where the OS knows the key) with low-latency rate control where
+//! available (macOS 11.3+), realtime, no frame reordering, no frame delay;
+//! `settings()` says what it got. Decode hands out what `set_output_format`
+//! asked for (NV12 for a YUV tile, BGRA, or RGBA) at the size
+//! `set_output_size` asked for: the decompression session decodes at the
+//! stream's own size and a pixel transfer session scales and converts on the
+//! GPU, so a change applies at the next picture. H.265 is not wired yet (the
+//! demos are H.264, same scope as the Vulkan backend) — `open(h265=true)`
+//! yields the stub.
 
 use std::{
     collections::VecDeque,
@@ -106,12 +111,11 @@ struct VTDecompressionOutputCallbackRecord {
 
 /// 'avc1' — kCMVideoCodecType_H264.
 const CODEC_H264: u32 = 0x61766331;
-/// 'BGRA' — kCVPixelFormatType_32BGRA.
-const PIXFMT_BGRA: u32 = 0x42475241;
-/// '420v' — kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange (NV12, video range).
-const PIXFMT_420V: u32 = 0x34323076;
-/// '420f' — kCVPixelFormatType_420YpCbCr8BiPlanarFullRange (NV12, full range).
-const PIXFMT_420F: u32 = 0x34323066;
+// 'BGRA', '420v' (NV12, video range), '420f' (NV12, full range), and the one
+// RawImageFormat -> pixel format rule the capture outputs use too.
+use crate::desktop::extra::capture_slot::{
+    cv_pixel_format_for, CV_PIXEL_FORMAT_420F as PIXFMT_420F, CV_PIXEL_FORMAT_420V as PIXFMT_420V,
+};
 /// kCFNumberSInt32Type.
 const CF_NUMBER_SINT32: isize = 3;
 
@@ -166,6 +170,14 @@ macro_rules! vt_symbols {
             kCFBooleanFalse: CFTypeRef,
             kCFTypeDictionaryKeyCallBacks: *const c_void,
             kCFTypeDictionaryValueCallBacks: *const c_void,
+            // OPTIONAL functions (None where this OS lacks them): the pixel
+            // transfer session (macOS 10.8+, iOS 16+), which converts and
+            // scales a decoded picture to the output the app asked for.
+            VTPixelTransferSessionCreate:
+                Option<unsafe extern "C" fn(*const c_void, *mut *mut c_void) -> OSStatus>,
+            VTPixelTransferSessionTransferImage:
+                Option<unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void) -> OSStatus>,
+            VTPixelTransferSessionInvalidate: Option<unsafe extern "C" fn(*mut c_void)>,
         }
     };
 }
@@ -251,8 +263,17 @@ vt_symbols!(
         unsafe extern "C" fn(*mut c_void) -> u32),
     (CVBufferGetAttachment, b"CVBufferGetAttachment",
         unsafe extern "C" fn(*mut c_void, CFStringRef, *mut u32) -> CFTypeRef),
+    (CVBufferPropagateAttachments, b"CVBufferPropagateAttachments",
+        unsafe extern "C" fn(*mut c_void, *mut c_void)),
+    (CVPixelBufferPoolCreate, b"CVPixelBufferPoolCreate",
+        unsafe extern "C" fn(*const c_void, CFDictionaryRef, CFDictionaryRef,
+            *mut *mut c_void) -> i32),
+    (CVPixelBufferGetIOSurface, b"CVPixelBufferGetIOSurface",
+        unsafe extern "C" fn(*mut c_void) -> *mut c_void),
     // -- CoreFoundation ----------------------------------------------------
     (CFRelease, b"CFRelease", unsafe extern "C" fn(CFTypeRef)),
+    (CFRetain, b"CFRetain", unsafe extern "C" fn(CFTypeRef) -> CFTypeRef),
+    (CFEqual, b"CFEqual", unsafe extern "C" fn(CFTypeRef, CFTypeRef) -> u8),
     (CFDictionaryCreateMutable, b"CFDictionaryCreateMutable",
         unsafe extern "C" fn(*const c_void, isize, *const c_void, *const c_void)
             -> *mut c_void),
@@ -338,6 +359,15 @@ impl VtLib {
                     }
                 }};
             }
+            // OPTIONAL function symbol: None when this OS does not export it.
+            macro_rules! of {
+                ($lib:expr, $sym:literal) => {
+                    match $lib.get($sym) {
+                        Ok(s) => Some(*s),
+                        Err(_) => None,
+                    }
+                };
+            }
             // callback-table address (kCFTypeDictionary*CallBacks are structs,
             // we need their ADDRESS, not their first word).
             macro_rules! a {
@@ -398,7 +428,12 @@ impl VtLib {
                 CVPixelBufferGetBytesPerRowOfPlane: f!(cv, b"CVPixelBufferGetBytesPerRowOfPlane\0"),
                 CVPixelBufferGetPixelFormatType: f!(cv, b"CVPixelBufferGetPixelFormatType\0"),
                 CVBufferGetAttachment: f!(cv, b"CVBufferGetAttachment\0"),
+                CVBufferPropagateAttachments: f!(cv, b"CVBufferPropagateAttachments\0"),
+                CVPixelBufferPoolCreate: f!(cv, b"CVPixelBufferPoolCreate\0"),
+                CVPixelBufferGetIOSurface: f!(cv, b"CVPixelBufferGetIOSurface\0"),
                 CFRelease: f!(cf, b"CFRelease\0"),
+                CFRetain: f!(cf, b"CFRetain\0"),
+                CFEqual: f!(cf, b"CFEqual\0"),
                 CFDictionaryCreateMutable: f!(cf, b"CFDictionaryCreateMutable\0"),
                 CFDictionarySetValue: f!(cf, b"CFDictionarySetValue\0"),
                 CFDictionaryGetValue: f!(cf, b"CFDictionaryGetValue\0"),
@@ -497,6 +532,12 @@ impl VtLib {
                 kCFBooleanFalse: d!(cf, b"kCFBooleanFalse\0"),
                 kCFTypeDictionaryKeyCallBacks: a!(cf, b"kCFTypeDictionaryKeyCallBacks\0"),
                 kCFTypeDictionaryValueCallBacks: a!(cf, b"kCFTypeDictionaryValueCallBacks\0"),
+                VTPixelTransferSessionCreate: of!(vt, b"VTPixelTransferSessionCreate\0"),
+                VTPixelTransferSessionTransferImage: of!(
+                    vt,
+                    b"VTPixelTransferSessionTransferImage\0"
+                ),
+                VTPixelTransferSessionInvalidate: of!(vt, b"VTPixelTransferSessionInvalidate\0"),
                 _vt: vt,
                 _cm: cm,
                 _cv: cv,
@@ -635,10 +676,27 @@ pub(super) struct VtEncoder {
     shared: Arc<EncShared>,
     width: u32,
     height: u32,
+    bitrate_kbps: u32,
+    /// The frames the session was made for (`session_source`): its source
+    /// buffers' pixel format ('420v', '420f' or BGRA) and its colour tags
+    /// (Rec.601 or Rec.709) come from them. A frame in another matrix or
+    /// range gets a session of its own.
+    source: RawImageFormat,
     /// The encoder's clock: presentation times are real elapsed time, so a
     /// dropped frame is visible to rate control (not a fixed 1/30 s step).
     started: std::time::Instant,
     settings: EncoderSettings,
+}
+
+/// The source a session is made for, for frames in `format`: an NV12 format
+/// as it is (its matrix and range), anything else as BGRA8 (RGB frames go in
+/// as BGRA buffers and VideoToolbox converts them, tagged Rec.709).
+fn session_source(format: RawImageFormat) -> RawImageFormat {
+    if format.is_nv12() {
+        format
+    } else {
+        RawImageFormat::BGRA8
+    }
 }
 
 unsafe impl Send for VtEncoder {}
@@ -722,19 +780,39 @@ impl VtEncoder {
     /// hardware REQUIRED with low-latency rate control, hardware required
     /// alone, then whatever the OS picks (on every Mac VideoToolbox knows,
     /// that is hardware too). `None` if VideoToolbox is unavailable or no
-    /// session opens (the caller keeps the stub).
+    /// session opens (the caller keeps the stub). The session starts out for
+    /// Rec.709 video-range NV12 (a camera's HD format); the first frame in
+    /// another format gets a session made for it (`encode`).
     pub(super) fn open(width: u32, height: u32, bitrate_kbps: u32) -> Option<VtEncoder> {
+        Self::open_for(width, height, bitrate_kbps, RawImageFormat::NV12Rec709Video)
+    }
+
+    /// [`Self::open`] for frames in `source` (see [`session_source`]).
+    fn open_for(
+        width: u32,
+        height: u32,
+        bitrate_kbps: u32,
+        source: RawImageFormat,
+    ) -> Option<VtEncoder> {
         let lib = VtLib::get()?;
         let can_require =
             !lib.kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder.is_null();
         let can_low_latency =
             !lib.kVTVideoEncoderSpecification_EnableLowLatencyRateControl.is_null();
+        let source = session_source(source);
         for (require_hw, low_latency) in [(true, true), (true, false), (false, false)] {
             if (require_hw && !can_require) || (low_latency && !can_low_latency) {
                 continue;
             }
-            if let Some(enc) = Self::open_with(lib, width, height, bitrate_kbps, require_hw, low_latency)
-            {
+            let opened = Self::open_with(
+                lib,
+                (width, height),
+                bitrate_kbps,
+                source,
+                require_hw,
+                low_latency,
+            );
+            if let Some(enc) = opened {
                 return Some(enc);
             }
         }
@@ -743,9 +821,9 @@ impl VtEncoder {
 
     fn open_with(
         lib: &'static VtLib,
-        width: u32,
-        height: u32,
+        (width, height): (u32, u32),
         bitrate_kbps: u32,
+        source: RawImageFormat,
         require_hw: bool,
         low_latency: bool,
     ) -> Option<VtEncoder> {
@@ -776,10 +854,12 @@ impl VtEncoder {
                     );
                 }
             }
-            // The source buffers: '420v' (the codec's own 4:2:0, so an NV12
-            // camera frame is not converted), IOSurface-backed, from the
-            // session's pool.
-            let source = buffer_attributes(lib, PIXFMT_420V, Some((width, height)));
+            // The source buffers: the frames' own form ('420v' / '420f', the
+            // codec's 4:2:0, so an NV12 camera frame is not converted, in
+            // its own range; BGRA for RGB frames), IOSurface-backed, from
+            // the session's pool.
+            let source_attributes =
+                buffer_attributes(lib, cv_pixel_format_for(source), Some((width, height)));
 
             let mut session: *mut c_void = core::ptr::null_mut();
             let refcon = Arc::as_ptr(&shared) as *mut c_void;
@@ -789,7 +869,7 @@ impl VtEncoder {
                 height as i32,
                 CODEC_H264,
                 spec,
-                source,
+                source_attributes,
                 core::ptr::null(),
                 enc_output,
                 refcon,
@@ -798,8 +878,8 @@ impl VtEncoder {
             if !spec.is_null() {
                 (lib.CFRelease)(spec);
             }
-            if !source.is_null() {
-                (lib.CFRelease)(source);
+            if !source_attributes.is_null() {
+                (lib.CFRelease)(source_attributes);
             }
             if st != 0 || session.is_null() {
                 crate::plog_warn!(
@@ -847,13 +927,19 @@ impl VtEncoder {
             set_i32_property(lib, session, lib.kVTCompressionPropertyKey_MaxKeyFrameInterval, 60);
             set_i32_property(lib, session, lib.kVTCompressionPropertyKey_ExpectedFrameRate, 30);
             set_i32_property(lib, session, lib.kVTCompressionPropertyKey_MaxFrameDelayCount, 0);
-            // Colour tags (Rec.709, the camera's HD matrix): the decoder's
-            // NV12 then says which matrix it is in.
+            // Colour tags from the frames: the matrix they are in (Rec.601
+            // for an SD camera, Rec.709 for HD and for RGB frames, which
+            // VideoToolbox converts with this matrix), Rec.709 primaries and
+            // transfer (what webcams use either way). The decoder's NV12 then
+            // says which matrix it is in; the range travels in the stream's
+            // full-range flag, set from the '420v' / '420f' source buffers.
+            let matrix = if source.is_nv12() && !source.is_rec709() {
+                lib.kCVImageBufferYCbCrMatrix_ITU_R_601_4
+            } else {
+                lib.kCVImageBufferYCbCrMatrix_ITU_R_709_2
+            };
             for (key, value) in [
-                (
-                    lib.kVTCompressionPropertyKey_YCbCrMatrix,
-                    lib.kCVImageBufferYCbCrMatrix_ITU_R_709_2,
-                ),
+                (lib.kVTCompressionPropertyKey_YCbCrMatrix, matrix),
                 (
                     lib.kVTCompressionPropertyKey_ColorPrimaries,
                     lib.kCVImageBufferColorPrimaries_ITU_R_709_2,
@@ -889,10 +975,11 @@ impl VtEncoder {
                 profile: profile_name,
             };
             crate::plog_info!(
-                "[video] VideoToolbox H.264 encoder open: {}x{} @{}kbps, {:?}",
+                "[video] VideoToolbox H.264 encoder open: {}x{} @{}kbps from {:?}, {:?}",
                 width,
                 height,
                 bitrate_kbps,
+                source,
                 settings
             );
             Some(VtEncoder {
@@ -900,6 +987,8 @@ impl VtEncoder {
                 shared,
                 width,
                 height,
+                bitrate_kbps,
+                source,
                 started: std::time::Instant::now(),
                 settings,
             })
@@ -911,10 +1000,41 @@ impl VtEncoder {
         self.settings
     }
 
-    /// A '420v' buffer holding `frame`'s two planes: from the session's own
-    /// pool (IOSurface-backed, what VideoToolbox encodes without a copy of
-    /// its own), else a plain one. The planes are copied row by row into the
-    /// buffer's strides - no conversion. `None` for a short frame.
+    /// An empty source buffer for this session's frames: from the session's
+    /// own pool (IOSurface-backed, in the pixel format the session was made
+    /// for - what VideoToolbox encodes without a copy of its own), else a
+    /// plain one in that format. The caller releases it.
+    unsafe fn source_buffer(&self, lib: &VtLib) -> Option<*mut c_void> {
+        let (w, h) = (self.width as usize, self.height as usize);
+        let pixel_format = cv_pixel_format_for(self.source);
+        unsafe {
+            let mut pb: *mut c_void = core::ptr::null_mut();
+            let pool = (lib.VTCompressionSessionGetPixelBufferPool)(self.session);
+            let pooled = !pool.is_null()
+                && (lib.CVPixelBufferPoolCreatePixelBuffer)(core::ptr::null(), pool, &mut pb) == 0
+                && !pb.is_null();
+            if pooled && (lib.CVPixelBufferGetPixelFormatType)(pb) == pixel_format {
+                return Some(pb);
+            }
+            if pooled {
+                (lib.CFRelease)(pb);
+            }
+            pb = core::ptr::null_mut();
+            let st = (lib.CVPixelBufferCreate)(
+                core::ptr::null(),
+                w,
+                h,
+                pixel_format,
+                core::ptr::null(),
+                &mut pb,
+            );
+            (st == 0 && !pb.is_null()).then_some(pb)
+        }
+    }
+
+    /// A source buffer holding `frame`'s two NV12 planes, copied row by row
+    /// into the buffer's strides - no conversion (the session was made for
+    /// the frame's matrix and range). `None` for a short frame.
     unsafe fn nv12_buffer(&self, lib: &VtLib, frame: &VideoFrame) -> Option<*mut c_void> {
         let (w, h) = (self.width as usize, self.height as usize);
         let layout = Nv12Layout::new(w, h);
@@ -923,33 +1043,7 @@ impl VtEncoder {
             return None;
         }
         unsafe {
-            let mut pb: *mut c_void = core::ptr::null_mut();
-            let pool = (lib.VTCompressionSessionGetPixelBufferPool)(self.session);
-            let pooled = !pool.is_null()
-                && (lib.CVPixelBufferPoolCreatePixelBuffer)(core::ptr::null(), pool, &mut pb) == 0
-                && !pb.is_null();
-            if pooled {
-                let format = (lib.CVPixelBufferGetPixelFormatType)(pb);
-                if format != PIXFMT_420V && format != PIXFMT_420F {
-                    (lib.CFRelease)(pb);
-                    pb = core::ptr::null_mut();
-                }
-            } else {
-                pb = core::ptr::null_mut();
-            }
-            if pb.is_null()
-                && ((lib.CVPixelBufferCreate)(
-                    core::ptr::null(),
-                    w,
-                    h,
-                    PIXFMT_420V,
-                    core::ptr::null(),
-                    &mut pb,
-                ) != 0
-                    || pb.is_null())
-            {
-                return None;
-            }
+            let pb = self.source_buffer(lib)?;
             (lib.CVPixelBufferLockBaseAddress)(pb, 0);
             let y = (lib.CVPixelBufferGetBaseAddressOfPlane)(pb, 0);
             let y_stride = (lib.CVPixelBufferGetBytesPerRowOfPlane)(pb, 0);
@@ -983,9 +1077,9 @@ impl VtEncoder {
         }
     }
 
-    /// A BGRA buffer holding `frame` (BGRA8 rows copied as they are, RGBA8
-    /// rows swizzled). VideoToolbox converts it to 4:2:0 itself. `None` for a
-    /// short frame.
+    /// A BGRA source buffer holding `frame` (BGRA8 rows copied as they are,
+    /// RGBA8 rows swizzled). VideoToolbox converts it to 4:2:0 itself.
+    /// `None` for a short frame.
     unsafe fn bgra_buffer(&self, lib: &VtLib, frame: &VideoFrame) -> Option<*mut c_void> {
         let (w, h) = (self.width as usize, self.height as usize);
         let bytes = frame.bytes.as_ref();
@@ -993,19 +1087,7 @@ impl VtEncoder {
             return None;
         }
         unsafe {
-            let mut pb: *mut c_void = core::ptr::null_mut();
-            if (lib.CVPixelBufferCreate)(
-                core::ptr::null(),
-                w,
-                h,
-                PIXFMT_BGRA,
-                core::ptr::null(),
-                &mut pb,
-            ) != 0
-                || pb.is_null()
-            {
-                return None;
-            }
+            let pb = self.source_buffer(lib)?;
             (lib.CVPixelBufferLockBaseAddress)(pb, 0);
             let base = (lib.CVPixelBufferGetBaseAddress)(pb);
             let stride = (lib.CVPixelBufferGetBytesPerRow)(pb);
@@ -1053,6 +1135,16 @@ impl VtEncoder {
         };
         if frame.width != self.width || frame.height != self.height {
             return Vec::new();
+        }
+        let wanted = session_source(frame.format);
+        if wanted != self.source {
+            // Frames in another matrix, range or pixel family than the
+            // session was made for: a session made for them (its source
+            // buffers and colour tags), whose first frame is a keyframe.
+            match Self::open_for(self.width, self.height, self.bitrate_kbps, wanted) {
+                Some(next) => *self = next,
+                None => return Vec::new(),
+            }
         }
         unsafe {
             let pb = if frame.format.is_nv12() {
@@ -1128,22 +1220,165 @@ impl Drop for VtEncoder {
 // Decoder
 // ---------------------------------------------------------------------------
 
-/// Frames produced by the VT decode callback, in the asked-for format.
+/// Frames produced by the VT decode callback, in the asked-for output.
 struct DecShared {
     frames: Mutex<VecDeque<VideoFrame>>,
-    /// The app asked for RGBA8 (the old contract): a BGRA buffer is
-    /// swizzled. NV12 and BGRA8 are handed out as they are.
-    want_rgba: std::sync::atomic::AtomicBool,
+    /// What the pictures are handed out as, and the converter that gets them
+    /// there. Read by the output callback for every picture, so a change
+    /// applies to the next picture.
+    stage: Mutex<OutputStage>,
 }
 
-/// What the decoder hands out: the pixel format and the size. A change waits
-/// for the next keyframe (a session recreated mid-GOP has no reference
-/// frames).
+/// What the decoder hands out: the pixel format and the size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct DecoderOutput {
     format: RawImageFormat,
     /// `None`: the stream's own size.
     size: Option<(u32, u32)>,
+}
+
+/// The decoder's output stage. The decompression session decodes at the
+/// stream's own size into one pixel format, fixed when the session is made;
+/// a picture that must come out at another size or in another format goes
+/// through a `VTPixelTransferSession` (scaling and conversion on the GPU,
+/// what a decompression session with a destination size does inside) into a
+/// buffer of a pool at the asked size. So an output change needs no new
+/// decompression session, and no reference frames are lost: it applies at
+/// the next picture, not at the next IDR.
+struct OutputStage {
+    output: DecoderOutput,
+    /// The VTPixelTransferSessionRef, made on first use; null before.
+    transfer: *mut c_void,
+    /// The CVPixelBufferPoolRef of the transfer's destinations, made for
+    /// `pool_for` (width, height, pixel format); null before.
+    pool: *mut c_void,
+    pool_for: (usize, usize, u32),
+}
+
+// The two CF objects are only touched under `DecShared::stage`'s lock.
+unsafe impl Send for OutputStage {}
+
+impl OutputStage {
+    fn new(output: DecoderOutput) -> Self {
+        OutputStage {
+            output,
+            transfer: core::ptr::null_mut(),
+            pool: core::ptr::null_mut(),
+            pool_for: (0, 0, 0),
+        }
+    }
+
+    /// The picture in `image` (a decoded CVPixelBuffer, not locked) as a
+    /// frame in the asked output: copied as it is when it already is that
+    /// format and size, else transferred first. Without a pixel transfer
+    /// session on this OS, the picture as it was decoded (its frame says its
+    /// format and size).
+    unsafe fn picture(&mut self, lib: &VtLib, image: *mut c_void) -> Option<VideoFrame> {
+        unsafe {
+            let (w, h) = (
+                (lib.CVPixelBufferGetWidth)(image),
+                (lib.CVPixelBufferGetHeight)(image),
+            );
+            let pixel_format = cv_pixel_format_for(self.output.format);
+            let (tw, th) = self
+                .output
+                .size
+                .map_or((w, h), |(tw, th)| (tw as usize, th as usize));
+            let want_rgba = self.output.format == RawImageFormat::RGBA8;
+            let as_decoded =
+                (lib.CVPixelBufferGetPixelFormatType)(image) == pixel_format && (tw, th) == (w, h);
+            if !as_decoded {
+                if let Some(converted) = self.transfer(lib, image, (tw, th), pixel_format) {
+                    let frame = locked_copy(lib, converted, want_rgba);
+                    (lib.CFRelease)(converted);
+                    return frame;
+                }
+            }
+            locked_copy(lib, image, want_rgba)
+        }
+    }
+
+    /// `image` scaled to `size` and converted to `pixel_format`, in a new
+    /// buffer the caller releases; `None` where this OS has no pixel
+    /// transfer session or the transfer fails.
+    unsafe fn transfer(
+        &mut self,
+        lib: &VtLib,
+        image: *mut c_void,
+        (w, h): (usize, usize),
+        pixel_format: u32,
+    ) -> Option<*mut c_void> {
+        let create = lib.VTPixelTransferSessionCreate?;
+        let transfer_image = lib.VTPixelTransferSessionTransferImage?;
+        unsafe {
+            if self.transfer.is_null() {
+                let mut session: *mut c_void = core::ptr::null_mut();
+                if create(core::ptr::null(), &mut session) != 0 || session.is_null() {
+                    return None;
+                }
+                self.transfer = session;
+            }
+            if self.pool.is_null() || self.pool_for != (w, h, pixel_format) {
+                self.release_pool(lib);
+                let attrs = buffer_attributes(lib, pixel_format, Some((w as u32, h as u32)));
+                let mut pool: *mut c_void = core::ptr::null_mut();
+                let st = (lib.CVPixelBufferPoolCreate)(
+                    core::ptr::null(),
+                    core::ptr::null(),
+                    attrs,
+                    &mut pool,
+                );
+                if !attrs.is_null() {
+                    (lib.CFRelease)(attrs);
+                }
+                if st != 0 || pool.is_null() {
+                    return None;
+                }
+                self.pool = pool;
+                self.pool_for = (w, h, pixel_format);
+            }
+            let mut out: *mut c_void = core::ptr::null_mut();
+            if (lib.CVPixelBufferPoolCreatePixelBuffer)(core::ptr::null(), self.pool, &mut out)
+                != 0
+                || out.is_null()
+            {
+                return None;
+            }
+            if transfer_image(self.transfer, image, out) != 0 {
+                (lib.CFRelease)(out);
+                return None;
+            }
+            // The colour tags (the YCbCr matrix the frame reports) travel
+            // with the picture.
+            (lib.CVBufferPropagateAttachments)(image, out);
+            Some(out)
+        }
+    }
+
+    fn release_pool(&mut self, lib: &VtLib) {
+        if !self.pool.is_null() {
+            unsafe { (lib.CFRelease)(self.pool) };
+            self.pool = core::ptr::null_mut();
+        }
+    }
+}
+
+impl Drop for OutputStage {
+    fn drop(&mut self) {
+        let Some(lib) = VtLib::get() else {
+            return;
+        };
+        self.release_pool(lib);
+        if !self.transfer.is_null() {
+            unsafe {
+                if let Some(invalidate) = lib.VTPixelTransferSessionInvalidate {
+                    invalidate(self.transfer);
+                }
+                (lib.CFRelease)(self.transfer);
+            }
+            self.transfer = core::ptr::null_mut();
+        }
+    }
 }
 
 /// A live VTDecompressionSession fed Annex-B H.264.
@@ -1154,18 +1389,14 @@ pub(super) struct VtDecoder {
     sps: Option<Vec<u8>>,
     pps: Option<Vec<u8>>,
     frame_idx: i64,
-    /// The output the session was (or will be) created for.
-    output: DecoderOutput,
-    /// An output change waiting for the next keyframe.
-    pending_output: Option<DecoderOutput>,
 }
 
 unsafe impl Send for VtDecoder {}
 
 /// VTDecompressionOutputCallback: the decoded CVPixelBuffer → a `VideoFrame`
-/// in the buffer's own form - NV12 plane by plane ('420v' / '420f', its
-/// matrix from the buffer's YCbCr attachment), BGRA rows as they are, or
-/// (asked for RGBA8) swizzled.
+/// in the asked output (`OutputStage::picture`) - NV12 plane by plane ('420v'
+/// / '420f', its matrix from the buffer's YCbCr attachment), BGRA rows as
+/// they are, or (asked for RGBA8) swizzled.
 extern "C" fn dec_output(
     refcon: *mut c_void,
     _src: *mut c_void,
@@ -1183,18 +1414,28 @@ extern "C" fn dec_output(
         None => return,
     };
     let shared = unsafe { &*(refcon as *const DecShared) };
-    unsafe {
-        (lib.CVPixelBufferLockBaseAddress)(image, 1 /* kCVPixelBufferLock_ReadOnly */);
-        let frame = copy_decoded(lib, image, shared);
-        (lib.CVPixelBufferUnlockBaseAddress)(image, 1);
-        if let (Some(frame), Ok(mut q)) = (frame, shared.frames.lock()) {
-            q.push_back(frame);
-        }
+    let frame = match shared.stage.lock() {
+        Ok(mut stage) => unsafe { stage.picture(lib, image) },
+        Err(_) => None,
+    };
+    if let (Some(frame), Ok(mut q)) = (frame, shared.frames.lock()) {
+        q.push_back(frame);
     }
 }
 
-/// The frame of a locked decoder output buffer (see [`dec_output`]).
-unsafe fn copy_decoded(lib: &VtLib, image: *mut c_void, shared: &DecShared) -> Option<VideoFrame> {
+/// The frame of `image` (a CVPixelBuffer), locked read-only for the copy.
+unsafe fn locked_copy(lib: &VtLib, image: *mut c_void, want_rgba: bool) -> Option<VideoFrame> {
+    unsafe {
+        (lib.CVPixelBufferLockBaseAddress)(image, 1 /* kCVPixelBufferLock_ReadOnly */);
+        let frame = copy_decoded(lib, image, want_rgba);
+        (lib.CVPixelBufferUnlockBaseAddress)(image, 1);
+        frame
+    }
+}
+
+/// The frame of a locked buffer: NV12 plane by plane with its matrix, BGRA
+/// rows as they are, or (`want_rgba`) swizzled to RGBA.
+unsafe fn copy_decoded(lib: &VtLib, image: *mut c_void, want_rgba: bool) -> Option<VideoFrame> {
     unsafe {
         let w = (lib.CVPixelBufferGetWidth)(image);
         let h = (lib.CVPixelBufferGetHeight)(image);
@@ -1225,10 +1466,12 @@ unsafe fn copy_decoded(lib: &VtLib, image: *mut c_void, shared: &DecShared) -> O
                 lib.kCVImageBufferYCbCrMatrixKey,
                 core::ptr::null_mut(),
             );
+            // By VALUE: the attachment comes from the format description
+            // (CoreMedia's "same string"), not CoreVideo's constant itself.
             let rec601 = if matrix.is_null() {
                 h < 720
             } else {
-                matrix == lib.kCVImageBufferYCbCrMatrix_ITU_R_601_4
+                (lib.CFEqual)(matrix, lib.kCVImageBufferYCbCrMatrix_ITU_R_601_4) != 0
             };
             return Some(VideoFrame::with_format(
                 w as u32,
@@ -1242,9 +1485,6 @@ unsafe fn copy_decoded(lib: &VtLib, image: *mut c_void, shared: &DecShared) -> O
         if base.is_null() || stride < w * 4 {
             return None;
         }
-        let want_rgba = shared
-            .want_rgba
-            .load(std::sync::atomic::Ordering::Relaxed);
         let mut out = Vec::with_capacity(w * h * 4);
         for y in 0..h {
             let row = std::slice::from_raw_parts(base.add(y * stride), w * 4);
@@ -1282,56 +1522,39 @@ impl VtDecoder {
             format_desc: core::ptr::null_mut(),
             shared: Arc::new(DecShared {
                 frames: Mutex::new(VecDeque::new()),
-                want_rgba: std::sync::atomic::AtomicBool::new(true),
+                stage: Mutex::new(OutputStage::new(DecoderOutput {
+                    format: RawImageFormat::RGBA8,
+                    size: None,
+                })),
             }),
             sps: None,
             pps: None,
             frame_idx: 0,
-            output: DecoderOutput {
-                format: RawImageFormat::RGBA8,
-                size: None,
-            },
-            pending_output: None,
         })
     }
 
     /// Hand frames out in `format`: an NV12 variant (the decoder's own 4:2:0,
     /// no conversion - for a YUV tile or the CPU's fused convert), BGRA8 (as
-    /// VideoToolbox renders it) or RGBA8 (swizzled; the default).
+    /// VideoToolbox renders it) or RGBA8 (swizzled; the default). Applies
+    /// from the next picture.
     pub(super) fn set_output_format(&mut self, format: RawImageFormat) {
-        let next = DecoderOutput {
-            format,
-            ..self.pending_output.unwrap_or(self.output)
-        };
-        self.request_output(next);
-    }
-
-    /// Hand frames out at `width` x `height` - VideoToolbox scales in the
-    /// decode session, so a 720p stream shown in a small tile never reaches
-    /// the CPU at 720p. `0 x 0`: the stream's own size.
-    pub(super) fn set_output_size(&mut self, width: u32, height: u32) {
-        let size = (width > 0 && height > 0).then_some((width, height));
-        let next = DecoderOutput {
-            size,
-            ..self.pending_output.unwrap_or(self.output)
-        };
-        self.request_output(next);
-    }
-
-    /// Apply an output change now if no session runs yet, else at the next
-    /// keyframe.
-    fn request_output(&mut self, next: DecoderOutput) {
-        if next == self.output {
-            self.pending_output = None;
-        } else if self.session.is_null() {
-            self.output = next;
-            self.pending_output = None;
-        } else {
-            self.pending_output = Some(next);
+        if let Ok(mut stage) = self.shared.stage.lock() {
+            stage.output.format = format;
         }
     }
 
-    /// (Re)create the decompression session from the current SPS/PPS.
+    /// Hand frames out at `width` x `height` - scaled on the GPU, so a 720p
+    /// stream shown in a small tile never reaches the CPU at 720p. `0 x 0`:
+    /// the stream's own size. Applies from the next picture.
+    pub(super) fn set_output_size(&mut self, width: u32, height: u32) {
+        if let Ok(mut stage) = self.shared.stage.lock() {
+            stage.output.size = (width > 0 && height > 0).then_some((width, height));
+        }
+    }
+
+    /// (Re)create the decompression session from the current SPS/PPS. It
+    /// decodes at the stream's own size into the pixel format asked for when
+    /// it is made; any other output is the stage's (`OutputStage`).
     fn ensure_session(&mut self) -> bool {
         if !self.session.is_null() {
             return true;
@@ -1356,23 +1579,14 @@ impl VtDecoder {
                 crate::plog_warn!("[video] H264 format description failed: {}", st);
                 return false;
             }
-            // The output buffers: NV12 ('420v' / '420f') or BGRA, IOSurface-
-            // backed, at the asked size (VideoToolbox scales).
-            let format = self.output.format;
-            let pixel_format = if format.is_nv12() {
-                if format.is_full_range() {
-                    PIXFMT_420F
-                } else {
-                    PIXFMT_420V
-                }
-            } else {
-                PIXFMT_BGRA
-            };
-            self.shared.want_rgba.store(
-                format == RawImageFormat::RGBA8,
-                std::sync::atomic::Ordering::Relaxed,
-            );
-            let attrs = buffer_attributes(lib, pixel_format, self.output.size);
+            // The output buffers: NV12 ('420v' / '420f') or BGRA,
+            // IOSurface-backed, at the stream's own size.
+            let format = self
+                .shared
+                .stage
+                .lock()
+                .map_or(RawImageFormat::RGBA8, |stage| stage.output.format);
+            let attrs = buffer_attributes(lib, cv_pixel_format_for(format), None);
             let record = VTDecompressionOutputCallbackRecord {
                 callback: dec_output,
                 refcon: Arc::as_ptr(&self.shared) as *mut c_void,
@@ -1397,9 +1611,8 @@ impl VtDecoder {
             self.format_desc = desc;
             self.session = session;
             crate::plog_info!(
-                "[video] VideoToolbox decompression session created ({:?} out, size {:?})",
-                self.output.format,
-                self.output.size
+                "[video] VideoToolbox decompression session created ({:?} at the stream's size)",
+                format
             );
             true
         }
@@ -1414,7 +1627,6 @@ impl VtDecoder {
         };
         // Split NALs; latch parameter sets; batch VCL NALs into one AU.
         let mut au: Vec<u8> = Vec::with_capacity(data.len() + 16);
-        let mut keyframe = false;
         for nal in annexb_nals(data) {
             if nal.is_empty() {
                 continue;
@@ -1433,19 +1645,10 @@ impl VtDecoder {
                         self.reset_session();
                     }
                 }
-                kind => {
-                    keyframe |= kind == 5;
+                _ => {
                     au.extend_from_slice(&(nal.len() as u32).to_be_bytes());
                     au.extend_from_slice(nal);
                 }
-            }
-        }
-        // A new output (format / size) starts at a keyframe: the session
-        // recreated for it has no reference frames for anything before.
-        if keyframe {
-            if let Some(next) = self.pending_output.take() {
-                self.output = next;
-                self.reset_session();
             }
         }
         if au.is_empty() || !self.ensure_session() {
