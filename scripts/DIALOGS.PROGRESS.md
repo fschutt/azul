@@ -4,7 +4,7 @@ Task: install-wizard pages, settings-dialog patterns, standard dialogs, the AzSe
 demo (examples/azul-setup), AzWidgets cards, tests, scripts/azsetup_e2e.py.
 Report: scripts/DIALOGS_2026_10_01.md. House rules: no cargo, no rust-analyzer.
 
-## DONE
+## DONE (see the report for the full commit list)
 - `c25644fe3` progress file.
 - `3e6011234` Phase 1 RED: dialog_kit, path_input, wizard_pages, wizard_layout
   extensions (banner / side panel / blocked reason / can_go_back / sizes),
@@ -12,14 +12,11 @@ Report: scripts/DIALOGS_2026_10_01.md. House rules: no cargo, no rust-analyzer.
   `// RED stub` (scratchpad `dialogs/unstub.py` removes them).
 
 ## IN PROGRESS
-- Phase 4 done: AzSetup (`ec5269c71`, `2a389701b`, `c06de4acb`, `2d6d06f79`), AzWidgets Dialogs
-  section `ec2f53898`.
-  NEXT STEP: a careful compile-review pass over the new Rust files (read each, fix type
-  mismatches), then the report scripts/DIALOGS_2026_10_01.md (api.json list, least-sure
-  spots, test commands).
+- (none) - every phase is committed; the report is scripts/DIALOGS_2026_10_01.md.
 
-## NEXT
-- Phase 5: report.
+## NEXT (for the parent)
+- api.json through autofix (report section 3), compile, run the suites and the E2E (report
+  section 5), look at the screenshots.
 
 ## Decisions (made unattended)
 - ONE look for every new dialog widget: `widgets::dialog_kit::DialogKitLook`
