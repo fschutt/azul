@@ -825,6 +825,52 @@ impl Doc {
         true
     }
 
+    /// Replaces blocks `start..end` with `parts` (a paste of several blocks
+    /// over a selection): the first part keeps block `start`'s kind and the
+    /// formats of what it kept of it, the last part the formats of what it
+    /// kept of block `end - 1`; the parts between keep their own kind (a
+    /// paragraph when they name none) and runs.
+    pub fn replace_with(&mut self, start: usize, end: usize, parts: Vec<(Option<BlockKind>, Vec<Run>)>) -> bool {
+        if start >= end || end > self.blocks.len() || parts.is_empty() {
+            return false;
+        }
+        let first = self.blocks[start].clone();
+        let last = self.blocks[end - 1].clone();
+        let count = parts.len();
+        let mut out = Vec::with_capacity(count);
+        for (i, (kind, runs)) in parts.into_iter().enumerate() {
+            let mut runs = runs;
+            if i == 0 {
+                let text = flatten(&runs);
+                let (head, _) = text_diff(&first.flat(), &text);
+                let mut merged = slice_runs(&first.runs, 0, head);
+                for run in slice_runs(&runs, head, text.len()) {
+                    push_run(&mut merged, run);
+                }
+                runs = merged;
+            }
+            if i + 1 == count {
+                let text = flatten(&runs);
+                let last_text = last.flat();
+                let (_, tail) = text_diff(&last_text, &text);
+                let mut merged = slice_runs(&runs, 0, text.len() - tail);
+                for run in slice_runs(&last.runs, last_text.len() - tail, last_text.len()) {
+                    push_run(&mut merged, run);
+                }
+                runs = merged;
+            }
+            let kind = if i == 0 && first.kind.has_text() {
+                first.kind.clone()
+            } else {
+                kind.filter(BlockKind::has_text).unwrap_or(BlockKind::Paragraph)
+            };
+            normalize_runs(&mut runs);
+            out.push(Block::new(kind, runs));
+        }
+        self.blocks.splice(start..end, out).for_each(drop);
+        true
+    }
+
     /// Sets block `index`'s kind (its text stays; a code block's runs lose
     /// their formats). Returns whether it changed.
     pub fn set_kind(&mut self, index: usize, kind: BlockKind) -> bool {
@@ -1181,6 +1227,32 @@ mod tests {
                 Run::plain("f").with(Format::Bold),
                 Run::plain("gh")
             ]
+        );
+    }
+
+    #[test]
+    fn a_paste_of_blocks_over_a_selection_keeps_both_ends() {
+        let mut doc = Doc::from_blocks(vec![
+            para(vec![Run::plain("ab"), Run::plain("cd").with(Format::Bold)]),
+            Block::text(BlockKind::Bullet(0), "efgh"),
+        ]);
+        // select "d" .. "e", paste "X" / heading "Y" / "Z"
+        let parts = vec![
+            (Some(BlockKind::Paragraph), vec![Run::plain("abcX")]),
+            (Some(BlockKind::Heading(2)), vec![Run::plain("Y")]),
+            (None, vec![Run::plain("Z").with(Format::Italic), Run::plain("fgh")]),
+        ];
+        assert!(doc.replace_with(0, 2, parts));
+        assert_eq!(doc.blocks.len(), 3);
+        assert_eq!(
+            doc.blocks[0].runs,
+            vec![Run::plain("ab"), Run::plain("c").with(Format::Bold), Run::plain("X")]
+        );
+        assert_eq!(doc.blocks[1].kind, BlockKind::Heading(2));
+        assert_eq!(doc.blocks[2].kind, BlockKind::Paragraph);
+        assert_eq!(
+            doc.blocks[2].runs,
+            vec![Run::plain("Z").with(Format::Italic), Run::plain("fgh")]
         );
     }
 
