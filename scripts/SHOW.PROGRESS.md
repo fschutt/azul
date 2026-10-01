@@ -28,7 +28,16 @@ Brief: scratchpad `SHOW_go.md`; house rules: scratchpad `wave4_common.md`. Repor
 
 ## IN PROGRESS
 
-- SelectionAdorner widget (`layout/src/widgets/selection_adorner.rs`)
+- SelectionAdorner widget (`layout/src/widgets/selection_adorner.rs`). Last commit: 171380149.
+  NEXT STEP: write the file in pieces (types + callback macros -> commit; geometry fns + their tests
+  as RED stubs -> commit; dom build + state machine -> commit GREEN), then the flat / flora looks
+  appended at the END of themes/flat.rs + flora.rs (`// ==== selection_adorner ====`), then
+  `pub mod selection_adorner;` appended to widgets/mod.rs + manifest entry + CHROME group.
+  Design: items (frames in canvas units) + scale; root div with content + absolutely positioned
+  frame boxes / 8 handles / rotate handle / guides / marquee as siblings AFTER the content (no
+  full overlay: azul has no pointer-events, a full overlay would steal the editing text's clicks);
+  pointer callbacks on the root (MouseDown/Move/Up/Leave, DoubleClick), capture_pointer, drag
+  state in the dataset + merge callback (split_pane's pattern); pure fns press/drag_to/release.
 
 ## NEXT
 
