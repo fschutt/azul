@@ -27,7 +27,7 @@ use azul::{
         ShellThemeScope,
     },
     str::String as AzString,
-    vec::{DomVec, MessageRowVec, StringVec},
+    vec::{MessageRowVec, StringVec},
     widgets::{
         Button, ButtonType, Chip, ChipState, MessageList, MessageListEvent,
         MessageListEventKind, MessageListMark, MessageRow, OnTextInputReturn, Segmented,
@@ -73,10 +73,6 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ("Heading, list, check item, quote, code", "Type # , - , 1. , [ ] , > , ``` at a line's start"),
     ("Next / previous pane", "F6 / Shift+F6"),
 ];
-
-fn az(s: impl Into<String>) -> AzString {
-    AzString::from(s.into())
-}
 
 fn strs(items: &[&str]) -> StringVec {
     StringVec::from_vec(items.iter().map(|s| AzString::from(*s)).collect())
@@ -2045,5 +2041,238 @@ extern "C" fn on_reload(mut data: RefAny, mut info: CallbackInfo) -> Update {
             .collect();
         jobs::spawn(info, app, s, Job::Rescan { known });
         Update::DoNothing
+    })
+}
+
+// ==== Version history ====
+
+/// Shows the open note's versions (the newest first).
+pub fn show_history(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState) {
+    let Some(id) = s.open.clone() else {
+        return;
+    };
+    // The note as it is now becomes a version too, once saved.
+    if s.open_note().is_some_and(|n| n.dirty) {
+        jobs::save_note(info, app, s, &id, true);
+    }
+    s.history = Some(HistoryView {
+        id: id.clone(),
+        loading: true,
+        ..HistoryView::default()
+    });
+    s.screen = Screen::History;
+    s.overlay = Overlay::None;
+    println!("AZNOTES_SCREEN history");
+    jobs::spawn(info, app, s, Job::History { id });
+}
+
+/// The payload of a version row.
+struct VersionRef {
+    app: RefAny,
+    index: usize,
+}
+
+fn history_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
+    let (Some(view), Some(note)) = (s.history.as_ref(), s.open_note()) else {
+        return ShellEmptyState::create("No note open")
+            .with_icon("history")
+            .with_action_label("Back to notes")
+            .with_on_action(app.clone(), on_settings_back as ButtonOnClickCallbackType)
+            .dom();
+    };
+    let offset = AppState::utc_offset();
+    let header = Dom::create_div()
+        .with_css("display: flex; flex-direction: row; align-items: center; padding: 6px 12px; flex-shrink: 0;")
+        .with_child(
+            Button::create("Back to the note")
+                .with_icon("arrow_back")
+                .with_on_click(app.clone(), on_settings_back as ButtonOnClickCallbackType)
+                .dom()
+                .with_id("history-back"),
+        )
+        .with_child(text_line(
+            &format!("History: {}", note.display_title()),
+            "flex-grow: 1; font-size: 15px; font-weight: bold; margin-left: 12px;",
+        ))
+        .with_child(
+            Button::create("Restore this version")
+                .with_icon("restore")
+                .with_button_type(ButtonType::Primary)
+                .with_on_click(app.clone(), on_restore_version as ButtonOnClickCallbackType)
+                .dom()
+                .with_id("history-restore"),
+        );
+
+    // The versions, newest first.
+    let mut list = Dom::create_div().with_id("history-versions").with_css(format!(
+        "display: flex; flex-direction: column; width: 240px; flex-shrink: 0; overflow-y: auto; \
+         border-right: 1px solid {}; padding: 6px;",
+        look.line
+    ));
+    if view.loading {
+        list.add_child(text_line("Loading versions...", "font-size: 13px; padding: 6px;"));
+    } else if view.versions.is_empty() {
+        list.add_child(text_line(
+            "No versions yet: AzNotes keeps one per save, at most every few minutes while you type.",
+            &format!("font-size: 13px; padding: 6px; color: {};", look.muted),
+        ));
+    }
+    for (index, (_, time)) in view.versions.iter().enumerate() {
+        let selected = view.selected == Some(index);
+        let mut row = Button::create(model::long_date(*time, offset)).with_on_click(
+            RefAny::new(VersionRef {
+                app: app.clone(),
+                index,
+            }),
+            on_version_click as ButtonOnClickCallbackType,
+        );
+        if selected {
+            row = row.with_button_type(ButtonType::Primary);
+        }
+        list.add_child(
+            row.dom()
+                .with_id(format!("version-{index}"))
+                .with_css("margin-bottom: 4px;"),
+        );
+    }
+
+    // The selected version, then what changed from it to now.
+    let mut detail = Dom::create_div().with_id("history-detail").with_css(format!(
+        "display: flex; flex-direction: column; flex-grow: 1; min-width: 0px; overflow-y: auto; \
+         padding: 12px 24px; background: {}; color: {};",
+        look.paper, look.text
+    ));
+    if !view.error.is_empty() {
+        detail.add_child(text_line(&view.error, &format!("color: {}; font-size: 13px;", look.error)));
+    }
+    match &view.text {
+        None => detail.add_child(text_line(
+            if view.selected.is_some() {
+                "Loading the version..."
+            } else {
+                "Choose a version on the left."
+            },
+            &format!("font-size: 13px; color: {};", look.muted),
+        )),
+        Some(text) => {
+            let (meta, doc) = crate::markdown::parse_note(text, 0);
+            let view_doc = editor::View {
+                doc: &doc,
+                notebook: &note.notebook,
+                images: &s.images,
+                look,
+                font_px: s.settings.text_size.px(),
+                interactive: false,
+            };
+            let title = if meta.title.trim().is_empty() {
+                model::UNTITLED
+            } else {
+                meta.title.as_str()
+            };
+            detail.add_child(editor::print_dom(&view_doc, title, app).with_id("history-version"));
+            let then = crate::markdown::body_to_markdown(&doc);
+            let now = crate::markdown::body_to_markdown(&note.doc);
+            if let Some(diff) = model::line_diff(&then, &now) {
+                let mut changes = Dom::create_div().with_id("history-changes").with_css(format!(
+                    "display: flex; flex-direction: column; margin-top: 18px; padding-top: 8px; \
+                     border-top: 1px solid {}; font-family: monospace; font-size: 12px;",
+                    look.line
+                ));
+                changes.add_child(text_line(
+                    "Changes from this version to now",
+                    "font-family: sans-serif; font-weight: bold; margin-bottom: 6px;",
+                ));
+                let changed = diff.iter().filter(|(c, _)| *c != model::Change::Kept).count();
+                if changed == 0 {
+                    changes.add_child(text_line("No changes.", ""));
+                }
+                for (change, line) in diff {
+                    let (mark, colour) = match change {
+                        model::Change::Kept => continue,
+                        model::Change::Removed => ("- ", look.error),
+                        model::Change::Added => ("+ ", look.accent),
+                    };
+                    changes.add_child(
+                        Dom::create_p_with_text(format!("{mark}{line}"))
+                            .with_css(format!("margin: 0px; white-space: pre-wrap; color: {colour};")),
+                    );
+                }
+                detail.add_child(changes);
+            }
+        }
+    }
+    Dom::create_div()
+        .with_id("history")
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+        .with_child(header)
+        .with_child(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: row; flex-grow: 1; min-height: 0px;")
+                .with_child(list)
+                .with_child(detail),
+        )
+}
+
+extern "C" fn on_version_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let (mut app, index) = match data.downcast_ref::<VersionRef>() {
+        Some(r) => (r.app.clone(), r.index),
+        None => return Update::DoNothing,
+    };
+    let handle = app.clone();
+    let Some(mut guard) = app.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let Some(view) = s.history.as_mut() else {
+        return Update::DoNothing;
+    };
+    let Some((key, _)) = view.versions.get(index).cloned() else {
+        return Update::DoNothing;
+    };
+    view.selected = Some(index);
+    view.text = None;
+    view.error.clear();
+    let id = view.id.clone();
+    jobs::spawn(&mut info, &handle, s, Job::Version { id, key });
+    Update::RefreshDom
+}
+
+/// Restores the selected version: the note as it is now is kept as a
+/// version first, then the version's title, tags and text become the
+/// note's (saved, with the editor's content replaced).
+extern "C" fn on_restore_version(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |s, info, app| {
+        let Some(text) = s.history.as_ref().and_then(|h| h.text.clone()) else {
+            return Update::DoNothing;
+        };
+        let Some(id) = s.open.clone() else {
+            return Update::DoNothing;
+        };
+        let now = azul_storage::time::now_unix();
+        if let Some(current) = s.library.get(&id).filter(|n| !n.saved.is_empty()) {
+            let job = Job::PutText {
+                key: model::history_key(&id, now),
+                text: current.saved.clone(),
+            };
+            jobs::spawn(info, app, s, job);
+        }
+        let (meta, doc) = crate::markdown::parse_note(&text, now);
+        if let Some(host) = editor::host_node(info, editor::root_dom()) {
+            info.reset_editor_content(host, false);
+        }
+        if let Some(note) = s.library.get_mut(&id) {
+            note.meta.title = meta.title;
+            note.meta.tags = meta.tags;
+            note.meta.pinned = meta.pinned;
+            note.doc = doc;
+            note.touch(now + 1);
+            note.refresh();
+        }
+        s.editor = editor::EditorState::default();
+        s.screen = Screen::Notes;
+        s.history = None;
+        println!("AZNOTES_RESTORED {id}");
+        jobs::save_note(info, app, s, &id, false);
+        Update::RefreshDom
     })
 }
