@@ -7,17 +7,20 @@ Task: AzCalculator (F1/F2/F6/F7 vehicle) + AzContacts (A4). Report: scripts/SMAL
 - 8a5e2f886 fix(e2e): key_down knows the punctuation and keypad key names (GREEN)
 - 7c4ce8bd6 test(appkit): the shared app skeleton (RED)
 - 75f052000 feat(appkit): the shared app skeleton and its settings page (GREEN)
+- 02a3d355f test(azcalculator): the calculator's model (RED)
+- 8fccfdc91 feat(azcalculator): the calculator's model (GREEN)
 
 ## IN PROGRESS
-- AzCalculator model (NEXT 2)
+- AzCalculator UI (NEXT 3), lib.rs in pieces
 
 ## NEXT
-1. examples/azul-appkit (shared skeleton crate): args (--screen/--size/--theme/--mode/--shot/--sample/--data-dir),
-   data root (S3 layout), settings.json, shortcuts table, about info; feature `azul`: settings page on
-   ShellSettingsLayout, title row, --shot timer, file jobs on a Thread through azul-storage LocalDrive.
-2. AzCalculator model (RED tests, then GREEN): decimal (bigdecimal), expression engine, programmer, units,
-   date calc, history.jsonl, input state machine, key map.
-3. AzCalculator UI on UtilityShell + E2E scripts/azcalculator_e2e.py + registration.
+3. NEXT STEP: AzCalculator UI in examples/azul-calculator/src/lib.rs (replace the stub `start()`): state
+   struct App { kit: RefAny, calc: Calculator, screen, panel (history/memory), convert + date state }, layout on
+   UtilityShell (title row = appkit::ui::title_row, modes = Segmented [Standard, Scientific, Programmer, Date,
+   Convert]), keypad grids per mode, window key handler (appkit::ui::handle_key first), Paste via
+   FocusEventFilter::Paste, history load/save via appkit::ui::spawn_file_jobs (calculator/history.jsonl),
+   stdout lines AZCALC_* for the E2E. Write it in pieces (state+start, then layout, then callbacks), commit each.
+   Then the E2E scripts/azcalculator_e2e.py. AzCalculator UI on UtilityShell + E2E scripts/azcalculator_e2e.py + registration.
 4. AzContacts model (RED, GREEN): vCard 3.0/4.0 parse/write, contacts model, sort/index, duplicates + merge,
    storage layout contacts/<uuid>.vcf, sample data.
 5. AzContacts UI on PimShell + E2E scripts/azcontacts_e2e.py + registration.
