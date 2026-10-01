@@ -2170,37 +2170,10 @@ pub(crate) fn fill_range(source: CellGridRange, target: CellGridCellRef) -> Cell
     r
 }
 
-/// The relative luminance of a colour (sRGB, 0 = black, 1 = white).
-fn luminance(c: ColorU) -> f32 {
-    let lin = |v: u8| {
-        let s = f32::from(v) / 255.0;
-        if s <= 0.04045 {
-            s / 12.92
-        } else {
-            ((s + 0.055) / 1.055).powf(2.4)
-        }
-    };
-    0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b)
-}
-
-/// The automatic ink on a filled cell: black on a light fill, white on a
-/// dark one.
+/// The automatic ink on a filled cell: black or white, whichever contrasts
+/// more with the fill (`ColorU::best_contrast_text`, the WCAG rule).
 pub(crate) fn auto_ink(fill: ColorU) -> ColorU {
-    if luminance(fill) > 0.18 {
-        ColorU {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 255,
-        }
-    } else {
-        ColorU {
-            r: 255,
-            g: 255,
-            b: 255,
-            a: 255,
-        }
-    }
+    fill.best_contrast_text()
 }
 
 fn px_width(px: f32) -> CssPropertyWithConditions {
