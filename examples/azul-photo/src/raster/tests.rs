@@ -4,7 +4,6 @@
 //! azul's `RawImage::paint_dot` (the one brush profile in azul), so they link
 //! libazul like every app test (`AZ_LINK_PATH`).
 
-use std::sync::Arc;
 
 use super::*;
 
@@ -559,4 +558,265 @@ fn the_clone_stamp_copies_from_its_source_offset() {
     e.end_stroke();
     assert_px(layer_pixel(&e, bg, 48, 16), GREEN);
     assert_eq!(layer_pixel(&e, bg, 30, 16), WHITE);
+}
+
+// ==== Filters ====
+
+#[test]
+fn a_gaussian_blur_spreads_a_point_symmetrically_and_keeps_its_energy() {
+    let mut grid = TileGrid::from_rgba(33, 33, &solid(33, 33, [0, 0, 0, 255]));
+    grid.set_pixel(16, 16, WHITE);
+    let blurred = filter::gaussian_blur(&grid, 2.0, None);
+    let red = |x: u32, y: u32| blurred.pixel(x, y)[0] as u32;
+    assert!(red(16, 16) < 255 && red(16, 16) > 10, "the peak spreads: {}", red(16, 16));
+    assert_eq!(red(14, 16), red(18, 16));
+    assert_eq!(red(16, 14), red(16, 18));
+    assert_eq!(red(14, 16), red(16, 14));
+    let total: u32 = (0..33).flat_map(|y| (0..33).map(move |x| (x, y))).map(|(x, y)| red(x, y)).sum();
+    assert!(total.abs_diff(255) <= 30, "energy kept: {total}");
+}
+
+#[test]
+fn blur_and_sharpen_leave_a_flat_colour_as_it_is() {
+    let grid = TileGrid::from_rgba(40, 40, &solid(40, 40, [90, 120, 200, 255]));
+    assert_eq!(filter::gaussian_blur(&grid, 3.0, None).to_rgba(), grid.to_rgba());
+    assert_eq!(filter::sharpen(&grid, 1.0, 2.0, None).to_rgba(), grid.to_rgba());
+}
+
+#[test]
+fn sharpening_raises_the_contrast_across_an_edge() {
+    let mut rgba = solid(40, 10, [100, 100, 100, 255]);
+    for y in 0..10 {
+        for x in 20..40 {
+            let i = (y * 40 + x) * 4;
+            rgba[i..i + 3].copy_from_slice(&[160, 160, 160]);
+        }
+    }
+    let grid = TileGrid::from_rgba(40, 10, &rgba);
+    let sharp = filter::sharpen(&grid, 1.0, 2.0, None);
+    assert!(sharp.pixel(19, 5)[0] < 100, "the dark side gets darker at the edge");
+    assert!(sharp.pixel(20, 5)[0] > 160, "the light side gets lighter");
+    assert_eq!(sharp.pixel(2, 5)[0], 100, "far from the edge nothing changes");
+}
+
+#[test]
+fn a_filter_runs_only_inside_the_selection() {
+    let mut e = TileEngine::new(Document::from_rgba(40, 10, {
+        let mut rgba = solid(40, 10, [0, 0, 0, 255]);
+        for y in 0..10 {
+            for x in (0..40).step_by(2) {
+                let i = (y * 40 + x) * 4;
+                rgba[i..i + 3].copy_from_slice(&[255, 255, 255]);
+            }
+        }
+        rgba
+    }, "Stripes"));
+    let bg = e.active_layer().unwrap();
+    e.apply(Op::Select(Shape::Rect(IRect::new(0, 0, 20, 10)), SelectMode::Replace)).unwrap();
+    e.apply(Op::Filter(Filter::GaussianBlur { sigma: 2.0 })).unwrap();
+    let blurred = layer_pixel(&e, bg, 10, 5)[0];
+    assert!(blurred > 60 && blurred < 200, "inside: blurred to grey ({blurred})");
+    assert_eq!(layer_pixel(&e, bg, 30, 5), WHITE, "outside: stripes as they were");
+}
+
+// ==== Transforms, crop ====
+
+#[test]
+fn flipping_twice_and_turning_four_times_give_back_the_original() {
+    let mut rgba = solid(5, 3, CLEAR);
+    for (i, px) in rgba.chunks_exact_mut(4).enumerate() {
+        px.copy_from_slice(&[i as u8 * 10, 0, 0, 255]);
+    }
+    let grid = TileGrid::from_rgba(5, 3, &rgba);
+    let flipped = transform::flip(&grid, true);
+    assert_eq!(flipped.pixel(0, 0), grid.pixel(4, 0));
+    assert_eq!(transform::flip(&flipped, true).to_rgba(), rgba);
+    assert_eq!(transform::flip(&transform::flip(&grid, false), false).to_rgba(), rgba);
+    let turned = transform::rotate90(&grid, true);
+    assert_eq!((turned.width(), turned.height()), (3, 5));
+    assert_eq!(turned.pixel(2, 0), grid.pixel(0, 0), "clockwise: the top-left goes top-right");
+    let mut back = grid.clone();
+    for _ in 0..4 {
+        back = transform::rotate90(&back, true);
+    }
+    assert_eq!(back.to_rgba(), rgba);
+}
+
+#[test]
+fn scaling_by_two_with_nearest_neighbour_repeats_each_pixel() {
+    let grid = TileGrid::from_rgba(2, 1, &[255, 0, 0, 255, 0, 0, 255, 255]);
+    let big = transform::resize(&grid, 4, 2, Interp::Nearest);
+    assert_eq!(big.pixel(0, 0), RED);
+    assert_eq!(big.pixel(1, 1), RED);
+    assert_eq!(big.pixel(2, 0), BLUE);
+    assert_eq!(big.pixel(3, 1), BLUE);
+}
+
+#[test]
+fn bilinear_resampling_blends_between_neighbours() {
+    let grid = TileGrid::from_rgba(2, 1, &[0, 0, 0, 255, 200, 200, 200, 255]);
+    let m = Affine::translate(-0.5, 0.0);
+    let shifted = transform::transform_grid(&grid, &m, Interp::Bilinear, 2, 1);
+    assert_px(shifted.pixel(0, 0), [100, 100, 100, 255]);
+}
+
+#[test]
+fn an_affine_rotation_turns_points_about_the_origin() {
+    let r = Affine::rotate(std::f32::consts::FRAC_PI_2);
+    let (x, y) = r.apply(1.0, 0.0);
+    assert!(x.abs() < 1e-5 && (y - 1.0).abs() < 1e-5);
+    let inv = r.invert().unwrap();
+    let (bx, by) = inv.apply(x, y);
+    assert!((bx - 1.0).abs() < 1e-5 && by.abs() < 1e-5);
+}
+
+#[test]
+fn moving_a_layer_shifts_its_pixels() {
+    let mut e = white_engine(16, 16);
+    e.apply(Op::NewLayer { name: "Dot".into() }).unwrap();
+    let dot = e.active_layer().unwrap();
+    e.apply(Op::DrawShape { shape: Shape::Rect(IRect::new(2, 2, 2, 2)), color: RED }).unwrap();
+    e.apply(Op::Offset { dx: 5, dy: 3 }).unwrap();
+    assert_eq!(layer_pixel(&e, dot, 7, 5), RED);
+    assert_eq!(layer_pixel(&e, dot, 2, 2), CLEAR);
+}
+
+#[test]
+fn cropping_keeps_the_rect_and_shrinks_the_document() {
+    let mut e = white_engine(100, 80);
+    let bg = e.active_layer().unwrap();
+    e.apply(Op::DrawShape { shape: Shape::Rect(IRect::new(30, 20, 1, 1)), color: RED }).unwrap();
+    e.apply(Op::Crop(IRect::new(25, 15, 40, 30))).unwrap();
+    assert_eq!(e.size(), (40, 30));
+    assert_eq!(layer_pixel(&e, bg, 5, 5), RED);
+    e.take_dirty();
+    assert_eq!(e.sample(5, 5), RED);
+}
+
+#[test]
+fn turning_the_canvas_swaps_its_sides() {
+    let mut e = white_engine(100, 40);
+    e.apply(Op::RotateCanvas90 { clockwise: true }).unwrap();
+    assert_eq!(e.size(), (40, 100));
+    e.apply(Op::ResizeImage { width: 20, height: 50, interp: Interp::Bilinear }).unwrap();
+    assert_eq!(e.size(), (20, 50));
+    e.take_dirty();
+    assert_px(e.sample(19, 49), WHITE);
+}
+
+#[test]
+fn a_gradient_runs_from_the_start_colour_to_the_end_colour() {
+    let mut e = white_engine(101, 4);
+    let bg = e.active_layer().unwrap();
+    e.apply(Op::Gradient { from: (0.5, 0.0), to: (100.5, 0.0), start: [0, 0, 0, 255], end: WHITE }).unwrap();
+    assert_px(layer_pixel(&e, bg, 0, 1), [0, 0, 0, 255]);
+    assert_px(layer_pixel(&e, bg, 50, 1), [128, 128, 128, 255]);
+    assert_px(layer_pixel(&e, bg, 100, 1), WHITE);
+}
+
+// ==== Undo / redo: tile snapshots ====
+
+#[test]
+fn undo_restores_the_pixels_and_redo_brings_the_stroke_back() {
+    let mut e = white_engine(64, 64);
+    let bg = e.active_layer().unwrap();
+    e.begin_stroke(brush(RED, 10.0), pt(32.0, 32.0)).unwrap();
+    e.stroke_to(pt(40.0, 32.0));
+    e.end_stroke();
+    assert_px(layer_pixel(&e, bg, 32, 32), RED);
+    let (labels, current) = e.history();
+    assert_eq!(labels.last().map(String::as_str), Some("Brush"));
+    assert_eq!(current, labels.len() - 1);
+    assert!(e.undo());
+    assert_eq!(layer_pixel(&e, bg, 32, 32), WHITE);
+    e.take_dirty();
+    assert_eq!(e.sample(32, 32), WHITE, "the composite follows the undo");
+    assert!(e.redo());
+    assert_px(layer_pixel(&e, bg, 32, 32), RED);
+    assert!(!e.redo(), "nothing left to redo");
+}
+
+#[test]
+fn a_new_edit_after_an_undo_drops_the_redo_branch() {
+    let mut e = white_engine(16, 16);
+    e.apply(Op::NewLayer { name: "One".into() }).unwrap();
+    e.apply(Op::NewLayer { name: "Two".into() }).unwrap();
+    assert!(e.undo());
+    e.apply(Op::NewLayer { name: "Three".into() }).unwrap();
+    let (labels, _) = e.history();
+    assert_eq!(labels, vec!["Open", "New Layer", "New Layer"]);
+    assert!(!e.redo());
+    let names: Vec<String> = e.document().layers.iter().map(|l| l.name.clone()).collect();
+    assert_eq!(names, vec!["Background", "One", "Three"]);
+}
+
+#[test]
+fn jumping_in_the_history_shows_that_state() {
+    let mut e = white_engine(16, 16);
+    e.apply(Op::NewLayer { name: "One".into() }).unwrap();
+    e.apply(Op::NewLayer { name: "Two".into() }).unwrap();
+    assert!(e.jump_to(0));
+    assert_eq!(e.document().layers.len(), 1);
+    assert!(e.jump_to(2));
+    assert_eq!(e.document().layers.len(), 3);
+}
+
+#[test]
+fn dragging_a_slider_makes_one_history_step_not_one_per_value() {
+    let mut e = white_engine(16, 16);
+    let bg = e.active_layer().unwrap();
+    for i in 1..=10 {
+        e.apply(Op::SetOpacity(bg, 1.0 - i as f32 * 0.05)).unwrap();
+    }
+    let (labels, _) = e.history();
+    assert_eq!(labels, vec!["Open", "Opacity"]);
+    assert!(e.undo());
+    assert_eq!(layer::find(&e.document().layers, bg).unwrap().opacity, 1.0);
+}
+
+#[test]
+fn history_states_share_every_tile_an_edit_did_not_touch() {
+    let mut e = white_engine(1024, 512); // 4 x 2 tiles
+    let bg = e.active_layer().unwrap();
+    let before = match &layer::find(&e.document().layers, bg).unwrap().content {
+        LayerContent::Raster(g) => g.clone(),
+        _ => unreachable!(),
+    };
+    e.begin_stroke(brush(RED, 6.0), pt(100.0, 100.0)).unwrap();
+    e.end_stroke();
+    let after = match &layer::find(&e.document().layers, bg).unwrap().content {
+        LayerContent::Raster(g) => g.clone(),
+        _ => unreachable!(),
+    };
+    assert!(!after.shares_tile_with(&before, 0, 0), "the painted tile is a new copy");
+    let shared = (0..4).flat_map(|x| (0..2).map(move |y| (x, y))).filter(|(x, y)| after.shares_tile_with(&before, *x, *y)).count();
+    assert_eq!(shared, 7, "the undo state costs one tile, not the layer");
+}
+
+#[test]
+fn flattening_gives_the_composite_as_rgba() {
+    let mut e = white_engine(4, 4);
+    e.apply(Op::NewLayer { name: "Red".into() }).unwrap();
+    e.apply(Op::FillSelection(RED)).unwrap();
+    let (w, h, rgba) = e.flatten_rgba();
+    assert_eq!((w, h), (4, 4));
+    assert_eq!(rgba, solid(4, 4, RED));
+}
+
+#[test]
+fn a_raster_layer_can_be_added_from_pixels_at_a_position() {
+    let mut e = white_engine(20, 20);
+    e.apply(Op::AddRasterLayer {
+        name: "Pasted".into(),
+        width: 2,
+        height: 2,
+        rgba: solid(2, 2, BLUE),
+        x: 10,
+        y: 12,
+    })
+    .unwrap();
+    let id = e.active_layer().unwrap();
+    assert_eq!(layer::find(&e.document().layers, id).unwrap().name, "Pasted");
+    assert_eq!(layer_pixel(&e, id, 11, 13), BLUE);
+    assert_eq!(layer_pixel(&e, id, 9, 12), CLEAR);
 }
