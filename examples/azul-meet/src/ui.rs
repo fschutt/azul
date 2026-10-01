@@ -22,12 +22,12 @@
 use azul::{
     audio::AudioConfig,
     callbacks::{
-        ButtonOnClickCallbackType, DropDownOnChoiceChangeCallbackType,
+        ButtonOnClickCallbackType, CallbackType, DropDownOnChoiceChangeCallbackType,
         SegmentedOnChangeCallbackType, ShellSettingsLayoutOnCategoryCallbackType,
         TextInputOnFocusLostCallbackType, TextInputOnTextInputCallbackType,
         TextInputOnVirtualKeyDownCallbackType,
     },
-    camera::CameraConfig,
+    camera::{CameraConfig, CameraFacing},
     image::{ImageRef, RawImageFormat},
     option::OptionString,
     prelude::*,
@@ -207,6 +207,8 @@ pub(crate) struct Actions {
     pub quality: DropDownOnChoiceChangeCallbackType,
     pub theme: SegmentedOnChangeCallbackType,
     pub mode: SegmentedOnChangeCallbackType,
+    /// A key pressed anywhere in the window (the keyboard shortcuts).
+    pub key: CallbackType,
 }
 
 // ==== Styles: structure and the few colours of their own (video tiles are dark in both modes) ====
@@ -257,6 +259,11 @@ pub(crate) fn meet_view(view: &CallView, data: &RefAny, actions: &Actions) -> Do
     Dom::create_body()
         .with_css(BODY)
         .with_child(ShellThemeScope::create(content).with_accent(ShellThemeAccent::Blue).dom())
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::VirtualKeyDown),
+            data.clone(),
+            actions.key,
+        )
 }
 
 /// The title row (the window is `NoTitle`) and, when there is one, the notice under it.
@@ -354,6 +361,11 @@ fn own_picture(view: &CallView, t: &TileView, data: &RefAny) -> Dom {
     match t.kind {
         TileKind::Camera if view.cam && !view.pattern_video => {
             let mut camera = CameraWidget::create(CameraConfig {
+                facing: match view.settings.camera_choice {
+                    1 => CameraFacing::Back,
+                    2 => CameraFacing::External,
+                    _ => CameraFacing::Front,
+                },
                 output_format: crate::VIDEO_FORMAT,
                 ..CameraConfig::default()
             });
