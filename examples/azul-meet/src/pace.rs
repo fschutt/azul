@@ -42,8 +42,18 @@ impl PumpPace {
     /// received, a microphone or camera on, a decoder or the playout working). The new interval
     /// when the pump's timer must be re-armed, else `None`.
     pub fn after_pump(&mut self, busy: bool, now_ms: u64) -> Option<u64> {
-        let _ = (busy, now_ms);
-        None
+        // The first pump counts as busy: a call starts fast.
+        let last_busy = *self.last_busy_ms.get_or_insert(now_ms);
+        if busy {
+            self.last_busy_ms = Some(now_ms);
+        }
+        let quiet = !busy && now_ms.saturating_sub(last_busy) >= QUIET_AFTER_MS;
+        let wanted = if quiet { IDLE_MS } else { BUSY_MS };
+        if wanted == self.interval_ms {
+            return None;
+        }
+        self.interval_ms = wanted;
+        Some(wanted)
     }
 }
 
