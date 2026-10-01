@@ -4192,7 +4192,8 @@ fn autostart(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
         }
         return begin_join(data, info, &link);
     }
-    if std::env::var("AZMEET_AUTOCREATE").is_ok_and(|v| v.trim() == "1") {
+    let call_screen = launch_args().screen == args::Screen::Call;
+    if call_screen || std::env::var("AZMEET_AUTOCREATE").is_ok_and(|v| v.trim() == "1") {
         return begin_new_meeting(data, info);
     }
     Update::DoNothing
@@ -4615,6 +4616,9 @@ fn bind_failure(endpoint: &IrohEndpoint) -> String {
 
 /// The name others see: `AZMEET_NAME`, else the login name.
 fn display_name() -> String {
+    if let Some(name) = launch_args().name.clone().filter(|n| !n.trim().is_empty()) {
+        return name.trim().to_string();
+    }
     ["AZMEET_NAME", "USER", "USERNAME"]
         .into_iter()
         .find_map(|key| {
@@ -4687,7 +4691,39 @@ fn meeting_server() -> (String, rooms::ServerSource, Result<(), String>) {
     (url, source, answer)
 }
 
+/// The command line this run was started with (`args.rs`), read once by [`start`].
+static ARGS: std::sync::OnceLock<args::Args> = std::sync::OnceLock::new();
+
+fn launch_args() -> &'static args::Args {
+    ARGS.get_or_init(args::Args::default)
+}
+
+/// The settings screen, theme and mode the command line asked for, on a participant's state.
+fn apply_launch_args(s: &mut MeetState) {
+    let args = launch_args();
+    s.settings_open = args.screen == args::Screen::Settings;
+    s.theme_index = usize::from(args.theme.as_deref() == Some("flora"));
+    s.mode_index = match args.mode {
+        args::Mode::System => 0,
+        args::Mode::Light => 1,
+        args::Mode::Dark => 2,
+    };
+}
+
 pub fn start() {
+    match args::parse(std::env::args().skip(1)) {
+        Ok(parsed) if parsed.help => {
+            print!("{}", args::HELP);
+            return;
+        }
+        Ok(parsed) => {
+            let _ = ARGS.set(parsed);
+        }
+        Err(why) => {
+            eprintln!("AzMeet: {why}\n\n{}", args::HELP);
+            std::process::exit(2);
+        }
+    }
     let (worker, source, answer) = meeting_server();
     if rooms::opens_demo(source, answer.is_ok()) {
         let why = answer.err().unwrap_or_default();
@@ -4742,6 +4778,7 @@ fn start_rooms(worker: String, answer: Result<(), String>) {
     configure_audio(&mut me);
     configure_video(&mut me, &probe_video());
     configure_network(&mut me);
+    apply_launch_args(&mut me);
     run(vec![RefAny::new(me)], false);
 }
 
@@ -4775,6 +4812,8 @@ fn start_demo(notice: &str) {
         configure_video(&mut ben, &video);
         configure_network(&mut ada);
         configure_network(&mut ben);
+        apply_launch_args(&mut ada);
+        apply_launch_args(&mut ben);
         vec![RefAny::new(ada), RefAny::new(ben)]
     } else {
         let failure = bind_failure(&ada_link);
@@ -4786,6 +4825,7 @@ fn start_demo(notice: &str) {
         configure_audio(&mut solo);
         configure_video(&mut solo, &video);
         configure_network(&mut solo);
+        apply_launch_args(&mut solo);
         vec![RefAny::new(solo)]
     };
     let linked = peers.len() == 2;
@@ -4793,7 +4833,17 @@ fn start_demo(notice: &str) {
 }
 
 fn run(peers: Vec<RefAny>, linked: bool) {
-    let mut app = App::create(RefAny::new(Room { peers }), AppConfig::create());
+    let args = launch_args();
+    let mut config = AppConfig::create();
+    if let Some(theme) = &args.theme {
+        config = config.with_theme(AzString::from(theme.as_str()));
+    }
+    config = config.with_mode(match args.mode {
+        args::Mode::System => OptionDarkLightMode::None,
+        args::Mode::Light => OptionDarkLightMode::Some(DarkLightMode::Light),
+        args::Mode::Dark => OptionDarkLightMode::Some(DarkLightMode::Dark),
+    });
+    let mut app = App::create(RefAny::new(Room { peers }), config);
     let mut first = WindowCreateOptions::create(layout_first);
     first.window_state.flags.decorations = WindowDecorations::NoTitle;
     first.create_callback = Some(Callback::create(startup_first)).into();
