@@ -91,11 +91,8 @@ use std::{
 use azul::{
     app::RendererOptions,
     audio::{AudioConfig, AudioDeviceList, AudioDeviceListResult, AudioFrame, AudioSink},
-    callbacks::{
-        CallbackInfo, CallbackType, TimerCallbackInfo, TimerCallbackReturn, UpdateImageType,
-    },
-    camera::CameraConfig,
-    css::{LogicalSize, PhysicalPositionI32, Srgb, WindowPosition},
+    callbacks::{CallbackInfo, TimerCallbackInfo, TimerCallbackReturn, UpdateImageType},
+    css::{DarkLightMode, LogicalSize, PhysicalPositionI32, Srgb, WindowPosition},
     dom::{Callback, ClipboardContent, DomNodeId, NodeId, VirtualKeyCode},
     error::{HttpError, ResultRawImageDecodeImageError, ResultU8VecEncodeImageError},
     file::FilePath,
@@ -106,21 +103,18 @@ use azul::{
         IrohRelayMode, IrohTileRole,
     },
     json::{Json, JsonKeyValue},
-    option::{OptionRendererOptions, OptionString},
+    option::{OptionDarkLightMode, OptionRendererOptions, OptionString},
     prelude::*,
-    screen::ScreenCaptureConfig,
     str::String as AzString,
     task::{Thread, ThreadId, ThreadReceiver, ThreadSender, Timer, TimerId},
     time::{Duration, SystemTimeDiff},
     url::Url,
     vec::{F32Vec, StyledTextRunVec, U8Vec, U8VecRef},
-    video::VideoFrame,
+    video::{VideoDecoder, VideoEncoder, VideoFrame},
     widgets::{
-        ButtonType, CameraWidget, ConsumerFrame, FrameConsumer, MicrophoneWidget,
-        OnTextInputReturn, ProgressBar, ScreenCaptureWidget, TextInputState, TextInputValid,
-        Titlebar,
+        ConsumerFrame, FrameConsumer, OnTextInputReturn, ProgressBar, SegmentedState,
+        TextInputState, TextInputValid,
     },
-    video::{VideoDecoder, VideoEncoder},
     window::{HwAcceleration, PlatformCapability, Vsync, WindowDecorations},
 };
 use rooms::{Dialed, PeerRecord, Relay, RoomKey};
@@ -2727,7 +2721,9 @@ fn my_wants(s: &MeetState) -> Vec<routes::Want> {
                     box_height,
                     s.scale,
                 );
+                // No higher than the quality picked in the settings.
                 role.rendition_height(height, s.scale, room_size)
+                    .min(QUALITY_CAPS[s.quality.min(QUALITY_CAPS.len() - 1)])
             });
             wants.push(routes::Want {
                 origin: r.key,
@@ -4368,6 +4364,220 @@ extern "C" fn view_toggle(mut data: RefAny, _info: CallbackInfo) -> Update {
         network_changed(s, false);
     }
     Update::RefreshDom
+}
+
+// ==== The window's other controls: side panel, chat, settings, devices, shortcuts ====
+
+/// The side panel's tabs (`ui::PanelView` order): people, chat, statistics. Opening the chat reads
+/// it; opening the statistics shows them as they are now.
+extern "C" fn on_panel(mut data: RefAny, _info: CallbackInfo, state: SegmentedState) -> Update {
+    let Some(mut guard) = data.downcast_mut::<MeetState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    s.panel = match state.selected_index {
+        1 => SidePanel::Chat,
+        2 => SidePanel::Statistics,
+        _ => SidePanel::People,
+    };
+    if s.panel == SidePanel::Chat {
+        s.chat.mark_read();
+    }
+    if s.panel == SidePanel::Statistics {
+        s.stats_shown = stats_lines(s);
+    }
+    Update::RefreshDom
+}
+
+/// The chat field as typed.
+extern "C" fn on_chat_text(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        s.chat_draft = state.get_text().as_str().to_string();
+    }
+    OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: TextInputValid::Yes,
+    }
+}
+
+/// Enter in the chat field sends the message.
+extern "C" fn on_chat_key(
+    mut data: RefAny,
+    info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
+    let key = info
+        .get_current_keyboard_state()
+        .current_virtual_keycode
+        .into_option();
+    let update = match key {
+        Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter) => {
+            let text = state.get_text().as_str().to_string();
+            send_draft(&mut data, &text)
+        }
+        _ => Update::DoNothing,
+    };
+    OnTextInputReturn {
+        update,
+        valid: TextInputValid::Yes,
+    }
+}
+
+/// The chat's Send button.
+extern "C" fn on_chat_send(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let text = data
+        .downcast_ref::<MeetState>()
+        .map(|s| s.chat_draft.clone())
+        .unwrap_or_default();
+    send_draft(&mut data, &text)
+}
+
+/// Sends `text` to the chat and empties the field; nothing for an empty message.
+fn send_draft(data: &mut RefAny, text: &str) -> Update {
+    let Some(mut guard) = data.downcast_mut::<MeetState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    if !send_chat(s, text) {
+        return Update::DoNothing;
+    }
+    s.chat_draft.clear();
+    Update::RefreshDom
+}
+
+/// The lobby's name field: the name others see (the next announcement carries it).
+extern "C" fn on_name_text(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
+    let text = state.get_text().as_str().trim().to_string();
+    if let Some(mut guard) = data.downcast_mut::<MeetState>() {
+        let s = &mut *guard;
+        if !text.is_empty() {
+            s.name = text.clone();
+            if let Some(room) = s.room.as_mut() {
+                room.name = text;
+            }
+        }
+    }
+    OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: TextInputValid::Yes,
+    }
+}
+
+extern "C" fn on_settings_open(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        s.settings_open = true;
+    }
+    Update::RefreshDom
+}
+
+extern "C" fn on_settings_back(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        s.settings_open = false;
+    }
+    Update::RefreshDom
+}
+
+extern "C" fn on_settings_category(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        s.settings_category = index.min(ui::SETTINGS_CATEGORIES.len() - 1);
+    }
+    Update::RefreshDom
+}
+
+/// The microphone picked in the settings. (`MicrophoneWidget` and `AudioSink` open the system's
+/// default device on every platform today; the pick is kept for when they take one.)
+extern "C" fn on_mic_choice(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        s.mic_choice = index;
+    }
+    Update::RefreshDom
+}
+
+/// The speaker picked in the settings (see `on_mic_choice`).
+extern "C" fn on_speaker_choice(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        s.speaker_choice = index;
+    }
+    Update::RefreshDom
+}
+
+/// The camera picked in the settings: the camera widget opens the one facing that way.
+extern "C" fn on_camera_choice(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        s.camera_choice = index.min(CAMERAS.len() - 1);
+    }
+    Update::RefreshDom
+}
+
+/// The highest rendition this side asks for, by the quality picked in the settings.
+const QUALITY_CAPS: [u32; 3] = [720, 360, 180];
+
+/// The video quality picked in the settings: what this side asks for changes at once.
+extern "C" fn on_quality(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
+    if let Some(mut guard) = data.downcast_mut::<MeetState>() {
+        let s = &mut *guard;
+        s.quality = index.min(QUALITY_CAPS.len() - 1);
+        network_changed(s, false);
+    }
+    Update::RefreshDom
+}
+
+/// The app theme picked in the settings: flat or flora, for every window.
+extern "C" fn on_theme(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    let index = state.selected_index.min(1);
+    info.set_theme(AzString::from(if index == 1 { "flora" } else { "flat" }));
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        s.theme_index = index;
+    }
+    Update::RefreshDom
+}
+
+/// Light, dark, or the system's, picked in the settings.
+extern "C" fn on_mode(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    let index = state.selected_index.min(2);
+    info.set_mode(match index {
+        1 => OptionDarkLightMode::Some(DarkLightMode::Light),
+        2 => OptionDarkLightMode::Some(DarkLightMode::Dark),
+        _ => OptionDarkLightMode::None,
+    });
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        s.mode_index = index;
+    }
+    Update::RefreshDom
+}
+
+/// The keyboard shortcuts: Ctrl / Cmd + D the microphone, Ctrl / Cmd + E the camera, Escape
+/// closes the settings.
+extern "C" fn on_key(mut data: RefAny, info: CallbackInfo) -> Update {
+    let key = info
+        .get_current_keyboard_state()
+        .current_virtual_keycode
+        .into_option();
+    let modifiers = info.get_key_modifiers();
+    let command = modifiers.ctrl || modifiers.meta;
+    match key {
+        Some(VirtualKeyCode::D) if command => mic_toggle(data, info),
+        Some(VirtualKeyCode::E) if command => cam_toggle(data, info),
+        Some(VirtualKeyCode::Escape) => {
+            let Some(mut s) = data.downcast_mut::<MeetState>() else {
+                return Update::DoNothing;
+            };
+            if !s.settings_open {
+                return Update::DoNothing;
+            }
+            s.settings_open = false;
+            Update::RefreshDom
+        }
+        _ => Update::DoNothing,
+    }
 }
 
 fn gen_link() -> String {
