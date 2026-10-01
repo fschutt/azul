@@ -59,6 +59,14 @@ azul-css = { path = "css" }
 printpdf = { git = "https://github.com/fschutt/printpdf", branch = "azul-codegen-api" }
 azul-core = { path = "core" }
 azul-layout = { path = "layout" }
+# TEMPORARY (2026-10-01, task SEND): micromail 0.2.0 (raw messages to many recipients,
+# verified STARTTLS, the MIME builder, real DKIM) is committed on branch
+# `azul-send-2026-10-01` of ../micromail (github.com/fschutt/micromail) and NOT
+# published yet. Only AzMail asks for 0.2; layout's `micromail = "0.1.0"` does not
+# match 0.2.0, so the crash-mail build keeps the registry 0.1.0. This path points
+# OUTSIDE the repository: CI cannot resolve it. Before the next push: publish
+# micromail 0.2.0 (first-party, cooldown-exempt) and delete these lines.
+micromail = { path = "../micromail" }
 # agg-rust-azul (our fork) is never [patch]ed: publish the fork, then bump the pin in layout/Cargo.toml.
 # printpdf now comes from crates.io (0.12.x — requires azul-css/core 0.0.13 +
 # azul-layout 0.0.13, all published). The azul-* path patches above redirect

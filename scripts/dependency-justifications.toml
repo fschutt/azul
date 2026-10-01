@@ -471,7 +471,7 @@ thread_local = "Per-thread storage for tracing-subscriber's span stacks."
 env_logger = "RUST_LOG-driven logger init used by the turso SDK kits and wr_azul_glyph_rasterizer."
 env_filter = "Filter-directive parser shared by env_logger and android_logger."
 symlink = "Cross-platform symlink creation for tracing-appender's current-log pointer."
-micromail = "Minimal SMTP client (our crate, on crates.io) transporting crash reports by email behind the crash-mail feature."
+micromail = "Minimal SMTP client (our crate, on crates.io) transporting crash reports by email behind the crash-mail feature; 0.2 is AzMail's sender too (MIME builder, DKIM, direct-to-MX or relay delivery)."
 microdns = "Dependency-free DNS resolver micromail uses to find the MX host for crash-report mail."
 
 # === Bit/byte/number utilities ===
@@ -813,3 +813,4 @@ imap-proto = "IMAP response parser (nom 7) under the imap crate; AzMail also nam
 bufstream = "Buffered Read + Write wrapper the imap crate keeps its connection in. Example app only."
 mail-parser = "MIME parsing (Stalwart) for AzMail's index lines and message view: headers, RFC 2047/2231, charsets via encoding_rs, text and HTML bodies. Example app only."
 hashify = "Proc macro under mail-parser: compile-time perfect-hash tables for header names and charsets. Example app only."
+mini-mail-auth = "Minimal DKIM signer (rsa-sha256, relaxed/relaxed; our fork of Stalwart's mail-auth, only rsa + sha2 + base64) under micromail's dkim feature: AzMail signs outgoing mail. Example app only."

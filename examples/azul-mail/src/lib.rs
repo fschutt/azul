@@ -33,6 +33,7 @@ pub mod html;
 pub mod imap_client;
 pub mod message;
 pub mod mutf7;
+pub mod send;
 pub mod store;
 pub mod sync;
 

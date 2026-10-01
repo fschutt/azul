@@ -36,6 +36,10 @@ mail-parser = { version = "0.11", features = ["full_encoding"] }
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging"] }
 rustls-rustcrypto = "0.0.2-alpha"
 webpki-roots = "1.0"
+# Sending (send.rs): the MIME builder, DKIM signing (mini-mail-auth) and the SMTP client - direct to
+# the recipients' MX hosts or through one SMTP server, STARTTLS verified against the Mozilla roots
+# with the same pure-Rust provider as above. Our crate, the client azul's crash mail uses too.
+micromail = { version = "0.2", default-features = false, features = ["tls-rustcrypto", "dkim"] }
 
 [lib]
 name = "azmail"
@@ -50,3 +54,8 @@ path = "src/main.rs"
 [[bin]]
 name = "azmail-sanitize"
 path = "src/bin/azmail_sanitize.rs"
+
+# Sends one mail through send.rs from the command line (scripts/azmail_send_test.py).
+[[bin]]
+name = "azmail-send"
+path = "src/bin/azmail_send.rs"
