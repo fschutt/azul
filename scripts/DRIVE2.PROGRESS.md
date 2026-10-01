@@ -14,19 +14,13 @@ details panes, a Properties dialog, Settings on ShellSettingsLayout, and a headl
   AddressBar recent chevron + dimmed arrows, BrowserShell `tree_visible`.
 
 ## IN PROGRESS
-- Last commit: `fe60cb477` (actions.rs parts 1-3 done: Action table, keyboard, selection, clipboard,
-  transfer queue, conflicts, upload/download/drop, delete/rename/new/undo, properties, previews,
-  share, pins, view settings, context menu, drives). Earlier: `ae7f45a45` args.rs GREEN,
-  `d2a0b20f6` lib.rs core + jobs.rs.
-- NEXT STEP: write `ui_panes.rs` (address_bar, navigation_pane [ShellNavigationPane: groups Quick
-  access / This PC], status_bar, preview_pane, details_pane), then `ui_view.rs` (content: This PC,
-  Quick access, folder layouts, Details header with resizable columns, groups, items with click /
-  double-click / right-click / drag / drop / rename field, on_column_drag_move/end), then
-  `ui_ribbon.rs` (ribbon(s, app)), then `ui_dialogs.rs` (popup_parts, inline_sheet, on_dialog_closed,
-  backstage with ShellSettingsLayout). Each file in pieces, committed.
+- Last commit: `e2a27b26d`. Every module of the rebuilt app is written: lib.rs, jobs.rs, args.rs,
+  actions.rs, ui_panes.rs, ui_view.rs, ui_ribbon.rs, ui_dialogs.rs (all `wip(...)` commits).
+- NEXT STEP: review pass ("compile in the head"): cross-module names (actions::*, ui_*::*),
+  imports (unused / missing), borrows, api names against scratchpad api_new.json; fix in small
+  commits ("fix(azul-drive): ..."). Then scripts/azdrive_e2e.py, browse.py update, report.
 
 ## NEXT
-- review pass (unused imports, names against api_new.json), rustfmt parse check of the crate.
 - scripts/azdrive_e2e.py (headless), update examples/azul-drive/scripts/browse.py.
 - report scripts/DRIVE2_2026_10_01.md (api.json list, least-sure spots, test commands).
 
