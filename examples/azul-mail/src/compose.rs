@@ -553,7 +553,15 @@ pub fn mime_type_for(file_name: &str) -> &'static str {
 /// `now_secs`) with `Bcc` (a draft keeps it; the sent message has none - bare addresses, which
 /// need no encoding) and `X-AzMail-Draft: 1` in front of its header.
 pub fn draft_bytes(mail: &OutgoingMail, now_secs: i64) -> Vec<u8> {
-    todo!()
+    let built = crate::send::build_message(mail, now_secs);
+    let bcc: Vec<String> = mail.bcc.iter().filter_map(|entry| bare_address(entry)).collect();
+    let mut out = Vec::with_capacity(built.bytes.len() + 64);
+    if !bcc.is_empty() {
+        out.extend_from_slice(format!("Bcc: {}\r\n", bcc.join(", ")).as_bytes());
+    }
+    out.extend_from_slice(b"X-AzMail-Draft: 1\r\n");
+    out.extend_from_slice(&built.bytes);
+    out
 }
 
 /// Files a draft's message file in the Drafts folder under `store_root` through SEND's
@@ -566,7 +574,11 @@ pub fn save_draft(
     bytes: &[u8],
     now_secs: i64,
 ) -> std::io::Result<IndexEntry> {
-    todo!()
+    if let Some(old) = replaces {
+        delete_draft(&LocalFolder::new(store_root.to_path_buf()), old)?;
+    }
+    let flags = [String::from("\\Seen"), String::from("\\Draft")];
+    crate::send::file_message(store_root, DRAFTS_FOLDER, bytes, &flags, now_secs)
 }
 
 /// Removes a draft (once it is sent): its file and its index line.

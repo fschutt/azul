@@ -16,7 +16,17 @@ pub const SUBMISSION_PORT: u16 = 587;
 /// One line for the status bar and the settings page: "Direct delivery" or "SMTP
 /// localhost:2525" (", STARTTLS" / ", STARTTLS required").
 pub fn describe(settings: &SendSettings) -> String {
-    todo!()
+    match &settings.route {
+        SendRoute::Direct => String::from("Direct delivery"),
+        SendRoute::Smtp { host, port } => {
+            let tls = match settings.tls {
+                TlsPolicy::Opportunistic => ", STARTTLS",
+                TlsPolicy::Required => ", STARTTLS required",
+                TlsPolicy::Off => "",
+            };
+            format!("SMTP {host}:{port}{tls}")
+        }
+    }
 }
 
 /// The "Sending" section's fields as typed.
@@ -32,13 +42,53 @@ pub struct SendingForm {
 impl SendingForm {
     /// The form showing `settings`.
     pub fn from_settings(settings: &SendSettings) -> SendingForm {
-        todo!()
+        let starttls = settings.tls != TlsPolicy::Off;
+        match &settings.route {
+            SendRoute::Direct => SendingForm {
+                smtp: false,
+                host: String::new(),
+                port: SUBMISSION_PORT.to_string(),
+                starttls,
+            },
+            SendRoute::Smtp { host, port } => SendingForm {
+                smtp: true,
+                host: host.clone(),
+                port: port.to_string(),
+                starttls,
+            },
+        }
     }
 
     /// `settings` with the form's route and STARTTLS choice (every other setting kept), or
     /// what is wrong with the form.
     pub fn apply(&self, settings: &SendSettings) -> Result<SendSettings, String> {
-        todo!()
+        let mut applied = settings.clone();
+        applied.tls = match (self.starttls, settings.tls) {
+            (false, _) => TlsPolicy::Off,
+            // Ticked: STARTTLS when offered, or still required when the file said so.
+            (true, TlsPolicy::Off) => TlsPolicy::Opportunistic,
+            (true, kept) => kept,
+        };
+        if !self.smtp {
+            applied.route = SendRoute::Direct;
+            return Ok(applied);
+        }
+        let host = self.host.trim();
+        if host.is_empty() || host.contains(char::is_whitespace) {
+            return Err(String::from("Enter the SMTP server's name, e.g. smtp.example.org."));
+        }
+        let port = match self.port.trim() {
+            "" => SUBMISSION_PORT,
+            text => match text.parse::<u16>() {
+                Ok(port) if port > 0 => port,
+                _ => return Err(String::from("The port is a number from 1 to 65535.")),
+            },
+        };
+        applied.route = SendRoute::Smtp {
+            host: host.to_string(),
+            port,
+        };
+        Ok(applied)
     }
 }
 
