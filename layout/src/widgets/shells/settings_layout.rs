@@ -512,14 +512,18 @@ fn hook(event: EventFilter, cb: usize, refany: RefAny) -> CoreCallbackData {
 }
 
 /// One category: a tab of the list.
+#[allow(clippy::too_many_arguments)]
 fn category(
     label: AzString,
     index: usize,
     stop: usize,
     active: bool,
     on_category: &OptionShellSettingsLayoutOnCategory,
+    extras: (AzString, AzString, Option<UiTheme>),
     look: &ShellLook,
+    kit: &crate::widgets::dialog_kit::DialogKitLook,
 ) -> Dom {
+    let (icon, badge, inner) = extras;
     let base = part(ITEM_BASE, &look.settings_category);
     let css = if active {
         stack_state(&base, &look.settings_category_active)
@@ -557,7 +561,31 @@ fn category(
             ]
             .into(),
         )
-        .with_child(text(label).with_css_props(part(GROW_LABEL_BASE, &[])))
+        .with_children(DomVec::from_vec({
+            let mut row: Vec<Dom> = Vec::with_capacity(3);
+            if !icon.as_str().is_empty() {
+                row.push(
+                    Dom::create_icon(icon)
+                        .with_class(AzString::from_const_str(CATEGORY_ICON_CLASS))
+                        .with_css_props(part(LABEL_BASE, &kit.category_icon)),
+                );
+            }
+            row.push(text(label).with_css_props(part(GROW_LABEL_BASE, &[])));
+            if !badge.as_str().is_empty() {
+                let mut b = crate::widgets::badge::Badge::create(badge)
+                    .with_badge_kind(crate::widgets::badge::BadgeKind::Primary);
+                if let Some(t) = inner {
+                    b = b.with_theme(t);
+                }
+                row.push(
+                    Dom::create_div()
+                        .with_class(AzString::from_const_str(CATEGORY_BADGE_CLASS))
+                        .with_css_props(part(LABEL_BASE, &[]))
+                        .with_child(b.dom()),
+                );
+            }
+            row
+        }))
 }
 
 /// The layout's DOM in `look`: root [search row, body [nav categories,
@@ -576,9 +604,8 @@ pub(crate) fn build(layout: ShellSettingsLayout, look: &ShellLook) -> Dom {
         active_category,
         theme,
     } = layout;
-    // RED: icons, badges, the footer and the keywords are not built yet.
-    let _ = (category_icons, category_badges, footer);
     let inner = inner_theme(theme);
+    let kit = crate::widgets::dialog_kit::look_for(theme);
 
     let mut field = TextInput::create_search()
         .with_text(search.clone())
@@ -598,10 +625,27 @@ pub(crate) fn build(layout: ShellSettingsLayout, look: &ShellLook) -> Dom {
 
     let labels = categories.into_library_owned_vec();
     let stop = roving::stop_index(Some(active_category), labels.len());
+    let nth = |v: &StringVec, i: usize| {
+        v.as_ref()
+            .get(i)
+            .cloned()
+            .unwrap_or_else(|| AzString::from_const_str(""))
+    };
     let tabs: Vec<Dom> = labels
         .into_iter()
         .enumerate()
-        .map(|(i, l)| category(l, i, stop, i == active_category, &on_category, look))
+        .map(|(i, l)| {
+            category(
+                l,
+                i,
+                stop,
+                i == active_category,
+                &on_category,
+                (nth(&category_icons, i), nth(&category_badges, i), inner),
+                look,
+                &kit,
+            )
+        })
         .collect();
     let nav = Dom::create_node(NodeType::Nav)
         .with_class(AzString::from_const_str(CATEGORIES_CLASS))
@@ -616,7 +660,11 @@ pub(crate) fn build(layout: ShellSettingsLayout, look: &ShellLook) -> Dom {
     let shown: Vec<Dom> = sections
         .into_library_owned_vec()
         .into_iter()
-        .filter(|s| query.is_empty() || palette_matches(query, s.title.as_str()))
+        .filter(|s| {
+            query.is_empty()
+                || palette_matches(query, s.title.as_str())
+                || crate::widgets::dialog_kit::contains_ignore_case(s.keywords.as_str(), query)
+        })
         .map(|s| {
             Dom::create_node(NodeType::Section)
                 .with_class(AzString::from_const_str(SECTION_CLASS))
@@ -640,10 +688,19 @@ pub(crate) fn build(layout: ShellSettingsLayout, look: &ShellLook) -> Dom {
         .with_css_props(part(GROW_ROW_BASE, &[]))
         .with_children(DomVec::from_vec(alloc::vec![nav, main]));
 
+    let mut rows = alloc::vec![search_row, body];
+    if let Some(footer) = footer.into_option() {
+        rows.push(
+            Dom::create_div()
+                .with_class(AzString::from_const_str(FOOTER_CLASS))
+                .with_css_props(part(CHROME_ROW_BASE, &[]))
+                .with_child(footer),
+        );
+    }
     Dom::create_div()
         .with_ids_and_classes(root_classes(SETTINGS_CLASS, look))
         .with_css_props(part(FILL_COLUMN_BASE, &look.settings_root))
-        .with_children(DomVec::from_vec(alloc::vec![search_row, body]))
+        .with_children(DomVec::from_vec(rows))
 }
 
 #[cfg(test)]
