@@ -470,3 +470,273 @@ fn tools_column(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     );
     col
 }
+
+// ==== Panels ====
+
+fn section(title: &str, id: &str, p: &Palette, body: Dom) -> Dom {
+    column(&format!("border-bottom: 1px solid {}; padding: 6px 8px; flex-shrink: 0;", p.line))
+        .with_id(id)
+        .with_child(text(
+            title,
+            &format!("font-size: 11px; font-weight: bold; color: {}; margin-bottom: 4px;", p.muted),
+        ))
+        .with_child(body)
+}
+
+fn navigator_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
+    let thumb = view::thumbnail(a.s.engine.composite(), 220, 130, a.s.colors);
+    let mut body = column("align-items: center;");
+    if let Some(image) = crate::codec::view_image(thumb.width, thumb.height, &thumb.bgra) {
+        body.add_child(
+            Dom::create_image(image)
+                .with_id("photo-navigator-image")
+                .with_css(format!("width: {}px; height: {}px; margin-bottom: 4px;", thumb.width, thumb.height)),
+        );
+    }
+    body.add_child(
+        row("")
+            .with_child(icon_button(app, "zoom_out", "Zoom out", Command::ZoomOut))
+            .with_child(
+                NumberInput::create((a.s.view.zoom * 100.0 * 10.0).round() / 10.0)
+                    .with_accessibility_name(AzString::from("Zoom %"))
+                    .with_on_value_change(field(app, Field::ZoomPercent), commands::on_number as NumberInputOnValueChangeCallbackType)
+                    .dom()
+                    .with_id("photo-zoom-input")
+                    .with_css("width: 70px;"),
+            )
+            .with_child(icon_button(app, "zoom_in", "Zoom in", Command::ZoomIn))
+            .with_child(button(app, "Fit", Command::Fit)),
+    );
+    section("NAVIGATOR", "panel-navigator", p, body)
+}
+
+fn color_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
+    let color = |c: [u8; 4]| ColorU {
+        r: c[0],
+        g: c[1],
+        b: c[2],
+        a: c[3],
+    };
+    let mut swatches = row("flex-wrap: wrap; margin-top: 6px;");
+    for (i, c) in a.s.swatches.iter().enumerate() {
+        swatches.add_child(
+            Dom::create_div()
+                .with_id(format!("swatch-{i}"))
+                .with_css(format!(
+                    "width: 18px; height: 18px; margin: 0px 3px 3px 0px; background: {}; border: 1px solid {};",
+                    hex(*c),
+                    p.line
+                ))
+                .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), cmd(app, Command::Swatch(i)), commands::on_command),
+        );
+    }
+    let body = column("")
+        .with_child(
+            row("")
+                .with_child(
+                    ColorInput::create(color(a.s.fg))
+                        .with_accessibility_name(AzString::from("Foreground colour"))
+                        .with_on_value_change(field(app, Field::FgColor), commands::on_color as ColorInputOnValueChangeCallbackType)
+                        .dom(),
+                )
+                .with_child(text(&format!("Foreground {}", hex(a.s.fg)), &format!("font-size: 12px; color: {}; margin: 0px 8px;", p.text)))
+                .with_child(
+                    ColorInput::create(color(a.s.bg))
+                        .with_accessibility_name(AzString::from("Background colour"))
+                        .with_on_value_change(field(app, Field::BgColor), commands::on_color as ColorInputOnValueChangeCallbackType)
+                        .dom(),
+                )
+                .with_child(text("Background", &format!("font-size: 12px; color: {}; margin-left: 8px;", p.text))),
+        )
+        .with_child(
+            row("margin-top: 4px;")
+                .with_child(icon_button(app, "swap_horiz", "Swap colours (X)", Command::SwapColors))
+                .with_child(button(app, "Default", Command::DefaultColors)),
+        )
+        .with_child(swatches);
+    section("COLOR", "panel-color", p, body)
+}
+
+fn layer_icon(content: &LayerContent) -> &'static str {
+    match content {
+        LayerContent::Raster(_) => "image",
+        LayerContent::Adjustment(_) => "tune",
+        LayerContent::Group(_) => "folder",
+    }
+}
+
+fn layers_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
+    let doc = a.s.engine.document();
+    let active = a.s.engine.active_layer();
+    let active_layer = active.and_then(|id| doc.layer(id));
+    let blend_names: Vec<&str> = BlendMode::ALL.iter().map(|m| m.name()).collect();
+    let mut body = column("");
+    if let Some(l) = active_layer {
+        body.add_child(
+            row("margin-bottom: 4px;")
+                .with_child(
+                    DropDown::create(strings(&blend_names))
+                        .with_selected(l.blend.index())
+                        .with_accessibility_name(AzString::from("Blend mode"))
+                        .with_on_choice_change(field(app, Field::LayerBlend), commands::on_choice as DropDownOnChoiceChangeCallbackType)
+                        .dom()
+                        .with_id("layer-blend")
+                        .with_css("margin-right: 8px;"),
+                )
+                .with_child(text("Opacity", &format!("font-size: 12px; color: {}; margin-right: 4px;", p.muted)))
+                .with_child(
+                    NumberInput::create((l.opacity * 100.0).round())
+                        .with_accessibility_name(AzString::from("Layer opacity %"))
+                        .with_on_value_change(field(app, Field::LayerOpacity), commands::on_number as NumberInputOnValueChangeCallbackType)
+                        .dom()
+                        .with_id("layer-opacity-input")
+                        .with_css("width: 52px;"),
+                ),
+        );
+        body.add_child(
+            Slider::create((l.opacity * 100.0).round(), 0.0, 100.0)
+                .with_accessibility_name(AzString::from("Layer opacity"))
+                .with_on_value_change(field(app, Field::LayerOpacity), commands::on_slider as SliderOnValueChangeCallbackType)
+                .dom()
+                .with_id("layer-opacity")
+                .with_css("margin-bottom: 6px;"),
+        );
+    }
+    let mut list = column(&format!("border: 1px solid {}; min-height: 60px;", p.line)).with_id("layer-list");
+    for (depth, id) in layer::rows(&doc.layers) {
+        let Some(l) = doc.layer(id) else {
+            continue;
+        };
+        let selected = Some(id) == active;
+        let mut r = row(&format!(
+            "padding: 3px 4px 3px {}px; border-bottom: 1px solid {}; {}",
+            4 + depth * 14,
+            p.line,
+            if selected { format!("background: {};", p.selected) } else { String::new() }
+        ))
+        .with_id(format!("layer-row-{id}"))
+        .with_callback(EventFilter::Hover(HoverEventFilter::MouseDown), cmd(app, Command::LayerPress(id)), commands::on_command)
+        .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), cmd(app, Command::LayerRelease(id)), commands::on_command)
+        .with_child(icon_button(
+            app,
+            if l.visible { "visibility" } else { "visibility_off" },
+            "Show or hide",
+            Command::ToggleVisible(id),
+        ))
+        .with_child(icon_button(
+            app,
+            if l.locked { "lock" } else { "lock_open" },
+            "Lock or unlock",
+            Command::ToggleLock(id),
+        ));
+        if matches!(l.content, LayerContent::Group(_)) {
+            r.add_child(icon_button(
+                app,
+                if l.expanded { "expand_more" } else { "chevron_right" },
+                "Open or close the group",
+                Command::ToggleExpanded(id),
+            ));
+        }
+        r.add_child(Dom::create_icon(AzString::from(layer_icon(&l.content))).with_css("font-size: 16px; margin: 0px 6px;"));
+        r.add_child(text(&l.name, &format!("font-size: 13px; color: {}; flex-grow: 1;", p.text)));
+        if l.opacity < 0.999 || l.blend != BlendMode::Normal {
+            r.add_child(text(
+                &format!("{} {} %", l.blend.name(), (l.opacity * 100.0).round()),
+                &format!("font-size: 11px; color: {};", p.muted),
+            ));
+        }
+        list.add_child(r);
+    }
+    body.add_child(list);
+    body.add_child(
+        row("margin-top: 4px; flex-wrap: wrap;")
+            .with_child(icon_button(app, "add", "New layer", Command::NewLayer).with_id("layer-new"))
+            .with_child(icon_button(app, "create_new_folder", "New group", Command::NewGroup).with_id("layer-new-group"))
+            .with_child(icon_button(app, "control_point_duplicate", "Duplicate layer", Command::Duplicate).with_id("layer-duplicate"))
+            .with_child(icon_button(app, "merge_type", "Merge down", Command::MergeDown).with_id("layer-merge"))
+            .with_child(icon_button(app, "arrow_upward", "Move up", Command::LayerUp).with_id("layer-up"))
+            .with_child(icon_button(app, "arrow_downward", "Move down", Command::LayerDown).with_id("layer-down"))
+            .with_child(icon_button(app, "delete", "Delete layer", Command::Delete).with_id("layer-delete")),
+    );
+    section("LAYERS", "panel-layers", p, body)
+}
+
+fn adjustments_panel(app: &RefAny, p: &Palette) -> Dom {
+    let mut body = row("flex-wrap: wrap;");
+    for (i, a) in Adjustment::catalog().iter().enumerate() {
+        body.add_child(button(app, a.name(), Command::NewAdjustment(i)).with_id(format!("adjust-{i}")).with_css("margin: 0px 4px 4px 0px;"));
+    }
+    section("ADJUSTMENTS", "panel-adjustments", p, body)
+}
+
+fn properties_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
+    let doc = a.s.engine.document();
+    let mut body = column("");
+    let small = format!("font-size: 12px; color: {};", p.text);
+    match a.s.engine.active_layer().and_then(|id| doc.layer(id)) {
+        None => body.add_child(text("No layer selected.", &small)),
+        Some(l) => {
+            body.add_child(text(&format!("{} - {}", l.name, l.kind_name()), &small));
+            match &l.content {
+                LayerContent::Raster(g) => body.add_child(text(
+                    &format!("{} x {} px, {} of {} tiles hold pixels", g.width(), g.height(), g.non_empty_tiles().len(), g.cols() * g.rows()),
+                    &format!("font-size: 11px; color: {};", p.muted),
+                )),
+                LayerContent::Group(children) => {
+                    body.add_child(text(&format!("{} layers", children.len()), &format!("font-size: 11px; color: {};", p.muted)));
+                }
+                LayerContent::Adjustment(adj) => {
+                    let params = commands::adjustment_params(adj);
+                    if params.is_empty() {
+                        body.add_child(text("No settings.", &format!("font-size: 11px; color: {};", p.muted)));
+                    }
+                    for (n, (label, v, min, max)) in params.into_iter().enumerate() {
+                        let label = if label == "Point" { format!("Point {}", n + 1) } else { label.to_string() };
+                        body.add_child(slider(app, &label, v, min, max, Field::Adjust(n as u8), p));
+                    }
+                }
+            }
+        }
+    }
+    if let Some(label) = commands::selection_label(a) {
+        body.add_child(text(&label, &format!("font-size: 11px; color: {}; margin-top: 4px;", p.muted)));
+    }
+    section("PROPERTIES", "panel-properties", p, body)
+}
+
+fn history_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
+    let (labels, current) = a.s.engine.history();
+    let mut list = column("").with_id("history-list");
+    for (i, label) in labels.iter().enumerate() {
+        let css = format!(
+            "font-size: 12px; padding: 2px 6px; color: {}; {}",
+            if i > current { p.muted } else { p.text },
+            if i == current { format!("background: {};", p.selected) } else { String::new() }
+        );
+        list.add_child(
+            text(label, &css)
+                .with_id(format!("history-{i}"))
+                .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), cmd(app, Command::HistoryJump(i)), commands::on_command),
+        );
+    }
+    let body = column("")
+        .with_child(list)
+        .with_child(
+            row("margin-top: 4px;")
+                .with_child(icon_button(app, "undo", "Undo", Command::Undo).with_id("history-undo"))
+                .with_child(icon_button(app, "redo", "Redo", Command::Redo).with_id("history-redo")),
+        );
+    section("HISTORY", "panel-history", p, body)
+}
+
+/// The panels column (scrolls when it is taller than the window).
+fn panels(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
+    column(&format!("background: {}; overflow-y: auto; min-height: 0px; flex-grow: 1;", p.panel))
+        .with_id("photo-panels")
+        .with_child(navigator_panel(app, a, p))
+        .with_child(color_panel(app, a, p))
+        .with_child(layers_panel(app, a, p))
+        .with_child(properties_panel(app, a, p))
+        .with_child(adjustments_panel(app, p))
+        .with_child(history_panel(app, a, p))
+}
