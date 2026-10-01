@@ -941,12 +941,24 @@ fn main() -> anyhow::Result<()> {
             // Or with wildcard: autofix add Dom.*
             // Also automatically adds the type if it's not in api.json yet
 
-            // Clear the patches folder to avoid stale patches
+            // The folder is NOT cleared here: `autofix add` is run once per
+            // type or method and `apply` once at the end, so each add's
+            // patches must survive the next add. (Clearing it kept exactly one
+            // of twenty-one adds on 2026-09-30.) Only the scan (`autofix`)
+            // starts from an empty folder; this command overwrites its own
+            // files (`add_<type>_*.patch.json`) and leaves the others.
             let patches_dir = project_root.join("target").join("autofix").join("patches");
-            if patches_dir.exists() {
-                let _ = fs::remove_dir_all(&patches_dir);
-            }
             fs::create_dir_all(&patches_dir)?;
+            let pending = fs::read_dir(&patches_dir)
+                .map(|d| d.filter_map(|e| e.ok()).count())
+                .unwrap_or(0);
+            if pending > 0 {
+                println!(
+                    "[ADD] {} patch file(s) already in {} are kept; `autofix apply` applies them all",
+                    pending,
+                    patches_dir.display()
+                );
+            }
 
             let api_data = load_api_json(&api_path)?;
             let index = autofix::type_index::TypeIndex::build(&project_root, false)?;

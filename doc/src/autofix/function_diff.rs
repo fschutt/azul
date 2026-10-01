@@ -118,11 +118,13 @@ pub fn compare_type_functions(
     let version_data = api_data.get_version(version)?;
     let api_class = find_api_class(&type_def.type_name, version_data)?;
 
-    // Get source methods (only public ones)
+    // Get source methods: public, and not a standard trait's impl (`default`,
+    // `clone`, `drop`, ... are derives / custom_impls in api.json, never
+    // functions - listing them as "missing" sent people adding them by hand).
     let source_methods: BTreeMap<String, &MethodDef> = type_def
         .methods
         .iter()
-        .filter(|m| m.is_public)
+        .filter(|m| m.is_public && !m.is_std_trait_impl())
         .map(|m| (m.name.clone(), m))
         .collect();
 
@@ -1166,7 +1168,7 @@ fn get_callback_typedef_info(
 /// caller falls back to keyword-based `determine_module`. The keyword router
 /// mis-files widget structs/states (Switch -> misc, SwitchStateWrapper -> css,
 /// …) because it never sees the source path; this restores it from full_path.
-fn widget_module_for(type_name: &str, full_path: &str) -> Option<String> {
+pub(crate) fn widget_module_for(type_name: &str, full_path: &str) -> Option<String> {
     if !full_path.starts_with("azul_layout::widgets::") {
         return None;
     }
@@ -1418,12 +1420,41 @@ pub fn generate_add_type_patches(
             .resolve(type_name, None)
             .ok_or_else(|| format!("Type '{}' not found", type_name))?;
 
+        // A standard trait's impl method (`impl Default for T`) is not an API
+        // function: it becomes a `custom_impls` entry below, and the codegen
+        // makes `T_default` from that. Exporting it as a constructor named
+        // `default` is what the FFI check rejects.
         let methods: Vec<_> = type_def
             .methods
             .iter()
-            .filter(|m| m.is_public)
+            .filter(|m| m.is_public && !m.is_std_trait_impl())
             .filter(|m| spec == "*" || m.name == spec)
             .collect();
+        let mut std_impls: Vec<String> = type_def
+            .methods
+            .iter()
+            .filter(|m| m.is_std_trait_impl())
+            .filter_map(|m| m.from_trait.clone())
+            .collect();
+        std_impls.sort();
+        std_impls.dedup();
+        if spec == "*" && !std_impls.is_empty() {
+            let mut impl_patch = AutofixPatch::new(format!(
+                "Custom impls of {}: {}",
+                type_name,
+                std_impls.join(", ")
+            ));
+            impl_patch.add_operation(PatchOperation::Modify(
+                crate::autofix::patch_format::ModifyOperation {
+                    type_name: type_name.to_string(),
+                    module: Some(result.primary_module.clone()),
+                    changes: vec![crate::autofix::patch_format::ModifyChange::AddCustomImpls {
+                        impls: std_impls,
+                    }],
+                },
+            ));
+            patches.push(impl_patch);
+        }
 
         if !methods.is_empty() {
             // Collect types from method signatures

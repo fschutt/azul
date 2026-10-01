@@ -64,9 +64,32 @@ pub struct MethodDef {
     pub doc: Vec<String>,
     /// Is this method public
     pub is_public: bool,
+    /// The trait this method implements (`impl Default for T` -> `Default`),
+    /// `None` for an inherent method. A standard trait's method is not an API
+    /// function: api.json carries it as a derive or a custom impl.
+    pub from_trait: Option<String>,
 }
 
+/// The traits whose impl methods api.json never lists as functions: a
+/// derived one is a `derive`, a hand-written one a `custom_impls` entry, and
+/// the codegen makes `T_default`, `T_clone`, ... from those.
+const STD_TRAITS: &[&str] = &[
+    "Default", "Clone", "Copy", "Drop", "Debug", "Display", "PartialEq", "Eq", "PartialOrd",
+    "Ord", "Hash", "From", "Into", "TryFrom", "TryInto", "AsRef", "AsMut", "Deref", "DerefMut",
+    "Iterator", "IntoIterator", "FromIterator", "Extend", "Send", "Sync",
+];
+
 impl MethodDef {
+    /// Whether this is a standard trait's impl method (`default`, `clone`,
+    /// `drop`, `fmt`, `eq`, ...): never an API function, never "missing from
+    /// api.json". A wrapper trait that exposes free functions stays a
+    /// candidate.
+    pub fn is_std_trait_impl(&self) -> bool {
+        self.from_trait
+            .as_deref()
+            .is_some_and(|t| STD_TRAITS.contains(&t))
+    }
+
     /// The signature as the console shows it: the receiver, every argument
     /// with its reference kind, the return type -
     /// `(&mut self, host: DomNodeId, format: &TextFormat) -> ()`. The
@@ -1304,6 +1327,13 @@ fn extract_trait_impl_methods_from_items(items: &[Item]) -> BTreeMap<String, Vec
                 continue;
             }
 
+            // The trait's name, so a standard trait's methods (`default`,
+            // `clone`, `drop`, ...) are known for what they are.
+            let trait_name = impl_item
+                .trait_
+                .as_ref()
+                .and_then(|(_, path, _)| path.segments.last().map(|s| s.ident.to_string()));
+
             // Extract methods from this impl block
             // Trait impl methods are always public (via the trait)
             for impl_item_fn in &impl_item.items {
@@ -1311,6 +1341,7 @@ fn extract_trait_impl_methods_from_items(items: &[Item]) -> BTreeMap<String, Vec
                     if let Some(mut method_def) = extract_method_def(method, &type_name) {
                         // Trait impl methods are implicitly public
                         method_def.is_public = true;
+                        method_def.from_trait = trait_name.clone();
                         methods_map
                             .entry(type_name.clone())
                             .or_default()
@@ -3418,6 +3449,7 @@ pub(super) fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> O
         is_constructor,
         doc,
         is_public,
+        from_trait: None,
     })
 }
 
@@ -3498,6 +3530,7 @@ mod tests {
             is_constructor: false,
             doc: Vec::new(),
             is_public: true,
+            from_trait: None,
         };
         assert_eq!(
             m.signature(),
@@ -3512,6 +3545,7 @@ mod tests {
             is_constructor: true,
             doc: Vec::new(),
             is_public: true,
+            from_trait: None,
         };
         assert_eq!(ctor.signature(), "() -> Tile");
     }
@@ -3549,10 +3583,14 @@ mod tests {
             impl Default for Tile { fn default() -> Self { Tile { title: String::new() } } }
             impl Clone for Tile { fn clone(&self) -> Self { Tile { title: self.title.clone() } } }
         "#;
-        let types = extract_types_from_source(source);
-        let tile = types.iter().find(|t| t.name == "Tile").expect("Tile");
-        let from: Vec<(String, Option<String>)> = tile
-            .methods
+        let syntax_tree: File = syn::parse_file(source).expect("Failed to parse");
+        let mut methods = extract_inherent_methods_from_items(&syntax_tree.items);
+        for (ty, trait_methods) in extract_trait_impl_methods_from_items(&syntax_tree.items) {
+            methods.entry(ty).or_default().extend(trait_methods);
+        }
+        let from: Vec<(String, Option<String>)> = methods
+            .get("Tile")
+            .expect("Tile")
             .iter()
             .map(|m| (m.name.clone(), m.from_trait.clone()))
             .collect();

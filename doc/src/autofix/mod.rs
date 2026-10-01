@@ -1231,8 +1231,11 @@ fn generate_addition_patch(addition: &diff::TypeAddition) -> String {
     patch.add_operation(PatchOperation::Add(AddOperation {
         type_name: addition.type_name.clone(),
         external: addition.full_path.clone(),
+        // A type under `widgets::` belongs to the widgets module; without
+        // this the apply side guessed from the name and put AccordionVariant
+        // in `dom` (2026-10-01). Everything else keeps the name-based choice.
+        module: function_diff::widget_module_for(&addition.type_name, &addition.full_path),
         kind,
-        module: None,
         derives,
         repr_c: Some(true), // All API types should have repr(C)
         struct_fields,
@@ -5098,4 +5101,43 @@ pub fn check_enum_variant_method_collisions(api_data: &ApiData) -> Vec<FfiSafety
     }
 
     warnings
+}
+
+#[cfg(test)]
+mod addition_patch_module_tests {
+    use super::{diff::TypeAddition, generate_addition_patch};
+
+    fn addition(type_name: &str, full_path: &str) -> TypeAddition {
+        TypeAddition {
+            type_name: type_name.to_string(),
+            full_path: full_path.to_string(),
+            kind: "enum".to_string(),
+            struct_fields: None,
+            enum_variants: Some(vec![("Default".to_string(), None, crate::api::RefKind::Value)]),
+            derives: vec![],
+            callback_typedef: None,
+        }
+    }
+
+    /// A scanned widget type carries its module in the patch so the apply
+    /// side does not guess from the name (AccordionVariant went to `dom`).
+    #[test]
+    fn a_scanned_widget_type_is_placed_in_the_widgets_module() {
+        let json = generate_addition_patch(&addition(
+            "AccordionVariant",
+            "azul_layout::widgets::accordion::AccordionVariant",
+        ));
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let op = &v["operations"][0];
+        assert_eq!(op["module"], "widgets", "{json}");
+    }
+
+    /// A non-widget type keeps the name-based placement (no module in the patch).
+    #[test]
+    fn a_scanned_core_type_leaves_the_module_to_the_name_heuristic() {
+        let json = generate_addition_patch(&addition("TextFormat", "azul_core::dom::TextFormat"));
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let op = &v["operations"][0];
+        assert!(op.get("module").map_or(true, |m| m.is_null()), "{json}");
+    }
 }
