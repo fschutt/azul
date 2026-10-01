@@ -6,10 +6,17 @@ Brief: scratchpad `TABLE_A_go.md` (widths, row groups, presentational attributes
 ## DONE
 - 6e3e48548 progress file
 - e719d122e RED: layout tests (5 files + common/table_markup.rs) + core/tests/xml_attributes.rs
+- (next commit) table_width.rs: ColumnConstraint, specified_width, clamp_percentages, table_min_max,
+  distribute_to_columns (+unit tests), registered in solver3/mod.rs
 - bc6361f65 FIX item 3: presentational attributes (attribute table keeps them, StyledDom creation maps them), UA table defaults
 
 ## IN PROGRESS
-- FIX items 1/4/5 (table width, column distribution, nested tables)
+- FIX items 1/4/5. Next step: (a) fc.rs `resolve_table_border_spacing` helper replacing the two
+  twin resolution blocks; (b) sizing.rs calculate_table_intrinsic_sizes via table_width (cell warm
+  intrinsic, spacing, caption, col widths) + TableCell exempt from px override + Table keeps MIN;
+  (c) calculate_used_size_for_node: auto table = clamp(MIN, avail, MAX), floor at MIN;
+  (d) fc.rs layout_table_fc content width from used_size, assignable minus spacing, Step 2 via
+  distribute_to_columns with percent/fixed from cells and cols.
 
 ## NEXT
 1. RED: layout tests (width cap, row groups, attributes, percent columns, nested tables) + core test
