@@ -43,15 +43,18 @@ report section 2 (A's structure and table_width kept, my logic ported, twins fol
   spacing), `6df89fe9b` (spacing off before distribution, `cell_span_width`), `960298cfc`
   (sizing.rs table intrinsic on the shared grid + spacing), `d7235edda` (empty-cells: hide).
 
-## IN PROGRESS (last commit d7235edda)
-- next: RED for row heights - new test file `layout/tests/a_rows_height_is_its_tallest_cell_or_its_own_height.rs`
-  (tr height, td height px incl. a text cell, box-sizing border-box td, table height spread over
-  rows, baseline alignment of block content) + WPT lines collapsing-border-model-003/009,
-  height-table-cell-001, table-vertical-align-baseline-001..004 out of the expectations.
+- `572733e5f` RED row heights (7 WPT lines out) / GREEN `36b59205f` (baseline through blocks),
+  `da2c0a9bc` (row/cell specified heights, baseline row growth), `b62b4bf22` (table height -> rows).
+
+## IN PROGRESS (last commit b62b4bf22)
+- next: RED for fixed layout - `layout/tests/a_fixed_table_takes_its_column_widths_from_its_first_row.rs`
+  (fixed only with a non-auto width; `col` widths; first-row cell px/% widths include padding and
+  border; auto columns share the rest; cells as wide as their column even with more padding) +
+  WPT fixed-table-layout-025/026/027 out. Then GREEN in `calculate_column_widths_fixed` and
+  `layout_table_fc` (`use_fixed_layout` needs a non-auto width), `col` widths in auto layout
+  (step 1, CSS 2.2 17.5.2.2 step 2), `layout_cell_for_height` content width clamped at 0.
 
 ## NEXT
-- Row heights: `tr` height, `td` height (box-sizing, IFC branch too), table height spread over
-  rows, `vertical-align: baseline` across a row (block content too). WPT: collapsing-border-model-003/009.
 - `table-layout: fixed`: only with a non-auto width; `col` widths; percentages; padding/border in
   the column width. WPT: fixed-table-layout-025..027.
 - Spans: single-span first, then by span; spread by max-content; rowspan heights incl. spacing.
