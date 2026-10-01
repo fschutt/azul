@@ -247,3 +247,709 @@ pub trait RasterEngine {
     /// Start over with `doc` (open, new): a fresh History.
     fn replace_document(&mut self, doc: Document, label: &str);
 }
+
+/// The CPU tile store: the document, its composite, the History, the stroke
+/// in progress.
+pub struct TileEngine {
+    doc: Document,
+    active: Option<LayerId>,
+    composite: Composite,
+    history: History,
+    stroke: Option<Stroke>,
+    /// Composited by the engine itself (an export, a merged sample) but not
+    /// handed to the canvas yet.
+    pending: IRect,
+}
+
+/// The topmost layer of the document.
+fn top_layer(layers: &[Layer]) -> Option<LayerId> {
+    layers.last().map(|l| l.id)
+}
+
+/// Apply `f` to every pixel layer of the tree (canvas-wide edits).
+fn map_rasters(layers: &mut [Layer], f: &dyn Fn(&TileGrid) -> TileGrid) {
+    for l in layers {
+        match &mut l.content {
+            LayerContent::Raster(g) => *g = f(g),
+            LayerContent::Group(children) => map_rasters(children, f),
+            LayerContent::Adjustment(_) => {}
+        }
+    }
+}
+
+/// New ids for a layer and its subtree (a duplicate).
+fn fresh_ids(l: &mut Layer, next: &mut LayerId) {
+    l.id = *next;
+    *next += 1;
+    if let LayerContent::Group(children) = &mut l.content {
+        for c in children {
+            fresh_ids(c, next);
+        }
+    }
+}
+
+/// The tiles in which two grids differ (by tile identity).
+fn changed_tiles(a: &TileGrid, b: &TileGrid) -> Option<IRect> {
+    if (a.width(), a.height()) != (b.width(), b.height()) {
+        return None;
+    }
+    let mut out = IRect::default();
+    for ty in 0..a.rows() {
+        for tx in 0..a.cols() {
+            let same = match (a.tile(tx, ty), b.tile(tx, ty)) {
+                (None, None) => true,
+                (Some(x), Some(y)) => Arc::ptr_eq(x, y),
+                _ => false,
+            };
+            if !same {
+                out = out.union(&a.tile_rect(tx, ty));
+            }
+        }
+    }
+    Some(out)
+}
+
+/// What differs between two states of a document: the rect of the changed
+/// tiles when only pixels changed, `None` (everything) when the layers or
+/// their settings did.
+fn changed_between(a: &Document, b: &Document) -> Option<IRect> {
+    fn walk(x: &[Layer], y: &[Layer], acc: &mut IRect) -> bool {
+        if x.len() != y.len() {
+            return false;
+        }
+        for (l, m) in x.iter().zip(y) {
+            if l.id != m.id || l.visible != m.visible || l.opacity != m.opacity || l.blend != m.blend {
+                return false;
+            }
+            match (&l.content, &m.content) {
+                (LayerContent::Raster(g), LayerContent::Raster(h)) => match changed_tiles(g, h) {
+                    Some(r) => *acc = acc.union(&r),
+                    None => return false,
+                },
+                (LayerContent::Adjustment(p), LayerContent::Adjustment(q)) => {
+                    if p != q {
+                        return false;
+                    }
+                }
+                (LayerContent::Group(c), LayerContent::Group(d)) => {
+                    if !walk(c, d, acc) {
+                        return false;
+                    }
+                }
+                _ => return false,
+            }
+        }
+        true
+    }
+    if (a.width, a.height) != (b.width, b.height) {
+        return None;
+    }
+    let mut acc = IRect::default();
+    walk(&a.layers, &b.layers, &mut acc).then_some(acc)
+}
+
+/// `color` painted over `grid` with the mask's coverage.
+fn paint_mask(grid: &TileGrid, mask: &Mask, color: [u8; 4]) -> TileGrid {
+    let mut out = grid.clone();
+    let Some(r) = mask.bounds() else {
+        return out;
+    };
+    let mut px = out.read_rect(r);
+    for y in 0..r.h {
+        for x in 0..r.w {
+            let c = mask.coverage((r.x + x) as u32, (r.y + y) as u32);
+            if c <= 0.0 {
+                continue;
+            }
+            let i = ((y * r.w + x) * 4) as usize;
+            let under = [px[i], px[i + 1], px[i + 2], px[i + 3]];
+            px[i..i + 4].copy_from_slice(&blend::paint_over(under, color, c));
+        }
+    }
+    out.write_rect(r, &px);
+    out.prune();
+    out
+}
+
+/// `grid` with the mask's coverage erased.
+fn erase_mask(grid: &TileGrid, mask: &Mask) -> TileGrid {
+    let mut out = grid.clone();
+    let Some(r) = mask.bounds() else {
+        return out;
+    };
+    let mut px = out.read_rect(r);
+    for y in 0..r.h {
+        for x in 0..r.w {
+            let c = mask.coverage((r.x + x) as u32, (r.y + y) as u32);
+            let i = ((y * r.w + x) * 4) as usize;
+            let a = (f32::from(px[i + 3]) * (1.0 - c)).round() as u8;
+            px[i + 3] = a;
+            if a == 0 {
+                px[i..i + 3].fill(0);
+            }
+        }
+    }
+    out.write_rect(r, &px);
+    out.prune();
+    out
+}
+
+impl TileEngine {
+    /// An engine over `doc`; its History starts with "Open".
+    #[must_use]
+    pub fn new(doc: Document) -> Self {
+        Self::with_label(doc, "Open")
+    }
+
+    /// An engine over `doc` whose first History state is `label`.
+    #[must_use]
+    pub fn with_label(doc: Document, label: &str) -> Self {
+        Self {
+            active: top_layer(&doc.layers),
+            composite: Composite::new(doc.width, doc.height),
+            history: History::new(label, doc.clone()),
+            doc,
+            stroke: None,
+            pending: IRect::default(),
+        }
+    }
+
+    /// The active layer, when it takes pixel edits.
+    fn raster_target(&self) -> Result<LayerId, EngineError> {
+        let id = self.active.ok_or(EngineError::NoActiveLayer)?;
+        let l = self.doc.layer(id).ok_or(EngineError::NoSuchLayer)?;
+        if l.locked {
+            return Err(EngineError::Locked);
+        }
+        if l.grid().is_none() {
+            return Err(EngineError::NotRaster);
+        }
+        Ok(id)
+    }
+
+    /// Replace the active layer's pixels with `f(pixels, selection)`.
+    fn edit_raster(&mut self, f: impl FnOnce(&TileGrid, Option<&Mask>) -> TileGrid) -> Result<bool, EngineError> {
+        let id = self.raster_target()?;
+        let selection = self.doc.selection.clone();
+        let grid = layer::find_mut(&mut self.doc.layers, id)
+            .and_then(Layer::grid_mut)
+            .ok_or(EngineError::NotRaster)?;
+        let new = f(grid, selection.as_deref());
+        let dirty = changed_tiles(grid, &new);
+        *grid = new;
+        self.mark(dirty);
+        Ok(true)
+    }
+
+    /// The composite must be redone in `dirty` (`None`: everywhere).
+    fn mark(&mut self, dirty: Option<IRect>) {
+        match dirty {
+            Some(r) if r.is_empty() => {}
+            Some(r) => self.composite.mark(&r),
+            None => self.composite.mark_all(),
+        }
+    }
+
+    /// Where a layer has pixels (`None`: it can touch every pixel).
+    fn extent(&self, id: LayerId) -> Option<IRect> {
+        let grid = self.doc.layer(id)?.grid()?;
+        Some(
+            grid.non_empty_tiles()
+                .into_iter()
+                .fold(IRect::default(), |acc, (tx, ty)| acc.union(&grid.tile_rect(tx, ty))),
+        )
+    }
+
+    /// The new selection met with the current one in `mode`.
+    fn set_selection(&mut self, new: Mask, mode: SelectMode) {
+        let result = match (self.doc.selection.as_deref(), mode) {
+            (_, SelectMode::Replace) | (None, SelectMode::Add) => new,
+            (None, _) => Mask::empty(self.doc.width, self.doc.height),
+            (Some(current), mode) => current.combine(&new, mode),
+        };
+        self.doc.selection = (!result.is_empty()).then(|| Arc::new(result));
+    }
+
+    /// Bring the composite up to date without handing the rect away.
+    fn settle(&mut self) {
+        if let Some(r) = self.composite.update(&self.doc) {
+            self.pending = self.pending.union(&r);
+        }
+    }
+
+    /// Show `doc` (an undo state): composite only what differs.
+    fn restore(&mut self, doc: Document) {
+        let dirty = changed_between(&self.doc, &doc);
+        self.doc = doc;
+        self.mark(dirty);
+        if self.active.is_none_or(|id| self.doc.layer(id).is_none()) {
+            self.active = top_layer(&self.doc.layers);
+        }
+    }
+
+    /// Run `op`; `Ok(false)` = nothing to record.
+    #[allow(clippy::too_many_lines)]
+    fn run(&mut self, op: Op) -> Result<bool, EngineError> {
+        let (w, h) = (self.doc.width, self.doc.height);
+        match op {
+            Op::NewLayer { name } => {
+                let id = self.doc.mint_id();
+                layer::insert_above(&mut self.doc.layers, self.active, Layer::raster(id, name, TileGrid::new(w, h)));
+                self.active = Some(id);
+                Ok(true)
+            }
+            Op::NewAdjustment(adjustment) => {
+                let id = self.doc.mint_id();
+                layer::insert_above(&mut self.doc.layers, self.active, Layer::adjustment(id, adjustment));
+                self.active = Some(id);
+                self.mark(None);
+                Ok(true)
+            }
+            Op::NewGroup => {
+                let id = self.doc.mint_id();
+                let name = format!("Group {id}");
+                layer::insert_above(&mut self.doc.layers, self.active, Layer::group(id, name, Vec::new()));
+                self.active = Some(id);
+                Ok(true)
+            }
+            Op::DeleteLayer(id) => {
+                let gone = self.doc.layer(id).ok_or(EngineError::NoSuchLayer)?.ids();
+                let dirty = self.extent(id);
+                let next = layer::below(&self.doc.layers, id);
+                layer::remove(&mut self.doc.layers, id);
+                if self.active.is_none_or(|a| gone.contains(&a)) {
+                    self.active = next.or_else(|| top_layer(&self.doc.layers));
+                }
+                self.mark(dirty);
+                Ok(true)
+            }
+            Op::DuplicateLayer(id) => {
+                let mut copy = self.doc.layer(id).ok_or(EngineError::NoSuchLayer)?.clone();
+                fresh_ids(&mut copy, &mut self.doc.next_id);
+                copy.name = format!("{} copy", copy.name);
+                let new_id = copy.id;
+                let dirty = self.extent(id);
+                layer::insert_above(&mut self.doc.layers, Some(id), copy);
+                self.active = Some(new_id);
+                self.mark(dirty);
+                Ok(true)
+            }
+            Op::MergeDown(id) => {
+                let below = layer::below(&self.doc.layers, id).ok_or(EngineError::Invalid)?;
+                let top = self.doc.layer(id).ok_or(EngineError::NoSuchLayer)?.clone();
+                let bottom = self.doc.layer(below).ok_or(EngineError::NoSuchLayer)?.clone();
+                if top.locked || bottom.locked {
+                    return Err(EngineError::Locked);
+                }
+                if matches!(bottom.content, LayerContent::Adjustment(_)) {
+                    return Err(EngineError::NotRaster);
+                }
+                let mut pair = Document::new(w, h);
+                let name = bottom.name.clone();
+                pair.layers = vec![bottom, top];
+                let merged = Layer::raster(below, name, pair.flatten());
+                if let Some(slot) = layer::find_mut(&mut self.doc.layers, below) {
+                    *slot = merged;
+                }
+                layer::remove(&mut self.doc.layers, id);
+                self.active = Some(below);
+                self.mark(None);
+                Ok(true)
+            }
+            Op::MoveLayer { id, to } => {
+                if !layer::move_layer(&mut self.doc.layers, id, to) {
+                    return Err(EngineError::Invalid);
+                }
+                self.mark(None);
+                Ok(true)
+            }
+            Op::SetVisible(id, visible) => {
+                let dirty = self.extent(id);
+                let l = layer::find_mut(&mut self.doc.layers, id).ok_or(EngineError::NoSuchLayer)?;
+                if l.visible == visible {
+                    return Ok(false);
+                }
+                l.visible = visible;
+                self.mark(dirty);
+                Ok(true)
+            }
+            Op::SetLocked(id, locked) => {
+                let l = layer::find_mut(&mut self.doc.layers, id).ok_or(EngineError::NoSuchLayer)?;
+                if l.locked == locked {
+                    return Ok(false);
+                }
+                l.locked = locked;
+                Ok(true)
+            }
+            Op::SetOpacity(id, opacity) => {
+                let dirty = self.extent(id);
+                let l = layer::find_mut(&mut self.doc.layers, id).ok_or(EngineError::NoSuchLayer)?;
+                l.opacity = opacity.clamp(0.0, 1.0);
+                self.mark(dirty);
+                Ok(true)
+            }
+            Op::SetBlend(id, blend) => {
+                let dirty = self.extent(id);
+                let l = layer::find_mut(&mut self.doc.layers, id).ok_or(EngineError::NoSuchLayer)?;
+                if l.blend == blend {
+                    return Ok(false);
+                }
+                l.blend = blend;
+                self.mark(dirty);
+                Ok(true)
+            }
+            Op::Rename(id, name) => {
+                let l = layer::find_mut(&mut self.doc.layers, id).ok_or(EngineError::NoSuchLayer)?;
+                l.name = name;
+                Ok(true)
+            }
+            Op::SetAdjustment(id, adjustment) => {
+                let l = layer::find_mut(&mut self.doc.layers, id).ok_or(EngineError::NoSuchLayer)?;
+                match &mut l.content {
+                    LayerContent::Adjustment(a) => *a = adjustment,
+                    _ => return Err(EngineError::Invalid),
+                }
+                self.mark(None);
+                Ok(true)
+            }
+            Op::SetExpanded(id, expanded) => {
+                let l = layer::find_mut(&mut self.doc.layers, id).ok_or(EngineError::NoSuchLayer)?;
+                l.expanded = expanded;
+                Ok(false)
+            }
+            Op::Select(shape, mode) => {
+                let mask = Mask::from_shape(w, h, &shape);
+                self.set_selection(mask, mode);
+                Ok(true)
+            }
+            Op::SelectMagicWand {
+                x,
+                y,
+                tolerance,
+                contiguous,
+                mode,
+                sample_merged,
+            } => {
+                let mask = if sample_merged {
+                    self.settle();
+                    Mask::magic_wand(self.composite.grid(), x, y, tolerance, contiguous)
+                } else {
+                    let id = self.active.ok_or(EngineError::NoActiveLayer)?;
+                    let grid = self.doc.layer(id).and_then(Layer::grid).ok_or(EngineError::NotRaster)?;
+                    Mask::magic_wand(grid, x, y, tolerance, contiguous)
+                };
+                self.set_selection(mask, mode);
+                Ok(true)
+            }
+            Op::SelectAll => {
+                self.doc.selection = Some(Arc::new(Mask::full(w, h)));
+                Ok(true)
+            }
+            Op::Deselect => {
+                if self.doc.selection.is_none() {
+                    return Ok(false);
+                }
+                self.doc.selection = None;
+                Ok(true)
+            }
+            Op::InvertSelection => {
+                let inverted = match self.doc.selection.as_deref() {
+                    Some(m) => m.invert(),
+                    None => Mask::full(w, h),
+                };
+                self.doc.selection = (!inverted.is_empty()).then(|| Arc::new(inverted));
+                Ok(true)
+            }
+            Op::Feather(radius) => {
+                let Some(m) = self.doc.selection.as_deref() else {
+                    return Ok(false);
+                };
+                let soft = m.feather(radius);
+                self.doc.selection = (!soft.is_empty()).then(|| Arc::new(soft));
+                Ok(true)
+            }
+            Op::FloodFill {
+                x,
+                y,
+                color,
+                tolerance,
+                contiguous,
+            } => self.edit_raster(|g, sel| {
+                let region = Mask::magic_wand(g, x, y, tolerance, contiguous);
+                let region = match sel {
+                    Some(s) => region.combine(s, SelectMode::Intersect),
+                    None => region,
+                };
+                paint_mask(g, &region, color)
+            }),
+            Op::FillSelection(color) => self.edit_raster(|g, sel| match sel {
+                None if color[3] == 255 => TileGrid::filled(w, h, color),
+                None => paint_mask(g, &Mask::full(w, h), color),
+                Some(m) => paint_mask(g, m, color),
+            }),
+            Op::ClearSelection => self.edit_raster(|g, sel| match sel {
+                None => TileGrid::new(w, h),
+                Some(m) => erase_mask(g, m),
+            }),
+            Op::Gradient { from, to, start, end } => self.edit_raster(|g, sel| {
+                let full = Mask::full(w, h);
+                let mask = sel.unwrap_or(&full);
+                let (vx, vy) = (to.0 - from.0, to.1 - from.1);
+                let len2 = (vx * vx + vy * vy).max(1e-6);
+                let mut out = g.clone();
+                let Some(r) = mask.bounds() else {
+                    return out;
+                };
+                let mut px = out.read_rect(r);
+                let s = blend::to_f32(start);
+                let e = blend::to_f32(end);
+                for y in 0..r.h {
+                    for x in 0..r.w {
+                        let (dx, dy) = ((r.x + x) as f32 + 0.5, (r.y + y) as f32 + 0.5);
+                        let c = mask.coverage((r.x + x) as u32, (r.y + y) as u32);
+                        if c <= 0.0 {
+                            continue;
+                        }
+                        let t = (((dx - from.0) * vx + (dy - from.1) * vy) / len2).clamp(0.0, 1.0);
+                        let color = [0, 1, 2, 3].map(|k| blend::unit_to_u8(s[k] + (e[k] - s[k]) * t));
+                        let i = ((y * r.w + x) * 4) as usize;
+                        let under = [px[i], px[i + 1], px[i + 2], px[i + 3]];
+                        px[i..i + 4].copy_from_slice(&blend::paint_over(under, color, c));
+                    }
+                }
+                out.write_rect(r, &px);
+                out
+            }),
+            Op::DrawShape { shape, color } => self.edit_raster(|g, sel| {
+                let mask = Mask::from_shape(w, h, &shape);
+                let mask = match sel {
+                    Some(s) => mask.combine(s, SelectMode::Intersect),
+                    None => mask,
+                };
+                paint_mask(g, &mask, color)
+            }),
+            Op::Filter(f) => self.edit_raster(|g, sel| match f {
+                Filter::GaussianBlur { sigma } => filter::gaussian_blur(g, sigma, sel),
+                Filter::Sharpen { amount, radius } => filter::sharpen(g, amount, radius, sel),
+            }),
+            Op::Offset { dx, dy } => self.edit_raster(|g, _| transform::offset(g, dx, dy)),
+            Op::TransformLayer { m, interp } => {
+                self.edit_raster(|g, _| transform::transform_grid(g, &m, interp, w, h))
+            }
+            Op::FlipLayer { horizontal } => self.edit_raster(|g, _| transform::flip(g, horizontal)),
+            Op::FlipCanvas { horizontal } => {
+                map_rasters(&mut self.doc.layers, &|g| transform::flip(g, horizontal));
+                self.doc.selection = None;
+                self.mark(None);
+                Ok(true)
+            }
+            Op::RotateCanvas90 { clockwise } => {
+                map_rasters(&mut self.doc.layers, &|g| transform::rotate90(g, clockwise));
+                self.doc.width = h;
+                self.doc.height = w;
+                self.doc.selection = None;
+                self.mark(None);
+                Ok(true)
+            }
+            Op::Crop(r) => {
+                let r = r.intersect(&self.doc.bounds()).ok_or(EngineError::Empty)?;
+                map_rasters(&mut self.doc.layers, &|g| transform::crop(g, r));
+                self.doc.width = r.w as u32;
+                self.doc.height = r.h as u32;
+                self.doc.selection = self
+                    .doc
+                    .selection
+                    .as_deref()
+                    .map(|m| m.crop(r))
+                    .filter(|m| !m.is_empty())
+                    .map(Arc::new);
+                self.mark(None);
+                Ok(true)
+            }
+            Op::ResizeImage { width, height, interp } => {
+                if width == 0 || height == 0 {
+                    return Err(EngineError::Empty);
+                }
+                map_rasters(&mut self.doc.layers, &|g| transform::resize(g, width, height, interp));
+                self.doc.width = width;
+                self.doc.height = height;
+                self.doc.selection = None;
+                self.mark(None);
+                Ok(true)
+            }
+            Op::ResizeCanvas { width, height, x, y } => {
+                if width == 0 || height == 0 {
+                    return Err(EngineError::Empty);
+                }
+                map_rasters(&mut self.doc.layers, &|g| transform::place(g, width, height, x, y));
+                self.doc.width = width;
+                self.doc.height = height;
+                self.doc.selection = None;
+                self.mark(None);
+                Ok(true)
+            }
+            Op::AddRasterLayer {
+                name,
+                width,
+                height,
+                rgba,
+                x,
+                y,
+            } => {
+                let at = IRect::new(x, y, width as i32, height as i32);
+                let mut grid = TileGrid::new(w, h);
+                grid.write_rect(at, &rgba);
+                grid.prune();
+                let id = self.doc.mint_id();
+                layer::insert_above(&mut self.doc.layers, self.active, Layer::raster(id, name, grid));
+                self.active = Some(id);
+                self.mark(Some(at));
+                Ok(true)
+            }
+        }
+    }
+}
+
+impl RasterEngine for TileEngine {
+    fn document(&self) -> &Document {
+        &self.doc
+    }
+
+    fn size(&self) -> (u32, u32) {
+        (self.doc.width, self.doc.height)
+    }
+
+    fn active_layer(&self) -> Option<LayerId> {
+        self.active
+    }
+
+    fn set_active_layer(&mut self, id: LayerId) -> bool {
+        if self.doc.layer(id).is_none() {
+            return false;
+        }
+        self.active = Some(id);
+        true
+    }
+
+    fn apply(&mut self, op: Op) -> Result<(), EngineError> {
+        if self.stroke.is_some() {
+            self.end_stroke();
+        }
+        let label = op.label();
+        let key = op.coalesce_key();
+        if self.run(op)? {
+            self.history.push(&label, self.doc.clone(), key);
+        }
+        Ok(())
+    }
+
+    fn begin_stroke(&mut self, settings: BrushSettings, at: StrokePoint) -> Result<(), EngineError> {
+        if self.stroke.is_some() {
+            self.end_stroke();
+        }
+        let id = self.raster_target()?;
+        let base = self
+            .doc
+            .layer(id)
+            .and_then(Layer::grid)
+            .cloned()
+            .ok_or(EngineError::NotRaster)?;
+        self.stroke = Some(Stroke::begin(settings, id, base));
+        self.stroke_to(at);
+        Ok(())
+    }
+
+    fn stroke_to(&mut self, p: StrokePoint) {
+        let Self {
+            doc,
+            stroke,
+            composite,
+            ..
+        } = self;
+        let Some(stroke) = stroke.as_mut() else {
+            return;
+        };
+        let selection = doc.selection.clone();
+        let Some(grid) = layer::find_mut(&mut doc.layers, stroke.layer).and_then(Layer::grid_mut) else {
+            return;
+        };
+        let changed = stroke.add_point(p, grid, selection.as_deref());
+        if !changed.is_empty() {
+            composite.mark(&changed);
+        }
+    }
+
+    fn end_stroke(&mut self) {
+        if let Some(stroke) = self.stroke.take() {
+            if !stroke.dirty.is_empty() {
+                self.history
+                    .push(stroke.settings.tool.label(), self.doc.clone(), None);
+            }
+        }
+    }
+
+    fn is_stroking(&self) -> bool {
+        self.stroke.is_some()
+    }
+
+    fn take_dirty(&mut self) -> Option<IRect> {
+        let updated = self.composite.update(&self.doc);
+        let pending = std::mem::take(&mut self.pending);
+        match updated {
+            Some(r) => Some(r.union(&pending)),
+            None => (!pending.is_empty()).then_some(pending),
+        }
+    }
+
+    fn composite(&self) -> &TileGrid {
+        self.composite.grid()
+    }
+
+    fn sample(&self, x: u32, y: u32) -> [u8; 4] {
+        self.composite.grid().pixel(x, y)
+    }
+
+    fn undo(&mut self) -> bool {
+        if self.stroke.is_some() {
+            self.end_stroke();
+        }
+        let Some(doc) = self.history.undo().cloned() else {
+            return false;
+        };
+        self.restore(doc);
+        true
+    }
+
+    fn redo(&mut self) -> bool {
+        let Some(doc) = self.history.redo().cloned() else {
+            return false;
+        };
+        self.restore(doc);
+        true
+    }
+
+    fn jump_to(&mut self, index: usize) -> bool {
+        if self.stroke.is_some() {
+            self.end_stroke();
+        }
+        let Some(doc) = self.history.jump(index).cloned() else {
+            return false;
+        };
+        self.restore(doc);
+        true
+    }
+
+    fn history(&self) -> (Vec<String>, usize) {
+        (self.history.labels(), self.history.current_index())
+    }
+
+    fn flatten_rgba(&mut self) -> (u32, u32, Vec<u8>) {
+        self.settle();
+        let grid = self.composite.grid();
+        (grid.width(), grid.height(), grid.to_rgba())
+    }
+
+    fn replace_document(&mut self, doc: Document, label: &str) {
+        *self = Self::with_label(doc, label);
+    }
+}
