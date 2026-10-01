@@ -18,7 +18,15 @@ Branch `wt/mail2` from `39092feee`. Worktree
 
 ## IN PROGRESS
 
-- App UI (NEXT step 3)
+- App UI (NEXT step 3), in pieces, each committed:
+  a. compose.rs `draft_mail` (lenient OutgoingMail for drafts) RED + GREEN
+  b. args.rs (`--screen --theme --mode --sample --size`) + tests
+  c. editor.rs (MailDoc <-> Dom for the Path-2 editor; text sync; structural edit apply)
+  d. lib.rs state skeleton (MailApp, Compose, IO thread), keeping MAIL1's sync + keyring code
+  e. ui_main.rs (ribbon, nav pane, message list, reading pane, to-do bar, status bar, backstage)
+  f. ui_account.rs (Add-account wizard, account settings incl. Sending)
+  g. ui_compose.rs (compose window, toolbar, attachments, draft + send threads)
+  h. sample.rs (`--sample` data)
 
 ## NEXT (in order)
 
