@@ -2671,3 +2671,748 @@ pub(crate) fn fill_handle_at(grid: &CellGrid, geo: &Geometry) -> Option<(f32, f3
     let corner = range_rect(geo, &CellGridRange::create(current.last))?;
     Some((corner.0 + corner.2, corner.1 + corner.3))
 }
+
+// ---- the handlers: one set on the grid node, the grid hit-tests itself ----
+
+/// What every handler of one grid build shares: the grid (its view, sizes
+/// and callbacks) and where its rows and columns sit. A drag in progress
+/// updates the view here too, so the next move compares against it before
+/// the app's rebuild arrives.
+#[derive(Debug)]
+pub(crate) struct GridShared {
+    pub grid: CellGrid,
+    pub geo: Geometry,
+}
+
+fn hook(
+    event: EventFilter,
+    cb: extern "C" fn(RefAny, CallbackInfo) -> Update,
+    data: &RefAny,
+) -> CoreCallbackData {
+    CoreCallbackData {
+        event,
+        callback: CoreCallback {
+            cb: cb as usize,
+            ctx: OptionRefAny::None,
+        },
+        refany: data.clone(),
+    }
+}
+
+/// The grid node's handlers.
+pub(crate) fn grid_callbacks(shared: &RefAny) -> Vec<CoreCallbackData> {
+    alloc::vec![
+        hook(
+            EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+            on_grid_key,
+            shared
+        ),
+        hook(
+            EventFilter::Focus(FocusEventFilter::TextInput),
+            on_grid_text,
+            shared
+        ),
+        hook(EventFilter::Focus(FocusEventFilter::Copy), on_grid_copy, shared),
+        hook(EventFilter::Focus(FocusEventFilter::Cut), on_grid_cut, shared),
+        hook(EventFilter::Focus(FocusEventFilter::Paste), on_grid_paste, shared),
+        hook(
+            EventFilter::Hover(HoverEventFilter::LeftMouseDown),
+            on_grid_mouse_down,
+            shared
+        ),
+        hook(
+            EventFilter::Hover(HoverEventFilter::MouseMove),
+            on_grid_mouse_move,
+            shared
+        ),
+        hook(
+            EventFilter::Hover(HoverEventFilter::MouseUp),
+            on_grid_mouse_up,
+            shared
+        ),
+        hook(
+            EventFilter::Hover(HoverEventFilter::DoubleClick),
+            on_grid_double_click,
+            shared
+        ),
+        hook(
+            EventFilter::Hover(HoverEventFilter::Scroll),
+            on_grid_wheel,
+            shared
+        ),
+    ]
+}
+
+/// A copy of the grid and its geometry from the handler's payload.
+fn shared_of(data: &mut RefAny) -> Option<(CellGrid, Geometry)> {
+    let s = data.downcast_ref::<GridShared>()?;
+    Some((s.grid.clone(), s.geo.clone()))
+}
+
+/// Records `view` as the grid's view in the payload (a drag's progress).
+fn store_view(data: &mut RefAny, view: &CellGridView) {
+    if let Some(mut s) = data.downcast_mut::<GridShared>() {
+        s.grid.view = view.clone();
+    }
+}
+
+fn bounds_of<'a>(grid: &'a CellGrid, geo: &Geometry) -> Bounds<'a> {
+    Bounds {
+        row_count: grid.row_count,
+        column_count: grid.column_count,
+        content_rows: grid.content_rows,
+        content_columns: grid.content_columns,
+        frozen_rows: grid.frozen_rows,
+        frozen_columns: grid.frozen_columns,
+        column_widths: grid.column_widths.as_ref(),
+        row_heights: grid.row_heights.as_ref(),
+        page_rows: geo.page_rows,
+        page_columns: geo.page_columns,
+    }
+}
+
+/// Hands `event` to the app.
+fn fire(grid: &CellGrid, info: CallbackInfo, event: CellGridEvent) -> Update {
+    match grid.on_event.as_ref() {
+        Some(CellGridOnEvent { refany, callback }) => callback.invoke(refany.clone(), info, event),
+        None => Update::DoNothing,
+    }
+}
+
+/// Whether `cell` holds data (what Ctrl + arrow stops at).
+fn has_data(grid: &CellGrid, cell: CellGridCellRef) -> bool {
+    let c = cell_content(&grid.data_source, cell);
+    c.kind != CellGridCellKind::Empty || !c.text.as_str().is_empty()
+}
+
+fn zoom_of(grid: &CellGrid) -> f32 {
+    if grid.zoom.is_finite() && grid.zoom > 0.0 {
+        grid.zoom
+    } else {
+        1.0
+    }
+}
+
+/// The view with no edit.
+fn without_edit(view: &CellGridView) -> CellGridView {
+    let mut v = view.clone();
+    v.edit_mode = CellGridEditMode::None;
+    v.edit_text = AzString::from_const_str("");
+    v.edit_cursor = 0;
+    v
+}
+
+/// Commits the edit and puts the cursor on `to`.
+fn commit_to(grid: &CellGrid, b: &Bounds<'_>, to: CellGridCellRef) -> CellGridEvent {
+    let view = &grid.view;
+    let mut next = select(&without_edit(view), to, false, false);
+    reveal(&mut next, b, to);
+    let mut e = CellGridEvent::create(CellGridEventKind::EditCommit, next);
+    e.text = view.edit_text.clone();
+    e.range = CellGridRange::create(view.active);
+    e
+}
+
+/// The view editing `cell` in `mode`, the edit starting as `text`.
+fn start_edit(view: &CellGridView, cell: CellGridCellRef, mode: CellGridEditMode, text: &str) -> CellGridView {
+    let mut next = if cell == view.active {
+        view.clone()
+    } else {
+        select(view, cell, false, false)
+    };
+    next.edit_mode = mode;
+    next.edit_text = AzString::from(String::from(text));
+    #[allow(clippy::cast_possible_truncation)]
+    {
+        next.edit_cursor = text.chars().count() as u32;
+    }
+    next
+}
+
+/// A key while the active cell is edited.
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) fn edit_key(
+    grid: &CellGrid,
+    b: &Bounds<'_>,
+    key: VirtualKeyCode,
+    shift: bool,
+) -> Option<CellGridEvent> {
+    use VirtualKeyCode as K;
+    let view = &grid.view;
+    let mut chars: Vec<char> = view.edit_text.as_str().chars().collect();
+    let caret = (view.edit_cursor as usize).min(chars.len());
+    let edited = |chars: &[char], caret: usize| {
+        let mut next = view.clone();
+        next.edit_text = AzString::from(chars.iter().collect::<String>());
+        next.edit_cursor = caret as u32;
+        CellGridEvent::create(CellGridEventKind::EditText, next)
+    };
+    let enter_mode = view.edit_mode == CellGridEditMode::Enter;
+    let moved = |dir: Dir| commit_to(grid, b, b.step(view.active, dir));
+    Some(match key {
+        K::Escape => CellGridEvent::create(CellGridEventKind::EditCancel, without_edit(view)),
+        K::Return | K::NumpadEnter => moved(if shift { Dir::Up } else { Dir::Down }),
+        K::Tab => moved(if shift { Dir::Left } else { Dir::Right }),
+        K::Up if enter_mode => moved(Dir::Up),
+        K::Down if enter_mode => moved(Dir::Down),
+        K::Left if enter_mode => moved(Dir::Left),
+        K::Right if enter_mode => moved(Dir::Right),
+        K::Left => edited(&chars, caret.saturating_sub(1)),
+        K::Right => edited(&chars, (caret + 1).min(chars.len())),
+        K::Home => edited(&chars, 0),
+        K::End => edited(&chars, chars.len()),
+        K::Back => {
+            if caret == 0 {
+                return Some(edited(&chars, 0));
+            }
+            chars.remove(caret - 1);
+            edited(&chars, caret - 1)
+        }
+        K::Delete => {
+            if caret < chars.len() {
+                chars.remove(caret);
+            }
+            edited(&chars, caret)
+        }
+        _ => return None,
+    })
+}
+
+/// A key on the grid, nothing being edited.
+pub(crate) fn grid_key(
+    grid: &CellGrid,
+    b: &Bounds<'_>,
+    key: VirtualKeyCode,
+    shift: bool,
+    ctrl: bool,
+) -> Option<CellGridEvent> {
+    use VirtualKeyCode as K;
+    let view = &grid.view;
+    match key {
+        K::F2 if !grid.read_only => Some(CellGridEvent::create(
+            CellGridEventKind::EditStart,
+            start_edit(view, view.active, CellGridEditMode::Edit, ""),
+        )),
+        K::Back if !grid.read_only => Some(CellGridEvent::create(
+            CellGridEventKind::EditStart,
+            start_edit(view, view.active, CellGridEditMode::Enter, ""),
+        )),
+        K::Delete if !grid.read_only => {
+            let mut e = CellGridEvent::create(CellGridEventKind::Delete, view.clone());
+            e.range = view.current_range();
+            Some(e)
+        }
+        K::Escape if view.drag.kind != CellGridDragKind::None => {
+            let mut next = view.clone();
+            next.drag = CellGridDrag::default();
+            Some(CellGridEvent::create(CellGridEventKind::Drag, next))
+        }
+        _ => {
+            let navigated = navigate(view, b, key, shift, ctrl, &mut |c| has_data(grid, c))?;
+            let mut e = CellGridEvent::create(navigated.kind, navigated.view);
+            e.shift = shift;
+            e.ctrl = ctrl;
+            Some(e)
+        }
+    }
+}
+
+/// The keys (see the module's KEYBOARD).
+extern "C" fn on_grid_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((grid, geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let ks = info.get_current_keyboard_state();
+    let Some(key) = ks.current_virtual_keycode.into_option() else {
+        return Update::DoNothing;
+    };
+    if ks.alt_down() {
+        return Update::DoNothing;
+    }
+    let shift = ks.shift_down();
+    let ctrl = ks.ctrl_down() || ks.super_down();
+    let b = bounds_of(&grid, &geo);
+    let event = if grid.view.is_editing() {
+        edit_key(&grid, &b, key, shift)
+    } else {
+        grid_key(&grid, &b, key, shift, ctrl)
+    };
+    match event {
+        Some(event) => {
+            // The key is the grid's: no spatial navigation, no scrolling.
+            info.prevent_default();
+            store_view(&mut data, &event.view);
+            fire(&grid, info, event)
+        }
+        None => Update::DoNothing,
+    }
+}
+
+/// The text a typed key inserts at `caret` of `view`'s edit (or the start
+/// of an edit that replaces the cell).
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) fn typed(view: &CellGridView, text: &str) -> CellGridEvent {
+    if view.is_editing() {
+        let mut chars: Vec<char> = view.edit_text.as_str().chars().collect();
+        let caret = (view.edit_cursor as usize).min(chars.len());
+        let insert: Vec<char> = text.chars().collect();
+        let n = insert.len();
+        for (i, ch) in insert.into_iter().enumerate() {
+            chars.insert(caret + i, ch);
+        }
+        let mut next = view.clone();
+        next.edit_text = AzString::from(chars.iter().collect::<String>());
+        next.edit_cursor = (caret + n) as u32;
+        CellGridEvent::create(CellGridEventKind::EditText, next)
+    } else {
+        CellGridEvent::create(
+            CellGridEventKind::EditStart,
+            start_edit(view, view.active, CellGridEditMode::Enter, text),
+        )
+    }
+}
+
+/// A character typed on the grid: it starts an edit that replaces the
+/// cell, or goes into the edit at the caret. The grid's node holds no text
+/// of its own, so the engine's own insertion is cancelled.
+extern "C" fn on_grid_text(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((grid, _)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some(inserted) = info
+        .get_text_changeset()
+        .map(|c| String::from(c.inserted_text.as_str()))
+    else {
+        return Update::DoNothing;
+    };
+    info.prevent_default();
+    let text: String = inserted.chars().filter(|c| !c.is_control()).collect();
+    if text.is_empty() || grid.read_only {
+        return Update::DoNothing;
+    }
+    let event = typed(&grid.view, &text);
+    store_view(&mut data, &event.view);
+    fire(&grid, info, event)
+}
+
+/// The current range's cells as text rows, a range of whole columns or rows
+/// clipped to the data (a copy of column A does not copy a million rows).
+fn selection_rows(grid: &CellGrid) -> (CellGridRange, Vec<Vec<String>>) {
+    let mut r = grid.view.current_range();
+    if r.row_count() > 10_000 {
+        r.last.row = r.last.row.min(r.first.row.max(grid.content_rows.saturating_sub(1)));
+    }
+    if r.column_count() > 1_000 {
+        r.last.column = r
+            .last
+            .column
+            .min(r.first.column.max(grid.content_columns.saturating_sub(1)));
+    }
+    let rows = (r.first.row..=r.last.row)
+        .map(|row| {
+            (r.first.column..=r.last.column)
+                .map(|column| {
+                    String::from(
+                        cell_content(&grid.data_source, CellGridCellRef::create(row, column))
+                            .text
+                            .as_str(),
+                    )
+                })
+                .collect()
+        })
+        .collect();
+    (r, rows)
+}
+
+/// Ctrl+C / Ctrl+X: the current range as tab-separated text and as an HTML
+/// table onto the clipboard, then the app hears it.
+fn copy_selection(mut data: RefAny, mut info: CallbackInfo, kind: CellGridEventKind) -> Update {
+    let Some((grid, _)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    if grid.view.is_editing() {
+        return Update::DoNothing;
+    }
+    let (range, rows) = selection_rows(&grid);
+    info.set_clipboard_content(crate::managers::selection::ClipboardContent {
+        plain_text: AzString::from(cells_to_tsv(&rows)),
+        styled_runs: crate::managers::selection::StyledTextRunVec::from_const_slice(&[]),
+        html: Some(AzString::from(cells_to_html(&rows))).into(),
+    });
+    let mut e = CellGridEvent::create(kind, grid.view.clone());
+    e.range = range;
+    fire(&grid, info, e)
+}
+
+extern "C" fn on_grid_copy(data: RefAny, info: CallbackInfo) -> Update {
+    copy_selection(data, info, CellGridEventKind::Copy)
+}
+
+extern "C" fn on_grid_cut(data: RefAny, info: CallbackInfo) -> Update {
+    copy_selection(data, info, CellGridEventKind::Cut)
+}
+
+/// Ctrl+V: the clipboard's text to the app, for the active cell.
+extern "C" fn on_grid_paste(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((grid, _)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let text = info
+        .get_clipboard_content()
+        .map(|c| c.plain_text.clone());
+    info.prevent_default();
+    let Some(text) = text else {
+        return Update::DoNothing;
+    };
+    if grid.read_only {
+        return Update::DoNothing;
+    }
+    if grid.view.is_editing() {
+        let event = typed(&grid.view, text.as_str());
+        store_view(&mut data, &event.view);
+        return fire(&grid, info, event);
+    }
+    let mut e = CellGridEvent::create(CellGridEventKind::Paste, grid.view.clone());
+    e.text = text;
+    e.range = CellGridRange::create(grid.view.active);
+    fire(&grid, info, e)
+}
+
+/// The pointer's position over the grid node.
+fn cursor_in(info: &CallbackInfo) -> Option<(f32, f32)> {
+    info.get_cursor_relative_to_node()
+        .into_option()
+        .map(|p| (p.x, p.y))
+        .filter(|(x, y)| x.is_finite() && y.is_finite())
+}
+
+/// What a press at `hit` does to the view (the pure half of the handler);
+/// `window_px` is the pointer's window position for a resize grip.
+#[allow(clippy::too_many_lines)]
+pub(crate) fn press(
+    grid: &CellGrid,
+    geo: &Geometry,
+    hit: Hit,
+    shift: bool,
+    ctrl: bool,
+    window_px: (f32, f32),
+) -> Option<CellGridEvent> {
+    let view = &grid.view;
+    let b = bounds_of(grid, geo);
+    let whole = |first: CellGridCellRef, last: CellGridCellRef, active: CellGridCellRef| {
+        let range = CellGridRange::spanning(first, last);
+        let mut next = view.clone();
+        let mut ranges = if ctrl {
+            view.ranges.as_ref().to_vec()
+        } else {
+            Vec::new()
+        };
+        ranges.push(range);
+        next.ranges = CellGridRangeVec::from_vec(ranges);
+        next.active = active;
+        next.anchor = active;
+        CellGridEvent::create(CellGridEventKind::Select, next)
+    };
+    let last_row = grid.row_count.saturating_sub(1);
+    let last_column = grid.column_count.saturating_sub(1);
+    let event = match hit {
+        Hit::Nothing => return None,
+        Hit::Corner => {
+            let mut next = view.clone();
+            next.ranges = CellGridRangeVec::from_vec(alloc::vec![CellGridRange::spanning(
+                CellGridCellRef::create(0, 0),
+                CellGridCellRef::create(last_row, last_column),
+            )]);
+            CellGridEvent::create(CellGridEventKind::Select, next)
+        }
+        Hit::ColumnHeader(c) => {
+            let from = if shift { view.anchor.column } else { c };
+            whole(
+                CellGridCellRef::create(0, from),
+                CellGridCellRef::create(last_row, c),
+                CellGridCellRef::create(view.top_row.min(last_row), from),
+            )
+        }
+        Hit::RowHeader(r) => {
+            let from = if shift { view.anchor.row } else { r };
+            whole(
+                CellGridCellRef::create(from, 0),
+                CellGridCellRef::create(r, last_column),
+                CellGridCellRef::create(from, view.left_column.min(last_column)),
+            )
+        }
+        Hit::ColumnEdge(c) => {
+            let size = size_at(grid.column_widths.as_ref(), c, grid.default_column_width);
+            let mut next = view.clone();
+            next.drag = CellGridDrag {
+                start_px: window_px.0,
+                start_size: size,
+                size,
+                index: c,
+                kind: CellGridDragKind::ResizeColumn,
+                ..CellGridDrag::default()
+            };
+            CellGridEvent::create(CellGridEventKind::Drag, next)
+        }
+        Hit::RowEdge(r) => {
+            let size = size_at(grid.row_heights.as_ref(), r, grid.default_row_height);
+            let mut next = view.clone();
+            next.drag = CellGridDrag {
+                start_px: window_px.1,
+                start_size: size,
+                size,
+                index: r,
+                kind: CellGridDragKind::ResizeRow,
+                ..CellGridDrag::default()
+            };
+            CellGridEvent::create(CellGridEventKind::Drag, next)
+        }
+        Hit::FillHandle => {
+            let corner = view.current_range().last;
+            let mut next = view.clone();
+            next.drag = CellGridDrag {
+                origin: corner,
+                target: corner,
+                kind: CellGridDragKind::Fill,
+                ..CellGridDrag::default()
+            };
+            CellGridEvent::create(CellGridEventKind::Drag, next)
+        }
+        Hit::Cell(cell) => {
+            if view.is_editing() {
+                if cell == view.active {
+                    return None;
+                }
+                return Some(commit_to(grid, &b, cell));
+            }
+            let mut next = select(view, cell, shift, ctrl);
+            next.drag = CellGridDrag {
+                origin: if shift { view.anchor } else { cell },
+                target: cell,
+                kind: CellGridDragKind::Select,
+                ..CellGridDrag::default()
+            };
+            let mut e = CellGridEvent::create(CellGridEventKind::Select, next);
+            e.shift = shift;
+            e.ctrl = ctrl;
+            e
+        }
+    };
+    Some(event)
+}
+
+/// A press: select, start a range drag, a resize or a fill. The grid takes
+/// the pointer until the button is up, so a drag that leaves it goes on.
+extern "C" fn on_grid_mouse_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((grid, geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some((x, y)) = cursor_in(&info) else {
+        return Update::DoNothing;
+    };
+    let ks = info.get_current_keyboard_state();
+    let (shift, ctrl) = (ks.shift_down(), ks.ctrl_down() || ks.super_down());
+    let window_px = info
+        .get_cursor_position()
+        .map_or((x, y), |p| (p.x, p.y));
+    let hit = hit_test(&geo, fill_handle_at(&grid, &geo), x, y);
+    let Some(event) = press(&grid, &geo, hit, shift, ctrl, window_px) else {
+        return Update::DoNothing;
+    };
+    if event.view.drag.kind != CellGridDragKind::None {
+        let node = info.get_hit_node();
+        info.capture_pointer(node);
+    }
+    store_view(&mut data, &event.view);
+    fire(&grid, info, event)
+}
+
+/// What a pointer move during a drag does (the pure half): `cell` is the
+/// cell under the pointer, `window_px` its window position.
+pub(crate) fn drag_move(
+    grid: &CellGrid,
+    cell: Option<CellGridCellRef>,
+    window_px: (f32, f32),
+) -> Option<CellGridEvent> {
+    let view = &grid.view;
+    let drag = view.drag;
+    let zoom = zoom_of(grid);
+    match drag.kind {
+        CellGridDragKind::None => None,
+        CellGridDragKind::Select => {
+            let cell = cell?;
+            if cell == drag.target {
+                return None;
+            }
+            let mut base = view.clone();
+            base.anchor = drag.origin;
+            let mut next = select(&base, cell, true, false);
+            next.drag.target = cell;
+            Some(CellGridEvent::create(CellGridEventKind::Select, next))
+        }
+        CellGridDragKind::Fill => {
+            let cell = cell?;
+            if cell == drag.target {
+                return None;
+            }
+            let mut next = view.clone();
+            next.drag.target = cell;
+            Some(CellGridEvent::create(CellGridEventKind::Drag, next))
+        }
+        CellGridDragKind::ResizeColumn | CellGridDragKind::ResizeRow => {
+            let at = if drag.kind == CellGridDragKind::ResizeColumn {
+                window_px.0
+            } else {
+                window_px.1
+            };
+            let size = (drag.start_size + (at - drag.start_px) / zoom).max(MIN_RESIZE_PX);
+            if !size.is_finite() || (size - drag.size).abs() < 0.5 {
+                return None;
+            }
+            let mut next = view.clone();
+            next.drag.size = size;
+            Some(CellGridEvent::create(CellGridEventKind::Drag, next))
+        }
+    }
+}
+
+/// A move while a drag is in progress.
+extern "C" fn on_grid_mouse_move(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((grid, geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    if grid.view.drag.kind == CellGridDragKind::None {
+        return Update::DoNothing;
+    }
+    let pos = cursor_in(&info);
+    let cell = pos.and_then(|(x, y)| nearest_cell(&geo, x, y));
+    let window_px = info
+        .get_cursor_position()
+        .map(|p| (p.x, p.y))
+        .or(pos)
+        .unwrap_or((0.0, 0.0));
+    let Some(event) = drag_move(&grid, cell, window_px) else {
+        return Update::DoNothing;
+    };
+    store_view(&mut data, &event.view);
+    fire(&grid, info, event)
+}
+
+/// What the release of a drag does (the pure half).
+pub(crate) fn drag_end(grid: &CellGrid) -> Option<CellGridEvent> {
+    let view = &grid.view;
+    let drag = view.drag;
+    let mut next = view.clone();
+    next.drag = CellGridDrag::default();
+    let event = match drag.kind {
+        CellGridDragKind::None => return None,
+        CellGridDragKind::Select => CellGridEvent::create(CellGridEventKind::Drag, next),
+        CellGridDragKind::Fill => {
+            let source = view.current_range();
+            let reach = fill_range(source, drag.target);
+            if reach == source {
+                CellGridEvent::create(CellGridEventKind::Drag, next)
+            } else {
+                next.ranges = CellGridRangeVec::from_vec(alloc::vec![reach]);
+                let mut e = CellGridEvent::create(CellGridEventKind::Fill, next);
+                e.range = reach;
+                e
+            }
+        }
+        CellGridDragKind::ResizeColumn | CellGridDragKind::ResizeRow => {
+            let kind = if drag.kind == CellGridDragKind::ResizeColumn {
+                CellGridEventKind::ResizeColumn
+            } else {
+                CellGridEventKind::ResizeRow
+            };
+            let mut e = CellGridEvent::create(kind, next);
+            e.index = drag.index;
+            e.size = drag.size;
+            e
+        }
+    };
+    Some(event)
+}
+
+/// The release ends a drag: a fill fills, a resize resizes.
+extern "C" fn on_grid_mouse_up(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((grid, _)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some(event) = drag_end(&grid) else {
+        return Update::DoNothing;
+    };
+    store_view(&mut data, &event.view);
+    fire(&grid, info, event)
+}
+
+/// A double-click edits a cell; on a column's edge it fits the column.
+extern "C" fn on_grid_double_click(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((grid, geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some((x, y)) = cursor_in(&info) else {
+        return Update::DoNothing;
+    };
+    let event = match hit_test(&geo, None, x, y) {
+        Hit::ColumnEdge(c) => {
+            let mut e = CellGridEvent::create(CellGridEventKind::AutoFitColumn, grid.view.clone());
+            e.index = c;
+            e
+        }
+        Hit::Cell(cell) if !grid.read_only => CellGridEvent::create(
+            CellGridEventKind::EditStart,
+            start_edit(&without_edit(&grid.view), cell, CellGridEditMode::Edit, ""),
+        ),
+        _ => return Update::DoNothing,
+    };
+    store_view(&mut data, &event.view);
+    fire(&grid, info, event)
+}
+
+/// The wheel scrolls the grid by whole rows (Shift: columns). The grid IS
+/// the scroll surface, so the page under it does not scroll as well.
+extern "C" fn on_grid_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((grid, geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let hit = info.get_hit_node();
+    let Some(node_id) = hit.node.into_crate_internal() else {
+        return Update::DoNothing;
+    };
+    let Some(delta) = info.get_scroll_delta(hit.dom, node_id) else {
+        return Update::DoNothing;
+    };
+    // THE WHEEL HAS ONE CONSUMER (see the time picker): `stop_propagation`
+    // keeps it from other callbacks, `prevent_default` cancels the scroll of
+    // the box around the grid.
+    info.prevent_default();
+    info.stop_propagation();
+    let shift = info.get_current_keyboard_state().shift_down();
+    let (dx, dy) = if shift && delta.x.abs() < f32::EPSILON {
+        (delta.y, 0.0)
+    } else {
+        (delta.x, delta.y)
+    };
+    let zoom = zoom_of(&grid);
+    let (rows, columns) = take_wheel(
+        dx,
+        dy,
+        WHEEL_PX_PER_ROW * zoom,
+        grid.default_column_width.max(1.0) * zoom,
+    );
+    if rows == 0 && columns == 0 {
+        return Update::DoNothing;
+    }
+    let b = bounds_of(&grid, &geo);
+    let next = scroll_by(&grid.view, &b, rows, columns);
+    if next == grid.view {
+        return Update::DoNothing;
+    }
+    store_view(&mut data, &next);
+    fire(
+        &grid,
+        info,
+        CellGridEvent::create(CellGridEventKind::Scroll, next),
+    )
+}
