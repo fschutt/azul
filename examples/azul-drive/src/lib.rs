@@ -1405,9 +1405,6 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |info, app, s| {
         let place = s.place.clone();
         go(info, app, s, place, false);
-        if s.backstage.is_none() && s.settings_category == usize::MAX {
-            s.settings_category = 0;
-        }
     })
 }
 

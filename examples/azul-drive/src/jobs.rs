@@ -21,7 +21,7 @@ use azul::{
     vec::U8VecRef,
 };
 use azul_storage::{
-    azul_transport::AzulTransport, key, ops as storage_ops, transfer, ByteRange, Credentials,
+    azul_transport::AzulTransport, ops as storage_ops, transfer, ByteRange, Credentials,
     Drive, DriveError, ListPage, ListRequest, LocalDrive, S3Config, S3Drive,
 };
 
@@ -597,7 +597,3 @@ pub(crate) extern "C" fn job_thread(
     send(&mut sender, outcome);
 }
 
-/// The name of an item without its folder, for messages.
-pub(crate) fn name_of(item_key: &str) -> &str {
-    key::last_segment(item_key)
-}

@@ -669,8 +669,8 @@ pub(crate) fn inline_sheet(title: String, panel: Dom) -> Dom {
         .with_id("sheet")
         .with_css(
             "position: absolute; top: 120px; right: 24px; width: 440px; padding: 16px; \
-             display: flex; flex-direction: column; background: system:window; \
-             border: 1px solid rgba(128, 128, 128, 0.5); border-radius: 6px; \
+             display: flex; flex-direction: column; background: system:window-background; \
+             border: 1px solid system:separator; border-radius: 6px; \
              box-shadow: 0px 4px 16px rgba(0, 0, 0, 0.25);",
         )
         .with_child(

@@ -32,8 +32,8 @@ use crate::{
     jobs::{Job, PreviewContent},
     keys::{self, Command, Key, Mods, Step},
     model::{self, GroupBy, ViewLayout},
-    open_current, open_drive, open_slot, place_up,
-    preview::{self, PreviewKind},
+    open_current, open_drive, place_up,
+    preview,
     refresh, save_settings, spawn, with_state, ClipboardItems, DriveState, KeyringCall,
     KeyringOp, Popup, PreviewState, PropertiesState, Renaming, Slot, TransferJob, UndoOp,
     HOME_ID,
@@ -2385,13 +2385,6 @@ pub(crate) fn select_drive(s: &mut DriveState, index: usize) {
     s.selected_drive = Some(index);
 }
 
-/// Whether the source of a drag is a local drive (for the drop's default).
-pub(crate) fn drag_source_is_local(s: &DriveState) -> bool {
-    s.dragging
-        .as_ref()
-        .is_some_and(|(id, _)| s.is_local_drive(id))
-}
-
 /// Whether `key` is the cut clipboard's item (drawn faded, as Explorer does).
 pub(crate) fn is_cut(s: &DriveState, item_key: &str) -> bool {
     s.clipboard.as_ref().is_some_and(|c| {
@@ -2400,9 +2393,3 @@ pub(crate) fn is_cut(s: &DriveState, item_key: &str) -> bool {
     })
 }
 
-/// The drive of a pinned folder, opened (for Quick access's tiles).
-pub(crate) fn pinned_drive(s: &mut DriveState, index: usize) -> Option<Arc<dyn Drive>> {
-    let pin = s.settings.pinned.get(index)?.clone();
-    let slot = s.slot_index(&pin.drive)?;
-    open_slot(s, slot)
-}

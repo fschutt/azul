@@ -20,8 +20,6 @@ use azul::{
         TextInputState, TextInputValid, Tile, TileCapacity,
     },
 };
-use azul_storage::config::DriveLocation;
-
 use crate::{
     actions::{self, action_ref, on_action, Action},
     browse::{self, Column, Entry, Place},
