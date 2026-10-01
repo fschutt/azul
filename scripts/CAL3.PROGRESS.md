@@ -19,7 +19,10 @@ copies of the model files as of the RED commit).
 
 ## IN PROGRESS
 
-- nothing half-done
+- UI rewrite (does NOT compile until chrome.rs, timegrid.rs, views_ui.rs, editor_ui.rs exist):
+  lib.rs is assembled by `<scratchpad>/cal3/patch_segs.py` from `lib_head.rs` + CAL2's kept segments
+  (`seg_sync.rs`, `seg_syncnow.rs`, `seg_join.rs`, `seg_modetests.rs`, from `lib_cal2.rs` = CAL2's lib.rs)
+  + `lib_tail.rs` (start). Edit those and re-run, or edit lib.rs directly once committed.
 
 ## NEXT (in order, precise)
 
