@@ -219,13 +219,16 @@ const BODY: &str = "display: flex; flex-direction: column; height: 100%; margin:
                     system:window-background;";
 /// A tile's box: the video (or the initials) fills it, the name label sits on it.
 const TILE: &str = "position: relative; display: flex; flex-direction: column; align-items: \
-                    center; justify-content: center; width: 100%; height: 100%; min-height: \
-                    60px; border-radius: 8px; overflow: hidden; background: #1e1f24; color: \
-                    #e8e8ee;";
+                    center; justify-content: center; width: 100%; border-radius: 8px; overflow: \
+                    hidden; background: #1e1f24; color: #e8e8ee;";
+/// A gallery or filmstrip tile is 16:9 at its cell's width.
+const TILE_IN_ROW: &str = "aspect-ratio: 16 / 9;";
+/// The stage's tile takes the stage's room.
+const TILE_ON_STAGE: &str = "flex-grow: 1; min-height: 0px;";
 /// The ring of the active speaker's tile.
 const SPEAKING_RING: &str = "border: 2px solid system:accent;";
-/// The video in a tile.
-const VIDEO: &str = "width: 100%; height: 100%;";
+/// The video in a tile: it fills the tile's column.
+const VIDEO: &str = "flex-grow: 1; width: 100%; min-height: 0px;";
 /// The name label on a tile.
 const TILE_LABEL: &str = "position: absolute; left: 8px; bottom: 8px; padding: 2px 8px; \
                           border-radius: 4px; background: rgba(0, 0, 0, 0.55); color: #ffffff; \
@@ -296,12 +299,16 @@ fn strings(items: &[String]) -> StringVec {
 /// The call: the shell with the arranged tiles (the stage over the filmstrip, or the gallery),
 /// the side panel, the devices slot and the controls bar.
 fn call(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
-    let tiles: Vec<Dom> = view.tiles.iter().map(|t| tile(view, t, data)).collect();
+    let tiles: Vec<Dom> = view
+        .tiles
+        .iter()
+        .map(|t| tile(view, t, data, false))
+        .collect();
     let mut shell = CallShell::create(DomVec::from_vec(tiles), controls(view, data, actions))
         .with_header(header(view))
         .with_devices(devices(view, data, actions));
     if let Some(stage) = &view.stage {
-        shell = shell.with_stage(tile(view, stage, data));
+        shell = shell.with_stage(tile(view, stage, data, true));
     }
     if let Some(panel) = side_panel(view, data, actions) {
         shell = shell.with_side_panel(panel);
@@ -310,14 +317,16 @@ fn call(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
 }
 
 /// One tile: the picture (a remote stream's image node, this side's own capture, or the
-/// person's initials), the name label on it, and the speaking ring.
-fn tile(view: &CallView, t: &TileView, data: &RefAny) -> Dom {
+/// person's initials), the name label on it, and the speaking ring. On the stage it takes the
+/// stage's room; in a row it is 16:9 at its cell's width.
+fn tile(view: &CallView, t: &TileView, data: &RefAny, on_stage: bool) -> Dom {
     let picture = if t.me {
         own_picture(view, t, data)
     } else {
         remote_picture(t)
     };
     let mut css = String::from(TILE);
+    css.push_str(if on_stage { TILE_ON_STAGE } else { TILE_IN_ROW });
     if t.speaking {
         css.push_str(SPEAKING_RING);
     }
@@ -724,7 +733,7 @@ fn lobby(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         speaking: false,
     };
     CallShell::create(
-        DomVec::from_vec(vec![tile(view, &me, data)]),
+        DomVec::from_vec(vec![tile(view, &me, data, false)]),
         controls(view, data, actions),
     )
     .with_header(header(view))
