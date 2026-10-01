@@ -5,6 +5,7 @@ pub mod decode;
 pub mod export;
 pub mod model;
 pub mod render;
+pub mod sample;
 pub mod store;
 
 /// Starts the app.

@@ -569,6 +569,11 @@ impl Project {
         !self.history.redo.is_empty()
     }
 
+    /// Forgets every edit (a project as it was loaded or made).
+    pub fn clear_history(&mut self) {
+        self.history = History::default();
+    }
+
     /// The name of the edit Undo would undo.
     #[must_use]
     pub fn undo_label(&self) -> Option<&'static str> {
