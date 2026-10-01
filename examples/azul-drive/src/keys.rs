@@ -5,6 +5,162 @@
 //! menu key, type-ahead). Cmd counts as Ctrl on macOS. No azul types: the app
 //! maps azul's key codes to [`Key`] and runs the [`Command`].
 
+/// A key, as far as the file view cares (the app maps azul's key codes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Key {
+    /// A letter (lower case) or a digit.
+    Char(char),
+    Enter,
+    Back,
+    Delete,
+    Escape,
+    Tab,
+    Space,
+    Up,
+    Down,
+    Left,
+    Right,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    F2,
+    F3,
+    F5,
+    F10,
+    /// The context menu key.
+    Apps,
+    Other,
+}
+
+/// The modifiers held (`ctrl` is Ctrl or, on macOS, Cmd).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub struct Mods {
+    pub shift: bool,
+    pub ctrl: bool,
+    pub alt: bool,
+}
+
+/// How far an arrow key moves in the visible order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Step {
+    Prev,
+    Next,
+    PrevRow,
+    NextRow,
+    PageUp,
+    PageDown,
+    First,
+    Last,
+}
+
+impl Step {
+    /// The signed distance in items: a row of a grid is `columns` items,
+    /// a page `page` items; First / Last are far enough to clamp.
+    #[must_use]
+    pub fn delta(self, columns: usize, page: usize) -> isize {
+        let columns = columns.max(1) as isize;
+        let page = page.max(1) as isize;
+        match self {
+            Step::Prev => -1,
+            Step::Next => 1,
+            Step::PrevRow => -columns,
+            Step::NextRow => columns,
+            Step::PageUp => -page,
+            Step::PageDown => page,
+            Step::First => isize::MIN / 2,
+            Step::Last => isize::MAX / 2,
+        }
+    }
+}
+
+/// What a key does in the file view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Command {
+    Open,
+    Properties,
+    Up,
+    Back,
+    Forward,
+    Refresh,
+    Search,
+    Escape,
+    Rename,
+    Delete,
+    DeletePermanently,
+    Copy,
+    Cut,
+    Paste,
+    SelectAll,
+    Undo,
+    NewFolder,
+    ContextMenu,
+    /// An arrow / Home / End / Page key: Shift extends, Ctrl keeps the
+    /// selection and moves only the focus.
+    Move {
+        step: Step,
+        extend: bool,
+        keep: bool,
+    },
+    /// Ctrl+Space.
+    ToggleFocused,
+    /// A letter or digit typed: jump to the name starting with it.
+    TypeAhead(char),
+}
+
+/// Explorer's keyboard.
+#[must_use]
+pub fn command_for(key: Key, mods: Mods) -> Option<Command> {
+    let Mods { shift, ctrl, alt } = mods;
+    let plain_ctrl = ctrl && !alt && !shift;
+    let step = match key {
+        Key::Up => Some(Step::PrevRow),
+        Key::Down => Some(Step::NextRow),
+        Key::Left => Some(Step::Prev),
+        Key::Right => Some(Step::Next),
+        Key::Home => Some(Step::First),
+        Key::End => Some(Step::Last),
+        Key::PageUp => Some(Step::PageUp),
+        Key::PageDown => Some(Step::PageDown),
+        _ => None,
+    };
+    let command = match key {
+        Key::Enter if alt => Command::Properties,
+        Key::Enter => Command::Open,
+        Key::Back if !ctrl && !alt => Command::Up,
+        Key::Up if alt => Command::Up,
+        Key::Left if alt => Command::Back,
+        Key::Right if alt => Command::Forward,
+        Key::F5 => Command::Refresh,
+        Key::F3 => Command::Search,
+        Key::Escape => Command::Escape,
+        Key::F2 => Command::Rename,
+        Key::Delete if shift => Command::DeletePermanently,
+        Key::Delete => Command::Delete,
+        Key::Apps => Command::ContextMenu,
+        Key::F10 if shift => Command::ContextMenu,
+        Key::Space if ctrl => Command::ToggleFocused,
+        Key::Char('n') if ctrl && shift && !alt => Command::NewFolder,
+        Key::Char('r') if plain_ctrl => Command::Refresh,
+        Key::Char('f' | 'e') if plain_ctrl => Command::Search,
+        Key::Char('c') if plain_ctrl => Command::Copy,
+        Key::Char('x') if plain_ctrl => Command::Cut,
+        Key::Char('v') if plain_ctrl => Command::Paste,
+        Key::Char('a') if plain_ctrl => Command::SelectAll,
+        Key::Char('z') if plain_ctrl => Command::Undo,
+        Key::Char(c) if !ctrl && !alt => Command::TypeAhead(c),
+        _ => match step {
+            Some(step) if !alt => Command::Move {
+                step,
+                extend: shift,
+                keep: ctrl,
+            },
+            _ => return None,
+        },
+    };
+    Some(command)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

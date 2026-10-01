@@ -46,6 +46,8 @@ dependencies = [
  "azul-dll",
  "azul-storage",
  "chrono",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

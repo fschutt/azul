@@ -8,24 +8,40 @@ use azul_storage::{
     config::{DriveAuth, DriveEntry, DriveLocation},
     key, sigv4, Credentials, HttpCall, HttpReply, ListPage, S3Config, S3Drive, Transport,
 };
+use serde::{Deserialize, Serialize};
 
-/// A column of the file list.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A column of the Details layout: Explorer's four, and the two "Add
+/// columns" offers (the key, an S3 object's ETag).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Column {
     Name,
-    Size,
     Modified,
+    Type,
+    Size,
+    Path,
+    Tag,
 }
 
 impl Column {
-    pub const ALL: [Column; 3] = [Column::Name, Column::Size, Column::Modified];
+    pub const ALL: [Column; 6] = [
+        Column::Name,
+        Column::Modified,
+        Column::Type,
+        Column::Size,
+        Column::Path,
+        Column::Tag,
+    ];
 
     #[must_use]
     pub fn index(self) -> usize {
         match self {
             Column::Name => 0,
-            Column::Size => 1,
-            Column::Modified => 2,
+            Column::Modified => 1,
+            Column::Type => 2,
+            Column::Size => 3,
+            Column::Path => 4,
+            Column::Tag => 5,
         }
     }
 
@@ -38,14 +54,17 @@ impl Column {
     pub fn label(self) -> &'static str {
         match self {
             Column::Name => "Name",
+            Column::Modified => "Date modified",
+            Column::Type => "Type",
             Column::Size => "Size",
-            Column::Modified => "Modified",
+            Column::Path => "Folder path",
+            Column::Tag => "ETag",
         }
     }
 }
 
 /// The order of the list: a column, up or down. Folders always come first.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Sort {
     pub column: Column,
     pub descending: bool,
@@ -84,6 +103,8 @@ pub struct Entry {
     pub size: Option<u64>,
     /// Seconds since 1970; `None` when unknown (and for folders).
     pub modified: Option<u64>,
+    /// An S3 object's entity tag, when the listing has one.
+    pub etag: Option<String>,
 }
 
 impl Entry {
@@ -95,6 +116,80 @@ impl Entry {
         } else {
             self.name.clone()
         }
+    }
+
+    /// The name as Explorer shows it: without the extension when
+    /// "File name extensions" is off (a folder keeps its whole name).
+    #[must_use]
+    pub fn display_name(&self, show_extensions: bool) -> String {
+        if show_extensions || self.is_folder {
+            return self.name.clone();
+        }
+        match extension_of(&self.name) {
+            Some(ext) => self.name[..self.name.len() - ext.len() - 1].to_string(),
+            None => self.name.clone(),
+        }
+    }
+
+    /// The Type column: "File folder", "Text Document", "RS File".
+    #[must_use]
+    pub fn kind(&self) -> String {
+        kind_of(&self.name, self.is_folder)
+    }
+
+    /// A hidden item: its name starts with a dot (the trash folder too).
+    #[must_use]
+    pub fn is_hidden(&self) -> bool {
+        self.name.starts_with('.')
+    }
+}
+
+/// The extension of a file name, without its dot and without case folding:
+/// `photo.JPG` -> `JPG`; `.env` and `README` have none.
+#[must_use]
+pub fn extension_of(name: &str) -> Option<&str> {
+    match name.rfind('.') {
+        Some(i) if i > 0 && i + 1 < name.len() => Some(&name[i + 1..]),
+        _ => None,
+    }
+}
+
+/// What Explorer's Type column says for a name.
+#[must_use]
+pub fn kind_of(name: &str, is_folder: bool) -> String {
+    if is_folder {
+        return String::from("File folder");
+    }
+    let Some(ext) = extension_of(name) else {
+        return String::from("File");
+    };
+    let known = match ext.to_ascii_lowercase().as_str() {
+        "txt" => "Text Document",
+        "md" => "Markdown File",
+        "pdf" => "PDF Document",
+        "jpg" | "jpeg" => "JPEG image",
+        "png" => "PNG image",
+        "gif" => "GIF image",
+        "bmp" => "BMP image",
+        "webp" => "WEBP image",
+        "svg" => "SVG Document",
+        "mp4" | "m4v" | "mov" => "Video",
+        "mp3" | "wav" | "flac" | "ogg" | "m4a" => "Audio",
+        "zip" => "Compressed (zipped) Folder",
+        "html" | "htm" => "HTML Document",
+        "json" => "JSON File",
+        "csv" => "CSV File",
+        "eml" => "E-mail Message",
+        "ics" => "iCalendar File",
+        "docx" => "Word Document",
+        "xlsx" => "Excel Worksheet",
+        "pptx" => "PowerPoint Presentation",
+        _ => "",
+    };
+    if known.is_empty() {
+        format!("{} File", ext.to_ascii_uppercase())
+    } else {
+        known.to_string()
     }
 }
 
@@ -110,6 +205,7 @@ pub fn entries_of(page: &ListPage, prefix: &str) -> Vec<Entry> {
             is_folder: true,
             size: None,
             modified: None,
+            etag: None,
         })
     });
     // A key ending in `/` is a "folder marker" object some tools write: the folder
@@ -124,6 +220,7 @@ pub fn entries_of(page: &ListPage, prefix: &str) -> Vec<Entry> {
             is_folder: false,
             size: Some(object.size),
             modified: object.modified,
+            etag: object.etag.clone(),
         });
     folders.chain(files).collect()
 }
@@ -146,6 +243,9 @@ pub fn sort_entries(entries: &mut [Entry], sort: Sort) {
                     Column::Name => compare_names(a, b),
                     Column::Size => a.size.cmp(&b.size),
                     Column::Modified => a.modified.cmp(&b.modified),
+                    Column::Type => a.kind().cmp(&b.kind()),
+                    Column::Path => a.key.cmp(&b.key),
+                    Column::Tag => a.etag.cmp(&b.etag),
                 };
                 if sort.descending {
                     by_column.reverse()
@@ -189,10 +289,12 @@ where
         .unwrap_or_default()
 }
 
-/// Where the window is: the "This PC" overview of the drives, or a folder of
-/// one drive (`prefix` `""` = its root).
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Where the window is: Quick access (the pinned folders), the "This PC"
+/// overview of the drives, or a folder of one drive (`prefix` `""` = its
+/// root).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Place {
+    QuickAccess,
     ThisPc,
     Folder { drive: String, prefix: String },
 }
@@ -268,11 +370,15 @@ pub fn matches_search(entry: &Entry, search: &str) -> bool {
 /// The overview of the drives, as the address bar names it.
 pub const THIS_PC: &str = "This PC";
 
+/// The pinned folders, as the address bar names them.
+pub const QUICK_ACCESS: &str = "Quick access";
+
 /// The address bar's editable text for `place`: `This PC`, `Home`,
 /// `Home/mail/inbox`.
 #[must_use]
 pub fn path_text(place: &Place, drive_name: Option<&str>) -> String {
     match place {
+        Place::QuickAccess => QUICK_ACCESS.to_string(),
         Place::ThisPc => THIS_PC.to_string(),
         Place::Folder { drive, prefix } => {
             let name = drive_name.unwrap_or(drive);
@@ -291,6 +397,9 @@ pub fn path_text(place: &Place, drive_name: Option<&str>) -> String {
 /// `None` for an unknown drive. `drives` are `(id, name)`.
 #[must_use]
 pub fn parse_path(text: &str, drives: &[(String, String)]) -> Option<Place> {
+    if text.trim().eq_ignore_ascii_case(QUICK_ACCESS) {
+        return Some(Place::QuickAccess);
+    }
     let text = text.trim().replace('\\', "/");
     let mut parts = text
         .split('/')
@@ -322,6 +431,9 @@ pub fn parse_path(text: &str, drives: &[(String, String)]) -> Option<Place> {
 /// open one.
 #[must_use]
 pub fn crumbs_of(place: &Place, drive_name: &str) -> Vec<(String, Place)> {
+    if *place == Place::QuickAccess {
+        return vec![(QUICK_ACCESS.to_string(), Place::QuickAccess)];
+    }
     let mut trail = vec![(THIS_PC.to_string(), Place::ThisPc)];
     if let Place::Folder { drive, prefix } = place {
         trail.push((drive_name.to_string(), Place::folder(drive, "")));
