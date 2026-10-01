@@ -225,9 +225,6 @@ impl ShortcutRecorder {
     /// `StartRecording` and ends on everything else; `Recorded` sets the
     /// shortcut, `Cleared` removes it.
     pub fn apply(&mut self, event: ShortcutRecorderEvent) {
-        if true {
-            return;
-        } // RED stub
         match event.kind {
             ShortcutRecorderEventKind::StartRecording => self.recording = true,
             ShortcutRecorderEventKind::Recorded => {
@@ -247,9 +244,6 @@ impl ShortcutRecorder {
     /// shortcut, else the placeholder.
     #[must_use]
     pub fn display_text(&self) -> AzString {
-        if true {
-            return AzString::from_const_str("");
-        } // RED stub
         if self.recording {
             self.prompt.clone()
         } else if self.has_hotkey {
@@ -447,9 +441,6 @@ fn hook(event: EventFilter, cb: usize, refany: RefAny) -> CoreCallbackData {
 
 /// The field's DOM in `look`: field [text].
 pub(crate) fn build(recorder: ShortcutRecorder, look: &DialogKitLook) -> Dom {
-    if true {
-        return Dom::create_div();
-    } // RED stub
     let text = recorder.display_text();
     let ShortcutRecorder {
         placeholder: _,
