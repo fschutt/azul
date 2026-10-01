@@ -32,10 +32,9 @@ Branch `wt/mail2` from `39092feee`. Worktree
   (`1d0bed92d`/`6f5e2cf8f`: `HeadlessWindow::pump_once(is_root)`, `pump_children`,
   `children` field); RefreshDomAllWindows from timers/threads fans out RED/GREEN
   (`ad1e4078b`/`86d6846e3`).
-- NEXT (step 4 rest): the debug server reaches every window (`window_id` routing instead of
-  "consumed by the wrong window"; a debug timer on windows created at runtime) -
-  `layout/src/e2e/full.rs` debug timer + `dll/src/desktop/shell2/common/debug_server/platform.rs`
-  (+ stub.rs twin) + headless `pump_children` registering it. RED first. Then step 5 E2E
+- Debug server routing RED/GREEN (`7c027543e`/`6720b7c24`), runtime windows get the debug
+  timer (`aa05c82dd`: headless, macOS x2, Windows, X11, Wayland).
+- NEXT: step 5 E2E
   (`scripts/azmail_e2e.py`, sink = SEND's `scripts/azmail_smtp_sink.py <port> <out_dir>`,
   prints `AZMAIL_SINK_READY <port>`, writes `<nnnn>.eml` + `.json`), then update MAIL1's
   `examples/azul-mail/scripts/sync_e2e.py` to the wizard, then the report.
