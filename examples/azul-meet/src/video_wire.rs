@@ -457,15 +457,18 @@ pub struct KeyframeStats {
 /// answers a forced frame with a P-frame cannot force keyframes: it is reopened, since a new
 /// encoder starts with a keyframe; [`MAX_REOPENS`] reopens in a row without one give H.264 up.
 ///
-/// This expects one packet per submitted frame, as VideoToolbox gives.
+/// This expects one packet per submitted frame, in order, as VideoToolbox gives - but not at
+/// once: the encoder works on its own thread, so the packets of up to [`OUTPUT_LAG_PACKETS`]
+/// frames submitted before a forced one may come out ahead of it.
 #[derive(Debug, Default)]
 pub struct KeyframePolicy {
     /// Someone asked for a keyframe that has not come out yet.
     pending: bool,
     last_keyframe_ms: Option<u64>,
     last_forced_ms: Option<u64>,
-    /// A keyframe was forced and the next packet should be one.
-    awaiting: bool,
+    /// A keyframe was forced: how many more P-frames (of frames submitted before it) may come out
+    /// before its keyframe must.
+    awaiting: Option<u32>,
     reopen: bool,
     reopens_in_a_row: u32,
     stats: KeyframeStats,
@@ -500,7 +503,8 @@ impl KeyframePolicy {
             self.stats.periodic += 1;
         }
         self.last_forced_ms = Some(now_ms);
-        self.awaiting = true;
+        // Counted from the first forced frame still waiting for its keyframe.
+        self.awaiting = Some(self.awaiting.unwrap_or(OUTPUT_LAG_PACKETS));
         true
     }
 
@@ -510,12 +514,19 @@ impl KeyframePolicy {
             self.stats.keyframes += 1;
             self.last_keyframe_ms = Some(now_ms);
             self.pending = false;
-            self.awaiting = false;
+            self.awaiting = None;
             self.reopens_in_a_row = 0;
-        } else if self.awaiting {
-            // Forced, and a P-frame came out: this encoder cannot force keyframes.
-            self.awaiting = false;
-            self.reopen = true;
+        } else {
+            match self.awaiting {
+                // A P-frame of a frame submitted before the forced one.
+                Some(left) if left > 0 => self.awaiting = Some(left - 1),
+                // Forced, and its own packet was a P-frame: this encoder cannot force keyframes.
+                Some(_) => {
+                    self.awaiting = None;
+                    self.reopen = true;
+                }
+                None => {}
+            }
         }
     }
 
@@ -527,7 +538,7 @@ impl KeyframePolicy {
     /// The encoder was reopened (or opened at a new size): its first frame is forced.
     pub fn reopened(&mut self) {
         self.reopen = false;
-        self.awaiting = false;
+        self.awaiting = None;
         self.last_keyframe_ms = None;
         self.reopens_in_a_row += 1;
         self.stats.reopened += 1;
@@ -688,8 +699,12 @@ impl PatternClock {
 /// today), never the default: a Mac peer whose caps came a moment after its first frames used
 /// to get those as JPEG.
 pub fn wire_codec(sender_encodes: bool, viewer_decodes: Option<bool>) -> Option<Codec> {
-    let _ = (sender_encodes, viewer_decodes);
-    Some(Codec::Jpeg)
+    let decodes = viewer_decodes?;
+    Some(if sender_encodes && decodes {
+        Codec::H264
+    } else {
+        Codec::Jpeg
+    })
 }
 
 /// The window's codec line: "Video: H.264 (VideoToolbox)", with "; JPEG to Ben (no H.264 decoder)"
