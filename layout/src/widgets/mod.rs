@@ -432,6 +432,14 @@ pub mod standard_dialogs;
 /// keyboard, only the clips in view rendered (a video editor's timeline, a
 /// calendar's day lanes, a slide show's animation pane); see `timeline.rs`.
 pub mod timeline;
+/// Selection adorner widget.
+///
+/// The editing layer of a canvas of objects (a slide, a page, a drawing):
+/// the selection's frame, its resize and rotate handles, the snapping guides
+/// and the marquee over the app's content, and the pointer and keyboard turned
+/// into select / move / resize / rotate / nudge events; see
+/// `selection_adorner.rs`.
+pub mod selection_adorner;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
 
@@ -1740,6 +1748,18 @@ mod label_convention {
                 .with_view_width(800.0)
                 .dom(),
             ),
+            (
+                "selection_adorner",
+                super::selection_adorner::SelectionAdorner::create(user_content(), 400.0, 300.0)
+                    .with_item(
+                        super::selection_adorner::AdornerItem::create(
+                            super::selection_adorner::AdornerFrame::create(20.0, 20.0, 100.0, 60.0),
+                        )
+                        .with_selected(true),
+                    )
+                    .with_accessibility_name(AzString::from("Slide 1"))
+                    .dom(),
+            ),
         ];
         // The app shells, each with placeholder content (`shells::fixtures`).
         all.extend(super::shells::fixtures::every_shell());
@@ -2667,6 +2687,7 @@ mod theme_contrast {
         "call_shell",
         "mobile_shell",
         "timeline",
+        "selection_adorner",
     ];
 
     /// A widget added to the manifest must land in a group, or it is simply

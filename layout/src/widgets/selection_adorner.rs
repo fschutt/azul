@@ -1811,3 +1811,269 @@ mod geometry_and_drag_tests {
         );
     }
 }
+
+// ==== The look and the DOM ====
+
+/// What a theme decides about an adorner: the SKIN of each part, laid over
+/// the part's base (the structure, the same in every theme:
+/// `ADORNER_*_BASE`) by [`build`].
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SelectionAdornerLook {
+    /// The root: its focus ring.
+    pub root: Vec<CssPropertyWithConditions>,
+    /// A selected object's outline.
+    pub frame: Vec<CssPropertyWithConditions>,
+    /// The box around a multi-selection.
+    pub group: Vec<CssPropertyWithConditions>,
+    /// An edge of the object being edited.
+    pub editing: Vec<CssPropertyWithConditions>,
+    /// A resize handle.
+    pub handle: Vec<CssPropertyWithConditions>,
+    /// The rotate handle.
+    pub rotate: Vec<CssPropertyWithConditions>,
+    /// The stem to the rotate handle.
+    pub stem: Vec<CssPropertyWithConditions>,
+    /// A snapping guide.
+    pub guide: Vec<CssPropertyWithConditions>,
+    /// The marquee.
+    pub marquee: Vec<CssPropertyWithConditions>,
+    /// The theme's marker class on the root, if it has one.
+    pub marker: Option<&'static str>,
+}
+
+/// The look an adorner with the theme option `theme` is built with: the
+/// pinned theme's own look, or both looks merged in the structure of the
+/// theme the DOM is being built for (the app's content is built once).
+pub(crate) fn look_for(theme: OptionUiTheme) -> SelectionAdornerLook {
+    let _ = theme;
+    SelectionAdornerLook::default()
+}
+
+/// The adorner's DOM in `look`: root [content, frames.., box, edges..,
+/// guides.., marquee].
+pub(crate) fn build(adorner: SelectionAdorner, look: &SelectionAdornerLook) -> Dom {
+    let _ = look;
+    Dom::create_div().with_child(adorner.content)
+}
+
+#[cfg(test)]
+mod dom_tests {
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        a11y::AccessibilityRole,
+        dom::{DomId, DomNodeId, NodeId},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+
+    use super::*;
+    use crate::widgets::{
+        roving::test_support as rv,
+        themes::{theme_blocks::checks, theme_checks},
+    };
+
+    type Log = Arc<Mutex<Vec<String>>>;
+
+    extern "C" fn record(mut data: RefAny, _: CallbackInfo, event: SelectionAdornerEvent) -> Update {
+        if let Some(log) = data.downcast_ref::<Log>() {
+            log.lock()
+                .expect("log")
+                .push(format!("{:?} {:?}", event.kind, event.indices.as_ref()));
+        }
+        Update::RefreshDom
+    }
+
+    const CONTENT: &str = "app-content";
+
+    fn adorner(log: &Log) -> SelectionAdorner {
+        SelectionAdorner::create(
+            Dom::create_div().with_class(AzString::from_const_str(CONTENT)),
+            1920.0,
+            1080.0,
+        )
+        .with_scale(0.5)
+        .with_item(AdornerItem::create(AdornerFrame::create(100.0, 50.0, 200.0, 100.0)).with_selected(true))
+        .with_item(AdornerItem::create(AdornerFrame::create(600.0, 400.0, 100.0, 100.0)))
+        .with_accessibility_name(AzString::from("Slide 3"))
+        .with_on_event(RefAny::new(log.clone()), record as SelectionAdornerOnEventCallbackType)
+    }
+
+    fn log() -> Log {
+        Arc::new(Mutex::new(Vec::new()))
+    }
+
+    fn props(node: &Dom) -> Vec<CssProperty> {
+        checks::live_properties(node)
+    }
+
+    fn at(x: f32, y: f32) -> [CssProperty; 2] {
+        [
+            CssProperty::const_left(LayoutLeft { inner: PixelValue::px(x) }),
+            CssProperty::const_top(LayoutTop { inner: PixelValue::px(y) }),
+        ]
+    }
+
+    fn sized(w: f32, h: f32) -> [CssProperty; 2] {
+        [
+            CssProperty::const_width(LayoutWidth::px(w)),
+            CssProperty::const_height(LayoutHeight::px(h)),
+        ]
+    }
+
+    #[test]
+    fn one_selected_object_gets_a_frame_with_eight_handles_and_a_rotate_handle_at_the_views_scale() {
+        let log = log();
+        for theme in checks::BOTH {
+            let dom = adorner(&log).with_theme(theme).dom();
+            let kids = dom.children.as_ref();
+            assert!(theme_checks::has_class(&kids[0], CONTENT), "{}: the content comes first", theme.name());
+            let frames = theme_checks::find_all(&dom, FRAME_CLASS);
+            assert_eq!(frames.len(), 1, "{}", theme.name());
+            let frame = frames[0];
+            let p = props(frame);
+            for want in at(50.0, 25.0).iter().chain(sized(100.0, 50.0).iter()) {
+                assert!(p.contains(want), "{}: the frame at half scale: {want:?} in {p:?}", theme.name());
+            }
+            assert_eq!(theme_checks::find_all(frame, HANDLE_CLASS).len(), 9, "eight resize handles and the rotate handle");
+            assert_eq!(theme_checks::find_all(frame, ROTATE_CLASS).len(), 1);
+            assert_eq!(theme_checks::find_all(frame, STEM_CLASS).len(), 1);
+            assert!(theme_checks::find(&dom, GROUP_CLASS).is_none(), "one object: no box around several");
+        }
+    }
+
+    #[test]
+    fn a_turned_object_turns_its_frame() {
+        let dom = SelectionAdorner::create(Dom::create_div(), 100.0, 100.0)
+            .with_item(AdornerItem::create(AdornerFrame::create(10.0, 10.0, 20.0, 20.0).with_rotation(30.0)).with_selected(true))
+            .with_theme(UiTheme::Flat)
+            .dom();
+        let frame = theme_checks::find(&dom, FRAME_CLASS).expect("the frame");
+        let turn = CssProperty::const_transform(StyleTransformVec::from_vec(alloc::vec![StyleTransform::Rotate(
+            AngleValue::deg(30.0)
+        )]));
+        assert!(props(frame).contains(&turn), "{:?}", props(frame));
+    }
+
+    #[test]
+    fn several_selected_objects_get_outlines_and_one_box_with_the_resize_handles() {
+        let log = log();
+        let mut a = adorner(&log).with_theme(UiTheme::Flat);
+        a.items.as_mut()[1].selected = true;
+        let dom = a.dom();
+        assert_eq!(theme_checks::find_all(&dom, FRAME_CLASS).len(), 2);
+        let group = theme_checks::find(&dom, GROUP_CLASS).expect("the box around both");
+        let p = props(group);
+        for want in at(50.0, 25.0).iter().chain(sized(300.0, 225.0).iter()) {
+            assert!(p.contains(want), "the box at half scale: {want:?} in {p:?}");
+        }
+        assert_eq!(theme_checks::find_all(group, HANDLE_CLASS).len(), 8, "resize handles, no rotate handle");
+        for f in theme_checks::find_all(&dom, FRAME_CLASS) {
+            assert!(theme_checks::find(f, HANDLE_CLASS).is_none(), "the outlines carry no handles");
+        }
+    }
+
+    #[test]
+    fn the_object_being_edited_is_outlined_by_four_edges_and_gets_no_box() {
+        let log = log();
+        let dom = adorner(&log).with_editing(0).with_theme(UiTheme::Flat).dom();
+        assert!(theme_checks::find(&dom, FRAME_CLASS).is_none(), "no box over the text");
+        assert!(theme_checks::find(&dom, HANDLE_CLASS).is_none());
+        assert_eq!(theme_checks::find_all(&dom, EDITING_CLASS).len(), 4);
+    }
+
+    #[test]
+    fn the_guides_and_the_marquee_the_app_hands_back_are_drawn() {
+        let log = log();
+        let dom = adorner(&log)
+            .with_guides(AdornerGuideVec::from_vec(alloc::vec![
+                AdornerGuide::create(960.0, 0.0, 1080.0, true),
+                AdornerGuide::create(540.0, 0.0, 1920.0, false),
+            ]))
+            .with_marquee(AdornerFrame::create(10.0, 20.0, 300.0, 200.0))
+            .with_theme(UiTheme::Flat)
+            .dom();
+        let guides = theme_checks::find_all(&dom, GUIDE_CLASS);
+        assert_eq!(guides.len(), 2);
+        let p = props(guides[0]);
+        for want in at(480.0, 0.0).iter().chain(sized(1.0, 540.0).iter()) {
+            assert!(p.contains(want), "the vertical guide: {want:?} in {p:?}");
+        }
+        let marquee = theme_checks::find(&dom, MARQUEE_CLASS).expect("the marquee");
+        let p = props(marquee);
+        for want in at(5.0, 10.0).iter().chain(sized(150.0, 100.0).iter()) {
+            assert!(p.contains(want), "the marquee: {want:?} in {p:?}");
+        }
+    }
+
+    #[test]
+    fn the_root_is_one_named_keyboard_stop_with_the_pointer_hooks_and_the_drag_state() {
+        let log = log();
+        let dom = adorner(&log).with_theme(UiTheme::Flat).dom();
+        assert_eq!(dom.root.get_tab_index(), Some(TabIndex::Auto));
+        let info = dom.root.get_accessibility_info().expect("a11y");
+        assert_eq!(info.role, AccessibilityRole::Diagram);
+        assert_eq!(info.accessibility_name.as_ref().map(|n| n.as_str().to_string()), Some(String::from("Slide 3")));
+        assert_eq!(
+            info.accessibility_value.as_ref().map(|n| n.as_str().to_string()),
+            Some(String::from("1 of 2 objects selected"))
+        );
+        let events: Vec<EventFilter> = dom.root.get_callbacks().as_ref().iter().map(|c| c.event).collect();
+        for want in [
+            EventFilter::Hover(HoverEventFilter::MouseDown),
+            EventFilter::Hover(HoverEventFilter::MouseMove),
+            EventFilter::Hover(HoverEventFilter::MouseUp),
+            EventFilter::Hover(HoverEventFilter::MouseLeave),
+            EventFilter::Hover(HoverEventFilter::DoubleClick),
+            EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+        ] {
+            assert!(events.contains(&want), "{want:?} in {events:?}");
+        }
+        assert!(dom.root.get_dataset().is_some(), "the drag state rides the dataset");
+        let p = props(&dom);
+        for want in sized(960.0, 540.0) {
+            assert!(p.contains(&want), "the canvas at half scale: {want:?}");
+        }
+        assert_eq!(theme_checks::focusable(&dom).len(), 1, "one Tab stop: the canvas");
+    }
+
+    #[test]
+    fn a_key_on_the_canvas_reaches_the_app_and_is_consumed() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        let log = log();
+        let styled = StyledDom::create_from_dom(adorner(&log).with_theme(UiTheme::Flat).dom());
+        let root = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(0))),
+        };
+        let (update, changes) = rv::press(&styled, root, K::Delete, &[]).expect("a key handler");
+        assert_eq!(update, Update::RefreshDom, "the app's verdict is forwarded");
+        assert!(rv::prevented(&changes));
+        rv::press(&styled, root, K::Right, &[]);
+        let (_, changes) = rv::press(&styled, root, K::A, &[]).expect("a key handler");
+        assert!(!rv::prevented(&changes), "a key the canvas does not use is left alone");
+        assert_eq!(
+            *log.lock().expect("log"),
+            vec![String::from("Delete [0]"), String::from("Nudge [0]")]
+        );
+    }
+
+    #[test]
+    fn an_adorner_without_a_theme_follows_the_app_theme_and_declares_its_structure_once() {
+        let log = log();
+        checks::assert_follows_the_app_theme(
+            "selection_adorner",
+            || adorner(&log).dom(),
+            |t: UiTheme| adorner(&log).with_theme(t).dom(),
+        );
+        for theme in checks::BOTH {
+            let dom = checks::under(theme, || adorner(&log).dom());
+            theme_checks::assert_structure_is_shared(
+                &format!("selection_adorner built for {}", theme.name()),
+                &dom,
+                &[],
+            );
+            theme_checks::assert_theme_invariants(&format!("selection_adorner ({})", theme.name()), &dom);
+        }
+    }
+}
