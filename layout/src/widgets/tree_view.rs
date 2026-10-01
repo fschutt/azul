@@ -98,6 +98,8 @@ const TREE_CLASS_NAME: &str = "__azul-native-tree-view";
 const TREE_ROW_CLASS_NAME: &str = "__azul-native-tree-view-row";
 /// The class of a parent row's disclosure box: the arrow's own click target.
 const TREE_TOGGLE_CLASS_NAME: &str = "__azul-native-tree-view-toggle";
+/// The class of a node's badge (the count after its label).
+const TREE_BADGE_CLASS_NAME: &str = "__azul-native-tree-view-badge";
 const TREE_TOGGLE_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str(TREE_TOGGLE_CLASS_NAME))];
 const TREE_ROW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(TREE_ROW_CLASS_NAME))];
@@ -373,6 +375,10 @@ pub struct TreeViewNode {
     /// An icon shown between the disclosure arrow and the label (a
     /// `Dom::create_icon` name: "home", "folder", "cloud"), or empty for none.
     pub icon: AzString,
+    /// A short count or mark drawn after the label in the accent ("3": a
+    /// mail folder's unread messages), or empty for none. It is part of the
+    /// row's text, so the row's name reads "Inbox 3".
+    pub badge: AzString,
     /// Whether children are visible (only meaningful when the node has
     /// children, loaded or not).
     pub is_expanded: bool,
@@ -393,6 +399,7 @@ impl TreeViewNode {
             label: label.into(),
             children: TreeViewNodeVec::from_const_slice(&[]),
             icon: AzString::from_const_str(""),
+            badge: AzString::from_const_str(""),
             is_expanded: false,
             is_selected: false,
             has_unloaded_children: false,
@@ -409,6 +416,18 @@ impl TreeViewNode {
     #[must_use]
     pub fn with_icon(mut self, icon: AzString) -> Self {
         self.set_icon(icon);
+        self
+    }
+
+    /// Draw `badge` after the label in the accent ("3"); empty for none.
+    pub fn set_badge(&mut self, badge: AzString) {
+        self.badge = badge;
+    }
+
+    /// [`Self::set_badge`] for the builder chain.
+    #[must_use]
+    pub fn with_badge(mut self, badge: AzString) -> Self {
+        self.set_badge(badge);
         self
     }
 
@@ -1786,6 +1805,7 @@ mod autotest_generated {
             label: AzString::from("root"),
             children: TreeViewNodeVec::from_vec(vec![leaf("a"), leaf("b")]),
             icon: AzString::from(""),
+            badge: AzString::from(""),
             is_expanded: false,
             is_selected: false,
             has_unloaded_children: false,
@@ -3223,5 +3243,130 @@ mod structure_tests {
             let dom = under(t, || TreeView::new(tree()).dom());
             assert_structure_is_shared(&format!("tree view, built for {}", t.name()), &dom, &[]);
         }
+    }
+}
+
+/// A node's BADGE: a short count after its label (a mail folder's unread
+/// messages, Outlook's "Inbox 3"), in the accent so it reads as a count and
+/// not as part of the name; on a selected row in the selection's ink.
+#[cfg(test)]
+mod badge_tests {
+    use azul_core::dom::{Dom, NodeType};
+
+    use super::*;
+    use crate::widgets::themes::{theme_checks as tc, UiTheme};
+
+    extern "C" fn pick(_: RefAny, _: CallbackInfo, _: usize) -> Update {
+        Update::DoNothing
+    }
+
+    /// `ada@example.org` open over `Inbox` (badge "3"), `Drafts` (no badge)
+    /// and `Sent` (selected, badge "1"): `root/0` is the account's row,
+    /// `root/1` the children container, `root/1/0..2` the folders' rows.
+    fn folders() -> TreeViewNode {
+        TreeViewNode::new("ada@example.org")
+            .with_expanded(true)
+            .with_child(TreeViewNode::new("Inbox").with_badge(AzString::from("3")))
+            .with_child(TreeViewNode::new("Drafts"))
+            .with_child(
+                TreeViewNode::new("Sent")
+                    .with_selected(true)
+                    .with_badge(AzString::from("1")),
+            )
+    }
+
+    fn built(theme: UiTheme) -> Dom {
+        TreeView::new(folders())
+            .with_on_node_click(RefAny::new(()), pick as TreeViewOnNodeClickCallbackType)
+            .with_theme(theme)
+            .dom()
+    }
+
+    fn at<'a>(dom: &'a Dom, path: &[usize]) -> &'a Dom {
+        path.iter().fold(dom, |node, i| &node.children.as_ref()[*i])
+    }
+
+    /// Every text under `node`, in document order.
+    fn texts(node: &Dom) -> Vec<String> {
+        let mut out = Vec::new();
+        if let NodeType::Text(t) = node.root.get_node_type() {
+            out.push(t.as_ref().as_str().to_string());
+        }
+        for child in node.children.as_ref() {
+            out.extend(texts(child));
+        }
+        out
+    }
+
+    #[test]
+    fn a_node_with_a_badge_shows_it_after_its_label() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = built(theme);
+            assert_eq!(
+                texts(at(&dom, &[1, 0])),
+                vec!["Inbox".to_string(), "3".to_string()],
+                "{theme:?}: the count follows the name"
+            );
+            assert_eq!(
+                texts(at(&dom, &[1, 2])),
+                vec!["Sent".to_string(), "1".to_string()],
+                "{theme:?}: a selected row keeps its count"
+            );
+        }
+    }
+
+    #[test]
+    fn a_node_without_a_badge_draws_no_badge_node() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = built(theme);
+            let drafts = at(&dom, &[1, 1]);
+            assert_eq!(texts(drafts), vec!["Drafts".to_string()]);
+            assert_eq!(
+                drafts.children.as_ref().len(),
+                2,
+                "{theme:?}: the leaf spacer and the label, nothing else"
+            );
+        }
+    }
+
+    #[test]
+    fn the_badge_is_written_in_the_accent_and_on_the_selection_in_its_ink() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = built(theme);
+            let inbox = at(&dom, &[1, 0]);
+            assert_eq!(inbox.children.as_ref().len(), 3, "{theme:?}: spacer, label, badge");
+            let (label, badge) = (at(inbox, &[1]), at(inbox, &[2]));
+            assert!(
+                tc::has_class(badge, TREE_BADGE_CLASS_NAME),
+                "{theme:?}: the badge is findable by its class"
+            );
+            for dark in [false, true] {
+                let ink = tc::text_color(badge, dark);
+                assert!(ink.is_some(), "{theme:?} dark={dark}: the badge has its own ink");
+                assert_ne!(
+                    ink,
+                    tc::text_color(label, dark),
+                    "{theme:?} dark={dark}: the count is not written like the name"
+                );
+            }
+            let sent = at(&dom, &[1, 2]);
+            assert_eq!(sent.children.as_ref().len(), 3, "{theme:?}: spacer, label, badge");
+            for dark in [false, true] {
+                assert_eq!(
+                    tc::text_color(at(sent, &[2]), dark),
+                    tc::text_color(at(sent, &[1]), dark),
+                    "{theme:?} dark={dark}: on the selection the count takes the label's ink"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn set_badge_and_with_badge_agree() {
+        let mut a = TreeViewNode::new("Inbox");
+        a.set_badge(AzString::from("12"));
+        assert_eq!(a, TreeViewNode::new("Inbox").with_badge(AzString::from("12")));
+        assert_eq!(a.badge.as_str(), "12");
+        assert_eq!(TreeViewNode::new("Inbox").badge.as_str(), "", "no badge by default");
     }
 }
