@@ -180,6 +180,11 @@ impl LanguageGenerator for RustGenerator {
         let functions = self.generate_functions(ir, config)?;
         builder.raw(&functions);
 
+        // ABI guard: the library's `AzAbi_getHash` export, or the binding's
+        // check against it (`abi_guard`).
+        builder.line("// --- ABI Guard ---");
+        builder.raw(&super::abi_guard::rust_items(ir, config));
+
         // End module wrappers
         builder.dedent();
         builder.line("} // mod dll");
@@ -678,11 +683,20 @@ impl RustGenerator {
         // Generate for ALL builds - always use AzString_copyFromBytes to avoid leaking struct
         // details
 
+        // Both impls are constructors that enter libazul: in a binding they
+        // check its ABI first (`abi_guard`; `RefAny::new` reaches libazul
+        // through here before anything else does).
+        let string_from_checks =
+            super::abi_guard::rust_wrapper_checks(config, FunctionKind::Constructor);
+
         // From<&str> for AzString
         builder.line(&format!("impl From<&str> for {}String {{", prefix));
         builder.indent();
         builder.line("fn from(s: &str) -> Self {");
         builder.indent();
+        if string_from_checks {
+            builder.line(super::abi_guard::RUST_CHECK_CALL);
+        }
         builder.line(&format!(
             "unsafe {{ {}(s.as_ptr(), 0, s.len()) }}",
             // allow-api-name: building an AzString from Rust bytes IS the
@@ -703,6 +717,9 @@ impl RustGenerator {
         builder.indent();
         builder.line("fn from(s: alloc::string::String) -> Self {");
         builder.indent();
+        if string_from_checks {
+            builder.line(super::abi_guard::RUST_CHECK_CALL);
+        }
         builder.line(&format!(
             "unsafe {{ {}(s.as_ptr(), 0, s.len()) }}",
             // allow-api-name: building an AzString from Rust bytes IS the
@@ -2330,13 +2347,22 @@ impl RustGenerator {
             format!("<{}>", generic_params.join(", "))
         };
 
+        // A binding's constructors and static methods check the loaded
+        // libazul's ABI hash before entering it (`abi_guard`).
+        let abi_check = if super::abi_guard::rust_wrapper_checks(config, func.kind) {
+            format!("{} ", super::abi_guard::RUST_CHECK_CALL)
+        } else {
+            String::new()
+        };
+
         // Generate the method
         builder.line(&format!(
-            "pub fn {}{}({}){} {{ unsafe {{ {}({}) }} }}",
+            "pub fn {}{}({}){} {{ {}unsafe {{ {}({}) }} }}",
             method_name,
             generics,
             args.join(", "),
             return_type,
+            abi_check,
             c_func_name,
             call_args.join(", ")
         ));
@@ -2421,6 +2447,10 @@ impl RustGenerator {
         let functions = self.generate_functions(ir, config)?;
         builder.raw(&functions);
         builder.blank();
+
+        // ABI guard: the method impls below call `az_abi_check()`.
+        builder.line("// --- ABI Guard ---");
+        builder.raw(&super::abi_guard::rust_items(ir, config));
 
         // Trait implementations (if using derive, they're already on types)
         if !matches!(config.trait_impl_mode, TraitImplMode::UsingDerive) {

@@ -48,7 +48,7 @@ fn version() -> &'static VersionData {
         .expect("latest version")
 }
 
-fn ir() -> &'static CodegenIR {
+pub(super) fn ir() -> &'static CodegenIR {
     static IR: OnceLock<CodegenIR> = OnceLock::new();
     IR.get_or_init(|| super::build_ir_from_api(api()).expect("IR builds"))
 }

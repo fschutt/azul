@@ -184,6 +184,9 @@ impl LanguageGenerator for CGenerator {
         let functions = self.generate_functions(ir, config)?;
         builder.raw(&functions);
 
+        // ABI guard: AZ_ABI_HASH, AzAbi_getHash, AzAbi_check (run at load)
+        builder.raw(&super::abi_guard::c_items(ir));
+
         // Enum variant checker functions (is{Variant}())
         self.generate_enum_variant_checkers(&mut builder, ir, config);
 
@@ -375,6 +378,9 @@ impl CGenerator {
         builder.line("/* strlen() - used by the AZ_STR convenience macro */");
         builder.line("#include <string.h>");
         builder.blank();
+
+        // The ABI guard's includes, outside the `extern "C"` block below.
+        builder.raw(&super::abi_guard::c_includes());
 
         // DLL import/export macros
         builder.line("/* cross-platform define for __declspec(dllimport) */");

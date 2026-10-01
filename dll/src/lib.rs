@@ -420,3 +420,8 @@ mod memtest {
         "/../target/codegen/memtest.rs"
     ));
 }
+
+// The ABI guard's runtime half: the generated `AzAbi_getHash` export and the
+// check every binding runs before its first call (doc/src/codegen/v2/abi_guard.rs).
+#[cfg(all(test, feature = "cabi_internal"))]
+mod abi_guard_tests;
