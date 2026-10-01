@@ -24,7 +24,8 @@ use azul::{
     callbacks::{
         ButtonOnClickCallbackType, DropDownOnChoiceChangeCallbackType,
         SegmentedOnChangeCallbackType, ShellSettingsLayoutOnCategoryCallbackType,
-        TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallbackType,
+        TextInputOnFocusLostCallbackType, TextInputOnTextInputCallbackType,
+        TextInputOnVirtualKeyDownCallbackType,
     },
     camera::CameraConfig,
     image::{ImageRef, RawImageFormat},
@@ -121,10 +122,16 @@ pub(crate) struct SettingsView {
     pub speaker_choice: usize,
     pub cameras: Vec<String>,
     pub camera_choice: usize,
-    /// `Quality::labels` index.
+    /// `QUALITY_LABELS` index.
     pub quality: usize,
+    /// 0 flat, 1 flora.
+    pub theme: usize,
+    /// 0 system, 1 light, 2 dark.
+    pub mode: usize,
     pub server: String,
     pub name: String,
+    /// "Video: H.264 (VideoToolbox)".
+    pub codec: String,
 }
 
 /// Everything the window shows.
@@ -190,6 +197,7 @@ pub(crate) struct Actions {
     pub name_text: TextInputOnTextInputCallbackType,
     pub server_text: TextInputOnTextInputCallbackType,
     pub server_key: TextInputOnVirtualKeyDownCallbackType,
+    pub server_blur: TextInputOnFocusLostCallbackType,
     pub join_text: TextInputOnTextInputCallbackType,
     pub new_meeting: ButtonOnClickCallbackType,
     pub join: ButtonOnClickCallbackType,
@@ -592,4 +600,315 @@ fn level_meter(view: &CallView, data: &RefAny) -> Dom {
                     crate::meter_unmounted,
                 ),
         )
+}
+
+// ==== The controls bar ====
+
+/// A control: a button with an id (the E2E finds it), primary while `on`.
+fn control(label: &str, id: &str, on: bool, data: &RefAny, action: ButtonOnClickCallbackType) -> Dom {
+    let kind = if on {
+        ButtonType::Primary
+    } else {
+        ButtonType::Default
+    };
+    Button::with_type(label, kind)
+        .with_on_click(data.clone(), action)
+        .dom()
+        .with_id(AzString::from(id))
+        .with_css("margin: 0px 4px; flex-shrink: 0;")
+}
+
+/// The controls bar: the microphone and the camera (the lobby stops there, with the settings),
+/// then sharing, deafening, the view, the settings and Leave.
+fn controls(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
+    let mut row = Dom::create_div()
+        .with_css(
+            "display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; \
+             justify-content: center; padding: 8px;",
+        )
+        .with_child(control(
+            if view.mic { "Mute" } else { "Unmute" },
+            "azmeet-mic",
+            view.mic,
+            data,
+            actions.mic,
+        ))
+        .with_child(control(
+            match (view.cam, view.cam_culled) {
+                (true, true) => "Stop video (not shown to anyone)",
+                (true, false) => "Stop video",
+                (false, _) => "Start video",
+            },
+            "azmeet-cam",
+            view.cam,
+            data,
+            actions.cam,
+        ));
+    if view.screen == UiScreen::Call {
+        row = row
+            .with_child(control(
+                if view.screen_on {
+                    "Stop sharing"
+                } else {
+                    "Share screen"
+                },
+                "azmeet-share",
+                view.screen_on,
+                data,
+                actions.share,
+            ))
+            .with_child(control(
+                if view.deafened { "Undeafen" } else { "Deafen" },
+                "azmeet-deafen",
+                view.deafened,
+                data,
+                actions.deafen,
+            ))
+            .with_child(control(
+                if view.speaker_view {
+                    "Gallery view"
+                } else {
+                    "Speaker view"
+                },
+                "azmeet-view",
+                false,
+                data,
+                actions.view,
+            ));
+        if view.video_debug {
+            row = row.with_child(control(
+                "Drop a video packet",
+                "azmeet-drop",
+                false,
+                data,
+                actions.drop_packet,
+            ));
+        }
+    }
+    row = row.with_child(control("Settings", "azmeet-settings", false, data, actions.settings));
+    if view.screen == UiScreen::Call && view.in_room {
+        row = row.with_child(
+            Button::with_type("Leave", ButtonType::Danger)
+                .with_on_click(data.clone(), actions.leave)
+                .dom()
+                .with_id(AzString::from("azmeet-leave"))
+                .with_css("margin: 0px 4px 0px 16px; flex-shrink: 0;"),
+        );
+    }
+    row
+}
+
+// ==== The lobby ====
+
+/// The lobby: the shell with this side's camera preview as its one tile, the join form in the
+/// side panel, the level meter under it, the microphone and camera switches below.
+fn lobby(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
+    let me = TileView {
+        kind: TileKind::Camera,
+        me: true,
+        name: view.name.clone(),
+        marker: None,
+        muted: !view.mic,
+        speaking: false,
+    };
+    CallShell::create(
+        DomVec::from_vec(vec![tile(view, &me, data)]),
+        controls(view, data, actions),
+    )
+    .with_header(header(view))
+    .with_side_panel(join_form(view, data, actions))
+    .with_devices(devices(view, data, actions))
+    .dom()
+}
+
+/// A labelled field of the join form.
+fn labelled(label: &str, field: Dom) -> Dom {
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column; margin-bottom: 12px; min-width: 0px;")
+        .with_child(text(label, "font-size: 12px; margin-bottom: 4px;"))
+        .with_child(field)
+}
+
+/// The join form: name, meeting server (and whether it answers), "New meeting", and joining
+/// with a link.
+fn join_form(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
+    let Some(lobby) = &view.lobby else {
+        return Dom::create_div();
+    };
+    let name = TextInput::create()
+        .with_text(view.name.as_str())
+        .with_placeholder("Your name")
+        .with_on_text_input(data.clone(), actions.name_text)
+        .dom()
+        .with_id(AzString::from("azmeet-name"));
+    let server = TextInput::create()
+        .with_text(lobby.server_text.as_str())
+        .with_placeholder(crate::rooms::LOCAL_WORKER)
+        .with_on_text_input(data.clone(), actions.server_text)
+        .with_on_virtual_key_down(data.clone(), actions.server_key)
+        .with_on_focus_lost(data.clone(), actions.server_blur)
+        .dom()
+        .with_id(AzString::from("azmeet-server"));
+    let join_field = TextInput::create()
+        .with_text(lobby.join_text.as_str())
+        .with_placeholder("azlin://meet/... or a code")
+        .with_on_text_input(data.clone(), actions.join_text)
+        .dom()
+        .with_css(CHAT_FIELD)
+        .with_id(AzString::from("azmeet-join-field"));
+    Dom::create_div()
+        .with_css(PANEL_SCROLL)
+        .with_child(text("Ready to join?", "font-size: 18px; margin-bottom: 12px;"))
+        .with_child(labelled("Your name", name))
+        .with_child(labelled("Meeting server", server))
+        .with_child(text(
+            &lobby.server_status,
+            if lobby.server_ok {
+                "font-size: 12px; color: system:secondary-text; margin: -8px 0px 12px 0px;"
+            } else {
+                "font-size: 12px; color: system:accent; margin: -8px 0px 12px 0px;"
+            },
+        ))
+        .with_child(
+            Button::with_type(
+                if lobby.opening {
+                    "Please wait..."
+                } else {
+                    "New meeting"
+                },
+                ButtonType::Primary,
+            )
+            .with_on_click(data.clone(), actions.new_meeting)
+            .dom()
+            .with_id(AzString::from("azmeet-new"))
+            .with_css("margin-bottom: 16px;"),
+        )
+        .with_child(labelled(
+            "Join with a link",
+            Dom::create_div()
+                .with_css(ROW)
+                .with_child(join_field)
+                .with_child(
+                    Button::create("Join")
+                        .with_on_click(data.clone(), actions.join)
+                        .dom()
+                        .with_id(AzString::from("azmeet-join")),
+                ),
+        ))
+}
+
+// ==== The settings ====
+
+/// The settings' categories, in order.
+pub(crate) const SETTINGS_CATEGORIES: [&str; 4] = ["Devices", "Video", "Appearance", "About"];
+
+/// The video quality choices, in `Quality` order.
+pub(crate) const QUALITY_LABELS: [&str; 3] = [
+    "Automatic (up to 720p)",
+    "Data saver (up to 360p)",
+    "Low (up to 180p)",
+];
+
+/// The settings on the shell's settings layout: the active category's section, and Back.
+fn settings(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
+    let s = &view.settings;
+    let category = s.category.min(SETTINGS_CATEGORIES.len() - 1);
+    let section = match category {
+        0 => ShellSettingsSection::create(
+            AzString::from("Devices"),
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: column;")
+                .with_child(labelled(
+                    "Microphone",
+                    choice(&s.mics, s.mic_choice, "Microphone", data, actions.mic_choice),
+                ))
+                .with_child(labelled(
+                    "Speaker",
+                    choice(&s.speakers, s.speaker_choice, "Speaker", data, actions.speaker_choice),
+                ))
+                .with_child(labelled(
+                    "Camera",
+                    choice(&s.cameras, s.camera_choice, "Camera", data, actions.camera_choice),
+                )),
+        ),
+        1 => ShellSettingsSection::create(
+            AzString::from("Video"),
+            labelled(
+                "Video I receive",
+                choice(
+                    &QUALITY_LABELS.map(String::from),
+                    s.quality,
+                    "Video quality",
+                    data,
+                    actions.quality,
+                ),
+            ),
+        ),
+        2 => ShellSettingsSection::create(
+            AzString::from("Appearance"),
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: column;")
+                .with_child(labelled(
+                    "Theme",
+                    Segmented::create(strings(&[String::from("Flat"), String::from("Flora")]))
+                        .with_selected_index(s.theme)
+                        .with_on_change(data.clone(), actions.theme)
+                        .dom(),
+                ))
+                .with_child(labelled(
+                    "Light or dark",
+                    Segmented::create(strings(&[
+                        String::from("System"),
+                        String::from("Light"),
+                        String::from("Dark"),
+                    ]))
+                    .with_selected_index(s.mode)
+                    .with_on_change(data.clone(), actions.mode)
+                    .dom(),
+                )),
+        ),
+        _ => ShellSettingsSection::create(
+            AzString::from("About"),
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: column;")
+                .with_child(text("AzMeet - video meetings over azul.iroh", "font-size: 13px;"))
+                .with_child(text(&format!("You appear as {}", s.name), SECONDARY))
+                .with_child(text(&format!("Meeting server: {}", s.server), SECONDARY))
+                .with_child(text(&s.codec, SECONDARY)),
+        ),
+    };
+    let layout = ShellSettingsLayout::create(StringVec::from_vec(
+        SETTINGS_CATEGORIES.iter().map(|c| AzString::from(*c)).collect(),
+    ))
+    .with_active_category(category)
+    .with_on_category(data.clone(), actions.settings_category)
+    .with_section(section)
+    .dom();
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+        .with_child(header(view))
+        .with_child(
+            Dom::create_div().with_css("padding: 8px;").with_child(
+                Button::create("Back")
+                    .with_on_click(data.clone(), actions.settings_back)
+                    .dom()
+                    .with_id(AzString::from("azmeet-settings-back")),
+            ),
+        )
+        .with_child(layout)
+}
+
+/// A drop-down of `choices` with `selected` chosen.
+fn choice(
+    choices: &[String],
+    selected: usize,
+    name: &str,
+    data: &RefAny,
+    action: DropDownOnChoiceChangeCallbackType,
+) -> Dom {
+    DropDown::create(strings(choices))
+        .with_selected(selected.min(choices.len().saturating_sub(1)))
+        .with_accessibility_name(AzString::from(name))
+        .with_on_choice_change(data.clone(), action)
+        .dom()
 }
