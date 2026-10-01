@@ -40,6 +40,7 @@
 use alloc::{string::String, vec::Vec};
 
 use azul_core::{
+    a11y::{AccessibilityInfo, AccessibilityRole},
     callbacks::Update,
     dom::{Dom, DomVec},
     global_hotkey::GlobalHotkey,
@@ -50,10 +51,20 @@ use azul_css::{
     impl_vec_partialeq, props::basic::color::ColorU, AzString, StringVec,
 };
 
-use super::settings_layout::{ShellSettingsLayout, ShellSettingsSection};
+use super::{
+    settings_layout::{ShellSettingsLayout, ShellSettingsSection, ShellSettingsSectionVec},
+    COLUMN_BASE, GROW_COLUMN_BASE, GROW_LABEL_BASE,
+};
 use crate::{
     callbacks::CallbackInfo,
-    widgets::themes::{OptionUiTheme, UiTheme},
+    widgets::{
+        badge::{Badge, BadgeKind},
+        dialog_kit::{
+            self, DialogKitLook, BUTTON_ROW_BASE, FIXED_BASE, FIXED_COLUMN_BASE, ROW_MIDDLE_BASE,
+            ROW_TOP_BASE, SPACER_BASE,
+        },
+        themes::{OptionUiTheme, UiTheme},
+    },
 };
 
 /// The class of one setting row.
@@ -759,9 +770,6 @@ impl ShellSettingsDialog {
     /// How many settings show a value that is not in effect.
     #[must_use]
     pub fn dirty_count(&self) -> usize {
-        if true {
-            return 0;
-        } // RED stub
         self.settings
             .as_ref()
             .iter()
@@ -805,9 +813,6 @@ impl ShellSettingsDialog {
     /// every change in effect, Cancel drops them; a setting that requires
     /// a restart and took effect raises the restart notice.
     pub fn apply_event(&mut self, event: ShellSettingsEvent) {
-        if true {
-            return;
-        } // RED stub
         let instant = self.apply_mode == ShellSettingsApplyMode::Instant;
         let mut v = core::mem::replace(&mut self.settings, ShellSettingVec::from_const_slice(&[]))
             .into_library_owned_vec();
@@ -890,21 +895,596 @@ impl From<ShellSettingsDialog> for Dom {
 }
 
 // ---------------------------------------------------------------------------
-// The build (part 2)
+// The handlers
 // ---------------------------------------------------------------------------
 
-/// The dialog's DOM.
+/// What every control of one row shares: the dialog's callback, the
+/// setting and its current value (the template a new value is made from).
+struct SettingRef {
+    on_event: OptionShellSettingsDialogOnEvent,
+    index: usize,
+    value: ShellSettingValue,
+}
+
+/// What the layout's callbacks and the button row share.
+struct DialogRef {
+    on_event: OptionShellSettingsDialogOnEvent,
+    active_category: usize,
+}
+
+/// Hands `event` to the dialog's callback.
+fn emit(
+    on_event: &OptionShellSettingsDialogOnEvent,
+    info: CallbackInfo,
+    event: ShellSettingsEvent,
+) -> Update {
+    match on_event.as_ref() {
+        Some(ShellSettingsDialogOnEvent { callback, refany }) => {
+            callback.invoke(refany.clone(), info, event)
+        }
+        None => Update::DoNothing,
+    }
+}
+
+/// Reports `Changed` with the value `make` builds from the row's template.
+fn change(
+    data: &mut RefAny,
+    info: CallbackInfo,
+    make: impl FnOnce(&ShellSettingValue) -> ShellSettingValue,
+) -> Update {
+    let Some(r) = data.downcast_ref::<SettingRef>() else {
+        return Update::DoNothing;
+    };
+    let value = make(&r.value);
+    emit(
+        &r.on_event,
+        info,
+        ShellSettingsEvent::changed(r.index, value),
+    )
+}
+
+/// The template's number with `value` (clamped to its range).
+fn number_with(template: &ShellSettingValue, value: f32) -> Option<ShellSettingNumber> {
+    match template {
+        ShellSettingValue::Number(n) | ShellSettingValue::Slider(n) => Some(ShellSettingNumber {
+            value: value.clamp(n.min, n.max),
+            ..n.clone()
+        }),
+        _ => None,
+    }
+}
+
+/// The template's choice with `selected`.
+fn choice_with(template: &ShellSettingValue, selected: usize) -> ShellSettingChoice {
+    match template {
+        ShellSettingValue::Choice(c) | ShellSettingValue::Radio(c) => ShellSettingChoice {
+            options: c.options.clone(),
+            selected,
+        },
+        _ => ShellSettingChoice::create(StringVec::from_const_slice(&[]), selected),
+    }
+}
+
+extern "C" fn on_switch(
+    mut data: RefAny,
+    info: CallbackInfo,
+    state: crate::widgets::switch::SwitchState,
+) -> Update {
+    change(&mut data, info, |_| {
+        ShellSettingValue::Toggle(state.checked)
+    })
+}
+
+extern "C" fn on_choice(mut data: RefAny, info: CallbackInfo, index: usize) -> Update {
+    change(&mut data, info, |t| {
+        ShellSettingValue::Choice(choice_with(t, index))
+    })
+}
+
+extern "C" fn on_radio(
+    mut data: RefAny,
+    info: CallbackInfo,
+    state: crate::widgets::radio_group::RadioGroupState,
+) -> Update {
+    change(&mut data, info, |t| {
+        ShellSettingValue::Radio(choice_with(t, state.selected_index))
+    })
+}
+
+extern "C" fn on_number(
+    mut data: RefAny,
+    info: CallbackInfo,
+    state: crate::widgets::number_input::NumberInputState,
+) -> Update {
+    change(&mut data, info, |t| match number_with(t, state.number) {
+        Some(n) => ShellSettingValue::Number(n),
+        None => t.clone(),
+    })
+}
+
+extern "C" fn on_slider(
+    mut data: RefAny,
+    info: CallbackInfo,
+    state: crate::widgets::slider::SliderState,
+) -> Update {
+    change(&mut data, info, |t| match number_with(t, state.value) {
+        Some(n) => ShellSettingValue::Slider(n),
+        None => t.clone(),
+    })
+}
+
+extern "C" fn on_text(
+    mut data: RefAny,
+    info: CallbackInfo,
+    state: crate::widgets::text_input::TextInputState,
+) -> crate::widgets::text_input::OnTextInputReturn {
+    let text = AzString::from(state.get_text());
+    crate::widgets::text_input::OnTextInputReturn {
+        update: change(&mut data, info, |_| ShellSettingValue::Text(text)),
+        valid: crate::widgets::text_input::TextInputValid::Yes,
+    }
+}
+
+extern "C" fn on_path(mut data: RefAny, info: CallbackInfo, path: AzString) -> Update {
+    change(&mut data, info, |_| ShellSettingValue::Path(path))
+}
+
+extern "C" fn on_color(
+    mut data: RefAny,
+    info: CallbackInfo,
+    state: crate::widgets::color_input::ColorInputState,
+) -> Update {
+    change(&mut data, info, |_| ShellSettingValue::Color(state.color))
+}
+
+/// The recorder: listening starts and stops through the dialog; a recorded
+/// or cleared shortcut is a change.
+extern "C" fn on_shortcut(
+    mut data: RefAny,
+    info: CallbackInfo,
+    event: crate::widgets::shortcut_recorder::ShortcutRecorderEvent,
+) -> Update {
+    use crate::widgets::shortcut_recorder::ShortcutRecorderEventKind as K;
+    let Some(r) = data.downcast_ref::<SettingRef>() else {
+        return Update::DoNothing;
+    };
+    let event = match event.kind {
+        K::StartRecording => {
+            ShellSettingsEvent::create(ShellSettingsEventKind::StartRecording, r.index)
+        }
+        K::Cancelled => ShellSettingsEvent::create(ShellSettingsEventKind::StopRecording, r.index),
+        K::Recorded => ShellSettingsEvent::changed(
+            r.index,
+            ShellSettingValue::Shortcut(ShellSettingShortcut::create(event.hotkey)),
+        ),
+        K::Cleared => ShellSettingsEvent::changed(
+            r.index,
+            ShellSettingValue::Shortcut(ShellSettingShortcut::none()),
+        ),
+    };
+    emit(&r.on_event, info, event)
+}
+
+extern "C" fn on_category(mut data: RefAny, info: CallbackInfo, index: usize) -> Update {
+    let Some(r) = data.downcast_ref::<DialogRef>() else {
+        return Update::DoNothing;
+    };
+    emit(
+        &r.on_event,
+        info,
+        ShellSettingsEvent::create(ShellSettingsEventKind::CategoryChosen, index),
+    )
+}
+
+extern "C" fn on_search(mut data: RefAny, info: CallbackInfo, query: AzString) -> Update {
+    let Some(r) = data.downcast_ref::<DialogRef>() else {
+        return Update::DoNothing;
+    };
+    let mut event = ShellSettingsEvent::create(ShellSettingsEventKind::SearchChanged, 0);
+    event.text = query;
+    emit(&r.on_event, info, event)
+}
+
+/// One of the button row's buttons: report `kind` (for the shown category).
+fn on_button(data: &mut RefAny, info: CallbackInfo, kind: ShellSettingsEventKind) -> Update {
+    let Some(r) = data.downcast_ref::<DialogRef>() else {
+        return Update::DoNothing;
+    };
+    emit(
+        &r.on_event,
+        info,
+        ShellSettingsEvent::create(kind, r.active_category),
+    )
+}
+
+extern "C" fn on_restore(mut data: RefAny, info: CallbackInfo) -> Update {
+    on_button(&mut data, info, ShellSettingsEventKind::RestoreDefaults)
+}
+
+extern "C" fn on_ok(mut data: RefAny, info: CallbackInfo) -> Update {
+    on_button(&mut data, info, ShellSettingsEventKind::Ok)
+}
+
+extern "C" fn on_cancel(mut data: RefAny, info: CallbackInfo) -> Update {
+    on_button(&mut data, info, ShellSettingsEventKind::Cancel)
+}
+
+extern "C" fn on_apply(mut data: RefAny, info: CallbackInfo) -> Update {
+    on_button(&mut data, info, ShellSettingsEventKind::Apply)
+}
+
+// ---------------------------------------------------------------------------
+// The build
+// ---------------------------------------------------------------------------
+
+/// The control that edits `s` (setting `index`), named by its label.
+fn control(
+    index: usize,
+    s: &ShellSetting,
+    recording: bool,
+    on_event: &OptionShellSettingsDialogOnEvent,
+    inner: Option<UiTheme>,
+    look: &DialogKitLook,
+) -> Dom {
+    use crate::widgets::{
+        color_input::{ColorInput, ColorInputOnValueChangeCallbackType},
+        drop_down::{DropDown, DropDownOnChoiceChangeCallbackType},
+        number_input::{NumberInput, NumberInputOnValueChangeCallbackType},
+        path_input::{PathInput, PathInputOnChangeCallbackType},
+        radio_group::{RadioGroup, RadioGroupOnChangeCallbackType},
+        shortcut_recorder::{ShortcutRecorder, ShortcutRecorderOnEventCallbackType},
+        slider::{Slider, SliderOnValueChangeCallbackType},
+        switch::{Switch, SwitchOnToggleCallbackType},
+        text_input::{TextInput, TextInputOnTextInputCallbackType},
+    };
+    let data = RefAny::new(SettingRef {
+        on_event: on_event.clone(),
+        index,
+        value: s.value.clone(),
+    });
+    let label = s.label.clone();
+    // A control with its read-out beside it (a unit, a slider's value).
+    let with_unit = |control: Dom, unit: AzString| {
+        Dom::create_div()
+            .with_css_props(dialog_kit::part(ROW_MIDDLE_BASE, &[]))
+            .with_children(DomVec::from_vec(alloc::vec![
+                control,
+                dialog_kit::line(unit, FIXED_BASE, &look.unit),
+            ]))
+    };
+    match &s.value {
+        ShellSettingValue::Toggle(b) => {
+            let mut w = Switch::create(*b)
+                .with_accessibility_name(label)
+                .with_on_toggle(data, on_switch as SwitchOnToggleCallbackType);
+            if let Some(t) = inner {
+                w = w.with_theme(t);
+            }
+            w.dom()
+        }
+        ShellSettingValue::Choice(c) => {
+            let mut w = DropDown::new(c.options.clone())
+                .with_selected(c.selected)
+                .with_accessibility_name(label)
+                .with_on_choice_change(data, on_choice as DropDownOnChoiceChangeCallbackType);
+            if let Some(t) = inner {
+                w = w.with_theme(t);
+            }
+            w.dom()
+        }
+        ShellSettingValue::Number(n) => {
+            let mut w = NumberInput::create(n.value)
+                .with_accessibility_name(label)
+                .with_on_value_change(data, on_number as NumberInputOnValueChangeCallbackType);
+            w.number_input_state.inner.min = n.min;
+            w.number_input_state.inner.max = n.max;
+            if let Some(t) = inner {
+                w = w.with_theme(t);
+            }
+            with_unit(w.dom(), n.unit.clone())
+        }
+        ShellSettingValue::Text(text) => {
+            let mut w = TextInput::create()
+                .with_text(text.clone())
+                .with_accessibility_name(label)
+                .with_on_text_input(data, on_text as TextInputOnTextInputCallbackType);
+            if let Some(t) = inner {
+                w = w.with_theme(t);
+            }
+            w.dom()
+        }
+        ShellSettingValue::Path(path) => {
+            let mut w = PathInput::create(path.clone())
+                .with_accessibility_name(label)
+                .with_on_change(data, on_path as PathInputOnChangeCallbackType);
+            if let Some(t) = inner {
+                w = w.with_theme(t);
+            }
+            w.dom()
+        }
+        ShellSettingValue::Color(c) => {
+            let mut w = ColorInput::create(*c)
+                .with_accessibility_name(label)
+                .with_on_value_change(data, on_color as ColorInputOnValueChangeCallbackType);
+            if let Some(t) = inner {
+                w = w.with_theme(t);
+            }
+            w.dom()
+        }
+        ShellSettingValue::Shortcut(sc) => {
+            let mut w = ShortcutRecorder::create()
+                .with_accessibility_name(label)
+                .with_recording(recording)
+                .with_on_event(data, on_shortcut as ShortcutRecorderOnEventCallbackType);
+            if sc.has_hotkey {
+                w = w.with_hotkey(sc.hotkey);
+            }
+            if let Some(t) = inner {
+                w = w.with_theme(t);
+            }
+            w.dom()
+        }
+        ShellSettingValue::Slider(n) => {
+            let mut w = Slider::create(n.value, n.min, n.max)
+                .with_accessibility_name(label)
+                .with_on_value_change(data, on_slider as SliderOnValueChangeCallbackType);
+            if let Some(t) = inner {
+                w = w.with_theme(t);
+            }
+            with_unit(
+                Dom::create_div()
+                    .with_css_props(dialog_kit::part(GROW_COLUMN_BASE, &[]))
+                    .with_child(w.dom()),
+                n.display_text(),
+            )
+        }
+        ShellSettingValue::Radio(c) => {
+            let mut w = RadioGroup::create(c.options.clone())
+                .with_selected_index(c.selected)
+                .with_accessibility_name(label)
+                .with_on_change(data, on_radio as RadioGroupOnChangeCallbackType);
+            if let Some(t) = inner {
+                w = w.with_theme(t);
+            }
+            w.dom()
+        }
+    }
+}
+
+/// One setting's row: the label column (the label, the modified mark, the
+/// restart badge, the help line - the search marked) beside the control.
+#[allow(clippy::too_many_arguments)]
+fn row(
+    index: usize,
+    s: &ShellSetting,
+    query: &str,
+    recording: bool,
+    restart_label: &AzString,
+    on_event: &OptionShellSettingsDialogOnEvent,
+    inner: Option<UiTheme>,
+    look: &DialogKitLook,
+) -> Dom {
+    let mut head: Vec<Dom> = alloc::vec![dialog_kit::highlighted_line(
+        &s.label,
+        query,
+        GROW_LABEL_BASE,
+        &look.text,
+        &look.mark,
+    )];
+    if s.is_dirty() {
+        head.push(
+            dialog_kit::line(
+                AzString::from_const_str("\u{25CF}"),
+                FIXED_BASE,
+                &look.modified,
+            )
+            .with_ids_and_classes(dialog_kit::class(SETTING_MODIFIED_CLASS))
+            .with_accessibility_info(AccessibilityInfo::named(
+                "Modified",
+                AccessibilityRole::StaticText,
+            )),
+        );
+    }
+    if s.requires_restart {
+        let mut badge = Badge::create(restart_label.clone()).with_badge_kind(BadgeKind::Warning);
+        if let Some(t) = inner {
+            badge = badge.with_theme(t);
+        }
+        head.push(
+            Dom::create_div()
+                .with_ids_and_classes(dialog_kit::class(SETTING_RESTART_CLASS))
+                .with_css_props(dialog_kit::part(FIXED_BASE, &look.button))
+                .with_child(badge.dom()),
+        );
+    }
+    let mut label_column: Vec<Dom> = alloc::vec![Dom::create_div()
+        .with_css_props(dialog_kit::part(ROW_MIDDLE_BASE, &[]))
+        .with_children(DomVec::from_vec(head))];
+    if !s.help.as_str().is_empty() {
+        label_column.push(dialog_kit::highlighted_line(
+            &s.help,
+            query,
+            &[],
+            &look.help,
+            &look.mark,
+        ));
+    }
+    Dom::create_div()
+        .with_ids_and_classes(dialog_kit::class(SETTING_ROW_CLASS))
+        .with_css_props(dialog_kit::part(ROW_TOP_BASE, &look.field_row))
+        .with_children(DomVec::from_vec(alloc::vec![
+            Dom::create_div()
+                .with_css_props(dialog_kit::part(FIXED_COLUMN_BASE, &look.field_label))
+                .with_children(DomVec::from_vec(label_column)),
+            Dom::create_div()
+                .with_css_props(dialog_kit::part(GROW_COLUMN_BASE, &[]))
+                .with_child(control(index, s, recording, on_event, inner, look)),
+        ]))
+}
+
+/// The button row: "Restore defaults", the restart notice (or a spacer),
+/// then - with Apply buttons - OK, Cancel and Apply (inert while nothing
+/// changed).
+fn buttons(dialog: &ShellSettingsDialog, inner: Option<UiTheme>, look: &DialogKitLook) -> Dom {
+    let data = RefAny::new(DialogRef {
+        on_event: dialog.on_event.clone(),
+        active_category: dialog.active_category,
+    });
+    let button =
+        |label: &AzString,
+         kind: crate::widgets::button::ButtonType,
+         click: Option<crate::widgets::button::ButtonOnClickCallbackType>| {
+            dialog_kit::row_button(
+                label.clone(),
+                kind,
+                click.map(|cb| (data.clone(), cb)),
+                None,
+                inner,
+                (dialog_kit::BUTTON_BOX_CLASS, dialog_kit::HELD_CLASS),
+                dialog_kit::BUTTON_BOX_BASE,
+                (&look.button, &look.held),
+            )
+        };
+    use crate::widgets::button::{ButtonOnClickCallbackType as Cb, ButtonType};
+    let mut items: Vec<Dom> = alloc::vec![button(
+        &dialog.restore_label,
+        ButtonType::Default,
+        Some(on_restore as Cb)
+    )];
+    if dialog.restart_pending {
+        items.push(
+            dialog_kit::line(dialog.restart_notice.clone(), GROW_LABEL_BASE, &look.notice)
+                .with_ids_and_classes(dialog_kit::class(SETTINGS_NOTICE_CLASS)),
+        );
+    } else {
+        items.push(Dom::create_div().with_css_props(dialog_kit::part(SPACER_BASE, &[])));
+    }
+    if dialog.apply_mode == ShellSettingsApplyMode::ApplyButton {
+        items.push(button(
+            &dialog.ok_label,
+            ButtonType::Primary,
+            Some(on_ok as Cb),
+        ));
+        items.push(button(
+            &dialog.cancel_label,
+            ButtonType::Default,
+            Some(on_cancel as Cb),
+        ));
+        items.push(button(
+            &dialog.apply_label,
+            ButtonType::Default,
+            dialog.is_dirty().then_some(on_apply as Cb),
+        ));
+    }
+    Dom::create_div()
+        .with_ids_and_classes(dialog_kit::class(SETTINGS_BUTTONS_CLASS))
+        .with_css_props(dialog_kit::part(BUTTON_ROW_BASE, &look.buttons))
+        .with_children(DomVec::from_vec(items))
+}
+
+/// The dialog's DOM: the layout with the shown settings' rows in their
+/// sections, the categories' icons and (while searching) match counts,
+/// and the button row as its footer.
 pub(crate) fn build(dialog: ShellSettingsDialog) -> Dom {
-    if true {
-        return Dom::create_div();
-    } // RED stub
-    let _ = dialog;
-    ShellSettingsLayout::create(StringVec::from_const_slice(&[]))
-        .with_section(ShellSettingsSection::create(
-            AzString::from_const_str(""),
-            Dom::create_div().with_children(DomVec::from_const_slice(&[])),
-        ))
-        .dom()
+    let look = dialog_kit::look_for(dialog.theme);
+    let inner = dialog_kit::inner_theme(dialog.theme);
+    let query = String::from(dialog.search.as_str().trim());
+    let searching = !query.is_empty();
+
+    // The shown settings, grouped by section (by "Category: Section" while
+    // searching), in the table's order.
+    let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
+    for (i, s) in dialog.settings.as_ref().iter().enumerate() {
+        let category = dialog.category_name(s.category);
+        let shown = if searching {
+            s.matches(&query, category)
+        } else {
+            s.category == dialog.active_category
+        };
+        if !shown {
+            continue;
+        }
+        let title = if searching {
+            alloc::format!("{category}: {}", s.section.as_str())
+        } else {
+            String::from(s.section.as_str())
+        };
+        match groups.iter_mut().find(|(t, _)| *t == title) {
+            Some((_, members)) => members.push(i),
+            None => groups.push((title, alloc::vec![i])),
+        }
+    }
+    let settings = dialog.settings.as_ref();
+    let mut sections: Vec<ShellSettingsSection> = groups
+        .into_iter()
+        .map(|(title, members)| {
+            // Everything a search looks at, so the layout keeps the section.
+            let mut keywords = String::new();
+            let rows: Vec<Dom> = members
+                .iter()
+                .map(|&i| {
+                    let s = &settings[i];
+                    keywords.push_str(&s.search_text());
+                    keywords.push(' ');
+                    keywords.push_str(dialog.category_name(s.category));
+                    keywords.push(' ');
+                    row(
+                        i,
+                        s,
+                        &query,
+                        dialog.recording == i,
+                        &dialog.restart_label,
+                        &dialog.on_event,
+                        inner,
+                        &look,
+                    )
+                })
+                .collect();
+            ShellSettingsSection::create(
+                AzString::from(title),
+                Dom::create_div()
+                    .with_css_props(dialog_kit::part(COLUMN_BASE, &[]))
+                    .with_children(DomVec::from_vec(rows)),
+            )
+            .with_keywords(AzString::from(keywords))
+        })
+        .collect();
+    if searching && sections.is_empty() {
+        sections.push(
+            ShellSettingsSection::create(dialog.empty_label.clone(), Dom::create_div())
+                .with_keywords(AzString::from(query.clone())),
+        );
+    }
+    let badges: Vec<AzString> = (0..dialog.categories.as_ref().len())
+        .map(|c| match dialog.matches_in(c) {
+            n if searching && n > 0 => AzString::from(alloc::format!("{n}")),
+            _ => AzString::from_const_str(""),
+        })
+        .collect();
+
+    let shared = RefAny::new(DialogRef {
+        on_event: dialog.on_event.clone(),
+        active_category: dialog.active_category,
+    });
+    let mut layout = ShellSettingsLayout::create(dialog.categories.clone())
+        .with_category_icons(dialog.category_icons.clone())
+        .with_category_badges(StringVec::from_vec(badges))
+        .with_sections(ShellSettingsSectionVec::from_vec(sections))
+        .with_search(dialog.search.clone())
+        .with_active_category(dialog.active_category)
+        .with_footer(buttons(&dialog, inner, &look))
+        .with_on_category(
+            shared.clone(),
+            on_category as super::settings_layout::ShellSettingsLayoutOnCategoryCallbackType,
+        )
+        .with_on_search(
+            shared,
+            on_search as super::settings_layout::ShellSettingsLayoutOnSearchCallbackType,
+        );
+    if let Some(t) = inner {
+        layout = layout.with_theme(t);
+    }
+    layout.dom()
 }
 
 #[cfg(test)]
@@ -1225,9 +1805,11 @@ mod settings_dialog_build_tests {
         tc::find_all(dom, SECTION_CLASS)
             .iter()
             .filter_map(|s| {
-                s.root
-                    .get_accessibility_info()
-                    .and_then(|i| i.accessibility_name.as_ref().map(|n| n.as_str().to_string()))
+                s.root.get_accessibility_info().and_then(|i| {
+                    i.accessibility_name
+                        .as_ref()
+                        .map(|n| n.as_str().to_string())
+                })
             })
             .collect()
     }
@@ -1277,26 +1859,53 @@ mod settings_dialog_build_tests {
             assert_eq!(rows.len(), 3, "{}: General's three settings", theme.name());
             let first = texts(rows[0]);
             assert_eq!(first[0], "Reopen the last documents");
-            assert!(first.iter().any(|t| t == "Open what was open when AzOffice closed."), "the help line");
-            let badge = tc::find(rows[1], SETTING_RESTART_CLASS).expect("Language requires a restart");
+            assert!(
+                first
+                    .iter()
+                    .any(|t| t == "Open what was open when AzOffice closed."),
+                "the help line"
+            );
+            let badge =
+                tc::find(rows[1], SETTING_RESTART_CLASS).expect("Language requires a restart");
             assert_eq!(texts(badge), vec!["Requires restart"]);
             assert!(tc::find(rows[0], SETTING_RESTART_CLASS).is_none());
-            assert!(tc::find(rows[2], PATH_INPUT_CLASS).is_some(), "a path is a PathInput");
+            assert!(
+                tc::find(rows[2], PATH_INPUT_CLASS).is_some(),
+                "a path is a PathInput"
+            );
         }
     }
 
     #[test]
     fn every_kind_of_value_gets_its_control() {
-        let editor = dialog().with_active_category(1).with_theme(UiTheme::Flat).dom();
-        assert!(tc::find(&editor, RECORDER_CLASS).is_some(), "a shortcut is recorded");
+        let editor = dialog()
+            .with_active_category(1)
+            .with_theme(UiTheme::Flat)
+            .dom();
+        assert!(
+            tc::find(&editor, RECORDER_CLASS).is_some(),
+            "a shortcut is recorded"
+        );
         let all = texts(&editor);
-        assert!(all.iter().any(|t| t == "pt"), "a number shows its unit: {all:?}");
+        assert!(
+            all.iter().any(|t| t == "pt"),
+            "a number shows its unit: {all:?}"
+        );
         assert!(all.iter().any(|t| t == "Ctrl+Shift+P"), "the shortcut");
-        let appearance = dialog().with_active_category(2).with_theme(UiTheme::Flat).dom();
+        let appearance = dialog()
+            .with_active_category(2)
+            .with_theme(UiTheme::Flat)
+            .dom();
         let all = texts(&appearance);
-        assert!(all.iter().any(|t| t == "100 %"), "a slider reads its value out: {all:?}");
+        assert!(
+            all.iter().any(|t| t == "100 %"),
+            "a slider reads its value out: {all:?}"
+        );
         for option in ["Light", "Dark", "System"] {
-            assert!(all.iter().any(|t| t == option), "the radio set shows {option}");
+            assert!(
+                all.iter().any(|t| t == option),
+                "the radio set shows {option}"
+            );
         }
     }
 
@@ -1319,7 +1928,11 @@ mod settings_dialog_build_tests {
             let cats = tc::find_all(&dom, CATEGORY_CLASS);
             let badges: Vec<Vec<String>> = cats
                 .iter()
-                .map(|c| tc::find(c, CATEGORY_BADGE_CLASS).map(texts).unwrap_or_default())
+                .map(|c| {
+                    tc::find(c, CATEGORY_BADGE_CLASS)
+                        .map(texts)
+                        .unwrap_or_default()
+                })
                 .collect();
             assert_eq!(
                 badges,
@@ -1332,22 +1945,38 @@ mod settings_dialog_build_tests {
             .with_search(AzString::from("qqq"))
             .with_theme(UiTheme::Flat)
             .dom();
-        assert_eq!(section_names(&nothing), vec!["No settings match the search."]);
+        assert_eq!(
+            section_names(&nothing),
+            vec!["No settings match the search."]
+        );
     }
 
     #[test]
     fn a_changed_setting_is_marked_and_apply_waits_for_a_change() {
         let fresh = dialog().with_theme(UiTheme::Flat).dom();
         let footer = tc::find(&fresh, FOOTER_CLASS).expect("the button row");
-        assert_eq!(texts(footer), vec!["Restore defaults", "OK", "Cancel", "Apply"]);
-        assert_eq!(tc::find_all(footer, HELD_CLASS).len(), 1, "Apply is inert while nothing changed");
+        assert_eq!(
+            texts(footer),
+            vec!["Restore defaults", "OK", "Cancel", "Apply"]
+        );
+        assert_eq!(
+            tc::find_all(footer, HELD_CLASS).len(),
+            1,
+            "Apply is inert while nothing changed"
+        );
         assert!(tc::find(&fresh, SETTING_MODIFIED_CLASS).is_none());
 
         let mut changed = dialog();
-        changed.apply_event(ShellSettingsEvent::changed(0, ShellSettingValue::Toggle(false)));
+        changed.apply_event(ShellSettingsEvent::changed(
+            0,
+            ShellSettingValue::Toggle(false),
+        ));
         let dom = changed.with_theme(UiTheme::Flat).dom();
         let rows = tc::find_all(&dom, SETTING_ROW_CLASS);
-        assert!(tc::find(rows[0], SETTING_MODIFIED_CLASS).is_some(), "the changed row is marked");
+        assert!(
+            tc::find(rows[0], SETTING_MODIFIED_CLASS).is_some(),
+            "the changed row is marked"
+        );
         assert!(tc::find(rows[1], SETTING_MODIFIED_CLASS).is_none());
         let footer = tc::find(&dom, FOOTER_CLASS).expect("the button row");
         assert!(tc::find_all(footer, HELD_CLASS).is_empty(), "Apply goes");
@@ -1371,7 +2000,10 @@ mod settings_dialog_build_tests {
         let log: Log = Arc::new(Mutex::new(Vec::new()));
         let d = dialog()
             .with_active_category(0)
-            .with_on_event(RefAny::new(log.clone()), record as ShellSettingsDialogOnEventCallbackType)
+            .with_on_event(
+                RefAny::new(log.clone()),
+                record as ShellSettingsDialogOnEventCallbackType,
+            )
             .with_theme(UiTheme::Flat);
         let styled = StyledDom::create_from_dom(d.clone().dom());
         for label in ["OK", "Restore defaults", "Cancel"] {
@@ -1397,7 +2029,12 @@ mod settings_dialog_build_tests {
                     .any(|c| c.event == EventFilter::Hover(HoverEventFilter::Click))
             })
             .expect("the switch");
-        rv::fire(&styled, id(switch), EventFilter::Hover(HoverEventFilter::Click)).expect("toggle");
+        rv::fire(
+            &styled,
+            id(switch),
+            EventFilter::Hover(HoverEventFilter::Click),
+        )
+        .expect("toggle");
         let got = log.lock().expect("log").clone();
         let kinds: Vec<ShellSettingsEventKind> = got.iter().map(|e| e.kind).collect();
         assert_eq!(
@@ -1410,7 +2047,10 @@ mod settings_dialog_build_tests {
             ]
         );
         assert_eq!(got[1].index, 0, "the shown category's defaults");
-        assert_eq!((got[3].index, got[3].value.clone()), (0, ShellSettingValue::Toggle(false)));
+        assert_eq!(
+            (got[3].index, got[3].value.clone()),
+            (0, ShellSettingValue::Toggle(false))
+        );
     }
 
     #[test]
@@ -1423,7 +2063,12 @@ mod settings_dialog_build_tests {
         checks::assert_follows_the_app_theme(
             "settings_dialog (search)",
             || dialog().with_search(AzString::from("zoom")).dom(),
-            |t: UiTheme| dialog().with_search(AzString::from("zoom")).with_theme(t).dom(),
+            |t: UiTheme| {
+                dialog()
+                    .with_search(AzString::from("zoom"))
+                    .with_theme(t)
+                    .dom()
+            },
         );
     }
 }
