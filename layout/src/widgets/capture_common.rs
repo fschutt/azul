@@ -2891,3 +2891,51 @@ mod headless_device_tests {
         (tone.close)(handle);
     }
 }
+
+#[cfg(test)]
+mod frame_buffer_tests {
+    use std::sync::{atomic::AtomicBool, Arc};
+
+    use azul_core::resources::RawImageFormat;
+
+    use super::{cut_frame, CaptureTargets};
+
+    /// A captured frame that travels to the main thread as it is (no preview
+    /// cut: the tile is the capture's own size, or an `on_frame` hook wants
+    /// the source) leaves the capture worker a buffer with the frame's room.
+    /// The worker swaps that buffer into the platform's capture slot
+    /// (`CaptureSlot::take_newer`), which writes the next frame into it; an
+    /// EMPTY buffer there made every frame allocate (and zero) a whole frame
+    /// again - the "no second copy" design paid an allocation per frame.
+    #[test]
+    fn a_frame_that_travels_as_it_is_leaves_the_worker_a_buffer_with_its_room() {
+        let (w, h) = (64_u32, 36_u32);
+        let len = (w * h * 4) as usize;
+        for (preview, wants_source) in [(None, false), (Some((64, 36)), false), (None, true)] {
+            let targets = CaptureTargets {
+                preview,
+                consumers: Vec::new(),
+                wants_source,
+            };
+            let mut buf = vec![7_u8; len];
+            let in_flight = Arc::new(AtomicBool::new(false));
+            let captured = cut_frame(
+                &targets,
+                &mut buf,
+                (w, h, RawImageFormat::BGRA8),
+                crate::image_scale::resample_frame_rect,
+                &in_flight,
+            );
+            let source = captured
+                .source
+                .expect("without a preview cut the frame itself travels");
+            assert_eq!(source.bytes.as_ref().len(), len, "the frame travels whole");
+            assert!(
+                buf.capacity() >= len,
+                "preview {preview:?}, hook {wants_source}: the worker kept {} bytes of room for \
+                 the next {len}-byte frame",
+                buf.capacity()
+            );
+        }
+    }
+}
