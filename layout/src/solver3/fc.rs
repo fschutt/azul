@@ -8082,49 +8082,45 @@ fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
         return Ok(());
     }
 
-    // Step 1: Measure all cells to determine column min/max widths
-    // CSS 2.2 Section 17.6: Skip cells in collapsed columns
-    for cell_info in &table_ctx.cells {
-        // Skip cells in collapsed columns
-        if table_ctx.collapsed_columns.contains(&cell_info.column) {
+    // Step 1: the column constraints (CSS 2.2 17.5.2.2) - every cell's
+    // min/max widths into its column(s): the one-column cells first, then
+    // the spanning cells by increasing span, each spreading only what its
+    // columns still lack. (Measured in document order, a spanning cell
+    // spread its demand over columns whose own cells were not measured yet,
+    // and the columns came out wider than any cell needed.) Cells in, or
+    // spanning into, collapsed columns take no part (CSS 2.2 17.6).
+    let mut spanning: Vec<(TableCellInfo, f32, f32)> = Vec::new();
+    for cell_info in table_ctx.cells.clone() {
+        if (cell_info.column..cell_info.column + cell_info.colspan)
+            .any(|c| table_ctx.collapsed_columns.contains(&c))
+        {
             continue;
         }
-
-        // Skip cells that span into collapsed columns
-        let mut spans_collapsed = false;
-        for col_offset in 0..cell_info.colspan {
-            if table_ctx
-                .collapsed_columns
-                .contains(&(cell_info.column + col_offset))
-            {
-                spans_collapsed = true;
-                break;
-            }
-        }
-        if spans_collapsed {
-            continue;
-        }
-
         let (min_width, max_width) =
             measure_cell_widths(ctx, tree, text_cache, cell_info.node_index, constraints)?;
-
-        // Handle single-column cells
         if cell_info.colspan == 1 {
             let col = &mut table_ctx.columns[cell_info.column];
             col.min_width = col.min_width.max(min_width);
             col.max_width = col.max_width.max(max_width);
         } else {
-            // Handle multi-column cells (colspan > 1)
-            // Distribute the cell's min/max width across the spanned columns
-            distribute_cell_width_across_columns(
-                &mut table_ctx.columns,
-                cell_info.column,
-                cell_info.colspan,
-                min_width,
-                max_width,
-                &table_ctx.collapsed_columns,
-            );
+            spanning.push((cell_info, min_width, max_width));
         }
+    }
+    spanning.sort_by_key(|(cell, _, _)| cell.colspan);
+    for (cell_info, min_width, max_width) in spanning {
+        distribute_cell_width_across_columns(
+            &mut table_ctx.columns,
+            cell_info.column,
+            cell_info.colspan,
+            min_width,
+            max_width,
+            &table_ctx.collapsed_columns,
+            table_ctx.h_spacing,
+        );
+    }
+    // A column never wants less than it needs.
+    for col in &mut table_ctx.columns {
+        col.max_width = col.max_width.max(col.min_width);
     }
 
     // Step 2: the columns' constraints (CSS Tables 3 3.8) - the measured
@@ -8219,62 +8215,67 @@ fn enclosing_table(tree: &LayoutTree, row_index: usize) -> Option<usize> {
     None
 }
 
-/// Distribute a multi-column cell's width across the columns it spans
+/// Distribute a spanning cell's widths over the columns it spans (CSS 2.2
+/// 17.5.2.2: the spanned columns grow until together they are as wide as
+/// the cell). `inner_spacing` is the horizontal border-spacing between two
+/// adjacent columns: the cell's box covers the spacings between its
+/// columns, so the columns themselves need only the rest. What they lack
+/// goes to them in proportion to their max-content widths (evenly when none
+/// has any) - the wide column takes the larger share, as in browsers.
+/// Columns never shrink; collapsed columns take nothing.
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
-fn distribute_cell_width_across_columns(
+pub(crate) fn distribute_cell_width_across_columns(
     columns: &mut [TableColumnInfo],
     start_col: usize,
     colspan: usize,
     cell_min_width: f32,
     cell_max_width: f32,
     collapsed_columns: &std::collections::HashSet<usize>,
+    inner_spacing: f32,
 ) {
-    let end_col = start_col + colspan;
-    if end_col > columns.len() {
+    let end_col = start_col.saturating_add(colspan);
+    if colspan == 0 || end_col > columns.len() {
         return;
     }
-
-    // Calculate current total of spanned non-collapsed columns
-    let current_min_total: f32 = columns[start_col..end_col]
-        .iter()
-        .enumerate()
-        .filter(|(idx, _)| !collapsed_columns.contains(&(start_col + idx)))
-        .map(|(_, c)| c.min_width)
-        .sum();
-    let current_max_total: f32 = columns[start_col..end_col]
-        .iter()
-        .enumerate()
-        .filter(|(idx, _)| !collapsed_columns.contains(&(start_col + idx)))
-        .map(|(_, c)| c.max_width)
-        .sum();
-
-    // Count non-collapsed columns in the span
-    let num_visible_cols = (start_col..end_col)
+    let visible: Vec<usize> = (start_col..end_col)
         .filter(|idx| !collapsed_columns.contains(idx))
-        .count();
-
-    if num_visible_cols == 0 {
+        .collect();
+    if visible.is_empty() {
         return; // All spanned columns are collapsed
     }
+    let inner = if inner_spacing.is_finite() && inner_spacing > 0.0 {
+        inner_spacing * (visible.len() - 1) as f32
+    } else {
+        0.0
+    };
+    let weights: Vec<f32> = visible
+        .iter()
+        .map(|&i| columns[i].max_width.max(0.0))
+        .collect();
+    let weight_sum: f32 = weights.iter().sum();
+    let share = |k: usize| -> f32 {
+        if weight_sum > 0.0 && weight_sum.is_finite() {
+            weights[k] / weight_sum
+        } else {
+            1.0 / visible.len() as f32
+        }
+    };
 
-    // Only distribute if the cell needs more space than currently available
-    if cell_min_width > current_min_total {
-        let extra_min = cell_min_width - current_min_total;
-        let per_col = extra_min / num_visible_cols as f32;
-        for (idx, col) in columns[start_col..end_col].iter_mut().enumerate() {
-            if !collapsed_columns.contains(&(start_col + idx)) {
-                col.min_width += per_col;
-            }
+    let have_min: f32 = visible.iter().map(|&i| columns[i].min_width).sum();
+    let need_min = cell_min_width - inner;
+    if need_min > have_min {
+        let extra = need_min - have_min;
+        for (k, &i) in visible.iter().enumerate() {
+            columns[i].min_width += extra * share(k);
         }
     }
 
-    if cell_max_width > current_max_total {
-        let extra_max = cell_max_width - current_max_total;
-        let per_col = extra_max / num_visible_cols as f32;
-        for (idx, col) in columns[start_col..end_col].iter_mut().enumerate() {
-            if !collapsed_columns.contains(&(start_col + idx)) {
-                col.max_width += per_col;
-            }
+    let have_max: f32 = visible.iter().map(|&i| columns[i].max_width).sum();
+    let need_max = cell_max_width - inner;
+    if need_max > have_max {
+        let extra = need_max - have_max;
+        for (k, &i) in visible.iter().enumerate() {
+            columns[i].max_width += extra * share(k);
         }
     }
 }
@@ -13325,7 +13326,7 @@ mod autotest_generated {
     fn distribute_cell_width_spreads_the_deficit_evenly() {
         let mut c = cols(2, 10.0, 20.0);
         let collapsed = std::collections::HashSet::new();
-        distribute_cell_width_across_columns(&mut c, 0, 2, 50.0, 30.0, &collapsed);
+        distribute_cell_width_across_columns(&mut c, 0, 2, 50.0, 30.0, &collapsed, 0.0);
         // min: 50 needed, 20 present -> +15 each. max: 30 needed, 40 present -> untouched.
         assert_eq!(c[0].min_width, 25.0);
         assert_eq!(c[1].min_width, 25.0);
@@ -13337,13 +13338,13 @@ mod autotest_generated {
     fn distribute_cell_width_is_a_noop_when_the_span_overruns_the_columns() {
         let mut c = cols(2, 10.0, 20.0);
         let collapsed = std::collections::HashSet::new();
-        distribute_cell_width_across_columns(&mut c, 1, 5, 500.0, 500.0, &collapsed);
+        distribute_cell_width_across_columns(&mut c, 1, 5, 500.0, 500.0, &collapsed, 0.0);
         assert_eq!(c[0].min_width, 10.0);
         assert_eq!(c[1].min_width, 10.0);
 
         // start_col past the end, and the degenerate usize::MAX start with colspan 0.
-        distribute_cell_width_across_columns(&mut c, 99, 1, 500.0, 500.0, &collapsed);
-        distribute_cell_width_across_columns(&mut c, usize::MAX, 0, 500.0, 500.0, &collapsed);
+        distribute_cell_width_across_columns(&mut c, 99, 1, 500.0, 500.0, &collapsed, 0.0);
+        distribute_cell_width_across_columns(&mut c, usize::MAX, 0, 500.0, 500.0, &collapsed, 0.0);
         assert_eq!(c[0].min_width, 10.0);
     }
 
@@ -13351,7 +13352,7 @@ mod autotest_generated {
     fn distribute_cell_width_with_zero_colspan_does_not_divide_by_zero() {
         let mut c = cols(2, 10.0, 20.0);
         let collapsed = std::collections::HashSet::new();
-        distribute_cell_width_across_columns(&mut c, 0, 0, 1000.0, 1000.0, &collapsed);
+        distribute_cell_width_across_columns(&mut c, 0, 0, 1000.0, 1000.0, &collapsed, 0.0);
         assert_eq!(c[0].min_width, 10.0);
         assert_eq!(c[1].min_width, 10.0);
         assert!(c[0].min_width.is_finite());
@@ -13361,13 +13362,13 @@ mod autotest_generated {
     fn distribute_cell_width_skips_fully_collapsed_spans() {
         let mut c = cols(2, 10.0, 20.0);
         let collapsed: std::collections::HashSet<usize> = [0, 1].into_iter().collect();
-        distribute_cell_width_across_columns(&mut c, 0, 2, 1000.0, 1000.0, &collapsed);
+        distribute_cell_width_across_columns(&mut c, 0, 2, 1000.0, 1000.0, &collapsed, 0.0);
         assert_eq!(c[0].min_width, 10.0);
         assert_eq!(c[1].min_width, 10.0);
 
         // A partially collapsed span puts the whole deficit on the visible column.
         let collapsed_one: std::collections::HashSet<usize> = [0].into_iter().collect();
-        distribute_cell_width_across_columns(&mut c, 0, 2, 100.0, 0.0, &collapsed_one);
+        distribute_cell_width_across_columns(&mut c, 0, 2, 100.0, 0.0, &collapsed_one, 0.0);
         assert_eq!(c[0].min_width, 10.0, "collapsed column is untouched");
         assert_eq!(c[1].min_width, 100.0, "10 + (100 - 10) / 1");
     }
@@ -13377,7 +13378,7 @@ mod autotest_generated {
         let mut c = cols(2, 10.0, 20.0);
         let collapsed = std::collections::HashSet::new();
         // NaN > total is false -> no distribution, no NaN poisoning of the columns.
-        distribute_cell_width_across_columns(&mut c, 0, 2, f32::NAN, f32::NAN, &collapsed);
+        distribute_cell_width_across_columns(&mut c, 0, 2, f32::NAN, f32::NAN, &collapsed, 0.0);
         assert_eq!(c[0].min_width, 10.0);
         assert_eq!(c[1].max_width, 20.0);
 
@@ -13389,6 +13390,7 @@ mod autotest_generated {
             f32::INFINITY,
             f32::INFINITY,
             &collapsed,
+            0.0,
         );
         assert!(c[0].min_width.is_infinite());
         assert!(c[1].max_width.is_infinite());
@@ -13399,11 +13401,11 @@ mod autotest_generated {
         let mut c = cols(2, 100.0, 200.0);
         let collapsed = std::collections::HashSet::new();
         // The cell is narrower than what the columns already provide -> no change.
-        distribute_cell_width_across_columns(&mut c, 0, 2, 1.0, 1.0, &collapsed);
+        distribute_cell_width_across_columns(&mut c, 0, 2, 1.0, 1.0, &collapsed, 0.0);
         assert_eq!(c[0].min_width, 100.0);
         assert_eq!(c[0].max_width, 200.0);
         // Negative demand likewise cannot pull the columns below zero.
-        distribute_cell_width_across_columns(&mut c, 0, 2, -1000.0, -1000.0, &collapsed);
+        distribute_cell_width_across_columns(&mut c, 0, 2, -1000.0, -1000.0, &collapsed, 0.0);
         assert_eq!(c[1].min_width, 100.0);
     }
 
