@@ -1277,97 +1277,87 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 .or_else(|| tree.warm(LayoutNodeId::new(idx)).and_then(|w| w.intrinsic_sizes))
         };
 
-        // Table structure: table > row-group? > row > cell; captions and
-        // column groups beside them.
-        let mut rows: Vec<usize> = Vec::new();
+        // The captions beside the grid: the table is never narrower than
+        // the widest caption's min-content (CAPMIN).
         let mut caption_min = 0.0f32;
         for &child_idx in tree.children(node_index) {
             let Some(child) = tree.get(LayoutNodeId::new(child_idx)) else {
                 continue;
             };
-            match child.formatting_context {
-                FormattingContext::TableRow => rows.push(child_idx),
-                FormattingContext::TableRowGroup => {
-                    // Row group contains rows
-                    for &row_idx in tree.children(child_idx) {
-                        if let Some(row) = tree.get(LayoutNodeId::new(row_idx)) {
-                            if matches!(row.formatting_context, FormattingContext::TableRow) {
-                                rows.push(row_idx);
-                            }
-                        }
-                    }
-                }
-                FormattingContext::TableCaption => {
-                    let bp = child.box_props.unpack();
-                    let extras = bp.margin.left
-                        + bp.margin.right
-                        + bp.border.left
-                        + bp.border.right
-                        + bp.padding.left
-                        + bp.padding.right;
-                    let cap = stored(child_idx).unwrap_or_default();
-                    caption_min = caption_min.max(cap.min_content_width + extras);
-                }
-                _ => {}
+            if matches!(child.formatting_context, FormattingContext::TableCaption) {
+                let bp = child.box_props.unpack();
+                let extras = bp.margin.left
+                    + bp.margin.right
+                    + bp.border.left
+                    + bp.border.right
+                    + bp.padding.left
+                    + bp.padding.right;
+                let cap = stored(child_idx).unwrap_or_default();
+                caption_min = caption_min.max(cap.min_content_width + extras);
             }
         }
 
-        // A cell's widths go to the columns it SPANS (CSS 2.2 17.5.2.2): a
-        // one-column cell to its column (with its `width`); a spanning cell
-        // starts at the column after the previous cell's span and is spread
-        // over its columns once every row is in. Counting a spanning cell
-        // in its first column only made a table with a `colspan` header as
-        // wide as the header PLUS the other columns under a shrink-to-fit
-        // parent.
-        let mut columns: Vec<ColumnAccumulator> = Vec::new();
-        let mut spanning: Vec<(usize, usize, f32, f32)> = Vec::new();
-        let mut total_height = 0.0f32;
-        for &row_idx in &rows {
-            let mut row_height = 0.0f32;
-            let mut col = 0_usize;
-            for &cell_idx in tree.children(row_idx) {
-                let cell_intrinsic = stored(cell_idx).unwrap_or_default();
-                // A cell nothing measured yet: measure its inline content.
-                let cell_is = if cell_intrinsic.max_content_width > 0.0 {
-                    cell_intrinsic
-                } else {
-                    self.calculate_ifc_root_intrinsic_sizes(tree, cell_idx)
-                        .unwrap_or_default()
-                };
+        // The grid exactly as the table's layout places it
+        // (`fc::analyze_table_structure`: visual row order, a cell under a
+        // rowspan in the next free column - counting `col += span` per row put
+        // it on top of the rowspan cell).
+        let Ok(grid) = super::fc::analyze_table_structure(tree, node_index, &*self.ctx) else {
+            return IntrinsicSizes::default();
+        };
+        let (h_spacing, v_spacing) =
+            super::fc::resolve_table_border_spacing(&*self.ctx, tree, node_index);
 
-                // Add cell box-model extras
-                let cell_node = tree.get(LayoutNodeId::new(cell_idx));
-                let (h_extras, v_extras) = cell_node.map_or((0.0, 0.0), |cn| {
-                    let bp = cn.box_props.unpack();
-                    (
-                        bp.padding.left + bp.padding.right + bp.border.left + bp.border.right,
-                        bp.padding.top + bp.padding.bottom + bp.border.top + bp.border.bottom,
-                    )
-                });
+        // A one-column cell goes to its column with its `width`; a spanning
+        // cell is spread over its columns once every one-column cell is in,
+        // by increasing span (the layout's rule,
+        // `fc::distribute_cell_width_across_columns`).
+        let mut columns = vec![ColumnAccumulator::default(); grid.columns.len()];
+        let mut spanning: Vec<(super::fc::TableCellInfo, f32, f32)> = Vec::new();
+        let mut row_heights = vec![0.0f32; grid.num_rows];
+        let mut tall: Vec<(usize, usize, f32)> = Vec::new();
+        for cell in &grid.cells {
+            let cell_intrinsic = stored(cell.node_index).unwrap_or_default();
+            // A cell nothing measured yet: measure its inline content.
+            let cell_is = if cell_intrinsic.max_content_width > 0.0 {
+                cell_intrinsic
+            } else {
+                self.calculate_ifc_root_intrinsic_sizes(tree, cell.node_index)
+                    .unwrap_or_default()
+            };
 
-                let cell_min = cell_is.min_content_width + h_extras;
-                let cell_max = cell_is.max_content_width + h_extras;
-                let cell_h = cell_is.max_content_height + v_extras;
+            // Add cell box-model extras (in the collapsing model the cell's
+            // border is already its half of each collapsed edge)
+            let cell_node = tree.get(LayoutNodeId::new(cell.node_index));
+            let (h_extras, v_extras) = cell_node.map_or((0.0, 0.0), |cn| {
+                let bp = cn.box_props.unpack();
+                (
+                    bp.padding.left + bp.padding.right + bp.border.left + bp.border.right,
+                    bp.padding.top + bp.padding.bottom + bp.border.top + bp.border.bottom,
+                )
+            });
 
-                let cell_dom = cell_node.and_then(|cn| cn.dom_node_id);
-                let span = cell_dom
-                    .map_or(1, |dom| super::fc::get_cell_spans(self.ctx.styled_dom, dom).0)
-                    .max(1);
-                if col + span > columns.len() {
-                    columns.resize(col + span, ColumnAccumulator::default());
+            let cell_min = cell_is.min_content_width + h_extras;
+            let cell_max = cell_is.max_content_width + h_extras;
+            let cell_h = cell_is.max_content_height + v_extras;
+
+            if cell.colspan == 1 {
+                if let Some(column) = columns.get_mut(cell.column) {
+                    let width = cell_node.and_then(|cn| cn.dom_node_id).map_or(
+                        SpecifiedWidth::Auto,
+                        |dom| specified_width(self.ctx.styled_dom, dom, h_extras),
+                    );
+                    column.add_cell(cell_min, cell_max, width);
                 }
-                if span == 1 {
-                    let width = cell_dom.map_or(SpecifiedWidth::Auto, |dom| {
-                        specified_width(self.ctx.styled_dom, dom, h_extras)
-                    });
-                    columns[col].add_cell(cell_min, cell_max, width);
-                } else {
-                    spanning.push((col, span, cell_min, cell_max));
-                }
-                row_height = row_height.max(cell_h);
-                col += span;
+            } else {
+                spanning.push((*cell, cell_min, cell_max));
             }
-            total_height += row_height;
+            if cell.rowspan == 1 {
+                if let Some(h) = row_heights.get_mut(cell.row) {
+                    *h = h.max(cell_h);
+                }
+            } else {
+                tall.push((cell.row, cell.rowspan, cell_h));
+            }
         }
 
         // The `<col>` / `<colgroup>` widths of the columns the cells made.
@@ -1379,31 +1369,32 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         }
 
         let mut cons: Vec<_> = columns.into_iter().map(ColumnAccumulator::finish).collect();
-        // Each spanning cell widens the columns it spans, evenly, by what
-        // they lack together.
-        for (start, span, cell_min, cell_max) in spanning {
-            let end = (start + span).min(cons.len());
-            if end <= start {
-                continue;
-            }
-            let parts = (end - start) as f32;
-            let have_min: f32 = cons[start..end].iter().map(|c| c.min).sum();
-            if cell_min > have_min {
-                let extra = (cell_min - have_min) / parts;
-                for c in &mut cons[start..end] {
-                    c.min += extra;
-                }
-            }
-            let have_max: f32 = cons[start..end].iter().map(|c| c.max).sum();
-            if cell_max > have_max {
-                let extra = (cell_max - have_max) / parts;
-                for c in &mut cons[start..end] {
-                    c.max += extra;
-                }
-            }
-            for c in &mut cons[start..end] {
-                c.max = c.max.max(c.min);
-            }
+        // Each spanning cell widens the columns it spans by what they lack
+        // together, inside the spacing between them, in proportion to their
+        // max-content - the layout's own rule, on the columns' min / max.
+        spanning.sort_by_key(|(cell, _, _)| cell.colspan);
+        let mut span_columns: Vec<super::fc::TableColumnInfo> = cons
+            .iter()
+            .map(|c| super::fc::TableColumnInfo {
+                min_width: c.min,
+                max_width: c.max,
+                computed_width: None,
+            })
+            .collect();
+        for (cell, cell_min, cell_max) in spanning {
+            super::fc::distribute_cell_width_across_columns(
+                &mut span_columns,
+                cell.column,
+                cell.colspan,
+                cell_min,
+                cell_max,
+                &grid.collapsed_columns,
+                h_spacing,
+            );
+        }
+        for (c, spanned) in cons.iter_mut().zip(&span_columns) {
+            c.min = spanned.min_width;
+            c.max = spanned.max_width.max(spanned.min_width);
         }
         clamp_percentages(&mut cons);
 
@@ -1413,11 +1404,30 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         let spacing = if cons.is_empty() {
             0.0
         } else {
-            let (h_spacing, _) = super::fc::resolve_table_border_spacing(self.ctx, tree, node_index);
             h_spacing * (cons.len() + 1) as f32
         };
         let min_width = (columns_min + spacing).max(caption_min);
         let max_width = (columns_max + spacing).max(caption_min);
+
+        // A cell spanning rows that are shorter than it grows the last one;
+        // the rows are `rows + 1` vertical spacings apart.
+        for (row, span, cell_h) in tall {
+            let end = (row + span).min(row_heights.len());
+            if end <= row {
+                continue;
+            }
+            let have: f32 = row_heights[row..end].iter().sum::<f32>()
+                + v_spacing * (end - row - 1) as f32;
+            if cell_h > have {
+                row_heights[end - 1] += cell_h - have;
+            }
+        }
+        let total_height = row_heights.iter().sum::<f32>()
+            + if row_heights.is_empty() {
+                0.0
+            } else {
+                v_spacing * (row_heights.len() + 1) as f32
+            };
 
         IntrinsicSizes {
             min_content_width: min_width,
