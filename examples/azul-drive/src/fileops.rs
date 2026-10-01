@@ -1144,4 +1144,86 @@ mod tests {
         queue.clear_finished();
         assert!(queue.jobs().is_empty());
     }
+
+    /// A local drive that counts its gets and its own copies.
+    struct Counting {
+        inner: LocalDrive,
+        gets: AtomicU32,
+        copies: AtomicU32,
+    }
+
+    impl Drive for Counting {
+        fn list(
+            &self,
+            request: &azul_storage::ListRequest,
+        ) -> Result<azul_storage::ListPage, DriveError> {
+            self.inner.list(request)
+        }
+        fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+            self.gets.fetch_add(1, Ordering::SeqCst);
+            self.inner.get(key)
+        }
+        fn get_range(
+            &self,
+            key: &str,
+            range: azul_storage::ByteRange,
+        ) -> Result<Vec<u8>, DriveError> {
+            self.gets.fetch_add(1, Ordering::SeqCst);
+            self.inner.get_range(key, range)
+        }
+        fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+            self.inner.put(key, bytes)
+        }
+        fn delete(&self, key: &str) -> Result<(), DriveError> {
+            self.inner.delete(key)
+        }
+        fn head(&self, key: &str) -> Result<azul_storage::ObjectInfo, DriveError> {
+            self.inner.head(key)
+        }
+        fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
+            self.copies.fetch_add(1, Ordering::SeqCst);
+            self.inner.copy(from, to)
+        }
+    }
+
+    /// Within one drive a copy is the drive's own copy (a file copy on
+    /// disk, a CopyObject in a bucket): the bytes never pass through AzDrive.
+    #[test]
+    fn a_copy_within_one_drive_is_the_drives_own_copy() {
+        let tmp = TempDir::new("own-copy");
+        seeded(&tmp);
+        let drive = Counting {
+            inner: LocalDrive::new(tmp.path().join("home")),
+            gets: AtomicU32::new(0),
+            copies: AtomicU32::new(0),
+        };
+        drive.create_folder("backup/").unwrap();
+        let plan = plan_transfer(
+            &drive,
+            &[item("docs/"), item("readme.txt")],
+            &drive,
+            "backup/",
+            true,
+            TransferKind::Copy,
+        )
+        .unwrap();
+        assert!(plan.same_drive);
+        let report = run_transfer(
+            &plan,
+            &drive,
+            &drive,
+            TransferKind::Copy,
+            &never_cancel(),
+            &mut |_| {},
+        );
+        assert!(report.failed.is_empty(), "{:?}", report.failed);
+        assert_eq!(report.done, 3);
+        assert_eq!(drive.copies.load(Ordering::SeqCst), 3);
+        assert_eq!(
+            drive.gets.load(Ordering::SeqCst),
+            0,
+            "no byte through the app"
+        );
+        assert_eq!(drive.get("backup/docs/sub/b.txt").unwrap(), b"beta");
+    }
 }
