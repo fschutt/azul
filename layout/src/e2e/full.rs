@@ -20740,6 +20740,65 @@ impl DebugPollPace {
     }
 }
 
+/// Wake the UI loops for a debug request the server thread just queued
+/// (`add_debug_request_waker`, `announce_debug_request`,
+/// `take_debug_request_wake`).
+#[cfg(feature = "std")]
+pub fn add_debug_request_waker(waker: Arc<dyn Fn() + Send + Sync>) {
+    let _ = waker; // RED stub
+}
+
+/// The server thread queued a request: flag it and wake every registered
+/// loop.
+#[cfg(feature = "std")]
+pub fn announce_debug_request() {}
+
+/// Has a request been announced since the last call? Clears the flag.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn take_debug_request_wake() -> bool {
+    false // RED stub
+}
+
+#[cfg(all(test, feature = "std"))]
+mod debug_request_wake_tests {
+    use core::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::*;
+
+    static WOKEN: AtomicUsize = AtomicUsize::new(0);
+
+    /// IDLE_CPU (2026-09-30) left the debug poll at 250 ms when idle: the
+    /// server thread could not wake the UI loop, so the loop had to look. A
+    /// request now wakes it (the run loops' `loop_waker`, the headless
+    /// condvar) and the loop re-arms the poll at the busy rate on the spot.
+    #[test]
+    fn a_debug_request_wakes_the_ui_loop_at_once_instead_of_waiting_for_the_poll() {
+        add_debug_request_waker(Arc::new(|| {
+            WOKEN.fetch_add(1, Ordering::SeqCst);
+        }));
+        let _ = take_debug_request_wake();
+        let before = WOKEN.load(Ordering::SeqCst);
+        announce_debug_request();
+        assert!(
+            WOKEN.load(Ordering::SeqCst) > before,
+            "a queued request must wake the UI loop"
+        );
+        assert!(
+            take_debug_request_wake(),
+            "the woken loop sees that a request is waiting"
+        );
+        assert!(!take_debug_request_wake(), "and serves it once");
+    }
+
+    /// With requests waking the loop, the idle poll is only a safety net and
+    /// no longer a 4-per-second wake-up of an idle app.
+    #[test]
+    fn an_idle_debug_server_polls_at_most_every_two_seconds() {
+        assert!(DEBUG_POLL_IDLE_MS >= 2000, "{DEBUG_POLL_IDLE_MS} ms");
+    }
+}
+
 #[cfg(test)]
 mod debug_poll_pace_tests {
     use super::*;
