@@ -16,16 +16,18 @@ thread, monitor change re-reads the frame interval); dark "Dark" segment.
   52450b5ec (dll loops) + 4a7ee6d5a (headless children guard)
 - 3c part 2 PNG off UI thread: refactor d9d76151d, RED 57867bb64,
   GREEN 86fb64407
+- 3d. monitor change re-paces running drivers: RED dd959d321, GREEN
+  ac42c3b6f (frame_drivers_off_pace + repace_frame_drivers; macOS
+  windowDidChangeScreen now detects the monitor)
 
 ## IN PROGRESS
-- 3d. a monitor change mid-run keeps the old frame interval. Last commit:
-  86fb64407. NEXT STEP: find where monitor_id changes (shells:
-  windowDidChangeScreen on macOS, WM_DPICHANGED/move on Win32, X11
-  configure) and where intervals are armed (CSS driver, scroll physics,
-  caret tween, debug poll); re-arm running drivers on a monitor change.
+- 4. Segmented "Dark" segment: white text on light-grey face in dark mode.
+  Last commit: ac42c3b6f. NEXT STEP: read layout/src/widgets/segmented.rs
+  and the Segmented parts in themes/flat.rs + flora.rs; find the selected
+  segment's dark pair (text + face); RED theme-contrast test; fix at root.
 
 ## NEXT
-- 4. Segmented dark pair
+- report scripts/LIFECYCLE_2026_10_01.md
 
 ## Decisions
 - ABI hash = FNV-1a 64 over a canonical, sorted, doc-free text of the IR
