@@ -1771,27 +1771,31 @@ fn probe_video() -> VideoSupport {
         };
     }
     let backend = VideoEncoder::backend_name().as_str().to_string();
-    let keyframe = if backend == "none" {
+    let probed = if backend == "none" {
         None
     } else {
         probe_encode()
     };
-    let decodes_h264 = match &keyframe {
-        Some(keyframe) => probe_decode(keyframe),
+    let decodes_h264 = match &probed {
+        Some((keyframe, _)) => probe_decode(keyframe),
         None => PlatformCapability::video_codec().available,
     };
     VideoSupport {
-        encoder: keyframe
-            .map(|_| backend)
+        // "VideoToolbox, hardware": the codec line says where the encoding runs.
+        encoder: probed
+            .map(|(_, hardware)| {
+                format!("{backend}, {}", if hardware { "hardware" } else { "software" })
+            })
             .ok_or_else(|| String::from("no encoder")),
         decodes_h264,
     }
 }
 
-/// A keyframe of the test pattern from a fresh H.264 encoder; `None` where nothing, or no
-/// keyframe, comes out. `VideoEncoder::open` hands out an open handle that never yields a packet
-/// where no backend is built in, so opening proves nothing.
-fn probe_encode() -> Option<Vec<u8>> {
+/// A keyframe of the test pattern from a fresh H.264 encoder, and whether that encoder runs in
+/// hardware; `None` where nothing, or no keyframe, comes out. `VideoEncoder::open` hands out an
+/// open handle that never yields a packet where no backend is built in, so opening proves
+/// nothing.
+fn probe_encode() -> Option<(Vec<u8>, bool)> {
     let mut encoder = VideoEncoder::open(FEED_W, FEED_H, false, VIDEO_KBPS);
     if !encoder.is_open() {
         return None;
@@ -1808,8 +1812,9 @@ fn probe_encode() -> Option<Vec<u8>> {
             break;
         }
     }
+    let hardware = encoder.is_hardware();
     encoder.close();
-    video_wire::h264_is_keyframe(&chunk).then_some(chunk)
+    video_wire::h264_is_keyframe(&chunk).then_some((chunk, hardware))
 }
 
 /// Whether a fresh decoder turns `keyframe` back into a picture.
@@ -1961,6 +1966,16 @@ fn send_h264(
             let kbps = IrohLoadBalancer::rendition_kbps(u32::from(rendition));
             let encoder = VideoEncoder::open(width, height, false, kbps);
             if encoder.is_open() {
+                // For scripts (`scripts/azmeet_cpu.py`): where this rendition encodes.
+                println!(
+                    "AZMEET_ENCODER {} {width}x{height} {}",
+                    rendition_label(track, rendition).replace(' ', "-"),
+                    if encoder.is_hardware() {
+                        "hardware"
+                    } else {
+                        "software"
+                    }
+                );
                 out.encoder = Some(encoder);
                 out.size = (width, height);
                 out.health = video_wire::EncoderHealth::default();

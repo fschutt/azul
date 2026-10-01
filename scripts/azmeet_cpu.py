@@ -8,8 +8,8 @@ Two scenarios, one after the other (two capped apps at a time, 1000 MB each):
          second and nothing repaints: each app's CPU should be near 0 (--quiet-max, default
          1.0 %), no DOM rebuild and no display-list rebuild in the measured window.
   video  both cameras on (the test pattern, 15 fps, at the rendition the other's tile asks for):
-         the encoder must be VideoToolbox in hardware (the "[video] VideoToolbox H.264 encoder
-         open" log line says `hardware: Some(true)`), video frames must rebuild no display list,
+         every encoder must run in hardware (AzMeet prints `AZMEET_ENCODER <stream> <size>
+         hardware|software` per encoder it opens), video frames must rebuild no display list,
          and every damaged rectangle must lie inside the other's camera tile - the window repaints
          the tile, nothing else. The CPU is reported (the budget: well under 10 % per client).
 
@@ -116,9 +116,10 @@ def run_scenario(name, args, binary, worker, logs, extra):
             _, tile = app.rect("azmeet-tile-%s-camera" % other)
             entry["damage_inside_tile"] = all(inside(r, tile) for r in (entry["damage"] or []))
             if name == "video":
-                lines = [l for l in app.app_output().splitlines() if "VideoToolbox H.264 encoder open" in l]
-                entry["encoder"] = lines[-1].strip() if lines else None
-                entry["hardware"] = bool(lines) and "hardware: Some(true)" in lines[-1]
+                # `AZMEET_ENCODER <track-rendition> <w>x<h> hardware|software`, per encoder opened.
+                lines = app.printed("AZMEET_ENCODER")
+                entry["encoder"] = "; ".join(lines) if lines else None
+                entry["hardware"] = bool(lines) and all(l.endswith(" hardware") for l in lines)
             result[label] = entry
     finally:
         for p in reversed(procs):
