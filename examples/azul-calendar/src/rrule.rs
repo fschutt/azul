@@ -42,13 +42,13 @@ impl ByDay {
     /// Every `weekday`.
     #[must_use]
     pub const fn every(weekday: Weekday) -> ByDay {
-        todo!()
+        ByDay { nth: 0, weekday }
     }
 
     /// The `nth` `weekday` (negative: from the end).
     #[must_use]
     pub const fn nth(nth: i8, weekday: Weekday) -> ByDay {
-        todo!()
+        ByDay { nth, weekday }
     }
 }
 
@@ -131,6 +131,9 @@ fn parse_weekday(code: &str) -> Option<Weekday> {
 fn parse_by_day(text: &str) -> Option<ByDay> {
     let text = text.trim();
     let split = text.len().checked_sub(2)?;
+    if !text.is_char_boundary(split) {
+        return None;
+    }
     let (number, code) = text.split_at(split);
     let weekday = parse_weekday(code)?;
     let nth = if number.is_empty() {
@@ -147,7 +150,15 @@ fn parse_by_day(text: &str) -> Option<ByDay> {
 
 /// `20261231`, or the date of `20261231T235959` / `20261231T235959Z`.
 pub(crate) fn parse_basic_date(text: &str) -> Option<NaiveDate> {
-    todo!()
+    let digits = text.get(..8)?;
+    if !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let rest = &text[8..];
+    if !(rest.is_empty() || rest.starts_with('T')) {
+        return None;
+    }
+    NaiveDate::parse_from_str(digits, "%Y%m%d").ok()
 }
 
 /// The first day of the week `weekday_start` begins that holds `day`.
@@ -202,39 +213,147 @@ impl Rule {
     /// A rule repeating every `freq` forever, from its event's own day.
     #[must_use]
     pub fn new(freq: Freq) -> Rule {
-        todo!()
+        Rule {
+            freq,
+            interval: 1,
+            end: RepeatEnd::Never,
+            by_day: Vec::new(),
+            by_month_day: Vec::new(),
+            by_month: Vec::new(),
+            week_start: Weekday::Mon,
+        }
     }
 
     /// Every `interval` periods.
     #[must_use]
     pub fn with_interval(mut self, interval: u32) -> Rule {
-        todo!()
+        self.interval = interval.max(1);
+        self
     }
 
     #[must_use]
     pub fn with_end(mut self, end: RepeatEnd) -> Rule {
-        todo!()
+        self.end = end;
+        self
     }
 
     #[must_use]
     pub fn with_by_day(mut self, by_day: Vec<ByDay>) -> Rule {
-        todo!()
+        self.by_day = by_day;
+        self
     }
 
     #[must_use]
     pub fn with_by_month_day(mut self, days: Vec<i8>) -> Rule {
-        todo!()
+        self.by_month_day = days;
+        self
     }
 
     #[must_use]
     pub fn with_by_month(mut self, months: Vec<u32>) -> Rule {
-        todo!()
+        self.by_month = months;
+        self
     }
 
     /// Reads RRULE text (`FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE`), with or without a leading
     /// `RRULE:`; part names are read in any case and order.
     pub fn parse(text: &str) -> Result<Rule, RuleError> {
-        todo!()
+        let text = text.trim();
+        let text = text
+            .get(..6)
+            .filter(|p| p.eq_ignore_ascii_case("RRULE:"))
+            .map_or(text, |_| &text[6..]);
+        let mut freq = None;
+        let mut rule = Rule::new(Freq::Daily);
+        let mut count = None;
+        let mut until = None;
+        for part in text.split(';').map(str::trim).filter(|p| !p.is_empty()) {
+            let bad = || RuleError::BadPart(part.to_string());
+            let (name, value) = part.split_once('=').ok_or_else(bad)?;
+            let value = value.trim();
+            match name.trim().to_ascii_uppercase().as_str() {
+                "FREQ" => {
+                    freq = Some(match value.to_ascii_uppercase().as_str() {
+                        "DAILY" => Freq::Daily,
+                        "WEEKLY" => Freq::Weekly,
+                        "MONTHLY" => Freq::Monthly,
+                        "YEARLY" => Freq::Yearly,
+                        "SECONDLY" | "MINUTELY" | "HOURLY" => {
+                            return Err(RuleError::Unsupported(part.to_string()))
+                        }
+                        _ => return Err(bad()),
+                    });
+                }
+                "INTERVAL" => {
+                    rule.interval = value
+                        .parse()
+                        .ok()
+                        .filter(|&n: &u32| n > 0)
+                        .ok_or_else(bad)?;
+                }
+                "COUNT" => {
+                    count = Some(
+                        value
+                            .parse()
+                            .ok()
+                            .filter(|&n: &u32| n > 0)
+                            .ok_or_else(bad)?,
+                    );
+                }
+                "UNTIL" => until = Some(parse_basic_date(value).ok_or_else(bad)?),
+                "BYDAY" => {
+                    rule.by_day = value
+                        .split(',')
+                        .map(parse_by_day)
+                        .collect::<Option<Vec<_>>>()
+                        .ok_or_else(bad)?;
+                }
+                "BYMONTHDAY" => {
+                    rule.by_month_day = value
+                        .split(',')
+                        .map(|d| {
+                            d.trim()
+                                .trim_start_matches('+')
+                                .parse::<i8>()
+                                .ok()
+                                .filter(|d| *d != 0 && (-31..=31).contains(d))
+                        })
+                        .collect::<Option<Vec<_>>>()
+                        .ok_or_else(bad)?;
+                }
+                "BYMONTH" => {
+                    rule.by_month = value
+                        .split(',')
+                        .map(|m| {
+                            m.trim()
+                                .parse::<u32>()
+                                .ok()
+                                .filter(|m| (1..=12).contains(m))
+                        })
+                        .collect::<Option<Vec<_>>>()
+                        .ok_or_else(bad)?;
+                }
+                "WKST" => rule.week_start = parse_weekday(value).ok_or_else(bad)?,
+                _ => return Err(RuleError::Unsupported(part.to_string())),
+            }
+        }
+        rule.freq = freq.ok_or(RuleError::NoFreq)?;
+        rule.end = match (count, until) {
+            (Some(_), Some(_)) => return Err(RuleError::BadPart(String::from("COUNT and UNTIL"))),
+            (Some(n), None) => RepeatEnd::Count(n),
+            (None, Some(d)) => RepeatEnd::Until(d),
+            (None, None) => RepeatEnd::Never,
+        };
+        let has_nth = rule.by_day.iter().any(|d| d.nth != 0);
+        if has_nth && matches!(rule.freq, Freq::Daily | Freq::Weekly) {
+            return Err(RuleError::BadPart(String::from("BYDAY with a number")));
+        }
+        if !rule.by_month_day.is_empty() && rule.freq == Freq::Weekly {
+            return Err(RuleError::BadPart(String::from(
+                "BYMONTHDAY in a weekly rule",
+            )));
+        }
+        Ok(rule)
     }
 
     /// The rule as RRULE text, its parts in one order: `FREQ`, `INTERVAL` (when not 1),
@@ -243,7 +362,53 @@ impl Rule {
     /// are) for one with times, as RFC 5545 wants it to match `DTSTART`.
     #[must_use]
     pub fn to_rrule(&self, all_day: bool) -> String {
-        todo!()
+        let freq = match self.freq {
+            Freq::Daily => "DAILY",
+            Freq::Weekly => "WEEKLY",
+            Freq::Monthly => "MONTHLY",
+            Freq::Yearly => "YEARLY",
+        };
+        let mut parts = vec![format!("FREQ={freq}")];
+        if self.interval > 1 {
+            parts.push(format!("INTERVAL={}", self.interval));
+        }
+        match self.end {
+            RepeatEnd::Never => {}
+            RepeatEnd::Count(n) => parts.push(format!("COUNT={n}")),
+            RepeatEnd::Until(d) if all_day => parts.push(format!("UNTIL={}", d.format("%Y%m%d"))),
+            RepeatEnd::Until(d) => parts.push(format!("UNTIL={}T235959", d.format("%Y%m%d"))),
+        }
+        let list = |items: Vec<String>| items.join(",");
+        if !self.by_month.is_empty() {
+            parts.push(format!(
+                "BYMONTH={}",
+                list(self.by_month.iter().map(u32::to_string).collect())
+            ));
+        }
+        if !self.by_month_day.is_empty() {
+            parts.push(format!(
+                "BYMONTHDAY={}",
+                list(self.by_month_day.iter().map(i8::to_string).collect())
+            ));
+        }
+        if !self.by_day.is_empty() {
+            parts.push(format!(
+                "BYDAY={}",
+                list(
+                    self.by_day
+                        .iter()
+                        .map(|d| match d.nth {
+                            0 => weekday_code(d.weekday).to_string(),
+                            n => format!("{n}{}", weekday_code(d.weekday)),
+                        })
+                        .collect()
+                )
+            ));
+        }
+        if self.week_start != Weekday::Mon {
+            parts.push(format!("WKST={}", weekday_code(self.week_start)));
+        }
+        parts.join(";")
     }
 
     /// The first day of the `k`th period after the one `first` is in (each period `interval`
@@ -419,21 +584,149 @@ impl Rule {
         from: NaiveDate,
         to: NaiveDate,
     ) -> Vec<NaiveDate> {
-        todo!()
+        let mut out = Vec::new();
+        if to < from || to < first {
+            return out;
+        }
+        let (count, until) = match self.end {
+            RepeatEnd::Never => (None, None),
+            RepeatEnd::Count(n) => (Some(n.max(1)), None),
+            RepeatEnd::Until(d) => (None, Some(d)),
+        };
+        let keep = |d: NaiveDate, out: &mut Vec<NaiveDate>| {
+            if d >= from && d <= to && !except.contains(&d) {
+                out.push(d);
+            }
+        };
+        keep(first, &mut out);
+        let mut made: u32 = 1;
+        let skip = if count.is_some() {
+            0
+        } else {
+            self.periods_before(first, from)
+        };
+        let mut k = skip;
+        while k - skip < MAX_PERIODS {
+            let Some(start) = self.period_start(first, k) else {
+                break;
+            };
+            if start > to || until.is_some_and(|u| start > u) {
+                break;
+            }
+            for day in self.candidates(first, k) {
+                if day <= first {
+                    continue;
+                }
+                if day > to || until.is_some_and(|u| day > u) {
+                    return out;
+                }
+                if count.is_some_and(|n| made >= n) {
+                    return out;
+                }
+                made += 1;
+                keep(day, &mut out);
+            }
+            k += 1;
+        }
+        out
     }
 
     /// Whether the rule makes any date after `first` at all (an `UNTIL` before the second date,
     /// or `COUNT=1`, makes none).
     #[must_use]
     pub fn repeats(&self, first: NaiveDate) -> bool {
-        todo!()
+        let horizon = match self.end {
+            RepeatEnd::Until(d) => d,
+            _ => first + Duration::days(366 * 4 + 1),
+        };
+        horizon > first && self.dates(first, &[], first, horizon).len() > 1
     }
 
     /// What the rule says, for people: "Weekly on Wednesday", "Every 2 weeks on Monday and
     /// Friday, 10 times", "Monthly on the last Friday, until 31 December 2026".
     #[must_use]
     pub fn describe(&self, first: NaiveDate) -> String {
-        todo!()
+        let n = self.interval.max(1);
+        let every = |one: &str, many: &str| {
+            if n == 1 {
+                one.to_string()
+            } else {
+                format!("Every {n} {many}")
+            }
+        };
+        let names = |days: &[ByDay]| {
+            let names: Vec<String> = days
+                .iter()
+                .map(|d| {
+                    let day = weekday_name(d.weekday);
+                    match d.nth {
+                        0 => day.to_string(),
+                        n => format!("the {} {day}", ordinal(i32::from(n))),
+                    }
+                })
+                .collect();
+            join_and(&names)
+        };
+        let mut text = match self.freq {
+            Freq::Daily if is_weekdays(&self.by_day) && n == 1 => String::from("Every weekday"),
+            Freq::Daily => every("Daily", "days"),
+            Freq::Weekly if is_weekdays(&self.by_day) && n == 1 => String::from("Every weekday"),
+            Freq::Weekly => {
+                let days = if self.by_day.is_empty() {
+                    weekday_name(first.weekday()).to_string()
+                } else {
+                    names(&self.by_day)
+                };
+                format!("{} on {days}", every("Weekly", "weeks"))
+            }
+            Freq::Monthly => {
+                let on = if !self.by_month_day.is_empty() {
+                    let days: Vec<String> = self
+                        .by_month_day
+                        .iter()
+                        .map(|&d| match d {
+                            -1 => String::from("the last day"),
+                            d if d < 0 => {
+                                format!("the {} day from the end", ordinal(i32::from(-d)))
+                            }
+                            d => format!("day {d}"),
+                        })
+                        .collect();
+                    join_and(&days)
+                } else if !self.by_day.is_empty() {
+                    names(&self.by_day)
+                } else {
+                    format!("day {}", first.day())
+                };
+                format!("{} on {on}", every("Monthly", "months"))
+            }
+            Freq::Yearly => {
+                let on = if self.by_month.is_empty() && self.by_day.is_empty() {
+                    first.format("%-d %B").to_string()
+                } else if !self.by_day.is_empty() && self.by_month.len() == 1 {
+                    format!(
+                        "{} of {}",
+                        names(&self.by_day),
+                        month_name(self.by_month[0])
+                    )
+                } else {
+                    let months: Vec<String> = self
+                        .by_month
+                        .iter()
+                        .map(|&m| month_name(m).to_string())
+                        .collect();
+                    format!("{} {}", first.day(), join_and(&months))
+                };
+                format!("{} on {on}", every("Yearly", "years"))
+            }
+        };
+        match self.end {
+            RepeatEnd::Never => {}
+            RepeatEnd::Count(1) => text.push_str(", once"),
+            RepeatEnd::Count(c) => text.push_str(&format!(", {c} times")),
+            RepeatEnd::Until(d) => text.push_str(&format!(", until {}", d.format("%-d %B %Y"))),
+        }
+        text
     }
 }
 
@@ -451,7 +744,15 @@ fn is_weekdays(days: &[ByDay]) -> bool {
 /// "Monday"
 #[must_use]
 pub fn weekday_name(weekday: Weekday) -> &'static str {
-    todo!()
+    match weekday {
+        Weekday::Mon => "Monday",
+        Weekday::Tue => "Tuesday",
+        Weekday::Wed => "Wednesday",
+        Weekday::Thu => "Thursday",
+        Weekday::Fri => "Friday",
+        Weekday::Sat => "Saturday",
+        Weekday::Sun => "Sunday",
+    }
 }
 
 fn month_name(month: u32) -> &'static str {
@@ -477,7 +778,17 @@ fn month_name(month: u32) -> &'static str {
 /// "first", "second", ... "fifth", "last", "second to last".
 #[must_use]
 pub fn ordinal(n: i32) -> String {
-    todo!()
+    match n {
+        -1 => String::from("last"),
+        -2 => String::from("second to last"),
+        1 => String::from("first"),
+        2 => String::from("second"),
+        3 => String::from("third"),
+        4 => String::from("fourth"),
+        5 => String::from("fifth"),
+        n if n < 0 => format!("{}th to last", -n),
+        n => format!("{n}th"),
+    }
 }
 
 /// "a", "a and b", "a, b and c".
@@ -493,7 +804,9 @@ fn join_and(items: &[String]) -> String {
 /// also the month's last such weekday.
 #[must_use]
 pub fn nth_weekday_of_month(day: NaiveDate) -> (i8, bool) {
-    todo!()
+    let nth = i8::try_from((day.day() - 1) / 7 + 1).unwrap_or(1);
+    let last = day.day() + 7 > days_in_month(day.year(), day.month());
+    (nth, last)
 }
 
 #[cfg(test)]
@@ -775,6 +1088,11 @@ mod tests {
 
     #[test]
     fn a_rule_outside_the_subset_says_which_part() {
+        // A weekday code that is not two ASCII letters is a bad part, not a panic.
+        assert!(matches!(
+            Rule::parse("FREQ=WEEKLY;BYDAY=\u{d6}a"),
+            Err(RuleError::BadPart(_))
+        ));
         assert_eq!(
             Rule::parse("FREQ=HOURLY"),
             Err(RuleError::Unsupported(String::from("FREQ=HOURLY")))

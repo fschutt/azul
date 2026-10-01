@@ -73,44 +73,91 @@ impl Colour {
     /// The colour's name in a file: "blue".
     #[must_use]
     pub const fn name(self) -> &'static str {
-        todo!()
+        match self {
+            Colour::Blue => "blue",
+            Colour::Green => "green",
+            Colour::Purple => "purple",
+            Colour::Orange => "orange",
+            Colour::Red => "red",
+            Colour::Teal => "teal",
+            Colour::Olive => "olive",
+            Colour::Grey => "grey",
+        }
     }
 
     /// The colour a file names; `None` for a name no colour has.
     #[must_use]
     pub fn from_name(name: &str) -> Option<Colour> {
-        todo!()
+        Colour::ALL.into_iter().find(|c| c.name() == name.trim())
     }
 
     /// The colour's name for people: "Blue".
     #[must_use]
     pub const fn label(self) -> &'static str {
-        todo!()
+        match self {
+            Colour::Blue => "Blue",
+            Colour::Green => "Green",
+            Colour::Purple => "Purple",
+            Colour::Orange => "Orange",
+            Colour::Red => "Red",
+            Colour::Teal => "Teal",
+            Colour::Olive => "Olive",
+            Colour::Grey => "Grey",
+        }
     }
 
     /// The colour's paint. Blue is the tint events had before calendars had colours.
     #[must_use]
     pub const fn paint(self) -> Paint {
-        todo!()
+        let (light_fill, light_edge, dark_fill, dark_edge) = match self {
+            Colour::Blue => ("#dbe7ff", "#2f6db0", "#233a5e", "#6ea8ff"),
+            Colour::Green => ("#dcefdc", "#3a8a3a", "#1f3d24", "#7cc47c"),
+            Colour::Purple => ("#e8dcf5", "#7a4bb0", "#3a2a52", "#b58ee8"),
+            Colour::Orange => ("#fde5cc", "#c46a14", "#4a3016", "#f0a35c"),
+            Colour::Red => ("#f9dada", "#b83232", "#4d2222", "#f08a8a"),
+            Colour::Teal => ("#d4eeee", "#22817f", "#183d3d", "#6cc9c6"),
+            Colour::Olive => ("#ececcc", "#7d7d23", "#3a3a1c", "#c9c97a"),
+            Colour::Grey => ("#e6e6e6", "#6b6b6b", "#333333", "#a8a8a8"),
+        };
+        Paint {
+            light_fill,
+            light_edge,
+            dark_fill,
+            dark_edge,
+        }
     }
 
     /// An event's box in this colour: the tint with the edge on its left, and their dark twins.
     #[must_use]
     pub fn event_css(self) -> String {
-        todo!()
+        let p = self.paint();
+        format!(
+            "background: {}; border-left: 3px solid {}; @media (prefers-color-scheme: dark) {{ \
+             background: {}; border-left: 3px solid {}; }}",
+            p.light_fill, p.light_edge, p.dark_fill, p.dark_edge
+        )
     }
 
     /// A whole-day bar in this colour (the all-day row, the month view): the tint, edged all
     /// round.
     #[must_use]
     pub fn bar_css(self) -> String {
-        todo!()
+        let p = self.paint();
+        format!(
+            "background: {}; border: 1px solid {}; @media (prefers-color-scheme: dark) {{ \
+             background: {}; border: 1px solid {}; }}",
+            p.light_fill, p.light_edge, p.dark_fill, p.dark_edge
+        )
     }
 
     /// The swatch: the edge colour, in both modes.
     #[must_use]
     pub fn swatch_css(self) -> String {
-        todo!()
+        let p = self.paint();
+        format!(
+            "background: {}; @media (prefers-color-scheme: dark) {{ background: {}; }}",
+            p.light_edge, p.dark_edge
+        )
     }
 }
 
@@ -127,12 +174,16 @@ impl Calendar {
     /// The default calendar as it is before anyone renamed or recoloured it.
     #[must_use]
     pub fn default_calendar() -> Calendar {
-        todo!()
+        Calendar {
+            id: String::new(),
+            name: String::from(DEFAULT_NAME),
+            colour: Colour::Blue,
+        }
     }
 
     #[must_use]
     pub fn is_default(&self) -> bool {
-        todo!()
+        self.id.is_empty()
     }
 }
 
@@ -149,82 +200,197 @@ struct CalendarFile {
 /// `default.json` for the default calendar, `<id>.json` for any other.
 #[must_use]
 pub fn file_name(id: &str) -> String {
-    todo!()
+    if id.is_empty() {
+        String::from(DEFAULT_FILE)
+    } else {
+        format!("{id}.json")
+    }
 }
 
 /// `calendars/<file>`: the calendar's path under the data folder, and its key in a bucket.
 #[must_use]
 pub fn object_key(id: &str) -> String {
-    todo!()
+    format!("{CALENDARS_DIR}/{}", file_name(id))
 }
 
 /// Where the calendar `id` is stored under `data_dir`.
 #[must_use]
 pub fn calendar_path(data_dir: &Path, id: &str) -> PathBuf {
-    todo!()
+    data_dir.join(CALENDARS_DIR).join(file_name(id))
 }
 
 /// The calendar's file contents (pretty JSON, ending in a newline).
 #[must_use]
 pub fn to_json(calendar: &Calendar) -> String {
-    todo!()
+    let file = CalendarFile {
+        format: FORMAT.to_string(),
+        version: VERSION,
+        id: calendar.id.clone(),
+        name: calendar.name.clone(),
+        colour: calendar.colour.name().to_string(),
+    };
+    let mut text = serde_json::to_string_pretty(&file).unwrap_or_default();
+    text.push('\n');
+    text
 }
 
 /// Reads a calendar file: its format and version, an id that names a calendar, a name (trimmed,
 /// not empty) and a colour.
 pub fn from_json(text: &str) -> Result<Calendar, String> {
-    todo!()
+    let file: CalendarFile = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    if file.format != FORMAT {
+        return Err(format!(
+            "not an AzCalendar calendar (no \"format\": \"{FORMAT}\")"
+        ));
+    }
+    if file.version != VERSION {
+        return Err(format!(
+            "version {} (this AzCalendar reads {VERSION})",
+            file.version
+        ));
+    }
+    if !is_calendar_id(&file.id) {
+        return Err(format!("the id {:?} is not a calendar's", file.id));
+    }
+    let name = file.name.trim();
+    if name.is_empty() {
+        return Err(String::from("the calendar has no name"));
+    }
+    let colour = Colour::from_name(&file.colour)
+        .ok_or_else(|| format!("the colour {:?} is not one AzCalendar has", file.colour))?;
+    Ok(Calendar {
+        id: file.id,
+        name: name.to_string(),
+        colour,
+    })
 }
 
 /// Writes `calendar` to its file, atomically, and returns the file's path.
 pub fn save(data_dir: &Path, calendar: &Calendar) -> std::io::Result<PathBuf> {
-    todo!()
+    let dir = data_dir.join(CALENDARS_DIR);
+    std::fs::create_dir_all(&dir)?;
+    let path = calendar_path(data_dir, &calendar.id);
+    let temp = dir.join(format!(".{}.tmp", file_name(&calendar.id)));
+    std::fs::write(&temp, to_json(calendar))?;
+    if let Err(e) = std::fs::rename(&temp, &path) {
+        let _ = std::fs::remove_file(&temp);
+        return Err(e);
+    }
+    Ok(path)
 }
 
 /// Removes the calendar's file (a missing file is not an error). The default calendar cannot be
 /// removed: its file goes and it is "Calendar" in blue again.
 pub fn remove(data_dir: &Path, id: &str) -> std::io::Result<()> {
-    todo!()
+    match std::fs::remove_file(calendar_path(data_dir, id)) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
+    }
 }
 
 /// Every calendar: the default one first (its file, or as it is before one), then the others by
 /// name. A file that does not read, or holds another calendar than its name says, is left out.
 #[must_use]
 pub fn load_all(data_dir: &Path) -> Vec<Calendar> {
-    todo!()
+    let mut default = Calendar::default_calendar();
+    let mut others = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(data_dir.join(CALENDARS_DIR)) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                continue;
+            };
+            let Some(id) = name.strip_suffix(".json") else {
+                continue;
+            };
+            let id = if name == DEFAULT_FILE { "" } else { id };
+            if !is_calendar_id(id) {
+                continue;
+            }
+            let Ok(calendar) = std::fs::read_to_string(entry.path())
+                .map_err(|e| e.to_string())
+                .and_then(|text| from_json(&text))
+            else {
+                continue;
+            };
+            if calendar.id != id {
+                continue;
+            }
+            if calendar.is_default() {
+                default = calendar;
+            } else {
+                others.push(calendar);
+            }
+        }
+    }
+    others.sort_by(|a, b| (a.name.to_lowercase(), &a.id).cmp(&(b.name.to_lowercase(), &b.id)));
+    let mut all = vec![default];
+    all.extend(others);
+    all
 }
 
 /// A new calendar's id: a random version-4 UUID, as an event's.
 #[must_use]
 pub fn new_calendar_id() -> String {
-    todo!()
+    event::new_event_id()
 }
 
 /// The colour a new calendar takes: the first one no calendar has, else the one fewest have.
 #[must_use]
 pub fn next_colour(calendars: &[Calendar]) -> Colour {
-    todo!()
+    Colour::ALL
+        .into_iter()
+        .min_by_key(|c| {
+            let used = calendars.iter().filter(|cal| cal.colour == *c).count();
+            let order = Colour::ALL.iter().position(|x| x == c).unwrap_or(0);
+            (used, order)
+        })
+        .unwrap_or(Colour::Blue)
 }
 
 /// The calendar an event with calendar id `id` is in: that calendar, else (a calendar that is
 /// gone) the default one.
 #[must_use]
 pub fn calendar_of<'a>(calendars: &'a [Calendar], id: &str) -> Option<&'a Calendar> {
-    todo!()
+    calendars
+        .iter()
+        .find(|c| c.id == id)
+        .or_else(|| calendars.iter().find(|c| c.is_default()))
 }
 
 /// The settings value listing the hidden calendars' ids (`default` for the default calendar),
 /// sorted, comma-separated.
 #[must_use]
 pub fn hidden_value(hidden: &BTreeSet<String>) -> String {
-    todo!()
+    hidden
+        .iter()
+        .map(|id| {
+            if id.is_empty() {
+                DEFAULT_TOKEN
+            } else {
+                id.as_str()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 /// The hidden calendars a settings value lists (what `hidden_value` wrote); ids that name no
 /// calendar are left out.
 #[must_use]
 pub fn hidden_of(value: &str) -> BTreeSet<String> {
-    todo!()
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .filter_map(|t| {
+            if t == DEFAULT_TOKEN {
+                Some(String::new())
+            } else {
+                event::is_event_id(t).then(|| t.to_string())
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

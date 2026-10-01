@@ -104,12 +104,16 @@ pub fn value<'a>(text: &'a str, key: &str) -> Option<&'a str> {
 
 /// The setting line `key` (with its `=`) `value`.
 pub fn line(key: &str, value: &str) -> String {
-    todo!()
+    format!("{key}{}\n", value.trim())
 }
 
 /// A `1` / `0` setting: `Some(true)` for `1`, `Some(false)` for `0`, `None` for anything else.
 pub fn flag(text: &str, key: &str) -> Option<bool> {
-    todo!()
+    match value(text, key)? {
+        "1" => Some(true),
+        "0" => Some(false),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

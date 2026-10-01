@@ -40,31 +40,52 @@ impl ViewKind {
     /// The view's name in the settings file, on the command line and on stdout.
     #[must_use]
     pub const fn name(self) -> &'static str {
-        todo!()
+        match self {
+            ViewKind::Day => "day",
+            ViewKind::WorkWeek => "work-week",
+            ViewKind::Week => "week",
+            ViewKind::Month => "month",
+            ViewKind::Schedule => "schedule",
+            ViewKind::Agenda => "agenda",
+        }
     }
 
     #[must_use]
     pub fn from_name(name: &str) -> Option<ViewKind> {
-        todo!()
+        ViewKind::ALL.into_iter().find(|v| v.name() == name.trim())
     }
 
     /// The view's name for people, as the ribbon labels its button.
     #[must_use]
     pub const fn label(self) -> &'static str {
-        todo!()
+        match self {
+            ViewKind::Day => "Day",
+            ViewKind::WorkWeek => "Work Week",
+            ViewKind::Week => "Week",
+            ViewKind::Month => "Month",
+            ViewKind::Schedule => "Schedule View",
+            ViewKind::Agenda => "List",
+        }
     }
 
     /// The view's icon (a Material icon name).
     #[must_use]
     pub const fn icon(self) -> &'static str {
-        todo!()
+        match self {
+            ViewKind::Day => "view_day",
+            ViewKind::WorkWeek => "view_week",
+            ViewKind::Week => "date_range",
+            ViewKind::Month => "calendar_view_month",
+            ViewKind::Schedule => "view_timeline",
+            ViewKind::Agenda => "view_agenda",
+        }
     }
 
     /// The view is hours down the page, one column a day (CAL2's week): a click or a drag makes
     /// an event there, a pinch zooms it.
     #[must_use]
     pub const fn is_time_grid(self) -> bool {
-        todo!()
+        matches!(self, ViewKind::Day | ViewKind::WorkWeek | ViewKind::Week)
     }
 }
 
@@ -72,52 +93,102 @@ impl ViewKind {
 /// its week; the six weeks of the month grid (Monday first); the list's days from the anchor.
 #[must_use]
 pub fn days_shown(kind: ViewKind, anchor: NaiveDate) -> Vec<NaiveDate> {
-    todo!()
+    let run = |first: NaiveDate, n: i64| (0..n).map(|i| first + Duration::days(i)).collect();
+    match kind {
+        ViewKind::Day | ViewKind::Schedule => vec![anchor],
+        ViewKind::WorkWeek => run(week::week_start(anchor), 5),
+        ViewKind::Week => run(week::week_start(anchor), 7),
+        ViewKind::Month => run(month_grid_start(anchor), 7 * MONTH_WEEKS as i64),
+        ViewKind::Agenda => run(anchor, AGENDA_DAYS),
+    }
 }
 
 /// The first day of `day`'s month.
 #[must_use]
 pub fn month_start(day: NaiveDate) -> NaiveDate {
-    todo!()
+    day.with_day(1).unwrap_or(day)
 }
 
 /// The last day of `day`'s month.
 #[must_use]
 pub fn month_end(day: NaiveDate) -> NaiveDate {
-    todo!()
+    let first = month_start(day);
+    let next = if first.month() == 12 {
+        NaiveDate::from_ymd_opt(first.year() + 1, 1, 1)
+    } else {
+        NaiveDate::from_ymd_opt(first.year(), first.month() + 1, 1)
+    };
+    next.and_then(|d| d.pred_opt()).unwrap_or(day)
 }
 
 /// The Monday the month grid of `day`'s month starts on.
 #[must_use]
 pub fn month_grid_start(day: NaiveDate) -> NaiveDate {
-    todo!()
+    week::week_start(month_start(day))
 }
 
 /// The days the view is ABOUT, for the date navigator to light: the shown days, except that the
 /// month view is its month (not the ends of the weeks around it).
 #[must_use]
 pub fn visible_range(kind: ViewKind, anchor: NaiveDate) -> (NaiveDate, NaiveDate) {
-    todo!()
+    if kind == ViewKind::Month {
+        return (month_start(anchor), month_end(anchor));
+    }
+    let days = days_shown(kind, anchor);
+    (
+        days.first().copied().unwrap_or(anchor),
+        days.last().copied().unwrap_or(anchor),
+    )
 }
 
 /// The anchor Previous (`by` = -1) or Next (`by` = 1) moves to: a day, a week, a month (the day
 /// held to the month's length), or the list's length.
 #[must_use]
 pub fn step(kind: ViewKind, anchor: NaiveDate, by: i32) -> NaiveDate {
-    todo!()
+    let by64 = i64::from(by);
+    match kind {
+        ViewKind::Day | ViewKind::Schedule => anchor + Duration::days(by64),
+        ViewKind::WorkWeek | ViewKind::Week => anchor + Duration::days(7 * by64),
+        ViewKind::Agenda => anchor + Duration::days(AGENDA_DAYS * by64),
+        ViewKind::Month => {
+            let index = i64::from(anchor.year()) * 12 + i64::from(anchor.month0()) + by64;
+            let (Ok(year), Ok(month0)) = (
+                i32::try_from(index.div_euclid(12)),
+                u32::try_from(index.rem_euclid(12)),
+            ) else {
+                return anchor;
+            };
+            week::picked_date(year, month0 + 1, anchor.day()).unwrap_or(anchor)
+        }
+    }
 }
 
 /// The view's title: "Wednesday, 30 September 2026", "28 September - 2 October 2026",
 /// "October 2026", "30 September - 6 October 2026".
 #[must_use]
 pub fn title(kind: ViewKind, anchor: NaiveDate) -> String {
-    todo!()
+    match kind {
+        ViewKind::Day | ViewKind::Schedule => anchor.format("%A, %-d %B %Y").to_string(),
+        ViewKind::Month => anchor.format("%B %Y").to_string(),
+        _ => {
+            let days = days_shown(kind, anchor);
+            let (first, last) = (days[0], days[days.len() - 1]);
+            range_title(first, last)
+        }
+    }
 }
 
 /// "28 September - 4 October 2026", "5 - 11 October 2026", "28 December 2026 - 3 January 2027".
 #[must_use]
 pub fn range_title(first: NaiveDate, last: NaiveDate) -> String {
-    todo!()
+    let head = if first.year() != last.year() {
+        "%-d %B %Y"
+    } else if first.month() != last.month() {
+        "%-d %B"
+    } else {
+        "%-d"
+    };
+    format!("{} - {}", first.format(head), last.format("%-d %B %Y"))
 }
 
 /// One occurrence of an event in a view: the event (its index in the calendar's list) and the
@@ -133,7 +204,7 @@ impl Occurrence {
     /// The occurrence is on `day`.
     #[must_use]
     pub fn covers(&self, day: NaiveDate) -> bool {
-        todo!()
+        self.first <= day && day <= self.last
     }
 }
 
@@ -145,33 +216,71 @@ pub fn occurrences(
     to: NaiveDate,
     shown: impl Fn(&Event) -> bool,
 ) -> Vec<Occurrence> {
-    todo!()
+    let mut out: Vec<Occurrence> = events
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| shown(*e))
+        .flat_map(|(index, e)| {
+            let span = Duration::days(e.span_days());
+            e.starts_between(from, to)
+                .into_iter()
+                .map(move |first| Occurrence {
+                    index,
+                    first,
+                    last: first + span,
+                })
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        let (ea, eb) = (&events[a.index], &events[b.index]);
+        (a.first, !ea.all_day, ea.start, ea.end, &ea.title, &ea.id).cmp(&(
+            b.first,
+            !eb.all_day,
+            eb.start,
+            eb.end,
+            &eb.title,
+            &eb.id,
+        ))
+    });
+    out
 }
 
 /// The occurrences on `day`, in the order `occurrences` gave them.
 #[must_use]
 pub fn on_day(occurrences: &[Occurrence], day: NaiveDate) -> Vec<Occurrence> {
-    todo!()
+    occurrences
+        .iter()
+        .filter(|o| o.covers(day))
+        .copied()
+        .collect()
 }
 
 /// How a month cell with room for `rows` lines shows `count` events: `(shown, more)`. When all
 /// fit, all; otherwise one line fewer, and "+N more" in the last line for the rest.
 #[must_use]
 pub fn month_cell(count: usize, rows: usize) -> (usize, usize) {
-    todo!()
+    if count <= rows {
+        (count, 0)
+    } else {
+        let shown = rows.saturating_sub(1);
+        (shown, count - shown)
+    }
 }
 
 /// How many event lines a month cell `cell_px` high holds under its day number (`head_px`), at
 /// `line_px` a line.
 #[must_use]
 pub fn month_cell_rows(cell_px: f32, head_px: f32, line_px: f32) -> usize {
-    todo!()
+    if !(cell_px.is_finite() && head_px.is_finite() && line_px.is_finite()) || line_px <= 0.0 {
+        return 1;
+    }
+    (((cell_px - head_px) / line_px).floor().max(1.0)) as usize
 }
 
 /// "+3 more"
 #[must_use]
 pub fn more_label(more: usize) -> String {
-    todo!()
+    format!("+{more} more")
 }
 
 /// The list's days: each day from `from` to `to` that has occurrences, with them.
@@ -181,20 +290,35 @@ pub fn agenda(
     from: NaiveDate,
     to: NaiveDate,
 ) -> Vec<(NaiveDate, Vec<Occurrence>)> {
-    todo!()
+    let mut out = Vec::new();
+    let mut day = from;
+    while day <= to {
+        let items = on_day(occurrences, day);
+        if !items.is_empty() {
+            out.push((day, items));
+        }
+        day += Duration::days(1);
+    }
+    out
 }
 
 /// "Today", "Tomorrow", or "Friday 2 October": a list day's heading.
 #[must_use]
 pub fn agenda_day_label(day: NaiveDate, today: NaiveDate) -> String {
-    todo!()
+    if day == today {
+        format!("Today, {}", day.format("%A %-d %B"))
+    } else if day == today + Duration::days(1) {
+        format!("Tomorrow, {}", day.format("%A %-d %B"))
+    } else {
+        day.format("%A %-d %B").to_string()
+    }
 }
 
 /// The view a `--screen` / settings name and an anchor make when nothing says which: the week of
 /// today.
 #[must_use]
 pub fn default_view() -> ViewKind {
-    todo!()
+    ViewKind::Week
 }
 
 #[cfg(test)]

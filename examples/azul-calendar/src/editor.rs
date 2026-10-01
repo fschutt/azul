@@ -57,7 +57,11 @@ impl Ends {
 
     #[must_use]
     pub const fn label(self) -> &'static str {
-        todo!()
+        match self {
+            Ends::Never => "Never",
+            Ends::After => "After a number of times",
+            Ends::On => "On a date",
+        }
     }
 }
 
@@ -134,7 +138,34 @@ impl EditorForm {
         end: NaiveTime,
         calendar: &str,
     ) -> EditorForm {
-        todo!()
+        EditorForm {
+            serial,
+            id: id.to_string(),
+            existing: false,
+            meeting_request: false,
+            title: String::new(),
+            location: String::new(),
+            date,
+            start,
+            last_day: date,
+            end,
+            all_day: false,
+            repeat: Repeat::Never,
+            interval: 1,
+            ends: Ends::Never,
+            count: DEFAULT_COUNT,
+            until: date + Duration::days(28),
+            custom: None,
+            reminder: Some(15),
+            calendar: calendar.to_string(),
+            notes: String::new(),
+            attendees: String::new(),
+            add_meet: false,
+            meeting: None,
+            except: Vec::new(),
+            uid: String::new(),
+            error: String::new(),
+        }
     }
 
     /// A new meeting: an appointment with attendees and, ticked, "Add AzMeet link".
@@ -147,59 +178,166 @@ impl EditorForm {
         end: NaiveTime,
         calendar: &str,
     ) -> EditorForm {
-        todo!()
+        EditorForm {
+            meeting_request: true,
+            add_meet: true,
+            ..EditorForm::new_event(serial, id, date, start, end, calendar)
+        }
     }
 
     /// The form of an event that exists.
     #[must_use]
     pub fn from_event(serial: u32, event: &Event) -> EditorForm {
-        todo!()
+        let mut form = EditorForm::new_event(
+            serial,
+            &event.id,
+            event.date,
+            event.start,
+            event.end,
+            &event.calendar,
+        );
+        form.existing = true;
+        form.title = event.title.clone();
+        form.location = event.location.clone();
+        form.last_day = event.last_day;
+        form.all_day = event.all_day;
+        if let Some(rule) = &event.repeat {
+            let shown = repeat_of(rule, event.date);
+            form.repeat = shown.repeat;
+            form.interval = shown.interval;
+            form.ends = shown.ends;
+            form.count = shown.count;
+            form.until = shown.until;
+            form.custom = (shown.repeat == Repeat::Custom).then(|| rule.clone());
+        }
+        form.reminder = event.reminder;
+        form.notes = event.notes.clone();
+        form.attendees = event.attendees.join(", ");
+        form.meeting_request = !event.attendees.is_empty();
+        form.add_meet = event.meeting.is_some();
+        form.meeting = event.meeting.clone();
+        form.except = event.except.clone();
+        form.uid = event.uid.clone();
+        form
     }
 
     /// Moves the first day to `date`; an all-day event's last day moves along (the same number
     /// of days), and an end date before it moves to it.
     pub fn set_date(&mut self, date: NaiveDate) {
-        todo!()
+        let span = (self.last_day - self.date).num_days().max(0);
+        self.date = date;
+        self.last_day = date + Duration::days(span);
+        if self.until < date {
+            self.until = date;
+        }
     }
 
     /// The last day (the end date).
     pub fn set_last_day(&mut self, day: NaiveDate) {
-        todo!()
+        self.last_day = day;
     }
 
     /// Ticks or clears "All day". An event with times ends on its first day.
     pub fn set_all_day(&mut self, all_day: bool) {
-        todo!()
+        self.all_day = all_day;
+        if !all_day {
+            self.last_day = self.date;
+        }
     }
 
     /// The repeat rule the form's choices make; `Err` with what to tell the user.
     pub fn rule(&self) -> Result<Option<Rule>, String> {
-        todo!()
+        if self.repeat == Repeat::Custom {
+            return Ok(self.custom.clone());
+        }
+        if self.repeat != Repeat::Never {
+            match self.ends {
+                Ends::After if self.count == 0 => {
+                    return Err(String::from("Repeat it at least once."));
+                }
+                Ends::On if self.until < self.date => {
+                    return Err(String::from(
+                        "The repeat must end on or after the event's first day.",
+                    ));
+                }
+                _ => {}
+            }
+        }
+        Ok(rule_of(
+            self.repeat,
+            self.interval,
+            self.ends,
+            self.count,
+            self.until,
+            self.date,
+        ))
     }
 
     /// The event the form saves, with `meeting`; `Err` with what to tell the user.
     pub fn event(&self, meeting: Option<Meeting>) -> Result<Event, String> {
-        todo!()
+        if !self.all_day && self.last_day != self.date {
+            return Err(String::from(
+                "An event with times ends on the day it starts: make it all day to span days.",
+            ));
+        }
+        let repeat = self.rule()?;
+        let attendees = parse_attendees(&self.attendees)?;
+        Event {
+            id: self.id.clone(),
+            title: self.title.clone(),
+            date: self.date,
+            start: self.start,
+            end: self.end,
+            meeting,
+            all_day: self.all_day,
+            last_day: self.last_day,
+            location: self.location.clone(),
+            notes: self.notes.clone(),
+            attendees,
+            reminder: self.reminder,
+            calendar: self.calendar.clone(),
+            repeat,
+            except: self.except.clone(),
+            uid: self.uid.clone(),
+        }
+        .check()
+        .map_err(|e| error_text(&e))
     }
 
     /// The editor window's title: "Team sync - Appointment", "Untitled - Meeting".
     #[must_use]
     pub fn window_title(&self) -> String {
-        todo!()
+        let title = self.title.trim();
+        let title = if title.is_empty() { "Untitled" } else { title };
+        let kind = if self.meeting_request || !self.attendees.trim().is_empty() {
+            "Meeting"
+        } else {
+            "Appointment"
+        };
+        format!("{title} - {kind}")
     }
 }
 
 /// What the editor says about an event it cannot save.
 #[must_use]
 pub fn error_text(e: &EventError) -> String {
-    todo!()
+    match e {
+        EventError::EmptyTitle => String::from("Give the event a title."),
+        EventError::EndNotAfterStart => String::from("The event must end after it starts."),
+        EventError::LastDayBeforeFirst => {
+            String::from("The event must end on or after its first day.")
+        }
+        EventError::BadAttendee(who) => format!("{who:?} is not an e-mail address."),
+        other => format!("This event cannot be saved: {other}."),
+    }
 }
 
 /// The nth weekday a monthly rule repeats a `date` on: its count from the month's start, or
 /// "last" (-1) for a fifth one (which most months do not have).
 #[must_use]
 pub fn monthly_weekday(date: NaiveDate) -> ByDay {
-    todo!()
+    let (nth, _) = rrule::nth_weekday_of_month(date);
+    ByDay::nth(if nth >= 5 { -1 } else { nth }, date.weekday())
 }
 
 const WEEKDAYS: [Weekday; 5] = [
@@ -221,7 +359,25 @@ pub fn rule_of(
     until: NaiveDate,
     date: NaiveDate,
 ) -> Option<Rule> {
-    todo!()
+    let rule = match repeat {
+        Repeat::Never | Repeat::Custom => return None,
+        Repeat::Daily => Rule::new(Freq::Daily),
+        Repeat::Weekly => Rule::new(Freq::Weekly).with_by_day(vec![ByDay::every(date.weekday())]),
+        Repeat::Weekdays => {
+            Rule::new(Freq::Weekly).with_by_day(WEEKDAYS.into_iter().map(ByDay::every).collect())
+        }
+        Repeat::MonthlyDay => {
+            Rule::new(Freq::Monthly).with_by_month_day(vec![i8::try_from(date.day()).unwrap_or(1)])
+        }
+        Repeat::MonthlyWeekday => Rule::new(Freq::Monthly).with_by_day(vec![monthly_weekday(date)]),
+        Repeat::Yearly => Rule::new(Freq::Yearly),
+    };
+    let end = match ends {
+        Ends::Never => RepeatEnd::Never,
+        Ends::After => RepeatEnd::Count(count.max(1)),
+        Ends::On => RepeatEnd::Until(until),
+    };
+    Some(rule.with_interval(interval.max(1)).with_end(end))
 }
 
 /// How the form shows a rule: its choice, interval and end.
@@ -238,46 +394,138 @@ pub struct Shown {
 /// (any interval and end), else `Custom`.
 #[must_use]
 pub fn repeat_of(rule: &Rule, date: NaiveDate) -> Shown {
-    todo!()
+    let (ends, count, until) = match rule.end {
+        RepeatEnd::Never => (Ends::Never, DEFAULT_COUNT, date + Duration::days(28)),
+        RepeatEnd::Count(n) => (Ends::After, n, date + Duration::days(28)),
+        RepeatEnd::Until(d) => (Ends::On, DEFAULT_COUNT, d),
+    };
+    let found = [
+        Repeat::Daily,
+        Repeat::Weekly,
+        Repeat::Weekdays,
+        Repeat::MonthlyDay,
+        Repeat::MonthlyWeekday,
+        Repeat::Yearly,
+    ]
+    .into_iter()
+    .find(|&choice| rule_of(choice, rule.interval, ends, count, until, date).as_ref() == Some(rule))
+    .or_else(|| {
+        // The same rules written the short way: FREQ=WEEKLY alone is "on the first day's
+        // weekday", FREQ=MONTHLY alone "on the first day's day".
+        let bare = rule.by_day.is_empty()
+            && rule.by_month_day.is_empty()
+            && rule.by_month.is_empty()
+            && rule.week_start == Weekday::Mon;
+        match rule.freq {
+            Freq::Weekly if bare => Some(Repeat::Weekly),
+            Freq::Monthly if bare => Some(Repeat::MonthlyDay),
+            _ => None,
+        }
+    });
+    Shown {
+        repeat: found.unwrap_or(Repeat::Custom),
+        interval: rule.interval.max(1),
+        ends,
+        count,
+        until,
+    }
 }
 
 /// What the repeat list says for `repeat` on an event that starts on `date`.
 #[must_use]
 pub fn repeat_label(repeat: Repeat, date: NaiveDate, custom: Option<&Rule>) -> String {
-    todo!()
+    match repeat {
+        Repeat::Never => String::from("Does not repeat"),
+        Repeat::Daily => String::from("Daily"),
+        Repeat::Weekly => format!("Weekly on {}", rrule::weekday_name(date.weekday())),
+        Repeat::Weekdays => String::from("Every weekday (Monday to Friday)"),
+        Repeat::MonthlyDay => format!("Monthly on day {}", date.day()),
+        Repeat::MonthlyWeekday => {
+            let by = monthly_weekday(date);
+            format!(
+                "Monthly on the {} {}",
+                rrule::ordinal(i32::from(by.nth)),
+                rrule::weekday_name(by.weekday)
+            )
+        }
+        Repeat::Yearly => format!("Yearly on {}", date.format("%-d %B")),
+        Repeat::Custom => match custom {
+            Some(rule) => format!("Custom: {}", rule.describe(date)),
+            None => String::from("Custom"),
+        },
+    }
 }
 
 /// The repeat list: the choices (and the custom rule, when there is one), with their labels.
 #[must_use]
 pub fn repeat_choices(date: NaiveDate, custom: Option<&Rule>) -> Vec<(Repeat, String)> {
-    todo!()
+    let mut choices: Vec<(Repeat, String)> = Repeat::CHOICES
+        .into_iter()
+        .map(|r| (r, repeat_label(r, date, None)))
+        .collect();
+    if custom.is_some() {
+        choices.push((Repeat::Custom, repeat_label(Repeat::Custom, date, custom)));
+    }
+    choices
 }
 
 /// The unit of "Every N ...": "days", "weeks", "months", "years".
 #[must_use]
 pub fn interval_unit(repeat: Repeat) -> &'static str {
-    todo!()
+    match repeat {
+        Repeat::Daily => "days",
+        Repeat::Weekly | Repeat::Weekdays => "weeks",
+        Repeat::MonthlyDay | Repeat::MonthlyWeekday => "months",
+        Repeat::Yearly => "years",
+        Repeat::Never | Repeat::Custom => "",
+    }
 }
 
 /// The reminder list's index of `minutes` (an imported reminder that is no choice: the nearest
 /// earlier one).
 #[must_use]
 pub fn reminder_index(minutes: Option<u32>) -> usize {
-    todo!()
+    let Some(minutes) = minutes else {
+        return 0;
+    };
+    REMINDERS
+        .iter()
+        .enumerate()
+        .filter(|(_, (m, _))| m.is_some_and(|m| m <= minutes))
+        .map(|(i, _)| i)
+        .last()
+        .unwrap_or(1)
 }
 
 /// The attendees typed into the "To" line: addresses separated by commas, semicolons or line
 /// breaks, each as `name <address>` or the address alone. `Err` names the first one that is no
 /// address.
 pub fn parse_attendees(text: &str) -> Result<Vec<String>, String> {
-    todo!()
+    let mut out: Vec<String> = Vec::new();
+    for part in text.split(|c: char| matches!(c, ',' | ';' | '\n')) {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let address = match (part.rfind('<'), part.rfind('>')) {
+            (Some(open), Some(close)) if open < close => part[open + 1..close].trim(),
+            _ => part,
+        };
+        if !is_email(address) {
+            return Err(format!("{part:?} is not an e-mail address."));
+        }
+        if !out.iter().any(|a| a.eq_ignore_ascii_case(address)) {
+            out.push(address.to_string());
+        }
+    }
+    Ok(out)
 }
 
 /// A number typed into "Every N" or "After N times": at least 1, at most 999; `None` for no
 /// number.
 #[must_use]
 pub fn parse_count(text: &str) -> Option<u32> {
-    todo!()
+    text.trim().parse::<u32>().ok().map(|n| n.clamp(1, 999))
 }
 
 #[cfg(test)]

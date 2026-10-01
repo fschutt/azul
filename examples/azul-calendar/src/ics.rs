@@ -53,7 +53,10 @@ impl ContentLine {
     /// The value of the parameter `name` (upper case).
     #[must_use]
     pub fn param(&self, name: &str) -> Option<&str> {
-        todo!()
+        self.params
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, v)| v.as_str())
     }
 }
 
@@ -61,32 +64,128 @@ impl ContentLine {
 /// before it (the break and that one character go). Empty lines are left out.
 #[must_use]
 pub fn unfold(text: &str) -> Vec<String> {
-    todo!()
+    let mut lines: Vec<String> = Vec::new();
+    for raw in text.split('\n') {
+        let raw = raw.strip_suffix('\r').unwrap_or(raw);
+        match raw.chars().next() {
+            Some(' ' | '\t') if !lines.is_empty() => {
+                if let Some(last) = lines.last_mut() {
+                    last.push_str(&raw[1..]);
+                }
+            }
+            _ => {
+                if !raw.is_empty() {
+                    lines.push(raw.to_string());
+                }
+            }
+        }
+    }
+    lines
 }
 
 /// `line` folded at 75 octets: each break is CRLF and a space, and never splits a character.
 /// No CRLF at the end.
 #[must_use]
 pub fn fold(line: &str) -> String {
-    todo!()
+    let mut out = String::with_capacity(line.len() + line.len() / FOLD_OCTETS * 3);
+    let mut used = 0;
+    // The first physical line holds 75 octets; each one after it 74 (its space is one).
+    let mut room = FOLD_OCTETS;
+    for c in line.chars() {
+        let len = c.len_utf8();
+        if used + len > room {
+            out.push_str("\r\n ");
+            used = 0;
+            room = FOLD_OCTETS - 1;
+        }
+        out.push(c);
+        used += len;
+    }
+    out
 }
 
 /// `text` as an iCalendar TEXT value: `\`, `;` and `,` escaped, line breaks as `\n`.
 #[must_use]
 pub fn escape_text(text: &str) -> String {
-    todo!()
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            ';' => out.push_str("\\;"),
+            ',' => out.push_str("\\,"),
+            '\r' if chars.peek() == Some(&'\n') => {}
+            '\n' | '\r' => out.push_str("\\n"),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// An iCalendar TEXT value read back: `\n` / `\N` a line break, `\,` `\;` `\\` the character.
 #[must_use]
 pub fn unescape_text(value: &str) -> String {
-    todo!()
+    let mut out = String::with_capacity(value.len());
+    let mut chars = value.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('n' | 'N') => out.push('\n'),
+            Some(other) => out.push(other),
+            None => out.push('\\'),
+        }
+    }
+    out
 }
 
 /// Reads one unfolded line; `None` for one without a `:`.
 #[must_use]
 pub fn parse_line(line: &str) -> Option<ContentLine> {
-    todo!()
+    // The name and parameters end at the first ':' outside quotes.
+    let mut quoted = false;
+    let mut colon = None;
+    for (i, c) in line.char_indices() {
+        match c {
+            '"' => quoted = !quoted,
+            ':' if !quoted => {
+                colon = Some(i);
+                break;
+            }
+            _ => {}
+        }
+    }
+    let colon = colon?;
+    let (head, value) = (&line[..colon], &line[colon + 1..]);
+    let mut parts: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    for c in head.chars() {
+        match c {
+            '"' => quoted = !quoted,
+            ';' if !quoted => parts.push(std::mem::take(&mut current)),
+            c => current.push(c),
+        }
+    }
+    parts.push(current);
+    let mut parts = parts.into_iter();
+    let name = parts.next()?.trim().to_ascii_uppercase();
+    if name.is_empty() {
+        return None;
+    }
+    let params = parts
+        .filter_map(|p| {
+            let (n, v) = p.split_once('=')?;
+            Some((n.trim().to_ascii_uppercase(), v.to_string()))
+        })
+        .collect();
+    Some(ContentLine {
+        name,
+        params,
+        value: value.to_string(),
+    })
 }
 
 /// A moment as an .ics file writes it.
@@ -159,7 +258,37 @@ fn parse_offset(text: &str) -> Option<i32> {
 /// A duration as iCalendar writes it (`PT15M`, `-P1D`, `P1W`, `-PT1H30M`), in seconds.
 #[must_use]
 pub fn parse_duration(text: &str) -> Option<i64> {
-    todo!()
+    let text = text.trim();
+    let (sign, rest) = match text.as_bytes().first()? {
+        b'-' => (-1, &text[1..]),
+        b'+' => (1, &text[1..]),
+        _ => (1, text),
+    };
+    let rest = rest.strip_prefix('P').or_else(|| rest.strip_prefix('p'))?;
+    let mut total: i64 = 0;
+    let mut number = String::new();
+    let mut in_time = false;
+    let mut any = false;
+    for c in rest.chars() {
+        match c.to_ascii_uppercase() {
+            'T' => in_time = true,
+            d if d.is_ascii_digit() => number.push(d),
+            unit => {
+                let n: i64 = number.parse().ok()?;
+                number.clear();
+                any = true;
+                total += n * match (unit, in_time) {
+                    ('W', false) => 7 * 86_400,
+                    ('D', false) => 86_400,
+                    ('H', true) => 3_600,
+                    ('M', true) => 60,
+                    ('S', true) => 1,
+                    _ => return None,
+                };
+            }
+        }
+    }
+    (any && number.is_empty()).then_some(sign * total)
 }
 
 /// One observance of a `VTIMEZONE` (`STANDARD` or `DAYLIGHT`).
@@ -249,7 +378,25 @@ pub struct Imported {
 impl Imported {
     /// The AzCalendar event: id `id`, in the calendar `calendar`.
     pub fn to_event(&self, id: &str, calendar: &str) -> Result<Event, EventError> {
-        todo!()
+        Event {
+            id: id.to_string(),
+            title: self.title.clone(),
+            date: self.date,
+            start: self.start,
+            end: self.end,
+            meeting: self.meeting.clone(),
+            all_day: self.all_day,
+            last_day: self.last_day,
+            location: self.location.clone(),
+            notes: self.notes.clone(),
+            attendees: self.attendees.clone(),
+            reminder: self.reminder,
+            calendar: calendar.to_string(),
+            repeat: self.repeat.clone(),
+            except: self.except.clone(),
+            uid: self.uid.clone(),
+        }
+        .check()
     }
 }
 
@@ -615,7 +762,82 @@ fn imported<Tz: TimeZone>(
 /// Reads an .ics file's events, their times in `zone` (the reader's: `chrono::Local` in the
 /// app). `Err` when the text is no iCalendar file.
 pub fn parse<Tz: TimeZone>(text: &str, zone: &Tz) -> Result<IcsCalendar, String> {
-    todo!()
+    let lines = unfold(text.strip_prefix('\u{feff}').unwrap_or(text));
+    let roots = components(&lines);
+    let calendars: Vec<&Component> = roots.iter().filter(|c| c.name == "VCALENDAR").collect();
+    if calendars.is_empty() {
+        return Err(String::from(
+            "this is not an iCalendar file (no BEGIN:VCALENDAR)",
+        ));
+    }
+    let mut out = IcsCalendar::default();
+    let mut zones: BTreeMap<String, ZoneRules> = BTreeMap::new();
+    for cal in &calendars {
+        for zone in cal.children.iter().filter(|c| c.name == "VTIMEZONE") {
+            if let Some(tzid) = zone.first("TZID") {
+                zones.insert(tzid.value.trim().to_string(), zone_rules(zone));
+            }
+        }
+        if out.name.is_none() {
+            out.name = cal
+                .first("X-WR-CALNAME")
+                .map(|l| unescape_text(&l.value).trim().to_string())
+                .filter(|n| !n.is_empty());
+        }
+    }
+    let clock = Clock {
+        zone,
+        zones: &zones,
+    };
+    let mut masters: Vec<Imported> = Vec::new();
+    let mut overrides: Vec<(Imported, NaiveDate, bool)> = Vec::new();
+    let mut other = 0usize;
+    for cal in &calendars {
+        for child in &cal.children {
+            match child.name.as_str() {
+                "VEVENT" => {
+                    let Some((event, recurrence, cancelled)) =
+                        imported(child, &clock, &mut out.notes)
+                    else {
+                        continue;
+                    };
+                    match recurrence {
+                        Some(day) => overrides.push((event, day, cancelled)),
+                        None if cancelled => out
+                            .notes
+                            .push(format!("{:?} is cancelled: it is left out.", event.title)),
+                        None => masters.push(event),
+                    }
+                }
+                "VTIMEZONE" => {}
+                _ => other += 1,
+            }
+        }
+    }
+    for (mut moved, day, cancelled) in overrides {
+        if let Some(master) = masters
+            .iter_mut()
+            .find(|m| !moved.uid.is_empty() && m.uid == moved.uid)
+        {
+            if !master.except.contains(&day) {
+                master.except.push(day);
+                master.except.sort();
+            }
+        }
+        if !cancelled {
+            moved.uid = format!("{}#{}", moved.uid, day.format("%Y%m%d"));
+            moved.repeat = None;
+            moved.except.clear();
+            masters.push(moved);
+        }
+    }
+    if other > 0 {
+        out.notes.push(format!(
+            "{other} item(s) that are no events (tasks, journal entries) are left out."
+        ));
+    }
+    out.events = masters;
+    Ok(out)
 }
 
 /// `YYYYMMDD`
@@ -642,13 +864,98 @@ fn trigger_of(minutes: u32) -> String {
 /// line folded at 75 octets and ended with CRLF.
 #[must_use]
 pub fn write(events: &[&Event], name: &str, stamp: NaiveDateTime) -> String {
-    todo!()
+    let mut lines: Vec<String> = vec![
+        String::from("BEGIN:VCALENDAR"),
+        String::from("VERSION:2.0"),
+        String::from("PRODID:-//azul//AzCalendar//EN"),
+        String::from("CALSCALE:GREGORIAN"),
+        String::from("METHOD:PUBLISH"),
+        format!("X-WR-CALNAME:{}", escape_text(name)),
+    ];
+    let stamp = format!("{}Z", basic_date_time(stamp.date(), stamp.time()));
+    for e in events {
+        lines.push(String::from("BEGIN:VEVENT"));
+        lines.push(format!("UID:{}", escape_text(&e.ical_uid())));
+        lines.push(format!("DTSTAMP:{stamp}"));
+        if e.all_day {
+            lines.push(format!("DTSTART;VALUE=DATE:{}", basic_date(e.date)));
+            lines.push(format!(
+                "DTEND;VALUE=DATE:{}",
+                basic_date(e.last_day + Duration::days(1))
+            ));
+        } else {
+            lines.push(format!("DTSTART:{}", basic_date_time(e.date, e.start)));
+            lines.push(format!("DTEND:{}", basic_date_time(e.date, e.end)));
+        }
+        lines.push(format!("SUMMARY:{}", escape_text(&e.title)));
+        if !e.location.is_empty() {
+            lines.push(format!("LOCATION:{}", escape_text(&e.location)));
+        }
+        if !e.notes.is_empty() {
+            lines.push(format!("DESCRIPTION:{}", escape_text(&e.notes)));
+        }
+        if let Some(rule) = &e.repeat {
+            lines.push(format!("RRULE:{}", rule.to_rrule(e.all_day)));
+        }
+        if !e.except.is_empty() {
+            let days: Vec<String> = e
+                .except
+                .iter()
+                .map(|d| {
+                    if e.all_day {
+                        basic_date(*d)
+                    } else {
+                        basic_date_time(*d, e.start)
+                    }
+                })
+                .collect();
+            let param = if e.all_day { ";VALUE=DATE" } else { "" };
+            lines.push(format!("EXDATE{param}:{}", days.join(",")));
+        }
+        for who in &e.attendees {
+            lines.push(format!("ATTENDEE;RSVP=TRUE:mailto:{who}"));
+        }
+        if let Some(m) = &e.meeting {
+            lines.push(format!("{MEETING_PROP}:{}", m.link));
+            lines.push(format!("{MEETING_SERVER_PROP}:{}", escape_text(&m.server)));
+        }
+        if let Some(minutes) = e.reminder {
+            lines.push(String::from("BEGIN:VALARM"));
+            lines.push(String::from("ACTION:DISPLAY"));
+            lines.push(format!("DESCRIPTION:{}", escape_text(&e.title)));
+            lines.push(format!("TRIGGER:{}", trigger_of(minutes)));
+            lines.push(String::from("END:VALARM"));
+        }
+        lines.push(String::from("END:VEVENT"));
+    }
+    lines.push(String::from("END:VCALENDAR"));
+    let mut out = String::new();
+    for line in lines {
+        out.push_str(&fold(&line));
+        out.push_str("\r\n");
+    }
+    out
 }
 
 /// A file name for an export of the calendar `name`: its letters, digits and dashes, `.ics`.
 #[must_use]
 pub fn file_name_for(name: &str) -> String {
-    todo!()
+    let stem: String = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let stem = stem.trim_matches('-');
+    if stem.is_empty() {
+        String::from("calendar.ics")
+    } else {
+        format!("{stem}.ics")
+    }
 }
 
 #[cfg(test)]

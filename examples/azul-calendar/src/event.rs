@@ -239,7 +239,20 @@ fn last_minute() -> NaiveTime {
 /// the domain, no spaces or brackets. Not RFC 5322; what a person types into "To".
 #[must_use]
 pub fn is_email(text: &str) -> bool {
-    todo!()
+    let Some((local, domain)) = text.split_once('@') else {
+        return false;
+    };
+    let clean = |s: &str| {
+        !s.is_empty()
+            && !s
+                .chars()
+                .any(|c| c.is_whitespace() || matches!(c, '@' | '<' | '>' | ',' | ';' | '"'))
+    };
+    clean(local)
+        && clean(domain)
+        && domain.contains('.')
+        && !domain.starts_with('.')
+        && !domain.ends_with('.')
 }
 
 impl Event {
@@ -283,7 +296,10 @@ impl Event {
         date: NaiveDate,
         last_day: NaiveDate,
     ) -> Result<Event, EventError> {
-        todo!()
+        let mut event = Event::create(id, title, date, NaiveTime::MIN, last_minute(), None)?;
+        event.all_day = true;
+        event.last_day = last_day;
+        event.check()
     }
 
     /// The event as it may be saved, or why not: everything [`Event::create`] checks, an
@@ -292,13 +308,21 @@ impl Event {
     /// (trimmed, each once), the calendar is a calendar's id, and the exceptions are sorted
     /// and each once. Text fields are trimmed.
     pub fn check(mut self) -> Result<Event, EventError> {
-        // RED: the checks of the AzCalendar before the editor's fields, nothing more.
         if !is_event_id(&self.id) {
             return Err(EventError::BadId(self.id));
         }
         self.title = self.title.trim().to_string();
         if self.title.is_empty() {
             return Err(EventError::EmptyTitle);
+        }
+        if self.all_day {
+            self.start = NaiveTime::MIN;
+            self.end = last_minute();
+            if self.last_day < self.date {
+                return Err(EventError::LastDayBeforeFirst);
+            }
+        } else {
+            self.last_day = self.date;
         }
         let (start, end) = (to_the_minute(self.start), to_the_minute(self.end));
         if end <= start {
@@ -311,32 +335,77 @@ impl Event {
                 return Err(EventError::BadMeetingLink(m.link.clone()));
             }
         }
+        self.location = self.location.trim().to_string();
+        self.notes = self.notes.trim_end().to_string();
+        let mut attendees: Vec<String> = Vec::with_capacity(self.attendees.len());
+        for who in &self.attendees {
+            let who = who.trim();
+            if !is_email(who) {
+                return Err(EventError::BadAttendee(who.to_string()));
+            }
+            if !attendees.iter().any(|a| a.eq_ignore_ascii_case(who)) {
+                attendees.push(who.to_string());
+            }
+        }
+        self.attendees = attendees;
+        if !is_calendar_id(&self.calendar) {
+            return Err(EventError::BadCalendar(self.calendar));
+        }
+        self.except.sort();
+        self.except.dedup();
+        self.uid = self.uid.trim().to_string();
         Ok(self)
     }
 
     /// The event uses a field version 2 does not have.
     #[must_use]
     pub fn needs_version_3(&self) -> bool {
-        todo!()
+        self.all_day
+            || self.last_day != self.date
+            || !self.location.is_empty()
+            || !self.notes.is_empty()
+            || !self.attendees.is_empty()
+            || self.reminder.is_some()
+            || !self.calendar.is_empty()
+            || self.repeat.is_some()
+            || !self.except.is_empty()
+            || !self.uid.is_empty()
     }
 
     /// How many days after its first day an occurrence of the event ends (0: the same day).
     #[must_use]
     pub fn span_days(&self) -> i64 {
-        todo!()
+        (self.last_day - self.date).num_days().max(0)
     }
 
     /// The first days of the event's occurrences that are on any day from `from` to `to` (both
     /// included), in order: an all-day event of several days that began before `from` is one.
     #[must_use]
     pub fn starts_between(&self, from: NaiveDate, to: NaiveDate) -> Vec<NaiveDate> {
-        todo!()
+        if to < from {
+            return Vec::new();
+        }
+        let earliest = from - Duration::days(self.span_days());
+        match &self.repeat {
+            None => {
+                if self.date >= earliest && self.date <= to {
+                    vec![self.date]
+                } else {
+                    Vec::new()
+                }
+            }
+            Some(rule) => rule.dates(self.date, &self.except, earliest, to),
+        }
     }
 
     /// The event's iCalendar UID: the imported one, else `<id>@azcalendar`.
     #[must_use]
     pub fn ical_uid(&self) -> String {
-        todo!()
+        if self.uid.is_empty() {
+            format!("{}@azcalendar", self.id)
+        } else {
+            self.uid.clone()
+        }
     }
 }
 
@@ -385,8 +454,11 @@ struct EventFile {
 /// The version `event`'s file is written in: 2 unless it uses version 3's fields.
 #[must_use]
 pub fn file_version(event: &Event) -> u64 {
-    // RED: every event is written as version 2.
-    PLAIN_VERSION
+    if event.needs_version_3() {
+        VERSION
+    } else {
+        PLAIN_VERSION
+    }
 }
 
 /// The event's file contents (pretty JSON, ending in a newline).
@@ -518,7 +590,7 @@ pub fn is_event_id(s: &str) -> bool {
 /// Whether `s` names a calendar an event can be in: empty (the default calendar) or a calendar's
 /// id, a UUID in lower case like an event's (it names the calendar's file, `calendars.rs`).
 pub fn is_calendar_id(s: &str) -> bool {
-    todo!()
+    s.is_empty() || is_event_id(s)
 }
 
 /// `<id>.json`
