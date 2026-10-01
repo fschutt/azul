@@ -1048,6 +1048,59 @@ impl AdornerState {
             .collect()
     }
 
+    /// The frames of every item the drag does not hold (the snap targets).
+    fn others(&self) -> Vec<AdornerFrame> {
+        self.items
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !self.drag.indices.contains(&(*i as u32)))
+            .map(|(_, it)| it.frame)
+            .collect()
+    }
+
+    /// The items wholly inside `rect`.
+    fn inside(&self, rect: &AdornerFrame) -> Vec<u32> {
+        self.items
+            .iter()
+            .enumerate()
+            .filter(|(_, it)| {
+                let b = it.frame.bounds();
+                b.x >= rect.x
+                    && b.y >= rect.y
+                    && b.x + b.width <= rect.x + rect.width
+                    && b.y + b.height <= rect.y + rect.height
+            })
+            .map(|(i, _)| i as u32)
+            .collect()
+    }
+
+    /// Starts a drag of `kind` holding `handle` on the items `indices`.
+    fn begin(
+        &mut self,
+        kind: DragKind,
+        handle: AdornerHandle,
+        x: f32,
+        y: f32,
+        indices: &[usize],
+        reference: AdornerFrame,
+    ) {
+        self.drag = AdornerDrag {
+            kind,
+            handle,
+            start_x: x,
+            start_y: y,
+            indices: indices.iter().map(|&i| i as u32).collect(),
+            frames: indices
+                .iter()
+                .filter_map(|&i| self.items.get(i).map(|it| it.frame))
+                .collect(),
+            reference,
+            moved: false,
+            click: None,
+            last: Vec::new(),
+        };
+    }
+
     /// A press at (`x`, `y`) canvas units: the events it reports and whether
     /// it starts a drag (the pointer is captured).
     pub(crate) fn press(
@@ -1057,26 +1110,234 @@ impl AdornerState {
         shift: bool,
         ctrl: bool,
     ) -> (Vec<SelectionAdornerEvent>, bool) {
-        let _ = (x, y, shift, ctrl);
-        (Vec::new(), false)
+        self.drag = AdornerDrag::default();
+        // The text being edited takes its own presses.
+        if let Some(editing) = self.editing {
+            if self.items.get(editing).is_some_and(|it| it.frame.contains(x, y)) {
+                return (Vec::new(), false);
+            }
+        }
+        let event = |kind: SelectionAdornerEventKind, indices: Vec<u32>| {
+            let mut e = SelectionAdornerEvent::create(kind, U32Vec::from_vec(indices));
+            e.x = x;
+            e.y = y;
+            e.shift = shift;
+            e.ctrl = ctrl;
+            e
+        };
+        let selected = self.selected();
+
+        // The selection's handles first: one object's (with the rotate
+        // handle), or the box around several.
+        if selected.len() == 1 {
+            let frame = self.items[selected[0]].frame;
+            if let Some(handle) = handle_at(&frame, x, y, self.scale, true) {
+                if handle != AdornerHandle::Body {
+                    self.begin(DragKind::Transform, handle, x, y, &selected, frame);
+                    return (Vec::new(), true);
+                }
+            }
+        } else if selected.len() > 1 {
+            let frames: Vec<AdornerFrame> = selected.iter().map(|&i| self.items[i].frame).collect();
+            if let Some(around) = union(&frames) {
+                if let Some(handle) = handle_at(&around, x, y, self.scale, false) {
+                    if handle.is_resize() {
+                        self.begin(DragKind::Transform, handle, x, y, &selected, around);
+                        return (Vec::new(), true);
+                    }
+                }
+            }
+        }
+
+        match hit_item(&self.items, x, y) {
+            Some(hit) => {
+                let was_selected = self.items[hit].selected;
+                if was_selected && (shift || ctrl) {
+                    // Toggles it out of the selection; no drag.
+                    return (vec![event(SelectionAdornerEventKind::Select, vec![hit as u32])], false);
+                }
+                let mut events = Vec::new();
+                let mut moving = selected.clone();
+                if !was_selected {
+                    events.push(event(SelectionAdornerEventKind::Select, vec![hit as u32]));
+                    if shift || ctrl {
+                        moving.push(hit);
+                        moving.sort_unstable();
+                    } else {
+                        moving = vec![hit];
+                    }
+                }
+                let frames: Vec<AdornerFrame> = moving.iter().map(|&i| self.items[i].frame).collect();
+                let reference = union(&frames).unwrap_or_default();
+                self.begin(DragKind::Transform, AdornerHandle::Body, x, y, &moving, reference);
+                if was_selected && selected.len() > 1 {
+                    self.drag.click = Some(hit);
+                }
+                (events, true)
+            }
+            None => {
+                let mut events = Vec::new();
+                if !shift && !ctrl && !selected.is_empty() {
+                    events.push(event(SelectionAdornerEventKind::Clear, Vec::new()));
+                }
+                self.begin(
+                    DragKind::Marquee,
+                    AdornerHandle::Canvas,
+                    x,
+                    y,
+                    &[],
+                    AdornerFrame::create(x, y, 0.0, 0.0),
+                );
+                (events, true)
+            }
+        }
     }
 
     /// The pointer moved to (`x`, `y`) during a drag.
     pub(crate) fn drag_to(&mut self, x: f32, y: f32, shift: bool) -> Option<SelectionAdornerEvent> {
-        let _ = (x, y, shift);
-        None
+        if self.drag.kind == DragKind::Idle {
+            return None;
+        }
+        let (mut dx, mut dy) = (x - self.drag.start_x, y - self.drag.start_y);
+        if !self.drag.moved {
+            if dx.abs().max(dy.abs()) * self.scale < CLICK_SLOP_PX {
+                return None;
+            }
+            self.drag.moved = true;
+            self.drag.click = None;
+        }
+        let tolerance = self.snap_distance / self.scale.max(f32::EPSILON);
+
+        if self.drag.kind == DragKind::Marquee {
+            let rect = AdornerFrame::create(
+                self.drag.start_x.min(x),
+                self.drag.start_y.min(y),
+                (x - self.drag.start_x).abs(),
+                (y - self.drag.start_y).abs(),
+            );
+            let mut e = SelectionAdornerEvent::create(
+                SelectionAdornerEventKind::Marquee,
+                U32Vec::from_vec(self.inside(&rect)),
+            );
+            e.frames = AdornerFrameVec::from_vec(vec![rect]);
+            e.x = x;
+            e.y = y;
+            e.shift = shift;
+            self.drag.last = vec![rect];
+            return Some(e);
+        }
+
+        let mut guides = Vec::new();
+        let frames: Vec<AdornerFrame> = match self.drag.handle {
+            AdornerHandle::Body | AdornerHandle::Canvas => {
+                if shift {
+                    if dx.abs() >= dy.abs() {
+                        dy = 0.0;
+                    } else {
+                        dx = 0.0;
+                    }
+                }
+                if self.snap {
+                    if let Some(around) = union(&self.drag.frames) {
+                        let (sx, sy, g) = snap_move(
+                            &around.translated(dx, dy),
+                            &self.others(),
+                            self.width,
+                            self.height,
+                            tolerance,
+                        );
+                        dx += sx;
+                        dy += sy;
+                        guides = g;
+                    }
+                }
+                self.drag.frames.iter().map(|f| f.translated(dx, dy)).collect()
+            }
+            AdornerHandle::Rotate => self
+                .drag
+                .frames
+                .iter()
+                .map(|f| rotated(f, x, y, shift, self.snap))
+                .collect(),
+            handle => {
+                let reference = self.drag.reference;
+                let mut target = resized(&reference, handle, dx, dy, shift);
+                if self.snap && !shift && reference.rotation.abs() < f32::EPSILON {
+                    let (snapped, g) = snap_resize(
+                        &target,
+                        handle,
+                        &self.others(),
+                        self.width,
+                        self.height,
+                        tolerance,
+                    );
+                    target = snapped;
+                    guides = g;
+                }
+                self.drag
+                    .frames
+                    .iter()
+                    .map(|f| map_frame(f, &reference, &target))
+                    .collect()
+            }
+        };
+        self.drag.last = frames.clone();
+        let mut e = SelectionAdornerEvent::create(
+            SelectionAdornerEventKind::Transform,
+            U32Vec::from_vec(self.drag.indices.clone()),
+        );
+        e.frames = AdornerFrameVec::from_vec(frames);
+        e.guides = AdornerGuideVec::from_vec(guides);
+        e.x = x;
+        e.y = y;
+        e.handle = self.drag.handle;
+        e.shift = shift;
+        Some(e)
     }
 
     /// The button went up at (`x`, `y`).
     pub(crate) fn release(&mut self, x: f32, y: f32) -> Option<SelectionAdornerEvent> {
-        let _ = (x, y);
-        None
+        let drag = core::mem::take(&mut self.drag);
+        let event = |kind: SelectionAdornerEventKind, indices: Vec<u32>| {
+            let mut e = SelectionAdornerEvent::create(kind, U32Vec::from_vec(indices));
+            e.x = x;
+            e.y = y;
+            e
+        };
+        match drag.kind {
+            DragKind::Idle => None,
+            // A click: a press on one object of a multi-selection selects it alone.
+            _ if !drag.moved => drag
+                .click
+                .map(|i| event(SelectionAdornerEventKind::Select, vec![i as u32])),
+            DragKind::Marquee => {
+                let rect = drag.last.first().copied().unwrap_or_default();
+                let mut e = event(SelectionAdornerEventKind::MarqueeEnd, self.inside(&rect));
+                e.frames = AdornerFrameVec::from_vec(vec![rect]);
+                Some(e)
+            }
+            DragKind::Transform => {
+                let mut e = event(SelectionAdornerEventKind::Commit, drag.indices);
+                e.frames = AdornerFrameVec::from_vec(drag.last);
+                e.handle = drag.handle;
+                Some(e)
+            }
+        }
     }
 
     /// A double-click at (`x`, `y`).
     pub(crate) fn activate(&self, x: f32, y: f32) -> Option<SelectionAdornerEvent> {
-        let _ = (x, y);
-        None
+        let hit = hit_item(&self.items, x, y)?;
+        if self.editing == Some(hit) {
+            return None;
+        }
+        let mut e = SelectionAdornerEvent::create(
+            SelectionAdornerEventKind::Activate,
+            U32Vec::from_vec(vec![hit as u32]),
+        );
+        e.x = x;
+        e.y = y;
+        Some(e)
     }
 
     /// A key on the focused canvas.
@@ -1086,14 +1347,72 @@ impl AdornerState {
         shift: bool,
         ctrl: bool,
     ) -> Option<SelectionAdornerEvent> {
-        let _ = (key, shift, ctrl);
-        None
+        use SelectionAdornerEventKind as Kind;
+        use VirtualKeyCode as K;
+
+        let selected = self.selected();
+        let ids = |list: &[usize]| U32Vec::from_vec(list.iter().map(|&i| i as u32).collect());
+        let mut e = match key {
+            K::Left | K::Right | K::Up | K::Down => {
+                if selected.is_empty() {
+                    return None;
+                }
+                let step = if ctrl { self.nudge } else { self.nudge * 10.0 };
+                let (dx, dy) = match key {
+                    K::Left => (-step, 0.0),
+                    K::Right => (step, 0.0),
+                    K::Up => (0.0, -step),
+                    _ => (0.0, step),
+                };
+                let mut e = SelectionAdornerEvent::create(Kind::Nudge, ids(&selected));
+                e.frames = AdornerFrameVec::from_vec(
+                    selected
+                        .iter()
+                        .map(|&i| self.items[i].frame.translated(dx, dy))
+                        .collect(),
+                );
+                e
+            }
+            K::Delete | K::Back if !selected.is_empty() => {
+                SelectionAdornerEvent::create(Kind::Delete, ids(&selected))
+            }
+            K::Escape => SelectionAdornerEvent::create(Kind::Escape, ids(&selected)),
+            K::Return | K::F2 => {
+                let first = *selected.first()?;
+                SelectionAdornerEvent::create(Kind::Activate, ids(&[first]))
+            }
+            K::Tab => {
+                let n = self.items.len();
+                if n == 0 {
+                    return None;
+                }
+                let next = match (shift, selected.first(), selected.last()) {
+                    (true, Some(&first), _) => (first + n - 1) % n,
+                    (false, _, Some(&last)) => (last + 1) % n,
+                    (true, None, _) => n - 1,
+                    (false, _, None) => 0,
+                };
+                SelectionAdornerEvent::create(Kind::Select, ids(&[next]))
+            }
+            _ => return None,
+        };
+        e.shift = shift;
+        e.ctrl = ctrl;
+        Some(e)
     }
 }
 
 /// The reconciler's merge: a drag in flight survives the app's rebuild.
-pub(crate) extern "C" fn merge_adorner_state(new_data: RefAny, old_data: RefAny) -> RefAny {
-    let _ = old_data;
+pub(crate) extern "C" fn merge_adorner_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
+    {
+        let drag = old_data
+            .downcast_ref::<AdornerState>()
+            .filter(|old| old.drag.kind != DragKind::Idle)
+            .map(|old| old.drag.clone());
+        if let (Some(drag), Some(mut new)) = (drag, new_data.downcast_mut::<AdornerState>()) {
+            new.drag = drag;
+        }
+    }
     new_data
 }
 
