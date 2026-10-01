@@ -1513,6 +1513,37 @@ pub enum SystemColorRef {
     TextSelectionBackground,
 }
 
+/// The ink `system:accent-text` paints on `accent`: the platform's own
+/// (`ink`) when it reads, else black or white, whichever reads better.
+///
+/// The accent is the USER's free choice (any hue, any lightness: macOS
+/// Graphite is a neutral grey, yellow and green are light), while the ink a
+/// platform reports for it is fixed - AppKit's
+/// `alternateSelectedControlTextColor` is white whatever the accent. So the
+/// pair could fail: white on Graphite read 3.4:1, on yellow 1.4:1 (the
+/// AzWidgets mode bar's selected "Dark" segment, white text on a light-grey
+/// face). "Reads" is WCAG 2.1 AA: 4.5:1 on a NEUTRAL accent (chroma under
+/// 0.25: no hue to carry the text), 3:1 - the large-text / UI-component bar -
+/// on a coloured one, where white stays on the blues, reds and purples it
+/// reads on.
+#[must_use]
+pub fn readable_accent_ink(accent: ColorU, ink: ColorU) -> ColorU {
+    let max = accent.r.max(accent.g).max(accent.b);
+    let min = accent.r.min(accent.g).min(accent.b);
+    let chroma = f32::from(max - min) / 255.0;
+    let floor = if chroma < 0.25 { 4.5 } else { 3.0 };
+    let own = ink.contrast_ratio(&accent);
+    if own >= floor {
+        return ink;
+    }
+    let best = accent.best_contrast_text();
+    if best.contrast_ratio(&accent) > own {
+        best
+    } else {
+        ink
+    }
+}
+
 /// Red channel of a system-colour token (`'S'`), see [`SystemColorRef::to_color_token`].
 const SYSTEM_COLOR_TOKEN_R: u8 = 0x53;
 /// Green channel of a system-colour token (`'Y'`), see [`SystemColorRef::to_color_token`].
@@ -1592,11 +1623,22 @@ impl SystemColorRef {
     /// the palette of the theme it evaluates (`DynamicSelectorContext::
     /// system_colors`), and this is how a `system:` keyword turns into the
     /// colour that theme wants.
+    ///
+    /// `system:accent-text` is the one keyword resolved as a PAIR: it is the
+    /// ink that sits on `system:accent`, so it must read on it
+    /// ([`readable_accent_ink`]).
     #[must_use]
     pub fn resolve_for_theme(&self, colors: &crate::system::SystemColors, dark: bool) -> ColorU {
-        self.get(colors)
+        let own = self
+            .get(colors)
             .into_option()
-            .unwrap_or_else(|| self.fallback(dark))
+            .unwrap_or_else(|| self.fallback(dark));
+        match self {
+            Self::AccentText => {
+                readable_accent_ink(Self::Accent.resolve_for_theme(colors, dark), own)
+            }
+            _ => own,
+        }
     }
 
     /// The colour this reference stands for when no platform palette says
@@ -3092,6 +3134,30 @@ mod autotest_generated {
         // Max contrast (fp gives 20.999998, not a clean 21.0).
         let max = ColorU::BLACK.contrast_ratio(&ColorU::WHITE);
         assert!((max - 21.0).abs() < 0.01, "black/white contrast was {max}");
+    }
+
+    /// `system:accent-text` reads on `system:accent` whatever accent the user
+    /// picked: a neutral (Graphite) or light (yellow) accent takes the ink
+    /// that reads, the blues keep the platform's white.
+    #[test]
+    fn the_accent_ink_reads_on_any_desktop_accent() {
+        use crate::system::SystemColors;
+        let white = ColorU::rgb(255, 255, 255);
+        let resolve = |accent: ColorU| {
+            let colors = SystemColors {
+                accent: OptionColorU::Some(accent),
+                accent_text: OptionColorU::Some(white),
+                ..SystemColors::default()
+            };
+            SystemColorRef::AccentText.resolve_for_theme(&colors, true)
+        };
+        assert_eq!(resolve(ColorU::rgb(10, 132, 255)), white, "white stays on blue");
+        assert_eq!(resolve(ColorU::rgb(255, 59, 48)), white, "and on red");
+        for accent in [ColorU::rgb(140, 140, 144), ColorU::rgb(255, 214, 10)] {
+            let ink = resolve(accent);
+            assert_ne!(ink, white, "white does not read on {accent:?}");
+            assert!(ink.contrast_ratio(&accent) >= 4.5, "{ink:?} on {accent:?}");
+        }
     }
 
     #[test]
