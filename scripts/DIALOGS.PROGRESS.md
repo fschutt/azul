@@ -12,15 +12,11 @@ Report: scripts/DIALOGS_2026_10_01.md. House rules: no cargo, no rust-analyzer.
   `// RED stub` (scratchpad `dialogs/unstub.py` removes them).
 
 ## IN PROGRESS
-- Phase 1 GREEN, part 1 committed with this file: stubs removed from wizard_pages /
-  path_input, `file::disk_space_for_new`, the wizard_layout build (frames, reason,
-  held buttons, size).
-  NEXT STEP: flat.rs / flora.rs - fill `dialog_kit_look()` (appended at the END under
-  `// ==== dialog kit ... ====`) and the 10 new WizardLayoutLook parts (subtitle,
-  banner, banner_title, banner_icon, side_panel, side_icon, side_step,
-  side_step_current, reason, held) inside each `wizard_layout_look()` (they are
-  `Vec::new()` with a `// RED` comment now). Then parse-check, commit (phase 1 GREEN
-  done), then phase 2 RED.
+- Phase 1 GREEN done (`d9aa4a163` builds, `a18b2ae11` flat looks, this commit flora looks).
+  NEXT STEP: Phase 2 RED - new file `layout/src/widgets/shortcut_recorder.rs`
+  (ShortcutRecorder: records a GlobalHotkey, Enter/click starts, Escape cancels,
+  Backspace clears, HotkeyField role), then ShellSettingsLayout extensions
+  (category_icons, section keywords) and `shells/settings_dialog.rs`.
 
 ## NEXT
 - Phase 2: shortcut_recorder, ShellSettingsLayout extensions (category icons, section
