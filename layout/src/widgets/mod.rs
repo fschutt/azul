@@ -448,6 +448,14 @@ pub mod selection_adorner;
 pub mod thumbnail_strip;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
+/// Cell grid widget.
+///
+/// The surface of a spreadsheet: column letters and row numbers, frozen
+/// panes, a cell cursor, ranges, in-cell editing, the fill handle and
+/// resizable columns and rows; only the cells in view are in the DOM, their
+/// content and looks asked from the app's data and style callbacks. See
+/// `cell_grid.rs`.
+pub mod cell_grid;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
@@ -1797,6 +1805,8 @@ mod label_convention {
         ];
         // The app shells, each with placeholder content (`shells::fixtures`).
         all.extend(super::shells::fixtures::every_shell());
+        // The spreadsheet grid, with a block of numbers as its data.
+        all.push(("cell_grid", super::cell_grid::fixtures::small().dom()));
         all
     }
 
@@ -2170,10 +2180,17 @@ mod wheel_ownership {
         // the colour swatch, the number input, the segmented control — stays
         // deaf to the wheel so the gesture reaches the scrollable ancestor.
         // `datetime_local` is not a second exception: its time half IS the
-        // time picker, spinner columns and all.
+        // time picker, spinner columns and all. The cell grid is not a
+        // closed control but a scroll surface: it scrolls by whole rows
+        // (`cell_grid::on_grid_wheel`) and claims the gesture, as a scroll
+        // box would.
         assert_eq!(
             wheel_takers(),
-            vec!["time_picker".to_string(), "datetime_local".to_string()],
+            vec![
+                "time_picker".to_string(),
+                "datetime_local".to_string(),
+                "cell_grid".to_string(),
+            ],
             "a widget started listening for the wheel: a closed control must leave the gesture to \
              the page under it",
         );
@@ -2724,6 +2741,8 @@ mod theme_contrast {
         "selection_adorner",
         "thumbnail_strip",
         "call_shell_stage",
+        // The spreadsheet grid: the surface of a document window.
+        "cell_grid",
     ];
 
     /// A widget added to the manifest must land in a group, or it is simply

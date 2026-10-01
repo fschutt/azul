@@ -3416,3 +3416,566 @@ extern "C" fn on_grid_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update 
         CellGridEvent::create(CellGridEventKind::Scroll, next),
     )
 }
+
+#[cfg(test)]
+pub(crate) mod fixtures {
+    //! A small grid with data, for the widget's own tests and the lint
+    //! manifest (`widgets::label_convention::every_widget_dom`).
+    use super::*;
+
+    /// A 5 x 3 block of numbers (row * 10 + column) at A1, the rest empty.
+    pub(crate) extern "C" fn numbers(_: RefAny, cell: CellGridCellRef) -> CellGridCell {
+        if cell.row < 5 && cell.column < 3 {
+            CellGridCell::create(
+                AzString::from(alloc::format!("{}", cell.row * 10 + cell.column)),
+                CellGridCellKind::Number,
+            )
+        } else {
+            CellGridCell::empty()
+        }
+    }
+
+    /// Row 1 bold, B2 on a yellow fill.
+    pub(crate) extern "C" fn looks(_: RefAny, cell: CellGridCellRef) -> CellGridCellStyle {
+        let mut s = CellGridCellStyle::default();
+        s.bold = cell.row == 0;
+        if cell.row == 1 && cell.column == 1 {
+            s.fill = Some(ColorU {
+                r: 255,
+                g: 235,
+                b: 59,
+                a: 255,
+            })
+            .into();
+        }
+        s
+    }
+
+    /// A 1000 x 50 grid, 400 x 200 px (6 columns and 9 rows in view), the
+    /// block above as its data.
+    pub(crate) fn small() -> CellGrid {
+        CellGrid::create(1000, 50)
+            .with_viewport(400.0, 200.0)
+            .with_data_source(RefAny::new(()), numbers as CellGridDataSourceCallbackType)
+            .with_style_source(RefAny::new(()), looks as CellGridStyleSourceCallbackType)
+            .with_content_extent(5, 3)
+            .with_accessibility_name(AzString::from_const_str("Sheet1"))
+    }
+}
+
+#[cfg(test)]
+mod cell_grid_tests {
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        dom::{DomId, DomNodeId, NodeId, NodeType},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+
+    use super::{fixtures::small, *};
+    use crate::widgets::{
+        roving::test_support as rv,
+        themes::{theme_blocks::checks, theme_checks, UiTheme},
+    };
+
+    type Log = Arc<Mutex<Vec<CellGridEvent>>>;
+
+    extern "C" fn record(mut data: RefAny, _: CallbackInfo, event: CellGridEvent) -> Update {
+        if let Some(log) = data.downcast_ref::<Log>() {
+            log.lock().expect("log").push(event);
+        }
+        Update::RefreshDom
+    }
+
+    fn grid(log: &Log) -> CellGrid {
+        small().with_on_event(RefAny::new(log.clone()), record as CellGridOnEventCallbackType)
+    }
+
+    fn at(row: u32, column: u32) -> CellGridCellRef {
+        CellGridCellRef::create(row, column)
+    }
+
+    fn id(n: NodeId) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+        }
+    }
+
+    fn nodes_with(styled: &StyledDom, class: &str) -> Vec<NodeId> {
+        styled
+            .node_data
+            .as_ref()
+            .iter()
+            .enumerate()
+            .filter(|(_, nd)| {
+                nd.get_ids_and_classes()
+                    .as_ref()
+                    .iter()
+                    .any(|c| matches!(c, Class(s) if s.as_str() == class))
+            })
+            .map(|(i, _)| NodeId::new(i))
+            .collect()
+    }
+
+    fn texts(node: &Dom, out: &mut Vec<String>) {
+        if let NodeType::Text(s) = node.root.get_node_type() {
+            if !s.as_ref().as_str().is_empty() {
+                out.push(String::from(s.as_ref().as_str()));
+            }
+        }
+        for c in node.children.as_ref() {
+            texts(c, out);
+        }
+    }
+
+    fn bounds(g: &CellGrid) -> (Geometry, CellGrid) {
+        (geometry(g), g.clone())
+    }
+
+    fn indices(bands: &[Band]) -> Vec<u32> {
+        bands.iter().map(|b| b.index).collect()
+    }
+
+    #[test]
+    fn only_the_rows_and_columns_in_view_are_built() {
+        let g = small();
+        let geo = geometry(&g);
+        assert_eq!(indices(&geo.rows), (0..9).collect::<Vec<_>>(), "200 px: header + 9 rows");
+        assert_eq!(indices(&geo.columns), (0..6).collect::<Vec<_>>(), "400 px: header + 6 columns");
+        assert_eq!(geo.page_rows, 9);
+        assert_eq!(geo.page_columns, 5, "the sixth column straddles the edge");
+
+        let styled = StyledDom::create_from_dom(small().with_theme(UiTheme::Flat).dom());
+        assert_eq!(nodes_with(&styled, CELL_CLASS_NAME).len(), 9 * 6, "only the window is in the DOM");
+
+        let scrolled = small().with_view(CellGridView::create().with_scroll(500, 20));
+        let geo = geometry(&scrolled);
+        assert_eq!(geo.rows.first().map(|b| b.index), Some(500));
+        assert_eq!(geo.columns.first().map(|b| b.index), Some(20));
+        let mut seen = Vec::new();
+        texts(&scrolled.with_theme(UiTheme::Flat).dom(), &mut seen);
+        assert!(seen.iter().any(|t| t == "501"), "row numbers follow the window: {seen:?}");
+        assert!(seen.iter().any(|t| t == "U"), "column letters follow the window: {seen:?}");
+    }
+
+    #[test]
+    fn frozen_rows_and_columns_stay_ahead_of_the_scrolled_window() {
+        let g = small()
+            .with_frozen(2, 1)
+            .with_view(CellGridView::create().with_scroll(100, 10));
+        let geo = geometry(&g);
+        let rows = indices(&geo.rows);
+        assert_eq!(&rows[..3], &[0, 1, 100], "the frozen rows, then the window");
+        assert_eq!(geo.frozen_rows, 2);
+        let columns = indices(&geo.columns);
+        assert_eq!(&columns[..2], &[0, 10]);
+        assert!(
+            geo.rows[2].start >= geo.rows[1].end() + FREEZE_LINE_PX - 0.01,
+            "the freeze line sits between them"
+        );
+        let styled = StyledDom::create_from_dom(g.with_theme(UiTheme::Flat).dom());
+        assert!(
+            !nodes_with(&styled, FREEZE_CLASS_NAME).is_empty(),
+            "the freeze lines are drawn"
+        );
+
+        // A view that scrolled into the frozen rows is held below them.
+        let held = small()
+            .with_frozen(3, 0)
+            .with_view(CellGridView::create().with_scroll(1, 0));
+        assert_eq!(&indices(&geometry(&held).rows)[..4], &[0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn hidden_rows_and_columns_are_left_out_of_the_window_and_the_cursor_skips_them() {
+        let g = small()
+            .with_row_heights(CellGridSizeVec::from_vec(vec![CellGridSize::create(2, 0.0)]))
+            .with_column_widths(CellGridSizeVec::from_vec(vec![CellGridSize::create(1, 120.0)]));
+        let geo = geometry(&g);
+        assert_eq!(&indices(&geo.rows)[..3], &[0, 1, 3]);
+        assert!((geo.columns[1].size - 120.0).abs() < 0.01, "a wider column");
+        let (geo, g) = bounds(&g);
+        let b = bounds_of(&g, &geo);
+        assert_eq!(b.step(at(1, 0), Dir::Down), at(3, 0), "row 3 hides row 2's place");
+    }
+
+    #[test]
+    fn a_point_hits_the_cell_the_header_or_the_resize_grip_under_it() {
+        // Header 40 x 20 px, columns 64 px, rows 20 px.
+        let geo = geometry(&small());
+        assert_eq!(hit_test(&geo, None, 10.0, 10.0), Hit::Corner);
+        assert_eq!(hit_test(&geo, None, 50.0, 30.0), Hit::Cell(at(0, 0)));
+        assert_eq!(hit_test(&geo, None, 110.0, 45.0), Hit::Cell(at(1, 1)));
+        assert_eq!(hit_test(&geo, None, 70.0, 10.0), Hit::ColumnHeader(0));
+        assert_eq!(hit_test(&geo, None, 102.0, 10.0), Hit::ColumnEdge(0));
+        assert_eq!(hit_test(&geo, None, 105.0, 10.0), Hit::ColumnEdge(0), "the grip reaches into the next header");
+        assert_eq!(hit_test(&geo, None, 20.0, 30.0), Hit::RowHeader(0));
+        assert_eq!(hit_test(&geo, None, 20.0, 38.0), Hit::RowEdge(0));
+        assert_eq!(
+            hit_test(&geo, Some((104.0, 40.0)), 105.0, 41.0),
+            Hit::FillHandle,
+            "the fill handle wins over the cell under it"
+        );
+        assert_eq!(nearest_cell(&geo, 9999.0, 9999.0), Some(at(8, 5)), "a drag past the edge keeps the last cell");
+    }
+
+    fn nav(g: &CellGrid, key: VirtualKeyCode, shift: bool, ctrl: bool) -> CellGridView {
+        let geo = geometry(g);
+        let b = bounds_of(g, &geo);
+        navigate(&g.view, &b, key, shift, ctrl, &mut |c| has_data(g, c))
+            .expect("a navigation key")
+            .view
+    }
+
+    #[test]
+    fn the_arrows_move_the_cursor_and_shift_extends_the_range_from_the_anchor() {
+        let g = small();
+        let v = nav(&g, VirtualKeyCode::Down, false, false);
+        assert_eq!(v.active, at(1, 0));
+        assert_eq!(v.ranges.as_ref(), &[CellGridRange::create(at(1, 0))]);
+
+        let g = small().with_view(v);
+        let v = nav(&g, VirtualKeyCode::Right, true, false);
+        assert_eq!(v.active, at(1, 0), "the cursor stays on the anchor");
+        assert_eq!(v.current_range(), CellGridRange::spanning(at(1, 0), at(1, 1)));
+        let g = small().with_view(v);
+        let v = nav(&g, VirtualKeyCode::Down, true, false);
+        assert_eq!(v.current_range(), CellGridRange::spanning(at(1, 0), at(2, 1)), "the moving end goes on");
+
+        let edge = small();
+        assert_eq!(nav(&edge, VirtualKeyCode::Up, false, false).active, at(0, 0), "held at the edge");
+    }
+
+    #[test]
+    fn ctrl_arrows_jump_to_the_edge_of_the_data() {
+        let g = small();
+        assert_eq!(nav(&g, VirtualKeyCode::Down, false, true).active, at(4, 0), "the end of the run");
+        let from_end = small().with_view(CellGridView::create().with_active(at(4, 0)));
+        assert_eq!(
+            nav(&from_end, VirtualKeyCode::Down, false, true).active,
+            at(999, 0),
+            "no data below: the sheet's last row"
+        );
+        let below = small().with_view(CellGridView::create().with_active(at(10, 0)));
+        assert_eq!(nav(&below, VirtualKeyCode::Up, false, true).active, at(4, 0), "the next data up");
+        assert_eq!(nav(&g, VirtualKeyCode::Right, false, true).active, at(0, 2));
+        let extended = nav(&g, VirtualKeyCode::Down, true, true);
+        assert_eq!(extended.current_range(), CellGridRange::spanning(at(0, 0), at(4, 0)), "Ctrl+Shift extends to it");
+    }
+
+    #[test]
+    fn home_end_page_keys_select_all_and_whole_rows_and_columns() {
+        let g = small().with_view(CellGridView::create().with_active(at(3, 4)));
+        assert_eq!(nav(&g, VirtualKeyCode::Home, false, false).active, at(3, 0));
+        assert_eq!(nav(&g, VirtualKeyCode::Home, false, true).active, at(0, 0));
+        assert_eq!(nav(&g, VirtualKeyCode::End, false, true).active, at(4, 2), "the last cell with data");
+
+        let paged = nav(&small(), VirtualKeyCode::PageDown, false, false);
+        assert_eq!(paged.active, at(9, 0), "a screen of 9 rows");
+        assert_eq!(paged.top_row, 9, "the window moves with it");
+
+        let all = nav(&g, VirtualKeyCode::A, false, true);
+        assert_eq!(
+            all.current_range(),
+            CellGridRange::spanning(at(0, 0), at(999, 49))
+        );
+        let column = nav(&g, VirtualKeyCode::Space, false, true);
+        assert_eq!(column.current_range(), CellGridRange::spanning(at(0, 4), at(999, 4)));
+        let row = nav(&g, VirtualKeyCode::Space, true, false);
+        assert_eq!(row.current_range(), CellGridRange::spanning(at(3, 0), at(3, 49)));
+    }
+
+    #[test]
+    fn the_cursor_scrolls_the_window_to_stay_in_view() {
+        let g = small().with_view(CellGridView::create().with_active(at(8, 0)));
+        let v = nav(&g, VirtualKeyCode::Down, false, false);
+        assert_eq!(v.active, at(9, 0));
+        assert_eq!(v.top_row, 1, "one row up, no more");
+        let g = small().with_view(CellGridView::create().with_active(at(20, 0)).with_scroll(20, 0));
+        let v = nav(&g, VirtualKeyCode::Up, false, false);
+        assert_eq!(v.top_row, 19);
+    }
+
+    #[test]
+    fn typing_starts_an_edit_that_replaces_the_cell_and_enter_commits_and_moves_down() {
+        let g = small();
+        let start = typed(&g.view, "4");
+        assert_eq!(start.kind, CellGridEventKind::EditStart);
+        assert_eq!(start.view.edit_mode, CellGridEditMode::Enter);
+        assert_eq!(start.view.edit_text.as_str(), "4");
+        assert_eq!(start.view.edit_cursor, 1);
+        let more = typed(&start.view, "2");
+        assert_eq!(more.kind, CellGridEventKind::EditText);
+        assert_eq!(more.view.edit_text.as_str(), "42");
+
+        let g = small().with_view(more.view);
+        let geo = geometry(&g);
+        let b = bounds_of(&g, &geo);
+        let done = edit_key(&g, &b, VirtualKeyCode::Return, false).expect("Enter commits");
+        assert_eq!(done.kind, CellGridEventKind::EditCommit);
+        assert_eq!(done.text.as_str(), "42");
+        assert_eq!(done.range.first, at(0, 0), "the cell that was edited");
+        assert_eq!(done.view.active, at(1, 0), "then the cursor moves down");
+        assert!(!done.view.is_editing());
+
+        let tab = edit_key(&g, &b, VirtualKeyCode::Tab, false).expect("Tab commits");
+        assert_eq!(tab.view.active, at(0, 1), "Tab moves right");
+        let arrow = edit_key(&g, &b, VirtualKeyCode::Right, false).expect("an arrow commits in Enter mode");
+        assert_eq!(arrow.kind, CellGridEventKind::EditCommit);
+    }
+
+    #[test]
+    fn f2_edits_in_place_where_the_arrows_move_the_caret_and_escape_cancels() {
+        let g = small();
+        let geo = geometry(&g);
+        let b = bounds_of(&g, &geo);
+        let start = grid_key(&g, &b, VirtualKeyCode::F2, false, false).expect("F2 edits");
+        assert_eq!(start.kind, CellGridEventKind::EditStart);
+        assert_eq!(start.view.edit_mode, CellGridEditMode::Edit);
+        assert_eq!(start.view.edit_text.as_str(), "", "the app puts the cell's content in");
+
+        let mut view = start.view;
+        view.edit_text = AzString::from_const_str("=A1+1");
+        view.edit_cursor = 5;
+        let g = small().with_view(view);
+        let left = edit_key(&g, &b, VirtualKeyCode::Left, false).expect("Left moves the caret");
+        assert_eq!(left.kind, CellGridEventKind::EditText);
+        assert_eq!(left.view.edit_cursor, 4);
+        let g2 = small().with_view(left.view);
+        let back = edit_key(&g2, &b, VirtualKeyCode::Back, false).expect("Backspace deletes");
+        assert_eq!(back.view.edit_text.as_str(), "=A11");
+        assert_eq!(back.view.edit_cursor, 3);
+        let inserted = typed(&back.view, "*");
+        assert_eq!(inserted.view.edit_text.as_str(), "=A1*1");
+
+        let cancel = edit_key(&g, &b, VirtualKeyCode::Escape, false).expect("Escape cancels");
+        assert_eq!(cancel.kind, CellGridEventKind::EditCancel);
+        assert!(!cancel.view.is_editing());
+        assert_eq!(cancel.view.active, at(0, 0), "the cursor stays");
+    }
+
+    #[test]
+    fn delete_clears_the_selection_and_a_read_only_grid_never_edits() {
+        let g = small();
+        let geo = geometry(&g);
+        let b = bounds_of(&g, &geo);
+        let del = grid_key(&g, &b, VirtualKeyCode::Delete, false, false).expect("Delete");
+        assert_eq!(del.kind, CellGridEventKind::Delete);
+        let ro = small().with_read_only(true);
+        assert!(grid_key(&ro, &b, VirtualKeyCode::F2, false, false)
+            .map_or(true, |e| e.kind != CellGridEventKind::EditStart));
+        assert!(grid_key(&ro, &b, VirtualKeyCode::Delete, false, false)
+            .map_or(true, |e| e.kind != CellGridEventKind::Delete));
+    }
+
+    #[test]
+    fn keys_on_the_grid_node_reach_the_app_with_the_next_view() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let styled = StyledDom::create_from_dom(grid(&log).with_theme(UiTheme::Flat).dom());
+        let node = nodes_with(&styled, GRID_CLASS_NAME)[0];
+        let (update, changes) =
+            rv::press(&styled, id(node), VirtualKeyCode::Down, &[]).expect("the grid hears keys");
+        assert_eq!(update, Update::RefreshDom, "the app's answer is forwarded");
+        assert!(rv::prevented(&changes), "the arrow is the grid's");
+        let events = log.lock().expect("log").clone();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, CellGridEventKind::Select);
+        assert_eq!(events[0].view.active, at(1, 0));
+
+        let (_, changes) = rv::press(&styled, id(node), VirtualKeyCode::Q, &[])
+            .expect("the handler runs");
+        assert!(!rv::prevented(&changes), "a letter is not a key the grid takes (it is typed text)");
+    }
+
+    #[test]
+    fn a_fill_drag_reaches_down_or_across_and_its_release_reports_the_range() {
+        let source = CellGridRange::spanning(at(0, 0), at(0, 1));
+        assert_eq!(fill_range(source, at(5, 0)), CellGridRange::spanning(at(0, 0), at(5, 1)));
+        assert_eq!(fill_range(source, at(1, 6)), CellGridRange::spanning(at(0, 0), at(0, 6)));
+        assert_eq!(fill_range(source, at(0, 1)), source, "inside the source: nothing");
+
+        let mut view = CellGridView::create();
+        view.ranges = CellGridRangeVec::from_vec(vec![source]);
+        let g = small().with_view(view);
+        let geo = geometry(&g);
+        let press = press(&g, &geo, Hit::FillHandle, false, false, (0.0, 0.0)).expect("a fill starts");
+        assert_eq!(press.view.drag.kind, CellGridDragKind::Fill);
+        let g = small().with_view(press.view);
+        let moved = drag_move(&g, Some(at(4, 1)), (0.0, 0.0)).expect("the target follows");
+        let g = small().with_view(moved.view);
+        let end = drag_end(&g).expect("the release fills");
+        assert_eq!(end.kind, CellGridEventKind::Fill);
+        assert_eq!(end.range, CellGridRange::spanning(at(0, 0), at(4, 1)));
+        assert_eq!(end.view.drag.kind, CellGridDragKind::None);
+    }
+
+    #[test]
+    fn a_resize_drag_shows_the_new_width_and_reports_it_on_release() {
+        let g = small();
+        let geo = geometry(&g);
+        let press = press(&g, &geo, Hit::ColumnEdge(1), false, false, (200.0, 10.0)).expect("a resize starts");
+        assert_eq!(press.view.drag.kind, CellGridDragKind::ResizeColumn);
+        assert!((press.view.drag.start_size - 64.0).abs() < 0.01);
+        let g = small().with_view(press.view);
+        let moved = drag_move(&g, None, (220.0, 10.0)).expect("the size follows the pointer");
+        assert!((moved.view.drag.size - 84.0).abs() < 0.01);
+        let g = small().with_view(moved.view);
+        assert!(
+            (geometry(&resolve(g.clone()).grid).columns[1].size - 84.0).abs() < 0.01,
+            "the column is drawn at the dragged width"
+        );
+        let end = drag_end(&g).expect("the release reports it");
+        assert_eq!(end.kind, CellGridEventKind::ResizeColumn);
+        assert_eq!(end.index, 1);
+        assert!((end.size - 84.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_click_selects_shift_extends_ctrl_adds_and_a_header_selects_its_column() {
+        let g = small();
+        let geo = geometry(&g);
+        let click = press(&g, &geo, Hit::Cell(at(2, 1)), false, false, (0.0, 0.0)).expect("a click");
+        assert_eq!(click.view.active, at(2, 1));
+        assert_eq!(click.view.drag.kind, CellGridDragKind::Select, "a drag may follow");
+        let g2 = small().with_view(click.view.clone());
+        let shift = press(&g2, &geo, Hit::Cell(at(4, 2)), true, false, (0.0, 0.0)).expect("shift-click");
+        assert_eq!(shift.view.current_range(), CellGridRange::spanning(at(2, 1), at(4, 2)));
+        let ctrl = press(&g2, &geo, Hit::Cell(at(0, 0)), false, true, (0.0, 0.0)).expect("ctrl-click");
+        assert_eq!(ctrl.view.ranges.as_ref().len(), 2, "a second range");
+        let column = press(&g, &geo, Hit::ColumnHeader(3), false, false, (0.0, 0.0)).expect("a header");
+        assert_eq!(column.view.current_range(), CellGridRange::spanning(at(0, 3), at(999, 3)));
+
+        // Dragging over cells grows the range from where the press was.
+        let g3 = small().with_view(click.view);
+        let dragged = drag_move(&g3, Some(at(3, 3)), (0.0, 0.0)).expect("the range grows");
+        assert_eq!(dragged.view.current_range(), CellGridRange::spanning(at(2, 1), at(3, 3)));
+    }
+
+    #[test]
+    fn a_click_elsewhere_commits_the_edit_in_progress() {
+        let g = small().with_view(typed(&CellGridView::create(), "7").view);
+        let geo = geometry(&g);
+        let e = press(&g, &geo, Hit::Cell(at(3, 3)), false, false, (0.0, 0.0)).expect("a click");
+        assert_eq!(e.kind, CellGridEventKind::EditCommit);
+        assert_eq!(e.text.as_str(), "7");
+        assert_eq!(e.range.first, at(0, 0));
+        assert_eq!(e.view.active, at(3, 3));
+    }
+
+    #[test]
+    fn the_wheel_scrolls_whole_rows_and_keeps_the_remainder() {
+        let mut travel = 0.0;
+        assert_eq!(wheel_steps(&mut travel, 30.0, 20.0), 1);
+        assert!((travel - 10.0).abs() < 0.01, "the rest waits");
+        assert_eq!(wheel_steps(&mut travel, 30.0, 20.0), 2);
+        assert_eq!(wheel_steps(&mut travel, -5.0, 20.0), 0);
+        assert_eq!(wheel_steps(&mut travel, 1.0e9, 20.0), WHEEL_MAX_STEPS, "a burst is capped");
+        assert_eq!(wheel_steps(&mut 0.0, f32::NAN, 20.0), 0);
+
+        let g = small().with_frozen(1, 0);
+        let geo = geometry(&g);
+        let b = bounds_of(&g, &geo);
+        let v = scroll_by(&g.view, &b, -5, 0);
+        assert_eq!(v.top_row, 1, "never into the frozen rows");
+        let v = scroll_by(&g.view, &b, 5000, 0);
+        assert_eq!(v.top_row, 999, "never past the last row");
+    }
+
+    #[test]
+    fn the_clipboard_gets_tab_separated_text_and_an_html_table() {
+        let rows = vec![
+            vec![String::from("a"), String::from("b\tc")],
+            vec![String::from("\"q\""), String::from("<1>")],
+        ];
+        assert_eq!(cells_to_tsv(&rows), "a\t\"b\tc\"\n\"\"\"q\"\"\"\t<1>");
+        assert_eq!(
+            cells_to_html(&rows),
+            "<table><tr><td>a</td><td>b\tc</td></tr><tr><td>&quot;q&quot;</td><td>&lt;1&gt;</td></tr></table>"
+        );
+        let mut view = CellGridView::create();
+        view.ranges = CellGridRangeVec::from_vec(vec![CellGridRange::spanning(at(0, 0), at(999_999, 1))]);
+        let (range, copied) = selection_rows(&small().with_view(view));
+        assert_eq!(range.last.row, 4, "a whole column is clipped to the data");
+        assert_eq!(copied[1], vec![String::from("10"), String::from("11")]);
+    }
+
+    #[test]
+    fn a1_names_round_trip() {
+        assert_eq!(column_letters(0), "A");
+        assert_eq!(column_letters(25), "Z");
+        assert_eq!(column_letters(26), "AA");
+        assert_eq!(column_letters(16_383), "XFD");
+        assert_eq!(parse_a1("B7"), Some(at(6, 1)));
+        assert_eq!(parse_a1("$aa$10"), Some(at(9, 26)));
+        assert_eq!(parse_a1("A0"), None);
+        assert_eq!(parse_a1("7B"), None);
+        assert_eq!(parse_a1(""), None);
+        assert_eq!(CellGrid::cell_label(at(6, 1)).as_str(), "B7");
+    }
+
+    #[test]
+    fn the_grid_is_one_focus_stop_with_the_grid_role_and_its_cells_carry_their_place() {
+        let dom = small().with_view(CellGridView::create().with_scroll(41, 0)).with_theme(UiTheme::Flat).dom();
+        let info = dom.root.get_accessibility_info().expect("a role");
+        assert_eq!(info.role, azul_core::a11y::AccessibilityRole::Grid);
+        assert_eq!(info.accessibility_name.as_ref().map(|n| n.as_str()), Some("Sheet1"));
+        assert_eq!(dom.root.get_tab_index(), Some(azul_core::dom::TabIndex::Auto));
+        // Row 0 of the children is the header row; row 1 the first data row
+        // (sheet row 42, scrolled); its child 0 the row number, 1 the cell.
+        let row = &dom.children.as_ref()[1];
+        let cell = &row.children.as_ref()[1];
+        let cell_info = cell.root.get_accessibility_info().expect("a cell role");
+        assert_eq!(cell_info.role, azul_core::a11y::AccessibilityRole::GridCell);
+        assert_eq!(cell_info.row_index.into_option(), Some(42), "its row in the WHOLE sheet");
+        assert_eq!(cell_info.column_index.into_option(), Some(1));
+    }
+
+    #[test]
+    fn cells_show_their_text_aligned_by_kind_and_a_fill_picks_a_readable_ink() {
+        let mut seen = Vec::new();
+        texts(&small().with_theme(UiTheme::Flat).dom(), &mut seen);
+        for t in ["A", "B", "1", "2", "0", "11", "42"] {
+            assert!(seen.iter().any(|s| s == t), "{t} in {seen:?}");
+        }
+        assert_eq!(
+            auto_ink(ColorU { r: 255, g: 235, b: 59, a: 255 }),
+            ColorU { r: 0, g: 0, b: 0, a: 255 },
+            "black on yellow"
+        );
+        assert_eq!(
+            auto_ink(ColorU { r: 20, g: 40, b: 90, a: 255 }),
+            ColorU { r: 255, g: 255, b: 255, a: 255 },
+            "white on navy"
+        );
+    }
+
+    #[test]
+    fn an_edit_shows_its_text_and_caret_over_the_cell() {
+        let view = typed(&CellGridView::create().with_active(at(1, 1)), "=SUM(").view;
+        let styled = StyledDom::create_from_dom(small().with_view(view).with_theme(UiTheme::Flat).dom());
+        assert_eq!(nodes_with(&styled, EDITOR_CLASS_NAME).len(), 1);
+        assert_eq!(nodes_with(&styled, CARET_CLASS_NAME).len(), 1);
+        assert!(nodes_with(&styled, FILL_HANDLE_CLASS_NAME).is_empty(), "no fill handle while editing");
+        let plain = StyledDom::create_from_dom(small().with_theme(UiTheme::Flat).dom());
+        assert_eq!(nodes_with(&plain, FILL_HANDLE_CLASS_NAME).len(), 1);
+        assert_eq!(nodes_with(&plain, OUTLINE_CLASS_NAME).len(), 1);
+    }
+
+    #[test]
+    fn a_grid_without_a_theme_follows_the_app_theme_and_declares_its_structure_once() {
+        checks::assert_follows_the_app_theme(
+            "cell_grid",
+            || small().dom(),
+            |t: UiTheme| small().with_theme(t).dom(),
+        );
+        for theme in checks::BOTH {
+            let dom = checks::under(theme, || small().dom());
+            theme_checks::assert_structure_is_shared(
+                &format!("cell_grid built for {}", theme.name()),
+                &dom,
+                &[],
+            );
+        }
+    }
+}
