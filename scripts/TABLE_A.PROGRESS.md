@@ -12,10 +12,10 @@ Brief: scratchpad `TABLE_A_go.md` (widths, row groups, presentational attributes
 
 ## IN PROGRESS
 - Items 1-5 code complete. Last code commit: "row groups, rows, columns and the caption are boxes".
-- NEXT STEP: review pass (read every changed function once more for compile errors: fc.rs
-  layout_table_fc / position_table_cells / place_table_grid_boxes, sizing.rs, cache.rs hit path,
-  display_list.rs paint path, xml_attributes.rs), then the WPT expectation lines for the tests this
-  should fix (decide which to remove), then the report scripts/TABLE_A_2026_10_01.md.
+- Review pass of fc.rs layout_table_fc/caption done; expectations: 8 lines removed (commit "wpt
+  expectations").
+- NEXT STEP: legacy align=center block centering (optional, item 3b) or straight to the report
+  scripts/TABLE_A_2026_10_01.md.
 
 ## NEXT
 - (optional) legacy `align=center` block centering (-webkit-center) in layout_bfc.
