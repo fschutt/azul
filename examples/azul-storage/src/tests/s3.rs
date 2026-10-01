@@ -521,3 +521,43 @@ fn the_metadata_of_a_missing_object_is_not_found() {
         Err(DriveError::NotFound { .. })
     ));
 }
+
+#[test]
+fn a_copy_within_the_bucket_is_one_copy_object_request() {
+    let fake = Fake::default();
+    fake.answer(
+        200,
+        &[],
+        "<CopyObjectResult><ETag>\"abc\"</ETag></CopyObjectResult>",
+    );
+    local_drive(&fake)
+        .copy("photos/a b.png", "backup/a b.png")
+        .unwrap();
+    let calls = fake.calls();
+    assert_eq!(calls.len(), 1, "no GET, no upload: the service copies");
+    let call = &calls[0];
+    assert_eq!(call.method, Method::Put);
+    assert_eq!(call.url, "http://127.0.0.1:9000/azdrive/backup/a%20b.png");
+    assert_eq!(
+        header(call, "x-amz-copy-source"),
+        Some("/azdrive/photos/a%20b.png")
+    );
+    assert!(call.body.is_empty());
+}
+
+#[test]
+fn a_copy_error_inside_a_200_answer_fails() {
+    let fake = Fake::default();
+    fake.answer(
+        200,
+        &[],
+        "<Error><Code>InternalError</Code><Message>try again</Message></Error>",
+    );
+    assert!(local_drive(&fake).copy("a.txt", "b.txt").is_err());
+    let fake = Fake::default();
+    fake.answer(404, &[], "<Error><Code>NoSuchKey</Code></Error>");
+    assert!(matches!(
+        local_drive(&fake).copy("a.txt", "b.txt"),
+        Err(DriveError::NotFound { .. })
+    ));
+}

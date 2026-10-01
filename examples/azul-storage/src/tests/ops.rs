@@ -421,3 +421,33 @@ fn a_local_object_has_its_path_and_creation_time_as_metadata_and_a_bucket_none()
         .unwrap()
         .is_empty());
 }
+
+#[test]
+fn a_copy_within_one_drive_keeps_the_source_and_refuses_a_folder() {
+    let tmp = TempDir::new("ops-copy-within");
+    let drive = local(&tmp);
+    drive.copy("docs/a.txt", "docs/copy/a.txt").unwrap();
+    assert_eq!(drive.get("docs/copy/a.txt").unwrap(), b"alpha");
+    assert_eq!(
+        drive.get("docs/a.txt").unwrap(),
+        b"alpha",
+        "a copy keeps the source"
+    );
+    // A copy replaces a file that is there (conflicts are the caller's).
+    drive.copy("readme.txt", "docs/copy/a.txt").unwrap();
+    assert_eq!(drive.get("docs/copy/a.txt").unwrap(), b"hello");
+    assert!(
+        drive.copy("docs/", "elsewhere/").is_err(),
+        "a folder is not one object"
+    );
+    assert!(matches!(
+        drive.copy("docs/missing.txt", "x.txt"),
+        Err(DriveError::NotFound { .. })
+    ));
+
+    // Without a copy of its own a drive gets and puts.
+    let bucket = Bucket::with(&[("a", b"1")]);
+    bucket.copy("a", "b/a").unwrap();
+    assert_eq!(bucket.get("b/a").unwrap(), b"1");
+    assert_eq!(bucket.get("a").unwrap(), b"1");
+}
