@@ -4,10 +4,11 @@ Branch `wt/table-a` from `39092feee`. House rules: scratchpad `wave4_common.md` 
 Brief: scratchpad `TABLE_A_go.md` (widths, row groups, presentational attributes, nested tables).
 
 ## DONE
-- (none yet)
+- 6e3e48548 progress file
+- e719d122e RED: layout tests (5 files + common/table_markup.rs) + core/tests/xml_attributes.rs
 
 ## IN PROGRESS
-- RED tests for items 1-5
+- FIX item 3 (presentational attributes)
 
 ## NEXT
 1. RED: layout tests (width cap, row groups, attributes, percent columns, nested tables) + core test
