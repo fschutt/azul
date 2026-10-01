@@ -1226,6 +1226,30 @@ pub fn parse_xml(s: &str) -> Result<Xml, XmlError> {
     Err(XmlError::NoParserAvailable)
 }
 
+/// HTML as a browser reads it - a mail, a paste, a page: the LENIENT loader.
+///
+/// RED: still the strict loader (an XML syntax error gives no tree).
+#[must_use]
+pub fn parse_html_string(source: &str) -> Vec<XmlNodeChild> {
+    parse_xml_string(source).unwrap_or_default()
+}
+
+/// [`parse_html_string`] as an [`Xml`] document (for [`dom_from_parsed_xml`]).
+#[must_use]
+pub fn parse_html(source: &str) -> Xml {
+    Xml {
+        root: parse_html_string(source).into(),
+    }
+}
+
+/// HTML as a browser reads it, straight into a `StyledDom`.
+///
+/// RED: still the strict document loader.
+#[must_use]
+pub fn parse_html_to_styled_dom(source: &str) -> StyledDom {
+    parse_xml_to_styled_dom(source).unwrap_or_default()
+}
+
 // to_string(&self) -> String
 
 #[cfg(feature = "xml")]

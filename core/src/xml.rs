@@ -7221,6 +7221,11 @@ pub fn parse_bool(input: &str) -> Option<bool> {
 #[path = "xml_attributes.rs"]
 pub mod attributes;
 
+/// HTML as a browser reads it (the lenient loader), and the ONE tree
+/// construction every XML loader shares.
+#[path = "xml_html.rs"]
+pub mod html;
+
 #[cfg(test)]
 #[path = "xml_test.rs"]
 mod xml_test;

@@ -692,3 +692,7 @@ mod percentage_and_fixed_columns_share_the_table_like_browsers;
 mod a_nested_table_widens_the_cell_that_holds_it;
 #[path = "a_render_image_callback_with_unchanged_inputs_is_not_invoked_again.rs"]
 mod a_render_image_callback_with_unchanged_inputs_is_not_invoked_again;
+#[path = "real_mail_html_parses_like_a_browser.rs"]
+mod real_mail_html_parses_like_a_browser;
+#[path = "the_two_xml_loaders_build_one_tree.rs"]
+mod the_two_xml_loaders_build_one_tree;

@@ -1,0 +1,464 @@
+//! The lenient loader (`azul_core::xml::html`): every row is markup a
+//! browser reads and the tree it builds from it, as an outline of the
+//! `<body>`'s children (the whole document for one with `<html>`). The trees
+//! are Chrome's (`DOMParser`, text/html), except where a row's note says how
+//! the simplified tree construction differs.
+
+use super::*;
+
+/// The node named `tag`, depth first.
+fn find_element<'a>(nodes: &'a [XmlNodeChild], tag: &str) -> Option<&'a XmlNode> {
+    for node in nodes {
+        if let XmlNodeChild::Element(element) = node {
+            if element.node_type.as_str() == tag {
+                return Some(element);
+            }
+            if let Some(found) = find_element(element.children.as_ref(), tag) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+/// The outline of what `html` puts in the `<body>` (a fragment's roots).
+fn body_of(html: &str, with_attributes: bool) -> String {
+    let nodes = parse_html_nodes(html);
+    match find_element(&nodes, "body") {
+        Some(body) => outline(body.children.as_ref(), with_attributes),
+        None => outline(&nodes, with_attributes),
+    }
+}
+
+/// The outline of the whole document.
+fn document_of(html: &str, with_attributes: bool) -> String {
+    outline(&parse_html_nodes(html), with_attributes)
+}
+
+fn check(rows: &[(&str, &str)], with_attributes: bool, of: fn(&str, bool) -> String) {
+    let mut failures = Vec::new();
+    for (input, expected) in rows {
+        let got = of(input, with_attributes);
+        if got != *expected {
+            failures.push(alloc::format!(
+                "{input:?}\n  expected {expected}\n  got      {got}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Mail writes `width=150`, `BGCOLOR=#FFFFFF`, `noshade`, `nowrap`: an XML
+/// tokenizer stops at the first one (`InvalidQuote`, the exploration's samples 03 and 08).
+#[test]
+fn unquoted_and_bare_attributes_are_read_like_a_browser_reads_them() {
+    check(
+        &[
+            (
+                "<table><tr><td width=150 valign=top>x</td></tr></table>",
+                "table{tbody{tr{td[width=150 valign=top]{\"x\"}}}}",
+            ),
+            // a fragment is a document: the `<meta>` goes into its head
+            (
+                "<meta http-equiv=Content-Type content=\"text/html; charset=us-ascii\"><font color=#FF0000 size=+1>a</font>",
+                "font[color=#FF0000 size=+1]{\"a\"}",
+            ),
+            (
+                "<hr noshade size=1><input disabled checked>",
+                "hr[noshade= size=1] input[disabled= checked=]",
+            ),
+            (
+                "<a href=foo/bar.html title='it''s'>l</a>",
+                "a[href=foo/bar.html title=it 's'=]{\"l\"}",
+            ),
+            // a repeated attribute keeps its first value
+            (
+                "<div id=a id=b class=c CLASS=d>x</div>",
+                "div[id=a class=c]{\"x\"}",
+            ),
+        ],
+        true,
+        body_of,
+    );
+}
+
+/// `<TABLE>`, `<BR>`, `ALIGN=RIGHT` (sample 08): HTML names are case-insensitive.
+#[test]
+fn upper_case_names_are_the_lower_case_elements() {
+    check(
+        &[
+            (
+                "<TABLE BORDER=1><TR><TD ALIGN=RIGHT>a</TD></TR></TABLE><P CLASS=X>b",
+                "table[border=1]{tbody{tr{td[align=RIGHT]{\"a\"}}}} p[class=X]{\"b\"}",
+            ),
+            ("<Div><SPAN>a</span></DIV>", "div{span{\"a\"}}"),
+        ],
+        true,
+        body_of,
+    );
+}
+
+/// Every HTML void element ends where it starts: `<br>` does not swallow what follows.
+#[test]
+fn void_elements_take_no_content_with_or_without_a_slash() {
+    check(
+        &[
+            (
+                "a<BR>b<br>c<br/>d<img src=x.png>e<hr>f<wbr>g<input>h<embed src=e>i<keygen>j<col>k",
+                "\"a\" br \"b\" br \"c\" br \"d\" img \"e\" hr \"f\" wbr \"g\" input \"h\" embed \"i\" keygen \"jk\"",
+            ),
+            // `</br>` is a line break, `</img>` nothing
+            (
+                "a</br>b<img src=x></img>c",
+                "\"a\" br \"b\" img \"c\"",
+            ),
+        ],
+        false,
+        body_of,
+    );
+}
+
+/// `<!-- ---- -->` (`InvalidCommentData` in XML), `--!>`, `<!-->`.
+#[test]
+fn comments_end_at_their_marker_whatever_they_hold() {
+    check(
+        &[
+            // Chrome keeps the comments as nodes between the texts; azul drops them and the text is one run
+            (
+                "a<!-- ---- -->b<!-- x -- y -->c<!---->d<!-->e<!--->f<!-- z --!>g",
+                "\"abcdefg\"",
+            ),
+            ("a<!-- never closed", "\"a\""),
+        ],
+        false,
+        body_of,
+    );
+}
+
+/// A `<` that starts no tag and an `&` that starts no reference are text.
+#[test]
+fn lt_and_amp_in_text_and_attribute_values_are_characters() {
+    check(
+        &[
+            (
+                "<a title=\"a<b & c\" href=\"?x=1&copy=2&amp;y=3\">AT&T a < b & c &foo bar 1<2</a>",
+                "a[title=a<b & c href=?x=1&copy=2&y=3]{\"AT&T a < b & c &foo bar 1<2\"}",
+            ),
+            ("a < b <3 <> <= </ c", "\"a < b <3 <> <= \""),
+            // Chrome: `"a" "cd"` (the bogus comment is a node there)
+            ("a</ b>c</>d", "\"acd\""),
+        ],
+        true,
+        body_of,
+    );
+}
+
+/// C0 controls are not XML characters (`NonXmlChar`); a browser keeps them in the DOM
+/// where they paint as nothing or a box. CR LF and a lone CR are a line feed.
+#[test]
+fn stray_control_characters_are_dropped() {
+    check(
+        &[
+            // Chrome keeps the controls; azul drops them
+            ("a\u{1}b\u{8}c\u{B}d\u{1F}e\r\nf\rg", "\"abcde f g\""),
+        ],
+        false,
+        body_of,
+    );
+}
+
+#[test]
+fn elements_left_open_at_the_end_are_closed() {
+    check(
+        &[
+            ("<div><b>text<i>more", "div{b{\"text\" i{\"more\"}}}"),
+            // a tag cut off by the end is dropped
+            ("a<div class=\"x", "\"a\""),
+            ("a<div class=x", "\"a\""),
+        ],
+        false,
+        body_of,
+    );
+}
+
+/// `p`, `li`, `dt` / `dd`, `option`, `tr` / `td` / `th` and the row groups end where the
+/// next one (or a block) starts.
+#[test]
+fn implied_end_tags_close_paragraphs_items_and_cells() {
+    check(
+        &[
+            (
+                "<p>a<p>b<div>c</div><p>d<ul><li>e</ul><p>f<h1>g</h1>",
+                "p{\"a\"} p{\"b\"} div{\"c\"} p{\"d\"} ul{li{\"e\"}} p{\"f\"} h1{\"g\"}",
+            ),
+            (
+                "<ul><li>a<li>b<ul><li>c<li>d</ul><li>e</ul><ol><li>x<li>y</ol>",
+                "ul{li{\"a\"} li{\"b\" ul{li{\"c\"} li{\"d\"}}} li{\"e\"}} ol{li{\"x\"} li{\"y\"}}",
+            ),
+            (
+                "<dl><dt>a<dd>b<dt>c<dd>d</dl>",
+                "dl{dt{\"a\"} dd{\"b\"} dt{\"c\"} dd{\"d\"}}",
+            ),
+            (
+                "<table><thead><tr><th>h1<th>h2<tbody><tr><td>a<td>b<tr><td>c<td>d<tfoot><tr><td>f</table>",
+                "table{thead{tr{th{\"h1\"} th{\"h2\"}}} tbody{tr{td{\"a\"} td{\"b\"}} tr{td{\"c\"} td{\"d\"}}} tfoot{tr{td{\"f\"}}}}",
+            ),
+            (
+                "<select><option>a<option>b<optgroup label=g><option>c<optgroup label=h><option>d</select>",
+                "select{option{\"a\"} option{\"b\"} optgroup{option{\"c\"}} optgroup{option{\"d\"}}}",
+            ),
+            // the implied tbody and tr
+            (
+                "<table><tr><td>a</td></tr></table><table><td>b</td></table>",
+                "table{tbody{tr{td{\"a\"}}}} table{tbody{tr{td{\"b\"}}}}",
+            ),
+            (
+                "<h1>a<h2>b</h2>c",
+                "h1{\"a\"} h2{\"b\"} \"c\"",
+            ),
+            (
+                "<ul><li><div>a<li>b</div></ul>",
+                "ul{li{div{\"a\"}} li{\"b\"}}",
+            ),
+            (
+                "<table><tr><td><b>a<td>b</table>c",
+                "table{tbody{tr{td{b{\"a\"}} td{\"b\"}}}} \"c\"",
+            ),
+        ],
+        false,
+        body_of,
+    );
+}
+
+/// A stray end tag (sanitizers and editors leave them) is ignored; one that matches an
+/// open element closes up to it - but never across a table cell.
+#[test]
+fn an_end_tag_closes_only_within_its_scope() {
+    check(
+        &[
+            ("<div>a<span>b</div>c", "div{\"a\" span{\"b\"}} \"c\""),
+            ("<div>a</font>b</span>c</div>d", "div{\"abc\"} \"d\""),
+            (
+                "<div><table><tr><td>a</div>b</td></tr></table>c</div>e",
+                "div{table{tbody{tr{td{\"ab\"}}}} \"c\"} \"e\"",
+            ),
+            (
+                "<table><tr><td><table><tr><td>a</td></tr></table></td></tr></table>",
+                "table{tbody{tr{td{table{tbody{tr{td{\"a\"}}}}}}}}",
+            ),
+            // `</p>` without a `<p>` is an empty paragraph
+            ("a</p>b", "\"a\" p \"b\""),
+        ],
+        false,
+        body_of,
+    );
+}
+
+/// The simplified adoption agency: `</b>` with a block open inside the `<b>` closes the
+/// `<b>` when that block closes (a browser clones the `<b>` instead; see each row).
+#[test]
+fn a_misnested_formatting_element_closes_with_its_block() {
+    check(
+        &[
+            // Chrome: `b{"x"} p{b{"y"} "z"} "w"`
+            ("<b>x<p>y</b>z</p>w", "b{\"x\" p{\"yz\"}} \"w\""),
+            // Chrome: `font div{font{"a"} "b"} "c"`
+            (
+                "<font face=Arial><div>a</font>b</div>c",
+                "font{div{\"ab\"}} \"c\"",
+            ),
+            // Chrome: `font{p{"a"}} p{font{"b"} "c"}`
+            (
+                "<font face=Arial><p>a<p>b</font>c",
+                "font{p{\"a\"} p{\"bc\"}}",
+            ),
+        ],
+        false,
+        body_of,
+    );
+}
+
+/// `<p><b>x<p>y`: the bold goes on in the next paragraph (the HTML Standard's
+/// "reconstruct the active formatting elements"); a cell starts without it.
+#[test]
+fn formatting_elements_continue_in_the_next_block() {
+    check(
+        &[
+            ("<p>a<b>b<p>c</b>d", "p{\"a\" b{\"b\"}} p{b{\"c\"} \"d\"}"),
+            // at most three equal ones are reopened
+            (
+                "<font>a<font>b<font>c<font>d<p>e",
+                "font{\"a\" font{\"b\" font{\"c\" font{\"d\" p{\"e\"}}}}}",
+            ),
+            // a link does not nest in a link
+            ("<a href=1>a<a href=2>b</a>c", "a{\"a\"} a{\"b\"} \"c\""),
+            (
+                "<b><table><tr><td>x</td></tr></table>y",
+                "b{table{tbody{tr{td{\"x\"}}}} \"y\"}",
+            ),
+        ],
+        false,
+        body_of,
+    );
+}
+
+#[test]
+fn doctype_raw_text_and_rcdata_are_read_as_html() {
+    check(
+        &[
+            (
+                "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\"><html><head><title>t</title></head><body>x</body></html>",
+                "\"x\"",
+            ),
+            // one line feed after `<pre>` is dropped
+            (
+                "<pre>\nline1\nline2</pre><pre>\n\nx</pre>",
+                "pre{\"line1 line2\"} pre{\" x\"}",
+            ),
+            (
+                "<textarea>\n<b>x</b> &lt;</textarea>",
+                "textarea{\"<b>x</b> <\"}",
+            ),
+            // Chrome: `"a" "b"` (a comment node between)
+            (
+                "a<![CDATA[x<y]]>b",
+                "\"ab\"",
+            ),
+        ],
+        false,
+        body_of,
+    );
+}
+
+/// Word's `<![if !supportLists]>`, Outlook's conditional comments and `<o:p>`.
+#[test]
+fn word_and_outlook_markup_parses() {
+    check(
+        &[
+            (
+                "<p class=MsoListParagraph><![if !supportLists]><span>1.<span>&nbsp;&nbsp;</span></span><![endif]>Item<o:p></o:p></p><!--[if gte mso 9]><xml><o:shapedefaults v:ext=\"edit\" spidmax=\"1026\" /></xml><![endif]-->",
+                "p{span{\"1.\" span{\"\u{A0}\u{A0}\"}} \"Item\" o:p}",
+            ),
+            (
+                "<p class=MsoNormal><span lang=DE>Hi<o:p></o:p></span></p><p class=MsoNormal><o:p>&nbsp;</o:p></p>",
+                "p{span{\"Hi\" o:p}} p{o:p{\"\u{A0}\"}}",
+            ),
+        ],
+        false,
+        body_of,
+    );
+}
+
+#[test]
+fn svg_elements_close_themselves() {
+    check(
+        &[
+            // `<div/>` is an open div in HTML
+            (
+                "<svg width=10><path d=\"M0 0\"/><rect/></svg><div/>after",
+                "svg{path rect} div{\"after\"}",
+            ),
+        ],
+        false,
+        body_of,
+    );
+}
+
+/// The implied `<head>` / `<body>`: a stylesheet before the body goes into the head, content
+/// into the body, a second `<body>` / `<html>` and `</body>` / `</html>` change nothing.
+#[test]
+fn a_document_gets_its_head_and_body_where_a_browser_puts_them() {
+    check(
+        &[
+            (
+                "<html><style>p{}</style><p>x</p></html>",
+                "html{head{style{\"p{}\"}} body{p{\"x\"}}}",
+            ),
+            (
+                "<html><head><title>t</title><div>body?</div></head><body class=b>x</body></html>",
+                "html{head{title{\"t\"}} body{div{\"body?\"} \"x\"}}",
+            ),
+            (
+                "<html><body>a</body></html>b<p>c",
+                "html{body{\"ab\" p{\"c\"}}}",
+            ),
+            (
+                "<body class=a>x<body class=b>y",
+                "html{body[class=a]{\"xy\"}}",
+            ),
+            (
+                "<html><head><style>a > b { color: red } p:before { content: \"</p>\" }</style><script>if (a < b && c) { x = \"<b>\"; }</script></head><body>y</body></html>",
+                "html{head{style{\"a > b { color: red } p:before { content: \\\"</p>\\\" }\"} script{\"if (a < b && c) { x = \\\"<b>\\\"; }\"}} body{\"y\"}}",
+            ),
+        ],
+        true,
+        document_of,
+    );
+}
+
+/// The HTML Standard's named references (all 2231), the legacy ones without
+/// their `;`, and the numeric ones through the Windows-1252 repair.
+#[test]
+fn character_references_decode_as_in_a_browser() {
+    let text = |s: &str| decode_character_references(s, CharRefMode::HtmlText).into_owned();
+    assert_eq!(text("&check; &starf;"), "\u{2713} \u{2605}");
+    assert_eq!(text("&NotEqualTilde;"), "\u{2242}\u{338}", "two characters");
+    assert_eq!(
+        text("&copy 2026"),
+        "\u{A9} 2026",
+        "a legacy name without its ;"
+    );
+    assert_eq!(text("&notin; &notit;"), "\u{2209} \u{AC}it;");
+    assert_eq!(
+        text("&#150; &#x80; &#0; &#xD800; &#1114112;"),
+        "\u{2013} \u{20AC} \u{FFFD} \u{FFFD} \u{FFFD}"
+    );
+    assert_eq!(
+        text("&amp &lt; &Eacute; &eacute &nbsp;"),
+        "& < \u{C9} \u{E9} \u{A0}"
+    );
+    assert_eq!(text("&foo; &amp;lt; & &; &#;"), "&foo; &lt; & &; &#;");
+    let attribute =
+        |s: &str| decode_character_references(s, CharRefMode::HtmlAttribute).into_owned();
+    assert_eq!(attribute("?a=1&copy=2&notit;x&amp"), "?a=1&copy=2&notit;x&");
+    assert_eq!(attribute("&copy &copy; &copyx"), "\u{A9} \u{A9} &copyx");
+    // XML's rules (the strict loaders): a `;` is required, a number that is not
+    // a scalar value stays as written, the names are HTML's.
+    let xml = |s: &str| decode_character_references(s, CharRefMode::Xml).into_owned();
+    assert_eq!(
+        xml("&copy 2026 &copy; &#0; &#xD800; &check;"),
+        "&copy 2026 \u{A9} \u{0} &#xD800; \u{2713}"
+    );
+    assert!(matches!(
+        decode_character_references("plain", CharRefMode::Xml),
+        Cow::Borrowed(_)
+    ));
+    assert_eq!(named_character_reference("copy", true), Some("\u{A9}"));
+    assert_eq!(named_character_reference("copy", false), Some("\u{A9}"));
+    assert_eq!(
+        named_character_reference("check", false),
+        None,
+        "not a legacy name"
+    );
+    assert_eq!(
+        named_character_reference("CounterClockwiseContourIntegral", true),
+        Some("\u{2233}")
+    );
+}
+
+/// A browser stops nesting at 512 elements; deeper ones become siblings
+/// (and a thousand unclosed `<div>`s do not overflow the stack of the
+/// recursive `XmlNode` drop).
+#[test]
+fn elements_deeper_than_the_limit_become_siblings() {
+    let html = "<div>".repeat(2000) + "x";
+    let nodes = parse_html_nodes(&html);
+    let mut depth = 0;
+    let mut cursor: &[XmlNodeChild] = &nodes;
+    while let Some(XmlNodeChild::Element(e)) = cursor.first() {
+        depth += 1;
+        cursor = e.children.as_ref();
+    }
+    assert!(depth <= MAX_XML_NESTING_DEPTH + 1, "nested {depth} deep");
+    drop(nodes);
+}
