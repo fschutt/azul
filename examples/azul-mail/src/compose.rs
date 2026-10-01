@@ -511,7 +511,18 @@ pub fn outgoing(fields: &ComposeFields, attachments: Vec<Attachment>) -> Result<
 /// The mail a DRAFT is saved as: like [`outgoing`], but nothing is checked - a draft may have
 /// no recipient yet, or half an address.
 pub fn draft_mail(fields: &ComposeFields, attachments: Vec<Attachment>) -> OutgoingMail {
-    todo!()
+    OutgoingMail {
+        from: fields.from.trim().to_string(),
+        to: split_addresses(&fields.to),
+        cc: split_addresses(&fields.cc),
+        bcc: split_addresses(&fields.bcc),
+        subject: fields.subject.clone(),
+        text_body: fields.body.to_plain(),
+        html_body: Some(fields.body.to_html()),
+        in_reply_to: fields.in_reply_to.clone(),
+        references: fields.references.clone(),
+        attachments,
+    }
 }
 
 /// The media type of a file by its extension (`application/octet-stream` for anything unknown).
