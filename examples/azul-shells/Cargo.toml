@@ -1,0 +1,29 @@
+[package]
+name = "AzShells"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzShells - the eleven app shells on the public azul API: a picker of
+    S1..S11 (and the settings layout), each shell shown with placeholder
+    content in the one Office-like design, in both widget themes (flat,
+    flora) and both modes (light, dark), with an app-drawn title row
+    (NoTitle + Titlebar), F6 cycling the panes, Ctrl/Cmd+K opening the
+    command palette. The headless E2E (scripts/shells_e2e.py) opens every
+    shell over the debug server, checks the pane rectangles and F6, and
+    takes a screenshot per shell.
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+
+[lib]
+name = "azshells"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzShells"
+path = "src/main.rs"
