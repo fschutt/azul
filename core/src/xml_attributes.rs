@@ -70,6 +70,9 @@ pub enum AttributeScope {
     AnyElement,
     /// The form controls ([`is_form_control_tag`]).
     FormControls,
+    /// The elements named (lowercase), e.g. the table elements a
+    /// presentational attribute applies to ([`presentational_css`]).
+    Tags(&'static [&'static str]),
 }
 
 impl AttributeScope {
@@ -79,6 +82,7 @@ impl AttributeScope {
         match self {
             Self::AnyElement => true,
             Self::FormControls => is_form_control_tag(tag),
+            Self::Tags(tags) => tags.iter().any(|t| t.eq_ignore_ascii_case(tag)),
         }
     }
 }
@@ -216,6 +220,34 @@ fn style(_: &str, value: &str) -> Option<NodeSetting> {
     Some(NodeSetting::Style(value.into()))
 }
 
+/// A presentational attribute (`<table width cellpadding bgcolor ..>`): kept
+/// on the node verbatim, as HTML keeps it in the DOM. What it means for
+/// rendering is the cascade's to say ([`presentational_css`], applied by
+/// [`apply_presentational_hints`] when the DOM is styled), so an app that
+/// builds `Dom::create_td().with_attribute(..)` gets the same result as
+/// markup, and an app reads the attribute like any other.
+fn presentational(name: &str, value: &str) -> Option<NodeSetting> {
+    Some(NodeSetting::Attribute(AttributeType::Custom(
+        AttributeNameValue {
+            attr_name: name.into(),
+            value: value.into(),
+        },
+    )))
+}
+
+/// The elements each presentational attribute applies to (HTML's
+/// rendering section, "tables" and "flow content").
+const HINT_WIDTH_TAGS: &[&str] = &["table", "td", "th", "col", "colgroup"];
+const HINT_HEIGHT_TAGS: &[&str] = &["table", "td", "th", "tr"];
+const HINT_BGCOLOR_TAGS: &[&str] = &["body", "table", "thead", "tbody", "tfoot", "tr", "td", "th"];
+const HINT_TABLE_TAGS: &[&str] = &["table"];
+const HINT_CELL_TAGS: &[&str] = &["td", "th"];
+const HINT_ALIGN_TAGS: &[&str] = &[
+    "table", "caption", "thead", "tbody", "tfoot", "tr", "td", "th", "col", "colgroup", "div",
+    "p", "h1", "h2", "h3", "h4", "h5", "h6",
+];
+const HINT_VALIGN_TAGS: &[&str] = &["thead", "tbody", "tfoot", "tr", "td", "th", "col", "colgroup"];
+
 /// A form control's HTML attribute as its typed `AttributeType`; one with no
 /// typed variant as `Custom`. Boolean attributes follow HTML - PRESENT means
 /// on, whatever the value - except that an explicit `"false"` means off.
@@ -301,7 +333,7 @@ const fn entry(
     }
 }
 
-use self::AttributeScope::{AnyElement, FormControls};
+use self::AttributeScope::{AnyElement, FormControls, Tags};
 
 /// The builtin entries, first match wins (`data-l10n*` before `data-*`).
 static BUILTIN: &[XmlAttribute] = &[
@@ -345,6 +377,16 @@ static BUILTIN: &[XmlAttribute] = &[
     entry("tabindex", AnyElement, 6, tabindex),
     entry("colspan", AnyElement, 7, span),
     entry("rowspan", AnyElement, 8, span),
+    entry("width", Tags(HINT_WIDTH_TAGS), 8, presentational),
+    entry("height", Tags(HINT_HEIGHT_TAGS), 8, presentational),
+    entry("bgcolor", Tags(HINT_BGCOLOR_TAGS), 8, presentational),
+    entry("border", Tags(HINT_TABLE_TAGS), 8, presentational),
+    entry("bordercolor", Tags(HINT_TABLE_TAGS), 8, presentational),
+    entry("cellpadding", Tags(HINT_TABLE_TAGS), 8, presentational),
+    entry("cellspacing", Tags(HINT_TABLE_TAGS), 8, presentational),
+    entry("align", Tags(HINT_ALIGN_TAGS), 8, presentational),
+    entry("valign", Tags(HINT_VALIGN_TAGS), 8, presentational),
+    entry("nowrap", Tags(HINT_CELL_TAGS), 8, presentational),
     entry("dir", AnyElement, 9, dir),
     entry("style", AnyElement, 10, style),
     entry("data-l10n*", AnyElement, 11, l10n),
@@ -518,4 +560,424 @@ pub fn direction_css(d: StyleDirection) -> String {
         StyleDirection::Ltr => "ltr",
     };
     format!("direction: {v};")
+}
+
+// ── presentational hints ──
+//
+// HTML's rendering section maps the legacy attributes of some elements to
+// CSS ("presentational hints"): `<table width="600" cellpadding="0"
+// bgcolor="#fff">`, `<td align="center" valign="top" nowrap>`. The attribute
+// table keeps them on the node verbatim ([`presentational`]); here is what
+// they mean, and the pass that lands them when a DOM is styled.
+//
+// Precedence: the declarations are put in FRONT of the element's inline
+// style, so its `style` attribute still wins. HTML ranks hints below every
+// author stylesheet rule as well; azul's inline declarations outrank the
+// stylesheet, so a stylesheet rule cannot override a hint yet (a cascade
+// layer for hints would; see scripts/TABLE_A_2026_10_01.md).
+
+/// The value of attribute `name` (case-insensitive) in `attributes`, the
+/// first one if it repeats (HTML keeps the first).
+fn hint_attr<'a>(attributes: &[(&'a str, &'a str)], name: &str) -> Option<&'a str> {
+    attributes
+        .iter()
+        .find(|(k, _)| k.trim().eq_ignore_ascii_case(name))
+        .map(|(_, v)| *v)
+}
+
+/// HTML's "rules for parsing integers": optional ASCII whitespace, an
+/// optional sign, then at least one ASCII digit; anything after the digits
+/// is ignored (`1foo` is 1, `1%` is 1). `None` on an error.
+fn parse_html_integer(value: &str) -> Option<i64> {
+    let s = value.trim_start_matches(|c: char| c.is_ascii_whitespace());
+    let (negative, digits) = match s.as_bytes().first() {
+        Some(b'-') => (true, &s[1..]),
+        Some(b'+') => (false, &s[1..]),
+        _ => (false, s),
+    };
+    let end = digits
+        .bytes()
+        .position(|b| !b.is_ascii_digit())
+        .unwrap_or(digits.len());
+    if end == 0 {
+        return None;
+    }
+    let mut n: i64 = 0;
+    for b in digits[..end].bytes() {
+        n = n.saturating_mul(10).saturating_add(i64::from(b - b'0'));
+    }
+    Some(if negative { -n } else { n })
+}
+
+/// HTML's "rules for parsing non-negative integers": an integer that is not
+/// negative (`-0` is 0).
+fn parse_html_non_negative(value: &str) -> Option<i64> {
+    parse_html_integer(value).filter(|n| *n >= 0)
+}
+
+/// HTML's "rules for parsing dimension values" as a CSS length: digits
+/// (optionally with a fraction) then `%` for a percentage, anything else
+/// (`px`, nothing, garbage after the digits) a length in pixels. No sign is
+/// allowed. With `ignore_zero` a zero is no value ("maps to the dimension
+/// property (ignoring zero)").
+fn parse_html_dimension(value: &str, ignore_zero: bool) -> Option<String> {
+    let s = value.trim_start_matches(|c: char| c.is_ascii_whitespace());
+    let int_end = s
+        .bytes()
+        .position(|b| !b.is_ascii_digit())
+        .unwrap_or(s.len());
+    if int_end == 0 {
+        return None;
+    }
+    let mut end = int_end;
+    let rest = &s[int_end..];
+    if let Some(fraction) = rest.strip_prefix('.') {
+        let frac_len = fraction
+            .bytes()
+            .position(|b| !b.is_ascii_digit())
+            .unwrap_or(fraction.len());
+        if frac_len > 0 {
+            end = int_end + 1 + frac_len;
+        }
+    }
+    let number: f32 = s[..end].parse().ok()?;
+    if !number.is_finite() || (ignore_zero && number == 0.0) {
+        return None;
+    }
+    let percent = s[end..].starts_with('%');
+    Some(if percent {
+        format!("{number}%")
+    } else {
+        format!("{number}px")
+    })
+}
+
+/// HTML's "rules for parsing a legacy colour value": a named colour as
+/// itself, `#rgb` expanded, and everything else through the legacy
+/// algorithm that makes `ff0000` (no `#`) red and `#1c3d5a` itself. As a CSS
+/// colour (`red`, `#rrggbb`); `None` for an empty value or `transparent`.
+fn parse_html_legacy_color(value: &str) -> Option<String> {
+    let s = value.trim_matches(|c: char| c.is_ascii_whitespace());
+    if s.is_empty() || s.eq_ignore_ascii_case("transparent") {
+        return None;
+    }
+    if s.bytes().all(|b| b.is_ascii_alphabetic()) {
+        let name = s.to_ascii_lowercase();
+        if azul_css::props::basic::color::parse_css_color(&name).is_ok() {
+            return Some(name);
+        }
+    }
+    let hex3 = s
+        .strip_prefix('#')
+        .filter(|h| h.len() == 3 && h.bytes().all(|b| b.is_ascii_hexdigit()));
+    if let Some(h) = hex3 {
+        let mut out = String::from("#");
+        for c in h.chars() {
+            out.push(c.to_ascii_lowercase());
+            out.push(c.to_ascii_lowercase());
+        }
+        return Some(out);
+    }
+    // The legacy algorithm: at most 128 characters, no leading `#`, every
+    // non-hex digit a `0`, padded to a multiple of three, split in three,
+    // each part cut to its last 8 digits, common leading zeros dropped
+    // while longer than 2, then the first two digits of each part.
+    let mut digits: Vec<char> = s
+        .chars()
+        .take(128)
+        .collect::<Vec<char>>();
+    if digits.first() == Some(&'#') {
+        digits.remove(0);
+    }
+    for c in &mut digits {
+        if !c.is_ascii_hexdigit() {
+            *c = '0';
+        }
+    }
+    while digits.is_empty() || digits.len() % 3 != 0 {
+        digits.push('0');
+    }
+    let len = digits.len() / 3;
+    let mut parts: Vec<Vec<char>> = digits.chunks(len).map(<[char]>::to_vec).collect();
+    if len > 8 {
+        for p in &mut parts {
+            let cut = p.len() - 8;
+            p.drain(..cut);
+        }
+    }
+    while parts[0].len() > 2 && parts.iter().all(|p| p.first() == Some(&'0')) {
+        for p in &mut parts {
+            p.remove(0);
+        }
+    }
+    let mut out = String::from("#");
+    for p in &parts {
+        let two: String = p.iter().take(2).collect();
+        let byte = u8::from_str_radix(&two, 16).unwrap_or(0);
+        out.push_str(&format!("{byte:02x}"));
+    }
+    Some(out)
+}
+
+/// `text-align` of an `align` attribute on a block or a cell (`middle` is
+/// HTML's other spelling of `center`).
+fn hint_text_align(value: &str) -> Option<&'static str> {
+    let v = value.trim();
+    if v.eq_ignore_ascii_case("left") {
+        Some("left")
+    } else if v.eq_ignore_ascii_case("right") {
+        Some("right")
+    } else if v.eq_ignore_ascii_case("center") || v.eq_ignore_ascii_case("middle") {
+        Some("center")
+    } else if v.eq_ignore_ascii_case("justify") {
+        Some("justify")
+    } else {
+        None
+    }
+}
+
+/// `vertical-align` of a `valign` attribute.
+fn hint_vertical_align(value: &str) -> Option<&'static str> {
+    let v = value.trim();
+    ["top", "middle", "bottom", "baseline"]
+        .into_iter()
+        .find(|k| v.eq_ignore_ascii_case(k))
+}
+
+/// One declaration per side: `{prefix}-{side}{suffix}: {value}`.
+fn push_sides(out: &mut Vec<String>, prefix: &str, suffix: &str, value: &str) {
+    for side in ["top", "right", "bottom", "left"] {
+        out.push(format!("{prefix}-{side}{suffix}: {value}"));
+    }
+}
+
+/// The `border` attribute of a table as a width in pixels: absent is
+/// `None`, unparsable (`""`, `foo`, `-1`) is 1 (HTML's default).
+fn table_border_width(table: &[(&str, &str)]) -> Option<i64> {
+    hint_attr(table, "border").map(|v| parse_html_non_negative(v).unwrap_or(1))
+}
+
+/// The CSS declarations (`prop: value; ...`) HTML's rendering section maps
+/// the presentational attributes of a `tag` element to. `attributes` are the
+/// element's own, `table` the attributes of the nearest enclosing `table`
+/// (what its `cellpadding` / `border` / `bordercolor` give a `td` / `th`;
+/// empty for other elements). Empty when nothing applies.
+///
+/// - `width` / `height` (table, cells, `col`): the dimension properties,
+///   ignoring zero (a row's `height` keeps zero).
+/// - `bgcolor`: `background-color`, by the legacy colour rules.
+/// - `border` (table): `border-*-width` (an unparsable value is 1px) and,
+///   when not zero, `outset` borders (`solid` with a `bordercolor`); the
+///   table's cells then get a 1px `inset` (`solid`) border.
+/// - `bordercolor` (table): `border-*-color`, on the table and its cells.
+/// - `cellspacing`: `border-spacing`. `cellpadding`: the cells' padding.
+/// - `align`: on a table `float: left|right` or auto margins (`center`); on
+///   a caption `caption-side` (`top` / `bottom`) or `text-align`; elsewhere
+///   `text-align`. `valign`: `vertical-align`. `nowrap`: `white-space:
+///   nowrap`.
+#[must_use]
+pub fn presentational_css(
+    tag: &str,
+    attributes: &[(&str, &str)],
+    table: &[(&str, &str)],
+) -> String {
+    let tag = tag.to_ascii_lowercase();
+    let tag = tag.as_str();
+    let mut out: Vec<String> = Vec::new();
+    let attr = |name: &str| hint_attr(attributes, name);
+    let is_cell = matches!(tag, "td" | "th");
+
+    if HINT_WIDTH_TAGS.contains(&tag) {
+        if let Some(w) = attr("width").and_then(|v| parse_html_dimension(v, true)) {
+            out.push(format!("width: {w}"));
+        }
+    }
+    if HINT_HEIGHT_TAGS.contains(&tag) {
+        let ignore_zero = tag != "tr";
+        if let Some(h) = attr("height").and_then(|v| parse_html_dimension(v, ignore_zero)) {
+            out.push(format!("height: {h}"));
+        }
+    }
+    if HINT_BGCOLOR_TAGS.contains(&tag) {
+        if let Some(c) = attr("bgcolor").and_then(parse_html_legacy_color) {
+            out.push(format!("background-color: {c}"));
+        }
+    }
+    if tag == "table" {
+        let color = attr("bordercolor").and_then(parse_html_legacy_color);
+        if let Some(n) = table_border_width(attributes) {
+            push_sides(&mut out, "border", "-width", &format!("{n}px"));
+            if n > 0 {
+                let style = if color.is_some() { "solid" } else { "outset" };
+                push_sides(&mut out, "border", "-style", style);
+            }
+        }
+        if let Some(c) = &color {
+            push_sides(&mut out, "border", "-color", c);
+        }
+        if let Some(n) = attr("cellspacing").and_then(parse_html_non_negative) {
+            out.push(format!("border-spacing: {n}px"));
+        }
+    }
+    if let Some(align) = attr("align").filter(|_| HINT_ALIGN_TAGS.contains(&tag)) {
+        let v = align.trim();
+        if tag == "table" {
+            if v.eq_ignore_ascii_case("left") {
+                out.push(String::from("float: left"));
+            } else if v.eq_ignore_ascii_case("right") {
+                out.push(String::from("float: right"));
+            } else if v.eq_ignore_ascii_case("center") || v.eq_ignore_ascii_case("middle") {
+                out.push(String::from("margin-left: auto"));
+                out.push(String::from("margin-right: auto"));
+            }
+        } else if tag == "caption"
+            && (v.eq_ignore_ascii_case("top") || v.eq_ignore_ascii_case("bottom"))
+        {
+            out.push(format!("caption-side: {}", v.to_ascii_lowercase()));
+        } else if let Some(a) = hint_text_align(v) {
+            out.push(format!("text-align: {a}"));
+        }
+    }
+    if HINT_VALIGN_TAGS.contains(&tag) {
+        if let Some(a) = attr("valign").and_then(hint_vertical_align) {
+            out.push(format!("vertical-align: {a}"));
+        }
+    }
+    if is_cell {
+        if attr("nowrap").is_some() {
+            out.push(String::from("white-space: nowrap"));
+        }
+        if let Some(n) = hint_attr(table, "cellpadding").and_then(parse_html_non_negative) {
+            push_sides(&mut out, "padding", "", &format!("{n}px"));
+        }
+        if table_border_width(table).is_some_and(|n| n > 0) {
+            let color = hint_attr(table, "bordercolor").and_then(parse_html_legacy_color);
+            push_sides(&mut out, "border", "-width", "1px");
+            let style = if color.is_some() { "solid" } else { "inset" };
+            push_sides(&mut out, "border", "-style", style);
+            if let Some(c) = &color {
+                push_sides(&mut out, "border", "-color", c);
+            }
+        }
+    }
+    out.join("; ")
+}
+
+/// The tag [`presentational_css`] knows a node type by (`None` for the
+/// elements no presentational attribute applies to).
+fn hint_tag(node_type: &crate::dom::NodeType) -> Option<&'static str> {
+    use crate::dom::NodeType as N;
+    Some(match node_type {
+        N::Body => "body",
+        N::Table => "table",
+        N::Caption => "caption",
+        N::THead => "thead",
+        N::TBody => "tbody",
+        N::TFoot => "tfoot",
+        N::Tr => "tr",
+        N::Td => "td",
+        N::Th => "th",
+        N::Col => "col",
+        N::ColGroup => "colgroup",
+        N::Div => "div",
+        N::P => "p",
+        N::H1 => "h1",
+        N::H2 => "h2",
+        N::H3 => "h3",
+        N::H4 => "h4",
+        N::H5 => "h5",
+        N::H6 => "h6",
+        _ => return None,
+    })
+}
+
+/// A node's `Custom` attributes as owned `(name, value)` pairs - where the
+/// attribute table keeps the presentational ones ([`presentational`]).
+fn custom_attributes(node: &NodeData) -> Vec<(String, String)> {
+    node.attributes()
+        .as_ref()
+        .iter()
+        .filter_map(|a| match a {
+            AttributeType::Custom(nv) => {
+                Some((String::from(nv.attr_name.as_str()), String::from(nv.value.as_str())))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Land the presentational hints of every element of a DOM about to be
+/// styled: each element's [`presentational_css`] (with its nearest
+/// enclosing table's attributes for a cell) as inline declarations IN FRONT
+/// of its own inline style. `node_data` and `hierarchy` are the flat arena
+/// of the DOM (pre-order: a parent before its children). Called once per
+/// styled DOM (`StyledDom` creation); a DOM without presentational
+/// attributes costs one scan.
+pub fn apply_presentational_hints(
+    node_data: &mut [NodeData],
+    hierarchy: &[crate::styled_dom::NodeHierarchyItem],
+) {
+    let n = node_data.len().min(hierarchy.len());
+    let carries_hint = |nd: &NodeData| {
+        hint_tag(nd.get_node_type()).is_some()
+            && nd
+                .attributes()
+                .as_ref()
+                .iter()
+                .any(|a| matches!(a, AttributeType::Custom(_)))
+    };
+    if !node_data[..n].iter().any(carries_hint) {
+        return;
+    }
+
+    // The nearest `table` ancestor of every node (a cell's table).
+    let mut nearest_table: Vec<Option<usize>> = alloc::vec![None; n];
+    for i in 0..n {
+        nearest_table[i] = hierarchy[i]
+            .parent_id()
+            .map(|p| p.index())
+            .filter(|p| *p < i)
+            .and_then(|p| {
+                if matches!(node_data[p].get_node_type(), crate::dom::NodeType::Table) {
+                    Some(p)
+                } else {
+                    nearest_table[p]
+                }
+            });
+    }
+
+    let mut key_map: Option<CssKeyMap> = None;
+    for i in 0..n {
+        let Some(tag) = hint_tag(node_data[i].get_node_type()) else {
+            continue;
+        };
+        let own = custom_attributes(&node_data[i]);
+        let table = if matches!(tag, "td" | "th") {
+            nearest_table[i].map_or_else(Vec::new, |t| custom_attributes(&node_data[t]))
+        } else {
+            Vec::new()
+        };
+        if own.is_empty() && table.is_empty() {
+            continue;
+        }
+        let own_ref: Vec<(&str, &str)> = own.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        let table_ref: Vec<(&str, &str)> =
+            table.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        let css = presentational_css(tag, &own_ref, &table_ref);
+        if css.is_empty() {
+            continue;
+        }
+        let map = key_map.get_or_insert_with(azul_css::props::property::get_css_key_map);
+        let declarations = style_declarations(&css, map);
+        if declarations.is_empty() {
+            continue;
+        }
+        let hints = azul_css::css::Css::from(
+            azul_css::dynamic_selector::CssPropertyWithConditionsVec::from(declarations),
+        );
+        let node = &mut node_data[i];
+        let mut rules = hints.rules.into_library_owned_vec();
+        rules.extend(core::mem::take(&mut node.style.rules).into_library_owned_vec());
+        node.style.rules = rules.into();
+    }
 }

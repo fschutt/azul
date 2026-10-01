@@ -383,6 +383,47 @@ static TEXT_ALIGN_CENTER: CssProperty =
 static VERTICAL_ALIGN_MIDDLE: CssProperty =
     CssProperty::VerticalAlign(CssPropertyValue::Exact(StyleVerticalAlign::Middle));
 
+// HTML rendering 15.3.8: `table { box-sizing: border-box; border-spacing:
+// 2px; border-color: gray }` - a `<table width="600" border="1">` is 600px
+// wide outside, and the cells of an unstyled table sit 2px apart.
+
+/// box-sizing: border-box (for table)
+static BOX_SIZING_BORDER_BOX: CssProperty = CssProperty::BoxSizing(CssPropertyValue::Exact(
+    azul_css::props::layout::dimensions::LayoutBoxSizing::BorderBox,
+));
+
+/// border-spacing: 2px (for table)
+static BORDER_SPACING_2PX: CssProperty = CssProperty::BorderSpacing(CssPropertyValue::Exact(
+    azul_css::props::layout::table::LayoutBorderSpacing {
+        horizontal: PixelValue::const_px(2),
+        vertical: PixelValue::const_px(2),
+    },
+));
+
+/// The table's border colour: gray (a `<table border>`'s outset frame).
+const TABLE_BORDER_GRAY: ColorU = ColorU {
+    r: 128,
+    g: 128,
+    b: 128,
+    a: 255,
+};
+static TABLE_BORDER_TOP_COLOR: CssProperty =
+    CssProperty::BorderTopColor(CssPropertyValue::Exact(StyleBorderTopColor {
+        inner: TABLE_BORDER_GRAY,
+    }));
+static TABLE_BORDER_RIGHT_COLOR: CssProperty =
+    CssProperty::BorderRightColor(CssPropertyValue::Exact(StyleBorderRightColor {
+        inner: TABLE_BORDER_GRAY,
+    }));
+static TABLE_BORDER_BOTTOM_COLOR: CssProperty =
+    CssProperty::BorderBottomColor(CssPropertyValue::Exact(StyleBorderBottomColor {
+        inner: TABLE_BORDER_GRAY,
+    }));
+static TABLE_BORDER_LEFT_COLOR: CssProperty =
+    CssProperty::BorderLeftColor(CssPropertyValue::Exact(StyleBorderLeftColor {
+        inner: TABLE_BORDER_GRAY,
+    }));
+
 /// list-style-type: disc (default for <ul>)
 static LIST_STYLE_TYPE_DISC: CssProperty =
     CssProperty::ListStyleType(CssPropertyValue::Exact(StyleListStyleType::Disc));
@@ -909,6 +950,12 @@ pub fn get_ua_property(
         // Per CSS Fragmentation Level 3: table ROWS should avoid breaks inside
         // Tables themselves should NOT have break-inside: avoid (they can span pages)
         (NT::Table, PT::Display) => Some(&DISPLAY_TABLE),
+        (NT::Table, PT::BoxSizing) => Some(&BOX_SIZING_BORDER_BOX),
+        (NT::Table, PT::BorderSpacing) => Some(&BORDER_SPACING_2PX),
+        (NT::Table, PT::BorderTopColor) => Some(&TABLE_BORDER_TOP_COLOR),
+        (NT::Table, PT::BorderRightColor) => Some(&TABLE_BORDER_RIGHT_COLOR),
+        (NT::Table, PT::BorderBottomColor) => Some(&TABLE_BORDER_BOTTOM_COLOR),
+        (NT::Table, PT::BorderLeftColor) => Some(&TABLE_BORDER_LEFT_COLOR),
         // NOTE: Removed break-inside: avoid from Table - tables CAN break across pages
         (NT::PageBreak, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::PageBreak, PT::BreakBefore) => Some(&BREAK_BEFORE_PAGE),
@@ -1174,6 +1221,8 @@ pub const UA_PROPERTY_TYPES: &[CssPropertyType] = &[
     CssPropertyType::Direction,
     CssPropertyType::VerticalAlign,
     CssPropertyType::BorderCollapse,
+    // `table { border-spacing: 2px }`.
+    CssPropertyType::BorderSpacing,
     // Tier2 dimension properties
     CssPropertyType::Width,
     CssPropertyType::Height,

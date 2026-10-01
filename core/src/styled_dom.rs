@@ -1299,12 +1299,22 @@ impl StyledDom {
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch
                                      // (one branch per input variant)
     fn create_from_compact_dom(
-        compact_dom: CompactDom,
+        mut compact_dom: CompactDom,
         mut css: Css,
         node_hierarchy: NodeHierarchyItemVec,
         context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
     ) -> Self {
         use crate::dom::EventFilter;
+
+        // HTML's presentational hints (`<table width cellpadding>`, `<td
+        // bgcolor align nowrap>`): the attributes the XML loaders keep on
+        // the node become inline declarations in front of each element's
+        // own style, before the cascade reads any node data. Every way to a
+        // `StyledDom` passes here (both loaders, a built `Dom`).
+        crate::xml::attributes::apply_presentational_hints(
+            &mut compact_dom.node_data.internal,
+            node_hierarchy.as_container().internal,
+        );
 
         static CASCADE_BREAKDOWN: crate::sync::OnceLock<bool> = crate::sync::OnceLock::new();
         let cascade_dbg = *CASCADE_BREAKDOWN.get_or_init(crate::profile::memory_enabled);
