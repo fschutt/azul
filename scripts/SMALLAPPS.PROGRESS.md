@@ -16,17 +16,21 @@ Task: AzCalculator (F1/F2/F6/F7 vehicle) + AzContacts (A4). Report: scripts/SMAL
 - 392058389 / f176d2f3b azcontacts vcard.rs (RED / GREEN)
 - 66d7fae9b/afee1f564 contact.rs; 0d194a6e3/28a5ca6ed book.rs; 887b60931/89f0b41ef dupes.rs; 15a67f7d0/b85fc8269 store.rs; a5111bd72/716a23d94 sample.rs (RED/GREEN)
 - 8d1010329, d1ac2b4ae wip(azcontacts): ui.rs pieces 1-2
+- 75d7df15f wip(azcontacts): callbacks 3a; 6148ee264 feat(azcontacts): the window
 
 ## IN PROGRESS
-- AzContacts ui.rs piece 3: callbacks
+- scripts/azcontacts_e2e.py
 
 ## NEXT
 3. DONE (calculator UI + E2E).
 4. DONE: AzContacts model (vcard, contact, book, dupes, store, sample), RED + GREEN each.
-5. NEXT STEP: AzContacts UI ui.rs - pieces 1 (state/start, 8d1010329) and 2 (layout, d1ac2b4ae) are committed;
-   next piece 3 = every callback the layout names (on_new, on_nav, on_row, on_jump, on_search, on_sort, card /
-   edit / import / merge / export callbacks, on_key, on_window_created, on_files_done, photo picking with a
-   small base64 encoder), then wire `pub mod ui;` + start() in lib.rs. Then scripts/azcontacts_e2e.py, report.
+5. DONE: AzContacts UI (6148ee264).
+6. NEXT STEP: scripts/azcontacts_e2e.py on scripts/azlin_e2e.py (start with --data-dir tmp --sample and a
+   fixture .vcf as a positional file -> import preview; wait AZCONTACTS_LOADED 300 + SAMPLE_WRITTEN 300; search
+   "krug" -> VIEW 1; click a row -> SELECTED; New -> type names -> Save -> SAVED + file exists; edit email bad ->
+   PROBLEMS; duplicates -> merge -> MERGED + file deleted; jump bar; settings flora/dark; screenshots).
+7. Then the report scripts/SMALLAPPS_2026_10_01.md (api.json list: none new in azul; least-sure spots; test
+   commands), memory note not needed.
 5. AzContacts UI on PimShell + E2E scripts/azcontacts_e2e.py + registration.
 6. Report.
 
