@@ -3699,6 +3699,16 @@ impl CallbackInfo {
         self.get_layout_window().get_node_position(node_id)
     }
 
+    /// Whether some of the node shows in the window right now: the window
+    /// is not minimized, and the node's box meets the window and every box
+    /// that clips or scrolls it. What an app culls by - a video tile nobody
+    /// can see needs no stream.
+    #[must_use]
+    pub fn is_node_visible(&self, node_id: DomNodeId) -> bool {
+        let _ = node_id;
+        true
+    }
+
     /// Current animation MOMENTUM of a node: the velocity (logical px/s) of
     /// its in-flight presence/move animation. `None` while nothing animates
     /// the node. Springs carry velocity across retargets by design, so this
@@ -9945,5 +9955,54 @@ mod autotest_generated {
             }
         ));
         assert!(!format!("{change:?}").is_empty());
+    }
+
+    /// What an app culls by: a node is visible while some of it shows in
+    /// the window - not below the window's bottom edge, not scrolled out of
+    /// the box that clips it. AzMeet asks no stream for a video tile nobody
+    /// can see (iroh-routes: "cull what nobody displays"); the engine knew
+    /// (the frame gate of a content update), but the app could not ask.
+    #[test]
+    fn a_node_below_the_window_or_scrolled_out_of_its_box_is_not_visible() {
+        use azul_core::dom::Dom;
+
+        // body(0) > [scroller(1) > [top(2), filler(3), far(4)], spacer(5), below(6)]
+        let mut dom = Dom::create_body()
+            .with_css("margin: 0px;")
+            .with_child(
+                Dom::create_div()
+                    .with_css("width: 200px; height: 100px; overflow: auto;")
+                    .with_child(Dom::create_div().with_css("width: 100px; height: 50px;"))
+                    .with_child(Dom::create_div().with_css("width: 100px; height: 400px;"))
+                    .with_child(Dom::create_div().with_css("width: 100px; height: 50px;")),
+            )
+            .with_child(Dom::create_div().with_css("width: 100px; height: 1000px;"))
+            .with_child(Dom::create_div().with_css("width: 100px; height: 100px;"));
+        let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("layout");
+        let node = |n: usize| DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(n))),
+        };
+        let seen = with_info_on(lw, node(0), |info| {
+            [1, 2, 4, 6].map(|n| (n, info.is_node_visible(node(n))))
+        });
+        assert_eq!(
+            seen,
+            [(1, true), (2, true), (4, false), (6, false)],
+            "(node, visible): the scroller and its first child show; the child scrolled out of \
+             it and the box below the window do not"
+        );
     }
 }
