@@ -1,0 +1,779 @@
+//! The app's state and every change to it, without the window: the panes call these and
+//! rebuild. A change to a task, a list or the settings goes to the write queue at once
+//! (`save_*`); the queue is drained on a `Thread` (`jobs.rs`).
+//!
+//! On stdout, for scripts (`scripts/aztasks_e2e.py`): `AZTASKS_ADDED <task> <list> <due|->`,
+//! `AZTASKS_COMPLETED <task>`, `AZTASKS_REOPENED <task>`, `AZTASKS_SPAWNED <task> <due>`,
+//! `AZTASKS_DELETED <task>`, `AZTASKS_MOVED <task> <list>`, `AZTASKS_SELECTED <task>`,
+//! `AZTASKS_VIEW <view>`, `AZTASKS_LIST <list> <name>` (a new list).
+
+use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
+
+use azul_storage::Drive;
+use chrono::{Local, NaiveDate, NaiveDateTime, Timelike};
+
+use crate::{
+    model::{self, Settings, Task, TaskList},
+    parse::{self, Parsed},
+    store::{self, WriteQueue},
+    views::{self, Section, Smart, View},
+};
+
+/// A FILE (backstage) page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Page {
+    Settings,
+    Shortcuts,
+    About,
+}
+
+impl Page {
+    /// In the backstage's order.
+    pub const ALL: [Page; 3] = [Page::Settings, Page::Shortcuts, Page::About];
+
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Page::Settings => "Settings",
+            Page::Shortcuts => "Keyboard shortcuts",
+            Page::About => "About",
+        }
+    }
+}
+
+/// A question a dialog asks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Confirm {
+    /// Delete this list and its tasks.
+    DeleteList(String),
+    /// Delete the completed tasks older than 30 days.
+    ClearCompleted,
+}
+
+/// The tasks the last delete removed, for "Undo"; their attachment folders are deleted
+/// when the undo is gone.
+#[derive(Debug, Clone, Default)]
+pub struct Undo {
+    pub tasks: Vec<Task>,
+    pub prefixes: Vec<String>,
+}
+
+/// The quick-add line.
+#[derive(Debug, Clone, Default)]
+pub struct QuickAdd {
+    pub text: String,
+    /// Word indices the user clicked away (taken literally).
+    pub ignore: Vec<usize>,
+    /// The chip labels the window shows, to rebuild only when they change.
+    pub shown: Vec<String>,
+}
+
+/// The text fields' texts as typed (the fields are built with them; see the progress
+/// file's note on text fields).
+#[derive(Debug, Clone, Default)]
+pub struct Drafts {
+    /// The task the title / notes drafts belong to.
+    pub task: String,
+    pub title: String,
+    pub notes: String,
+    /// The "Add a step" line.
+    pub step: String,
+    /// The "Add a tag" line.
+    pub tag: String,
+    /// The list being edited in the list settings.
+    pub list: String,
+    pub list_name: String,
+    pub list_group: String,
+    /// The To-Do bar's task line.
+    pub todo: String,
+}
+
+/// File work running on a thread (besides the write queue).
+#[derive(Debug, Clone, Default)]
+pub struct FileWork {
+    pub running: usize,
+    pub last_error: String,
+}
+
+/// Everything AzTasks knows.
+pub struct Tasks {
+    // ---- data
+    pub lists: Vec<TaskList>,
+    pub tasks: Vec<Task>,
+    pub settings: Settings,
+    /// The files have been read.
+    pub loaded: bool,
+    pub load_error: String,
+    pub skipped: Vec<store::Skipped>,
+    // ---- storage
+    pub drive: Arc<dyn Drive>,
+    /// The data folder (the drive's root).
+    pub root: PathBuf,
+    pub queue: WriteQueue,
+    pub files: FileWork,
+    /// Fill an empty data folder with the sample once it is read.
+    pub sample_requested: bool,
+    // ---- what is shown
+    pub view: View,
+    /// Selected task ids, in selection order.
+    pub selection: Vec<String>,
+    /// Where a Shift range starts.
+    pub anchor: Option<String>,
+    pub search: String,
+    pub quick: QuickAdd,
+    pub drafts: Drafts,
+    /// The navigation pane's groups: smart lists, my lists, tags.
+    pub nav_open: [bool; 3],
+    pub nav_collapsed: bool,
+    /// List groups folded in the "My lists" tree.
+    pub folded_groups: BTreeSet<String>,
+    /// A list's "Completed (n)" section is unfolded.
+    pub completed_open: bool,
+    pub ribbon_tab: usize,
+    pub page: Option<Page>,
+    pub settings_category: usize,
+    pub settings_search: String,
+    /// The command palette's query while it is open.
+    pub palette: Option<String>,
+    pub show_todo_bar: bool,
+    /// The To-Do bar's day.
+    pub todo_day: NaiveDate,
+    /// The list whose settings the reading pane shows.
+    pub editing_list: Option<String>,
+    pub confirm: Option<Confirm>,
+    // ---- reminders
+    /// Tasks reminding now (ids), shown in the banner.
+    pub banners: Vec<String>,
+    /// `PlatformCapability::notifications()`: available, and the backend or why not.
+    pub os_notifications: (bool, String),
+    // ---- feedback
+    pub notice: String,
+    pub undo: Option<Undo>,
+    /// The task a drag carries.
+    pub drag: Option<String>,
+    /// The moment the window was last built for (a new day rebuilds).
+    pub clock: NaiveDateTime,
+}
+
+/// The user's wall clock now, to the second.
+#[must_use]
+pub fn now() -> NaiveDateTime {
+    let now = Local::now().naive_local();
+    now.with_nanosecond(0).unwrap_or(now)
+}
+
+/// A new id: a random version-4 UUID (lower case), azul's `Uuid::from_seed` of a random
+/// seed (as AzCalendar mints its event ids).
+#[must_use]
+pub fn new_id() -> String {
+    azul::uuid::Uuid::from_seed(random_seed())
+        .as_str()
+        .to_string()
+}
+
+/// 64 random bits: `std`'s `RandomState` hashed with the time, the process id and a counter.
+fn random_seed() -> u64 {
+    use std::{
+        collections::hash_map::RandomState,
+        hash::{BuildHasher, Hasher},
+        sync::atomic::{AtomicU64, Ordering},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+    static MINTED: AtomicU64 = AtomicU64::new(0);
+    let mut h = RandomState::new().build_hasher();
+    h.write_u64(MINTED.fetch_add(1, Ordering::Relaxed));
+    h.write_u128(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos()),
+    );
+    h.write_u32(std::process::id());
+    h.finish()
+}
+
+impl Tasks {
+    /// An empty state over `drive`, before the files are read.
+    pub fn new(drive: Arc<dyn Drive>, root: PathBuf, view: View) -> Tasks {
+        let clock = now();
+        Tasks {
+            lists: Vec::new(),
+            tasks: Vec::new(),
+            settings: Settings::default(),
+            loaded: false,
+            load_error: String::new(),
+            skipped: Vec::new(),
+            drive,
+            root,
+            queue: WriteQueue::new(),
+            files: FileWork::default(),
+            sample_requested: false,
+            view,
+            selection: Vec::new(),
+            anchor: None,
+            search: String::new(),
+            quick: QuickAdd::default(),
+            drafts: Drafts::default(),
+            nav_open: [true, true, true],
+            nav_collapsed: false,
+            folded_groups: BTreeSet::new(),
+            completed_open: false,
+            ribbon_tab: 0,
+            page: None,
+            settings_category: 0,
+            settings_search: String::new(),
+            palette: None,
+            show_todo_bar: true,
+            todo_day: clock.date(),
+            editing_list: None,
+            confirm: None,
+            banners: Vec::new(),
+            os_notifications: (false, String::new()),
+            notice: String::new(),
+            undo: None,
+            drag: None,
+            clock,
+        }
+    }
+
+    // ==== Lookups ====
+
+    #[must_use]
+    pub fn index_of(&self, id: &str) -> Option<usize> {
+        self.tasks.iter().position(|t| t.id == id)
+    }
+
+    #[must_use]
+    pub fn list_index(&self, id: &str) -> Option<usize> {
+        self.lists.iter().position(|l| l.id == id)
+    }
+
+    /// The name of list `id` ("" when it is not there).
+    #[must_use]
+    pub fn list_name(&self, id: &str) -> String {
+        self.list_index(id)
+            .map(|i| self.lists[i].name.clone())
+            .unwrap_or_default()
+    }
+
+    /// The selected task, when exactly one is selected.
+    #[must_use]
+    pub fn selected_one(&self) -> Option<usize> {
+        match self.selection.as_slice() {
+            [one] => self.index_of(one),
+            _ => None,
+        }
+    }
+
+    /// The selected tasks' indices.
+    #[must_use]
+    pub fn selected(&self) -> Vec<usize> {
+        self.selection.iter().filter_map(|id| self.index_of(id)).collect()
+    }
+
+    /// What the task list shows now.
+    #[must_use]
+    pub fn sections(&self, now: NaiveDateTime) -> Vec<Section> {
+        views::sections(
+            &self.view,
+            &self.tasks,
+            &self.lists,
+            now,
+            self.settings.sort,
+            self.settings.show_completed,
+        )
+    }
+
+    /// The task list's rows top to bottom (a folded "Completed" section left out): what the
+    /// arrow keys walk.
+    #[must_use]
+    pub fn visible_order(&self, now: NaiveDateTime) -> Vec<usize> {
+        self.sections(now)
+            .iter()
+            .filter(|s| s.kind != views::SectionKind::Completed || self.completed_open)
+            .flat_map(|s| s.tasks.iter().copied())
+            .collect()
+    }
+
+    /// The list new tasks go to outside a list: the settings' default, else the first.
+    #[must_use]
+    pub fn default_list(&self) -> Option<String> {
+        if self.list_index(&self.settings.default_list).is_some() {
+            return Some(self.settings.default_list.clone());
+        }
+        views::lists_in_nav_order(&self.lists)
+            .first()
+            .map(|&i| self.lists[i].id.clone())
+    }
+
+    /// The parse context of the quick-add line now.
+    pub fn parse_quick(&self, text: &str, now: NaiveDateTime) -> Parsed {
+        let lists: Vec<(String, String)> = self
+            .lists
+            .iter()
+            .map(|l| (l.id.clone(), l.name.clone()))
+            .collect();
+        let ctx = parse::Context {
+            now,
+            week_start: self.settings.week_start,
+            lists: &lists,
+        };
+        parse::parse_with(text, &ctx, &self.quick.ignore)
+    }
+
+    // ==== Saving ====
+
+    /// Queues task `i`'s file (stamping it modified).
+    pub fn save_task(&mut self, i: usize) {
+        let Some(t) = self.tasks.get_mut(i) else {
+            return;
+        };
+        t.modified = now();
+        let key = t.key();
+        let json = model::task_to_json(t);
+        self.queue.put(key, json.into_bytes());
+    }
+
+    /// Queues list `i`'s file.
+    pub fn save_list(&mut self, i: usize) {
+        let Some(l) = self.lists.get(i) else {
+            return;
+        };
+        self.queue.put(l.key(), model::list_to_json(l).into_bytes());
+    }
+
+    pub fn save_settings(&mut self) {
+        self.queue.put(
+            model::SETTINGS_KEY.to_string(),
+            model::settings_to_json(&self.settings).into_bytes(),
+        );
+    }
+
+    // ==== Views and selection ====
+
+    /// Shows `view`, keeping the selection only where it is still on screen.
+    pub fn show(&mut self, view: View) {
+        self.commit_drafts();
+        self.view = view;
+        self.editing_list = None;
+        self.page = None;
+        let order = self.visible_order(now());
+        let visible: Vec<String> = order.iter().map(|&i| self.tasks[i].id.clone()).collect();
+        self.selection.retain(|id| visible.contains(id));
+        println!("AZTASKS_VIEW {}", self.view.name());
+    }
+
+    /// Selects task `id`: alone, toggled into the selection (`ctrl`), or the range from the
+    /// anchor (`shift`) in the shown order.
+    pub fn select(&mut self, id: &str, shift: bool, ctrl: bool) {
+        self.commit_drafts();
+        self.editing_list = None;
+        if shift {
+            let order: Vec<String> = self
+                .visible_order(now())
+                .into_iter()
+                .map(|i| self.tasks[i].id.clone())
+                .collect();
+            let anchor = self.anchor.clone().unwrap_or_else(|| id.to_string());
+            if let (Some(a), Some(b)) = (
+                order.iter().position(|x| *x == anchor),
+                order.iter().position(|x| x == id),
+            ) {
+                let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+                self.selection = order[lo..=hi].to_vec();
+                return;
+            }
+        }
+        if ctrl {
+            if let Some(pos) = self.selection.iter().position(|x| x == id) {
+                self.selection.remove(pos);
+            } else {
+                self.selection.push(id.to_string());
+            }
+        } else {
+            self.selection = vec![id.to_string()];
+        }
+        self.anchor = Some(id.to_string());
+        println!("AZTASKS_SELECTED {id}");
+    }
+
+    /// Moves the selection one row up or down (`extend`: Shift held).
+    pub fn step_selection(&mut self, down: bool, extend: bool) {
+        let order: Vec<String> = self
+            .visible_order(now())
+            .into_iter()
+            .map(|i| self.tasks[i].id.clone())
+            .collect();
+        if order.is_empty() {
+            return;
+        }
+        let current = self.selection.last().and_then(|id| order.iter().position(|x| x == id));
+        let next = match (current, down) {
+            (None, true) => 0,
+            (None, false) => order.len() - 1,
+            (Some(p), true) => (p + 1).min(order.len() - 1),
+            (Some(p), false) => p.saturating_sub(1),
+        };
+        let id = order[next].clone();
+        self.select(&id, extend, false);
+    }
+
+    // ==== Drafts ====
+
+    /// Writes the title and notes typed in the detail pane into their task.
+    pub fn commit_drafts(&mut self) {
+        let Some(i) = self.index_of(&self.drafts.task.clone()) else {
+            return;
+        };
+        let title = self.drafts.title.trim().to_string();
+        let notes = self.drafts.notes.clone();
+        let mut changed = false;
+        if !title.is_empty() && self.tasks[i].title != title {
+            self.tasks[i].title = title;
+            changed = true;
+        }
+        if self.tasks[i].notes != notes {
+            self.tasks[i].notes = notes;
+            changed = true;
+        }
+        if changed {
+            self.save_task(i);
+        }
+    }
+
+    /// Points the title / notes drafts at the selected task (when it changed).
+    pub fn sync_drafts(&mut self) {
+        let Some(i) = self.selected_one() else {
+            self.drafts.task.clear();
+            return;
+        };
+        if self.drafts.task != self.tasks[i].id {
+            self.drafts.task = self.tasks[i].id.clone();
+            self.drafts.title = self.tasks[i].title.clone();
+            self.drafts.notes = self.tasks[i].notes.clone();
+            self.drafts.step.clear();
+            self.drafts.tag.clear();
+        }
+    }
+
+    // ==== Tasks ====
+
+    /// A list to put a task in: the one named, else the view's, else the default; a first
+    /// list "Tasks" is made when there is none.
+    pub fn target_list(&mut self, named: Option<String>) -> String {
+        if let Some(id) = named.filter(|id| self.list_index(id).is_some()) {
+            return id;
+        }
+        if let View::List(id) = &self.view {
+            if self.list_index(id).is_some() {
+                return id.clone();
+            }
+        }
+        match self.default_list() {
+            Some(id) => id,
+            None => self.new_list("Tasks", ""),
+        }
+    }
+
+    /// Adds the task a quick-add line describes, in the shown view's sense (Today: due
+    /// today; Flagged: flagged; a tag: tagged), selects it and returns its index.
+    pub fn add_parsed(&mut self, p: Parsed, now: NaiveDateTime) -> usize {
+        let list = self.target_list(p.list.clone());
+        let mut t = Task::new(new_id(), list.clone(), p.title.clone(), now);
+        t.due = p.due;
+        t.due_time = p.due.and(p.time);
+        t.repeat = p.repeat.clone();
+        t.priority = p.priority.unwrap_or_default();
+        t.flagged = p.flagged;
+        for tag in &p.tags {
+            t.add_tag(tag);
+        }
+        match &self.view {
+            View::Smart(Smart::Today | Smart::Upcoming | Smart::Scheduled) if t.due.is_none() => {
+                t.due = Some(now.date());
+            }
+            View::Smart(Smart::Flagged) => t.flagged = true,
+            View::Tag(tag) => {
+                let tag = tag.clone();
+                t.add_tag(&tag);
+            }
+            _ => {}
+        }
+        t.order = views::next_order(&self.tasks, &list);
+        println!(
+            "AZTASKS_ADDED {} {} {}",
+            t.id,
+            list,
+            t.due.map_or_else(|| "-".to_string(), model::format_date)
+        );
+        let id = t.id.clone();
+        self.tasks.push(t);
+        let i = self.tasks.len() - 1;
+        self.save_task(i);
+        self.selection = vec![id.clone()];
+        self.anchor = Some(id);
+        i
+    }
+
+    /// Completes task `i` (or opens it again). A repeating task leaves its next occurrence
+    /// behind as a new task, which takes the rule; the completed one keeps none, so opening
+    /// it again does not make a second one. Returns the new task's index.
+    pub fn toggle_done(&mut self, i: usize, now: NaiveDateTime) -> Option<usize> {
+        if i >= self.tasks.len() {
+            return None;
+        }
+        if self.tasks[i].is_done() {
+            self.tasks[i].completed = None;
+            println!("AZTASKS_REOPENED {}", self.tasks[i].id);
+            self.save_task(i);
+            return None;
+        }
+        self.tasks[i].completed = Some(now);
+        println!("AZTASKS_COMPLETED {}", self.tasks[i].id);
+        let next = self.tasks[i].spawn_next(new_id(), now.date(), now.date(), now);
+        let spawned = next.map(|t| {
+            println!(
+                "AZTASKS_SPAWNED {} {}",
+                t.id,
+                t.due.map_or_else(|| "-".to_string(), model::format_date)
+            );
+            self.tasks[i].repeat = None;
+            self.tasks.push(t);
+            self.tasks.len() - 1
+        });
+        self.save_task(i);
+        if let Some(n) = spawned {
+            self.save_task(n);
+        }
+        self.banners.retain(|id| *id != self.tasks[i].id);
+        spawned
+    }
+
+    /// Completes the selected tasks (or opens them again when all are completed).
+    pub fn toggle_selected(&mut self, now: NaiveDateTime) {
+        let picked = self.selected();
+        let all_done = !picked.is_empty() && picked.iter().all(|&i| self.tasks[i].is_done());
+        for i in picked {
+            if self.tasks[i].is_done() == all_done {
+                self.toggle_done(i, now);
+            }
+        }
+    }
+
+    /// Deletes the tasks `ids` (kept for "Undo"); returns the attachment folders of the
+    /// PREVIOUS undo, which are now gone for good (the caller deletes them).
+    pub fn delete_tasks(&mut self, ids: &[String]) -> Vec<String> {
+        self.commit_drafts();
+        let mut undo = Undo::default();
+        for id in ids {
+            let Some(i) = self.index_of(id) else {
+                continue;
+            };
+            let t = self.tasks.remove(i);
+            self.queue.delete(t.key());
+            if !t.attachments.is_empty() {
+                undo.prefixes.push(model::attachments_prefix(&t.list, &t.id));
+            }
+            println!("AZTASKS_DELETED {}", t.id);
+            undo.tasks.push(t);
+        }
+        self.selection.retain(|id| !ids.contains(id));
+        self.banners.retain(|id| !ids.contains(id));
+        let n = undo.tasks.len();
+        self.notice = match n {
+            0 => String::new(),
+            1 => format!("Deleted \"{}\".", undo.tasks[0].title),
+            n => format!("Deleted {n} tasks."),
+        };
+        let gone = self.undo.take().map(|u| u.prefixes).unwrap_or_default();
+        if n > 0 {
+            self.undo = Some(undo);
+        }
+        gone
+    }
+
+    /// Puts the last deleted tasks back.
+    pub fn undo_delete(&mut self) {
+        let Some(undo) = self.undo.take() else {
+            return;
+        };
+        for t in undo.tasks {
+            let id = t.id.clone();
+            self.tasks.push(t);
+            let i = self.tasks.len() - 1;
+            self.save_task(i);
+            self.selection = vec![id];
+        }
+        self.notice.clear();
+    }
+
+    /// Moves the tasks `ids` to list `list` (at its end). Returns the attachment folders to
+    /// move: `(from, to)`.
+    pub fn move_tasks(&mut self, ids: &[String], list: &str) -> Vec<(String, String)> {
+        let mut moves = Vec::new();
+        if self.list_index(list).is_none() {
+            return moves;
+        }
+        for id in ids {
+            let Some(i) = self.index_of(id) else {
+                continue;
+            };
+            if self.tasks[i].list == list {
+                continue;
+            }
+            let old_key = self.tasks[i].key();
+            let old_list = self.tasks[i].list.clone();
+            self.queue.delete(old_key);
+            if !self.tasks[i].attachments.is_empty() {
+                moves.push((
+                    model::attachments_prefix(&old_list, id),
+                    model::attachments_prefix(list, id),
+                ));
+            }
+            self.tasks[i].order = views::next_order(&self.tasks, list);
+            self.tasks[i].list = list.to_string();
+            println!("AZTASKS_MOVED {id} {list}");
+            self.save_task(i);
+        }
+        moves
+    }
+
+    /// Moves task `moving` in front of task `before` (a drop); across lists it moves to
+    /// that list first. Returns attachment folders to move.
+    pub fn drop_before(&mut self, moving: &str, before: Option<&str>) -> Vec<(String, String)> {
+        let Some(m) = self.index_of(moving) else {
+            return Vec::new();
+        };
+        let target_list = before
+            .and_then(|b| self.index_of(b))
+            .map(|b| self.tasks[b].list.clone());
+        let mut moves = Vec::new();
+        if let Some(list) = target_list.filter(|l| *l != self.tasks[m].list) {
+            moves = self.move_tasks(&[moving.to_string()], &list);
+        }
+        let (Some(m), b) = (self.index_of(moving), before.and_then(|b| self.index_of(b))) else {
+            return moves;
+        };
+        for i in views::reorder(&mut self.tasks, m, b) {
+            self.save_task(i);
+        }
+        moves
+    }
+
+    /// Alt+Up / Alt+Down on the selected task.
+    pub fn step_order(&mut self, up: bool) {
+        let Some(i) = self.selected_one() else {
+            return;
+        };
+        for j in views::move_step(&mut self.tasks, i, up) {
+            self.save_task(j);
+        }
+    }
+
+    // ==== Lists ====
+
+    /// Makes a list (at the end) and returns its id.
+    pub fn new_list(&mut self, name: &str, group: &str) -> String {
+        let order = self.lists.iter().map(|l| l.order).max().unwrap_or(0) + 1;
+        let mut l = TaskList::new(new_id(), name.to_string(), order);
+        l.group = group.trim().to_string();
+        let palette = model::ListColor::ALL;
+        l.color = palette[self.lists.len() % palette.len()];
+        let id = l.id.clone();
+        println!("AZTASKS_LIST {} {}", l.id, l.name);
+        self.lists.push(l);
+        self.save_list(self.lists.len() - 1);
+        id
+    }
+
+    /// Deletes list `id` and its tasks; returns the folders whose files go with them.
+    pub fn delete_list(&mut self, id: &str) -> Vec<String> {
+        let Some(li) = self.list_index(id) else {
+            return Vec::new();
+        };
+        let l = self.lists.remove(li);
+        self.queue.delete(l.key());
+        let ids: Vec<String> = self
+            .tasks
+            .iter()
+            .filter(|t| t.list == id)
+            .map(|t| t.id.clone())
+            .collect();
+        let mut gone = self.delete_tasks(&ids);
+        // The list's tasks do not come back with "Undo" (their list is gone).
+        if let Some(u) = self.undo.take() {
+            gone.extend(u.prefixes);
+        }
+        gone.push(format!("{}/{}/", model::TASKS_DIR, id));
+        self.notice = format!("Deleted the list \"{}\".", l.name);
+        if self.view == View::List(id.to_string()) {
+            self.view = View::Smart(Smart::Today);
+        }
+        if self.settings.default_list == id {
+            self.settings.default_list.clear();
+            self.save_settings();
+        }
+        gone
+    }
+
+    /// Deletes the completed tasks finished more than 30 days ago; returns attachment
+    /// folders to delete.
+    pub fn clear_completed(&mut self, now: NaiveDateTime) -> Vec<String> {
+        let cutoff = now - chrono::Duration::days(30);
+        let ids: Vec<String> = self
+            .tasks
+            .iter()
+            .filter(|t| t.completed.is_some_and(|c| c < cutoff))
+            .map(|t| t.id.clone())
+            .collect();
+        let mut gone = self.delete_tasks(&ids);
+        if let Some(u) = self.undo.take() {
+            gone.extend(u.prefixes);
+        }
+        self.notice = format!("Cleared {} completed task(s).", ids.len());
+        gone
+    }
+
+    // ==== Loading ====
+
+    /// Takes in what the files said; an empty folder gets a first list ("Tasks"), or the
+    /// sample when `--sample` asked for it.
+    pub fn take_loaded(&mut self, loaded: store::Loaded, now: NaiveDateTime) {
+        self.lists = loaded.lists;
+        self.tasks = loaded.tasks;
+        if let Some(s) = loaded.settings {
+            self.settings = s;
+        }
+        self.skipped = loaded.skipped;
+        self.loaded = true;
+        if self.lists.is_empty() && self.tasks.is_empty() {
+            if self.sample_requested {
+                let mut mint = new_id;
+                let (lists, tasks) = crate::sample::sample(now, &mut mint);
+                self.lists = lists;
+                self.tasks = tasks;
+                for i in 0..self.lists.len() {
+                    self.save_list(i);
+                }
+                for i in 0..self.tasks.len() {
+                    self.save_task(i);
+                }
+                self.notice = "Sample lists and tasks were added.".to_string();
+            } else {
+                self.new_list("Tasks", "");
+            }
+        } else if self.sample_requested {
+            self.notice = "The data folder has tasks already; --sample adds nothing.".to_string();
+        }
+        if let View::List(id) = &self.view {
+            if self.list_index(id).is_none() {
+                self.view = View::Smart(Smart::Today);
+            }
+        }
+        println!(
+            "AZTASKS_LOADED {} {} {}",
+            self.lists.len(),
+            self.tasks.len(),
+            self.skipped.len()
+        );
+    }
+}
