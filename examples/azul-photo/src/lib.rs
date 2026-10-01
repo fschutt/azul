@@ -1,6 +1,7 @@
 //! AzPhoto: the photo editor of the azul apps (skeleton; the app lands in
 //! the following commits).
 
+pub mod args;
 pub mod raster;
 pub mod storage;
 pub mod view;
