@@ -5,13 +5,12 @@ RenderImageCallback frames, debug-server poll event-driven + PNG off the UI
 thread, monitor change re-reads the frame interval); dark "Dark" segment.
 
 ## DONE
-(none yet)
+- 1. ABI guard: RED 9d8d69e45, GREEN 3ba642c65
 
 ## IN PROGRESS
-- 1. ABI guard (doc/src/codegen/v2/abi_guard.rs, lang_rust.rs, lang_c.rs)
+- 2. worker threads of unmounted widgets
 
 ## NEXT
-- 2. worker threads of unmounted widgets
 - 3a-d. idle leftovers
 - 4. Segmented dark pair
 
