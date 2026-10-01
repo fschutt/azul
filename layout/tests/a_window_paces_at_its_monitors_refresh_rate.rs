@@ -147,3 +147,37 @@ fn the_frame_interval_formula() {
         16_666_666
     ));
 }
+
+/// IDLE_CPU (2026-09-30), what was left: a RUNNING CSS animation driver (or
+/// caret tween, or scroll physics) kept the interval it was armed with when
+/// the window moved to a monitor with another rate - a glide armed on the
+/// 60 Hz laptop panel stepped at 60 Hz on the 120 Hz display it was dragged
+/// to, until it happened to stop and be re-armed. The pass-ending driver
+/// arming asks the window which running drivers are off its pace now and
+/// re-registers them (same state) at the current frame interval.
+#[test]
+fn a_running_frame_driver_follows_the_window_to_a_monitor_with_another_rate() {
+    use azul_core::task::CSS_ANIMATION_TIMER_ID;
+
+    let mut lw = window_on(vec![monitor(0, 60, true), monitor(1, 120, false)], 0);
+    let driver = lw.create_css_animation_timer();
+    lw.timers.insert(CSS_ANIMATION_TIMER_ID, driver);
+    assert!(
+        lw.frame_drivers_off_pace().is_empty(),
+        "a driver armed on this monitor is on pace"
+    );
+
+    // The window is dragged to the 120 Hz monitor.
+    lw.current_window_state.monitor_id = OptionU32::Some(1);
+    let repaced = lw.frame_drivers_off_pace();
+    assert_eq!(
+        repaced.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+        vec![CSS_ANIMATION_TIMER_ID],
+        "the running CSS driver is off pace on the new monitor"
+    );
+    let interval = repaced[0].1.interval.into_option().map(ns_of);
+    assert!(
+        interval.is_some_and(|ns| near(ns, 8_333_333)),
+        "re-paced to one 120 Hz frame: {interval:?} ns"
+    );
+}

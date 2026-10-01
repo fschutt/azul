@@ -10264,6 +10264,13 @@ impl LayoutWindow {
             .frame_interval_nanos(self.monitor_refresh_rate_hz())
     }
 
+    /// The running frame-paced drivers whose interval is no longer this
+    /// window's frame interval, re-paced (RED stub).
+    #[must_use]
+    pub fn frame_drivers_off_pace(&self) -> Vec<(TimerId, Timer)> {
+        Vec::new()
+    }
+
     /// [`Self::frame_interval_nanos`] as an engine [`Duration`].
     #[must_use]
     pub fn frame_interval(&self) -> Duration {
