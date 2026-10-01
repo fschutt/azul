@@ -562,3 +562,448 @@ fn status_bar(c: &Compose) -> Dom {
     }
     StatusBar::create(segments).dom()
 }
+
+// ==== Callbacks ====
+
+/// Runs `f` on the compose `id` (and the app), when it is still open.
+fn with_compose<R>(
+    app: &mut RefAny,
+    id: u64,
+    f: impl FnOnce(&mut MailApp, usize, RefAny) -> R,
+) -> Option<R> {
+    with_app(app, |s, app| {
+        let at = s.composes.iter().position(|c| c.id == id)?;
+        Some(f(s, at, app))
+    })
+    .flatten()
+}
+
+extern "C" fn on_compose_field(mut data: RefAny, _info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+    let target = data
+        .downcast_ref::<ComposeFieldRef>()
+        .map(|r| (r.app.clone(), r.id, r.field));
+    if let Some((mut app, id, field)) = target {
+        let text = state.get_text().as_str().to_string();
+        let _ = with_compose(&mut app, id, |s, at, _| {
+            let c = &mut s.composes[at];
+            match field {
+                ComposeField::To => c.to = text,
+                ComposeField::Cc => c.cc = text,
+                ComposeField::Bcc => c.bcc = text,
+                ComposeField::Subject => c.subject = text,
+                ComposeField::Link => c.link = text,
+            }
+        });
+    }
+    OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: TextInputValid::Yes,
+    }
+}
+
+/// Typing in the editor: the text goes into the model (no rebuild).
+extern "C" fn on_compose_text_changed(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, id)) = target_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some(host) = editor::host_node(&info) else {
+        return Update::DoNothing;
+    };
+    let _ = with_compose(&mut app, id, |s, at, _| {
+        editor::sync_text(&mut s.composes[at].body, &mut info, host);
+    });
+    Update::DoNothing
+}
+
+/// Enter, Backspace / Delete across blocks, a paste: the engine's structural edit goes into the
+/// model, and the window rebuilds from it.
+extern "C" fn on_compose_document_edit(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, id)) = target_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some(host) = editor::host_node(&info) else {
+        return Update::DoNothing;
+    };
+    with_compose(&mut app, id, |s, at, _| {
+        let body = &mut s.composes[at].body;
+        editor::sync_text(body, &mut info, host);
+        if editor::apply_structural_edit(body, &mut info, host) {
+            Update::RefreshDom
+        } else {
+            Update::DoNothing
+        }
+    })
+    .unwrap_or(Update::DoNothing)
+}
+
+/// Ctrl/Cmd+Enter sends, Ctrl/Cmd+S saves the draft (Ctrl/Cmd+B / I / U are the editor's own).
+extern "C" fn on_compose_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, id)) = target_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let keyboard = info.get_current_keyboard_state();
+    let modifiers = info.get_key_modifiers();
+    if !(modifiers.ctrl || modifiers.meta) {
+        return Update::DoNothing;
+    }
+    let action = match keyboard.current_virtual_keycode.into_option() {
+        Some(VirtualKeyCode::Return) => ComposeAction::Send,
+        Some(VirtualKeyCode::S) => ComposeAction::Save,
+        _ => return Update::DoNothing,
+    };
+    info.prevent_default();
+    run_compose_action(&mut app, &mut info, id, action)
+}
+
+/// The window is being closed (its close button): its compose goes.
+extern "C" fn on_compose_close_requested(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some((mut app, id)) = target_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let _ = with_compose(&mut app, id, |s, at, _| {
+        let c = s.composes.remove(at);
+        println!("AZMAIL_COMPOSE_CLOSED {}", c.window_id);
+    });
+    Update::DoNothing
+}
+
+extern "C" fn on_compose_action(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, id, action)) = data
+        .downcast_ref::<ComposeActionRef>()
+        .map(|r| (r.app.clone(), r.id, r.action))
+    else {
+        return Update::DoNothing;
+    };
+    run_compose_action(&mut app, &mut info, id, action)
+}
+
+/// The editor's model brought up to date with what was typed, then `f` on it; when `f`
+/// changed the model, the editor takes it (`reset_editor_content`: the engine's typing gives
+/// way to the new content, the caret goes to the end) and the window rebuilds.
+fn edit_model(
+    s: &mut MailApp,
+    at: usize,
+    info: &mut CallbackInfo,
+    f: impl FnOnce(&mut Dom, &CallbackInfo, azul::dom::DomNodeId) -> bool,
+) -> Update {
+    let Some(host) = editor::host_node(info) else {
+        return Update::DoNothing;
+    };
+    let body = &mut s.composes[at].body;
+    editor::sync_text(body, info, host);
+    if f(body, info, host) {
+        info.reset_editor_content(host, true);
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
+}
+
+fn run_compose_action(app: &mut RefAny, info: &mut CallbackInfo, id: u64, action: ComposeAction) -> Update {
+    with_compose(app, id, |s, at, app| match action {
+        ComposeAction::Bold | ComposeAction::Italic | ComposeAction::Underline => {
+            let (wrapper, format) = match action {
+                ComposeAction::Bold => (Dom::create_b(), TextFormat::Bold),
+                ComposeAction::Italic => (Dom::create_i(), TextFormat::Italic),
+                _ => (Dom::create_u(), TextFormat::Underline),
+            };
+            let wrapped = edit_model(s, at, info, |body, info, host| {
+                editor::wrap_selection(body, info, host, &wrapper)
+            });
+            if wrapped == Update::DoNothing {
+                // No selection: the format applies to what is typed next.
+                if let Some(host) = editor::host_node(info) {
+                    info.toggle_text_format(host, format);
+                }
+            }
+            wrapped
+        }
+        ComposeAction::Bullets | ComposeAction::Numbering => {
+            let ordered = action == ComposeAction::Numbering;
+            edit_model(s, at, info, |body, info, host| {
+                editor::toggle_list(body, info, host, ordered)
+            })
+        }
+        ComposeAction::ToggleLink => {
+            let c = &mut s.composes[at];
+            c.show_link = !c.show_link;
+            Update::RefreshDom
+        }
+        ComposeAction::InsertLink => {
+            let href = s.composes[at].link.trim().to_string();
+            if href.is_empty() {
+                s.composes[at].status =
+                    ComposeStatus::Problem(String::from("Type the link's address first."));
+                return Update::RefreshDom;
+            }
+            let href = if href.contains("://") || href.starts_with("mailto:") {
+                href
+            } else {
+                format!("https://{href}")
+            };
+            let update = edit_model(s, at, info, |body, info, host| {
+                editor::insert_link(body, info, host, &href, "")
+            });
+            let c = &mut s.composes[at];
+            c.show_link = false;
+            c.link.clear();
+            if update == Update::DoNothing {
+                Update::RefreshDom
+            } else {
+                update
+            }
+        }
+        ComposeAction::AttachFile => {
+            let _request = FileDialog::open_multiple_files(
+                "Attach File",
+                OptionString::None,
+                OptionFileTypeList::None,
+                compose_ref(&app, id),
+                on_files_picked as ResumeCallbackType,
+            );
+            Update::DoNothing
+        }
+        ComposeAction::RemoveAttachment(i) => {
+            let c = &mut s.composes[at];
+            if i < c.attachments.len() {
+                c.attachments.remove(i);
+            }
+            Update::RefreshDom
+        }
+        ComposeAction::Save | ComposeAction::Send => {
+            if s.composes[at].busy() {
+                return Update::DoNothing;
+            }
+            if let Some(host) = editor::host_node(info) {
+                editor::sync_text(&mut s.composes[at].body, info, host);
+            }
+            let send = action == ComposeAction::Send;
+            let fields = s.composes[at].fields();
+            if send {
+                // Refused before anything is written: no recipient, a bad address.
+                if let Err(e) = compose::outgoing(&fields, Vec::new()) {
+                    s.composes[at].status = ComposeStatus::Problem(e.to_string());
+                    return Update::RefreshDom;
+                }
+            }
+            let Some(account) = s.accounts.iter().find(|a| a.id == s.composes[at].account_id).cloned()
+            else {
+                s.composes[at].status =
+                    ComposeStatus::Problem(String::from("The account is gone."));
+                return Update::RefreshDom;
+            };
+            let c = &mut s.composes[at];
+            c.status = if send {
+                ComposeStatus::Sending
+            } else {
+                ComposeStatus::Saving
+            };
+            if send {
+                println!("AZMAIL_SEND_START {}", c.window_id);
+            }
+            let job = OutgoingJob {
+                compose_id: c.id,
+                window_id: c.window_id.clone(),
+                root: s.root.clone(),
+                account_id: account.id.clone(),
+                store_root: crate::account::mail_root(&s.root, &account),
+                fields,
+                attachments: c.attachments.clone(),
+                draft_uid: c.draft_uid,
+                send,
+            };
+            info.add_thread(
+                ThreadId::unique(),
+                Thread::create(RefAny::new(job), app, outgoing_thread),
+            );
+            Update::RefreshDom
+        }
+        ComposeAction::Discard => {
+            let c = s.composes.remove(at);
+            println!("AZMAIL_COMPOSE_CLOSED {}", c.window_id);
+            info.close_window();
+            Update::DoNothing
+        }
+    })
+    .unwrap_or(Update::DoNothing)
+}
+
+/// Files picked to attach.
+extern "C" fn on_files_picked(mut data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
+    let Some((mut app, id)) = target_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some(picked) = FileOpenMultiResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let files: Vec<AttachedFile> = picked
+        .paths
+        .as_ref()
+        .iter()
+        .map(|path| PathBuf::from(path.inner.as_str()))
+        .filter_map(|path| {
+            let size = std::fs::metadata(&path).ok()?.len();
+            let name = path.file_name()?.to_string_lossy().into_owned();
+            Some(AttachedFile { path, name, size })
+        })
+        .collect();
+    if files.is_empty() {
+        return Update::DoNothing;
+    }
+    with_compose(&mut app, id, |s, at, _| {
+        s.composes[at].attachments.extend(files);
+        Update::RefreshDom
+    })
+    .unwrap_or(Update::DoNothing)
+}
+
+// ==== Save and Send: on a Thread of the compose window ====
+
+/// What the thread is given.
+#[derive(Clone)]
+struct OutgoingJob {
+    compose_id: u64,
+    window_id: String,
+    /// The AzMail folder.
+    root: PathBuf,
+    account_id: String,
+    /// The account's mail folder (`mail/<folder>/...` under it).
+    store_root: PathBuf,
+    fields: ComposeFields,
+    attachments: Vec<AttachedFile>,
+    /// The draft saved before (replaced by a save, removed once sent).
+    draft_uid: Option<u32>,
+    /// Send (else save a draft).
+    send: bool,
+}
+
+/// What the thread did.
+#[derive(Clone)]
+enum OutgoingDone {
+    Sent(send::SendStatus),
+    DraftSaved(u32),
+    Problem(String),
+}
+
+struct OutgoingMessage {
+    compose_id: u64,
+    window_id: String,
+    done: OutgoingDone,
+}
+
+extern "C" fn outgoing_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
+    let Some(job) = init
+        .downcast_ref::<OutgoingJob>()
+        .map(|job| OutgoingJob::clone(&job))
+    else {
+        return;
+    };
+    let done = run_outgoing(&job);
+    sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
+        refany: RefAny::new(OutgoingMessage {
+            compose_id: job.compose_id,
+            window_id: job.window_id.clone(),
+            done,
+        }),
+        callback: WriteBackCallback {
+            cb: on_outgoing_done,
+            ctx: OptionRefAny::None,
+        },
+    }));
+}
+
+/// Reads the attachments, then saves the draft or sends (blocking: DNS, SMTP, files).
+fn run_outgoing(job: &OutgoingJob) -> OutgoingDone {
+    let mut attachments = Vec::with_capacity(job.attachments.len());
+    for file in &job.attachments {
+        match std::fs::read(&file.path) {
+            Ok(bytes) => attachments.push(send::Attachment {
+                file_name: file.name.clone(),
+                mime_type: compose::mime_type_for(&file.name).to_string(),
+                bytes,
+            }),
+            Err(e) => {
+                return OutgoingDone::Problem(format!("Could not read {}: {e}", file.name));
+            }
+        }
+    }
+    let now = crate::now_unix();
+    if !job.send {
+        let mail = compose::draft_mail(&job.fields, attachments);
+        let bytes = compose::draft_bytes(&mail, now);
+        return match compose::save_draft(&job.store_root, job.draft_uid, &bytes, now) {
+            Ok(entry) => OutgoingDone::DraftSaved(entry.uid),
+            Err(e) => OutgoingDone::Problem(format!("The draft could not be saved: {e}")),
+        };
+    }
+    let mail = match compose::outgoing(&job.fields, attachments) {
+        Ok(mail) => mail,
+        Err(e) => return OutgoingDone::Problem(e.to_string()),
+    };
+    let settings = send::SendSettings::load(&job.root, &job.account_id);
+    let status = send::send_mail(&job.root, &job.account_id, &settings, &mail);
+    if let (send::SendStatus::Sent { .. }, Some(uid)) = (&status, job.draft_uid) {
+        // Sent: the draft it was is not a draft any more.
+        let _ = compose::delete_draft(&LocalFolder::new(job.store_root.clone()), uid);
+    }
+    OutgoingDone::Sent(status)
+}
+
+/// Save or Send is done, on the compose window.
+extern "C" fn on_outgoing_done(mut app: RefAny, mut payload: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((id, window_id, done)) = payload
+        .downcast_ref::<OutgoingMessage>()
+        .map(|m| (m.compose_id, m.window_id.clone(), m.done.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, |s, _| {
+        let at = s.composes.iter().position(|c| c.id == id);
+        let update = match done {
+            OutgoingDone::Sent(send::SendStatus::Sent { message_id }) => {
+                println!("AZMAIL_SEND_DONE {window_id} sent {message_id}");
+                if let Some(at) = at {
+                    let c = s.composes.remove(at);
+                    s.notice = format!("Sent: {}", c.subject);
+                    println!("AZMAIL_COMPOSE_CLOSED {}", c.window_id);
+                }
+                info.close_window();
+                Update::RefreshDomAllWindows
+            }
+            OutgoingDone::Sent(send::SendStatus::Queued { reason }) => {
+                println!("AZMAIL_SEND_DONE {window_id} queued {reason}");
+                if let Some(at) = at {
+                    s.composes[at].status = ComposeStatus::Queued(reason);
+                }
+                Update::RefreshDomAllWindows
+            }
+            OutgoingDone::Sent(send::SendStatus::Failed { reason }) => {
+                println!("AZMAIL_SEND_DONE {window_id} failed {reason}");
+                if let Some(at) = at {
+                    s.composes[at].status = ComposeStatus::Failed(reason);
+                }
+                Update::RefreshDomAllWindows
+            }
+            OutgoingDone::DraftSaved(uid) => {
+                println!("AZMAIL_DRAFT_SAVED {window_id} {uid}");
+                if let Some(at) = at {
+                    let c = &mut s.composes[at];
+                    c.draft_uid = Some(uid);
+                    c.status = ComposeStatus::Saved(chrono::Local::now().format("%H:%M").to_string());
+                }
+                Update::RefreshDomAllWindows
+            }
+            OutgoingDone::Problem(text) => {
+                if let Some(at) = at {
+                    s.composes[at].status = ComposeStatus::Problem(text);
+                }
+                Update::RefreshDom
+            }
+        };
+        // Sent Items, Drafts and the unread counts as the files are now.
+        s.reload_folders();
+        s.reload_messages();
+        update
+    })
+    .unwrap_or(Update::DoNothing)
+}
