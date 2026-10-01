@@ -771,3 +771,86 @@ fn backstages_read_in_both_themes_in_both_looks() {
     ));
     assert_follow_the_theme(widgets);
 }
+
+// ==== segmented ====
+
+fn mode_bar(theme: UiTheme, selected: usize) -> Dom {
+    use azul_css::StringVec;
+    use azul_layout::widgets::segmented::Segmented;
+    Segmented::create(StringVec::from_vec(vec![
+        AzString::from("System"),
+        AzString::from("Light"),
+        AzString::from("Dark"),
+    ]))
+    .with_selected_index(selected)
+    .with_theme(theme)
+    .dom()
+}
+
+#[test]
+fn segmented_controls_read_in_both_themes_in_both_looks() {
+    let mut widgets = Vec::new();
+    for (look, theme) in LOOKS {
+        for selected in 0..3 {
+            widgets.push((
+                format!("{look} segmented, segment {selected} selected"),
+                mode_bar(theme, selected),
+            ));
+        }
+    }
+    assert_follow_the_theme(widgets);
+}
+
+/// USER SCREENSHOT (AzWidgets, 2026-09-30): the "Dark" segment of the mode
+/// bar - the SELECTED one in dark mode - showed white text on a light-grey
+/// face. Flat's dark selected pair is the desktop's `system:accent` under
+/// `system:accent-text`: the accent is whatever the USER picked (Graphite is
+/// a neutral grey, in the dark appearance (140, 140, 144)), the ink AppKit
+/// reports for it is always white (`alternateSelectedControlTextColor`) - so
+/// the pair read 3.4:1 on Graphite, and worse on a yellow or green accent.
+/// The light pair never had it: a fixed accent blue the theme chose.
+///
+/// The ink of `system:accent-text` must read on `system:accent`, whatever the
+/// desktop's accent: 4.5:1 on a neutral accent (no hue to carry it), 3:1 on
+/// a coloured one - while white stays on the blues and reds it reads on.
+#[test]
+fn a_selected_segment_reads_on_any_desktop_accent_in_dark_mode() {
+    use azul_css::props::basic::color::OptionColorU;
+
+    let accents = [
+        ("graphite", ColorU::rgb(140, 140, 144), 4.5),
+        ("yellow", ColorU::rgb(255, 214, 10), 3.0),
+        ("green", ColorU::rgb(50, 215, 75), 3.0),
+        ("blue", ColorU::rgb(10, 132, 255), 3.0),
+    ];
+    let mut bad = Vec::new();
+    for (name, accent, floor) in accents {
+        let mut style = defaults::macos_modern_dark();
+        style.colors.accent = OptionColorU::Some(accent);
+        style.colors.accent_text = OptionColorU::Some(ColorU::rgb(255, 255, 255));
+        let style = Arc::new(style);
+        let ctx = DynamicSelectorContext::from_system_style(&style).with_viewport(800.0, 600.0);
+        let p = Probe {
+            theme: DarkLightMode::Dark,
+            style,
+            ctx,
+        };
+        let sd = styled(mode_bar(UiTheme::Flat, 2), &p);
+        let nodes = sd.node_data.as_container();
+        let dark = (0..nodes.len())
+            .map(NodeId::new)
+            .find(|id| matches!(nodes[*id].get_node_type(), NodeType::Text(t) if t.as_str() == "Dark"))
+            .expect("the Dark segment's label");
+        let (fg, bg) = seen(&sd, dark, &p);
+        let ratio = contrast(fg, bg);
+        if ratio < floor {
+            bad.push(format!(
+                "{name} accent {accent:?}: the selected \"Dark\" reads {ratio:.2}:1 (wants \
+                 {floor}:1) - ink {:?} on {:?}",
+                to_color(fg),
+                to_color(bg)
+            ));
+        }
+    }
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+}
