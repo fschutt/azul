@@ -343,10 +343,16 @@ pub(crate) static LABEL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_padding_left(
         LayoutPaddingLeft::const_px(4),
     )),
-    // The dark text colour is declared HERE, on the node that carries the
-    // text, not only on the container: a CONDITIONAL inline value does not
-    // reach a child through inheritance, so labels kept the light colour and
-    // came out near-black on the dark surface.
+    // The text colour is declared HERE, on the node that carries the text,
+    // not only on the container: a CONDITIONAL inline value does not reach
+    // a child through inheritance, so labels kept the light colour and came
+    // out near-black on the dark surface. The light half is the container's
+    // own ink (`TREE_CONTAINER_STYLE`), which the label inherited anyway: it
+    // is declared beside its dark twin so the pair is whole wherever the tree
+    // is built (`widgets::theme_pairs`, the shells' navigation pane).
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+        inner: TEXT_COLOR,
+    })),
     CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR_DARK,
     })),

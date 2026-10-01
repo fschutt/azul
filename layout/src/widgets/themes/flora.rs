@@ -6497,3 +6497,348 @@ pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook 
 pub fn address_bar(b: crate::widgets::address_bar::AddressBar) -> Dom {
     crate::widgets::address_bar::build(b, &address_bar_look())
 }
+
+// ==== shells ====
+//
+// The flora shells keep every measure of the flat ones (the same window
+// frame, in the same places) and take flora's paint: the parchment page
+// under paper panes, the house hairlines between them, the toolbar strip
+// for the module switcher and the bars, the brass ink on the module icons,
+// the selection as a wash of --fl-soft with --fl-deep ink by day and the
+// accent stone with paper ink by night, the radio row's hover wash under
+// the pointer, and flora's accent halo inside every pane F6 lands on - the
+// glow at night. ONE look for every shell (`ShellLook`), paint and metrics
+// only: the structure is the shells' own (`shells::*_BASE`).
+
+/// A font declaration pair: the chrome size and the system family.
+fn shell_font(px: isize) -> [CssPropertyWithConditions; 2] {
+    [
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            px,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ]
+}
+
+/// `border-right: 1px solid` without a colour.
+const fn shell_border_right() -> [CssPropertyWithConditions; 2] {
+    [
+        CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
+            LayoutBorderRightWidth::const_px(1),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
+            StyleBorderRightStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+    ]
+}
+
+/// `border-top: 1px solid` without a colour.
+const fn shell_border_top() -> [CssPropertyWithConditions; 2] {
+    [
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
+            LayoutBorderTopWidth::const_px(1),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(
+            StyleBorderTopStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+    ]
+}
+
+/// The backdrop tint under the command palette: a warm dusk by day, night
+/// at night.
+const SHELL_BACKDROP_LIGHT: ColorU = ColorU::new(40, 34, 24, 100);
+const SHELL_BACKDROP_DARK: ColorU = ColorU::new(0, 0, 0, 160);
+/// The palette panel's shadow: warm by day, near-black at night.
+const SHELL_SHADOW_LIGHT: ColorU = ColorU::new(60, 50, 30, 70);
+const SHELL_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 170);
+
+/// Flora's shell look.
+#[must_use]
+#[allow(clippy::too_many_lines)]
+pub(crate) fn shell_look() -> crate::widgets::shells::ShellLook {
+    use super::decl;
+    use crate::widgets::shells::ShellLook;
+
+    let px = |p: CssProperty| CssPropertyWithConditions::simple(p);
+
+    // ---- a clickable item of the chrome: a module button, a row, a tab ----
+    let item = || {
+        let mut v = decl::padding(6, 10, 6, 10).to_vec();
+        v.extend(decl::radius(3));
+        v.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+        v.extend(decl::hover_fill(RADIO_GROUP_HOVER_LIGHT, RADIO_GROUP_HOVER_DARK));
+        v.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+        v
+    };
+    // ---- flora's selection on the active item ----
+    let selected = || {
+        let mut v = decl::themed_fill(LIGHT_SOFT, DARK_ACC).to_vec();
+        v.extend(decl::themed_ink(LIGHT_DEEP, DARK_ON_ACC));
+        v.push(decl::semibold());
+        v
+    };
+    // ---- a pane: a paper surface and the halo F6 shows ----
+    let pane = || {
+        let mut v = decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec();
+        v.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+        v
+    };
+    // ---- a strip of the chrome (toolbar, bars) ----
+    let strip = || decl::themed_fill(LIGHT_STRIP, DARK_STRIP).to_vec();
+    let hairline_right = || {
+        let mut v = shell_border_right().to_vec();
+        v.extend(decl::themed_border_right_color(LIGHT_BD, DARK_BD));
+        v
+    };
+    let hairline_top = || {
+        let mut v = shell_border_top().to_vec();
+        v.extend(decl::themed_border_top_color(LIGHT_BD, DARK_BD));
+        v
+    };
+    let hairline_bottom = || {
+        let mut v = decl::border_bottom(1).to_vec();
+        v.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+        v
+    };
+    let hairline_left = || {
+        let mut v = decl::border_left(1).to_vec();
+        v.extend(decl::themed_border_left_color(LIGHT_BD, DARK_BD));
+        v
+    };
+
+    // ---- OfficeShell ----
+    let mut shell_root = shell_font(13).to_vec();
+    shell_root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    shell_root.extend(decl::themed_fill(LIGHT_PG, DARK_PG));
+
+    let mut shell_rail = strip();
+    shell_rail.extend(hairline_right());
+    shell_rail.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+
+    let mut shell_right_bar = vec![px(CssProperty::const_width(LayoutWidth::const_px(240)))];
+    shell_right_bar.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    shell_right_bar.extend(hairline_left());
+    shell_right_bar.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+
+    // ---- ShellNavigationPane ----
+    let mut nav_root = vec![px(CssProperty::const_width(LayoutWidth::const_px(230)))];
+    nav_root.extend(shell_font(13));
+    nav_root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    nav_root.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    nav_root.extend(hairline_right());
+
+    let mut nav_modules = strip();
+    nav_modules.extend(hairline_top());
+
+    let mut nav_module_icon = vec![px(CssProperty::const_font_size(StyleFontSize::const_px(20)))];
+    nav_module_icon.extend(decl::margin(0, 10, 0, 0));
+    nav_module_icon.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
+    let mut nav_footer = decl::padding(4, 4, 4, 4).to_vec();
+    nav_footer.push(px(CssProperty::const_justify_content(LayoutJustifyContent::End)));
+
+    let mut nav_strip = vec![px(CssProperty::const_width(LayoutWidth::const_px(40)))];
+    nav_strip.extend(strip());
+    nav_strip.extend(hairline_right());
+
+    let mut nav_strip_item = decl::padding(8, 0, 8, 0).to_vec();
+    nav_strip_item.push(px(CssProperty::const_justify_content(LayoutJustifyContent::Center)));
+    nav_strip_item.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+    nav_strip_item.extend(decl::hover_fill(RADIO_GROUP_HOVER_LIGHT, RADIO_GROUP_HOVER_DARK));
+    nav_strip_item.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+
+    // ---- ShellCommandPalette ----
+    let mut palette_backdrop = vec![
+        px(CssProperty::const_top(LayoutTop::const_px(0))),
+        px(CssProperty::const_left(LayoutLeft::const_px(0))),
+        px(CssProperty::const_right(LayoutRight::const_px(0))),
+        px(CssProperty::const_bottom(LayoutInsetBottom::const_px(0))),
+        px(CssProperty::const_z_index(LayoutZIndex::Integer(100))),
+        px(CssProperty::const_padding_top(LayoutPaddingTop::const_px(80))),
+    ];
+    palette_backdrop.extend(decl::themed_fill(SHELL_BACKDROP_LIGHT, SHELL_BACKDROP_DARK));
+
+    let mut palette_panel = vec![
+        px(CssProperty::const_width(LayoutWidth::const_px(560))),
+        px(CssProperty::const_max_width(LayoutMaxWidth {
+            inner: PixelValue::const_percent(90),
+        })),
+    ];
+    palette_panel.extend(shell_font(13));
+    palette_panel.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    palette_panel.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    palette_panel.extend(decl::border(1));
+    palette_panel.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
+    palette_panel.extend(decl::radius(5));
+    palette_panel.extend(decl::themed_shadow(10, 28, SHELL_SHADOW_LIGHT, SHELL_SHADOW_DARK));
+
+    let mut palette_input = decl::padding(8, 8, 8, 8).to_vec();
+    palette_input.extend(decl::border_bottom(1));
+    palette_input.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut palette_list = vec![px(CssProperty::const_max_height(LayoutMaxHeight::const_px(
+        360,
+    )))];
+    palette_list.extend(decl::padding(4, 4, 4, 4));
+
+    let mut palette_row_icon = vec![px(CssProperty::const_font_size(StyleFontSize::const_px(18)))];
+    palette_row_icon.extend(decl::margin(0, 10, 0, 0));
+    palette_row_icon.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
+    let mut palette_row_shortcut = vec![px(CssProperty::const_font_size(StyleFontSize::const_px(
+        12,
+    )))];
+    palette_row_shortcut.extend(decl::margin(0, 0, 0, 12));
+    palette_row_shortcut.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut palette_empty = decl::padding(12, 12, 12, 12).to_vec();
+    palette_empty.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    // ---- ShellSettingsLayout ----
+    let mut settings_root = shell_font(13).to_vec();
+    settings_root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    settings_root.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+
+    let mut settings_search = decl::padding(8, 12, 8, 12).to_vec();
+    settings_search.extend(strip());
+    settings_search.extend(hairline_bottom());
+
+    let mut settings_categories = vec![px(CssProperty::const_width(LayoutWidth::const_px(200)))];
+    settings_categories.extend(decl::padding(8, 4, 8, 4));
+    settings_categories.extend(strip());
+    settings_categories.extend(hairline_right());
+
+    let mut settings_section_title = vec![px(CssProperty::const_font_size(
+        StyleFontSize::const_px(12),
+    ))];
+    settings_section_title.push(decl::semibold());
+    settings_section_title.push(decl::letter_spacing_em(0.06));
+    settings_section_title.extend(decl::margin(0, 0, 8, 0));
+    settings_section_title.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
+    // ---- ShellEmptyState ----
+    let mut empty_root = decl::padding(32, 32, 32, 32).to_vec();
+    empty_root.extend(shell_font(13));
+    empty_root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut empty_icon = vec![px(CssProperty::const_font_size(StyleFontSize::const_px(48)))];
+    empty_icon.extend(decl::margin(0, 0, 12, 0));
+    empty_icon.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
+    let mut empty_title = vec![px(CssProperty::const_font_size(StyleFontSize::const_px(15)))];
+    empty_title.push(decl::semibold());
+    empty_title.extend(decl::margin(0, 0, 4, 0));
+
+    let mut empty_detail = vec![px(CssProperty::const_font_size(StyleFontSize::const_px(13)))];
+    empty_detail.extend(decl::margin(0, 0, 12, 0));
+    empty_detail.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    // ---- ShellThemeScope ----
+    let mut scope_root = shell_font(13).to_vec();
+    scope_root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    scope_root.extend(decl::themed_fill(LIGHT_PG, DARK_PG));
+
+    // ---- the bars ----
+    let mut toolbar_row = decl::padding(4, 8, 4, 8).to_vec();
+    toolbar_row.extend(strip());
+    toolbar_row.extend(hairline_bottom());
+
+    let mut drawer = decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec();
+    drawer.extend(hairline_top());
+
+    let mut tiles_grid = decl::padding(8, 8, 8, 8).to_vec();
+    tiles_grid.extend(decl::themed_fill(LIGHT_DESK, DARK_DESK));
+
+    let mut app_bar = vec![px(CssProperty::const_height(LayoutHeight::const_px(48)))];
+    app_bar.extend(decl::padding(0, 8, 0, 8));
+    app_bar.extend(shell_font(13));
+    app_bar.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    app_bar.extend(strip());
+    app_bar.extend(hairline_bottom());
+
+    let mut app_bar_title = vec![px(CssProperty::const_font_size(StyleFontSize::const_px(16)))];
+    app_bar_title.push(decl::semibold());
+    app_bar_title.extend(decl::margin(0, 8, 0, 8));
+
+    let fab = vec![
+        px(CssProperty::const_bottom(LayoutInsetBottom::const_px(16))),
+        px(CssProperty::const_right(LayoutRight::const_px(16))),
+    ];
+
+    let mut bottom_tabs = vec![px(CssProperty::const_height(LayoutHeight::const_px(56)))];
+    bottom_tabs.extend(strip());
+    bottom_tabs.extend(hairline_top());
+
+    let mut bottom_tab = decl::padding(6, 4, 6, 4).to_vec();
+    bottom_tab.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    bottom_tab.extend(decl::hover_fill(RADIO_GROUP_HOVER_LIGHT, RADIO_GROUP_HOVER_DARK));
+    bottom_tab.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+
+    let mut bottom_tab_label = vec![px(CssProperty::const_font_size(StyleFontSize::const_px(11)))];
+    bottom_tab_label.extend(decl::margin(2, 0, 0, 0));
+
+    ShellLook {
+        shell_root,
+        shell_title: Vec::new(),
+        shell_ribbon: Vec::new(),
+        shell_body: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
+        shell_pane: pane(),
+        shell_rail,
+        shell_right_bar,
+        shell_status: Vec::new(),
+        shell_backstage: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
+        nav_root,
+        nav_header: decl::padding(8, 8, 4, 8).to_vec(),
+        nav_groups: decl::padding(4, 4, 4, 4).to_vec(),
+        nav_modules,
+        nav_module: item(),
+        nav_module_active: selected(),
+        nav_module_icon,
+        nav_module_label: vec![px(CssProperty::const_font_size(StyleFontSize::const_px(13)))],
+        nav_footer,
+        nav_strip,
+        nav_strip_item,
+        palette_backdrop,
+        palette_panel,
+        palette_input,
+        palette_list,
+        palette_row: item(),
+        palette_row_selected: selected(),
+        palette_row_icon,
+        palette_row_label: vec![px(CssProperty::const_font_size(StyleFontSize::const_px(13)))],
+        palette_row_shortcut,
+        palette_empty,
+        settings_root,
+        settings_search,
+        settings_categories,
+        settings_category: item(),
+        settings_category_active: selected(),
+        settings_sections: decl::padding(16, 24, 16, 24).to_vec(),
+        settings_section: decl::margin(0, 0, 20, 0).to_vec(),
+        settings_section_title,
+        empty_root,
+        empty_icon,
+        empty_title,
+        empty_detail,
+        empty_action: decl::margin(8, 0, 0, 0).to_vec(),
+        scope_root,
+        toolbar_row,
+        drawer,
+        tiles_grid,
+        tile_cell: decl::padding(4, 4, 4, 4).to_vec(),
+        app_bar,
+        app_bar_title,
+        page: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
+        fab,
+        bottom_tabs,
+        bottom_tab,
+        bottom_tab_active: decl::themed_ink(LIGHT_ACC, DARK_GLOW).to_vec(),
+        bottom_tab_icon: vec![px(CssProperty::const_font_size(StyleFontSize::const_px(22)))],
+        bottom_tab_label,
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}

@@ -40,7 +40,7 @@ use azul_core::{
     window::VirtualKeyCode,
 };
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec, DynamicSelector, MinMaxRange},
+    dynamic_selector::{CssPropertyWithConditions, DynamicSelector, MinMaxRange},
     impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
     impl_vec_partialeq,
     props::{
@@ -55,8 +55,9 @@ use azul_css::{
 };
 
 use super::{
-    id_and_class, inner_theme, look_for, part, root_classes, state_classes, text, ShellLook,
-    FILL_COLUMN_BASE, GROW_LABEL_BASE, LABEL_BASE, RELATIVE_COLUMN_BASE, ROW_BASE, TAB_CELL_BASE,
+    id_and_class, inner_theme, look_for, part, root_classes, stack_state, state_classes, text,
+    ShellLook, FILL_COLUMN_BASE, GROW_LABEL_BASE, LABEL_BASE, RELATIVE_COLUMN_BASE, ROW_BASE,
+    TAB_CELL_BASE,
 };
 use crate::{
     callbacks::CallbackInfo,
@@ -64,7 +65,7 @@ use crate::{
         badge::Badge,
         button::{Button, ButtonOnClick, ButtonOnClickCallback, OptionButtonOnClick},
         roving,
-        themes::{theme_blocks::stack_parts, OptionUiTheme, UiTheme},
+        themes::{OptionUiTheme, UiTheme},
     },
 };
 
@@ -534,10 +535,7 @@ fn tab(
     let ShellBottomTab { label, icon, badge } = t;
     let base = part(TAB_CELL_BASE, &look.bottom_tab);
     let css = if active {
-        stack_parts(
-            &base,
-            &CssPropertyWithConditionsVec::from_vec(look.bottom_tab_active.clone()),
-        )
+        stack_state(&base, &look.bottom_tab_active)
     } else {
         base
     };

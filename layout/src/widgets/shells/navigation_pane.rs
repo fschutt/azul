@@ -47,15 +47,14 @@ use azul_core::{
 };
 use azul_css::{
     corety::OptionUsize,
-    dynamic_selector::CssPropertyWithConditionsVec,
     impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
     impl_vec_partialeq,
     AzString,
 };
 
 use super::{
-    inner_theme, look_for, part, root_classes, text, ShellLook, CHROME_ROW_BASE, GROW_LABEL_BASE,
-    ITEM_BASE, LABEL_BASE, RAIL_BASE, ROW_BASE, SCROLL_COLUMN_BASE,
+    inner_theme, look_for, part, root_classes, stack_state, text, ShellLook, CHROME_ROW_BASE,
+    GROW_LABEL_BASE, ITEM_BASE, LABEL_BASE, RAIL_BASE, ROW_BASE, SCROLL_COLUMN_BASE,
 };
 use crate::{
     callbacks::CallbackInfo,
@@ -67,7 +66,7 @@ use crate::{
         badge::Badge,
         button::{Button, ButtonOnClickCallbackType},
         roving,
-        themes::{theme_blocks::stack_parts, OptionUiTheme, UiTheme},
+        themes::{OptionUiTheme, UiTheme},
         tree_view::{
             TreeView, TreeViewNode, TreeViewOnNodeClickCallbackType,
             TreeViewOnNodeToggleCallbackType,
@@ -691,10 +690,7 @@ fn module_node(
         },
     );
     let css = if active {
-        stack_parts(
-            &base,
-            &CssPropertyWithConditionsVec::from_vec(look.nav_module_active.clone()),
-        )
+        stack_state(&base, &look.nav_module_active)
     } else {
         base
     };

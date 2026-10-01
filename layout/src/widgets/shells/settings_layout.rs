@@ -35,16 +35,15 @@ use azul_core::{
     window::VirtualKeyCode,
 };
 use azul_css::{
-    dynamic_selector::CssPropertyWithConditionsVec,
     impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
     impl_vec_partialeq,
     AzString, StringVec,
 };
 
 use super::{
-    command_palette::palette_matches, inner_theme, look_for, part, root_classes, state_classes,
-    text, ShellLook, CHROME_ROW_BASE, COLUMN_BASE, FILL_COLUMN_BASE, GROW_LABEL_BASE,
-    GROW_ROW_BASE, ITEM_BASE, LABEL_BASE, RAIL_BASE, SCROLL_COLUMN_BASE,
+    command_palette::palette_matches, inner_theme, look_for, part, root_classes, stack_state,
+    state_classes, text, ShellLook, CHROME_ROW_BASE, COLUMN_BASE, FILL_COLUMN_BASE,
+    GROW_LABEL_BASE, GROW_ROW_BASE, ITEM_BASE, LABEL_BASE, RAIL_BASE, SCROLL_COLUMN_BASE,
 };
 use crate::{
     callbacks::CallbackInfo,
@@ -54,7 +53,7 @@ use crate::{
             OnTextInputReturn, TextInput, TextInputOnTextInputCallbackType, TextInputState,
             TextInputValid,
         },
-        themes::{theme_blocks::stack_parts, OptionUiTheme, UiTheme},
+        themes::{OptionUiTheme, UiTheme},
     },
 };
 
@@ -446,10 +445,7 @@ fn category(
 ) -> Dom {
     let base = part(ITEM_BASE, &look.settings_category);
     let css = if active {
-        stack_parts(
-            &base,
-            &CssPropertyWithConditionsVec::from_vec(look.settings_category_active.clone()),
-        )
+        stack_state(&base, &look.settings_category_active)
     } else {
         base
     };

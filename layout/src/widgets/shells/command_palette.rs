@@ -34,15 +34,14 @@ use azul_core::{
     window::VirtualKeyCode,
 };
 use azul_css::{
-    dynamic_selector::CssPropertyWithConditionsVec,
     impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
     impl_vec_partialeq,
     AzString,
 };
 
 use super::{
-    inner_theme, look_for, part, root_classes, state_classes, text, ShellLook, CHROME_ROW_BASE,
-    GROW_LABEL_BASE, ITEM_BASE, LABEL_BASE, OVERLAY_BASE, SCROLL_COLUMN_BASE,
+    inner_theme, look_for, part, root_classes, stack_state, state_classes, text, ShellLook,
+    CHROME_ROW_BASE, GROW_LABEL_BASE, ITEM_BASE, LABEL_BASE, OVERLAY_BASE, SCROLL_COLUMN_BASE,
 };
 use crate::{
     callbacks::CallbackInfo,
@@ -53,7 +52,7 @@ use crate::{
             OnTextInputReturn, TextInput, TextInputOnTextInputCallbackType,
             TextInputOnVirtualKeyDownCallbackType, TextInputState, TextInputValid,
         },
-        themes::{theme_blocks::stack_parts, OptionUiTheme, UiTheme},
+        themes::{OptionUiTheme, UiTheme},
     },
 };
 
@@ -642,10 +641,7 @@ fn row(
     let selected = row_index == 0;
     let base = part(ITEM_BASE, &look.palette_row);
     let css = if selected {
-        stack_parts(
-            &base,
-            &CssPropertyWithConditionsVec::from_vec(look.palette_row_selected.clone()),
-        )
+        stack_state(&base, &look.palette_row_selected)
     } else {
         base
     };

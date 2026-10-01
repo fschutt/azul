@@ -375,6 +375,43 @@ pub(crate) fn id_and_class(id: &AzString, class: &'static str) -> IdOrClassVec {
     IdOrClassVec::from_vec(classes)
 }
 
+/// A STATE part (active, selected) over `base` (the item at rest, with its
+/// hover and focus states), as ONE declaration per property and
+/// conditions on the node: a declaration of `base` that `extra` restates is
+/// dropped, and so is a `:hover` rule of `base` for a property `extra` sets
+/// at rest (a selected row keeps its colour under the pointer, as
+/// Explorer's does). Then `theme_blocks::stack_parts` ranks the two under
+/// every app theme.
+#[must_use]
+pub(crate) fn stack_state(
+    base: &CssPropertyWithConditionsVec,
+    extra: &[CssPropertyWithConditions],
+) -> CssPropertyWithConditionsVec {
+    use azul_css::dynamic_selector::PseudoStateType;
+    let restated = |p: &CssPropertyWithConditions| {
+        extra
+            .iter()
+            .any(|e| e.property.get_type() == p.property.get_type() && e.apply_if == p.apply_if)
+    };
+    let hover_overridden = |p: &CssPropertyWithConditions| {
+        p.has_state(PseudoStateType::Hover)
+            && extra.iter().any(|e| {
+                e.property.get_type() == p.property.get_type()
+                    && e.pseudo_state_conditions().is_empty()
+            })
+    };
+    let kept: Vec<CssPropertyWithConditions> = base
+        .as_ref()
+        .iter()
+        .filter(|p| !restated(p) && !hover_overridden(p))
+        .cloned()
+        .collect();
+    crate::widgets::themes::theme_blocks::stack_parts(
+        &CssPropertyWithConditionsVec::from_vec(kept),
+        &CssPropertyWithConditionsVec::from_vec(extra.to_vec()),
+    )
+}
+
 /// A theme setter for the widgets a shell builds for itself (its Buttons,
 /// Badges, TreeViews): `Some(theme)` when the shell is pinned, so the whole
 /// shell renders the same under every app theme; `None` follows.
