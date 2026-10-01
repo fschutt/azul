@@ -24,7 +24,7 @@ use crate::{
     canvas,
     commands::{self, cmd, field, Command, Field},
     jobs::ExportFormat,
-    raster::{layer, Adjustment, BlendMode, LayerContent, LayerId, RasterEngine, SelectMode},
+    raster::{layer, Adjustment, BlendMode, LayerContent, RasterEngine, SelectMode},
     state::Tool,
     view, AppScreen, PhotoApp, Sheet,
 };
@@ -880,4 +880,216 @@ fn start_screen(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
             &format!("font-size: 12px; color: {}; margin-top: 2px;", p.muted),
         ))
         .with_child(recent)
+}
+
+// ==== Sheets ====
+
+/// A sheet: a panel over a dimmed window, its body, OK (when it has one)
+/// and Cancel.
+fn sheet_frame(app: &RefAny, p: &Palette, title: &str, body: Dom, ok: Option<(&str, Command)>) -> Dom {
+    let mut buttons = row("justify-content: flex-end; margin-top: 12px;");
+    buttons.add_child(button(app, if ok.is_some() { "Cancel" } else { "Close" }, Command::CloseSheet).with_id("sheet-cancel"));
+    if let Some((label, command)) = ok {
+        buttons.add_child(
+            Button::with_type(AzString::from(label), ButtonType::Primary)
+                .with_on_click(cmd(app, command), commands::on_command as ButtonOnClickCallbackType)
+                .dom()
+                .with_id("sheet-ok")
+                .with_css("margin-left: 8px;"),
+        );
+    }
+    Dom::create_div()
+        .with_id("photo-sheet")
+        .with_css(
+            "position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; display: flex; \
+             align-items: center; justify-content: center; background: rgba(0,0,0,0.35);",
+        )
+        .with_child(
+            column(&format!(
+                "background: {}; color: {}; padding: 16px 20px; border-radius: 8px; min-width: 340px; \
+                 box-shadow: 0px 6px 24px rgba(0,0,0,0.35);",
+                p.panel, p.text
+            ))
+            .with_accessibility_info(AccessibilityInfo::named(title, AccessibilityRole::Dialog))
+            .with_child(text(title, "font-size: 16px; font-weight: bold; margin-bottom: 12px;"))
+            .with_child(body)
+            .with_child(buttons),
+        )
+}
+
+fn sheet_dom(app: &RefAny, a: &PhotoApp, p: &Palette, sheet: Sheet) -> Dom {
+    let f = &a.form;
+    let hint = |t: &str| text(t, &format!("font-size: 12px; color: {}; margin-top: 6px;", p.muted));
+    match sheet {
+        Sheet::NewImage => {
+            let mb = f64::from(f.new_width.max(1.0)) * f64::from(f.new_height.max(1.0)) * 4.0 / (1024.0 * 1024.0);
+            let body = column("")
+                .with_child(
+                    row("")
+                        .with_child(number(app, "Width", f.new_width, Field::NewWidth, p))
+                        .with_child(number(app, "Height", f.new_height, Field::NewHeight, p)),
+                )
+                .with_child(row("margin-top: 8px;").with_child(check(app, "Transparent background", f.new_transparent, Field::NewTransparent, p)))
+                .with_child(hint(&format!("About {mb:.1} MiB per layer (8-bit RGBA tiles)")));
+            sheet_frame(app, p, "New image", body, Some(("Create", Command::NewImageCreate)))
+        }
+        Sheet::Export => {
+            let jpeg = a.export_format == ExportFormat::Jpeg;
+            let mut body = column("").with_child(segments(app, &["PNG", "JPEG"], usize::from(jpeg), Field::ExportFormat));
+            if jpeg {
+                body.add_child(row("margin-top: 8px;").with_child(number(app, "Quality", f32::from(a.jpeg_quality), Field::JpegQuality, p)));
+                body.add_child(hint("JPEG has no transparency: the image is flattened on white."));
+            }
+            let (w, h) = a.s.engine.size();
+            body.add_child(hint(&format!("{w} x {h} px, all visible layers flattened")));
+            body.add_child(hint(&match &a.export_dir {
+                Some(dir) => format!("Into {}", dir.display()),
+                None => "A dialog asks where to save.".to_string(),
+            }));
+            sheet_frame(app, p, "Export", body, Some(("Export", Command::ExportApply)))
+        }
+        Sheet::ImageSize => {
+            let body = column("")
+                .with_child(
+                    row("")
+                        .with_child(number(app, "Width", f.size_width, Field::SizeWidth, p))
+                        .with_child(number(app, "Height", f.size_height, Field::SizeHeight, p)),
+                )
+                .with_child(hint("Every layer is resampled (bilinear; an average when shrinking)."));
+            sheet_frame(app, p, "Image size", body, Some(("Resize", Command::ImageSizeApply)))
+        }
+        Sheet::CanvasSize => {
+            let body = column("")
+                .with_child(
+                    row("")
+                        .with_child(number(app, "Width", f.canvas_width, Field::CanvasWidth, p))
+                        .with_child(number(app, "Height", f.canvas_height, Field::CanvasHeight, p)),
+                )
+                .with_child(hint("The image stays centred; new area is transparent."));
+            sheet_frame(app, p, "Canvas size", body, Some(("Resize", Command::CanvasSizeApply)))
+        }
+        Sheet::GaussianBlur => {
+            let body = column("")
+                .with_child(number(app, "Radius (sigma, px)", f.blur_sigma, Field::BlurSigma, p))
+                .with_child(hint("Blurs the active layer inside the selection."));
+            sheet_frame(app, p, "Gaussian blur", body, Some(("Blur", Command::BlurApply)))
+        }
+        Sheet::Sharpen => {
+            let body = column("")
+                .with_child(
+                    row("")
+                        .with_child(number(app, "Amount", f.sharpen_amount, Field::SharpenAmount, p))
+                        .with_child(number(app, "Radius", f.sharpen_radius, Field::SharpenRadius, p)),
+                )
+                .with_child(hint("Unsharp mask on the active layer, inside the selection."));
+            sheet_frame(app, p, "Sharpen", body, Some(("Sharpen", Command::SharpenApply)))
+        }
+        Sheet::Rotate => {
+            let body = column("")
+                .with_child(number(app, "Degrees", f.rotate_degrees, Field::RotateDegrees, p))
+                .with_child(hint("Turns the active layer about the image centre (bilinear)."));
+            sheet_frame(app, p, "Rotate layer", body, Some(("Rotate", Command::RotateLayerApply)))
+        }
+        Sheet::Feather => {
+            let body = column("")
+                .with_child(number(app, "Radius (px)", f.feather, Field::FeatherForm, p))
+                .with_child(hint("Softens the selection's edge."));
+            sheet_frame(app, p, "Feather selection", body, Some(("Feather", Command::FeatherApply)))
+        }
+        Sheet::About => {
+            let body = column("")
+                .with_child(text("AzPhoto 0.1 - the photo editor of the azul apps", "font-size: 13px;"))
+                .with_child(hint("Raster core: AzPhoto's tile store behind the RasterEngine trait (256 px RGBA8 tiles, dirty-tile compositing on worker threads, tile-snapshot undo). Graphite can replace or extend it later."))
+                .with_child(hint(&format!("Documents: {}/photo/<uuid>/", a.data_root.display())))
+                .with_child(hint("Shortcuts: B brush, E eraser, V move, M marquee, L lasso, W wand, C crop, I eyedropper, G bucket / gradient, S clone, U shape, H hand, Z zoom, [ ] size, X swap colours, D default colours."));
+            sheet_frame(app, p, "About AzPhoto", body, None)
+        }
+        Sheet::Settings => {
+            let appearance = column("")
+                .with_child(
+                    row("")
+                        .with_child(button(app, "Flat", Command::Theme("flat")).with_id("settings-flat"))
+                        .with_child(button(app, "Flora", Command::Theme("flora")).with_id("settings-flora").with_css("margin-left: 6px;"))
+                        .with_child(button(app, "Light", Command::Mode(false)).with_id("settings-light").with_css("margin-left: 16px;"))
+                        .with_child(button(app, "Dark", Command::Mode(true)).with_id("settings-dark").with_css("margin-left: 6px;")),
+                )
+                .with_child(hint(&format!("Now: {} theme, {} mode", a.theme, if a.dark { "dark" } else { "light" })));
+            let storage = column("")
+                .with_child(hint(&format!("Data folder: {}", a.data_root.display())))
+                .with_child(hint("Each document is photo/<uuid>/doc.json plus its layer tiles as PNG - the layout of the per-user bucket (S3 later)."));
+            let layout = ShellSettingsLayout::create(strings(&["Appearance", "Storage"]))
+                .with_section(ShellSettingsSection::create(AzString::from("Appearance"), appearance))
+                .with_section(ShellSettingsSection::create(AzString::from("Storage"), storage))
+                .dom()
+                .with_css("min-height: 260px; min-width: 520px;");
+            sheet_frame(app, p, "Settings", layout, None)
+        }
+    }
+}
+
+// ==== The window ====
+
+fn title_row(a: &PhotoApp) -> Dom {
+    let title = match a.screen {
+        AppScreen::Start => "AzPhoto".to_string(),
+        AppScreen::Editor => format!("{}{} - AzPhoto", a.s.name, if a.s.modified { " *" } else { "" }),
+    };
+    Titlebar::create(AzString::from(title)).without_border_bottom().dom()
+}
+
+fn editor(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
+    CanvasShell::create(canvas_area(app, a, p))
+        .with_menu_bar(menu_row(app, p))
+        .with_tool_options(options_bar(app, a, p))
+        .with_tool_palette(tools_column(app, a, p))
+        .with_document_tabs(doc_tab(app, a, p))
+        .with_panels(panels(app, a, p))
+        .with_status_bar(status_bar(a))
+        .with_canvas_ratio(0.76)
+        .dom()
+}
+
+/// The window's layout callback.
+pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    let dark = matches!(info.get_mode(), DarkLightMode::Dark);
+    let theme = info.get_theme().as_str().to_string();
+    let app_ref = data.clone();
+    let Some(mut guard) = data.downcast_mut::<PhotoApp>() else {
+        return Dom::create_body();
+    };
+    let a = &mut *guard;
+    if a.dark != dark || a.s.colors != view::ViewColors::for_mode(dark) {
+        a.dark = dark;
+        let _ = a.s.set_dark(dark);
+        a.canvas_image = None;
+    }
+    if !theme.is_empty() {
+        a.theme = theme;
+    }
+    let p = if dark { &DARK } else { &LIGHT };
+    let content = match a.screen {
+        AppScreen::Start => start_screen(&app_ref, a, p),
+        AppScreen::Editor => editor(&app_ref, a, p),
+    };
+    let mut area = column("position: relative; flex-grow: 1; min-height: 0px;").with_child(content);
+    if let Some(sheet) = a.sheet {
+        area.add_child(sheet_dom(&app_ref, a, p, sheet));
+    }
+    let root = column("flex-grow: 1; min-height: 0px;")
+        .with_child(title_row(a))
+        .with_child(area);
+    let body = Dom::create_body()
+        .with_css("display: flex; flex-direction: column; margin: 0px; height: 100%;")
+        .with_child(
+            ShellThemeScope::create(root)
+                .with_accent(ShellThemeAccent::Blue)
+                .dom()
+                .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;"),
+        )
+        .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app_ref.clone(), canvas::on_key);
+    if cfg!(target_os = "macos") {
+        body.with_menu_bar(native_menu(&app_ref))
+    } else {
+        body
+    }
 }
