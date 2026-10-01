@@ -17,7 +17,10 @@ here (house rule); Rust files are parse-checked with `rustfmt --check` / `--emit
 - `acc9d162f` RED / `9ec56f6cc` feat: NativePicture (retained IOSurface-backed decoded picture,
   copied on demand) - the zero-copy step.
 
+- `3afed65ca` RED / `ea75727cb` feat: CallbackInfo::is_node_visible (new API) for tile culling.
+
 ## IN PROGRESS
+- CallShell: a stage (speaker / screen share) over a filmstrip (new field `stage`).
 - AzMeet: async codec (drain encoders / decoders in the pump, keyframe policy with lag), no JPEG
   to a peer whose caps have not arrived (macOS never defaults to JPEG), probe with flush.
 
