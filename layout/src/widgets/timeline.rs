@@ -939,7 +939,594 @@ pub fn drag_result(
     }
 }
 
-// ==== PIECE 3: the callbacks ====
+// ==== the callbacks ====
+
+/// A bar the pointer is dragging along.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Scrub {
+    /// The ruler: the playhead follows.
+    Ruler,
+    /// The scroll bar: the view follows.
+    ScrollBar,
+}
+
+/// A clip drag in flight.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ClipDrag {
+    clip_id: u64,
+    /// The clip's track (index).
+    track: usize,
+    mode: TimelineDragMode,
+    /// The clip before the drag.
+    start: f64,
+    duration: f64,
+    /// Where the press was, in window coordinates.
+    press_x: f32,
+    press_y: f32,
+    /// The pointer left the dead zone around the press.
+    moved: bool,
+    /// The clip after the drag so far.
+    now_start: f64,
+    now_duration: f64,
+    now_track: usize,
+}
+
+/// What every part of one timeline shares: the app's hook, the model the
+/// keys and drags compute with, and the drag in flight. The lanes' DATASET,
+/// so a rebuild in the middle of a drag (the app redraws the selection a
+/// press reported) carries the drag over ([`merge_timeline_state`]).
+struct TimelineShared {
+    on_event: OptionTimelineOnEvent,
+    tracks: Vec<TimelineTrack>,
+    duration: f64,
+    playhead: f64,
+    view_start: f64,
+    pps: f32,
+    fps: f32,
+    view_width: f32,
+    snapping: bool,
+    scrub: Option<Scrub>,
+    drag: Option<ClipDrag>,
+}
+
+impl TimelineShared {
+    /// Seconds in view.
+    fn span(&self) -> f64 {
+        f64::from(self.view_width.max(1.0)) / f64::from(self.pps.max(MIN_PPS))
+    }
+
+    /// The shortest clip a trim leaves: one frame.
+    fn min_duration(&self) -> f64 {
+        if self.fps > 0.0 {
+            1.0 / f64::from(self.fps)
+        } else {
+            0.04
+        }
+    }
+}
+
+/// A clip's payload: which clip it is, on which track.
+struct ClipData {
+    shared: RefAny,
+    track: usize,
+    clip_id: u64,
+}
+
+/// A lane's payload: which track.
+struct LaneData {
+    shared: RefAny,
+    track: usize,
+}
+
+/// A track toggle's payload: which track, which toggle.
+struct ToggleData {
+    shared: RefAny,
+    track: usize,
+    kind: TimelineEventKind,
+}
+
+/// Carry a drag across a rebuild: the pointer wins while it is down (the
+/// split pane's rule, `merge_split_pane_state`). Everything else is the
+/// fresh build's.
+#[must_use]
+pub extern "C" fn merge_timeline_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
+    {
+        let old = old_data.downcast_ref::<TimelineShared>().map(|o| (o.scrub, o.drag));
+        if let (Some(mut fresh), Some((scrub, drag))) = (new_data.downcast_mut::<TimelineShared>(), old) {
+            if fresh.scrub.is_none() {
+                fresh.scrub = scrub;
+            }
+            if fresh.drag.is_none() {
+                fresh.drag = drag;
+            }
+        }
+    }
+    new_data
+}
+
+/// Hands `event` to the app's hook.
+fn fire(hook: &OptionTimelineOnEvent, info: CallbackInfo, event: TimelineEvent) -> Update {
+    match hook.as_ref() {
+        Some(TimelineOnEvent { refany, callback }) => callback.invoke(refany.clone(), info, event),
+        None => Update::DoNothing,
+    }
+}
+
+/// Shift and Ctrl (or Cmd) held.
+fn modifiers(info: &CallbackInfo) -> (bool, bool) {
+    let ks = info.get_current_keyboard_state();
+    (ks.shift_down(), ks.ctrl_down() || ks.super_down())
+}
+
+/// A callback hook on a part.
+fn hook(event: EventFilter, cb: extern "C" fn(RefAny, CallbackInfo) -> Update, data: RefAny) -> CoreCallbackData {
+    CoreCallbackData {
+        event,
+        callback: CoreCallback {
+            cb: cb as usize,
+            ctx: OptionRefAny::None,
+        },
+        refany: data,
+    }
+}
+
+/// Moves the keyboard focus to the lanes `node` belongs to (its ancestor
+/// carrying [`LANES_CLASS`]), so the keys work after a press.
+fn focus_lanes(info: &mut CallbackInfo, node: DomNodeId) {
+    let mut at = Some(node);
+    for _ in 0..4 {
+        let Some(n) = at else { return };
+        if crate::widgets::roving::has_class(info, n, LANES_CLASS) {
+            info.set_focus(azul_core::callbacks::FocusTarget::Id(n));
+            return;
+        }
+        at = info.get_parent(n);
+    }
+}
+
+/// The keys on the lanes (see the module's KEYBOARD).
+extern "C" fn on_lanes_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    use VirtualKeyCode as K;
+
+    let ks = info.get_current_keyboard_state();
+    if ks.alt_down() {
+        return Update::DoNothing;
+    }
+    let Some(key) = ks.current_virtual_keycode.into_option() else {
+        return Update::DoNothing;
+    };
+    let shift = ks.shift_down();
+    let Some(mut s) = data.downcast_mut::<TimelineShared>() else {
+        return Update::DoNothing;
+    };
+    #[allow(clippy::cast_possible_truncation)]
+    let second = i64::from((s.fps.round() as i32).max(1));
+    let step = |frames: i64| step_frames(s.playhead, s.fps, frames, s.duration);
+    let zoom = |factor: f32| {
+        let pps = (s.pps * factor).clamp(MIN_PPS, MAX_PPS);
+        let x = (s.playhead - s.view_start) * f64::from(s.pps);
+        let mut e = TimelineEvent::create(
+            TimelineEventKind::Zoom,
+            (s.playhead - x / f64::from(pps)).max(0.0),
+        );
+        e.value = f64::from(pps);
+        e
+    };
+    let event = match key {
+        K::Left => TimelineEvent::create(TimelineEventKind::Seek, step(if shift { -second } else { -1 })),
+        K::Right => TimelineEvent::create(TimelineEventKind::Seek, step(if shift { second } else { 1 })),
+        K::Home => TimelineEvent::create(TimelineEventKind::Seek, 0.0),
+        K::End => TimelineEvent::create(TimelineEventKind::Seek, s.duration.max(0.0)),
+        K::Up | K::Down => {
+            let points = edit_points(&s.tracks, s.duration);
+            let target = if key == K::Up {
+                points.iter().rev().find(|p| **p < s.playhead - 1e-6).copied().unwrap_or(0.0)
+            } else {
+                points
+                    .iter()
+                    .find(|p| **p > s.playhead + 1e-6)
+                    .copied()
+                    .unwrap_or(s.duration.max(0.0))
+            };
+            TimelineEvent::create(TimelineEventKind::Seek, target)
+        }
+        K::Equals | K::Plus | K::NumpadAdd => zoom(ZOOM_STEP),
+        K::Minus | K::NumpadSubtract => zoom(1.0 / ZOOM_STEP),
+        K::Backslash => TimelineEvent::create(TimelineEventKind::ZoomToFit, s.view_start),
+        K::Delete | K::Back => {
+            let mut e = TimelineEvent::create(TimelineEventKind::Delete, s.playhead);
+            e.shift = shift;
+            e
+        }
+        _ => return Update::DoNothing,
+    };
+    match event.kind {
+        TimelineEventKind::Seek => s.playhead = event.time,
+        TimelineEventKind::Zoom => {
+            s.view_start = event.time;
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                s.pps = event.value as f32;
+            }
+        }
+        _ => {}
+    }
+    let hook = s.on_event.clone();
+    drop(s);
+    // The key is the timeline's: spatial navigation must not walk out of it.
+    info.prevent_default();
+    fire(&hook, info, event)
+}
+
+/// The time under the pointer in the node the callback runs on, whose
+/// left edge is at `view_start` (the ruler, a lane), on a frame and inside
+/// the sequence; `None` when the engine has no pointer position.
+fn pointer_time(info: &CallbackInfo, s: &TimelineShared) -> Option<f64> {
+    let pos = info.get_cursor_relative_to_node().into_option()?;
+    Some(on_frame(time_at(pos.x, s.view_start, s.pps), s.fps).clamp(0.0, s.duration.max(0.0)))
+}
+
+/// A press on the ruler: the playhead jumps there and follows the pointer
+/// until the button is up.
+extern "C" fn on_ruler_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(mut s) = data.downcast_mut::<TimelineShared>() else {
+        return Update::DoNothing;
+    };
+    s.scrub = Some(Scrub::Ruler);
+    let Some(t) = pointer_time(&info, &s) else {
+        return Update::DoNothing;
+    };
+    s.playhead = t;
+    let hook = s.on_event.clone();
+    drop(s);
+    let node = info.get_hit_node();
+    info.capture_pointer(node);
+    fire(&hook, info, TimelineEvent::create(TimelineEventKind::Seek, t))
+}
+
+/// The pointer moves over (or, captured, away from) the ruler.
+extern "C" fn on_ruler_move(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some(mut s) = data.downcast_mut::<TimelineShared>() else {
+        return Update::DoNothing;
+    };
+    if s.scrub != Some(Scrub::Ruler) {
+        return Update::DoNothing;
+    }
+    let Some(t) = pointer_time(&info, &s) else {
+        return Update::DoNothing;
+    };
+    if (t - s.playhead).abs() < 1e-9 {
+        return Update::DoNothing;
+    }
+    s.playhead = t;
+    let hook = s.on_event.clone();
+    drop(s);
+    fire(&hook, info, TimelineEvent::create(TimelineEventKind::Seek, t))
+}
+
+/// The button is up: a scrub (ruler or scroll bar) ends.
+extern "C" fn on_bar_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    if let Some(mut s) = data.downcast_mut::<TimelineShared>() {
+        if s.scrub.take().is_some() {
+            drop(s);
+            info.release_pointer_capture();
+        }
+    }
+    Update::DoNothing
+}
+
+/// The pointer left a bar with the button already up: a release that never
+/// arrived ends the scrub.
+extern "C" fn on_bar_leave(mut data: RefAny, info: CallbackInfo) -> Update {
+    if info.get_current_mouse_state().left_down {
+        return Update::DoNothing;
+    }
+    if let Some(mut s) = data.downcast_mut::<TimelineShared>() {
+        s.scrub = None;
+    }
+    Update::DoNothing
+}
+
+/// The view start the scroll bar's pointer asks for: the view centred on
+/// the pointer's share of the sequence, kept inside it.
+fn scroll_target(info: &CallbackInfo, s: &TimelineShared) -> Option<f64> {
+    let pos = info.get_cursor_relative_to_node().into_option()?;
+    let width = info.get_hit_node_rect()?.size.width;
+    if width <= 0.0 {
+        return None;
+    }
+    let span = s.span();
+    let total = s.duration.max(span);
+    let at = f64::from((pos.x / width).clamp(0.0, 1.0)) * total;
+    Some((at - span / 2.0).clamp(0.0, (total - span).max(0.0)))
+}
+
+/// A press on the scroll bar: the view jumps there and follows the pointer.
+extern "C" fn on_scroll_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(mut s) = data.downcast_mut::<TimelineShared>() else {
+        return Update::DoNothing;
+    };
+    s.scrub = Some(Scrub::ScrollBar);
+    let Some(start) = scroll_target(&info, &s) else {
+        return Update::DoNothing;
+    };
+    s.view_start = start;
+    let hook = s.on_event.clone();
+    drop(s);
+    let node = info.get_hit_node();
+    info.capture_pointer(node);
+    fire(&hook, info, TimelineEvent::create(TimelineEventKind::Scroll, start))
+}
+
+/// The pointer moves over (or, captured, away from) the scroll bar.
+extern "C" fn on_scroll_move(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some(mut s) = data.downcast_mut::<TimelineShared>() else {
+        return Update::DoNothing;
+    };
+    if s.scrub != Some(Scrub::ScrollBar) {
+        return Update::DoNothing;
+    }
+    let Some(start) = scroll_target(&info, &s) else {
+        return Update::DoNothing;
+    };
+    if (start - s.view_start).abs() < 1e-9 {
+        return Update::DoNothing;
+    }
+    s.view_start = start;
+    let hook = s.on_event.clone();
+    drop(s);
+    fire(&hook, info, TimelineEvent::create(TimelineEventKind::Scroll, start))
+}
+
+/// A press on an empty part of a lane.
+extern "C" fn on_lane_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let (mut shared, track) = {
+        let Some(d) = data.downcast_ref::<LaneData>() else {
+            return Update::DoNothing;
+        };
+        (d.shared.clone(), d.track)
+    };
+    let Some(s) = shared.downcast_ref::<TimelineShared>() else {
+        return Update::DoNothing;
+    };
+    let t = pointer_time(&info, &s).unwrap_or(s.playhead);
+    let hook = s.on_event.clone();
+    drop(s);
+    let node = info.get_hit_node();
+    focus_lanes(&mut info, node);
+    let (shift, ctrl) = modifiers(&info);
+    let mut event = TimelineEvent::create(TimelineEventKind::LaneClick, t);
+    event.track = track;
+    event.shift = shift;
+    event.ctrl = ctrl;
+    fire(&hook, info, event)
+}
+
+/// A press on a clip: select it; a drag from here moves it, or trims it
+/// when the press is at an edge. A locked track's clip takes nothing.
+extern "C" fn on_clip_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    info.stop_propagation();
+    let (mut shared, track, clip_id) = {
+        let Some(d) = data.downcast_ref::<ClipData>() else {
+            return Update::DoNothing;
+        };
+        (d.shared.clone(), d.track, d.clip_id)
+    };
+    let Some(mut s) = shared.downcast_mut::<TimelineShared>() else {
+        return Update::DoNothing;
+    };
+    let Some(t) = s.tracks.get(track) else {
+        return Update::DoNothing;
+    };
+    if t.locked {
+        return Update::DoNothing;
+    }
+    let Some(clip) = t.clips.as_ref().iter().find(|c| c.id == clip_id).cloned() else {
+        return Update::DoNothing;
+    };
+    let within = info.get_cursor_relative_to_node().into_option();
+    let width = info.get_hit_node_rect().map_or(0.0, |r| r.size.width);
+    let mode = match within {
+        Some(p) if p.x <= EDGE_PX && width > 3.0 * EDGE_PX => TimelineDragMode::TrimStart,
+        Some(p) if p.x >= width - EDGE_PX && width > 3.0 * EDGE_PX => TimelineDragMode::TrimEnd,
+        _ => TimelineDragMode::Move,
+    };
+    let time = within.map_or(s.playhead, |p| {
+        on_frame(clip.start + f64::from(p.x) / f64::from(s.pps.max(MIN_PPS)), s.fps)
+    });
+    if let Some(press) = info.get_cursor_relative_to_viewport().into_option() {
+        s.drag = Some(ClipDrag {
+            clip_id,
+            track,
+            mode,
+            start: clip.start,
+            duration: clip.duration,
+            press_x: press.x,
+            press_y: press.y,
+            moved: false,
+            now_start: clip.start,
+            now_duration: clip.duration,
+            now_track: track,
+        });
+    }
+    let hook = s.on_event.clone();
+    drop(s);
+    let node = info.get_hit_node();
+    info.capture_pointer(node);
+    focus_lanes(&mut info, node);
+    let (shift, ctrl) = modifiers(&info);
+    let mut event = TimelineEvent::create(TimelineEventKind::Select, time);
+    event.clip_id = clip_id;
+    event.track = track;
+    event.shift = shift;
+    event.ctrl = ctrl;
+    fire(&hook, info, event)
+}
+
+/// The pointer moves while a clip is pressed: the clip follows it live
+/// (snapped), the app hears of it on the release.
+extern "C" fn on_clip_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let (mut shared, clip_id) = {
+        let Some(d) = data.downcast_ref::<ClipData>() else {
+            return Update::DoNothing;
+        };
+        (d.shared.clone(), d.clip_id)
+    };
+    let Some(mut s) = shared.downcast_mut::<TimelineShared>() else {
+        return Update::DoNothing;
+    };
+    let Some(mut drag) = s.drag.filter(|d| d.clip_id == clip_id) else {
+        return Update::DoNothing;
+    };
+    let Some(at) = info.get_cursor_relative_to_viewport().into_option() else {
+        return Update::DoNothing;
+    };
+    let (dx, dy) = (at.x - drag.press_x, at.y - drag.press_y);
+    if !drag.moved && dx.abs() < 3.0 && dy.abs() < 3.0 {
+        return Update::DoNothing;
+    }
+    drag.moved = true;
+    let dt = f64::from(dx) / f64::from(s.pps.max(MIN_PPS));
+    let (mut start, mut duration) = drag_result(drag.mode, drag.start, drag.duration, dt, s.min_duration());
+    if s.snapping {
+        let points = snap_points(&s.tracks, s.playhead, clip_id);
+        match drag.mode {
+            TimelineDragMode::Move => {
+                let snapped = snap_time(start, &points, s.pps);
+                if (snapped - start).abs() > 1e-12 {
+                    start = snapped;
+                } else {
+                    start = (snap_time(start + duration, &points, s.pps) - duration).max(0.0);
+                }
+            }
+            TimelineDragMode::TrimStart => {
+                let end = start + duration;
+                start = snap_time(start, &points, s.pps).min(end - s.min_duration()).max(0.0);
+                duration = end - start;
+            }
+            TimelineDragMode::TrimEnd => {
+                let end = snap_time(start + duration, &points, s.pps).max(start + s.min_duration());
+                duration = end - start;
+            }
+        }
+    }
+    let lane = s.tracks.get(drag.track).map_or(DEFAULT_TRACK_HEIGHT, TimelineTrack::lane_height);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+    let now_track = if drag.mode == TimelineDragMode::Move {
+        let rows = (dy / lane.max(1.0)).round() as i64;
+        (drag.track as i64 + rows).clamp(0, s.tracks.len().saturating_sub(1) as i64) as usize
+    } else {
+        drag.track
+    };
+    drag.now_start = start;
+    drag.now_duration = duration;
+    drag.now_track = now_track;
+    let (left, width) = clip_geometry(start, duration, s.view_start, s.pps);
+    #[allow(clippy::cast_precision_loss)]
+    let top = CLIP_INSET + (now_track as f32 - drag.track as f32) * lane;
+    s.drag = Some(drag);
+    drop(s);
+    let node = info.get_hit_node();
+    info.set_css_property(node, CssProperty::left(LayoutLeft::px(left)));
+    info.set_css_property(node, CssProperty::width(LayoutWidth::Px(PixelValue::px(width))));
+    info.set_css_property(node, CssProperty::top(LayoutTop::px(top)));
+    Update::DoNothing
+}
+
+/// The button is up over (or, captured, away from) a pressed clip: ONE
+/// `Move` or `Trim` for the whole drag.
+extern "C" fn on_clip_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let (mut shared, clip_id) = {
+        let Some(d) = data.downcast_ref::<ClipData>() else {
+            return Update::DoNothing;
+        };
+        (d.shared.clone(), d.clip_id)
+    };
+    let Some(mut s) = shared.downcast_mut::<TimelineShared>() else {
+        return Update::DoNothing;
+    };
+    let Some(drag) = s.drag.take().filter(|d| d.clip_id == clip_id) else {
+        return Update::DoNothing;
+    };
+    let hook = s.on_event.clone();
+    drop(s);
+    info.release_pointer_capture();
+    if !drag.moved {
+        return Update::DoNothing;
+    }
+    let mut event = match drag.mode {
+        TimelineDragMode::Move => {
+            let mut e = TimelineEvent::create(TimelineEventKind::Move, drag.now_start);
+            #[allow(clippy::cast_precision_loss)]
+            {
+                e.value = drag.now_track as f64;
+            }
+            e
+        }
+        TimelineDragMode::TrimStart => TimelineEvent::create(TimelineEventKind::Trim, drag.now_start),
+        TimelineDragMode::TrimEnd => {
+            let mut e = TimelineEvent::create(TimelineEventKind::Trim, drag.now_start + drag.now_duration);
+            e.edge = TimelineEdge::End;
+            e
+        }
+    };
+    event.clip_id = drag.clip_id;
+    event.track = drag.track;
+    fire(&hook, info, event)
+}
+
+/// The pointer left a clip with the button up: a lost release ends the drag.
+extern "C" fn on_clip_leave(mut data: RefAny, info: CallbackInfo) -> Update {
+    if info.get_current_mouse_state().left_down {
+        return Update::DoNothing;
+    }
+    let mut shared = match data.downcast_ref::<ClipData>() {
+        Some(d) => d.shared.clone(),
+        None => return Update::DoNothing,
+    };
+    if let Some(mut s) = shared.downcast_mut::<TimelineShared>() {
+        s.drag = None;
+    }
+    Update::DoNothing
+}
+
+/// A double-click on a clip: open it.
+extern "C" fn on_clip_double_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    info.stop_propagation();
+    let (mut shared, track, clip_id) = {
+        let Some(d) = data.downcast_ref::<ClipData>() else {
+            return Update::DoNothing;
+        };
+        (d.shared.clone(), d.track, d.clip_id)
+    };
+    let Some(s) = shared.downcast_ref::<TimelineShared>() else {
+        return Update::DoNothing;
+    };
+    let mut event = TimelineEvent::create(TimelineEventKind::Open, s.playhead);
+    let hook = s.on_event.clone();
+    drop(s);
+    event.clip_id = clip_id;
+    event.track = track;
+    fire(&hook, info, event)
+}
+
+/// A track toggle (mute / show, lock) was clicked.
+extern "C" fn on_track_toggle(mut data: RefAny, info: CallbackInfo) -> Update {
+    let (mut shared, track, kind) = {
+        let Some(d) = data.downcast_ref::<ToggleData>() else {
+            return Update::DoNothing;
+        };
+        (d.shared.clone(), d.track, d.kind)
+    };
+    let Some(s) = shared.downcast_ref::<TimelineShared>() else {
+        return Update::DoNothing;
+    };
+    let mut event = TimelineEvent::create(kind, s.playhead);
+    let hook = s.on_event.clone();
+    drop(s);
+    event.track = track;
+    fire(&hook, info, event)
+}
 
 // ==== PIECE 4: the build ====
 
