@@ -85,3 +85,41 @@ fn a_render_image_callback_with_unchanged_inputs_is_not_invoked_again() {
     lw.prepare_frame_content();
     assert_eq!(CALLS.load(Ordering::SeqCst), 2);
 }
+
+/// Invocations of [`counting_canvas_b`] (only the test below uses it).
+static CALLS_B: AtomicUsize = AtomicUsize::new(0);
+
+extern "C" fn counting_canvas_b(_data: RefAny, _info: RenderImageCallbackInfo) -> ImageRef {
+    CALLS_B.fetch_add(1, Ordering::SeqCst);
+    ImageRef::null_image(4, 4, RawImageFormat::BGRA8, Vec::new())
+}
+
+#[test]
+fn an_explicit_update_renders_a_canvas_at_rest_again() {
+    let canvas = ImageRef::callback(
+        RenderImageCallback::create(counting_canvas_b).to_core(),
+        RefAny::new(()),
+    );
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    lay_out(&mut lw, &canvas, 120.0);
+    lw.prepare_frame_content();
+    lw.prepare_frame_content();
+    assert_eq!(CALLS_B.load(Ordering::SeqCst), 1);
+
+    // `update_all_image_callbacks` (an animating GL texture's timer).
+    lw.invalidate_all_image_callbacks();
+    lw.prepare_frame_content();
+    assert_eq!(CALLS_B.load(Ordering::SeqCst), 2);
+
+    // `update_image_callback(dom, node)` for this one canvas.
+    let (dom, node) = *lw
+        .image_callback_inputs
+        .keys()
+        .next()
+        .expect("the canvas's inputs are remembered");
+    lw.invalidate_image_callback(dom, node);
+    lw.prepare_frame_content();
+    assert_eq!(CALLS_B.load(Ordering::SeqCst), 3);
+    lw.prepare_frame_content();
+    assert_eq!(CALLS_B.load(Ordering::SeqCst), 3, "and then it rests again");
+}

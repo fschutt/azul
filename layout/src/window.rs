@@ -1058,6 +1058,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
             fragmentation_context: _,
         image_cache: _,
         content_overlay: _,
+        image_callback_inputs: _,
         content_journal: _,
         caret_text_snapshot: _,
         scroll_manager: _,
@@ -1619,6 +1620,12 @@ pub struct LayoutWindow {
     /// overlay→DOM via [`crate::overlay::ResolvedContent`]; the ONLY writer is
     /// [`Self::apply_content_change`].
     pub content_overlay: crate::overlay::ContentOverlay,
+    /// What each `RenderImageCallback` node was last rendered FROM (its
+    /// declared image and its box). A frame invokes a callback only when these
+    /// changed, or when the app asked (`update_image_callback`,
+    /// `update_all_image_callbacks`) - a canvas at rest mints no new
+    /// `ImageRef` and repaints nothing (AzReview never idled, FB3).
+    pub image_callback_inputs: BTreeMap<(DomId, NodeId), ImageCallbackInputs>,
     /// Frame-scoped journal of applied content changes (what the RENDERER may
     /// still need: old images for backends compositing a not-fully-redrawn
     /// buffer, retention = swapchain depth). Fed by the same chokepoint;
@@ -2412,6 +2419,7 @@ impl LayoutWindow {
             font_manager,
             image_cache: ImageCache::default(),
             content_overlay: crate::overlay::ContentOverlay::default(),
+            image_callback_inputs: BTreeMap::new(),
             content_journal: crate::overlay::ContentJournal::default(),
             caret_text_snapshot: None,
             layout_results: BTreeMap::new(),
@@ -8297,6 +8305,18 @@ impl LayoutWindow {
         self.invoke_image_callbacks_into_overlay(&OptionGlContextPtr::None);
     }
 
+    /// The app asked for a new frame of one canvas (`update_image_callback`):
+    /// the next frame invokes its `RenderImageCallback` whatever its inputs.
+    pub fn invalidate_image_callback(&mut self, dom_id: DomId, node_id: NodeId) {
+        self.image_callback_inputs.remove(&(dom_id, node_id));
+    }
+
+    /// The app asked for a new frame of every canvas
+    /// (`update_all_image_callbacks`, e.g. an animating GL texture).
+    pub fn invalidate_all_image_callbacks(&mut self) {
+        self.image_callback_inputs.clear();
+    }
+
     /// The GL/WR twin of [`Self::prepare_frame_content`]: same journal clock,
     /// same manager fingerprints, but image callbacks get a REAL GL context so
     /// they can return `DecodedImage::Gl` textures. Results flow through the
@@ -9026,7 +9046,8 @@ impl LayoutWindow {
         // The DECLARED callback comes from the immutable DOM — the overlay
         // holds produced frames, never the producer.
         let hidpi_factor = self.current_window_state.size.get_hidpi_factor();
-        let mut to_invoke: Vec<(DomId, NodeId, HidpiAdjustedBounds, ImageRef)> = Vec::new();
+        let mut to_invoke: Vec<(DomId, NodeId, HidpiAdjustedBounds, ImageRef, ImageCallbackInputs)> =
+            Vec::new();
         for (dom_id, lr) in &self.layout_results {
             let node_data_container = lr.styled_dom.node_data.as_container();
             for node in &lr.layout_tree.nodes {
@@ -9045,6 +9066,13 @@ impl LayoutWindow {
                         logical_size: size,
                         hidpi_factor,
                     };
+                    // Rendered from these already, and nobody asked for a
+                    // new frame: the overlay still holds it. Invoking would
+                    // only mint a new ImageRef and repaint the rect.
+                    let inputs = ImageCallbackInputs::of(&**image_ref, &bounds);
+                    if self.image_callback_inputs.get(&(*dom_id, node_dom_id)) == Some(&inputs) {
+                        continue;
+                    }
                     to_invoke.push((
                         *dom_id,
                         node_dom_id,
@@ -9052,6 +9080,7 @@ impl LayoutWindow {
                         // NodeType::Image wraps the ImageRef in BoxOrStatic; deref
                         // to clone the inner ImageRef (cheap, refcounted).
                         (**image_ref).clone(),
+                        inputs,
                     ));
                 }
             }
@@ -9065,7 +9094,7 @@ impl LayoutWindow {
         // so the immutable borrows of image_cache/fc_cache don't conflict with
         // the chokepoint application below.
         let mut produced_frames: Vec<(DomId, NodeId, ImageRef)> = Vec::new();
-        for (dom_id, node_id, bounds, image_ref) in to_invoke {
+        for (dom_id, node_id, bounds, image_ref, inputs) in to_invoke {
             let domnode_id = DomNodeId {
                 dom: dom_id,
                 node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
@@ -9088,6 +9117,9 @@ impl LayoutWindow {
                 _ => None,
             };
             if let Some(img) = produced {
+                // Remembered only for a frame that was produced: a callback
+                // that panicked (or had no function) is asked again.
+                self.image_callback_inputs.insert((dom_id, node_id), inputs);
                 produced_frames.push((dom_id, node_id, img));
             }
         }
@@ -24458,6 +24490,10 @@ impl LayoutWindow {
             currently_dragging_thumb,
             pointer_capture,
             content_overlay,
+            // Dropped for the rebuilt DOM (below), not remapped: a rebuild
+            // may have changed the data a canvas draws from, so each of its
+            // canvases renders once more.
+            image_callback_inputs,
             content_journal,
 
             // --- EXEMPT: not keyed by NodeId ---------------------------------
@@ -24713,6 +24749,7 @@ impl LayoutWindow {
         // `layout_and_generate_display_list`, where the new generation is
         // already installed.
         content_overlay.remap_node_ids(dom, map);
+        image_callback_inputs.retain(|(d, _), _| *d != dom);
         // The journal's old-image entries are keyed by pre-swap NodeIds and a
         // generation swap repaints everything anyway — drop this DOM's history
         // rather than remapping it.
@@ -24783,6 +24820,33 @@ impl LayoutWindow {
                 }
                 None => *currently_dragging_thumb = None,
             }
+        }
+    }
+}
+
+/// What a `RenderImageCallback` node was last rendered from
+/// ([`LayoutWindow::image_callback_inputs`]): the declared callback image
+/// (a rebuild that declares a new one changes it) and the box it was asked to
+/// fill. Equal inputs and no explicit update: the frame it produced stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ImageCallbackInputs {
+    /// Identity of the DOM's callback `ImageRef`.
+    pub declared: azul_core::resources::ImageRefHash,
+    /// The laid-out box, logical px (bit patterns: exact equality).
+    pub width_bits: u32,
+    pub height_bits: u32,
+    /// The window's scale factor when it rendered.
+    pub hidpi_factor: azul_core::resources::DpiScaleFactor,
+}
+
+impl ImageCallbackInputs {
+    #[must_use]
+    pub fn of(declared: &ImageRef, bounds: &HidpiAdjustedBounds) -> Self {
+        Self {
+            declared: declared.get_hash(),
+            width_bits: bounds.logical_size.width.to_bits(),
+            height_bits: bounds.logical_size.height.to_bits(),
+            hidpi_factor: bounds.hidpi_factor,
         }
     }
 }

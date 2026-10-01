@@ -6388,12 +6388,20 @@ pub trait PlatformWindow {
                 self.content_change_result(tier)
             }
 
-            CallbackChange::UpdateImageCallback {
-                dom_id: _,
-                node_id: _,
-            } => ProcessEventResult::ShouldReRenderCurrentWindow,
+            // A frame invokes a canvas only when its inputs changed
+            // (`LayoutWindow::image_callback_inputs`); these are the app's
+            // explicit "draw again".
+            CallbackChange::UpdateImageCallback { dom_id, node_id } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.invalidate_image_callback(*dom_id, *node_id);
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
 
             CallbackChange::UpdateAllImageCallbacks => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.invalidate_all_image_callbacks();
+                }
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
 

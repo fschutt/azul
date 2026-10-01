@@ -2475,8 +2475,14 @@ impl Runner {
                 ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
 
-            CallbackChange::UpdateImageCallback { .. }
-            | CallbackChange::UpdateAllImageCallbacks => {
+            // A frame invokes a canvas only when its inputs changed; these are
+            // the app's explicit "draw again" (as in the shells).
+            CallbackChange::UpdateImageCallback { dom_id, node_id } => {
+                self.layout_window.invalidate_image_callback(*dom_id, *node_id);
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+            CallbackChange::UpdateAllImageCallbacks => {
+                self.layout_window.invalidate_all_image_callbacks();
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
 
