@@ -530,4 +530,28 @@ mod tests {
             );
         }
     }
+
+    /// A move or an enter whose node is not in the rebuilt tree has nothing
+    /// to composite against: it only kept the window asking for frames
+    /// (FB3: such keys "sit in `animations` forever"). An exit stays - its
+    /// departing node is retained by a zombie under the old identity.
+    #[test]
+    fn a_move_whose_node_left_the_tree_is_dropped_but_an_exit_is_kept() {
+        let mut m = AnimationManager::new();
+        let mode = InterpolationMode::Spring(Spring::SMOOTH);
+        let moved = FlipTransform {
+            translate_x: 40.0,
+            ..FlipTransform::IDENTITY
+        };
+        m.start_or_retarget_move(AnimKey(1), moved, mode); // node still in the tree
+        m.start_or_retarget_move(AnimKey(2), moved, mode); // node gone
+        m.start_enter(AnimKey(3), (-80.0, 0.0), mode); // node gone
+        m.start_exit(AnimKey(4), (-80.0, 0.0), mode); // retained by a zombie
+        let mut dropped = m.drop_unplaced(|k| k == AnimKey(1));
+        dropped.sort();
+        assert_eq!(dropped, vec![AnimKey(2), AnimKey(3)]);
+        assert!(m.get(AnimKey(1)).is_some());
+        assert!(m.get(AnimKey(4)).is_some());
+        assert_eq!(m.len(), 2);
+    }
 }

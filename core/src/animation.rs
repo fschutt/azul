@@ -586,6 +586,13 @@ impl AnimationManager {
     pub fn cancel(&mut self, key: AnimKey) -> Option<ActiveAnim> {
         self.active.remove(&key)
     }
+
+    /// Drop every move and enter whose node is not in the current tree
+    /// (`placed(key)` is false). Returns the dropped keys.
+    pub fn drop_unplaced<F: Fn(AnimKey) -> bool>(&mut self, placed: F) -> Vec<AnimKey> {
+        let _ = placed; // RED stub
+        Vec::new()
+    }
 }
 
 /// Turn the diff's correspondence map into `(key, First, Last)` triples.
