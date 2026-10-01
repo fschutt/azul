@@ -58,13 +58,15 @@ report section 2 (A's structure and table_width kept, my logic ported, twins fol
   verbatim), `349d1418e` (A's intrinsic-pass cell/table block verbatim; cell width rule moved into
   `calculate_table_intrinsic_sizes`).
 
-## IN PROGRESS (last commit 349d1418e)
-- next: report sections 2 (merge guide for the parent: function by function, A first),
-  3 (WPT list), 4 (commits), 5 (api.json: none), 6 (least sure to compile), 7 (commands),
-  8 (what is left, notes for A). Then final progress + done.
+- Report `scripts/TABLE_B_2026_10_01.md` complete (`7e8a1f22b`): summary, per item, merge guide onto
+  TABLE-A, WPT list with confidence, commits, compile risks, commands, what is left.
 
-## NEXT
-- Report `scripts/TABLE_B_2026_10_01.md`.
+## IN PROGRESS
+- (none) - task complete; waiting for the parent's compile / suite run.
+
+## NEXT (if resumed after the parent's run)
+- Fix whatever the compile shows (start with report section 6), then re-bless the WPT list.
+- Anonymous table objects (report section 8) if the parent assigns them.
 
 ## Decisions (unattended)
 - Table UA defaults (`border-spacing: 2px`, `box-sizing: border-box`) are left to TABLE-A
