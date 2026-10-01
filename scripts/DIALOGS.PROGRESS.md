@@ -12,17 +12,14 @@ Report: scripts/DIALOGS_2026_10_01.md. House rules: no cargo, no rust-analyzer.
   `// RED stub` (scratchpad `dialogs/unstub.py` removes them).
 
 ## IN PROGRESS
-- Phase 3 done: check_row in kit `df0222ddb`, percent_text in kit `96985465e`, standard dialogs
-  RED `a2d17e458` + `e78f38f7d`, GREEN `724338cce`.
-  NEXT STEP: Phase 4 - examples/azul-setup (package AzSetup): Cargo.toml, src/main.rs,
-  src/lib.rs (model + wizard flow + timer progress + settings window/screen + About /
-  message box), registration (root Cargo.toml members, scripts/workspace_test_members.txt,
-  .github/workflows/rust.yml dll_tests step), scripts/azsetup_e2e.py; then AzWidgets
-  "Dialogs" cards (examples/azul-widgets/src/dialogs.rs + lib.rs wiring).
+- Phase 4: AzSetup model `ec5269c71`, window `2a389701b`, registration `c06de4acb`,
+  E2E `2d6d06f79`.
+  NEXT STEP: AzWidgets "Dialogs" section: new file examples/azul-widgets/src/dialogs.rs
+  (cards: wizard frames + pages, ShellSettingsDialog, ShortcutRecorder, PathInput, the five
+  standard dialogs), wired in examples/azul-widgets/src/lib.rs like mail.rs (a `dialogs`
+  field in Showcase, a section call). Then the report scripts/DIALOGS_2026_10_01.md.
 
 ## NEXT
-- Phase 4: examples/azul-setup (AzSetup), AzWidgets "Dialogs" cards, CI wiring,
-  scripts/azsetup_e2e.py.
 - Phase 5: report.
 
 ## Decisions (made unattended)
