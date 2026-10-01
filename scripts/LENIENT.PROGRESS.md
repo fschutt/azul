@@ -3,7 +3,7 @@
 Brief: scratchpad/LENIENT_go.md (lenient XML/HTML, components audit, paste parser).
 
 ## DONE
-- (none yet)
+- `3012f7adf` wip: core/src/xml_html.rs + xml_entities.rs + scripts/gen_html_entities.py (unwired)
 
 ## IN PROGRESS
 - Design: one tree construction (`azul_core::xml::html`) for every loader; a lenient
@@ -13,7 +13,15 @@ Brief: scratchpad/LENIENT_go.md (lenient XML/HTML, components audit, paste parse
   A line-by-line Python mirror (scratchpad/lenient/mirror.py) builds Chrome's tree for 16/18
   corpus mails (the 2 others: foster parenting, a documented simplification) and 43/50 snippets
   (the 7 others: comment nodes, control characters dropped on purpose, simplified adoption).
-- Next: layout adapters (strict tree + document loaders onto the builder, FastDomSink), tests.
+- The layout splice (both strict loaders onto the builder, FastDomSink, feed_xml_tokens) is
+  parked at scratchpad/lenient/mod.rs.new (made by scratchpad/lenient/splice_loaders.py from the
+  base file); layout/src/xml/mod.rs is back at base for the RED commit.
+- NEXT STEP: RED commit = stubs (core: `#[path] pub mod html` with outline + stub parse_html_nodes /
+  decode_character_references; layout: stub parse_html_string / parse_html / parse_html_to_styled_dom
+  = the strict loaders) + tests (core/src/xml_html_test.rs snippets from the mirror,
+  layout/tests/real_mail_html_parses_like_a_browser.rs vs tests/mail_corpus/outlines,
+  layout/tests/the_two_xml_loaders_build_one_tree.rs). Then GREEN: wire xml_html.rs + entities,
+  copy mod.rs.new + the lenient pub fns, element_draws_nothing pub, lowercase tags in core builders.
 
 ## NEXT
 1. RED: lenient parse of the mail corpus + E-XML-3 (the two loaders agree).
