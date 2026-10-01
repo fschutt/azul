@@ -68,7 +68,7 @@ use crate::{
         roving,
         themes::{OptionUiTheme, UiTheme},
         tree_view::{
-            TreeView, TreeViewNode, TreeViewOnNodeClickCallbackType,
+            TreeView, TreeViewNode, TreeViewOnNodeClickCallbackType, TreeViewOnNodeDropCallbackType,
             TreeViewOnNodeToggleCallbackType,
         },
     },
@@ -116,6 +116,9 @@ pub enum ShellNavigationPaneEventKind {
     ModuleSelected,
     /// The collapse chevron: `expand` asks for the expanded pane.
     CollapseToggled,
+    /// A drag was dropped on node `index` of group `group` (the app moves
+    /// what it dragged there: a task to a list, a message to a folder).
+    NodeDropped,
 }
 
 /// One action on the pane: what, in which group, which node or module.
@@ -591,6 +594,18 @@ extern "C" fn on_tree_toggle(
     )
 }
 
+extern "C" fn on_tree_drop(mut data: RefAny, info: CallbackInfo, node: usize) -> Update {
+    let group = group_of(&mut data);
+    emit(
+        &mut data,
+        info,
+        ShellNavigationPaneEventKind::NodeDropped,
+        group,
+        node,
+        false,
+    )
+}
+
 extern "C" fn on_module_click(mut data: RefAny, info: CallbackInfo) -> Update {
     let index = data.downcast_ref::<PartRef>().map_or(0, |p| p.index);
     emit(
@@ -840,7 +855,12 @@ fn groups(
             });
             let mut tree = TreeView::new(g.tree)
                 .with_on_node_click(group_ref.clone(), on_tree_click as TreeViewOnNodeClickCallbackType)
-                .with_on_node_toggle(group_ref, on_tree_toggle as TreeViewOnNodeToggleCallbackType);
+                .with_on_node_toggle(group_ref.clone(), on_tree_toggle as TreeViewOnNodeToggleCallbackType);
+            // A pane the app listens to is a drop target: a drop on a node is
+            // its `NodeDropped`.
+            if on_event.is_some() {
+                tree = tree.with_on_node_drop(group_ref, on_tree_drop as TreeViewOnNodeDropCallbackType);
+            }
             if let Some(t) = inner {
                 tree = tree.with_theme(t);
             }

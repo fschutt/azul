@@ -92,6 +92,36 @@ azul_core::impl_managed_callback! {
     extra_args:     [ node_index: usize, expand: bool ],
 }
 
+/// Callback invoked when a drag is DROPPED on a row: a task on a list, a
+/// message on a folder, a file on a folder.
+///
+/// `node_index` is the row's depth-first index, exactly as for
+/// [`TreeViewOnNodeClickCallbackType`]. The tree knows nothing of what is
+/// dragged: the app kept it when the drag started, or reads it
+/// (`CallbackInfo::get_drag_data`). With the hook set, every row accepts a
+/// drag over it.
+pub type TreeViewOnNodeDropCallbackType = extern "C" fn(RefAny, CallbackInfo, usize) -> Update;
+impl_widget_callback!(
+    TreeViewOnNodeDrop,
+    OptionTreeViewOnNodeDrop,
+    TreeViewOnNodeDropCallback,
+    TreeViewOnNodeDropCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        TreeViewOnNodeDropCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: TREE_VIEW_ON_NODE_DROP_INVOKER,
+    invoker_ty:     AzTreeViewOnNodeDropCallbackInvoker,
+    thunk_fn:       az_tree_view_on_node_drop_callback_thunk,
+    setter_fn:      AzApp_setTreeViewOnNodeDropCallbackInvoker,
+    from_handle_fn: AzTreeViewOnNodeDropCallback_createFromHostHandle,
+    from_handle_byref_fn: AzTreeViewOnNodeDropCallback_createFromHostHandleByref,
+    extra_args:     [ node_index: usize ],
+}
+
 /// The class of the tree's container and of every row: how the arrow-key
 /// handler finds the tree it is in and tells rows from children containers.
 const TREE_CLASS_NAME: &str = "__azul-native-tree-view";
@@ -566,6 +596,9 @@ pub struct TreeView {
     /// (Right on a closed parent, Left on an open one). Without it those two
     /// keys do nothing; every other key of the tree works regardless.
     pub on_node_toggle: OptionTreeViewOnNodeToggle,
+    /// Optional callback fired when a drag is dropped on a row; with it, the
+    /// tree is a drop target (every row accepts a drag over it).
+    pub on_node_drop: OptionTreeViewOnNodeDrop,
     /// The widget theme this tree is PINNED to (`with_theme`), or `None` to
     /// follow the app theme (`AppConfig::with_theme`,
     /// `CallbackInfo::set_theme`; flat unless the app chose another).
@@ -580,6 +613,7 @@ impl TreeView {
             root,
             on_node_click: None.into(),
             on_node_toggle: None.into(),
+            on_node_drop: None.into(),
             theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
@@ -645,6 +679,31 @@ impl TreeView {
         self
     }
 
+    /// Sets the callback invoked when a drag is dropped on a row; the tree
+    /// becomes a drop target.
+    pub fn set_on_node_drop<C: Into<TreeViewOnNodeDropCallback>>(
+        &mut self,
+        data: RefAny,
+        callback: C,
+    ) {
+        self.on_node_drop = Some(TreeViewOnNodeDrop {
+            callback: callback.into(),
+            refany: data,
+        })
+        .into();
+    }
+
+    /// Builder method: sets the node-drop callback.
+    #[must_use]
+    pub fn with_on_node_drop<C: Into<TreeViewOnNodeDropCallback>>(
+        mut self,
+        data: RefAny,
+        callback: C,
+    ) -> Self {
+        self.set_on_node_drop(data, callback);
+        self
+    }
+
     /// Renders the tree view into a [`Dom`] subtree.
     ///
     /// The look comes from the theme module (`themes::flat::tree_view_look` /
@@ -674,6 +733,7 @@ impl TreeView {
         let rows = RowContext {
             on_click: self.on_node_click,
             on_toggle: self.on_node_toggle,
+            on_drop: self.on_node_drop,
             stop,
             look,
             badge,
@@ -800,6 +860,8 @@ impl TreeViewBadgeLook {
 struct RowContext {
     on_click: OptionTreeViewOnNodeClick,
     on_toggle: OptionTreeViewOnNodeToggle,
+    /// The app's drop hook: with it every row is a drop target.
+    on_drop: OptionTreeViewOnNodeDrop,
     /// The depth-first index of the row that holds the tree's one Tab stop.
     stop: usize,
     /// The styles every row, icon, label and children container takes.
@@ -844,6 +906,7 @@ fn render_node(
     let rows = RowContext {
         on_click: on_click.clone(),
         on_toggle: None.into(),
+        on_drop: None.into(),
         stop: *index,
         look: crate::widgets::themes::flat::tree_view_look(),
         badge: crate::widgets::themes::flat::tree_view_badge_look(),
@@ -1003,6 +1066,29 @@ fn render_rows(node: &TreeViewNode, rows: &RowContext, index: &mut usize, out: &
             },
         });
     }
+    // A drop target when the app takes drops: a drag over the row is
+    // accepted, a drop reports the row's node.
+    if let Some(hook) = rows.on_drop.as_ref() {
+        callbacks.push(CoreCallbackData {
+            event: EventFilter::Hover(HoverEventFilter::DragOver),
+            refany: RefAny::new(DragOverData),
+            callback: CoreCallback {
+                cb: on_tree_row_drag_over as usize,
+                ctx: azul_core::refany::OptionRefAny::None,
+            },
+        });
+        callbacks.push(CoreCallbackData {
+            event: EventFilter::Hover(HoverEventFilter::Drop),
+            refany: RefAny::new(NodeDropData {
+                node_index: current_index,
+                on_node_drop: Some(hook.clone()).into(),
+            }),
+            callback: CoreCallback {
+                cb: on_tree_row_drop as usize,
+                ctx: azul_core::refany::OptionRefAny::None,
+            },
+        });
+    }
     row = row.with_callbacks(callbacks.into());
 
     out.push(row);
@@ -1063,6 +1149,35 @@ fn count_descendants(nodes: &[TreeViewNode], index: &mut usize) {
 struct NodeClickData {
     node_index: usize,
     on_node_click: OptionTreeViewOnNodeClick,
+}
+
+/// What a drag over a drop-target row carries: nothing (it only accepts).
+struct DragOverData;
+
+/// What a drop on a row carries: the node, and the app's drop hook.
+struct NodeDropData {
+    node_index: usize,
+    on_node_drop: OptionTreeViewOnNodeDrop,
+}
+
+/// A drag over a row of a tree that takes drops: accept it.
+extern "C" fn on_tree_row_drag_over(_data: RefAny, mut info: CallbackInfo) -> Update {
+    info.accept_drop();
+    Update::DoNothing
+}
+
+/// A drop on a row: the app hears which node it landed on.
+extern "C" fn on_tree_row_drop(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some(mut data) = data.downcast_mut::<NodeDropData>() else {
+        return Update::DoNothing;
+    };
+    let node_index = data.node_index;
+    match data.on_node_drop.as_mut() {
+        Some(TreeViewOnNodeDrop { refany, callback }) => {
+            callback.invoke(refany.clone(), info, node_index)
+        }
+        None => Update::DoNothing,
+    }
 }
 
 /// What the arrow-key handler needs to know about the row it runs on.

@@ -588,7 +588,9 @@ extern "C" fn on_nav_event(mut data: RefAny, _info: CallbackInfo, event: ShellNa
                 s.group_open[event.group] = event.expand;
             }
         }
-        ShellNavigationPaneEventKind::NodeClicked | ShellNavigationPaneEventKind::NodeToggled => {}
+        ShellNavigationPaneEventKind::NodeClicked
+        | ShellNavigationPaneEventKind::NodeToggled
+        | ShellNavigationPaneEventKind::NodeDropped => {}
     }
     Update::RefreshDom
 }
