@@ -22,6 +22,7 @@ members = [
     "examples/azul-videocut", # AzVideoCut: Premiere-like editor on TimelineShell (Mp4Demuxer/VideoDecoder, CPU compositor, VideoEncoder/Mp4Muxer export)
     "examples/azul-show", # AzShow: the PowerPoint clone (S1 shell, deck files show/<uuid>/deck.json, show + presenter)
     "examples/azul-photo", # AzPhoto: the photo editor on CanvasShell, its own tiled raster core behind RasterEngine
+    "examples/azul-sheets", # AzSheets: the spreadsheet (IronCalc on a 256 MB worker thread behind the CellGrid widget)
     "dll", # dll module with auto-gen C functions (optional pyO3 support), depends on layout, core and css
     "doc", # doc / test generator, depends on layout, core and css
     "layout", # layout depends on core + css
