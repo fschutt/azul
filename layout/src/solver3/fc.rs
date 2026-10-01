@@ -8547,46 +8547,76 @@ fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
     let Some(cell_node) = tree.get(LayoutNodeId::new(cell_index)) else {
         return 0.0;
     };
-
-    let cell_bp = cell_node.box_props.unpack();
-
-    // +spec:inline-formatting-context:27be38 - cell baseline is first in-flow line box or bottom of
-    // content edge Check if the cell has inline layout (first in-flow line box)
-    if let Some(warm_node) = tree.warm(LayoutNodeId::new(cell_index)) {
-        if let Some(ref cached_layout) = warm_node.inline_layout_result {
-            // (d6h) Materialized: sentinel-safe first-line baseline.
-            let inline_result = cached_layout.materialized();
-            // The baseline is the ascent of the first item from the top of the cell
-            if let Some(first_item) = inline_result.items.first() {
-                let (item_ascent, _) =
-                    text3::cache::get_item_vertical_metrics_approx(&first_item.item);
-                let padding_top = cell_bp.padding.top;
-                let border_top = cell_bp.border.top;
-                return padding_top + border_top + first_item.position.y + item_ascent;
-            }
-        }
-    }
-
-    // Check children for first in-flow line box
-    let children = tree.children(cell_index);
-    for &child_idx in children {
-        if child_idx < tree.nodes.len() {
-            if let Some(child_warm) = tree.warm(LayoutNodeId::new(child_idx)) {
-                if child_warm.inline_layout_result.is_some() {
-                    let child_baseline = compute_cell_baseline(child_idx, tree);
-                    let padding_top = cell_bp.padding.top;
-                    let border_top = cell_bp.border.top;
-                    return padding_top + border_top + child_baseline;
-                }
-            }
-        }
+    if let Some(baseline) = first_line_baseline(cell_index, tree, 0) {
+        return baseline;
     }
 
     // No line box found: baseline is the bottom of the content edge
+    let cell_bp = cell_node.box_props.unpack();
     let used_size = cell_node.used_size.unwrap_or_default();
     let padding_bottom = cell_bp.padding.bottom;
     let border_bottom = cell_bp.border.bottom;
     used_size.height - padding_bottom - border_bottom
+}
+
+/// The baseline of the first in-flow line box inside a box, measured from
+/// the top of its border box: its own first line when it holds lines, else
+/// the first of its in-flow children's - at any depth, offset by where each
+/// child sits (`<td><div style="padding-top: 40px">data</div></td>` has its
+/// baseline 40px further down than the div's own line).
+fn first_line_baseline(index: usize, tree: &LayoutTree, depth: usize) -> Option<f32> {
+    // +spec:inline-formatting-context:27be38 - cell baseline is first in-flow line box or bottom of
+    // content edge
+    const MAX_DEPTH: usize = 64;
+    let node = tree.get(LayoutNodeId::new(index))?;
+    let bp = node.box_props.unpack();
+    let content_top = bp.padding.top + bp.border.top;
+    if let Some(cached_layout) = tree
+        .warm(LayoutNodeId::new(index))
+        .and_then(|w| w.inline_layout_result.as_ref())
+    {
+        // (d6h) Materialized: sentinel-safe first-line baseline.
+        let inline_result = cached_layout.materialized();
+        if let Some(first_item) = inline_result.items.first() {
+            let (item_ascent, _) = text3::cache::get_item_vertical_metrics_approx(&first_item.item);
+            return Some(content_top + first_item.position.y + item_ascent);
+        }
+    }
+    if depth >= MAX_DEPTH {
+        return None;
+    }
+    for &child in tree.children(index) {
+        let child_top = tree
+            .warm(LayoutNodeId::new(child))
+            .and_then(|w| w.relative_position)
+            .map_or(0.0, |p| p.y);
+        if let Some(baseline) = first_line_baseline(child, tree, depth + 1) {
+            return Some(content_top + child_top + baseline);
+        }
+    }
+    None
+}
+
+/// A table cell's `vertical-align` (CSS 2.2 17.5.3), `baseline` when unset
+/// or for an anonymous cell.
+fn cell_vertical_align(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> StyleVerticalAlign {
+    dom_id.map_or(StyleVerticalAlign::Baseline, |dom_id| {
+        let node_state = styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+        match get_vertical_align_property(styled_dom, dom_id, &node_state) {
+            MultiValue::Exact(v) => v,
+            _ => StyleVerticalAlign::Baseline,
+        }
+    })
+}
+
+/// Does this alignment put the cell on the row's baseline? (`sub`, `super`,
+/// `text-top`, `text-bottom`, lengths and percentages fall back to baseline
+/// in a table cell, CSS 2.2 17.5.3.)
+fn is_baseline_aligned(va: StyleVerticalAlign) -> bool {
+    !matches!(
+        va,
+        StyleVerticalAlign::Top | StyleVerticalAlign::Middle | StyleVerticalAlign::Bottom
+    )
 }
 
 /// +spec:box-model:72b495 - Table row height = max of computed height and MIN required by cells;
@@ -9108,60 +9138,63 @@ fn position_table_cells<T: ParsedFontTrait>(
             .warm(LayoutNodeId::new(cell_info.node_index))
             .is_some_and(|w| w.inline_layout_result.is_some());
         if !cell_has_inline {
-            let vertical_align = cell_dom_node_id.map_or(StyleVerticalAlign::Baseline, |dom_id| {
-                let node_state =
-                    ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-                match get_vertical_align_property(ctx.styled_dom, dom_id, &node_state) {
-                    MultiValue::Exact(v) => v,
-                    _ => StyleVerticalAlign::Baseline,
+            let vertical_align = cell_vertical_align(ctx.styled_dom, cell_dom_node_id);
+            let children: Vec<usize> = tree.children(cell_info.node_index).to_vec();
+            // Natural content height = furthest in-flow child bottom edge,
+            // measured from the cell content-box top (relative_position is
+            // relative to the parent content box).
+            let mut content_height = 0.0f32;
+            let mut inflow: Vec<usize> = Vec::new();
+            for &c in &children {
+                let dom_id = tree.get(LayoutNodeId::new(c)).and_then(|n| n.dom_node_id);
+                if matches!(
+                    get_position_type(ctx.styled_dom, dom_id),
+                    LayoutPosition::Absolute | LayoutPosition::Fixed
+                ) {
+                    continue; // out-of-flow children are unaffected by vertical-align
                 }
-            });
-
-            // Only middle/bottom reposition block content; top and baseline leave it
-            // at the content-box top (the default block position).
-            let factor = match vertical_align {
-                StyleVerticalAlign::Middle => 0.5,
-                StyleVerticalAlign::Bottom => 1.0,
-                _ => 0.0,
-            };
-            if factor > 0.0 {
-                let children: Vec<usize> = tree.children(cell_info.node_index).to_vec();
-                // Natural content height = furthest in-flow child bottom edge,
-                // measured from the cell content-box top (relative_position is
-                // relative to the parent content box).
-                let mut content_height = 0.0f32;
-                let mut inflow: Vec<usize> = Vec::new();
-                for &c in &children {
-                    let dom_id = tree.get(LayoutNodeId::new(c)).and_then(|n| n.dom_node_id);
-                    if matches!(
-                        get_position_type(ctx.styled_dom, dom_id),
-                        LayoutPosition::Absolute | LayoutPosition::Fixed
-                    ) {
-                        continue; // out-of-flow children are unaffected by vertical-align
+                let top = tree
+                    .warm(LayoutNodeId::new(c))
+                    .and_then(|w| w.relative_position)
+                    .map_or(0.0, |p| p.y);
+                let h = tree
+                    .get(LayoutNodeId::new(c))
+                    .and_then(|n| n.used_size)
+                    .map_or(0.0, |s| s.height);
+                content_height = content_height.max(top + h);
+                inflow.push(c);
+            }
+            let content_box_height = height
+                - cell_box_props.padding.main_start(writing_mode)
+                - cell_box_props.padding.main_end(writing_mode)
+                - cell_box_props.border.main_start(writing_mode)
+                - cell_box_props.border.main_end(writing_mode);
+            // middle / bottom place the content in the content box; a
+            // baseline cell moves its content down until its first line sits
+            // on the row's baseline (the line may be deep inside a block,
+            // `<td><div>data</div></td>`); top leaves it where it is.
+            let y_offset = match vertical_align {
+                StyleVerticalAlign::Top => 0.0,
+                StyleVerticalAlign::Middle => (content_box_height - content_height) * 0.5,
+                StyleVerticalAlign::Bottom => content_box_height - content_height,
+                _ => {
+                    let row_baseline = table_ctx
+                        .row_baselines
+                        .get(cell_info.row)
+                        .copied()
+                        .unwrap_or(0.0);
+                    if cell_info.rowspan == 1 {
+                        (row_baseline - precomputed_cell_baseline).max(0.0)
+                    } else {
+                        0.0
                     }
-                    let top = tree
-                        .warm(LayoutNodeId::new(c))
-                        .and_then(|w| w.relative_position)
-                        .map_or(0.0, |p| p.y);
-                    let h = tree
-                        .get(LayoutNodeId::new(c))
-                        .and_then(|n| n.used_size)
-                        .map_or(0.0, |s| s.height);
-                    content_height = content_height.max(top + h);
-                    inflow.push(c);
                 }
-                let content_box_height = height
-                    - cell_box_props.padding.main_start(writing_mode)
-                    - cell_box_props.padding.main_end(writing_mode)
-                    - cell_box_props.border.main_start(writing_mode)
-                    - cell_box_props.border.main_end(writing_mode);
-                let y_offset = (content_box_height - content_height) * factor;
-                if y_offset > 0.01 {
-                    for &c in &inflow {
-                        if let Some(w) = tree.warm_mut(LayoutNodeId::new(c)) {
-                            if let Some(pos) = w.relative_position.as_mut() {
-                                pos.y += y_offset;
-                            }
+            };
+            if y_offset > 0.01 {
+                for &c in &inflow {
+                    if let Some(w) = tree.warm_mut(LayoutNodeId::new(c)) {
+                        if let Some(pos) = w.relative_position.as_mut() {
+                            pos.y += y_offset;
                         }
                     }
                 }
