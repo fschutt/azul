@@ -2553,6 +2553,7 @@ mod theme_contrast {
         "navigation_pane (collapsed)",
         "command_palette",
         "settings_layout",
+        "settings_dialog",
         "empty_state",
         "theme_scope",
         "document_shell",

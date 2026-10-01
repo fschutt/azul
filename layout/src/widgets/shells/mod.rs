@@ -739,6 +739,10 @@ pub(crate) mod fixtures {
             ),
             ("command_palette", command_palette().dom()),
             ("settings_layout", settings_layout().dom()),
+            (
+                "settings_dialog",
+                super::settings_dialog::settings_dialog_fixtures::dialog().dom()
+            ),
             ("empty_state", empty_state().dom()),
             ("theme_scope", ShellThemeScope::create(slot()).dom()),
             (
@@ -850,6 +854,12 @@ pub(crate) mod fixtures {
                 settings_layout().with_theme(theme).dom()
             ),
             (
+                alloc::format!("settings_dialog ({})", theme.name()),
+                super::settings_dialog::settings_dialog_fixtures::dialog()
+                    .with_theme(theme)
+                    .dom()
+            ),
+            (
                 alloc::format!("empty_state ({})", theme.name()),
                 empty_state().with_theme(theme).dom()
             ),
@@ -889,6 +899,7 @@ mod shell_lints {
         "__azul-native-navigation-pane",
         "__azul-native-command-palette",
         "__azul-native-settings-layout",
+        "__azul-native-settings-dialog",
         "__azul-native-empty-state",
         "__azul-native-theme-scope",
         "__azul-native-browser-shell",
