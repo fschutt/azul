@@ -311,3 +311,191 @@ extern "C" fn on_dropped_file(mut data: RefAny, mut info: CallbackInfo) -> Updat
         Update::DoNothing
     })
 }
+
+// ==== The navigation pane ====
+
+/// The notebooks in the tree's depth-first order (index 0 is the tree's
+/// root, "Notebooks"): what a click on node `i` names.
+fn notebook_order(nodes: &[NotebookNode], out: &mut Vec<String>) {
+    for node in nodes {
+        out.push(node.path.clone());
+        notebook_order(&node.children, out);
+    }
+}
+
+fn notebook_node(node: &NotebookNode, s: &AppState) -> TreeViewNode {
+    let selected = s.query.scope == Scope::Notebook(node.path.clone());
+    let mut tree = TreeViewNode::create(format!("{} ({})", node.name, node.count))
+        .with_icon("folder")
+        .with_selected(selected)
+        .with_expanded(s.nav.expanded.contains(&node.path));
+    for child in &node.children {
+        tree = tree.with_child(notebook_node(child, s));
+    }
+    tree
+}
+
+/// The tags in their tree's order (after the root, "Tags").
+fn tag_order(s: &AppState) -> Vec<String> {
+    s.library.tags().into_iter().map(|(t, _)| t).collect()
+}
+
+fn navigation_pane(s: &AppState, app: &RefAny) -> Dom {
+    let counts = s.library.counts();
+    let library = TreeViewNode::create(format!("All notes ({})", counts.all))
+        .with_icon("notes")
+        .with_expanded(true)
+        .with_selected(s.query.scope == Scope::All)
+        .with_child(
+            TreeViewNode::create(format!("Pinned ({})", counts.pinned))
+                .with_icon("push_pin")
+                .with_selected(s.query.scope == Scope::Pinned),
+        )
+        .with_child(
+            TreeViewNode::create(format!("Trash ({})", counts.trash))
+                .with_icon("delete")
+                .with_selected(s.query.scope == Scope::Trash),
+        );
+    let tree = s.library.notebook_tree();
+    let mut notebooks = TreeViewNode::create("Notebooks")
+        .with_icon("menu_book")
+        .with_expanded(true);
+    for node in &tree {
+        notebooks = notebooks.with_child(notebook_node(node, s));
+    }
+    let mut tags = TreeViewNode::create("Tags").with_icon("sell").with_expanded(true);
+    for (tag, count) in s.library.tags() {
+        let selected = matches!(&s.query.scope, Scope::Tag(t) if t.eq_ignore_ascii_case(&tag));
+        tags = tags.with_child(
+            TreeViewNode::create(format!("#{tag} ({count})"))
+                .with_icon("tag")
+                .with_selected(selected),
+        );
+    }
+    let header = Dom::create_div()
+        .with_css("display: flex; flex-direction: row; align-items: center;")
+        .with_child(
+            Button::create("New note")
+                .with_icon("note_add")
+                .with_button_type(ButtonType::Primary)
+                .with_on_click(app.clone(), on_new_note as ButtonOnClickCallbackType)
+                .dom()
+                .with_id("new-note")
+                .with_css("margin-right: 6px;"),
+        )
+        .with_child(
+            Button::create("")
+                .with_icon("create_new_folder")
+                .with_on_click(app.clone(), on_new_notebook as ButtonOnClickCallbackType)
+                .dom()
+                .with_id("new-notebook")
+                .with_accessibility_name("New notebook"),
+        );
+    ShellNavigationPane::create()
+        .with_header(header)
+        .with_group(
+            ShellNavigationGroup::create("Library", library)
+                .with_count(counts.all)
+                .with_open(s.nav.groups_open[0]),
+        )
+        .with_group(
+            ShellNavigationGroup::create("Notebooks", notebooks)
+                .with_count(tree.len())
+                .with_open(s.nav.groups_open[1]),
+        )
+        .with_group(ShellNavigationGroup::create("Tags", tags).with_open(s.nav.groups_open[2]))
+        .with_label("Notebooks and tags")
+        .with_collapsed(s.nav.collapsed)
+        .with_on_event(app.clone(), on_nav_event as ShellNavigationPaneOnEventCallbackType)
+        .dom()
+}
+
+/// Shows `scope`; the open note stays open when the list holds it, else
+/// the list's first note opens.
+pub fn show_scope(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, scope: Scope) {
+    s.query.scope = scope;
+    s.screen = Screen::Notes;
+    let rows = s
+        .library
+        .rows(&s.query, azul_storage::time::now_unix(), AppState::utc_offset());
+    let listed: Vec<String> = rows
+        .iter()
+        .filter_map(|r| match r {
+            ListRow::Note(i) => Some(s.library.notes[*i].id.clone()),
+            ListRow::Section(_) => None,
+        })
+        .collect();
+    let keep = s.open.as_ref().is_some_and(|id| listed.contains(id));
+    if !keep {
+        if let Some(first) = listed.first() {
+            let first = first.clone();
+            jobs::open_note(info, app, s, &first);
+        }
+    }
+}
+
+extern "C" fn on_nav_event(mut data: RefAny, mut info: CallbackInfo, event: ShellNavigationPaneEvent) -> Update {
+    with_state(&mut data, &mut info, |s, info, app| {
+        match event.kind {
+            ShellNavigationPaneEventKind::NodeClicked => {
+                let scope = match (event.group, event.index) {
+                    (0, 1) => Scope::Pinned,
+                    (0, 2) => Scope::Trash,
+                    (1, i) if i > 0 => {
+                        let mut order = Vec::new();
+                        notebook_order(&s.library.notebook_tree(), &mut order);
+                        match order.get(i - 1) {
+                            Some(path) => Scope::Notebook(path.clone()),
+                            None => Scope::All,
+                        }
+                    }
+                    (2, i) if i > 0 => match tag_order(s).get(i - 1) {
+                        Some(tag) => Scope::Tag(tag.clone()),
+                        None => Scope::All,
+                    },
+                    _ => Scope::All,
+                };
+                println!("AZNOTES_SCOPE {}", scope.label());
+                show_scope(info, app, s, scope);
+            }
+            ShellNavigationPaneEventKind::NodeToggled => {
+                if event.group == 1 && event.index > 0 {
+                    let mut order = Vec::new();
+                    notebook_order(&s.library.notebook_tree(), &mut order);
+                    if let Some(path) = order.get(event.index - 1).cloned() {
+                        if event.expand {
+                            s.nav.expanded.insert(path);
+                        } else {
+                            s.nav.expanded.remove(&path);
+                        }
+                    }
+                }
+            }
+            ShellNavigationPaneEventKind::GroupToggled => {
+                if let Some(open) = s.nav.groups_open.get_mut(event.group) {
+                    *open = event.expand;
+                }
+            }
+            ShellNavigationPaneEventKind::CollapseToggled => s.nav.collapsed = !event.expand,
+            ShellNavigationPaneEventKind::ModuleSelected => {}
+        }
+        Update::RefreshDom
+    })
+}
+
+extern "C" fn on_new_note(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |s, info, app| {
+        jobs::new_note(info, app, s);
+        Update::RefreshDom
+    })
+}
+
+extern "C" fn on_new_notebook(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |s, _, _| {
+        s.overlay = Overlay::NewNotebook {
+            name: String::new(),
+            error: String::new(),
+        };
+        Update::RefreshDom
+    })
+}
