@@ -16,7 +16,8 @@ parse-checked with `rustfmt --edition 2021 --check`. Report: `scripts/TASKS_2026
 
 - UI written: state.rs, jobs.rs, nav.rs, list.rs (`5acb8c983`), detail.rs (`f4886366a`, `f494ee873`), listedit.rs (`eb13dce20`), chrome.rs (`ec8f10b3e`), backstage.rs (`a0504a540`), lib.rs (`5c37a8edc`).
 - Compile-read done (scratchpad `methods.py` checks every called method against the generated bindings; only false positives). `scripts/aztasks_e2e.py` written (`29f35763f`).
-- NEXT STEP: engine gaps (RED then GREEN in azul) - candidates in the Open questions below; then the report `scripts/TASKS_2026_10_01.md`.
+- G1 done: `81898c7b6` RED / `003181699` GREEN (get_node_attribute reads the contenteditable / tabindex flags); the app uses it (`8f86dae74`).
+- NEXT STEP: G2 - TreeView drop target (`TreeView::with_on_node_drop`, a row takes DragOver/Drop and reports its node) + ShellNavigationPane `NodeDropped`; RED in tree_view.rs + navigation_pane.rs tests, GREEN, then AzTasks: dropping a task row on a list in the navigation pane moves it there. Then the report.
 
 - App UI on PimShell, one module per file, each committed when written:
   `state.rs` (the app state + mutations) -> `jobs.rs` (Thread jobs, the write queue pump)
