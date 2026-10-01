@@ -11,15 +11,16 @@ Resume: read this, then `git status`, `git log -3`, continue at NEXT.
 - Engine layer (written by a fork on wt/sheets-engine, cherry-picked): ac41cc2c3 Cargo.toml + engine.rs,
   a66835b6e fake_engine.rs, 7c02c695f ops.rs, f3cd9cd52 worker.rs + sample.rs, 7c4218950 storage.rs,
   e26f77d1f ironcalc_engine.rs, c13246b19 scripts/SHEETS_ENGINE_REPORT.md (its least-sure list).
+- 486903794 worker Command::SumRange (+ test); 56ebd973d args.rs + main.rs; 7b9f232ca functions.rs (catalogue +
+  autocomplete); f886e0159 model.rs (fetch spans, fill targets, decimals, status numbers, tsv_of);
+  lib.rs: 3af90670c state/cache/mapping, 13d2d8db2 engine plumbing + storage jobs, c41fc5c14 layout,
+  0fe3d3bc6 callbacks/startup, 741658fe8 lib tests; 6253de85d workspace/test-members/CI registration.
 
 ## NEXT (precise)
-1. examples/azul-sheets/src/lib.rs (the UI) in pieces: (a) module decls + AppState + start() + main.rs +
-   args.rs; (b) engine plumbing (send command + azul Thread waiter + writeback applying the Snapshot);
-   (c) layout: DocumentShell + Titlebar + ribbon + formula bar + CellGrid (data/style callbacks over the
-   snapshot) + sheet tabs + status bar; (d) event handlers (grid events, ribbon actions, formula bar,
-   name box, sheet tabs, backstage New/Open/Save/Save as/Export CSV); (e) unit tests of the UI model.
-2. Register the app: root Cargo.toml member, scripts/workspace_test_members.txt, rust.yml dll_tests step.
-3. scripts/azsheets_e2e.py; report scripts/SHEETS_2026_10_01.md (api.json list for CellGrid + a11y).
+1. scripts/azsheets_e2e.py (model: examples/azul-shells/scripts/shells_e2e.py): type numbers + =SUM, check the
+   AZSHEETS_CELL / AZSHEETS_STATS lines and the status bar, sort a range, freeze a pane, save and reopen.
+2. Report scripts/SHEETS_2026_10_01.md (api.json list for CellGrid + the a11y fields, least-sure list incl.
+   the engine fork's scripts/SHEETS_ENGINE_REPORT.md, test commands). Commit.
 
 ## Design decisions (taken, unattended)
 - IronCalc pinned to =0.8.3 (crates.io max_stable_version on 2026-10-01, same as the engine study).
