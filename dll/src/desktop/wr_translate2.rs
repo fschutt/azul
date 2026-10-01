@@ -1115,24 +1115,7 @@ fn translate_update_image(update_image: UpdateImage) -> Option<WrUpdateImage> {
         flags |= WrImageDescriptorFlags::ALLOW_MIPMAPS;
     }
 
-    // ImageDirtyRect is an enum in azul-core
-    let dirty_rect = match update_image.dirty_rect {
-        ImageDirtyRect::All => DirtyRect::All,
-        ImageDirtyRect::Partial(rect) => {
-            use webrender::{
-                api::units::DevicePixel,
-                euclid::{Box2D, Point2D},
-            };
-
-            DirtyRect::Partial(Box2D::new(
-                Point2D::new(rect.origin.x as i32, rect.origin.y as i32),
-                Point2D::new(
-                    (rect.origin.x + rect.size.width) as i32,
-                    (rect.origin.y + rect.size.height) as i32,
-                ),
-            ))
-        }
-    };
+    let dirty_rect = translate_dirty_rect(&update_image.dirty_rect);
 
     Some(WrUpdateImage {
         key: translate_image_key(update_image.key),
@@ -1454,29 +1437,35 @@ pub struct OverlayImageUpload {
     /// A chroma plane the key no longer needs (the tile turned from NV12 to
     /// a packed format): `delete_image` it.
     pub drop_chroma: Option<ImageKey>,
+    /// The part of the frame to upload: `All` for a new key or a frame of
+    /// another pixel shape, else the region the app said it repainted
+    /// (`CallbackInfo::change_node_image_rect`), clipped to the frame.
+    pub dirty: ImageDirtyRect,
 }
 
 /// Plan the uploads of this frame's in-place-replaced node images.
 ///
-/// `frames` are the content overlay's images by node. Every raw frame that is
-/// not registered yet goes under its node's stable key: the node's first
-/// frame mints the key (an `add_image`), every later one UPDATES it (pixels
-/// only - no new key, so neither the display list nor the scene is rebuilt).
-/// The frame's hash resolves to the key, and the frame the key showed before
-/// is forgotten (never `DeleteImage`d: the key lives on). An NV12 frame gets
-/// a second stable key for its chroma plane.
+/// `frames` are the content overlay's images by node, each with the region of
+/// it the renderer has not uploaded yet (`ContentOverlay::image_dirty`). Every
+/// raw frame that is not registered yet goes under its node's stable key: the
+/// node's first frame mints the key (an `add_image`), every later one UPDATES
+/// it (pixels only - no new key, so neither the display list nor the scene is
+/// rebuilt), and only its dirty region when the key already holds a frame of
+/// the same pixel shape. The frame's hash resolves to the key, and the frame
+/// the key showed before is forgotten (never `DeleteImage`d: the key lives
+/// on). An NV12 frame gets a second stable key for its chroma plane.
 pub fn plan_overlay_image_uploads<'a, I>(
     frames: I,
     rr: &mut azul_core::resources::RendererResources,
     namespace: azul_core::resources::IdNamespace,
 ) -> Vec<OverlayImageUpload>
 where
-    I: Iterator<Item = ((DomId, NodeId), &'a ImageRef)>,
+    I: Iterator<Item = ((DomId, NodeId), &'a ImageRef, ImageDirtyRect)>,
 {
     use azul_core::resources::{DecodedImage, ResolvedImage};
 
     let mut uploads = Vec::new();
-    for (slot, image) in frames {
+    for (slot, image, pending) in frames {
         let DecodedImage::Raw((descriptor, data)) = image.get_data() else {
             continue;
         };
@@ -1511,6 +1500,30 @@ where
         } else {
             (None, rr.nv12_chroma_keys.remove(&key))
         };
+        // The frame the key holds now: a partial upload needs the same pixel
+        // shape (size, format, row layout), or WebRender must take it whole.
+        let same_shape = update
+            && !descriptor.format.is_nv12()
+            && rr
+                .image_key_map
+                .get(&key)
+                .and_then(|previous| rr.currently_registered_images.get(previous))
+                .is_some_and(|previous| {
+                    let p = previous.descriptor;
+                    (p.format, p.width, p.height, p.stride, p.offset)
+                        == (
+                            descriptor.format,
+                            descriptor.width,
+                            descriptor.height,
+                            descriptor.stride,
+                            descriptor.offset,
+                        )
+                });
+        let dirty = if same_shape {
+            pending.clipped_to(descriptor.width, descriptor.height)
+        } else {
+            ImageDirtyRect::All
+        };
         if let Some(old) = rr.image_key_map.insert(key, hash) {
             if old != hash {
                 rr.currently_registered_images.remove(&old);
@@ -1531,9 +1544,29 @@ where
             data: data.clone(),
             chroma,
             drop_chroma,
+            dirty,
         });
     }
     uploads
+}
+
+/// An azul dirty region as WebRender's: origin + size becomes the min / max
+/// device corners. The one translation for every image update.
+pub(crate) fn translate_dirty_rect(
+    dirty: &ImageDirtyRect,
+) -> DirtyRect<i32, webrender::api::units::DevicePixel> {
+    use webrender::euclid::{Box2D, Point2D};
+
+    match dirty {
+        ImageDirtyRect::All => DirtyRect::All,
+        ImageDirtyRect::Partial(rect) => DirtyRect::Partial(Box2D::new(
+            Point2D::new(rect.origin.x as i32, rect.origin.y as i32),
+            Point2D::new(
+                (rect.origin.x + rect.size.width) as i32,
+                (rect.origin.y + rect.size.height) as i32,
+            ),
+        )),
+    }
 }
 
 /// The two WebRender descriptors of an NV12 image: the R8 luma plane and the
@@ -1616,22 +1649,28 @@ pub struct OverlayUploads {
     pub new_slot: bool,
 }
 
-/// Upload the content overlay's new raw frames (video tiles) into their
-/// nodes' stable keys: `add_image` the first time, `update_image` after.
+/// Upload the content overlay's new raw frames (video tiles, canvases) into
+/// their nodes' stable keys: `add_image` the first time, `update_image` after
+/// - of the dirty rect only, when the app named one.
 fn upload_overlay_images(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) -> OverlayUploads {
     let namespace = layout_window.id_namespace;
     let LayoutWindow {
-        ref content_overlay,
+        ref mut content_overlay,
         ref mut renderer_resources,
         ..
     } = *layout_window;
     let uploads = plan_overlay_image_uploads(
-        content_overlay
-            .iter_images()
-            .map(|(slot, image)| (*slot, image)),
+        content_overlay.iter_images().map(|(slot, image)| {
+            let pending = content_overlay
+                .image_dirty(slot.0, slot.1)
+                .unwrap_or(ImageDirtyRect::All);
+            (*slot, image, pending)
+        }),
         renderer_resources,
         namespace,
     );
+    // Every overlay image is now either in this transaction or already up.
+    content_overlay.clear_image_dirty();
     let mut result = OverlayUploads::default();
     for upload in uploads {
         result.changed = true;
@@ -1658,7 +1697,7 @@ fn upload_overlay_images(layout_window: &mut LayoutWindow, txn: &mut WrTransacti
             _ => {
                 let desc = wr_translate_image_descriptor(&upload.descriptor);
                 if upload.update {
-                    txn.update_image(key, desc, data, &DirtyRect::All);
+                    txn.update_image(key, desc, data, &translate_dirty_rect(&upload.dirty));
                 } else {
                     txn.add_image(key, desc, data, None);
                 }

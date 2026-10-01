@@ -7,26 +7,24 @@ updates by dirty rect); tests; `scripts/azphoto_e2e.py`; report `scripts/PHOTO_2
 ## DONE
 - 829b9a1a9 test(image): partial image uploads (RED): core union/clipped_to, overlay dirty,
   layout/tests/a_partial_image_change_leaves_its_rect_for_the_renderer.rs, dll planner tests.
-- GREEN part 1 (this commit): core `ImageDirtyRect` methods, overlay `image_dirty` arm,
+- 8a344ccfd GREEN 1: core `ImageDirtyRect` methods, overlay `image_dirty` arm,
   `apply_image_change(.., dirty_rect)` in window.rs.
+- 279bae778 GREEN 2: `CallbackChange::ChangeNodeImage { dirty_rect }`, `change_node_image_rect`.
+- GREEN 3: wr_translate2 planner item (slot, image, pending), `OverlayImageUpload.dirty`,
+  `translate_dirty_rect` (shared with translate_update_image), clear after upload.
 
 ## IN PROGRESS
-- Engine: `CallbackInfo::change_node_image_rect` -> the overlay keeps the not-yet-uploaded
-  dirty region per image node -> WebRender `update_image` with `DirtyRect::Partial`.
+- the app crate (see NEXT)
 
 ## NEXT
-0. GREEN part 2: callbacks.rs `CallbackChange::ChangeNodeImage { dirty_rect }` +
-   `change_node_image_rect`; e2e/runner.rs + common/event.rs pass it to
-   `ContentChange::Image`; capture_common.rs test pattern `dirty_rect: _`; headless/mod.rs
-   test literal `dirty_rect: None`; wr_translate2.rs planner (item = (slot, &ImageRef,
-   ImageDirtyRect), `OverlayImageUpload.dirty`, `translate_dirty_rect`, clear after upload).
-1. (done) Engine RED (core `ImageDirtyRect::union/clipped_to`, overlay dirty bookkeeping,
-   `change_node_image_rect`, the WR upload planner) -> GREEN.
-2. Raster core RED (tests) -> GREEN (tiles, blend, brush, selection, adjustments, filters,
-   transform, crop, history, the `RasterEngine` trait).
-3. The app: CanvasShell layout, tools, panels, canvas view (one image node, dirty rects),
-   files (open / doc.json + layer PNG tiles via LocalDrive / export), --sample.
-4. Registration (workspace, test members, CI step), `scripts/azphoto_e2e.py`, report.
+- Engine piece DONE (RED 829b9a1a9, GREEN 8a344ccfd / 279bae778 / this commit).
+- next: app crate skeleton examples/azul-photo (Cargo.toml, main.rs, lib.rs stub,
+  src/raster/mod.rs with the module list) -> commit; then raster RED tests
+  (src/raster/tests.rs) -> commit; then raster GREEN module by module (tile, blend,
+  brush, selection, adjust, filter, transform, history, engine) - commit each.
+- then: the app (view.rs canvas viewport, ui panels, tools, files/storage, --sample),
+  registration (Cargo.toml members, workspace_test_members.txt, rust.yml step),
+  scripts/azphoto_e2e.py, report scripts/PHOTO_2026_10_01.md.
 
 ## Decisions (made unattended, noted here)
 - The canvas is ONE image node: a `RenderImageCallback` renders the VIEWPORT (the visible part
