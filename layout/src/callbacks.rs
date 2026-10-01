@@ -385,6 +385,11 @@ pub enum CallbackChange {
     AddThread {
         thread_id: ThreadId,
         thread: Thread,
+        /// The node the thread belongs to: set by the dispatcher when one of
+        /// that node's lifecycle callbacks added it
+        /// (`managers::thread_owner::binds_threads_to_node`), `None` for an
+        /// app thread. The callback itself never knows.
+        owner: Option<DomNodeId>,
     },
     /// Remove an existing thread
     RemoveThread {
@@ -1614,7 +1619,11 @@ impl CallbackInfo {
 
     /// Add a thread to this window (applied after callback returns)
     pub fn add_thread(&mut self, thread_id: ThreadId, thread: Thread) {
-        self.push_change(CallbackChange::AddThread { thread_id, thread });
+        self.push_change(CallbackChange::AddThread {
+            thread_id,
+            thread,
+            owner: None,
+        });
     }
 
     /// Checks for updates ASYNCHRONOUSLY: spawns a background thread that

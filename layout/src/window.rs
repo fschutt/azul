@@ -1108,6 +1108,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         seat_preedit_shaped: _,
         timers: _,
         threads: _,
+        thread_owners: _,
         renderer_resources: _,
         renderer_type: _,
         previous_window_state: _,
@@ -1803,6 +1804,10 @@ pub struct LayoutWindow {
     unarmed_blink_timer: Option<Timer>,
     /// Threads running in the background for this window
     pub threads: BTreeMap<ThreadId, Thread>,
+    /// Which node each node-bound thread in `threads` belongs to, and the
+    /// orphans told to stop because their node unmounted
+    /// (`managers::thread_owner`).
+    pub thread_owners: crate::managers::thread_owner::ThreadOwnerManager,
     /// Currently loaded fonts and images present in this renderer (window)
     pub renderer_resources: RendererResources,
     /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
@@ -2450,6 +2455,7 @@ impl LayoutWindow {
             unarmed_blink_timer: None,
             system_animations_override: None,
             threads: BTreeMap::new(),
+            thread_owners: crate::managers::thread_owner::ThreadOwnerManager::default(),
             renderer_resources: RendererResources::default(),
             renderer_type: None,
             previous_window_state: None,
@@ -10093,8 +10099,24 @@ impl LayoutWindow {
         self.threads.insert(thread_id, thread);
     }
 
-    /// Remove a thread from this window
+    /// Add a thread that one of `owner`'s lifecycle callbacks started: it is
+    /// told to stop when `owner` unmounts (`managers::thread_owner`). `None`
+    /// is an app thread, [`Self::add_thread`].
+    pub fn add_thread_owned_by(
+        &mut self,
+        thread_id: ThreadId,
+        thread: Thread,
+        owner: Option<azul_core::dom::DomNodeId>,
+    ) {
+        self.threads.insert(thread_id, thread);
+        if let Some(owner) = owner {
+            self.thread_owners.bind(thread_id, owner);
+        }
+    }
+
+    /// Remove a thread from this window (and forget which node owned it)
     pub fn remove_thread(&mut self, thread_id: &ThreadId) -> Option<Thread> {
+        self.thread_owners.forget(thread_id);
         self.threads.remove(thread_id)
     }
 
@@ -17227,6 +17249,24 @@ impl LayoutWindow {
         let thread_ids: Vec<ThreadId> = self.threads.keys().copied().collect();
 
         for thread_id in thread_ids {
+            // The worker of an unmounted node (`managers::thread_owner`): it
+            // was told to stop at the unmount; nothing reads its write-backs
+            // any more, and it leaves the window once it has stopped (or,
+            // past the grace period, detached).
+            if let Some(orphaned) = self.thread_owners.orphaned(&thread_id) {
+                let retire = self.threads.get(&thread_id).is_none_or(|thread| {
+                    crate::managers::thread_owner::poll_orphan(
+                        orphaned,
+                        thread,
+                        std::time::Instant::now(),
+                    )
+                });
+                if retire {
+                    all_changes.push(CallbackChange::RemoveThread { thread_id });
+                }
+                continue;
+            }
+
             let hit_dom_node = DomNodeId {
                 dom: DomId::ROOT_ID,
                 node: NodeHierarchyItemId::from_crate_internal(None),
@@ -24521,7 +24561,11 @@ impl LayoutWindow {
             timers: _,
             // One `Timer` handed to the shell to arm; carries no node id.
             unarmed_blink_timer: _,
-            threads: _,
+            // NODE-KEYED through `thread_owners`: a worker one of a node's
+            // lifecycle callbacks started belongs to that node and is told to
+            // stop when the node unmounts (handled below).
+            threads,
+            thread_owners,
             renderer_type: _,
             previous_window_state: _,
             current_window_state: _,
@@ -24626,6 +24670,18 @@ impl LayoutWindow {
                 None => false,
             });
         }
+        // The workers of unmounted nodes - including nodes in the child DOM of
+        // a `VirtualView` whose host unmounted, asked for BEFORE the
+        // VirtualView manager drops that host's state below - are told to
+        // stop now; `run_all_threads` retires them once they have
+        // (`managers::thread_owner`).
+        let dropped_child_doms = virtual_view_manager.nested_doms_dropped_by(dom, map);
+        for thread_id in thread_owners.remap_node_ids(dom, map, &dropped_child_doms) {
+            if let Some(thread) = threads.get(&thread_id) {
+                let _ = thread.send_message(azul_core::task::ThreadSendMsg::TerminateThread);
+            }
+        }
+
         scroll_manager.remap_node_ids(dom, map);
         gesture_drag_manager.remap_node_ids(dom, map);
         focus_manager.remap_node_ids(dom, map);

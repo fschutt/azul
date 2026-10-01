@@ -12169,6 +12169,15 @@ mod tests {
         let started = window_thread_ids(&window);
         assert_eq!(started.len(), 1, "AfterMount starts the node's worker");
         let tid = started[0];
+        assert!(
+            window
+                .common
+                .layout_window
+                .as_ref()
+                .and_then(|lw| lw.thread_owners.owner(&tid))
+                .is_some(),
+            "a worker the node's own AfterMount started belongs to that node"
+        );
         assert!(window.thread_poll_timer_running);
 
         // The next DOM drops the node.
@@ -12207,6 +12216,15 @@ mod tests {
         assert!(
             window_thread_ids(&window).is_empty(),
             "the stopped worker of the unmounted node is gone after a frame"
+        );
+        assert_eq!(
+            window
+                .common
+                .layout_window
+                .as_ref()
+                .map(|lw| lw.thread_owners.orphan_count()),
+            Some(0),
+            "the retired orphan is forgotten"
         );
         assert!(
             !window.thread_poll_timer_running,

@@ -65,6 +65,8 @@ pub mod selection;
 pub mod sensors;
 pub mod text_edit;
 pub mod text_input;
+/// Which node a background thread belongs to; the workers of unmounted nodes.
+pub mod thread_owner;
 /// System-tray events that no menu item's own callback handles (a click on
 /// the icon, ...): the mailbox, the routing to the tray's callback, and the
 /// event a callback runs for.

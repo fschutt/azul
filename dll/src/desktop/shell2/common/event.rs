@@ -6186,14 +6186,18 @@ pub trait PlatformWindow {
             }
 
             // === Thread Management ===
-            CallbackChange::AddThread { thread_id, thread } => {
+            CallbackChange::AddThread {
+                thread_id,
+                thread,
+                owner,
+            } => {
                 let had_threads = self
                     .get_layout_window()
                     .map(|lw| !lw.threads.is_empty())
                     .unwrap_or(false);
 
                 if let Some(lw) = self.get_layout_window_mut() {
-                    lw.threads.insert(*thread_id, thread.clone());
+                    lw.add_thread_owned_by(*thread_id, thread.clone(), *owner);
                 }
 
                 if !had_threads {
@@ -6204,7 +6208,7 @@ pub trait PlatformWindow {
 
             CallbackChange::RemoveThread { thread_id } => {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    lw.threads.remove(thread_id);
+                    drop(lw.remove_thread(thread_id));
                 }
 
                 let has_threads = self
@@ -9634,7 +9638,12 @@ pub trait PlatformWindow {
 
             // Accumulate changes for later application. A pointer capture
             // binds to the seat whose event this callback answered (9b-ii-b);
-            // the callback itself cannot know it.
+            // the callback itself cannot know it. Likewise a thread one of a
+            // node's LIFECYCLE callbacks started binds to that node, and is
+            // told to stop when the node unmounts (`managers::thread_owner`).
+            let binds_threads = azul_layout::managers::thread_owner::binds_threads_to_node(
+                &planned.callback_data.event,
+            );
             all_changes.extend(changes.into_iter().map(|c| match c {
                 azul_layout::callbacks::CallbackChange::CapturePointer { node, .. } => {
                     azul_layout::callbacks::CallbackChange::CapturePointer {
@@ -9642,6 +9651,15 @@ pub trait PlatformWindow {
                         seat_id: planned.seat_id,
                     }
                 }
+                azul_layout::callbacks::CallbackChange::AddThread {
+                    thread_id,
+                    thread,
+                    owner: None,
+                } if binds_threads => azul_layout::callbacks::CallbackChange::AddThread {
+                    thread_id,
+                    thread,
+                    owner: Some(hit_node),
+                },
                 other => other,
             }));
 

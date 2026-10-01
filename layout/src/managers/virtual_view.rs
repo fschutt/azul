@@ -189,6 +189,36 @@ impl VirtualViewManager {
         self.states.get(&(dom_id, node_id)).map(|s| s.nested_dom_id)
     }
 
+    /// The child DOMs a rebuild of `dom` takes down with it: those of the
+    /// `VirtualView`s whose host node unmounted (absent from `map`), and,
+    /// transitively, those of the `VirtualView`s inside them. Ask BEFORE
+    /// [`NodeIdRemap::remap_node_ids`](crate::managers::NodeIdRemap), which
+    /// drops the unmounted hosts' state.
+    #[must_use]
+    pub fn nested_doms_dropped_by(
+        &self,
+        dom: DomId,
+        map: &crate::managers::NodeIdMap,
+    ) -> alloc::vec::Vec<DomId> {
+        let mut dropped: alloc::vec::Vec<DomId> = self
+            .states
+            .iter()
+            .filter(|((d, n), _)| *d == dom && map.is_unmounted(*n))
+            .map(|(_, s)| s.nested_dom_id)
+            .collect();
+        let mut i = 0;
+        while i < dropped.len() {
+            let parent = dropped[i];
+            for ((d, _), s) in &self.states {
+                if *d == parent && !dropped.contains(&s.nested_dom_id) {
+                    dropped.push(s.nested_dom_id);
+                }
+            }
+            i += 1;
+        }
+        dropped
+    }
+
     /// Returns whether the `VirtualView` has ever been invoked
     #[must_use]
     pub fn was_virtual_view_invoked(&self, dom_id: DomId, node_id: NodeId) -> bool {

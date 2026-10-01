@@ -2103,7 +2103,7 @@ impl PlatformWindow for IOSWindow {
     ) {
         if let Some(lw) = self.common.layout_window.as_mut() {
             for id in thread_ids {
-                lw.threads.remove(id);
+                drop(lw.remove_thread(id));
             }
         }
     }
