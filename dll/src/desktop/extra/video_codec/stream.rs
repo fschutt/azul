@@ -105,6 +105,15 @@ pub extern "C" fn video_decode_worker(init: RefAny, sender: ThreadSender, recv: 
 #[cfg(feature = "video-native")]
 const DECODER_EMITS_DECODE_ORDER: bool = cfg!(any(target_os = "macos", target_os = "ios"));
 
+/// The decoder of one `<video>` session, on the worker's own thread (off the
+/// UI thread already: each chunk's pictures come back from `decode` at once,
+/// which the media clock places by the chunk's presentation time).
+#[cfg_attr(not(feature = "video-native"), allow(dead_code))]
+fn open_session_decoder(output_format: azul_core::resources::RawImageFormat) -> super::VideoDecoder {
+    let _ = output_format;
+    super::VideoDecoder::open_on_this_thread(false /* h264 */)
+}
+
 /// One control message from the widget, decoded.
 #[cfg(feature = "video-native")]
 enum Control {
@@ -318,10 +327,7 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
         }
 
         // 2. Open the platform decoder and stream-decode, presenting by the media clock.
-        // On this worker thread (already off the UI thread): each chunk's
-        // pictures come back from `decode` at once, which the media clock
-        // below places by the chunk's presentation time.
-        let decoder = super::VideoDecoder::open_on_this_thread(false /* h264 */);
+        let decoder = open_session_decoder(config.output_format);
         if !decoder.is_open() {
             let message = "The H.264 decoder did not open on this machine.";
             if log {
@@ -688,5 +694,46 @@ mod stream_tests {
             !failed.message.as_str().is_empty(),
             "a failure must say why, in words for the user"
         );
+    }
+
+    /// A `<video>` hands its frames out in the widget config's
+    /// `output_format`: BGRA8 by default (what VideoToolbox renders - no
+    /// swizzle to RGBA and back), an NV12 format for the GPU's YUV path. The
+    /// worker opened its decoder at the RGBA8 default, so every frame was
+    /// swizzled BGRA -> RGBA in the decoder and back in the image upload.
+    #[test]
+    fn a_video_decoder_hands_frames_out_in_the_configs_output_format() {
+        use azul_core::{
+            resources::RawImageFormat,
+            video::{OptionVideoFrame, VideoFrame},
+        };
+        use azul_css::{corety::OptionU8Vec, U8Vec};
+
+        use crate::desktop::extra::video_codec::VideoEncoder;
+
+        // A stream to decode, from this machine's encoder where it has one.
+        let (w, h) = (320_u32, 180_u32);
+        let mut encoder = VideoEncoder::open(w, h, false, 400);
+        if !encoder.is_open() {
+            return;
+        }
+        let grey = VideoFrame::new(w, h, U8Vec::from_vec(vec![128_u8; (w * h * 4) as usize]));
+        assert!(encoder.encode(grey, true));
+        encoder.flush();
+        let mut stream = Vec::new();
+        while let OptionU8Vec::Some(packet) = encoder.recv_packet() {
+            stream.extend_from_slice(packet.as_ref());
+        }
+        for format in [RawImageFormat::BGRA8, RawImageFormat::NV12Rec709Video] {
+            let decoder = super::open_session_decoder(format);
+            if !decoder.is_open() {
+                return;
+            }
+            assert!(decoder.decode(U8Vec::from_vec(stream.clone())));
+            let OptionVideoFrame::Some(picture) = decoder.next_frame() else {
+                panic!("the keyframe decoded to no picture");
+            };
+            assert_eq!(picture.format, format);
+        }
     }
 }
