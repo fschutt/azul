@@ -17,9 +17,9 @@ parse-checked with `rustfmt --edition 2021 --check`.
   History, Version, Import, Images, Seed) over `&dyn Drive`, tests on a LocalDrive in a temp
   folder; Note gained `generation` + `file_modified`.
 
+- Cargo.toml, .cargo/config.toml, main.rs, args.rs (+ tests).
+
 ## IN PROGRESS (precise next steps, in order)
-1. Cargo.toml + .cargo/config.toml + main.rs + args.rs (flags: --sample, --data, --screen,
-   --theme, --mode, --size).
 2. sample.rs (the sample library as (key, text) files).
 3. editor.rs: Doc -> DOM of the contenteditable host (one child per block, one per run; check
    box as an abspos contenteditable=false island AFTER the runs), the node -> block mapping,
