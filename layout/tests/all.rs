@@ -696,3 +696,5 @@ mod a_render_image_callback_with_unchanged_inputs_is_not_invoked_again;
 mod real_mail_html_parses_like_a_browser;
 #[path = "the_two_xml_loaders_build_one_tree.rs"]
 mod the_two_xml_loaders_build_one_tree;
+#[path = "html_pasted_from_word_and_browsers_keeps_its_formatting.rs"]
+mod html_pasted_from_word_and_browsers_keeps_its_formatting;
