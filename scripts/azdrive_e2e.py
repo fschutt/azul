@@ -512,6 +512,16 @@ def run(args, logs):
         app.until("the sheet closed", lambda: not app.has("#properties"))
         log("13. Alt+Enter opened Properties; OK closed it")
 
+        # 13b. A WAV previews (and could play through azul's AudioSink).
+        app.after("up to Home", "AZDRIVE_PLACE", r"home /", lambda: app.key("backspace"))
+        app.after("Music", "AZDRIVE_LISTED", r"home Music/ \d+",
+                  lambda: app.click_exact("Music", double=True))
+        app.after("an audio preview", "AZDRIVE_PREVIEW", r"audio Music/chime\.wav",
+                  lambda: app.click_exact("chime.wav"))
+        app.until("the sound's preview", lambda: app.has("#preview-audio"))
+        app.until("its Play button", lambda: app.has("#preview-play"))
+        log("13b. chime.wav previews as a sound with Play")
+
         # 14. FILE: the backstage and the Options.
         app.click_exact("FILE")
         app.until("the Options", lambda: app.has("#settings"))

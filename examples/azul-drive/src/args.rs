@@ -158,6 +158,37 @@ const SAMPLE_PNG: &[u8] = &[
     16, 120, 157, 103, 194, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
 ];
 
+/// A short fading 440 Hz tone as a 16-bit mono WAV: the sample sound.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+fn chime_wav() -> Vec<u8> {
+    const RATE: u32 = 8_000;
+    const SECONDS: f32 = 0.3;
+    let count = (RATE as f32 * SECONDS) as u32;
+    let data: Vec<u8> = (0..count)
+        .flat_map(|i| {
+            let t = i as f32 / RATE as f32;
+            let fade = 1.0 - t / SECONDS;
+            let sample = ((t * 440.0 * std::f32::consts::TAU).sin() * fade * 12_000.0) as i16;
+            sample.to_le_bytes()
+        })
+        .collect();
+    let mut out = Vec::with_capacity(44 + data.len());
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    out.extend_from_slice(&1u16.to_le_bytes()); // mono
+    out.extend_from_slice(&RATE.to_le_bytes());
+    out.extend_from_slice(&(RATE * 2).to_le_bytes());
+    out.extend_from_slice(&2u16.to_le_bytes());
+    out.extend_from_slice(&16u16.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    out.extend_from_slice(&data);
+    out
+}
+
 /// The sample files: (key, bytes). A key ending in `/` is an empty folder.
 fn sample_files() -> Vec<(&'static str, Vec<u8>)> {
     vec![
@@ -181,6 +212,7 @@ fn sample_files() -> Vec<(&'static str, Vec<u8>)> {
             b"fn main() {\n    println!(\"Hello from AzDrive\");\n}\n".to_vec(),
         ),
         ("Pictures/gradient.png", SAMPLE_PNG.to_vec()),
+        ("Music/chime.wav", chime_wav()),
         ("Archive/2024/old-notes.txt", b"Last year's notes.\n".to_vec()),
         (".hidden-settings", b"a hidden item\n".to_vec()),
         ("Projects/", Vec::new()),
@@ -274,6 +306,10 @@ mod tests {
         assert!(dir.join("Documents").join("notes.txt").is_file());
         assert!(dir.join("Pictures").join("gradient.png").is_file());
         assert!(dir.join("Projects").is_dir(), "an empty folder too");
+        let chime = std::fs::read(dir.join("Music").join("chime.wav")).unwrap();
+        let wav = crate::preview::wav_samples(&chime).expect("the sample sound is a WAV");
+        assert_eq!((wav.sample_rate, wav.channels), (8_000, 1));
+        assert_eq!(wav.samples.len(), 2_400);
         std::fs::write(dir.join("Documents").join("notes.txt"), b"mine").unwrap();
         write_sample(&dir).unwrap();
         assert_eq!(
