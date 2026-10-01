@@ -1655,7 +1655,7 @@ fn export_dialog(app: &VideoCut, app_ref: &RefAny) -> Dom {
             vec![button("Cancel export", app_ref, on_export_cancel)]
         } else {
             vec![
-                primary("Export", app_ref, on_export_start),
+                primary("Export now", app_ref, on_export_start),
                 button("Close", app_ref, on_export_close),
             ]
         }));
