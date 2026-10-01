@@ -639,6 +639,11 @@ pub fn save(data_dir: &Path, event: &Event) -> std::io::Result<PathBuf> {
     Ok(path)
 }
 
+/// Removes the event `id`'s file (a missing file is not an error: S3's delete).
+pub fn remove(data_dir: &Path, id: &str) -> std::io::Result<()> {
+    todo!()
+}
+
 /// A file in the events folder that is named like an event but was not read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Skipped {
@@ -1098,6 +1103,16 @@ mod tests {
         let (events, skipped) = load_all(&dir.0);
         assert_eq!(events, vec![event]);
         assert!(skipped.is_empty(), "{skipped:?}");
+    }
+
+    #[test]
+    fn removing_an_event_removes_its_file_and_a_missing_one_is_no_error() {
+        let dir = TempDir::create();
+        let path = save(&dir.0, &sync(None)).unwrap();
+        remove(&dir.0, ID).unwrap();
+        assert!(!path.exists());
+        remove(&dir.0, ID).unwrap();
+        assert!(load_all(&dir.0).0.is_empty());
     }
 
     #[test]
