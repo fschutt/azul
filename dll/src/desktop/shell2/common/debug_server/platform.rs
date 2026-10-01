@@ -586,6 +586,12 @@ pub fn register_debug_timer(
     if !is_debug_enabled() {
         return;
     }
+    // Kept for the windows the app opens later (`register_debug_timer_on_new_window`).
+    if let Ok(mut shared) = shared_debug_channel().lock() {
+        if shared.is_none() {
+            *shared = Some((request_rx.clone(), component_map.clone()));
+        }
+    }
 
     log(
         LogLevel::Debug,
@@ -623,6 +629,34 @@ pub fn register_debug_timer(
         ),
         None,
     );
+}
+
+/// The debug channel the first window's timer was registered with: every window an app opens
+/// later drains the same queue (its requests are routed by window id in the timer).
+#[cfg(feature = "std")]
+#[allow(clippy::type_complexity)]
+fn shared_debug_channel(
+) -> &'static Mutex<Option<(spmc::Receiver<DebugRequest>, Arc<Mutex<azul_core::xml::ComponentMap>>)>> {
+    static SHARED: std::sync::OnceLock<
+        Mutex<Option<(spmc::Receiver<DebugRequest>, Arc<Mutex<azul_core::xml::ComponentMap>>)>>,
+    > = std::sync::OnceLock::new();
+    SHARED.get_or_init(|| Mutex::new(None))
+}
+
+/// Gives a window the app opened at runtime (`CallbackInfo::create_window`: a dialog, a second
+/// window) the debug timer the first window has, so the debug server reaches it too (a request
+/// names it by its `window_id`). Nothing when the debug server is off.
+#[cfg(feature = "std")]
+pub fn register_debug_timer_on_new_window(
+    window: &mut dyn crate::desktop::shell2::common::event::PlatformWindow,
+) {
+    let channel = shared_debug_channel()
+        .lock()
+        .ok()
+        .and_then(|shared| shared.clone());
+    if let Some((request_rx, component_map)) = channel {
+        register_debug_timer(window, request_rx, component_map);
+    }
 }
 
 // ==================== Host hooks ====================

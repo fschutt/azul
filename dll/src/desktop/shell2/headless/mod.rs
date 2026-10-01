@@ -2285,6 +2285,7 @@ impl HeadlessWindow {
                         .regenerate_all
                         .load(std::sync::atomic::Ordering::SeqCst);
                     child.start_as_child();
+                    debug_server::register_debug_timer_on_new_window(&mut child);
                     self.children.push(child);
                 }
                 Err(e) => {

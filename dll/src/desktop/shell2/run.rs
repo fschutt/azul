@@ -1068,6 +1068,10 @@ pub fn run(
                                             new_ns_window,
                                             new_window_ptr,
                                         );
+                                        // The debug server reaches it like the first window.
+                                        debug_server::register_debug_timer_on_new_window(
+                                            &mut *new_window_ptr,
+                                        );
                                         (*new_window_ptr).request_redraw();
                                     },
                                     Err(e) => {
@@ -1250,6 +1254,10 @@ pub fn run(
                                             super::macos::registry::register_window(
                                                 new_ns_window,
                                                 new_window_ptr,
+                                            );
+                                            // The debug server reaches it like the first window.
+                                            debug_server::register_debug_timer_on_new_window(
+                                                &mut *new_window_ptr,
                                             );
 
                                             // Request initial redraw
@@ -2014,6 +2022,10 @@ pub fn run(
 
                                 // Register in global registry
                                 registry::register_window(new_hwnd, new_window_ptr);
+                                // The debug server reaches it like the first window.
+                                debug_server::register_debug_timer_on_new_window(
+                                    &mut *new_window_ptr,
+                                );
 
                                 // Register the OLE drop target (after registry).
                                 (*new_window_ptr).register_drag_drop();
@@ -2559,6 +2571,16 @@ fn run_linux_windows(
                                     // Register in global registry
                                     unsafe {
                                         registry::register_window(new_window_id, new_window_ptr);
+                                        // The debug server reaches it like the first window.
+                                        match &mut *new_window_ptr {
+                                            LinuxWindow::X11(w) => {
+                                                debug_server::register_debug_timer_on_new_window(w)
+                                            }
+                                            #[cfg(target_os = "linux")]
+                                            LinuxWindow::Wayland(w) => {
+                                                debug_server::register_debug_timer_on_new_window(w)
+                                            }
+                                        }
                                     }
 
                                     log_debug!(
@@ -2648,6 +2670,16 @@ fn run_linux_windows(
                                     // Register in global registry
                                     unsafe {
                                         registry::register_window(new_window_id, new_window_ptr);
+                                        // The debug server reaches it like the first window.
+                                        match &mut *new_window_ptr {
+                                            LinuxWindow::X11(w) => {
+                                                debug_server::register_debug_timer_on_new_window(w)
+                                            }
+                                            #[cfg(target_os = "linux")]
+                                            LinuxWindow::Wayland(w) => {
+                                                debug_server::register_debug_timer_on_new_window(w)
+                                            }
+                                        }
                                     }
 
                                     log_debug!(

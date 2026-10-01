@@ -145,3 +145,11 @@ pub fn register_debug_timer(
     _component_map: std::sync::Arc<std::sync::Mutex<azul_core::xml::ComponentMap>>,
 ) {
 }
+
+/// No-op: the debug timer only exists when the server is built.
+#[cfg(feature = "std")]
+#[inline(always)]
+pub fn register_debug_timer_on_new_window(
+    _window: &mut dyn crate::desktop::shell2::common::event::PlatformWindow,
+) {
+}
