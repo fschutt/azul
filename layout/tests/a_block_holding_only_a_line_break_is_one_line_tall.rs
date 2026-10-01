@@ -37,6 +37,7 @@ const MAIL: &str = "<html><head></head><body>\
 <div id=\"span_blank\"><span><br/></span></div>\
 <div id=\"c\">Robin</div>\
 <p id=\"p\" style=\"margin: 0;\">one<br/><br/>two</p>\
+<p id=\"p2\" style=\"margin: 0;\">one<br/>two</p>\
 </div></body></html>";
 
 fn laid_out() -> LayoutWindow {
@@ -134,15 +135,25 @@ fn a_br_inside_a_span_is_one_line_tall_too() {
     );
 }
 
+/// Measured as the DIFFERENCE to `one<br>two`: the second `<br>` adds
+/// exactly one blank line to what the first gives. (Azul stacks consecutive
+/// text lines at the font's natural line box, 20.6px here, while each line
+/// box is the `line-height` - browsers stack at 20; that pre-existing quirk
+/// is in both paragraphs alike and cancels out of the difference.)
 #[test]
 fn two_brs_between_words_still_make_one_blank_line() {
     let lw = laid_out();
     let (_, text_line) = top_and_height(&lw, "a");
+    let (_, two_lines) = top_and_height(&lw, "p2");
     let (_, p) = top_and_height(&lw, "p");
     assert!(
-        p >= 3.0 * LINE - 0.5 && p <= 3.0 * text_line + 0.5,
-        "`one<br><br>two` is three lines ({}px to {}px), got {p}",
-        3.0 * LINE,
-        3.0 * text_line
+        two_lines >= 2.0 * LINE - 0.5,
+        "`one<br>two` is at least two lines ({}px), got {two_lines}",
+        2.0 * LINE
+    );
+    assert!(
+        one_line(p - two_lines, text_line),
+        "`one<br><br>two` is one blank line taller than `one<br>two` ({LINE}px, a text line is \
+         {text_line}px): {p} vs {two_lines}"
     );
 }
