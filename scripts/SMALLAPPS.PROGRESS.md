@@ -11,17 +11,15 @@ Task: AzCalculator (F1/F2/F6/F7 vehicle) + AzContacts (A4). Report: scripts/SMAL
 - 8fccfdc91 feat(azcalculator): the calculator's model (GREEN)
 - 2c1c8a6b2, 93e30c7bd wip(azcalculator): ui.rs pieces
 - c2ce0f107 feat(azcalculator): the window (ui.rs wired into lib.rs)
+- c64368968 test(e2e): azlin_e2e.py shared driver
+- 30d459a21 test(azcalculator): scripts/azcalculator_e2e.py
 
 ## IN PROGRESS
-- scripts/azcalculator_e2e.py
+- AzContacts model: vcard.rs (parser + writer, 3.0/4.0, folding, escaping, multiple values)
 
 ## NEXT
-3. NEXT STEP: scripts/azcalculator_e2e.py (model on examples/azul-shells/scripts/shells_e2e.py): start
-   AzCalculator headless with --data-dir <tmp> --sample, click keys by #key-* ids, type with key_down
-   (digits, plus, asterisk, enter), assert AZCALC_DISPLAY lines + #calc-result text, history file content,
-   modes (Scientific sin(30)+2^10, Programmer 2A5F bases), Convert 42.195 km, Date, settings page
-   (#appkit-settings, theme flora + mode dark), screenshots. Then AzContacts.
-4. AzContacts model (RED, GREEN): vCard 3.0/4.0 parse/write, contacts model, sort/index, duplicates + merge,
+3. DONE (calculator UI + E2E).
+4. NEXT STEP: AzContacts model in examples/azul-contacts/src (RED, GREEN): vcard.rs first: vCard 3.0/4.0 parse/write, contacts model, sort/index, duplicates + merge,
    storage layout contacts/<uuid>.vcf, sample data.
 5. AzContacts UI on PimShell + E2E scripts/azcontacts_e2e.py + registration.
 6. Report.
