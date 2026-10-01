@@ -279,6 +279,21 @@ mod tests {
         assert_eq!(command_for(Key::Tab, NONE), None, "Tab moves the focus");
     }
 
+    /// Explorer's layout keys: Ctrl+Shift+1 Extra large icons .. 8 Content.
+    #[test]
+    fn ctrl_shift_and_a_digit_pick_one_of_the_eight_layouts() {
+        for digit in 1..=8u8 {
+            let c = char::from(b'0' + digit);
+            assert_eq!(
+                command_for(Key::Char(c), CTRL_SHIFT),
+                Some(Command::Layout(digit)),
+                "{c}"
+            );
+        }
+        assert_eq!(command_for(Key::Char('9'), CTRL_SHIFT), None);
+        assert_eq!(command_for(Key::Char('0'), CTRL_SHIFT), None);
+    }
+
     #[test]
     fn a_step_is_a_signed_distance_in_the_visible_order() {
         assert_eq!(Step::Next.delta(4, 10), 1);
