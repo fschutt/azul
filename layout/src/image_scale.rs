@@ -34,9 +34,10 @@
 use alloc::vec::Vec;
 
 use azul_core::{
-    resources::{Nv12Layout, RawImageFormat, YuvCoefficients},
+    resources::{Nv12Layout, RawImage, RawImageData, RawImageFormat, YuvCoefficients},
     video::{ConsumerFrame, FrameConsumer, VideoFrame},
 };
+use azul_css::U8Vec;
 
 /// The most taps taken along ONE axis of a destination pixel's footprint.
 /// Caps area-averaging cost at `MAX_TAPS²` reads per output pixel regardless
@@ -644,6 +645,67 @@ pub fn fan_out(
         }
     }
     made.into_iter().flatten().collect()
+}
+
+/// `width x height` scaled DOWN (never up) to fit `max_w x max_h`, the
+/// aspect ratio kept, at least one pixel per axis; `(0, 0)` for an empty
+/// size or an empty box.
+#[must_use]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
+pub fn fit_within(width: u32, height: u32, max_w: u32, max_h: u32) -> (u32, u32) {
+    if width == 0 || height == 0 || max_w == 0 || max_h == 0 {
+        return (0, 0);
+    }
+    if width <= max_w && height <= max_h {
+        return (width, height);
+    }
+    let scale = (f64::from(max_w) / f64::from(width)).min(f64::from(max_h) / f64::from(height));
+    let w = ((f64::from(width) * scale).round() as u32).clamp(1, max_w);
+    let h = ((f64::from(height) * scale).round() as u32).clamp(1, max_h);
+    (w, h)
+}
+
+/// A copy of `image` scaled down to fit `max_w x max_h` ([`fit_within`]) as
+/// straight RGBA8 - a thumbnail, sampled by [`resample_rgba`]. `None` for a
+/// source the scaler cannot read (16-bit, float or two-channel pixels) and
+/// for an empty one.
+#[must_use]
+pub fn thumbnail(image: &RawImage, max_w: u32, max_h: u32) -> Option<RawImage> {
+    let bytes: &[u8] = match &image.pixels {
+        RawImageData::U8(bytes) => bytes.as_ref(),
+        RawImageData::U16(_) | RawImageData::F32(_) => return None,
+    };
+    let width = u32::try_from(image.width).ok()?;
+    let height = u32::try_from(image.height).ok()?;
+    let src = SrcImage {
+        bytes,
+        format: image.data_format,
+        width,
+        height,
+    };
+    if !src.is_sampleable() {
+        return None;
+    }
+    let (w, h) = fit_within(width, height, max_w, max_h);
+    if w == 0 || h == 0 {
+        return None;
+    }
+    let pixels = resample_rgba(&src, w, h);
+    if pixels.is_empty() {
+        return None;
+    }
+    Some(RawImage {
+        pixels: RawImageData::U8(U8Vec::from_vec(pixels)),
+        width: w as usize,
+        height: h as usize,
+        premultiplied_alpha: image.premultiplied_alpha,
+        data_format: RawImageFormat::RGBA8,
+        tag: U8Vec::from_vec(Vec::new()),
+    })
 }
 
 #[cfg(test)]
