@@ -12,12 +12,11 @@ Report: scripts/DIALOGS_2026_10_01.md. House rules: no cargo, no rust-analyzer.
   `// RED stub` (scratchpad `dialogs/unstub.py` removes them).
 
 ## IN PROGRESS
-- Phase 4: AzSetup model `ec5269c71`, window `2a389701b`, registration `c06de4acb`,
-  E2E `2d6d06f79`.
-  NEXT STEP: AzWidgets "Dialogs" section: new file examples/azul-widgets/src/dialogs.rs
-  (cards: wizard frames + pages, ShellSettingsDialog, ShortcutRecorder, PathInput, the five
-  standard dialogs), wired in examples/azul-widgets/src/lib.rs like mail.rs (a `dialogs`
-  field in Showcase, a section call). Then the report scripts/DIALOGS_2026_10_01.md.
+- Phase 4 done: AzSetup (`ec5269c71`, `2a389701b`, `c06de4acb`, `2d6d06f79`), AzWidgets Dialogs
+  section `ec2f53898`.
+  NEXT STEP: a careful compile-review pass over the new Rust files (read each, fix type
+  mismatches), then the report scripts/DIALOGS_2026_10_01.md (api.json list, least-sure
+  spots, test commands).
 
 ## NEXT
 - Phase 5: report.
