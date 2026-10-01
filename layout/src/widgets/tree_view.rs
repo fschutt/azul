@@ -234,6 +234,12 @@ pub(crate) static LABEL_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
 ];
 
+/// A node's badge (the count after its label) keeps its width at the row's
+/// end.
+pub(crate) static BADGE_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+];
+
 // -- Tree container style: flat's, on `TREE_CONTAINER_BASE` --
 
 pub(crate) static TREE_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
@@ -352,6 +358,58 @@ pub(crate) static LABEL_STYLE: &[CssPropertyWithConditions] = &[
     // own ink (`TREE_CONTAINER_STYLE`), which the label inherited anyway: it
     // is declared beside its dark twin so the pair is whole wherever the tree
     // is built (`widgets::theme_pairs`, the shells' navigation pane).
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+        inner: TEXT_COLOR,
+    })),
+    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
+        inner: TEXT_COLOR_DARK,
+    })),
+];
+
+// -- Badge style: flat's, on `BADGE_BASE` --
+//
+// The count after a label (a mail folder's unread messages): semibold, in
+// the accent (Outlook's blue count) - on a selected row in the label's ink.
+
+const BADGE_INK: ColorU = ColorU {
+    r: 0,
+    g: 102,
+    b: 204,
+    a: 255,
+};
+const BADGE_INK_DARK: ColorU = ColorU {
+    r: 110,
+    g: 170,
+    b: 255,
+    a: 255,
+};
+
+pub(crate) static BADGE_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(6),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+        LayoutPaddingRight::const_px(2),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::W600)),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+        inner: BADGE_INK,
+    })),
+    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
+        inner: BADGE_INK_DARK,
+    })),
+];
+
+/// On a selected row the count is written like the label beside it
+/// (`LABEL_STYLE`'s ink).
+pub(crate) static BADGE_SELECTED_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(6),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+        LayoutPaddingRight::const_px(2),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::W600)),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
@@ -599,6 +657,7 @@ impl TreeView {
         const TREE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(TREE_CLASS_NAME))];
 
         let look = TreeViewLook::of(self.theme);
+        let badge = TreeViewBadgeLook::of(self.theme);
         let root = self.root;
         // WAI-ARIA APG tree view: the tree is ONE Tab stop - the first VISIBLE
         // selected row, or the first row when none is. The arrow keys move
@@ -617,6 +676,7 @@ impl TreeView {
             on_toggle: self.on_node_toggle,
             stop,
             look,
+            badge,
         };
 
         let mut children = Vec::new();
@@ -699,6 +759,39 @@ impl TreeViewLook {
     }
 }
 
+/// What a theme gives a node's BADGE (the count after its label): its style
+/// on a row and on a selected row. Apart from [`TreeViewLook`] so the looks
+/// grow without touching each theme's existing tree look.
+#[derive(Debug, Clone)]
+pub(crate) struct TreeViewBadgeLook {
+    /// The badge on a row.
+    pub(crate) badge: CssPropertyWithConditionsVec,
+    /// The badge on a selected row.
+    pub(crate) badge_selected: CssPropertyWithConditionsVec,
+}
+
+impl TreeViewBadgeLook {
+    /// The badge look `theme` pins, or - unpinned - both themes' looks, each
+    /// in its `@theme(<name>)` block (as [`TreeViewLook::of`]).
+    pub(crate) fn of(theme: crate::widgets::themes::OptionUiTheme) -> Self {
+        use crate::widgets::themes::{flat, flora, theme_blocks::follow_props, UiTheme};
+        match theme.into_option() {
+            Some(UiTheme::Flat) => flat::tree_view_badge_look(),
+            Some(UiTheme::Flora) => flora::tree_view_badge_look(),
+            None => {
+                let (a, b) = (flat::tree_view_badge_look(), flora::tree_view_badge_look());
+                Self {
+                    badge: follow_props(a.badge.as_ref(), b.badge.as_ref()),
+                    badge_selected: follow_props(
+                        a.badge_selected.as_ref(),
+                        b.badge_selected.as_ref(),
+                    ),
+                }
+            }
+        }
+    }
+}
+
 // ============================================================================
 // Internal: recursive DOM rendering
 // ============================================================================
@@ -711,6 +804,8 @@ struct RowContext {
     stop: usize,
     /// The styles every row, icon, label and children container takes.
     look: TreeViewLook,
+    /// The style of a node's badge.
+    badge: TreeViewBadgeLook,
 }
 
 /// The depth-first index of the first selected node a user can SEE (every
@@ -751,6 +846,7 @@ fn render_node(
         on_toggle: None.into(),
         stop: *index,
         look: crate::widgets::themes::flat::tree_view_look(),
+        badge: crate::widgets::themes::flat::tree_view_badge_look(),
     };
     render_rows(node, &rows, index, out);
 }
@@ -816,13 +912,26 @@ fn render_rows(node: &TreeViewNode, rows: &RowContext, index: &mut usize, out: &
         crate::widgets::widget_p_with_text(node.label.clone()).with_css_props(label_style.clone());
 
     // The row's parts: the disclosure, the node's own icon (when it has one,
-    // in the disclosure's ink and size), the label.
-    let mut parts = Vec::with_capacity(3);
+    // in the disclosure's ink and size), the label, the badge (when it has
+    // one).
+    let mut parts = Vec::with_capacity(4);
     parts.push(icon_or_spacer);
     if !node.icon.as_str().is_empty() {
         parts.push(Dom::create_icon(node.icon.clone()).with_css_props(icon_style.clone()));
     }
     parts.push(label);
+    if !node.badge.as_str().is_empty() {
+        let badge_style = if node.is_selected {
+            &rows.badge.badge_selected
+        } else {
+            &rows.badge.badge
+        };
+        parts.push(
+            crate::widgets::widget_p_with_text(node.badge.clone())
+                .with_css_props(badge_style.clone())
+                .with_class(AzString::from_const_str(TREE_BADGE_CLASS_NAME)),
+        );
+    }
 
     // Build the row: one Tab stop per tree (the roving tabindex), the arrow
     // keys on every row, the click only when the app listens for it.

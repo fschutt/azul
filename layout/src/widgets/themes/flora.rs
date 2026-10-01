@@ -7801,3 +7801,29 @@ pub(crate) fn thumbnail_strip_look() -> crate::widgets::thumbnail_strip::Thumbna
 pub(crate) fn cell_grid(g: crate::widgets::cell_grid::CellGridResolved) -> Dom {
     crate::widgets::cell_grid::build(g, &cell_grid_look())
 }
+// ==== tree_view badge ====
+//
+// The count after a tree node's label: semibold in flora's accent on the
+// field paper (its glow at night, the accent itself being too deep for the
+// dark paper), and on the selected stone in the stone's own ink, like the
+// label beside it.
+
+/// Flora's look for a tree node's badge.
+#[must_use]
+pub(crate) fn tree_view_badge_look() -> crate::widgets::tree_view::TreeViewBadgeLook {
+    use super::{decl, style_kit as kit};
+    use crate::widgets::tree_view as t;
+    type P = CssPropertyWithConditions;
+
+    let badge = |ink: Vec<P>| {
+        let mut v = t::BADGE_BASE.to_vec();
+        v.extend(decl::padding(0, 2, 0, 6));
+        v.push(decl::semibold());
+        v.extend(ink);
+        CssPropertyWithConditionsVec::from_vec(v)
+    };
+    t::TreeViewBadgeLook {
+        badge: badge(kit::themed_ink(LIGHT_ACC, DARK_GLOW).to_vec()),
+        badge_selected: badge(vec![P::simple(kit::ink(LIGHT_ON_ACC))]),
+    }
+}

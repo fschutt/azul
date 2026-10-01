@@ -6222,3 +6222,19 @@ pub(crate) fn thumbnail_strip_look() -> crate::widgets::thumbnail_strip::Thumbna
 pub(crate) fn cell_grid(g: crate::widgets::cell_grid::CellGridResolved) -> Dom {
     crate::widgets::cell_grid::build(g, &cell_grid_look())
 }
+// ==== tree_view badge ====
+//
+// The count after a tree node's label (a mail folder's unread messages):
+// flat writes it semibold in Windows' accent blue, and on a selected row in
+// the label's ink. The skins are the widget's own statics, like the rest of
+// flat's tree (`tree_view::BADGE_STYLE`, `BADGE_SELECTED_STYLE`).
+
+/// Flat's look for a tree node's badge.
+#[must_use]
+pub(crate) fn tree_view_badge_look() -> crate::widgets::tree_view::TreeViewBadgeLook {
+    use crate::widgets::tree_view as t;
+    t::TreeViewBadgeLook {
+        badge: on_base(t::BADGE_BASE, t::BADGE_STYLE),
+        badge_selected: on_base(t::BADGE_BASE, t::BADGE_SELECTED_STYLE),
+    }
+}
