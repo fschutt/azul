@@ -718,3 +718,5 @@ mod a_spanning_cells_width_is_spread_over_the_columns_it_spans;
 mod an_acked_split_of_a_list_item_resumes_past_the_new_items_marker;
 #[path = "a_chat_field_keeps_its_width_while_text_is_typed.rs"]
 mod a_chat_field_keeps_its_width_while_text_is_typed;
+#[path = "a_partial_image_change_leaves_its_rect_for_the_renderer.rs"]
+mod a_partial_image_change_leaves_its_rect_for_the_renderer;

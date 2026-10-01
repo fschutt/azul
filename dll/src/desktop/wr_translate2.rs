@@ -3179,13 +3179,14 @@ mod overlay_upload_tests {
     use azul_core::{
         dom::{DomId, NodeId},
         resources::{
-            IdNamespace, ImageRef, Nv12Layout, RawImage, RawImageData, RawImageFormat,
-            RendererResources,
+            IdNamespace, ImageDirtyRect, ImageRef, Nv12Layout, RawImage, RawImageData,
+            RawImageFormat, RendererResources,
         },
     };
-    use webrender::api::ImageFormat;
+    use azul_css::props::basic::{LayoutPoint, LayoutRect, LayoutSize};
+    use webrender::api::{DirtyRect, ImageFormat};
 
-    use super::{nv12_plane_descriptors, plan_overlay_image_uploads};
+    use super::{nv12_plane_descriptors, plan_overlay_image_uploads, translate_dirty_rect};
 
     fn frame(format: RawImageFormat, w: usize, h: usize, fill: u8) -> ImageRef {
         let len = if format.is_nv12() {
@@ -3211,7 +3212,7 @@ mod overlay_upload_tests {
     fn a_tiles_frames_share_one_renderer_key_and_the_old_frame_is_forgotten() {
         let mut rr = RendererResources::default();
         let f1 = frame(RawImageFormat::BGRA8, 4, 2, 1);
-        let first = plan_overlay_image_uploads([(TILE, &f1)].into_iter(), &mut rr, NS);
+        let first = plan_overlay_image_uploads([(TILE, &f1, ImageDirtyRect::All)].into_iter(), &mut rr, NS);
         assert_eq!(first.len(), 1);
         assert!(!first[0].update, "the tile's first frame adds its key");
         let key = first[0].key;
@@ -3225,7 +3226,7 @@ mod overlay_upload_tests {
         );
 
         let f2 = frame(RawImageFormat::BGRA8, 4, 2, 2);
-        let second = plan_overlay_image_uploads([(TILE, &f2)].into_iter(), &mut rr, NS);
+        let second = plan_overlay_image_uploads([(TILE, &f2, ImageDirtyRect::All)].into_iter(), &mut rr, NS);
         assert_eq!(second.len(), 1);
         assert!(second[0].update, "a later frame UPDATES the same key: pixels only");
         assert_eq!(second[0].key, key);
@@ -3241,7 +3242,7 @@ mod overlay_upload_tests {
         );
         assert_eq!(rr.image_key_map.get(&key), Some(&f2.get_hash()));
 
-        let again = plan_overlay_image_uploads([(TILE, &f2)].into_iter(), &mut rr, NS);
+        let again = plan_overlay_image_uploads([(TILE, &f2, ImageDirtyRect::All)].into_iter(), &mut rr, NS);
         assert!(again.is_empty(), "a frame already up uploads nothing");
     }
 
@@ -3249,14 +3250,14 @@ mod overlay_upload_tests {
     fn an_nv12_frame_is_two_planes_under_two_stable_keys_sharing_one_buffer() {
         let mut rr = RendererResources::default();
         let f1 = frame(RawImageFormat::NV12Rec709Video, 6, 4, 9);
-        let up = plan_overlay_image_uploads([(TILE, &f1)].into_iter(), &mut rr, NS);
+        let up = plan_overlay_image_uploads([(TILE, &f1, ImageDirtyRect::All)].into_iter(), &mut rr, NS);
         let chroma = up[0].chroma.expect("NV12 has a chroma plane");
         assert!(!chroma.update);
         assert_ne!(chroma.key, up[0].key);
         assert_eq!(rr.nv12_chroma_keys.get(&up[0].key), Some(&chroma.key));
 
         let f2 = frame(RawImageFormat::NV12Rec709Video, 6, 4, 10);
-        let up2 = plan_overlay_image_uploads([(TILE, &f2)].into_iter(), &mut rr, NS);
+        let up2 = plan_overlay_image_uploads([(TILE, &f2, ImageDirtyRect::All)].into_iter(), &mut rr, NS);
         assert!(up2[0].update);
         assert_eq!(
             up2[0].chroma.map(|c| (c.key, c.update)),
@@ -3278,12 +3279,101 @@ mod overlay_upload_tests {
     fn a_tile_that_turns_from_nv12_to_bgra_drops_its_chroma_plane() {
         let mut rr = RendererResources::default();
         let f1 = frame(RawImageFormat::NV12Rec601Video, 4, 4, 9);
-        let up = plan_overlay_image_uploads([(TILE, &f1)].into_iter(), &mut rr, NS);
+        let up = plan_overlay_image_uploads([(TILE, &f1, ImageDirtyRect::All)].into_iter(), &mut rr, NS);
         let chroma = up[0].chroma.expect("NV12").key;
         let f2 = frame(RawImageFormat::BGRA8, 4, 4, 1);
-        let up2 = plan_overlay_image_uploads([(TILE, &f2)].into_iter(), &mut rr, NS);
+        let up2 = plan_overlay_image_uploads([(TILE, &f2, ImageDirtyRect::All)].into_iter(), &mut rr, NS);
         assert!(up2[0].chroma.is_none());
         assert_eq!(up2[0].drop_chroma, Some(chroma));
         assert!(rr.nv12_chroma_keys.get(&up2[0].key).is_none());
+    }
+
+    // ---- A canvas: one image node whose app repaints part of it per pointer move ----
+
+    fn partial(x: isize, y: isize, w: isize, h: isize) -> ImageDirtyRect {
+        ImageDirtyRect::Partial(LayoutRect::new(
+            LayoutPoint::new(x, y),
+            LayoutSize::new(w, h),
+        ))
+    }
+
+    #[test]
+    fn a_later_frame_of_the_same_size_uploads_only_its_dirty_rect() {
+        let mut rr = RendererResources::default();
+        let f1 = frame(RawImageFormat::BGRA8, 64, 32, 1);
+        let first = plan_overlay_image_uploads(
+            [(TILE, &f1, partial(0, 0, 4, 4))].into_iter(),
+            &mut rr,
+            NS,
+        );
+        assert_eq!(
+            first[0].dirty,
+            ImageDirtyRect::All,
+            "the first frame adds the key: the renderer has none of it yet"
+        );
+        let f2 = frame(RawImageFormat::BGRA8, 64, 32, 2);
+        let second = plan_overlay_image_uploads(
+            [(TILE, &f2, partial(8, 4, 16, 8))].into_iter(),
+            &mut rr,
+            NS,
+        );
+        assert!(second[0].update);
+        assert_eq!(
+            second[0].dirty,
+            partial(8, 4, 16, 8),
+            "only the rect the app repainted goes up again"
+        );
+    }
+
+    #[test]
+    fn a_frame_of_another_size_or_format_is_uploaded_whole() {
+        let mut rr = RendererResources::default();
+        let f1 = frame(RawImageFormat::BGRA8, 64, 32, 1);
+        let _ = plan_overlay_image_uploads([(TILE, &f1, ImageDirtyRect::All)].into_iter(), &mut rr, NS);
+        let smaller = frame(RawImageFormat::BGRA8, 32, 32, 2);
+        let up = plan_overlay_image_uploads(
+            [(TILE, &smaller, partial(0, 0, 2, 2))].into_iter(),
+            &mut rr,
+            NS,
+        );
+        assert!(up[0].update, "the tile keeps its key");
+        assert_eq!(up[0].dirty, ImageDirtyRect::All, "a reshaped frame goes up whole");
+        let nv12 = frame(RawImageFormat::NV12Rec709Video, 32, 32, 3);
+        let up = plan_overlay_image_uploads(
+            [(TILE, &nv12, partial(0, 0, 2, 2))].into_iter(),
+            &mut rr,
+            NS,
+        );
+        assert_eq!(up[0].dirty, ImageDirtyRect::All, "so does a frame in another format");
+    }
+
+    #[test]
+    fn a_dirty_rect_reaching_past_the_frame_is_clipped_to_it() {
+        let mut rr = RendererResources::default();
+        let f1 = frame(RawImageFormat::BGRA8, 64, 32, 1);
+        let _ = plan_overlay_image_uploads([(TILE, &f1, ImageDirtyRect::All)].into_iter(), &mut rr, NS);
+        let f2 = frame(RawImageFormat::BGRA8, 64, 32, 2);
+        let up = plan_overlay_image_uploads(
+            [(TILE, &f2, partial(60, 30, 20, 20))].into_iter(),
+            &mut rr,
+            NS,
+        );
+        assert_eq!(up[0].dirty, partial(60, 30, 4, 2));
+    }
+
+    #[test]
+    fn the_renderer_gets_the_same_rect_in_device_pixels() {
+        match translate_dirty_rect(&partial(8, 4, 16, 8)) {
+            DirtyRect::Partial(b) => assert_eq!(
+                (b.min.x, b.min.y, b.max.x, b.max.y),
+                (8, 4, 24, 12),
+                "origin + size becomes min / max corners"
+            ),
+            DirtyRect::All => panic!("a partial rect must stay partial"),
+        }
+        assert!(matches!(
+            translate_dirty_rect(&ImageDirtyRect::All),
+            DirtyRect::All
+        ));
     }
 }

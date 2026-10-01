@@ -2585,4 +2585,77 @@ mod nv12_tests {
         });
         assert!(image.is_none());
     }
+
+    // ---- ImageDirtyRect: the part of an image the renderer must upload again ----
+
+    fn dirty(x: isize, y: isize, w: isize, h: isize) -> ImageDirtyRect {
+        use azul_css::props::basic::{LayoutPoint, LayoutRect, LayoutSize};
+        ImageDirtyRect::Partial(LayoutRect::new(
+            LayoutPoint::new(x, y),
+            LayoutSize::new(w, h),
+        ))
+    }
+
+    #[test]
+    fn two_dirty_rects_unite_to_their_bounding_box() {
+        assert_eq!(
+            dirty(10, 10, 5, 5).union(&dirty(20, 0, 2, 2)),
+            dirty(10, 0, 12, 15)
+        );
+        assert_eq!(
+            dirty(20, 0, 2, 2).union(&dirty(10, 10, 5, 5)),
+            dirty(10, 0, 12, 15),
+            "the union does not depend on the order"
+        );
+    }
+
+    #[test]
+    fn a_dirty_rect_united_with_the_whole_image_is_the_whole_image() {
+        assert_eq!(
+            dirty(1, 1, 1, 1).union(&ImageDirtyRect::All),
+            ImageDirtyRect::All
+        );
+        assert_eq!(
+            ImageDirtyRect::All.union(&dirty(1, 1, 1, 1)),
+            ImageDirtyRect::All
+        );
+    }
+
+    #[test]
+    fn an_empty_dirty_rect_adds_nothing_to_a_union() {
+        assert!(dirty(50, 50, 0, 0).is_empty());
+        assert!(dirty(50, 50, 7, 0).is_empty());
+        assert!(!dirty(50, 50, 1, 1).is_empty());
+        assert!(!ImageDirtyRect::All.is_empty());
+        assert_eq!(
+            dirty(50, 50, 0, 0).union(&dirty(1, 2, 3, 4)),
+            dirty(1, 2, 3, 4),
+            "the empty rect's position must not stretch the union"
+        );
+        assert_eq!(
+            dirty(1, 2, 3, 4).union(&dirty(50, 50, 0, 7)),
+            dirty(1, 2, 3, 4)
+        );
+    }
+
+    #[test]
+    fn a_dirty_rect_is_clipped_to_the_image_it_belongs_to() {
+        assert_eq!(
+            dirty(-4, 90, 20, 20).clipped_to(100, 100),
+            dirty(0, 90, 16, 10)
+        );
+        assert_eq!(
+            dirty(10, 10, 5, 5).clipped_to(100, 100),
+            dirty(10, 10, 5, 5),
+            "a rect inside the image stays as it is"
+        );
+        assert!(
+            dirty(200, 0, 5, 5).clipped_to(100, 100).is_empty(),
+            "a rect beside the image leaves nothing to upload"
+        );
+        assert_eq!(
+            ImageDirtyRect::All.clipped_to(100, 100),
+            ImageDirtyRect::All
+        );
+    }
 }

@@ -1266,4 +1266,86 @@ mod tests {
             "other DOMs untouched"
         );
     }
+
+    // ---- The node-image arm's dirty region: what the renderer still has to upload ----
+
+    fn dirty(x: isize, y: isize, w: isize, h: isize) -> azul_core::resources::ImageDirtyRect {
+        use azul_css::props::basic::{LayoutPoint, LayoutRect, LayoutSize};
+        azul_core::resources::ImageDirtyRect::Partial(LayoutRect::new(
+            LayoutPoint::new(x, y),
+            LayoutSize::new(w, h),
+        ))
+    }
+
+    #[test]
+    fn a_partial_image_change_leaves_only_its_rect_for_the_renderer() {
+        let mut overlay = ContentOverlay::default();
+        let node = NodeId::new(4);
+        overlay.set_image_with_dirty(dom0(), node, img(64, 64), dirty(8, 8, 4, 4));
+        assert_eq!(overlay.image_dirty(dom0(), node), Some(dirty(8, 8, 4, 4)));
+        assert_eq!(
+            overlay.image_dirty(dom0(), NodeId::new(5)),
+            None,
+            "a node nobody changed has nothing pending"
+        );
+    }
+
+    #[test]
+    fn partial_image_changes_before_an_upload_add_up() {
+        let mut overlay = ContentOverlay::default();
+        let node = NodeId::new(4);
+        overlay.set_image_with_dirty(dom0(), node, img(64, 64), dirty(0, 0, 2, 2));
+        overlay.set_image_with_dirty(dom0(), node, img(64, 64), dirty(10, 10, 2, 2));
+        assert_eq!(
+            overlay.image_dirty(dom0(), node),
+            Some(dirty(0, 0, 12, 12)),
+            "the renderer never saw the first image, so the next upload covers both rects"
+        );
+    }
+
+    #[test]
+    fn a_whole_image_change_keeps_the_next_upload_whole_until_the_renderer_took_it() {
+        use azul_core::resources::ImageDirtyRect;
+        let mut overlay = ContentOverlay::default();
+        let node = NodeId::new(4);
+        overlay.set_image(dom0(), node, img(64, 64));
+        assert_eq!(overlay.image_dirty(dom0(), node), Some(ImageDirtyRect::All));
+        overlay.set_image_with_dirty(dom0(), node, img(64, 64), dirty(1, 1, 1, 1));
+        assert_eq!(
+            overlay.image_dirty(dom0(), node),
+            Some(ImageDirtyRect::All),
+            "the whole first image is not up yet"
+        );
+        overlay.clear_image_dirty();
+        assert_eq!(
+            overlay.image_dirty(dom0(), node),
+            None,
+            "the renderer took everything"
+        );
+        overlay.set_image_with_dirty(dom0(), node, img(64, 64), dirty(1, 1, 1, 1));
+        assert_eq!(overlay.image_dirty(dom0(), node), Some(dirty(1, 1, 1, 1)));
+    }
+
+    #[test]
+    fn the_dirty_region_moves_with_its_node_and_leaves_with_its_dom() {
+        let mut overlay = ContentOverlay::default();
+        overlay.set_image_with_dirty(dom0(), NodeId::new(2), img(8, 8), dirty(1, 1, 2, 2));
+        overlay.set_image_with_dirty(dom0(), NodeId::new(3), img(8, 8), dirty(0, 0, 1, 1));
+        let mut moves = BTreeMap::new();
+        moves.insert(NodeId::new(2), NodeId::new(1));
+        overlay.remap_node_ids(dom0(), &NodeIdMap::from_pairs(moves));
+        assert_eq!(
+            overlay.image_dirty(dom0(), NodeId::new(1)),
+            Some(dirty(1, 1, 2, 2))
+        );
+        assert_eq!(overlay.image_dirty(dom0(), NodeId::new(2)), None);
+        assert_eq!(
+            overlay.image_dirty(dom0(), NodeId::new(3)),
+            None,
+            "an unmounted node's region goes with it"
+        );
+        overlay.set_image_with_dirty(dom0(), NodeId::new(1), img(8, 8), dirty(4, 4, 1, 1));
+        overlay.clear_dom(dom0());
+        assert_eq!(overlay.image_dirty(dom0(), NodeId::new(1)), None);
+    }
 }
