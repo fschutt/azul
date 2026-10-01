@@ -1178,6 +1178,11 @@ pub(crate) fn widget_module_for(type_name: &str, full_path: &str) -> Option<Stri
         Some("dom".to_string())
     } else if type_name.starts_with("Option") {
         Some("option".to_string())
+    } else if full_path.starts_with("azul_layout::widgets::shells::") {
+        // The app shells (OfficeShell, ShellNavigationPane, the S1..S11
+        // shells) have a module of their own, apart from the smaller
+        // widgets: `from azul.shells import ShellNavigationPane`.
+        Some("shells".to_string())
     } else {
         Some("widgets".to_string())
     }

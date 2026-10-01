@@ -15,6 +15,13 @@ pub const MODULES: &[&str] = &[
     "menu",
     "css",
     "widgets",
+    // The app shells (`azul_layout::widgets::shells`): the eleven window
+    // layouts and the pieces they share (OfficeShell, ShellNavigationPane,
+    // ShellCommandPalette, ...). Their own module, so a binding reads
+    // `from azul.shells import ShellNavigationPane`; the smaller items stay
+    // in `widgets`. Every class name carries "Shell", and the source path
+    // routes them too (`module_from_external_path`).
+    "shells",
     "gl",
     "image",
     "font",
@@ -470,6 +477,39 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "maptile",     // MapTileId, MapTileLayer
             "mapviewport", // MapViewport
             "mapwidget",   // MapWidget
+        ],
+    );
+
+    // App shells. Every class name carries "shell" (or "scaffold"), and the
+    // longer stems are spelled out so a shell type whose name also holds a
+    // dom or css word ("ShellNavigationPaneEvent" has "event",
+    // "ShellThemeAccentColors" has "color") still resolves here by length.
+    map.insert(
+        "shells",
+        vec![
+            "shell",
+            "scaffold",
+            "shellpane",           // ShellPane, ShellPaneKind
+            "shellon",             // ShellOnPaneFocus, ShellOnPaneResize
+            "shellnavigation",     // ShellNavigationPane, ShellNavigationGroup, ShellNavigationModule
+            "shellcommandpalette", // ShellCommandPalette
+            "shellpalette",        // ShellPaletteCommand
+            "shellsettings",       // ShellSettingsLayout, ShellSettingsSection
+            "shellemptystate",     // ShellEmptyState
+            "shelltheme",          // ShellThemeScope, ShellThemeAccent, ShellThemeAccentColors
+            "shellbottomtab",      // ShellBottomTab
+            "officeshell",
+            "documentshell",
+            "canvasshell",
+            "timelineshell",
+            "pimshell",
+            "browsershell",
+            "recordsshell",
+            "mediashell",
+            "developershell",
+            "utilityshell",
+            "callshell",
+            "mobileshell",
         ],
     );
 
@@ -941,6 +981,12 @@ fn module_from_external_path(path: &str) -> Option<String> {
     }
     if path.starts_with("azul_layout::xml::") {
         return Some("dom".to_string());
+    }
+    // The app shells have a module of their own (`shells`), apart from the
+    // smaller widgets: checked BEFORE the widgets arm, which would otherwise
+    // claim the path.
+    if path.starts_with("azul_layout::widgets::shells::") {
+        return Some("shells".to_string());
     }
     // Widget types (Button, TextInput, MapWidget, …) live in the `widgets`
     // module regardless of their Rust submodule (e.g. `widgets::map::MapWidget`).
@@ -1428,6 +1474,62 @@ mod tests {
         );
         stays("ResultDbDbError", "error", "azul_core::db::ResultDbDbError");
         stays("DbError", "error", "azul_core::db::DbError");
+    }
+
+    /// The app shells resolve to their own module, `shells`, by name - the
+    /// S-shells by their "shell" stem, the shared pieces by the longer stems
+    /// that outrank the dom and css words inside their names - and by their
+    /// source path.
+    #[test]
+    fn shell_types_resolve_to_shells_by_name_and_by_path() {
+        for name in [
+            "OfficeShell",
+            "ShellPane",
+            "ShellPaneKind",
+            "ShellOnPaneFocus",
+            "ShellOnPaneResize",
+            "ShellNavigationPane",
+            "ShellNavigationPaneEvent",
+            "ShellNavigationPaneEventKind",
+            "ShellNavigationGroup",
+            "ShellNavigationModule",
+            "ShellCommandPalette",
+            "ShellPaletteCommand",
+            "ShellSettingsLayout",
+            "ShellSettingsSection",
+            "ShellEmptyState",
+            "ShellThemeScope",
+            "ShellThemeAccent",
+            "ShellThemeAccentColors",
+            "ShellBottomTab",
+            "DocumentShell",
+            "CanvasShell",
+            "TimelineShell",
+            "PimShell",
+            "BrowserShell",
+            "RecordsShell",
+            "MediaShell",
+            "DeveloperShell",
+            "UtilityShell",
+            "CallShell",
+            "MobileShell",
+        ] {
+            let (module, is_warning) = determine_module(name);
+            assert_eq!(module, "shells", "{name} must resolve to shells");
+            assert!(!is_warning, "{name} must resolve confidently");
+        }
+        assert_eq!(
+            module_from_external_path("azul_layout::widgets::shells::office_shell::OfficeShell"),
+            Some("shells".to_string())
+        );
+        assert_eq!(
+            module_from_external_path("azul_layout::widgets::button::Button"),
+            Some("widgets".to_string()),
+            "the smaller widgets stay in widgets"
+        );
+        // The by-concern types keep the established placement.
+        assert_eq!(determine_module("OptionShellPane").0, "option");
+        assert_eq!(determine_module("ShellPaneVec").0, "vec");
     }
 
     #[test]
