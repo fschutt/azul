@@ -73,6 +73,7 @@
 //!   `AZMEET_TEST_PATTERN=1`).
 
 mod audio;
+mod chat;
 mod rooms;
 mod routes;
 mod video_wire;
