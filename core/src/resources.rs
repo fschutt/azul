@@ -3964,10 +3964,73 @@ pub struct ExternalImageData {
 
 pub type TileSize = u16;
 
+/// The part of an image that changed since the renderer last uploaded it: the
+/// whole image, or a rect in image pixels (origin + size).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd)]
 pub enum ImageDirtyRect {
     All,
     Partial(LayoutRect),
+}
+
+impl ImageDirtyRect {
+    /// `true` for a rect without area: nothing to upload.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        match self {
+            Self::All => false,
+            Self::Partial(r) => r.size.width <= 0 || r.size.height <= 0,
+        }
+    }
+
+    /// The smallest region covering both: their bounding box, the whole image
+    /// when either is. An empty rect adds nothing (its position must not
+    /// stretch the box).
+    #[must_use]
+    pub fn union(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::Partial(a), Self::Partial(b)) => {
+                if self.is_empty() {
+                    return *other;
+                }
+                if other.is_empty() {
+                    return *self;
+                }
+                let x0 = a.origin.x.min(b.origin.x);
+                let y0 = a.origin.y.min(b.origin.y);
+                let x1 = (a.origin.x + a.size.width).max(b.origin.x + b.size.width);
+                let y1 = (a.origin.y + a.size.height).max(b.origin.y + b.size.height);
+                Self::Partial(LayoutRect::new(
+                    azul_css::props::basic::LayoutPoint::new(x0, y0),
+                    LayoutSize::new(x1 - x0, y1 - y0),
+                ))
+            }
+            _ => Self::All,
+        }
+    }
+
+    /// This region inside a `width` x `height` image: a rect is cut to the
+    /// image (empty when it lies beside it), `All` stays `All`.
+    #[must_use]
+    #[allow(clippy::cast_possible_wrap)] // image dimensions are far below isize::MAX
+    pub fn clipped_to(&self, width: usize, height: usize) -> Self {
+        match self {
+            Self::All => Self::All,
+            Self::Partial(r) => {
+                let (w, h) = (width as isize, height as isize);
+                let x0 = r.origin.x.clamp(0, w);
+                let y0 = r.origin.y.clamp(0, h);
+                let x1 = (r.origin.x + r.size.width).clamp(0, w);
+                let y1 = (r.origin.y + r.size.height).clamp(0, h);
+                if x1 <= x0 || y1 <= y0 {
+                    return Self::Partial(LayoutRect::zero());
+                }
+                Self::Partial(LayoutRect::new(
+                    azul_css::props::basic::LayoutPoint::new(x0, y0),
+                    LayoutSize::new(x1 - x0, y1 - y0),
+                ))
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]

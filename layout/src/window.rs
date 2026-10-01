@@ -8412,12 +8412,13 @@ impl LayoutWindow {
                 dom_id,
                 node_id,
                 image,
-            } => self.apply_image_change(dom_id, node_id, &image, false),
+                dirty_rect,
+            } => self.apply_image_change(dom_id, node_id, &image, false, dirty_rect),
             ContentChange::ImageCallbackResult {
                 dom_id,
                 node_id,
                 image,
-            } => self.apply_image_change(dom_id, node_id, &image, true),
+            } => self.apply_image_change(dom_id, node_id, &image, true, None),
             ContentChange::NodeCss {
                 dom_id,
                 node_id,
@@ -8949,7 +8950,10 @@ impl LayoutWindow {
         node_id: NodeId,
         image: &ImageRef,
         from_callback: bool,
+        dirty_rect: Option<azul_css::props::basic::LayoutRect>,
     ) -> crate::overlay::ContentChangeResult {
+        use azul_core::resources::ImageDirtyRect;
+
         use crate::overlay::{
             AppliedChange, ContentChangeResult, ContentDirtyTier, ResolvedContent,
         };
@@ -8991,8 +8995,18 @@ impl LayoutWindow {
             }
         };
 
+        // What the renderer has to upload: only the app's dirty rect when the
+        // new image has the previous one's pixel shape (a callback's own
+        // frame, or a node still showing its callback, has no rect to trust).
+        let same_shape = old
+            .as_ref()
+            .is_some_and(|o| !o.is_callback() && o.get_size() == image.get_size());
+        let dirty = match dirty_rect {
+            Some(rect) if same_shape && !from_callback => ImageDirtyRect::Partial(rect),
+            _ => ImageDirtyRect::All,
+        };
         self.content_overlay
-            .set_image(dom_id, node_id, image.clone());
+            .set_image_with_dirty(dom_id, node_id, image.clone(), dirty);
         self.content_journal.record(AppliedChange::Image {
             dom_id,
             node_id,

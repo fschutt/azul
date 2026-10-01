@@ -28,7 +28,7 @@ use std::collections::{BTreeMap, VecDeque};
 
 use azul_core::{
     dom::{DomId, NodeId, NodeType},
-    resources::{ImageRef, ImageRefHash},
+    resources::{ImageDirtyRect, ImageRef, ImageRefHash},
     selection::TextCursor,
     styled_dom::StyledDom,
 };
@@ -148,6 +148,10 @@ pub enum ContentChange {
         dom_id: DomId,
         node_id: NodeId,
         image: ImageRef,
+        /// The rect (image pixels) in which the new image differs from the
+        /// node's previous one (`CallbackInfo::change_node_image_rect`), so
+        /// the renderer uploads only that; `None` = the whole image changed.
+        dirty_rect: Option<azul_css::props::basic::LayoutRect>,
     },
     /// A `RenderImageCallback` produced a frame for a callback-image node.
     /// Always paint-tier: callback frames are PAINT content — the box is
@@ -337,6 +341,13 @@ pub struct ContentOverlay {
     /// Node-image arm: the currently-displayed image for a node, overriding
     /// the immutable DOM's `NodeType::Image` content.
     images: BTreeMap<(DomId, NodeId), ImageRef>,
+    /// The node-image arm's damage: per node, the part of its CURRENT image
+    /// the renderer has not uploaded yet - the union of every change since the
+    /// last upload (`All` once a change did not name a rect). The GPU
+    /// renderer reads it to upload a dirty rect instead of the whole image and
+    /// clears it after the upload ([`Self::clear_image_dirty`]). Absent =
+    /// nothing pending.
+    image_dirty: BTreeMap<(DomId, NodeId), ImageDirtyRect>,
     /// Text arm: edited inline content per IFC root ("optimistic state"),
     /// overriding the immutable DOM's text. Written only through
     /// `LayoutWindow::update_text_cache_after_edit` (the documented single
@@ -392,13 +403,44 @@ impl ContentOverlay {
         self.images.is_empty() && self.text.is_empty() && self.pending_structure.is_empty()
     }
 
+    /// Set a node's image, the whole of it new to the renderer.
     pub(crate) fn set_image(
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
         image: ImageRef,
     ) -> Option<ImageRef> {
+        self.set_image_with_dirty(dom_id, node_id, image, ImageDirtyRect::All)
+    }
+
+    /// Set a node's image that differs from the previous one only inside
+    /// `dirty`. The region adds to what is still pending for the node: the
+    /// renderer may not have seen the previous image either.
+    pub(crate) fn set_image_with_dirty(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        image: ImageRef,
+        dirty: ImageDirtyRect,
+    ) -> Option<ImageRef> {
+        let pending = self
+            .image_dirty
+            .get(&(dom_id, node_id))
+            .map_or(dirty, |before| before.union(&dirty));
+        self.image_dirty.insert((dom_id, node_id), pending);
         self.images.insert((dom_id, node_id), image)
+    }
+
+    /// The part of a node's current image the renderer has not uploaded yet,
+    /// or `None` when nothing is pending.
+    #[must_use]
+    pub fn image_dirty(&self, dom_id: DomId, node_id: NodeId) -> Option<ImageDirtyRect> {
+        self.image_dirty.get(&(dom_id, node_id)).copied()
+    }
+
+    /// The renderer uploaded every node image it needs: nothing is pending.
+    pub fn clear_image_dirty(&mut self) {
+        self.image_dirty.clear();
     }
 
     pub(crate) fn set_text(
@@ -589,6 +631,7 @@ impl ContentOverlay {
     /// remap — the new generation's DOM is the authority again).
     pub(crate) fn clear_dom(&mut self, dom_id: DomId) {
         self.images.retain(|(d, _), _| *d != dom_id);
+        self.image_dirty.retain(|(d, _), _| *d != dom_id);
         self.text.retain(|(d, _), _| *d != dom_id);
         self.pending_structure.remove(&dom_id);
     }
@@ -597,6 +640,7 @@ impl ContentOverlay {
 impl NodeIdRemap for ContentOverlay {
     fn remap_node_ids(&mut self, dom: DomId, map: &NodeIdMap) {
         crate::managers::remap_dom_keys(&mut self.images, dom, map);
+        crate::managers::remap_dom_keys(&mut self.image_dirty, dom, map);
         crate::managers::remap_dom_keys(&mut self.text, dom, map);
         // Previews do NOT remap: a remap means a new generation landed,
         // which ends every preview's life (gc at the layout tail); remapping
