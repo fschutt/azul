@@ -21,13 +21,14 @@ thread, monitor change re-reads the frame interval); dark "Dark" segment.
   windowDidChangeScreen now detects the monitor)
 - 4. Segmented dark pair: RED 2239d3f18, GREEN 75dd9c370 (system:accent-text
   resolves as a readable pair on system:accent; css color.rs)
+- report: scripts/LIFECYCLE_2026_10_01.md
 
 ## IN PROGRESS
-- report scripts/LIFECYCLE_2026_10_01.md. Last commit: 75dd9c370. NEXT
-  STEP: write the report (built / commits / api.json / least-sure spots /
-  test commands / left), commit it with this file.
+(none)
 
 ## NEXT
+- nothing: the report scripts/LIFECYCLE_2026_10_01.md is committed. The
+  parent compiles, runs the listed tests and the RED pass.
 
 ## Decisions
 - ABI hash = FNV-1a 64 over a canonical, sorted, doc-free text of the IR
