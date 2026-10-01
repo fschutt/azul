@@ -143,9 +143,20 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
 
 // ==== Keyboard ====
 
-/// The command a key press means, if any. `free`: no text field has the focus (nothing
-/// has, or a task row has), so single keys are commands.
-fn command_of(key: VirtualKeyCode, cmd: bool, alt: bool, free: bool) -> Option<Command> {
+/// Where the keyboard focus is, for the single-key shortcuts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Focus {
+    /// Nothing has the focus, or a task row has: every single key is a command.
+    Free,
+    /// A control that is no text field (a button, a tree row): N and Delete are commands;
+    /// Space, Backspace and Alt+arrows stay the control's.
+    Control,
+    /// A text field: only Cmd keys are commands.
+    Typing,
+}
+
+/// The command a key press means, if any.
+fn command_of(key: VirtualKeyCode, cmd: bool, alt: bool, focus: Focus) -> Option<Command> {
     if cmd {
         let smart = |n: usize| Some(Command::Show(Smart::ALL[n]));
         return match key {
@@ -162,15 +173,14 @@ fn command_of(key: VirtualKeyCode, cmd: bool, alt: bool, free: bool) -> Option<C
             _ => None,
         };
     }
-    if !free {
-        return None;
-    }
+    let free = focus == Focus::Free;
     match key {
-        VirtualKeyCode::N => Some(Command::NewTask),
-        VirtualKeyCode::Space => Some(Command::Complete),
-        VirtualKeyCode::Delete | VirtualKeyCode::Back => Some(Command::Delete),
-        VirtualKeyCode::Up if alt => Some(Command::MoveUp),
-        VirtualKeyCode::Down if alt => Some(Command::MoveDown),
+        VirtualKeyCode::N if focus != Focus::Typing => Some(Command::NewTask),
+        VirtualKeyCode::Delete if focus != Focus::Typing => Some(Command::Delete),
+        VirtualKeyCode::Back if free => Some(Command::Delete),
+        VirtualKeyCode::Space if free => Some(Command::Complete),
+        VirtualKeyCode::Up if alt && free => Some(Command::MoveUp),
+        VirtualKeyCode::Down if alt && free => Some(Command::MoveDown),
         _ => None,
     }
 }
@@ -181,13 +191,27 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     };
     let mods = info.get_key_modifiers();
     let cmd = mods.ctrl || mods.meta;
-    let free = match info.get_focused_node().into_option() {
-        None => true,
-        Some(node) => info
-            .get_node_id(node)
-            .into_option()
-            .is_some_and(|id| id.as_str().starts_with("task-")),
+    let focus = match info.get_focused_node().into_option() {
+        None => Focus::Free,
+        Some(node) => {
+            let row = info
+                .get_node_id(node)
+                .into_option()
+                .is_some_and(|id| id.as_str().starts_with("task-"));
+            let typing = info
+                .get_node_attribute(node, "contenteditable")
+                .into_option()
+                .is_some_and(|v| v.as_str() == "true");
+            if typing {
+                Focus::Typing
+            } else if row {
+                Focus::Free
+            } else {
+                Focus::Control
+            }
+        }
     };
+    let free = focus == Focus::Free;
     // Cmd+7 .. Cmd+9: the first three lists.
     let list_key = match key {
         VirtualKeyCode::Key7 => Some(0),
@@ -226,7 +250,7 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
             s.sync_drafts();
         });
     }
-    let Some(command) = command_of(key, cmd, mods.alt, free) else {
+    let Some(command) = command_of(key, cmd, mods.alt, focus) else {
         return Update::DoNothing;
     };
     info.prevent_default();
@@ -464,22 +488,27 @@ mod key_tests {
 
     #[test]
     fn single_keys_are_commands_only_while_no_text_field_has_the_focus() {
-        assert_eq!(command_of(VirtualKeyCode::N, false, false, true), Some(Command::NewTask));
-        assert_eq!(command_of(VirtualKeyCode::N, false, false, false), None, "typing an n");
-        assert_eq!(command_of(VirtualKeyCode::Space, false, false, true), Some(Command::Complete));
-        assert_eq!(command_of(VirtualKeyCode::Delete, false, false, true), Some(Command::Delete));
-        assert_eq!(command_of(VirtualKeyCode::Up, false, true, true), Some(Command::MoveUp));
-        assert_eq!(command_of(VirtualKeyCode::Up, false, false, true), None, "the selection's");
+        use Focus::{Control, Free, Typing};
+        assert_eq!(command_of(VirtualKeyCode::N, false, false, Free), Some(Command::NewTask));
+        assert_eq!(command_of(VirtualKeyCode::N, false, false, Control), Some(Command::NewTask));
+        assert_eq!(command_of(VirtualKeyCode::N, false, false, Typing), None, "typing an n");
+        assert_eq!(command_of(VirtualKeyCode::Space, false, false, Free), Some(Command::Complete));
+        assert_eq!(command_of(VirtualKeyCode::Space, false, false, Control), None, "the button's");
+        assert_eq!(command_of(VirtualKeyCode::Delete, false, false, Control), Some(Command::Delete));
+        assert_eq!(command_of(VirtualKeyCode::Back, false, false, Typing), None);
+        assert_eq!(command_of(VirtualKeyCode::Up, false, true, Free), Some(Command::MoveUp));
+        assert_eq!(command_of(VirtualKeyCode::Up, false, false, Free), None, "the selection's");
     }
 
     #[test]
     fn cmd_keys_work_everywhere() {
-        assert_eq!(command_of(VirtualKeyCode::N, true, false, false), Some(Command::NewTask));
+        use Focus::{Free, Typing};
+        assert_eq!(command_of(VirtualKeyCode::N, true, false, Typing), Some(Command::NewTask));
         assert_eq!(
-            command_of(VirtualKeyCode::Key2, true, false, false),
+            command_of(VirtualKeyCode::Key2, true, false, Typing),
             Some(Command::Show(Smart::Upcoming))
         );
-        assert_eq!(command_of(VirtualKeyCode::K, true, false, false), Some(Command::Palette));
-        assert_eq!(command_of(VirtualKeyCode::Comma, true, false, true), Some(Command::Settings));
+        assert_eq!(command_of(VirtualKeyCode::K, true, false, Typing), Some(Command::Palette));
+        assert_eq!(command_of(VirtualKeyCode::Comma, true, false, Free), Some(Command::Settings));
     }
 }
