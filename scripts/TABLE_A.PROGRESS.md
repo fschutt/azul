@@ -18,7 +18,15 @@ Brief: scratchpad `TABLE_A_go.md` (widths, row groups, presentational attributes
 - report scripts/TABLE_A_2026_10_01.md (this commit)
 
 ## IN PROGRESS
-- nothing
+- Parent's run (main + this branch): compiled; 1791 pass, 5 of MY tests fail. Fixing one by one:
+  - #5 columns_and_column_groups_span_their_columns: ROOT CAUSE reconcile_recursive (cache.rs, the
+    tree builder the layout really uses) classifies children by `layout_tree::is_block_level`, which
+    lacked table-column(-group): a table's [colgroup, tr] was "mixed content" and the colgroup got
+    wrapped in an anonymous INLINE box under the table, invisible to the grid. FIX: is_block_level +=
+    TableColumnGroup | TableColumn (commit "colgroup ... wrapped").
+  - NEXT: #3 (anonymous inline wrapper measured as 0 in the intrinsic pass), #4 (a cell's children
+    get the cell's intrinsic width as available space: prepare_layout_context), #1/#2 (test premise:
+    whitespace between inline-blocks), then report section.
 
 ## NEXT
 - parent: compile, run section 5 of the report, bless the WPT lists, send mail_boxes numbers.

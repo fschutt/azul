@@ -3800,6 +3800,13 @@ fn ordinal_map(
 // elements, flex containers)
 #[must_use]
 pub fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    // The table-internal boxes are here for what the callers ask - "may this
+    // child be wrapped in an anonymous inline box?" - not because CSS calls
+    // them block-level: a table's `<colgroup>` / `<col>` were missing, so the
+    // reconciler (`cache::reconcile_recursive`) saw a table's [colgroup, tr]
+    // as mixed content and wrapped the column group in an anonymous inline
+    // box under the table, where the table grid never found it (no box, no
+    // column widths from `<col>`).
     matches!(
         get_display_type(styled_dom, node_id),
         LayoutDisplay::Block
@@ -3812,6 +3819,8 @@ pub fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
             | LayoutDisplay::TableRowGroup
             | LayoutDisplay::TableHeaderGroup
             | LayoutDisplay::TableFooterGroup
+            | LayoutDisplay::TableColumnGroup
+            | LayoutDisplay::TableColumn
             | LayoutDisplay::TableCell
             | LayoutDisplay::ListItem
     )
