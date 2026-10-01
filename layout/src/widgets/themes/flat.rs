@@ -5659,6 +5659,45 @@ pub(crate) fn wizard_layout_look() -> crate::widgets::wizard_layout::WizardLayou
     let mut buttons = decl::padding(10, 16, 10, 16).to_vec();
     buttons.extend(flat_strip_above());
 
+    // The frames: a Windows installer's white banner over a hairline, the
+    // macOS installer's side panel on the window surface.
+    let mut subtitle = vec![kit::font_size(12)];
+    subtitle.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
+    subtitle.extend(decl::margin(2, 0, 8, 0));
+
+    let mut banner = decl::padding(12, 16, 4, 16).to_vec();
+    banner.extend(decl::themed_fill(LIGHT_PG, DARK_PG));
+    banner.extend(decl::border_bottom(1));
+    banner.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut banner_icon = vec![kit::font_size(32)];
+    banner_icon.extend(decl::margin(0, 0, 8, 12));
+    banner_icon.extend(decl::themed_ink(TILE_ICON_LIGHT, TILE_ICON_DARK));
+
+    let mut side_panel = vec![CssPropertyWithConditions::simple(CssProperty::const_width(
+        LayoutWidth::const_px(180),
+    ))];
+    side_panel.extend(decl::padding(16, 12, 16, 16));
+    side_panel.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    side_panel.extend(shell_border_right());
+    side_panel.extend(decl::themed_border_right_color(LIGHT_BD, DARK_BD));
+
+    let mut side_icon = vec![kit::font_size(40)];
+    side_icon.extend(decl::margin(0, 0, 16, 0));
+    side_icon.extend(decl::themed_ink(TILE_ICON_LIGHT, TILE_ICON_DARK));
+
+    let mut side_step = vec![kit::font_size(13)];
+    side_step.extend(decl::padding(4, 0, 4, 0));
+    side_step.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut side_step_current = vec![decl::semibold()];
+    side_step_current.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let warning = crate::widgets::alert::AlertKind::Warning;
+    let mut reason = vec![kit::font_size(12)];
+    reason.extend(decl::margin(0, 12, 0, 12));
+    reason.extend(decl::themed_ink(warning.colors().2, warning.dark_colors().2));
+
     crate::widgets::wizard_layout::WizardLayoutLook {
         layout: flat_sheet(),
         rail,
@@ -5666,17 +5705,18 @@ pub(crate) fn wizard_layout_look() -> crate::widgets::wizard_layout::WizardLayou
         title,
         buttons,
         button: decl::margin(0, 0, 0, 8).to_vec(),
-        // RED: the frames are not drawn yet.
-        subtitle: Vec::new(),
-        banner: Vec::new(),
-        banner_title: Vec::new(),
-        banner_icon: Vec::new(),
-        side_panel: Vec::new(),
-        side_icon: Vec::new(),
-        side_step: Vec::new(),
-        side_step_current: Vec::new(),
-        reason: Vec::new(),
-        held: Vec::new(),
+        subtitle,
+        banner,
+        banner_title: vec![kit::font_size(14), decl::semibold()],
+        banner_icon,
+        side_panel,
+        side_icon,
+        side_step,
+        side_step_current,
+        reason,
+        held: vec![CssPropertyWithConditions::simple(CssProperty::const_opacity(
+            StyleOpacity::const_new(50),
+        ))],
         marker: None,
     }
 }
@@ -5688,10 +5728,153 @@ pub fn wizard_layout(w: crate::widgets::wizard_layout::WizardLayout) -> Dom {
 }
 
 // ==== dialog kit (wizard pages, path input, shortcut recorder, settings rows, standard dialogs) ====
+//
+// The flat dialog is an Office dialog on Windows 7: the system face in the
+// ink, a heading semibold, sizes / help / descriptions in the secondary
+// ink, a white field box with a grey hairline that takes the field ring on
+// focus (a license, a log, a list), list rows a separator apart, a setting
+// row's label column 240 wide, a search match on a pale yellow wash (an
+// amber one at night), the recorder a field that turns the selection blue
+// while it listens, the message glyphs in the alert palette's inks, the
+// button row a strip of the window surface over a hairline. At night the
+// desktop's surfaces and inks.
+
+/// The search match's wash, light and dark.
+const KIT_MARK_LIGHT: ColorU = ColorU::new(255, 230, 150, 255);
+const KIT_MARK_DARK: ColorU = ColorU::new(110, 90, 20, 255);
+const KIT_MARK_INK_DARK: ColorU = ColorU::new(255, 236, 179, 255);
 
 /// Flat's dialog-kit look.
 #[must_use]
 pub(crate) fn dialog_kit_look() -> crate::widgets::dialog_kit::DialogKitLook {
-    // RED: the look is not drawn yet.
-    crate::widgets::dialog_kit::DialogKitLook::default()
+    use super::{decl, style_kit as kit};
+    use crate::widgets::alert::AlertKind;
+
+    let px = |p: CssProperty| CssPropertyWithConditions::simple(p);
+    let soft = |size: isize| {
+        let mut v = vec![kit::font_size(size)];
+        v.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+        v
+    };
+    let glyph_of = |kind: AlertKind| {
+        let mut v = vec![kit::font_size(32)];
+        v.extend(decl::margin(0, 16, 0, 0));
+        v.extend(decl::themed_ink(kind.colors().2, kind.dark_colors().2));
+        v
+    };
+
+    let mut page = vec![
+        kit::font_size(13),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    page.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut logo = vec![kit::font_size(48)];
+    logo.extend(decl::themed_ink(LIGHT_ACC, DARK_ACC));
+
+    let mut label = vec![decl::semibold()];
+    label.extend(decl::margin(0, 0, 4, 0));
+
+    let mut scroll_box = decl::border(1).to_vec();
+    scroll_box.extend(decl::themed_border_color(LIGHT_BD3, DARK_BD3));
+    scroll_box.extend(decl::themed_fill(LIGHT_FLD, DARK_FLD));
+    scroll_box.extend(decl::padding(6, 8, 6, 8));
+    scroll_box.extend(decl::radius(2));
+    scroll_box.extend(decl::focus_ring(FIELD_RING, DARK_ACC));
+
+    let mut list_row = decl::padding(4, 4, 4, 4).to_vec();
+    list_row.extend(decl::border_bottom(1));
+    list_row.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut size = soft(12);
+    size.extend(decl::margin(0, 0, 0, 12));
+
+    let mut total = vec![decl::semibold()];
+    total.extend(decl::padding(8, 0, 0, 0));
+
+    let mut description = soft(12);
+    description.extend(decl::margin(0, 0, 6, 28));
+
+    let mut summary_key = vec![kit::font_size(12), decl::semibold()];
+    summary_key.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
+
+    let mut field_row = decl::padding(8, 0, 8, 0).to_vec();
+    field_row.extend(decl::border_bottom(1));
+    field_row.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut field_label = vec![px(CssProperty::const_width(LayoutWidth::const_px(240)))];
+    field_label.extend(decl::margin(0, 16, 0, 0));
+
+    let mut help = soft(12);
+    help.extend(decl::margin(2, 0, 0, 0));
+
+    let mut mark = decl::themed_fill(KIT_MARK_LIGHT, KIT_MARK_DARK).to_vec();
+    mark.extend(decl::themed_ink(LIGHT_INK, KIT_MARK_INK_DARK));
+
+    let mut modified = vec![kit::font_size(12)];
+    modified.extend(decl::margin(0, 6, 0, 0));
+    modified.extend(decl::themed_ink(LIGHT_ACC, DARK_ACC));
+
+    let mut unit = soft(12);
+    unit.extend(decl::margin(0, 0, 0, 6));
+
+    let mut recorder = vec![
+        px(CssProperty::const_min_width(LayoutMinWidth::const_px(160))),
+        kit::font_size(13),
+    ];
+    recorder.extend(decl::border(1));
+    recorder.extend(decl::themed_border_color(LIGHT_BD3, DARK_BD3));
+    recorder.extend(decl::themed_fill(LIGHT_FLD, DARK_FLD));
+    recorder.extend(decl::padding(4, 8, 4, 8));
+    recorder.extend(decl::radius(2));
+    recorder.extend(decl::hover_border_color(FIELD_RING, DARK_ACC));
+    recorder.extend(decl::focus_ring(FIELD_RING, DARK_ACC));
+
+    let mut recorder_recording = decl::themed_border_color(FIELD_RING, DARK_ACC);
+    recorder_recording.extend(decl::themed_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
+
+    let mut dialog = vec![px(CssProperty::const_min_width(LayoutMinWidth::const_px(360)))];
+    dialog.extend(decl::padding(16, 20, 16, 20));
+
+    let mut icon_question = vec![kit::font_size(32)];
+    icon_question.extend(decl::margin(0, 16, 0, 0));
+    icon_question.extend(decl::themed_ink(LIGHT_ACC, DARK_ACC));
+
+    let mut buttons = decl::padding(10, 16, 10, 16).to_vec();
+    buttons.extend(flat_strip_above());
+
+    crate::widgets::dialog_kit::DialogKitLook {
+        page,
+        heading: vec![kit::font_size(18), decl::semibold()],
+        text: vec![kit::font_size(13)],
+        hint: soft(12),
+        logo,
+        block: decl::margin(0, 0, 12, 0).to_vec(),
+        label,
+        scroll_box,
+        list_row,
+        size,
+        total,
+        check_row: decl::padding(3, 0, 3, 0).to_vec(),
+        check_label: decl::margin(0, 0, 0, 8).to_vec(),
+        description,
+        summary_key,
+        summary_row: decl::padding(2, 0, 0, 16).to_vec(),
+        field_row,
+        field_label,
+        help,
+        mark,
+        modified,
+        unit,
+        recorder,
+        recorder_recording,
+        dialog,
+        icon_info: glyph_of(AlertKind::Info),
+        icon_warning: glyph_of(AlertKind::Warning),
+        icon_error: glyph_of(AlertKind::Danger),
+        icon_question,
+        buttons,
+        button: decl::margin(0, 0, 0, 8).to_vec(),
+        marker: None,
+    }
 }
