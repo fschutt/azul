@@ -172,6 +172,61 @@ mod tests {
         assert!(!fits_preview(PreviewKind::None, Some(1)));
     }
 
+    /// A RIFF WAVE file of 16-bit PCM, 8-bit PCM or 32-bit float samples.
+    fn wav(format: u16, channels: u16, rate: u32, bits: u16, data: &[u8]) -> Vec<u8> {
+        let block = channels * bits / 8;
+        let mut out = Vec::new();
+        out.extend_from_slice(b"RIFF");
+        out.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+        out.extend_from_slice(b"WAVE");
+        out.extend_from_slice(b"fmt ");
+        out.extend_from_slice(&16u32.to_le_bytes());
+        out.extend_from_slice(&format.to_le_bytes());
+        out.extend_from_slice(&channels.to_le_bytes());
+        out.extend_from_slice(&rate.to_le_bytes());
+        out.extend_from_slice(&(rate * u32::from(block)).to_le_bytes());
+        out.extend_from_slice(&block.to_le_bytes());
+        out.extend_from_slice(&bits.to_le_bytes());
+        out.extend_from_slice(b"data");
+        out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        out.extend_from_slice(data);
+        out
+    }
+
+    /// azul plays raw f32 samples (`AudioSink`) and decodes no audio format;
+    /// a WAV file IS raw samples, so its preview plays: the samples come out
+    /// as f32 in -1..1, interleaved, with the rate and the channel count.
+    #[test]
+    fn a_wav_file_becomes_f32_samples_and_other_audio_is_refused() {
+        let pcm16: Vec<u8> = [0i16, 16384, -32768, 32767]
+            .iter()
+            .flat_map(|s| s.to_le_bytes())
+            .collect();
+        let decoded = wav_samples(&wav(1, 2, 44_100, 16, &pcm16)).unwrap();
+        assert_eq!((decoded.sample_rate, decoded.channels), (44_100, 2));
+        assert_eq!(decoded.samples.len(), 4);
+        assert_eq!(decoded.samples[0], 0.0);
+        assert!((decoded.samples[1] - 0.5).abs() < 1e-4);
+        assert_eq!(decoded.samples[2], -1.0);
+        assert!((decoded.samples[3] - 1.0).abs() < 1e-4);
+        assert!((decoded.seconds() - 2.0 / 44_100.0).abs() < 1e-6);
+
+        let pcm8 = wav(1, 1, 8_000, 8, &[128, 255, 0]);
+        let decoded = wav_samples(&pcm8).unwrap();
+        assert_eq!(decoded.samples.len(), 3);
+        assert_eq!(decoded.samples[0], 0.0, "8-bit PCM is unsigned around 128");
+        assert_eq!(decoded.samples[2], -1.0);
+
+        let float: Vec<u8> = [0.25f32, -0.5].iter().flat_map(|s| s.to_le_bytes()).collect();
+        let decoded = wav_samples(&wav(3, 1, 48_000, 32, &float)).unwrap();
+        assert_eq!(decoded.samples, vec![0.25, -0.5]);
+
+        assert!(wav_samples(b"ID3\x03 an mp3").is_err());
+        assert!(wav_samples(&wav(2, 1, 8_000, 4, &[0, 0])).is_err(), "ADPCM is not PCM");
+        assert!(is_playable_audio("loop.WAV"));
+        assert!(!is_playable_audio("song.mp3"));
+    }
+
     /// A PDF previews its first page (azul's PDF reader turns pages into SVG,
     /// azul's SVG renderer draws it): fetched up to the image limit; audio
     /// still says why not.
