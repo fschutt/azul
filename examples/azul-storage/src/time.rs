@@ -96,6 +96,20 @@ pub fn amz_date(unix_secs: u64) -> String {
     )
 }
 
+/// `2015-08-30T12:36:00Z` for 2015-08-30 12:36:00 UTC: ISO 8601 / RFC 3339,
+/// what [`parse_iso8601`] reads back (the dates in the apps' files).
+#[must_use]
+pub fn iso8601(unix_secs: u64) -> String {
+    let (year, month, day) = civil_from_days((unix_secs / 86_400) as i64);
+    let secs = unix_secs % 86_400;
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        secs / 3_600,
+        (secs % 3_600) / 60,
+        secs % 60
+    )
+}
+
 /// `2009-10-12T17:50:30.000Z` (milliseconds optional) to seconds since 1970.
 #[must_use]
 pub fn parse_iso8601(text: &str) -> Option<u64> {
