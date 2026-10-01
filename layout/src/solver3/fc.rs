@@ -5842,6 +5842,20 @@ impl TableLayoutContext {
             .find(|g| (g.start..g.start + g.span).contains(&col))
     }
 
+    /// A cell's border-box width: its columns and the border-spacing
+    /// between them (CSS 2.2 17.6.1) - the width it is laid out at and the
+    /// width it is placed at alike.
+    #[allow(clippy::cast_precision_loss)] // a column count
+    pub(crate) fn cell_span_width(&self, cell: &TableCellInfo) -> f32 {
+        let end = (cell.column + cell.colspan).min(self.columns.len());
+        let start = cell.column.min(end);
+        let widths: f32 = self.columns[start..end]
+            .iter()
+            .filter_map(|c| c.computed_width)
+            .sum();
+        widths + self.h_spacing * (end - start).saturating_sub(1) as f32
+    }
+
     /// Per grid slot (`row * columns + column`), the index into `cells` of
     /// the cell covering it.
     pub(crate) fn slot_owners(&self) -> Vec<Option<usize>> {
@@ -6714,7 +6728,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
             "FIXED layout: table_content_box_width={:.2}",
             table_content_box_width
         );
-        calculate_column_widths_fixed(ctx, tree, &mut table_ctx, table_content_box_width);
+        calculate_column_widths_fixed(ctx, tree, &mut table_ctx, columns_width);
     } else {
         // The columns share the content width minus the cell spacing.
         calculate_column_widths_auto_with_width(
@@ -8626,15 +8640,8 @@ fn calculate_row_heights<T: ParsedFontTrait>(
             continue;
         }
 
-        // Get the cell's width (sum of column widths if colspan > 1)
-        let mut cell_width = 0.0;
-        for col_idx in cell_info.column..(cell_info.column + cell_info.colspan) {
-            if let Some(col) = table_ctx.columns.get(col_idx) {
-                if let Some(width) = col.computed_width {
-                    cell_width += width;
-                }
-            }
-        }
+        // The cell's width: its columns and the spacing between them.
+        let cell_width = table_ctx.cell_span_width(cell_info);
 
         debug_table_layout!(
             ctx,
@@ -8688,15 +8695,8 @@ fn calculate_row_heights<T: ParsedFontTrait>(
         }
 
         if cell_info.rowspan > 1 {
-            // Get the cell's width
-            let mut cell_width = 0.0;
-            for col_idx in cell_info.column..(cell_info.column + cell_info.colspan) {
-                if let Some(col) = table_ctx.columns.get(col_idx) {
-                    if let Some(width) = col.computed_width {
-                        cell_width += width;
-                    }
-                }
-            }
+            // The cell's width: its columns and the spacing between them.
+            let cell_width = table_ctx.cell_span_width(cell_info);
 
             // Layout the cell to get its height
             let cell_height = layout_cell_for_height(
@@ -8713,12 +8713,17 @@ fn calculate_row_heights<T: ParsedFontTrait>(
             // row would slice row_heights out of bounds (panic on e.g. a
             // rowspan="2" cell in a single-row table).
             let end_row = (cell_info.row + cell_info.rowspan).min(table_ctx.row_heights.len());
+            let spanned_rows = (cell_info.row..end_row)
+                .filter(|r| !table_ctx.collapsed_rows.contains(r))
+                .count();
+            // The cell's box also covers the border-spacing between its rows.
             let current_total: f32 = table_ctx.row_heights[cell_info.row..end_row]
                 .iter()
                 .enumerate()
                 .filter(|(idx, _)| !table_ctx.collapsed_rows.contains(&(cell_info.row + idx)))
                 .map(|(_, height)| height)
-                .sum();
+                .sum::<f32>()
+                + table_ctx.v_spacing * spanned_rows.saturating_sub(1) as f32;
 
             // If the cell needs more height, distribute extra height across
             // non-collapsed spanned rows
@@ -8881,44 +8886,9 @@ fn position_table_cells<T: ParsedFontTrait>(
         let x = col_positions.get(cell_info.column).copied().unwrap_or(0.0);
         let y = row_positions.get(cell_info.row).copied().unwrap_or(0.0);
 
-        // Calculate cell size (sum of spanned columns/rows)
-        let mut width = 0.0;
-        debug_info!(
-            ctx,
-            "[position_table_cells] Cell {}: calculating width from cols {}..{}",
-            cell_info.node_index,
-            cell_info.column,
-            cell_info.column + cell_info.colspan
-        );
-        for col_idx in cell_info.column..(cell_info.column + cell_info.colspan) {
-            if let Some(col) = table_ctx.columns.get(col_idx) {
-                debug_info!(
-                    ctx,
-                    "[position_table_cells]   Col {}: computed_width={:?}",
-                    col_idx,
-                    col.computed_width
-                );
-                if let Some(col_width) = col.computed_width {
-                    width += col_width;
-                    // Add spacing between spanned columns (but not after the last one)
-                    if col_idx < cell_info.column + cell_info.colspan - 1 {
-                        width += h_spacing;
-                    }
-                } else {
-                    debug_info!(
-                        ctx,
-                        "[position_table_cells]   WARN:  Col {} has NO computed_width!",
-                        col_idx
-                    );
-                }
-            } else {
-                debug_info!(
-                    ctx,
-                    "[position_table_cells]   WARN:  Col {} not found in table_ctx.columns!",
-                    col_idx
-                );
-            }
-        }
+        // Calculate cell size (sum of spanned columns/rows and the spacing
+        // between them) - the width the cell was laid out at.
+        let width = table_ctx.cell_span_width(cell_info);
 
         let mut height = 0.0;
         let end_row = cell_info.row + cell_info.rowspan;
