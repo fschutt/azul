@@ -13,7 +13,16 @@ parse-checked with `rustfmt --edition 2021 --check`. Report: `scripts/TASKS_2026
 
 ## IN PROGRESS
 
-- App UI (`lib.rs`) on PimShell
+- App UI on PimShell, one module per file, each committed when written:
+  `state.rs` (the app state + mutations) -> `jobs.rs` (Thread jobs, the write queue pump)
+  -> `nav.rs` (ShellNavigationPane) -> `list.rs` (quick add, chips, sections, rows)
+  -> `detail.rs` (detail pane, list settings) -> `chrome.rs` (title, ribbon, backstage with
+  ShellSettingsLayout / shortcuts / about, status bar, To-Do bar, palette) -> `lib.rs`
+  (start, layout, window keys, reminder timer, notifications).
+- Text fields: every field stores its text on each keystroke (no rebuild) and is built
+  with it; Enter / commit acks the window's text revision (`mark_text_revision_synced`) so
+  a cleared field rebuilds empty (scripts/G2_FORM_FOLLOWUPS_2026_09_29.md, "What is left").
+  The quick-add line rebuilds only when its recognised parts change (the chips).
 
 ## NEXT (in order)
 
