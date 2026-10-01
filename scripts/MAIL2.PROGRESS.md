@@ -1,0 +1,46 @@
+# MAIL2 progress (AzMail: Outlook-2010 window, compose window, send, E2E)
+
+Branch `wt/mail2` from `39092feee`. Worktree
+`/Users/fschutt/Development/azul/.claude/worktrees/agent-a9d812f830332c658`. Nothing is compiled here
+(house rule); the parent compiles. Brief: scratchpad `MAIL2_go.md`, rules `wave4_common.md`.
+
+## DONE (commit hashes)
+
+- (none yet)
+
+## IN PROGRESS
+
+- plan + progress file
+
+## NEXT (in order)
+
+1. Widget: `TreeViewNode::badge` (the folder tree's unread count), RED test then GREEN; flat + flora
+   looks appended at the end of the theme files.
+2. App model, RED (`todo!()` bodies + tests) then GREEN: `listing.rs` (date groups, message rows,
+   unread counts, folder tree order), `compose.rs` (reply / reply all / forward, address parsing,
+   quote blocks, OutgoingMail, text + HTML serializers of the editor model, the draft `.eml` and its
+   index line), `sending.rs` (the "Sending" settings file next to account.json, no secret).
+3. App UI: PimShell window (ribbon File/Home/Send-Receive/Folder/View, navigation pane with
+   Favorites + account trees, message list grouped by date, reading pane on paper with the
+   "download pictures" info bar, To-Do bar, status bar with sync), backstage (Info / Add account
+   wizard / Account settings with "Sending" / About), compose window (second window: From,
+   To / Cc / Bcc, Subject, toolbar, contenteditable body on the Path-2 Dom model, attachments, Save
+   draft, Send on an azul Thread through `send::send_mail`).
+4. Engine: headless child windows are laid out and pumped; the debug server reaches every window
+   (`window_id` routing, a debug timer on windows created at runtime). RED first.
+5. `scripts/azmail_e2e.py`: add account, sync, open, Reply window with the quote, type, Send to
+   `scripts/azmail_smtp_sink.py` (SEND's), assert the sink's headers and the Sent folder.
+6. Report `scripts/MAIL2_2026_10_01.md`.
+
+## Decisions (unattended run)
+
+- The window is `PimShell` (S4, an `OfficeShell` with navigation | list | reading + To-Do bar):
+  the shell made for exactly this layout.
+- The compose editor is azul's "Path 2": the app holds the body as a `Dom`, applies the engine's
+  structural edits with `DocumentChangeset::apply_to_dom`, syncs typed text with
+  `get_unsynced_text_edits`, and serializes its own model to text/plain + text/html on Send.
+- `send.rs` is SEND's: AzMail codes only against the interface in the brief.
+
+## Open questions
+
+- (none yet)
