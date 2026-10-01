@@ -24,7 +24,6 @@ use azul::{
         ToDoBarOnEventCallbackType,
     },
     css::DarkLightMode,
-    dialog::FileOpenResult,
     dom::VirtualKeyCode,
     http::{HttpBytesResult, HttpRequestConfig},
     image::{ImageDecodeResult, ImageRef, RawImage},

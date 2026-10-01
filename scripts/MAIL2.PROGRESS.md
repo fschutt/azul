@@ -26,11 +26,16 @@ Branch `wt/mail2` from `39092feee`. Worktree
   report names). f ui_account.rs (`b8faed876`). E-IMG engine RED/GREEN (`052d8dc9c`/`8f5bbf164`:
   an `<img src>` from markup shows the image cached under its src). html `sanitize_with` pictures
   RED/GREEN (`a55f964ad`/`83b0fab68`). e ui_main.rs parts 1-3 (`8af876dd7`, `6d9953a98`,
-  `f87188002`), open sanitizes (`30b1a144f`). NEXT: g = ui_compose.rs: `pub(crate) struct Compose`,
-  `open_compose(s, info, app, kind)`, `layout_compose` (ctx = ComposeKey), toolbar ribbon,
-  fields, editor host with TextChanged / DocumentEdit callbacks (editor.rs), attachments
-  (FileDialog::open_multiple_files), draft + send threads (`compose::draft_mail` / `outgoing`,
-  `compose::draft_bytes` + `save_draft`, `send::send_mail`), close on Sent. Then h = sample.rs.
+  `f87188002`), open sanitizes (`30b1a144f`). g ui_compose.rs parts 1-3 (`ddfebfbab`,
+  `28b190ea2`, `0d1811053`). h sample.rs (`6a5a034c0`).
+- NEXT (step 4, engine): headless child windows are laid out and pumped (timers, threads,
+  events, close) - `dll/src/desktop/shell2/headless/mod.rs` Phase 3/4 of `run()`; the debug
+  server reaches every window (`window_id` routing instead of "consumed by the wrong window";
+  a debug timer on windows created at runtime) - `layout/src/e2e/full.rs` debug timer +
+  `dll/src/desktop/shell2/common/debug_server/platform.rs`. RED first. Then step 5 E2E
+  (`scripts/azmail_e2e.py`, sink = SEND's `scripts/azmail_smtp_sink.py <port> <out_dir>`,
+  prints `AZMAIL_SINK_READY <port>`, writes `<nnnn>.eml` + `.json`), then update MAIL1's
+  `examples/azul-mail/scripts/sync_e2e.py` to the wizard, then the report.
   a. compose.rs `draft_mail` (lenient OutgoingMail for drafts) RED + GREEN
   b. args.rs (`--screen --theme --mode --sample --size`) + tests
   c. editor.rs (MailDoc <-> Dom for the Path-2 editor; text sync; structural edit apply)
