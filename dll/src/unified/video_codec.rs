@@ -167,6 +167,9 @@ impl VideoEncoder {
         azul_css::corety::OptionU8Vec::None
     }
     pub fn flush(&self) {}
+    pub fn is_hardware(&self) -> bool {
+        false
+    }
     pub fn frames_encoded(&self) -> u64 {
         0
     }

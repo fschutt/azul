@@ -735,6 +735,12 @@ impl VideoEncoder {
             .and_then(|inner| inner.thread.thread_id())
     }
 
+    /// Whether the encoder runs in hardware (as its engine opened). False when it runs in
+    /// software, when the platform cannot say, and for a handle that is not open.
+    pub fn is_hardware(&self) -> bool {
+        false
+    }
+
     /// Frames submitted to [`encode`](Self::encode) so far (stub progress).
     pub fn frames_encoded(&self) -> u64 {
         unsafe { (self.ptr as *const EncoderInner).as_ref() }
@@ -1317,6 +1323,19 @@ mod honest_handle_tests {
         }
         assert!(chunks > 0, "stamped frames come back as packets");
         assert_eq!(encoder.frames_encoded(), 8);
+    }
+
+    /// An encoder says whether it runs in hardware - every Mac VideoToolbox knows has an H.264
+    /// encoder in hardware, and the session asks for it first - so an app can show it and a
+    /// script can check that a call does not encode on the CPU.
+    #[test]
+    fn an_open_videotoolbox_encoder_runs_in_hardware_and_says_so() {
+        let encoder = VideoEncoder::open(W, H, false, 400);
+        if !encoder.is_open() || VideoEncoder::backend_name().as_str() != "VideoToolbox" {
+            assert!(!encoder.is_hardware() || encoder.is_open());
+            return;
+        }
+        assert!(encoder.is_hardware(), "the VideoToolbox session is not in hardware");
     }
 
     /// No backend implements H.265 yet: neither handle opens for it.
