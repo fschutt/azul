@@ -526,7 +526,8 @@ fn pen_pressure_scales_the_dab_when_asked_to() {
     settings.pressure_size = false;
     e.begin_stroke(settings, StrokePoint { x: 10.0, y: 10.0, pressure: 0.25 }).unwrap();
     e.end_stroke();
-    assert_px(layer_pixel(&e, bg, 10 + 6, 10), RED, "without the mapping the size stays");
+    // Without the mapping the size stays.
+    assert_px(layer_pixel(&e, bg, 10 + 6, 10), RED);
 }
 
 #[test]
@@ -568,7 +569,8 @@ fn a_gaussian_blur_spreads_a_point_symmetrically_and_keeps_its_energy() {
     grid.set_pixel(16, 16, WHITE);
     let blurred = filter::gaussian_blur(&grid, 2.0, None);
     let red = |x: u32, y: u32| blurred.pixel(x, y)[0] as u32;
-    assert!(red(16, 16) < 255 && red(16, 16) > 10, "the peak spreads: {}", red(16, 16));
+    // A unit point under a 2D Gaussian keeps 1 / (2 pi sigma^2) of itself at the centre: 10 of 255.
+    assert!((9..=11).contains(&red(16, 16)), "the peak spreads: {}", red(16, 16));
     assert_eq!(red(14, 16), red(18, 16));
     assert_eq!(red(16, 14), red(16, 18));
     assert_eq!(red(14, 16), red(16, 14));
