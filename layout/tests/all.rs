@@ -704,3 +704,5 @@ mod builtin_html_elements_take_their_presentational_arguments;
 mod the_list_style_shorthand_sets_the_marker_type_and_position;
 #[path = "a_cells_specified_width_is_its_columns_width.rs"]
 mod a_cells_specified_width_is_its_columns_width;
+#[path = "a_collapsed_table_shares_each_border_between_its_cells.rs"]
+mod a_collapsed_table_shares_each_border_between_its_cells;
