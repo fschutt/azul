@@ -432,6 +432,17 @@ impl VideoEncoder {
         }
     }
 
+    /// Wait until every frame handed to [`encode`](Self::encode) so far is
+    /// encoded, so [`recv_packet`](Self::recv_packet) gives back all of their
+    /// packets (end of stream, a probe, a test).
+    pub fn flush(&self) {}
+
+    /// The thread this handle's engine runs on (`None`: the caller's).
+    #[cfg(test)]
+    pub(crate) fn engine_thread(&self) -> Option<std::thread::ThreadId> {
+        None
+    }
+
     /// Frames submitted to [`encode`](Self::encode) so far (stub progress).
     pub fn frames_encoded(&self) -> u64 {
         unsafe { (self.ptr as *const EncoderInner).as_ref() }
@@ -743,6 +754,12 @@ impl VideoDecoder {
         !self.ptr.is_null()
     }
 
+    /// The thread this handle's engine runs on (`None`: the caller's).
+    #[cfg(test)]
+    pub(crate) fn engine_thread(&self) -> Option<std::thread::ThreadId> {
+        None
+    }
+
     /// Submit one encoded chunk (Annex-B H.264). Returns `true` if the chunk
     /// was accepted (the decoder is open). Decoded frames come out of
     /// [`recv_frame`](Self::recv_frame): decode is pipelined and B-frame
@@ -934,11 +951,61 @@ mod honest_handle_tests {
         let mut chunks = Vec::new();
         for i in 0..8 {
             assert!(encoder.encode(bars(i), i == 0), "an open encoder takes frames");
+            // The codec thread encodes it; `flush` waits until it has.
+            encoder.flush();
             while let OptionU8Vec::Some(chunk) = encoder.recv_packet() {
                 chunks.push(chunk.as_ref().to_vec());
             }
         }
         chunks
+    }
+
+    /// An encoder and a decoder do their work on a thread of their own: the
+    /// thread that holds the handle - the UI thread, in a call - only queues
+    /// frames and chunks and takes packets and pictures out. Encoding and
+    /// decoding on it cost every frame a VideoToolbox round trip (and the
+    /// pixel copies around it) inside a UI callback.
+    #[test]
+    fn an_open_codec_runs_its_engine_on_a_thread_of_its_own() {
+        let here = std::thread::current().id();
+        let encoder = VideoEncoder::open(W, H, false, 400);
+        if encoder.is_open() {
+            let engine = encoder
+                .engine_thread()
+                .expect("an open encoder has an engine thread");
+            assert_ne!(engine, here, "the encoder encodes on the caller's thread");
+        }
+        let decoder = VideoDecoder::open(false);
+        if decoder.is_open() {
+            let engine = decoder
+                .engine_thread()
+                .expect("an open decoder has an engine thread");
+            assert_ne!(engine, here, "the decoder decodes on the caller's thread");
+        }
+    }
+
+    /// `encode` hands the frame over and returns; what comes out is pulled
+    /// with `recv_packet` once the codec thread has it, and `flush` waits for
+    /// every frame handed over before it. The first frame (forced) is a
+    /// keyframe, as before.
+    #[test]
+    fn a_flushed_encoder_has_given_back_the_packets_of_every_frame_it_took() {
+        let mut encoder = VideoEncoder::open(W, H, false, 400);
+        if !encoder.is_open() {
+            return;
+        }
+        assert!(encoder.encode(bars(0), true));
+        encoder.flush();
+        let mut first = Vec::new();
+        while let OptionU8Vec::Some(chunk) = encoder.recv_packet() {
+            first.extend_from_slice(chunk.as_ref());
+        }
+        assert!(!first.is_empty(), "the keyframe came out by the flush");
+        // An IDR slice (NAL type 5) is in it.
+        assert!(
+            first.windows(5).any(|w| w[..4] == [0, 0, 0, 1] && w[4] & 0x1f == 5),
+            "the forced first frame is a keyframe"
+        );
     }
 
     /// `VideoEncoder::open` hands out an open handle only where this build
@@ -1036,15 +1103,21 @@ mod honest_handle_tests {
         if !encoder.is_open() || !decoder.is_open() {
             return;
         }
-        let mut pictures = 0;
         for chunk in encode_some(&mut encoder) {
             assert!(decoder.decode(U8Vec::from_vec(chunk)));
-            while let OptionVideoFrame::Some(frame) = decoder.recv_frame() {
-                assert_eq!((frame.width, frame.height), (W, H));
-                pictures += 1;
-            }
         }
-        assert!(pictures > 0, "the decoder turned no chunk into a picture");
+        // The codec thread decodes them; `flush` waits until it has.
+        let mut frames = Vec::new();
+        if let OptionVideoFrame::Some(frame) = decoder.flush() {
+            frames.push(frame);
+        }
+        while let OptionVideoFrame::Some(frame) = decoder.recv_frame() {
+            frames.push(frame);
+        }
+        assert!(!frames.is_empty(), "the decoder turned no chunk into a picture");
+        for frame in &frames {
+            assert_eq!((frame.width, frame.height), (W, H));
+        }
     }
 }
 

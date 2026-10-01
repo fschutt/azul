@@ -166,6 +166,7 @@ impl VideoEncoder {
     pub fn recv_packet(&mut self) -> azul_css::corety::OptionU8Vec {
         azul_css::corety::OptionU8Vec::None
     }
+    pub fn flush(&self) {}
     pub fn frames_encoded(&self) -> u64 {
         0
     }
