@@ -247,6 +247,50 @@ pub enum MessageRowKind {
     Group,
 }
 
+/// What the mark at the end of a message row stands for: mail's follow-up
+/// flag, a note's pin, or nothing. A press on a mark reports
+/// [`MessageListEventKind::Flag`] whatever it stands for; the mark names
+/// what the press does.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum MessageListMark {
+    /// The follow-up flag on every row ("Flag" / "Unflag"): a mail list.
+    #[default]
+    Flag,
+    /// The pin on the PINNED rows only ("Unpin"): a notes list, whose
+    /// notes are pinned by a command of the app. A row's `flagged` is its
+    /// pinned state.
+    Pin,
+    /// No mark on any row.
+    None,
+}
+
+impl MessageListMark {
+    /// The glyph of a row's mark (`Dom::create_icon` name), set (`on`) or
+    /// not; empty when such a row carries no mark.
+    #[must_use]
+    pub const fn icon(self, on: bool) -> &'static str {
+        match (self, on) {
+            (Self::Flag, true) => "flag",
+            (Self::Flag, false) => "outlined_flag",
+            (Self::Pin, true) => "push_pin",
+            (Self::Pin, false) | (Self::None, _) => "",
+        }
+    }
+
+    /// The mark's name: what a press on it does ("Unflag", "Pin"); empty
+    /// when such a row carries no mark.
+    #[must_use]
+    pub const fn name(self, on: bool) -> &'static str {
+        match (self, on) {
+            (Self::Flag, true) => "Unflag",
+            (Self::Flag, false) => "Flag",
+            (Self::Pin, true) => "Unpin",
+            (Self::Pin, false) | (Self::None, _) => "",
+        }
+    }
+}
+
 /// One row of the list: a message, or a group header.
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -500,6 +544,8 @@ pub struct MessageList {
     pub row_height: usize,
     /// The active scope.
     pub scope: usize,
+    /// What the mark at a row's end stands for (the flag by default).
+    pub mark: MessageListMark,
     /// The widget theme this widget is PINNED to (`with_theme`), or `None`
     /// to follow the app theme.
     pub theme: crate::widgets::themes::OptionUiTheme,
@@ -670,6 +716,7 @@ impl MessageList {
             first_row: 0,
             row_height: 48,
             scope: 0,
+            mark: MessageListMark::Flag,
             theme: crate::widgets::themes::OptionUiTheme::None,
             sort_descending: true,
         }
@@ -697,6 +744,18 @@ impl MessageList {
     #[must_use]
     pub const fn with_row_height(mut self, row_height: usize) -> Self {
         self.set_row_height(row_height);
+        self
+    }
+
+    /// What the mark at a row's end stands for.
+    pub const fn set_mark(&mut self, mark: MessageListMark) {
+        self.mark = mark;
+    }
+
+    /// [`Self::set_mark`] for the builder chain.
+    #[must_use]
+    pub const fn with_mark(mut self, mark: MessageListMark) -> Self {
+        self.set_mark(mark);
         self
     }
 
@@ -1318,6 +1377,7 @@ pub(crate) fn build(list: MessageList, look: &MessageListLook) -> Dom {
         first_row,
         row_height,
         scope,
+        mark: _,
         theme,
         sort_descending,
     } = list;
@@ -2060,5 +2120,71 @@ mod message_list_tests {
                 &[],
             );
         }
+    }
+
+    /// The mark at a row's end and its name, if the row carries one.
+    fn mark_of(row: &Dom) -> Option<(Vec<String>, String)> {
+        fn icons(node: &Dom, out: &mut Vec<String>) {
+            if let NodeType::Icon(name) = node.root.get_node_type() {
+                out.push(name.as_ref().as_str().to_string());
+            }
+            for c in node.children.as_ref() {
+                icons(c, out);
+            }
+        }
+        let mark = theme_checks::find(row, "__azul-native-message-list-flag")?;
+        let mut glyphs = Vec::new();
+        icons(mark, &mut glyphs);
+        let name = mark
+            .children
+            .as_ref()
+            .first()
+            .and_then(|button| {
+                button.root.attributes().as_ref().iter().find_map(|a| match a {
+                    azul_core::dom::AttributeType::Alt(s) => Some(s.as_str().to_string()),
+                    _ => None,
+                })
+            })
+            .unwrap_or_default();
+        Some((glyphs, name))
+    }
+
+    /// A notes list pins instead of flagging: the pinned row carries the pin,
+    /// named by what a press does ("Unpin"), an unpinned row no mark (notes
+    /// are pinned by a command); a list without marks has none; the default
+    /// stays mail's flag on every row. The press reports `Flag` either way.
+    #[test]
+    fn a_list_names_its_row_mark_after_what_it_stands_for() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let rows_of = |list: MessageList| -> Vec<Dom> {
+            let dom = list.with_theme(UiTheme::Flat).dom();
+            dom.children.as_ref()[2].children.as_ref().to_vec()
+        };
+
+        // rows: spacer, Today, Welcome (flagged), Invoice, Yesterday, Lunch, spacer
+        let flagged = rows_of(list(&log));
+        assert_eq!(
+            mark_of(&flagged[2]),
+            Some((vec!["flag".to_string()], "Unflag".to_string())),
+            "the default is the flag"
+        );
+        assert_eq!(
+            mark_of(&flagged[3]),
+            Some((vec!["outlined_flag".to_string()], "Flag".to_string()))
+        );
+
+        let pinned = rows_of(list(&log).with_mark(MessageListMark::Pin));
+        assert_eq!(
+            mark_of(&pinned[2]),
+            Some((vec!["push_pin".to_string()], "Unpin".to_string())),
+            "a pinned note carries the pin, named by what a press does"
+        );
+        assert_eq!(mark_of(&pinned[3]), None, "an unpinned note carries no mark");
+
+        let bare = rows_of(list(&log).with_mark(MessageListMark::None));
+        assert!(
+            bare.iter().all(|row| mark_of(row).is_none()),
+            "a list without marks has none"
+        );
     }
 }
