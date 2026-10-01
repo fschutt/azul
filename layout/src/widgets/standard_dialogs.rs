@@ -543,9 +543,6 @@ dialog_theme_and_dom!(
 );
 
 fn build_message_box(m: MessageBox, look: &DialogKitLook) -> Dom {
-    if true {
-        return Dom::create_div();
-    } // RED stub
     let theme = dialog_kit::inner_theme(m.theme);
     let glyph_skin = match m.kind {
         MessageBoxKind::Info => &look.icon_info,
@@ -732,9 +729,6 @@ dialog_theme_and_dom!(
 );
 
 fn build_about(a: AboutDialog, look: &DialogKitLook) -> Dom {
-    if true {
-        return Dom::create_div();
-    } // RED stub
     let theme = dialog_kit::inner_theme(a.theme);
     let with_block = |skin: &[azul_css::dynamic_selector::CssPropertyWithConditions]| {
         let mut v = skin.to_vec();
@@ -1019,9 +1013,6 @@ dialog_theme_and_dom!(
 );
 
 fn build_progress_dialog(p: ProgressDialog, look: &DialogKitLook) -> Dom {
-    if true {
-        return Dom::create_div();
-    } // RED stub
     let theme = dialog_kit::inner_theme(p.theme);
     let mut content: Vec<Dom> = alloc::vec![dialog_kit::line(p.title.clone(), &[], &{
         let mut v = look.heading.clone();
@@ -1223,9 +1214,6 @@ impl LoginDialog {
     /// Whether Sign in does anything: a user name and a password.
     #[must_use]
     pub fn can_submit(&self) -> bool {
-        if true {
-            return false;
-        } // RED stub
         !self.user.as_str().trim().is_empty() && !self.password.as_str().is_empty()
     }
 }
@@ -1237,9 +1225,6 @@ dialog_theme_and_dom!(
 );
 
 fn build_login(l: LoginDialog, look: &DialogKitLook) -> Dom {
-    if true {
-        return Dom::create_div();
-    } // RED stub
     let theme = dialog_kit::inner_theme(l.theme);
     let submit = Some(StandardDialogEventKind::Submit);
     let mut content: Vec<Dom> = alloc::vec![dialog_kit::line(l.title.clone(), &[], &{
@@ -1436,9 +1421,6 @@ dialog_theme_and_dom!(
 );
 
 fn build_find_replace(f: FindReplaceDialog, look: &DialogKitLook) -> Dom {
-    if true {
-        return Dom::create_div();
-    } // RED stub
     let theme = dialog_kit::inner_theme(f.theme);
     let can_find = !f.find.as_str().is_empty();
     let mut content: Vec<Dom> = alloc::vec![field(
