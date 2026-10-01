@@ -1528,7 +1528,679 @@ extern "C" fn on_track_toggle(mut data: RefAny, info: CallbackInfo) -> Update {
     fire(&hook, info, event)
 }
 
-// ==== PIECE 4: the build ====
+// ==== the build ====
+
+/// How far a clip sits inside its lane, top and bottom, in px.
+pub const CLIP_INSET: f32 = 3.0;
+
+/// What a theme decides about a timeline: the SKIN of each part, laid over
+/// the part's base (the structure, the same in every theme: the
+/// `TIMELINE_*_BASE` statics) by [`build`].
+pub(crate) struct TimelineLook {
+    /// The widget: the UI face, the ink, the surface.
+    pub root: Vec<CssPropertyWithConditions>,
+    /// The ruler row.
+    pub head: Vec<CssPropertyWithConditions>,
+    /// The corner over the headers (the playhead's timecode).
+    pub corner: Vec<CssPropertyWithConditions>,
+    /// The ruler.
+    pub ruler: Vec<CssPropertyWithConditions>,
+    /// A labelled (major) tick.
+    pub tick: Vec<CssPropertyWithConditions>,
+    /// A minor tick.
+    pub tick_minor: Vec<CssPropertyWithConditions>,
+    /// A major tick's label.
+    pub tick_label: Vec<CssPropertyWithConditions>,
+    /// The playhead's head on the ruler.
+    pub ruler_head: Vec<CssPropertyWithConditions>,
+    /// The column of track headers.
+    pub headers: Vec<CssPropertyWithConditions>,
+    /// One track header.
+    pub header: Vec<CssPropertyWithConditions>,
+    /// A track header's name.
+    pub track_name: Vec<CssPropertyWithConditions>,
+    /// The lanes (the keyboard stop: its focus ring is here).
+    pub lanes: Vec<CssPropertyWithConditions>,
+    /// One lane.
+    pub lane: Vec<CssPropertyWithConditions>,
+    /// A clip of a tint: its face, rule, radius and ink.
+    pub clip: fn(TimelineClipTint) -> Vec<CssPropertyWithConditions>,
+    /// A selected clip, over its face.
+    pub clip_selected: Vec<CssPropertyWithConditions>,
+    /// A clip's thumbnail.
+    pub clip_thumb: Vec<CssPropertyWithConditions>,
+    /// A clip's label.
+    pub clip_label: Vec<CssPropertyWithConditions>,
+    /// A clip's detail line.
+    pub clip_detail: Vec<CssPropertyWithConditions>,
+    /// The playhead line over the lanes.
+    pub playhead: Vec<CssPropertyWithConditions>,
+    /// The scroll bar row.
+    pub scroll: Vec<CssPropertyWithConditions>,
+    /// The scroll bar's track.
+    pub scroll_track: Vec<CssPropertyWithConditions>,
+    /// The scroll bar's thumb.
+    pub thumb: Vec<CssPropertyWithConditions>,
+    /// The theme's marker class on the root, if it has one.
+    pub marker: Option<&'static str>,
+}
+
+type P = CssPropertyWithConditions;
+
+const fn grow(n: isize) -> P {
+    P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(n)))
+}
+
+const fn no_shrink() -> P {
+    P::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    }))
+}
+
+const fn flex(direction: LayoutFlexDirection) -> [P; 2] {
+    [
+        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        P::simple(CssProperty::const_flex_direction(direction)),
+    ]
+}
+
+const fn position(p: LayoutPosition) -> P {
+    P::simple(CssProperty::const_position(p))
+}
+
+const fn clip_overflow() -> [P; 2] {
+    [
+        P::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+        P::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    ]
+}
+
+const fn nowrap() -> P {
+    P::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(StyleWhiteSpace::Nowrap)))
+}
+
+/// The widget: a column that fills its host, chrome text not selectable.
+pub(crate) static TIMELINE_BASE: &[P] = &[
+    flex(LayoutFlexDirection::Column)[0],
+    flex(LayoutFlexDirection::Column)[1],
+    grow(1),
+    P::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(0))),
+    P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
+    clip_overflow()[0],
+    clip_overflow()[1],
+    P::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// The ruler row: the corner, then the ruler.
+pub(crate) static TIMELINE_HEAD_BASE: &[P] = &[
+    flex(LayoutFlexDirection::Row)[0],
+    flex(LayoutFlexDirection::Row)[1],
+    no_shrink(),
+];
+
+/// The corner: its timecode on the midline.
+pub(crate) static TIMELINE_CORNER_BASE: &[P] = &[
+    flex(LayoutFlexDirection::Row)[0],
+    flex(LayoutFlexDirection::Row)[1],
+    P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    no_shrink(),
+    clip_overflow()[0],
+    clip_overflow()[1],
+];
+
+/// The ruler: the ticks are placed in it.
+pub(crate) static TIMELINE_RULER_BASE: &[P] = &[
+    position(LayoutPosition::Relative),
+    grow(1),
+    P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
+    clip_overflow()[0],
+    clip_overflow()[1],
+];
+
+/// A tick, a ruler head, the playhead: a line placed at its time.
+pub(crate) static TIMELINE_MARK_BASE: &[P] = &[position(LayoutPosition::Absolute)];
+
+/// A tick's label, beside its line.
+pub(crate) static TIMELINE_TICK_LABEL_BASE: &[P] = &[position(LayoutPosition::Absolute), nowrap()];
+
+/// The headers and the lanes, side by side.
+pub(crate) static TIMELINE_BODY_BASE: &[P] = &[
+    flex(LayoutFlexDirection::Row)[0],
+    flex(LayoutFlexDirection::Row)[1],
+    grow(1),
+    P::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(0))),
+    clip_overflow()[0],
+    clip_overflow()[1],
+];
+
+/// The column of headers.
+pub(crate) static TIMELINE_HEADERS_BASE: &[P] = &[
+    flex(LayoutFlexDirection::Column)[0],
+    flex(LayoutFlexDirection::Column)[1],
+    no_shrink(),
+];
+
+/// A header: the name, then the toggles, on one midline.
+pub(crate) static TIMELINE_HEADER_BASE: &[P] = &[
+    flex(LayoutFlexDirection::Row)[0],
+    flex(LayoutFlexDirection::Row)[1],
+    P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    no_shrink(),
+    clip_overflow()[0],
+    clip_overflow()[1],
+];
+
+/// A header's name takes the room the toggles leave.
+pub(crate) static TIMELINE_TRACK_NAME_BASE: &[P] = &[
+    grow(1),
+    P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
+    nowrap(),
+];
+
+/// The lanes: a column of lanes, the playhead placed over them.
+pub(crate) static TIMELINE_LANES_BASE: &[P] = &[
+    position(LayoutPosition::Relative),
+    flex(LayoutFlexDirection::Column)[0],
+    flex(LayoutFlexDirection::Column)[1],
+    grow(1),
+    P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
+    clip_overflow()[0],
+    clip_overflow()[1],
+];
+
+/// A lane: its clips are placed in it (and may be dragged out of it).
+pub(crate) static TIMELINE_LANE_BASE: &[P] = &[position(LayoutPosition::Relative), no_shrink()];
+
+/// A clip: a block at its time, its thumbnail and lines in a row.
+pub(crate) static TIMELINE_CLIP_BASE: &[P] = &[
+    position(LayoutPosition::Absolute),
+    flex(LayoutFlexDirection::Row)[0],
+    flex(LayoutFlexDirection::Row)[1],
+    P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    clip_overflow()[0],
+    clip_overflow()[1],
+];
+
+/// A clip's thumbnail keeps its size.
+pub(crate) static TIMELINE_CLIP_THUMB_BASE: &[P] = &[no_shrink()];
+
+/// A clip's label and detail: one line each, cut at the clip's end.
+pub(crate) static TIMELINE_CLIP_TEXT_BASE: &[P] = &[
+    P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
+    nowrap(),
+    clip_overflow()[0],
+    clip_overflow()[1],
+];
+
+/// The scroll bar row: a spacer under the headers, then the track.
+pub(crate) static TIMELINE_SCROLL_BASE: &[P] = &[
+    flex(LayoutFlexDirection::Row)[0],
+    flex(LayoutFlexDirection::Row)[1],
+    no_shrink(),
+];
+
+/// The scroll bar's spacer under the headers.
+pub(crate) static TIMELINE_SPACER_BASE: &[P] = &[no_shrink()];
+
+/// The scroll bar's track: the thumb is placed in it.
+pub(crate) static TIMELINE_SCROLL_TRACK_BASE: &[P] = &[position(LayoutPosition::Relative), grow(1)];
+
+fn classes(names: &[&'static str]) -> IdOrClassVec {
+    IdOrClassVec::from_vec(
+        names
+            .iter()
+            .map(|n| IdOrClass::Class(AzString::from_const_str(*n)))
+            .collect(),
+    )
+}
+
+/// A px width / height / left / top.
+fn px_width(v: f32) -> P {
+    P::simple(CssProperty::width(LayoutWidth::Px(PixelValue::px(v))))
+}
+
+fn px_height(v: f32) -> P {
+    P::simple(CssProperty::height(LayoutHeight::Px(PixelValue::px(v))))
+}
+
+fn px_left(v: f32) -> P {
+    P::simple(CssProperty::left(LayoutLeft::px(v)))
+}
+
+fn px_top(v: f32) -> P {
+    P::simple(CssProperty::top(LayoutTop::px(v)))
+}
+
+fn top_bottom(top: f32, bottom: f32) -> [P; 2] {
+    [
+        P::simple(CssProperty::top(LayoutTop::px(top))),
+        P::simple(CssProperty::bottom(azul_css::props::layout::LayoutInsetBottom::px(bottom))),
+    ]
+}
+
+/// A ruler label: `M:SS` steps of seconds, `MM:SS:FF` steps of frames,
+/// `H:MM:SS` past the first hour.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn tick_label(t: f64, fps: f32, step: f64) -> String {
+    let full = timecode(t, fps);
+    let total = t.max(0.0).floor() as u64;
+    if total >= 3600 {
+        format!("{}:{:02}:{:02}", total / 3600, (total / 60) % 60, total % 60)
+    } else if step < 1.0 {
+        // "00:MM:SS:FF" without the hours.
+        String::from(&full[3..])
+    } else {
+        format!("{}:{:02}", total / 60, total % 60)
+    }
+}
+
+/// A track toggle: a link button with a glyph, named by what it does.
+fn toggle(
+    shared: &RefAny,
+    track: usize,
+    kind: TimelineEventKind,
+    icon: &'static str,
+    name: String,
+    class: &'static str,
+    theme: OptionUiTheme,
+) -> Dom {
+    let mut b = Button::with_type(AzString::from_const_str(""), ButtonType::Link)
+        .with_icon(AzString::from_const_str(icon));
+    b.alt = AzString::from(name);
+    b.set_on_click(
+        RefAny::new(ToggleData {
+            shared: shared.clone(),
+            track,
+            kind,
+        }),
+        on_track_toggle as ButtonOnClickCallbackType,
+    );
+    if let Some(t) = theme.into_option() {
+        b = b.with_theme(t);
+    }
+    b.dom().with_class(AzString::from_const_str(class))
+}
+
+/// The timeline's DOM in `look`: root [head [corner, ruler [ticks..,
+/// head]], body [headers [header..], lanes [lane [clip..].., playhead]],
+/// scroll [spacer, track [thumb]]]. Every part is its base (the
+/// structure), then the look's skin, then its place (left / width /
+/// height), which is the same in every theme.
+#[allow(clippy::too_many_lines)]
+pub(crate) fn build(t: Timeline, look: &TimelineLook) -> Dom {
+    let part = |base: &[P], skin: &[P], place: &[P]| {
+        let mut v = crate::widgets::themes::decl::on_base(base, skin);
+        v.extend_from_slice(place);
+        CssPropertyWithConditionsVec::from_vec(v)
+    };
+    let Timeline {
+        duration,
+        playhead,
+        view_start,
+        tracks,
+        on_event,
+        accessibility_name,
+        pixels_per_second,
+        fps,
+        view_width,
+        header_width,
+        theme,
+        snapping,
+    } = t;
+    let pps = pixels_per_second.max(MIN_PPS);
+    let header_width = if header_width > 0.0 {
+        header_width
+    } else {
+        DEFAULT_HEADER_WIDTH
+    };
+    let tracks = tracks.into_library_owned_vec();
+    let (from, to) = visible_window(view_start, view_width, pps);
+    let shared = RefAny::new(TimelineShared {
+        on_event,
+        tracks: tracks.clone(),
+        duration,
+        playhead,
+        view_start,
+        pps,
+        fps,
+        view_width,
+        snapping,
+        scrub: None,
+        drag: None,
+    });
+    let bar = |event: HoverEventFilter, cb: extern "C" fn(RefAny, CallbackInfo) -> Update| {
+        hook(EventFilter::Hover(event), cb, shared.clone())
+    };
+
+    // ---- the ruler row ----
+    let corner = Dom::create_div()
+        .with_ids_and_classes(classes(&[CORNER_CLASS]))
+        .with_css_props(part(TIMELINE_CORNER_BASE, &look.corner, &[px_width(header_width)]))
+        .with_child(crate::widgets::widget_p_with_text(timecode(playhead, fps)));
+    let step = tick_step(pps, fps);
+    let mut ticks: Vec<Dom> = Vec::new();
+    #[allow(clippy::cast_possible_truncation)]
+    let minor_ok = {
+        let minor = step / 5.0;
+        minor * f64::from(pps) >= 6.0 && (fps <= 0.0 || minor + 1e-9 >= 1.0 / f64::from(fps))
+    };
+    let first = (from.max(0.0) / step).floor() * step;
+    let mut at = first;
+    while at <= to && ticks.len() < 400 {
+        let x = x_of(at, view_start, pps);
+        ticks.push(
+            Dom::create_div()
+                .with_ids_and_classes(classes(&[TICK_CLASS]))
+                .with_css_props(part(
+                    TIMELINE_MARK_BASE,
+                    &look.tick,
+                    &[px_left(x), top_bottom(0.0, 0.0)[0], top_bottom(0.0, 0.0)[1]],
+                )),
+        );
+        ticks.push(
+            crate::widgets::widget_p_with_text(tick_label(at, fps, step))
+                .with_ids_and_classes(classes(&[TICK_LABEL_CLASS]))
+                .with_css_props(part(TIMELINE_TICK_LABEL_BASE, &look.tick_label, &[px_left(x + 4.0), px_top(2.0)])),
+        );
+        if minor_ok {
+            for k in 1..5 {
+                let m = at + step * f64::from(k) / 5.0;
+                ticks.push(
+                    Dom::create_div()
+                        .with_ids_and_classes(classes(&[TICK_CLASS]))
+                        .with_css_props(part(
+                            TIMELINE_MARK_BASE,
+                            &look.tick_minor,
+                            &[
+                                px_left(x_of(m, view_start, pps)),
+                                top_bottom(RULER_HEIGHT * 0.65, 0.0)[0],
+                                top_bottom(RULER_HEIGHT * 0.65, 0.0)[1],
+                            ],
+                        )),
+                );
+            }
+        }
+        at += step;
+    }
+    let playhead_x = x_of(playhead, view_start, pps);
+    ticks.push(
+        Dom::create_div()
+            .with_ids_and_classes(classes(&[RULER_HEAD_CLASS]))
+            .with_css_props(part(
+                TIMELINE_MARK_BASE,
+                &look.ruler_head,
+                &[px_left(playhead_x - 1.0), top_bottom(0.0, 0.0)[0], top_bottom(0.0, 0.0)[1]],
+            )),
+    );
+    let ruler = Dom::create_div()
+        .with_ids_and_classes(classes(&[RULER_CLASS]))
+        .with_css_props(part(TIMELINE_RULER_BASE, &look.ruler, &[]))
+        .with_callbacks(
+            alloc::vec![
+                bar(HoverEventFilter::MouseDown, on_ruler_down),
+                bar(HoverEventFilter::MouseMove, on_ruler_move),
+                bar(HoverEventFilter::MouseUp, on_bar_up),
+                bar(HoverEventFilter::MouseLeave, on_bar_leave),
+            ]
+            .into(),
+        )
+        .with_children(DomVec::from_vec(ticks));
+    let head = Dom::create_div()
+        .with_ids_and_classes(classes(&[HEAD_CLASS]))
+        .with_css_props(part(TIMELINE_HEAD_BASE, &look.head, &[px_height(RULER_HEIGHT)]))
+        .with_children(DomVec::from_vec(alloc::vec![corner, ruler]));
+
+    // ---- the headers and the lanes ----
+    let mut headers: Vec<Dom> = Vec::with_capacity(tracks.len());
+    let mut lanes: Vec<Dom> = Vec::with_capacity(tracks.len() + 1);
+    for (index, track) in tracks.iter().enumerate() {
+        let height = track.lane_height();
+        let name = track.name.as_str();
+        let (mute_icon, mute_name) = match (track.kind, track.muted) {
+            (TimelineTrackKind::Video, true) => ("visibility_off", format!("Show {name}")),
+            (TimelineTrackKind::Video, false) => ("visibility", format!("Hide {name}")),
+            (_, true) => ("volume_off", format!("Unmute {name}")),
+            (_, false) => ("volume_up", format!("Mute {name}")),
+        };
+        let (lock_icon, lock_name) = if track.locked {
+            ("lock", format!("Unlock {name}"))
+        } else {
+            ("lock_open", format!("Lock {name}"))
+        };
+        headers.push(
+            Dom::create_div()
+                .with_ids_and_classes(classes(&[HEADER_CLASS]))
+                .with_css_props(part(TIMELINE_HEADER_BASE, &look.header, &[px_height(height)]))
+                .with_children(DomVec::from_vec(alloc::vec![
+                    crate::widgets::widget_p_with_text(track.name.clone())
+                        .with_ids_and_classes(classes(&[TRACK_NAME_CLASS]))
+                        .with_css_props(part(TIMELINE_TRACK_NAME_BASE, &look.track_name, &[])),
+                    toggle(
+                        &shared,
+                        index,
+                        TimelineEventKind::ToggleMute,
+                        mute_icon,
+                        mute_name,
+                        MUTE_CLASS,
+                        theme,
+                    ),
+                    toggle(
+                        &shared,
+                        index,
+                        TimelineEventKind::ToggleLock,
+                        lock_icon,
+                        lock_name,
+                        LOCK_CLASS,
+                        theme,
+                    ),
+                ])),
+        );
+
+        let mut clips: Vec<Dom> = Vec::new();
+        for c in track.clips.as_ref() {
+            if c.end() <= from || c.start >= to {
+                continue;
+            }
+            let (left, width) = clip_geometry(c.start, c.duration, view_start, pps);
+            let mut names = alloc::vec![CLIP_CLASS];
+            if c.selected {
+                names.push(CLIP_SELECTED_CLASS);
+            }
+            if c.disabled {
+                names.push(CLIP_DISABLED_CLASS);
+            }
+            let tint = if c.disabled {
+                TimelineClipTint::Muted
+            } else {
+                c.tint
+            };
+            let mut skin = (look.clip)(tint);
+            if c.selected {
+                skin.extend_from_slice(&look.clip_selected);
+            }
+            let mut parts: Vec<Dom> = Vec::with_capacity(3);
+            if let Some(image) = c.thumbnail.clone().into_option() {
+                let thumb_h = (height - 2.0 * CLIP_INSET - 6.0).max(8.0);
+                parts.push(
+                    Dom::create_image(image)
+                        .with_ids_and_classes(classes(&[CLIP_THUMB_CLASS]))
+                        .with_css_props(part(
+                            TIMELINE_CLIP_THUMB_BASE,
+                            &look.clip_thumb,
+                            &[px_height(thumb_h), px_width(thumb_h * 16.0 / 9.0)],
+                        )),
+                );
+            }
+            parts.push(
+                crate::widgets::widget_p_with_text(c.label.clone())
+                    .with_ids_and_classes(classes(&[CLIP_LABEL_CLASS]))
+                    .with_css_props(part(TIMELINE_CLIP_TEXT_BASE, &look.clip_label, &[])),
+            );
+            if !c.detail.as_str().is_empty() {
+                parts.push(
+                    crate::widgets::widget_p_with_text(c.detail.clone())
+                        .with_ids_and_classes(classes(&[CLIP_DETAIL_CLASS]))
+                        .with_css_props(part(TIMELINE_CLIP_TEXT_BASE, &look.clip_detail, &[])),
+                );
+            }
+            let data = RefAny::new(ClipData {
+                shared: shared.clone(),
+                track: index,
+                clip_id: c.id,
+            });
+            let on = |event: HoverEventFilter, cb: extern "C" fn(RefAny, CallbackInfo) -> Update| {
+                hook(EventFilter::Hover(event), cb, data.clone())
+            };
+            let a11y_name = format!(
+                "{}, {} to {}, {}",
+                c.label.as_str(),
+                timecode(c.start, fps),
+                timecode(c.end(), fps),
+                name
+            );
+            let states = if c.selected {
+                AccessibilityStateVec::from_vec(alloc::vec![AccessibilityState::Selected])
+            } else {
+                AccessibilityStateVec::from_const_slice(&[])
+            };
+            clips.push(
+                Dom::create_div()
+                    .with_ids_and_classes(classes(&names))
+                    .with_css_props(part(
+                        TIMELINE_CLIP_BASE,
+                        &skin,
+                        &[
+                            px_left(left),
+                            px_width(width),
+                            top_bottom(CLIP_INSET, CLIP_INSET)[0],
+                            top_bottom(CLIP_INSET, CLIP_INSET)[1],
+                        ],
+                    ))
+                    .with_accessibility_info(AccessibilityInfo {
+                        role: AccessibilityRole::ListItem,
+                        accessibility_name: Some(AzString::from(a11y_name)).into(),
+                        states,
+                        ..Default::default()
+                    })
+                    .with_callbacks(
+                        alloc::vec![
+                            on(HoverEventFilter::MouseDown, on_clip_down),
+                            on(HoverEventFilter::MouseMove, on_clip_move),
+                            on(HoverEventFilter::MouseUp, on_clip_up),
+                            on(HoverEventFilter::MouseLeave, on_clip_leave),
+                            on(HoverEventFilter::DoubleClick, on_clip_double_click),
+                        ]
+                        .into(),
+                    )
+                    .with_children(DomVec::from_vec(parts)),
+            );
+        }
+        lanes.push(
+            Dom::create_div()
+                .with_ids_and_classes(classes(&[LANE_CLASS]))
+                .with_css_props(part(TIMELINE_LANE_BASE, &look.lane, &[px_height(height)]))
+                .with_callbacks(
+                    alloc::vec![hook(
+                        EventFilter::Hover(HoverEventFilter::MouseDown),
+                        on_lane_down,
+                        RefAny::new(LaneData {
+                            shared: shared.clone(),
+                            track: index,
+                        }),
+                    )]
+                    .into(),
+                )
+                .with_children(DomVec::from_vec(clips)),
+        );
+    }
+    lanes.push(
+        Dom::create_div()
+            .with_ids_and_classes(classes(&[PLAYHEAD_CLASS]))
+            .with_css_props(part(
+                TIMELINE_MARK_BASE,
+                &look.playhead,
+                &[px_left(playhead_x - 1.0), top_bottom(0.0, 0.0)[0], top_bottom(0.0, 0.0)[1]],
+            )),
+    );
+    let headers = Dom::create_div()
+        .with_ids_and_classes(classes(&[HEADERS_CLASS]))
+        .with_css_props(part(TIMELINE_HEADERS_BASE, &look.headers, &[px_width(header_width)]))
+        .with_children(DomVec::from_vec(headers));
+    let lanes = Dom::create_div()
+        .with_ids_and_classes(classes(&[LANES_CLASS]))
+        .with_css_props(part(TIMELINE_LANES_BASE, &look.lanes, &[]))
+        .with_tab_index(TabIndex::Auto)
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::Slider,
+            accessibility_name: Some(accessibility_name).into(),
+            accessibility_value: Some(AzString::from(timecode(playhead, fps))).into(),
+            ..Default::default()
+        })
+        .with_callbacks(
+            alloc::vec![hook(
+                EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                on_lanes_key,
+                shared.clone(),
+            )]
+            .into(),
+        )
+        // The shared state is the lanes' dataset, so a rebuild in the
+        // middle of a drag carries the drag over.
+        .with_dataset(OptionRefAny::Some(shared.clone()))
+        .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(merge_timeline_state))
+        .with_children(DomVec::from_vec(lanes));
+    let body = Dom::create_div()
+        .with_ids_and_classes(classes(&[BODY_CLASS]))
+        .with_css_props(part(TIMELINE_BODY_BASE, &[], &[]))
+        .with_children(DomVec::from_vec(alloc::vec![headers, lanes]));
+
+    // ---- the scroll bar ----
+    let span = f64::from(view_width.max(1.0)) / f64::from(pps);
+    let (thumb_left, thumb_width) = thumb_span(view_start, span, duration);
+    let thumb = Dom::create_div()
+        .with_ids_and_classes(classes(&[THUMB_CLASS]))
+        .with_css_props(part(
+            TIMELINE_MARK_BASE,
+            &look.thumb,
+            &[
+                P::simple(CssProperty::left(LayoutLeft::percent(thumb_left * 100.0))),
+                P::simple(CssProperty::width(LayoutWidth::Px(PixelValue::percent(
+                    (thumb_width * 100.0).max(1.0),
+                )))),
+                top_bottom(2.0, 2.0)[0],
+                top_bottom(2.0, 2.0)[1],
+            ],
+        ));
+    let scroll_track = Dom::create_div()
+        .with_ids_and_classes(classes(&[SCROLL_TRACK_CLASS]))
+        .with_css_props(part(TIMELINE_SCROLL_TRACK_BASE, &look.scroll_track, &[]))
+        .with_callbacks(
+            alloc::vec![
+                bar(HoverEventFilter::MouseDown, on_scroll_down),
+                bar(HoverEventFilter::MouseMove, on_scroll_move),
+                bar(HoverEventFilter::MouseUp, on_bar_up),
+                bar(HoverEventFilter::MouseLeave, on_bar_leave),
+            ]
+            .into(),
+        )
+        .with_child(thumb);
+    let scroll = Dom::create_div()
+        .with_ids_and_classes(classes(&[SCROLL_CLASS]))
+        .with_css_props(part(TIMELINE_SCROLL_BASE, &look.scroll, &[px_height(SCROLL_HEIGHT)]))
+        .with_children(DomVec::from_vec(alloc::vec![
+            Dom::create_div().with_css_props(part(TIMELINE_SPACER_BASE, &[], &[px_width(header_width)])),
+            scroll_track,
+        ]));
+
+    let mut root_classes = alloc::vec![TIMELINE_CLASS];
+    if let Some(marker) = look.marker {
+        root_classes.push(marker);
+    }
+    Dom::create_div()
+        .with_ids_and_classes(classes(&root_classes))
+        .with_css_props(part(TIMELINE_BASE, &look.root, &[]))
+        .with_children(DomVec::from_vec(alloc::vec![head, body, scroll]))
+}
 
 #[cfg(test)]
 #[path = "timeline_tests.rs"]
