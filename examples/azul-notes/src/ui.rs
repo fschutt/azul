@@ -386,6 +386,15 @@ fn navigation_pane(s: &AppState, app: &RefAny) -> Dom {
                 .dom()
                 .with_id("new-notebook")
                 .with_accessibility_name("New notebook"),
+        )
+        .with_child(
+            Button::create("")
+                .with_icon("settings")
+                .with_on_click(app.clone(), on_open_settings as ButtonOnClickCallbackType)
+                .dom()
+                .with_id("open-settings")
+                .with_accessibility_name("Settings")
+                .with_css("margin-left: 4px;"),
         );
     ShellNavigationPane::create()
         .with_header(header)
@@ -482,6 +491,15 @@ extern "C" fn on_nav_event(mut data: RefAny, mut info: CallbackInfo, event: Shel
 extern "C" fn on_new_note(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |s, info, app| {
         jobs::new_note(info, app, s);
+        Update::RefreshDom
+    })
+}
+
+extern "C" fn on_open_settings(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |s, _, _| {
+        s.screen = Screen::Settings;
+        s.overlay = Overlay::None;
+        println!("AZNOTES_SCREEN settings");
         Update::RefreshDom
     })
 }
