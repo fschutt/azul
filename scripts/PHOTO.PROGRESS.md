@@ -17,14 +17,18 @@ updates by dirty rect); tests; `scripts/azphoto_e2e.py`; report `scripts/PHOTO_2
 - the app crate (see NEXT)
 
 ## NEXT
-- Engine piece DONE (RED 829b9a1a9, GREEN 8a344ccfd / 279bae778 / this commit).
-- next: app crate skeleton examples/azul-photo (Cargo.toml, main.rs, lib.rs stub,
-  src/raster/mod.rs with the module list) -> commit; then raster RED tests
-  (src/raster/tests.rs) -> commit; then raster GREEN module by module (tile, blend,
-  brush, selection, adjust, filter, transform, history, engine) - commit each.
-- then: the app (view.rs canvas viewport, ui panels, tools, files/storage, --sample),
-  registration (Cargo.toml members, workspace_test_members.txt, rust.yml step),
-  scripts/azphoto_e2e.py, report scripts/PHOTO_2026_10_01.md.
+- DONE so far: engine piece (829b9a1a9 RED; 8a344ccfd, 279bae778, 383672264 GREEN);
+  skeleton af9a50285; raster RED tests 58e0bffeb, f3f41aeee, 0cee88238, 772ee1b48
+  (examples/azul-photo/src/raster/tests.rs - the API it fixes is in raster/mod.rs re-exports).
+- next: raster GREEN, one module per commit, in this order:
+  geom.rs (IRect) -> tile.rs (Tile, TileGrid) -> blend.rs -> adjust.rs (Adjustment) ->
+  layer.rs (Layer, LayerContent, tree helpers find/find_mut/remove/insert/flatten) ->
+  selection.rs (Mask, Shape, SelectMode, magic_wand, feather) -> brush.rs (stamps via
+  azul RawImage::paint_dot, Stroke) -> filter.rs -> transform.rs -> history.rs ->
+  document.rs (Document, Composite w/ worker threads) -> engine.rs (Op, RasterEngine,
+  TileEngine; history labels "Open", "New Layer", "Brush", "Opacity" coalesced).
+- then: the app (view.rs canvas viewport, ui, tools, files/storage, --sample),
+  registration, scripts/azphoto_e2e.py, report scripts/PHOTO_2026_10_01.md.
 
 ## Decisions (made unattended, noted here)
 - The canvas is ONE image node: a `RenderImageCallback` renders the VIEWPORT (the visible part
