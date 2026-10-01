@@ -14,15 +14,14 @@ details panes, a Properties dialog, Settings on ShellSettingsLayout, and a headl
   AddressBar recent chevron + dimmed arrows, BrowserShell `tree_visible`.
 
 ## IN PROGRESS
-- Last commit: `dfaf7795d`. All app modules written and committed; `e133146a0` RED / `295052175`
-  GREEN Ctrl+Shift+1..8 layouts; `590e9d945` + `727a5e714` scripts/azdrive_e2e.py; `dfaf7795d`
-  browse.py follows the new UI; `1dc56a9d4` unused imports out.
-- NOW: two read-only review agents check the Rust for compile errors (lib/jobs/actions and
-  ui_*/model/fileops/...); apply their findings as "fix(azul-drive): ..." commits.
-- NEXT STEP after that: write scripts/DRIVE2_2026_10_01.md (what was built, commits, api.json
-  list: RibbonButton.disabled_reason + set/with_disabled/is_disabled, AddressBar.show_recent +
-  set/with_recent + AddressBarEventKind::Recent, BrowserShell.tree_visible + set/with_tree_visible;
-  least-sure spots; test commands; what is left) and commit it.
+- Last commit: `45b65f046`. Since the last checkpoint: `a9c40e212` (undo of a new item only when
+  empty; --screen settings), `7bf5766d9` (renaming item not draggable), `1ca701292` report draft,
+  `e8242da19` RED / `5e5b35266` GREEN tree drop hook + NodeDropped (AzShells arm added),
+  `45b65f046` AzDrive drops onto the navigation pane.
+- WAITING: two read-only review agents (core: lib/jobs/actions; UI: ui_*/model/fileops/...).
+- NEXT STEP: apply their findings ("fix(azul-drive): ..."), then finish the report sections 5 and 7
+  (+ api.json: TreeView.on_node_drop + set/with_on_node_drop; ShellNavigationPaneEventKind::NodeDropped)
+  and commit.
 
 ## NEXT
 - report; final progress update.
