@@ -6265,4 +6265,84 @@ mod autotest_generated {
             "no counter-reset/increment → no counters"
         );
     }
+
+    /// `body(0) > ol(1) > [ li(2), li(3) > ol(4) > [ li(5), li(6) ] ]`, the
+    /// layout tree numbered like the DOM.
+    fn nested_lists() -> (StyledDom, LayoutTree) {
+        let sd = styled(
+            Dom::create_body().with_child(
+                Dom::create_ol()
+                    .with_child(Dom::create_li())
+                    .with_child(
+                        Dom::create_li().with_child(
+                            Dom::create_ol()
+                                .with_child(Dom::create_li())
+                                .with_child(Dom::create_li()),
+                        ),
+                    ),
+            ),
+            "",
+        );
+        let node = |parent: Option<usize>, dom: usize| {
+            hot(
+                parent,
+                Some(NodeId::new(dom)),
+                Some(size(100.0, 10.0)),
+                &zero_box_props(),
+            )
+        };
+        let tree = build_tree(
+            vec![
+                node(None, 0),
+                node(Some(0), 1),
+                node(Some(1), 2),
+                node(Some(1), 3),
+                node(Some(3), 4),
+                node(Some(4), 5),
+                node(Some(4), 6),
+            ],
+            warm_default(7),
+            &[vec![1], vec![2, 3], vec![], vec![4], vec![5, 6], vec![], vec![]],
+        );
+        (sd, tree)
+    }
+
+    fn list_item_value(counters: &HashMap<(usize, String), i32>, node: usize) -> Option<i32> {
+        counters.get(&(node, "list-item".to_string())).copied()
+    }
+
+    /// A list keeps its numbering while the pointer is over it (or it holds
+    /// the focus): a pseudo-state changes which declarations apply, never
+    /// whether the list's own `counter-reset` (the UA sheet's, here) counts.
+    /// CSS Lists 3 section 4.4: `ol` / `ul` reset `list-item`, so the inner
+    /// list counts 1, 2 again in every state.
+    #[test]
+    fn a_hovered_list_keeps_its_numbering() {
+        let (mut sd, tree) = nested_lists();
+        let mut at_rest: HashMap<(usize, String), i32> = HashMap::new();
+        compute_counters(&sd, &tree, &mut at_rest);
+        assert_eq!(
+            (list_item_value(&at_rest, 5), list_item_value(&at_rest, 6)),
+            (Some(1), Some(2)),
+            "premise: at rest the inner list counts from 1"
+        );
+
+        {
+            let mut nodes = sd.styled_nodes.as_container_mut();
+            nodes[NodeId::new(4)].styled_node_state.hover = true;
+            nodes[NodeId::new(5)].styled_node_state.focused = true;
+        }
+        let mut hovered: HashMap<(usize, String), i32> = HashMap::new();
+        compute_counters(&sd, &tree, &mut hovered);
+        assert_eq!(
+            (list_item_value(&hovered, 5), list_item_value(&hovered, 6)),
+            (Some(1), Some(2)),
+            "the hovered inner list still resets list-item (it continued the outer list's count)"
+        );
+        assert_eq!(
+            (list_item_value(&hovered, 2), list_item_value(&hovered, 3)),
+            (Some(1), Some(2)),
+            "the outer list is untouched by the inner one's state"
+        );
+    }
 }
