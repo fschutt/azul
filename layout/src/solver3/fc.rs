@@ -8018,6 +8018,48 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
         + border.cross_end(wm))
 }
 
+/// A definite `height` (px, em, rem, vw, ...) of an element, or `None` for
+/// `auto` and percentages (no basis here).
+fn specified_length_height(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    viewport: LogicalSize,
+) -> Option<f32> {
+    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    let MultiValue::Exact(LayoutHeight::Px(px)) = get_css_height(styled_dom, dom_id, node_state)
+    else {
+        return None;
+    };
+    let em = get_element_font_size(styled_dom, dom_id, node_state);
+    let rem = get_root_font_size(styled_dom, node_state);
+    crate::solver3::calc::resolve_pixel_value_no_percent_with_viewport(
+        &px,
+        em,
+        rem,
+        viewport.width,
+        viewport.height,
+    )
+    .filter(|h| h.is_finite())
+    .map(|h| h.max(0.0))
+}
+
+/// A table cell's specified `height` as a BORDER-box length (`None` for
+/// `auto` and percentages): the cell's row is at least that tall.
+pub(crate) fn cell_specified_border_box_height(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    bp: &BoxProps,
+    viewport: LogicalSize,
+) -> Option<f32> {
+    let h = specified_length_height(styled_dom, dom_id, viewport)?;
+    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    let extras = bp.padding.top + bp.padding.bottom + bp.border.top + bp.border.bottom;
+    Some(match get_css_box_sizing(styled_dom, dom_id, node_state) {
+        MultiValue::Exact(azul_css::props::layout::LayoutBoxSizing::BorderBox) => h.max(extras),
+        _ => h + extras,
+    })
+}
+
 /// Measure a cell's minimum and maximum content widths for its column (CSS
 /// 2.2 17.5.2.2): the content laid out with maximum wrapping and without
 /// wrapping, as border-box widths. The cell's own `width` is read beside
@@ -8534,7 +8576,12 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
         total_height
     );
 
-    Ok(total_height)
+    // The cell's own `height` is a minimum for its box (CSS 2.2 17.5.3) - for
+    // a cell of text too, which the inline branch above never asked.
+    let specified = cell_node.dom_node_id.and_then(|dom_id| {
+        cell_specified_border_box_height(ctx.styled_dom, dom_id, &cell_bp, ctx.viewport_size)
+    });
+    Ok(total_height.max(specified.unwrap_or(0.0)))
 }
 
 // or bottom of content edge if no such line box exists
@@ -8664,6 +8711,7 @@ fn calculate_row_heights<T: ParsedFontTrait>(
     // required by content; 'height' property can influence row height but does not
     // increase cell box height
     // First pass: Calculate heights for cells that don't span multiple rows
+    let mut baseline_cells: Vec<(usize, f32, f32)> = Vec::new();
     for cell_info in &table_ctx.cells {
         // Skip cells in collapsed rows
         if table_ctx.collapsed_rows.contains(&cell_info.row) {
@@ -8709,10 +8757,40 @@ fn calculate_row_heights<T: ParsedFontTrait>(
         // then top/bottom/middle cells positioned The baseline of a cell is the baseline of
         // its first line box (from inline layout) or the bottom of the content box if no
         // inline content.
-        if cell_info.rowspan == 1 {
+        // Only the cells that ARE baseline-aligned set the row's baseline;
+        // a middle cell's baseline used to push a baseline cell down.
+        let cell_dom = tree
+            .get(LayoutNodeId::new(cell_info.node_index))
+            .and_then(|n| n.dom_node_id);
+        if cell_info.rowspan == 1 && is_baseline_aligned(cell_vertical_align(ctx.styled_dom, cell_dom))
+        {
             let cell_baseline = compute_cell_baseline(cell_info.node_index, tree);
             let current_baseline = table_ctx.row_baselines[cell_info.row];
             table_ctx.row_baselines[cell_info.row] = current_baseline.max(cell_baseline);
+            baseline_cells.push((cell_info.row, cell_baseline, cell_height));
+        }
+    }
+
+    // A baseline cell moves down until its first line is on the row's
+    // baseline; the row grows to hold it there (CSS 2.2 17.5.3).
+    for (row, cell_baseline, cell_height) in baseline_cells {
+        let shifted = table_ctx.row_baselines[row] - cell_baseline + cell_height;
+        if shifted.is_finite() {
+            table_ctx.row_heights[row] = table_ctx.row_heights[row].max(shifted);
+        }
+    }
+
+    // A row is at least as tall as its own `height` (CSS 2.2 17.5.3).
+    for row in 0..table_ctx.num_rows {
+        let Some(&row_index) = table_ctx.row_node_indices.get(row) else {
+            continue;
+        };
+        let specified = tree
+            .get(LayoutNodeId::new(row_index))
+            .and_then(|n| n.dom_node_id)
+            .and_then(|dom_id| specified_length_height(ctx.styled_dom, dom_id, ctx.viewport_size));
+        if let Some(h) = specified {
+            table_ctx.row_heights[row] = table_ctx.row_heights[row].max(h);
         }
     }
 
