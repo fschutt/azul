@@ -11,6 +11,11 @@ Branch `wt/mail2` from `39092feee`. Worktree
 - `44a941729` / `f80b56184` RED / GREEN: listing.rs, compose.rs, sending.rs, the message view's
   thread headers, sync adopts a local-only folder (UIDVALIDITY 0), `LocalFolder::delete`
 
+- `1216806c2` / `63da1f890` RED / refactor: drafts and the Sending section go through SEND's
+  `send::build_message`, `send::file_message`, `SendSettings::load/save` (twins removed; one
+  `sending.json`). SEND API used beyond the brief's interface: `build_message`, `file_message`,
+  `LOCAL_UID_FLOOR`, `SendSettings::{load, save}`, `SendRoute`, `TlsPolicy`.
+
 ## IN PROGRESS
 
 - App UI (NEXT step 3)
