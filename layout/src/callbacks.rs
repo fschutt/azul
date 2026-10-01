@@ -5041,6 +5041,23 @@ impl CallbackInfo {
     ///
     /// Returns an error message if the screenshot cannot be captured or encoded.
     pub fn take_screenshot(&self, dom_id: DomId) -> Result<Vec<u8>, AzString> {
+        self.render_screenshot(dom_id)?
+            .encode_png()
+            .map_err(|e| AzString::from(alloc::format!("PNG encoding failed: {e}")))
+    }
+
+    /// The pixels of [`Self::take_screenshot`], before the PNG encode: the
+    /// part that needs the window. The debug server renders here (UI thread)
+    /// and leaves the encode to the thread that answers the request.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error message if the screenshot cannot be rendered.
+    #[cfg(feature = "cpurender")]
+    pub fn render_screenshot(
+        &self,
+        dom_id: DomId,
+    ) -> Result<crate::cpurender::AzulPixmap, AzString> {
         use crate::cpurender::CpuRenderState;
 
         let layout_window = self.get_layout_window();
@@ -5156,12 +5173,7 @@ impl CallbackInfo {
             &mut glyph_cache,
         );
 
-        // Encode to PNG
-        let png_data = pixmap
-            .encode_png()
-            .map_err(|e| AzString::from(alloc::format!("PNG encoding failed: {e}")))?;
-
-        Ok(png_data)
+        Ok(pixmap)
     }
 
     /// Renders ONE NODE to a PNG, using the same fonts, images and layout
