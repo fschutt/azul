@@ -546,6 +546,15 @@ pub fn apply(app: &RefAny, s: &mut AppState, cmd: Command, info: &mut CallbackIn
             println!("AZSHOW_VIEW {}", v.label());
             return Update::RefreshDom;
         }
+        C::GoToSlide(i) => {
+            if let Some(ed) = s.editor.as_mut() {
+                ed.go_to(i);
+                println!("AZSHOW_SLIDE {}", ed.current + 1);
+            }
+            s.view = crate::app::View::Normal;
+            s.screen = Screen::Editor;
+            return Update::RefreshDom;
+        }
         C::Zoom(delta) => {
             let (w, h) = window_size(info);
             let now = s.zoom.unwrap_or_else(|| s.zoom_percent(w, h));

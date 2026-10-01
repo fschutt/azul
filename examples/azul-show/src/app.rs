@@ -333,6 +333,8 @@ pub enum Command {
     ShowGoto(usize),
     // ---- view ----
     View(View),
+    /// Slide `n` (0-based) on the canvas, in the normal view.
+    GoToSlide(usize),
     Zoom(i32),
     ZoomFit,
     ToggleNotes,

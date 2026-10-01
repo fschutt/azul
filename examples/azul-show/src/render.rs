@@ -8,7 +8,12 @@
 
 use std::collections::HashMap;
 
-use azul::{dom::Dom, image::ImageRef};
+use azul::{
+    callbacks::RefAny,
+    css::{EventFilter, FocusEventFilter},
+    dom::Dom,
+    image::ImageRef,
+};
 
 use crate::{
     model::{
@@ -33,6 +38,9 @@ pub struct RenderOptions<'a> {
     pub playing: Option<(&'a [u64], f32)>,
     /// The deck's pictures, by media key.
     pub media: &'a HashMap<String, ImageRef>,
+    /// The app, for the text being edited: its host gets the engine's
+    /// text-changed and document-edit hooks.
+    pub hooks: Option<&'a RefAny>,
 }
 
 impl<'a> RenderOptions<'a> {
@@ -46,6 +54,7 @@ impl<'a> RenderOptions<'a> {
             step: None,
             playing: None,
             media,
+            hooks: None,
         }
     }
 }
@@ -173,7 +182,21 @@ fn text_block(deck: &Deck, element: &Element, body: &TextBody, opts: &RenderOpti
     if shown.paragraphs.is_empty() {
         shown.paragraphs.push(crate::model::Paragraph::default());
     }
-    holder.with_child(text::text_dom(&shown, element.id, editing, scale).with_css("width: 100%;"))
+    let mut host = text::text_dom(&shown, element.id, editing, scale).with_css("width: 100%;");
+    if let (true, Some(app)) = (editing, opts.hooks) {
+        host = host
+            .with_callback(
+                EventFilter::Focus(FocusEventFilter::DocumentEdit),
+                app.clone(),
+                crate::views::on_document_edit,
+            )
+            .with_callback(
+                EventFilter::Focus(FocusEventFilter::TextChanged),
+                app.clone(),
+                crate::views::on_text_changed,
+            );
+    }
+    holder.with_child(host)
 }
 
 /// The polygon of a shape inside a `w` x `h` px box, for `clip-path`.
