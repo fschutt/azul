@@ -440,6 +440,12 @@ pub mod timeline;
 /// into select / move / resize / rotate / nudge events; see
 /// `selection_adorner.rs`.
 pub mod selection_adorner;
+/// Thumbnail strip widget.
+///
+/// A column (a slide rail) or a wrapping grid (a slide sorter) of previews
+/// with numbers, badges and folding section headers: click / arrow selection,
+/// drag and Ctrl+arrow reorder, activate, delete; see `thumbnail_strip.rs`.
+pub mod thumbnail_strip;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
 
@@ -1760,6 +1766,29 @@ mod label_convention {
                     .with_accessibility_name(AzString::from("Slide 1"))
                     .dom(),
             ),
+            (
+                "thumbnail_strip",
+                super::thumbnail_strip::ThumbnailStrip::create(
+                    super::thumbnail_strip::ThumbnailItemVec::from_vec(vec![
+                        super::thumbnail_strip::ThumbnailItem::create(
+                            user_content(),
+                            AzString::from("1"),
+                            AzString::from("Slide 1"),
+                        )
+                        .with_section(AzString::from("Intro"))
+                        .with_selected(true),
+                        super::thumbnail_strip::ThumbnailItem::create(
+                            user_content(),
+                            AzString::from("2"),
+                            AzString::from("Slide 2"),
+                        )
+                        .with_badge(AzString::from("star")),
+                    ]),
+                )
+                .with_accessibility_name(AzString::from("Slides"))
+                .dom(),
+            ),
+        
         ];
         // The app shells, each with placeholder content (`shells::fixtures`).
         all.extend(super::shells::fixtures::every_shell());
@@ -2688,6 +2717,7 @@ mod theme_contrast {
         "mobile_shell",
         "timeline",
         "selection_adorner",
+        "thumbnail_strip",
     ];
 
     /// A widget added to the manifest must land in a group, or it is simply

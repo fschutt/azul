@@ -439,3 +439,353 @@ pub const fn drop_target(from: usize, on: usize) -> usize {
         on
     }
 }
+
+// ==== The look and the DOM ====
+
+/// What a theme decides about a strip: the SKIN of each part, laid over the
+/// part's base (`THUMBNAIL_*_BASE`) by [`build`].
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ThumbnailStripLook {
+    /// The strip (its ground, its padding).
+    pub strip: Vec<CssPropertyWithConditions>,
+    /// A section header.
+    pub section: Vec<CssPropertyWithConditions>,
+    /// A section header's chevron.
+    pub section_icon: Vec<CssPropertyWithConditions>,
+    /// An item (its spacing, its focus ring).
+    pub item: Vec<CssPropertyWithConditions>,
+    /// Added to a selected item.
+    pub item_selected: Vec<CssPropertyWithConditions>,
+    /// An item's number column.
+    pub number: Vec<CssPropertyWithConditions>,
+    /// An item's badge glyph.
+    pub badge: Vec<CssPropertyWithConditions>,
+    /// The preview box.
+    pub thumb: Vec<CssPropertyWithConditions>,
+    /// Added to a selected item's preview box.
+    pub thumb_selected: Vec<CssPropertyWithConditions>,
+    /// Added to a hidden item's preview box.
+    pub thumb_hidden: Vec<CssPropertyWithConditions>,
+    /// The theme's marker class on the strip, if it has one.
+    pub marker: Option<&'static str>,
+}
+
+/// The look a strip with the theme option `theme` is built with.
+pub(crate) fn look_for(theme: OptionUiTheme) -> ThumbnailStripLook {
+    let _ = theme;
+    ThumbnailStripLook::default()
+}
+
+/// The strip's DOM in `look`.
+pub(crate) fn build(strip: ThumbnailStrip, look: &ThumbnailStripLook) -> Dom {
+    let _ = (strip, look);
+    Dom::create_div()
+}
+
+#[cfg(test)]
+mod thumbnail_strip_tests {
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        a11y::{AccessibilityRole, AccessibilityState},
+        dom::{DomId, DomNodeId, NodeId, NodeType, TabIndex},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+        window::VirtualKeyCode as K,
+    };
+
+    use super::*;
+    use crate::{
+        callbacks::CallbackChange,
+        widgets::{
+            roving::test_support as rv,
+            themes::{theme_blocks::checks, theme_checks},
+        },
+    };
+
+    type Log = Arc<Mutex<Vec<String>>>;
+
+    extern "C" fn record(mut data: RefAny, _: CallbackInfo, e: ThumbnailStripEvent) -> Update {
+        if let Some(log) = data.downcast_ref::<Log>() {
+            log.lock().expect("log").push(format!(
+                "{:?} {} {}{}{}",
+                e.kind,
+                e.index,
+                e.target,
+                if e.shift { " shift" } else { "" },
+                if e.ctrl { " ctrl" } else { "" }
+            ));
+        }
+        Update::RefreshDom
+    }
+
+    fn log() -> Log {
+        Arc::new(Mutex::new(Vec::new()))
+    }
+
+    fn preview(n: usize) -> Dom {
+        Dom::create_div().with_class(AzString::from(format!("preview-{n}")))
+    }
+
+    fn item(n: usize) -> ThumbnailItem {
+        ThumbnailItem::create(
+            preview(n),
+            AzString::from(format!("{}", n + 1)),
+            AzString::from(format!("Slide {}", n + 1)),
+        )
+    }
+
+    /// Four slides: a section "Intro" at the first, slide 2 selected, slide 3
+    /// hidden with a badge, slide 2 active.
+    fn strip(log: &Log) -> ThumbnailStrip {
+        ThumbnailStrip::create(ThumbnailItemVec::from_vec(vec![
+            item(0).with_section(AzString::from("Intro")),
+            item(1).with_selected(true),
+            item(2).with_hidden(true).with_badge(AzString::from("star")),
+            item(3),
+        ]))
+        .with_active(1)
+        .with_thumb_size(160.0, 90.0)
+        .with_accessibility_name(AzString::from("Slides"))
+        .with_on_event(RefAny::new(log.clone()), record as ThumbnailStripOnEventCallbackType)
+    }
+
+    fn texts(node: &Dom, out: &mut Vec<String>) {
+        if let NodeType::Text(s) = node.root.get_node_type() {
+            if !s.as_ref().as_str().is_empty() {
+                out.push(s.as_ref().as_str().to_string());
+            }
+        }
+        for c in node.children.as_ref() {
+            texts(c, out);
+        }
+    }
+
+    fn id(n: NodeId) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+        }
+    }
+
+    /// The strip's direct children's node ids, in order.
+    fn children(styled: &StyledDom) -> Vec<NodeId> {
+        let hierarchy = styled.node_hierarchy.as_ref();
+        let mut out = Vec::new();
+        let mut next = hierarchy[0].first_child_id(NodeId::new(0));
+        while let Some(n) = next {
+            out.push(n);
+            next = hierarchy[n.index()].next_sibling_id();
+        }
+        out
+    }
+
+    fn sized(w: f32, h: f32) -> [CssProperty; 2] {
+        [
+            CssProperty::const_width(LayoutWidth::px(w)),
+            CssProperty::const_height(LayoutHeight::px(h)),
+        ]
+    }
+
+    #[test]
+    fn a_column_shows_each_preview_in_its_box_beside_its_number_after_its_section_header() {
+        let log = log();
+        for theme in checks::BOTH {
+            let dom = strip(&log).with_theme(theme).dom();
+            let kids = dom.children.as_ref();
+            assert_eq!(kids.len(), 5, "{}: the header and four items", theme.name());
+            assert!(theme_checks::has_class(&kids[0], SECTION_CLASS));
+            let mut header = Vec::new();
+            texts(&kids[0], &mut header);
+            assert_eq!(header, vec![String::from("Intro")]);
+            for (n, kid) in kids[1..].iter().enumerate() {
+                assert!(theme_checks::has_class(kid, ITEM_CLASS), "{}", theme.name());
+                let number = theme_checks::find(kid, NUMBER_CLASS).expect("the number");
+                let mut label = Vec::new();
+                texts(number, &mut label);
+                assert_eq!(label, vec![format!("{}", n + 1)]);
+                let thumb = theme_checks::find(kid, THUMB_CLASS).expect("the preview box");
+                let props = checks::live_properties(thumb);
+                for want in sized(160.0, 90.0) {
+                    assert!(props.contains(&want), "{}: {want:?} in {props:?}", theme.name());
+                }
+                assert!(
+                    theme_checks::find(thumb, &format!("preview-{n}")).is_some(),
+                    "the app's preview sits in the box"
+                );
+            }
+            assert!(theme_checks::find(&kids[3], BADGE_CLASS).is_some(), "slide 3 shows its badge");
+            assert!(!theme_checks::has_class(&dom, GRID_CLASS));
+        }
+    }
+
+    #[test]
+    fn a_grid_wraps_its_items() {
+        let log = log();
+        let dom = strip(&log)
+            .with_layout(ThumbnailStripLayout::Grid)
+            .with_theme(UiTheme::Flat)
+            .dom();
+        assert!(theme_checks::has_class(&dom, GRID_CLASS));
+        assert!(checks::live_properties(&dom)
+            .contains(&CssProperty::const_flex_wrap(LayoutFlexWrap::Wrap)));
+    }
+
+    #[test]
+    fn a_folded_section_hides_its_items_until_the_next_section() {
+        let log = log();
+        let dom = ThumbnailStrip::create(ThumbnailItemVec::from_vec(vec![
+            item(0).with_section(AzString::from("A")).with_section_collapsed(true),
+            item(1),
+            item(2).with_section(AzString::from("B")),
+            item(3),
+        ]))
+        .with_on_event(RefAny::new(log.clone()), record as ThumbnailStripOnEventCallbackType)
+        .with_theme(UiTheme::Flat)
+        .dom();
+        let kids = dom.children.as_ref();
+        assert_eq!(kids.len(), 4, "header A, header B, slides 3 and 4");
+        assert!(theme_checks::has_class(&kids[0], SECTION_CLASS));
+        assert!(theme_checks::has_class(&kids[1], SECTION_CLASS));
+        assert!(theme_checks::find(&kids[2], "preview-2").is_some());
+        let state = kids[0]
+            .root
+            .get_accessibility_info()
+            .map(|i| i.states.as_ref().to_vec())
+            .unwrap_or_default();
+        assert!(state.contains(&AccessibilityState::Collapsed), "{state:?}");
+    }
+
+    #[test]
+    fn selected_and_hidden_items_are_marked_and_announced() {
+        let log = log();
+        let dom = strip(&log).with_theme(UiTheme::Flat).dom();
+        let info = dom.root.get_accessibility_info().expect("a11y");
+        assert_eq!(info.role, AccessibilityRole::List);
+        assert_eq!(info.accessibility_name.as_ref().map(|n| n.as_str().to_string()), Some(String::from("Slides")));
+        let kids = dom.children.as_ref();
+        assert!(theme_checks::has_class(&kids[2], ITEM_SELECTED_CLASS));
+        assert!(theme_checks::has_class(&kids[3], ITEM_HIDDEN_CLASS));
+        let item = kids[2].root.get_accessibility_info().expect("a11y");
+        assert_eq!(item.role, AccessibilityRole::ListItem);
+        assert_eq!(item.accessibility_name.as_ref().map(|n| n.as_str().to_string()), Some(String::from("Slide 2")));
+        assert!(item.states.as_ref().contains(&AccessibilityState::Selected));
+        assert_ne!(kids[1].root.get_style(), kids[2].root.get_style(), "the selection shows");
+    }
+
+    #[test]
+    fn the_active_item_is_the_one_tab_stop_and_the_keys_select_move_activate_and_delete() {
+        let log = log();
+        let styled = StyledDom::create_from_dom(strip(&log).with_theme(UiTheme::Flat).dom());
+        let kids = children(&styled);
+        let items = &kids[1..];
+        let stops: Vec<bool> = items
+            .iter()
+            .map(|n| styled.node_data.as_ref()[n.index()].get_tab_index() == Some(TabIndex::Auto))
+            .collect();
+        assert_eq!(stops, vec![false, true, false, false]);
+
+        let (_, changes) = rv::press(&styled, id(items[1]), K::Down, &[]).expect("a key handler");
+        assert_eq!(rv::focus_request(&changes), Some(id(items[2])));
+        assert!(rv::prevented(&changes));
+        rv::press(&styled, id(items[1]), K::Down, &[K::LShift]);
+        rv::press(&styled, id(items[1]), K::Down, &[K::LControl]);
+        rv::press(&styled, id(items[1]), K::Up, &[K::LControl]);
+        rv::press(&styled, id(items[1]), K::Return, &[]);
+        rv::press(&styled, id(items[1]), K::Delete, &[]);
+        rv::press(&styled, id(items[1]), K::Home, &[]);
+        let (_, changes) = rv::press(&styled, id(items[0]), K::Up, &[]).expect("a key handler");
+        assert_eq!(rv::focus_request(&changes), None, "the first item holds at the top");
+        assert_eq!(
+            *log.lock().expect("log"),
+            vec![
+                "Select 2 0",
+                "Select 2 0 shift",
+                "Move 1 3",
+                "Move 1 0",
+                "Activate 1 0",
+                "Delete 1 0",
+                "Select 0 0",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_click_selects_a_double_click_activates_and_a_header_click_folds_its_section() {
+        let log = log();
+        let styled = StyledDom::create_from_dom(strip(&log).with_theme(UiTheme::Flat).dom());
+        let kids = children(&styled);
+        rv::fire(&styled, id(kids[3]), EventFilter::Hover(HoverEventFilter::Click)).expect("a click target");
+        rv::fire(&styled, id(kids[3]), EventFilter::Hover(HoverEventFilter::DoubleClick)).expect("a double-click target");
+        rv::fire(&styled, id(kids[0]), EventFilter::Hover(HoverEventFilter::Click)).expect("the header");
+        assert_eq!(
+            *log.lock().expect("log"),
+            vec!["Select 2 0", "Activate 2 0", "SectionToggled 0 0"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_drag_onto_another_item_moves_it_there() {
+        let log = log();
+        let styled = StyledDom::create_from_dom(strip(&log).with_theme(UiTheme::Flat).dom());
+        let kids = children(&styled);
+        let items = &kids[1..];
+        assert!(
+            styled.node_data.as_ref()[items[0].index()]
+                .attributes()
+                .as_ref()
+                .contains(&AttributeType::Draggable(true)),
+            "an item is draggable"
+        );
+        let (_, changes) = rv::fire(&styled, id(items[0]), EventFilter::Hover(HoverEventFilter::DragStart))
+            .expect("a drag source");
+        assert!(changes.iter().any(|c| matches!(
+            c,
+            CallbackChange::SetDragData { mime_type, data }
+                if mime_type.as_str() == DRAG_MIME && data.as_slice() == b"0"
+        )));
+        let (_, changes) = rv::fire(&styled, id(items[2]), EventFilter::Hover(HoverEventFilter::DragOver))
+            .expect("a drop target");
+        assert!(changes.iter().any(|c| matches!(c, CallbackChange::AcceptDrop)));
+        rv::fire(&styled, id(items[2]), EventFilter::Hover(HoverEventFilter::Drop)).expect("a drop target");
+        rv::fire(&styled, id(items[3]), EventFilter::Hover(HoverEventFilter::DragStart));
+        rv::fire(&styled, id(items[1]), EventFilter::Hover(HoverEventFilter::Drop));
+        assert_eq!(
+            *log.lock().expect("log"),
+            vec!["Move 0 3", "Move 3 1"].into_iter().map(String::from).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_drop_after_the_dragged_item_lands_after_and_before_it_lands_before() {
+        assert_eq!(drop_target(0, 2), 3);
+        assert_eq!(drop_target(3, 1), 1);
+        assert_eq!(drop_target(2, 2), 2);
+    }
+
+    #[test]
+    fn a_strip_without_a_theme_follows_the_app_theme_and_declares_its_structure_once() {
+        let log = log();
+        for layout in [ThumbnailStripLayout::Column, ThumbnailStripLayout::Grid] {
+            checks::assert_follows_the_app_theme(
+                "thumbnail_strip",
+                || strip(&log).with_layout(layout).dom(),
+                |t: UiTheme| strip(&log).with_layout(layout).with_theme(t).dom(),
+            );
+            for theme in checks::BOTH {
+                let dom = checks::under(theme, || strip(&log).with_layout(layout).dom());
+                theme_checks::assert_structure_is_shared(
+                    &format!("thumbnail_strip built for {}", theme.name()),
+                    &dom,
+                    &[],
+                );
+                theme_checks::assert_theme_invariants(&format!("thumbnail_strip ({})", theme.name()), &dom);
+            }
+        }
+    }
+}
