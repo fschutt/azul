@@ -14,8 +14,8 @@ parse-checked with `rustfmt --edition 2021 --check`. Report: `scripts/TASKS_2026
 
 ## IN PROGRESS
 
-- DONE so far (not yet declared in lib.rs): state.rs, jobs.rs, nav.rs, list.rs (`5acb8c983`), detail.rs (`f4886366a`), listedit.rs (`eb13dce20`).
-- NEXT STEP: write `chrome.rs` (title row, ribbon + FILE backstage with Settings on ShellSettingsLayout / Shortcuts / About, status bar with sync, To-Do bar, command palette, confirm dialog), commit; then `lib.rs` (modules, with_tasks, start, layout, window keys, reminder timer, notifications).
+- UI written: state.rs, jobs.rs, nav.rs, list.rs (`5acb8c983`), detail.rs (`f4886366a`, `f494ee873`), listedit.rs (`eb13dce20`), chrome.rs (`ec8f10b3e`), backstage.rs (`a0504a540`), lib.rs (`5c37a8edc`).
+- NEXT STEP: a careful compile-read of every UI file against the generated bindings (`target/codegen/dll_api_external.rs` in the main checkout) - signatures, imports, borrows; then `scripts/aztasks_e2e.py`; then engine gaps; then the report.
 
 - App UI on PimShell, one module per file, each committed when written:
   `state.rs` (the app state + mutations) -> `jobs.rs` (Thread jobs, the write queue pump)
