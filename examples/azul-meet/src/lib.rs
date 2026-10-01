@@ -2063,16 +2063,8 @@ fn send_video(s: &mut MeetState, track: u32, rendition: u16, frame: VideoFrame) 
     let Some(endpoint) = s.endpoint.clone() else {
         return;
     };
-    let assigned = assignment(s, s.me, track);
-    let hops = |h264: bool| {
-        let stream = routes::Stream {
-            height: rendition,
-            h264,
-        };
-        handles_of(s, &s.plan.next_hops(s.me, s.me, stream, &assigned))
-    };
-    let mut h264_peers = hops(true);
-    let mut jpeg_peers = hops(false);
+    let mut h264_peers = stream_targets(s, track, rendition, true);
+    let mut jpeg_peers = stream_targets(s, track, rendition, false);
     if h264_peers.is_empty() && jpeg_peers.is_empty() {
         return;
     }
