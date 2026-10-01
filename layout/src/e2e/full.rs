@@ -12697,7 +12697,7 @@ fn build_clip_analysis(
 
 /// Parse a key string to a VirtualKeyCode
 #[cfg(feature = "std")]
-fn parse_virtual_keycode(key: &str) -> Option<azul_core::window::VirtualKeyCode> {
+pub(crate) fn parse_virtual_keycode(key: &str) -> Option<azul_core::window::VirtualKeyCode> {
     use azul_core::window::VirtualKeyCode;
 
     match key.to_lowercase().as_str() {

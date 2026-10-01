@@ -65,6 +65,11 @@ mod export_tests;
 #[cfg(test)]
 mod mode_ops_tests;
 
+// The key names `key_down` / `key_up` accept: punctuation and the numeric
+// keypad, so a scenario can type an operator (`plus`, `numpad_multiply`).
+#[cfg(test)]
+mod key_names_tests;
+
 pub mod hooks {
     //! Dependency-injection seam for the three host-coupled call sites in
     //! [`super::full`]. See the module docs above.
