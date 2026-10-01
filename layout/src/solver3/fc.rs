@@ -6183,6 +6183,52 @@ fn get_border_spacing_property<T: ParsedFontTrait>(
     LayoutBorderSpacing::default() // Default: 0
 }
 
+/// The table's resolved `border-spacing` `(horizontal, vertical)` in px:
+/// `(0, 0)` in the collapsing border model (CSS 2.2 17.6.2) and for an
+/// anonymous table (no styled node to resolve font-relative units against).
+///
+/// The one resolution the table's intrinsic sizes, its width and its cell
+/// positions share (it was written out twice in this file).
+pub(crate) fn resolve_table_border_spacing<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    table_index: usize,
+) -> (f32, f32) {
+    let Some(table_node) = tree.get(LayoutNodeId::new(table_index)) else {
+        return (0.0, 0.0);
+    };
+    let Some(table_id) = table_node.dom_node_id else {
+        return (0.0, 0.0);
+    };
+    if get_border_collapse_property(ctx, table_node) == StyleBorderCollapse::Collapse {
+        return (0.0, 0.0);
+    }
+    let spacing = get_border_spacing_property(ctx, table_node);
+    let styled_dom = ctx.styled_dom;
+    let table_state = &styled_dom.styled_nodes.as_container()[table_id].styled_node_state;
+    let spacing_context = ResolutionContext {
+        vertical_writing_mode: false,
+        element_font_size: get_element_font_size(styled_dom, table_id, table_state),
+        parent_font_size: get_parent_font_size(styled_dom, table_id, table_state),
+        root_font_size: get_root_font_size(styled_dom, table_state),
+        containing_block_size: PhysicalSize::new(0.0, 0.0),
+        element_size: None,
+        viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+    };
+    let h = spacing
+        .horizontal
+        .resolve_with_context(&spacing_context, PropertyContext::Other)
+        .max(0.0);
+    let v = spacing
+        .vertical
+        .resolve_with_context(&spacing_context, PropertyContext::Other)
+        .max(0.0);
+    (
+        if h.is_finite() { h } else { 0.0 },
+        if v.is_finite() { v } else { 0.0 },
+    )
+}
+
 /// Get the empty-cells property for a table-cell node.
 /// Returns Show (default) or Hide.
 fn get_empty_cells_property<T: ParsedFontTrait>(
@@ -6365,9 +6411,22 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         .ok_or(LayoutError::InvalidTree)?
         .clone();
 
-    // Calculate the table's border-box width for column distribution
-    // This accounts for the table's own width property (e.g., width: 100%)
-    let table_border_box_width = if let Some(dom_id) = table_node.dom_node_id {
+    // The table's border-box width for column distribution. Whoever lays the
+    // table out decides its used size first and writes it to `used_size`
+    // before this runs (`calculate_layout_for_subtree`'s phase 1.5, a flex
+    // item's known size, an absolutely positioned box's solved size) - the
+    // auto-width rule `max(MIN, min(MAX, available))` and a `width` floored
+    // at MIN (CSS 2.1 17.5.2.2) are in `calculate_used_size_for_node`.
+    // Re-resolving the table's `width` against `constraints` here (the
+    // table's own content box) took a percentage of the wrong box. Only a
+    // measurement that set no size (taffy's intrinsic queries) resolves it
+    // here, against the constraint it was given.
+    let table_border_box_width = if let Some(used) = table_node
+        .used_size
+        .filter(|size| size.width.is_finite())
+    {
+        used.width
+    } else if let Some(dom_id) = table_node.dom_node_id {
         // Use calculate_used_size_for_node to resolve table width (respects width:100%)
         let intrinsic = tree
             .warm(LayoutNodeId::new(node_index))
@@ -6435,6 +6494,18 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     // Phase 1: Analyze table structure
     let mut table_ctx = analyze_table_structure(tree, node_index, ctx)?;
 
+    // The cell spacing (0 in the collapsing model): the columns share the
+    // content width minus one spacing per gutter, the outer two included
+    // (CSS 2.2 17.6.1: the table's width runs from the left inner padding
+    // edge to the right one, spacing included).
+    let (h_spacing, v_spacing) = resolve_table_border_spacing(ctx, tree, node_index);
+    #[allow(clippy::cast_precision_loss)] // a column count
+    let columns_width = if table_ctx.columns.is_empty() {
+        table_content_box_width
+    } else {
+        (table_content_box_width - h_spacing * (table_ctx.columns.len() + 1) as f32).max(0.0)
+    };
+
     // +spec:table-layout:ff5671 - table-layout property (fixed vs auto) controls column width
     // algorithm +spec:width-calculation:7a5b23 - table-layout property determines fixed vs auto
     // algorithm (CSS 2.2 §17.5.2) Phase 2: Read CSS properties and determine layout algorithm
@@ -6465,14 +6536,14 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         );
         calculate_column_widths_fixed(ctx, tree, &mut table_ctx, table_content_box_width);
     } else {
-        // Pass table_content_box_width for column distribution in auto layout
+        // The columns share the content width minus the cell spacing.
         calculate_column_widths_auto_with_width(
             &mut table_ctx,
             tree,
             text_cache,
             ctx,
             constraints,
-            table_content_box_width,
+            columns_width,
         )?;
     }
 
@@ -6521,46 +6592,9 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     // border-collapse is separate +spec:box-model:acb81f - separated borders model:
     // border-spacing between adjoining cell borders +spec:box-model:e480b1 - table width = left
     // inner padding edge to right inner padding edge (including border-spacing)
-    if table_ctx.border_collapse == StyleBorderCollapse::Separate {
-        use get_element_font_size;
-        use get_parent_font_size;
-        use get_root_font_size;
-        use PhysicalSize;
-        use PropertyContext;
-        use ResolutionContext;
-
-        let styled_dom = ctx.styled_dom;
-        // Anonymous table wrapper boxes have no dom_node_id; without a styled
-        // node we cannot resolve font-relative border-spacing units, so fall
-        // back to zero spacing rather than panicking.
-        let (h_spacing, v_spacing) = if let Some(table_id) = tree.nodes[node_index].dom_node_id {
-            let table_state = &styled_dom.styled_nodes.as_container()[table_id].styled_node_state;
-
-            let spacing_context = ResolutionContext {
-                vertical_writing_mode: false,
-                element_font_size: get_element_font_size(styled_dom, table_id, table_state),
-                parent_font_size: get_parent_font_size(styled_dom, table_id, table_state),
-                root_font_size: get_root_font_size(styled_dom, table_state),
-                containing_block_size: PhysicalSize::new(0.0, 0.0),
-                element_size: None,
-                viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
-            };
-
-            let h_spacing = table_ctx
-                .border_spacing
-                .horizontal
-                .resolve_with_context(&spacing_context, PropertyContext::Other)
-                .max(0.0);
-            let v_spacing = table_ctx
-                .border_spacing
-                .vertical
-                .resolve_with_context(&spacing_context, PropertyContext::Other)
-                .max(0.0);
-            (h_spacing, v_spacing)
-        } else {
-            (0.0f32, 0.0f32)
-        };
-
+    // The spacing (resolved above, 0 in the collapsing model): one per
+    // gutter, the outer two included.
+    {
         // Add spacing: left + (n-1 between columns) + right = n+1 spacings
         let num_cols = table_ctx.columns.len();
         if num_cols > 0 {
@@ -8100,43 +8134,7 @@ fn position_table_cells<T: ParsedFontTrait>(
     // to edge-cell border = table padding + border-spacing   (table padding is already
     // accounted for by the containing block; h_spacing is the border-spacing) Get border
     // spacing values if border-collapse is separate
-    let (h_spacing, v_spacing) = if table_ctx.border_collapse == StyleBorderCollapse::Separate {
-        let styled_dom = ctx.styled_dom;
-        // Anonymous table wrapper boxes have no dom_node_id; without a styled
-        // node we cannot resolve font-relative border-spacing units, so fall
-        // back to zero spacing rather than panicking.
-        if let Some(table_id) = tree.nodes[table_index].dom_node_id {
-            let table_state = &styled_dom.styled_nodes.as_container()[table_id].styled_node_state;
-
-            let spacing_context = ResolutionContext {
-                vertical_writing_mode: false,
-                element_font_size: get_element_font_size(styled_dom, table_id, table_state),
-                parent_font_size: get_parent_font_size(styled_dom, table_id, table_state),
-                root_font_size: get_root_font_size(styled_dom, table_state),
-                containing_block_size: PhysicalSize::new(0.0, 0.0),
-                element_size: None,
-                viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
-            };
-
-            let h = table_ctx
-                .border_spacing
-                .horizontal
-                .resolve_with_context(&spacing_context, PropertyContext::Other)
-                .max(0.0);
-
-            let v = table_ctx
-                .border_spacing
-                .vertical
-                .resolve_with_context(&spacing_context, PropertyContext::Other)
-                .max(0.0);
-
-            (h, v)
-        } else {
-            (0.0, 0.0)
-        }
-    } else {
-        (0.0, 0.0)
-    };
+    let (h_spacing, v_spacing) = resolve_table_border_spacing(ctx, tree, table_index);
 
     debug_log!(
         ctx,

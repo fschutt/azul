@@ -6,26 +6,24 @@ Brief: scratchpad `TABLE_A_go.md` (widths, row groups, presentational attributes
 ## DONE
 - 6e3e48548 progress file
 - e719d122e RED: layout tests (5 files + common/table_markup.rs) + core/tests/xml_attributes.rs
-- (next commit) table_width.rs: ColumnConstraint, specified_width, clamp_percentages, table_min_max,
+- ebcd5c936 table_width.rs: ColumnConstraint, specified_width, clamp_percentages, table_min_max,
   distribute_to_columns (+unit tests), registered in solver3/mod.rs
 - bc6361f65 FIX item 3: presentational attributes (attribute table keeps them, StyledDom creation maps them), UA table defaults
 
 ## IN PROGRESS
-- FIX items 1/4/5. Next step: (a) fc.rs `resolve_table_border_spacing` helper replacing the two
-  twin resolution blocks; (b) sizing.rs calculate_table_intrinsic_sizes via table_width (cell warm
-  intrinsic, spacing, caption, col widths) + TableCell exempt from px override + Table keeps MIN;
-  (c) calculate_used_size_for_node: auto table = clamp(MIN, avail, MAX), floor at MIN;
-  (d) fc.rs layout_table_fc content width from used_size, assignable minus spacing, Step 2 via
-  distribute_to_columns with percent/fixed from cells and cols.
+- FIX items 1/4/5. Done in the working tree / last commit: fc.rs `resolve_table_border_spacing` (twins
+  replaced), layout_table_fc reads the table width from `used_size` and gives the columns the content
+  width minus the spacing (`columns_width`).
+- Next step (b): sizing.rs `calculate_table_intrinsic_sizes` via table_width (cell warm intrinsic,
+  spacing, caption, col widths) + TableCell exempt from the px override + Table keeps MIN.
+- Then (c): `calculate_used_size_for_node`: auto table = clamp(MIN, avail, MAX), border box floored at MIN.
+- Then (d): fc.rs `calculate_column_widths_auto_with_width` Step 2 via `distribute_to_columns` with
+  percent/fixed from single-span cells and `<col>`s.
 
 ## NEXT
-1. RED: layout tests (width cap, row groups, attributes, percent columns, nested tables) + core test
-2. FIX item 3: presentational attributes kept by the attribute table, mapped to CSS at StyledDom creation
-3. FIX item 1/4/5: table used width = clamp(MIN, available, MAX); column constraints + CSS Tables 3
-   width distribution, shared by intrinsic sizing and layout; nested table intrinsic from the cell
-4. FIX item 2: row groups / rows / cells positioned hierarchically; thead first, tfoot last; table
-   paints its own background + border, then the table layers
-5. report
+- FIX item 2: row groups / rows / cells positioned hierarchically; thead first, tfoot last; table paints
+  its own background + border, then the table layers; cache-hit path for tables positions only.
+- (optional) legacy `align=center` block centering; report.
 
 ## Decisions (unattended, noted here)
 - Presentational hints: the attribute table KEEPS the attribute on the node (AttributeType::Custom), and
