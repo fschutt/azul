@@ -171,4 +171,17 @@ mod tests {
         );
         assert!(!fits_preview(PreviewKind::None, Some(1)));
     }
+
+    /// A PDF previews its first page (azul's PDF reader turns pages into SVG,
+    /// azul's SVG renderer draws it): fetched up to the image limit; audio
+    /// still says why not.
+    #[test]
+    fn a_pdf_previews_its_first_page_and_audio_says_why_not() {
+        assert!(fits_preview(PreviewKind::Pdf, Some(2 * 1024 * 1024)));
+        assert!(!fits_preview(PreviewKind::Pdf, Some(IMAGE_PREVIEW_MAX_BYTES + 1)));
+        assert!(!fits_preview(PreviewKind::Pdf, None));
+        assert_eq!(no_preview_reason(PreviewKind::Pdf), None);
+        assert!(no_preview_reason(PreviewKind::Audio).is_some());
+        assert!(no_preview_reason(PreviewKind::None).is_some());
+    }
 }
