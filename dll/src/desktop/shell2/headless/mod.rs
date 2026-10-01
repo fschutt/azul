@@ -1560,6 +1560,11 @@ pub struct HeadlessWindow {
     /// dialogs, an app's second window), pumped by this window's loop
     /// ([`Self::pump_children`]).
     pub children: Vec<HeadlessWindow>,
+    /// "Rebuild every window": a generation the root and its children share
+    /// (`request_regeneration_all_windows` counts it up), and the generation this window has
+    /// rebuilt for - the headless twin of the OS backends' registry walk.
+    regenerate_all: Arc<std::sync::atomic::AtomicU64>,
+    regenerate_all_seen: u64,
     /// Config snapshot (needed for spawning sub-windows).
     config: AppConfig,
     /// Icon provider (shared across all windows).
@@ -1664,6 +1669,8 @@ impl HeadlessWindow {
             thread_poll_timer_running: false,
             pending_window_creates: Vec::new(),
             children: Vec::new(),
+            regenerate_all: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            regenerate_all_seen: 0,
             config,
             icon_provider,
             font_registry,
@@ -1681,6 +1688,17 @@ impl HeadlessWindow {
     /// threads with the frames they ask for, and a close the callbacks requested. `run()` turns
     /// it for the root window; [`Self::pump_children`] for every child window.
     pub fn pump_once(&mut self, is_root: bool) {
+        // ── Phase 0: another window asked every window to rebuild ─
+        let generation = self
+            .regenerate_all
+            .load(std::sync::atomic::Ordering::SeqCst);
+        if generation != self.regenerate_all_seen {
+            self.regenerate_all_seen = generation;
+            self.common
+                .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+            self.service_frame(azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow);
+        }
+
         // ── Phase 1: Process injected events ─────────────────
         let mut events_need_redraw = false;
         // The strongest ProcessEventResult of this drain — decides whether
@@ -2121,6 +2139,9 @@ impl HeadlessWindow {
                 }
             }
         }
+        if events_result == azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows {
+            self.request_regeneration_all_windows();
+        }
         // MWA-C-virtual_view: drain queued VirtualView re-invocations
         // FIRST so their queue-time reasons (EdgeScrolled/DomRecreated)
         // reach the user callback — headless previously relied solely on
@@ -2259,6 +2280,10 @@ impl HeadlessWindow {
                 self.font_registry.clone(),
             ) {
                 Ok(mut child) => {
+                    child.regenerate_all = self.regenerate_all.clone();
+                    child.regenerate_all_seen = self
+                        .regenerate_all
+                        .load(std::sync::atomic::Ordering::SeqCst);
                     child.start_as_child();
                     self.children.push(child);
                 }
@@ -3332,6 +3357,16 @@ impl HeadlessWindow {
 impl PlatformWindow for HeadlessWindow {
     /// Headless has no window manager to hand a drag to.
     fn handle_begin_interactive_move(&mut self) {}
+
+    /// Every OTHER window of this app (the root and its children share the generation) rebuilds
+    /// at its next turn ([`HeadlessWindow::pump_once`]); this one is rebuilt by the result that
+    /// asked.
+    fn request_regeneration_all_windows(&mut self) {
+        self.regenerate_all_seen = self
+            .regenerate_all
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
+    }
 
     fn regenerate_layout_once(
         &mut self,

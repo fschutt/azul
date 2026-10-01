@@ -13244,6 +13244,10 @@ pub trait PlatformWindow {
         let mut max_changes_result = timer_changes_result;
         let mut needs_redraw = timer_changes_result != ProcessEventResult::DoNothing;
         let mut needs_layout_regeneration = false;
+        // An answer of `RefreshDomAllWindows` rebuilds every window of the app, as it does
+        // from an event handler (a window that sent a mail on a thread tells the main window
+        // to show it in Sent), not only the window the timer or thread ran in.
+        let mut refresh_all_windows = timer_results.contains(&Update::RefreshDomAllWindows);
 
         for update in &timer_results {
             // apply_user_change was already called inside invoke_expired_timers
@@ -13263,6 +13267,7 @@ pub trait PlatformWindow {
             if thread_changes_result != ProcessEventResult::DoNothing {
                 needs_redraw = true;
             }
+            refresh_all_windows |= thread_update == Update::RefreshDomAllWindows;
             match thread_update {
                 Update::RefreshDom | Update::RefreshDomAllWindows => {
                     needs_redraw = true;
@@ -13281,6 +13286,7 @@ pub trait PlatformWindow {
             if resume_changes_result != ProcessEventResult::DoNothing {
                 needs_redraw = true;
             }
+            refresh_all_windows |= resume_update == Update::RefreshDomAllWindows;
             match resume_update {
                 Update::RefreshDom | Update::RefreshDomAllWindows => {
                     needs_redraw = true;
@@ -13288,6 +13294,10 @@ pub trait PlatformWindow {
                 }
                 _ => {}
             }
+        }
+
+        if refresh_all_windows {
+            self.request_regeneration_all_windows();
         }
 
         // A timer or thread writeback that committed text (`CreateTextInput`
