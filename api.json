@@ -23604,6 +23604,41 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "TileOnClickCallbackType": {
+                        "external": "azul_layout::widgets::tile::TileOnClickCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
+                    },
+                    "AddressBarOnEventCallbackType": {
+                        "external": "azul_layout::widgets::address_bar::AddressBarOnEventCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "AddressBarEvent"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
                     }
                 }
             },
@@ -34785,6 +34820,70 @@
                             {
                                 "Panel": {},
                                 "Groups": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TileOnClickCallback": {
+                        "external": "azul_layout::widgets::tile::TileOnClickCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "TileOnClickCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "AddressBarOnEventCallback": {
+                        "external": "azul_layout::widgets::address_bar::AddressBarOnEventCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "AddressBarOnEventCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
                             }
                         ],
                         "repr": "C"
@@ -61804,6 +61903,84 @@
                                     "type": "TreeViewNode"
                                 },
                                 "fn_body": "object.with_selected(selected)"
+                            },
+                            "set_icon": {
+                                "doc": [
+                                    "Show `icon` (a `Dom::create_icon` name) between the disclosure arrow",
+                                    "and the label."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "icon": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_icon(icon)"
+                            },
+                            "with_icon": {
+                                "doc": [
+                                    "[`Self::set_icon`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "icon": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TreeViewNode"
+                                },
+                                "fn_body": "object.with_icon(icon)"
+                            },
+                            "set_unloaded_children": {
+                                "doc": [
+                                    "Mark the node as having children that are not loaded yet (see",
+                                    "[`Self::has_unloaded_children`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "unloaded": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_unloaded_children(unloaded)"
+                            },
+                            "with_unloaded_children": {
+                                "doc": [
+                                    "[`Self::set_unloaded_children`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "unloaded": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TreeViewNode"
+                                },
+                                "fn_body": "object.with_unloaded_children(unloaded)"
+                            },
+                            "has_children": {
+                                "doc": [
+                                    "Whether the node is a parent: it has children, or children to load."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.has_children()"
                             }
                         },
                         "repr": "C"
@@ -65571,6 +65748,53 @@
                                     "type": "AccordionSection"
                                 },
                                 "fn_body": "object.with_open(open)"
+                            },
+                            "set_count": {
+                                "doc": [
+                                    "Show `count` after the title, in brackets: a group of items says how",
+                                    "many it holds (\"Devices and drives (3)\")."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "count": "usize"
+                                    }
+                                ],
+                                "fn_body": "object.set_count(count)"
+                            },
+                            "with_count": {
+                                "doc": [
+                                    "[`Self::set_count`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "count": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AccordionSection"
+                                },
+                                "fn_body": "object.with_count(count)"
+                            },
+                            "header_text": {
+                                "doc": [
+                                    "The header's text: the title, then the count in brackets when there",
+                                    "is one."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.header_text().into()"
                             }
                         },
                         "repr": "C"
@@ -65719,6 +65943,38 @@
                                     "type": "Accordion"
                                 },
                                 "fn_body": "object.with_theme(theme)"
+                            },
+                            "set_variant": {
+                                "doc": [
+                                    "How the sections are drawn: one bordered panel or borderless groups",
+                                    "(see [`AccordionVariant`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "variant": "AccordionVariant"
+                                    }
+                                ],
+                                "fn_body": "object.set_variant(variant)"
+                            },
+                            "with_variant": {
+                                "doc": [
+                                    "[`Self::set_variant`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "variant": "AccordionVariant"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Accordion"
+                                },
+                                "fn_body": "object.with_variant(variant)"
                             }
                         },
                         "repr": "C"
@@ -68105,6 +68361,45 @@
                                     "type": "Breadcrumb"
                                 },
                                 "fn_body": "object.with_theme(theme)"
+                            },
+                            "set_on_segment_menu": {
+                                "doc": [
+                                    "The segment menus: every crumb, the current page too, is followed by",
+                                    "a chevron that reports the crumb's index (see",
+                                    "[`BreadcrumbStateWrapper::on_segment_menu`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_segment_menu": "BreadcrumbOnNavigateCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_segment_menu(data, on_segment_menu)"
+                            },
+                            "with_on_segment_menu": {
+                                "doc": [
+                                    "[`Self::set_on_segment_menu`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_segment_menu": "BreadcrumbOnNavigateCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Breadcrumb"
+                                },
+                                "fn_body": "object.with_on_segment_menu(data, on_segment_menu)"
                             }
                         },
                         "repr": "C"
@@ -75776,6 +76071,1098 @@
                                 }
                             }
                         ],
+                        "repr": "C"
+                    },
+                    "Tile": {
+                        "external": "azul_layout::widgets::tile::Tile",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "icon": {
+                                    "type": "String"
+                                },
+                                "title": {
+                                    "type": "String"
+                                },
+                                "detail": {
+                                    "type": "String"
+                                },
+                                "capacity": {
+                                    "type": "OptionTileCapacity"
+                                },
+                                "on_click": {
+                                    "type": "OptionTileOnClick"
+                                },
+                                "on_double_click": {
+                                    "type": "OptionTileOnClick"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
+                                },
+                                "is_selected": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A tile with `title`, no icon, no detail, no capacity."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "title": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::tile::Tile::create(title)"
+                            }
+                        },
+                        "functions": {
+                            "set_icon": {
+                                "doc": [
+                                    "The icon beside the column (a `Dom::create_icon` name)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "icon": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_icon(icon)"
+                            },
+                            "with_icon": {
+                                "doc": [
+                                    "[`Self::set_icon`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "icon": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Tile"
+                                },
+                                "fn_body": "object.with_icon(icon)"
+                            },
+                            "set_detail": {
+                                "doc": [
+                                    "The line under the title when the tile has no capacity."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "detail": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_detail(detail)"
+                            },
+                            "with_detail": {
+                                "doc": [
+                                    "[`Self::set_detail`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "detail": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Tile"
+                                },
+                                "fn_body": "object.with_detail(detail)"
+                            },
+                            "set_capacity": {
+                                "doc": [
+                                    "The capacity bar and its text."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "capacity": "TileCapacity"
+                                    }
+                                ],
+                                "fn_body": "object.set_capacity(capacity)"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "[`Self::set_capacity`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "capacity": "TileCapacity"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Tile"
+                                },
+                                "fn_body": "object.with_capacity(capacity)"
+                            },
+                            "set_selected": {
+                                "doc": [
+                                    "Draw and announce the tile as selected."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "selected": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_selected(selected)"
+                            },
+                            "with_selected": {
+                                "doc": [
+                                    "[`Self::set_selected`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "selected": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Tile"
+                                },
+                                "fn_body": "object.with_selected(selected)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pin the widget theme; unset, the tile follows the app theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Tile"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "set_on_click": {
+                                "doc": [
+                                    "The click: the app selects the tile."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "TileOnClickCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_click(data, callback)"
+                            },
+                            "with_on_click": {
+                                "doc": [
+                                    "[`Self::set_on_click`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "TileOnClickCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Tile"
+                                },
+                                "fn_body": "object.with_on_click(data, callback)"
+                            },
+                            "set_on_double_click": {
+                                "doc": [
+                                    "The double-click: the app opens the tile."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "TileOnClickCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_double_click(data, callback)"
+                            },
+                            "with_on_double_click": {
+                                "doc": [
+                                    "[`Self::set_on_double_click`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "TileOnClickCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Tile"
+                                },
+                                "fn_body": "object.with_on_double_click(data, callback)"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Replaces `self` with an empty tile and returns the original."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Tile"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "The tile's DOM. The look comes from the theme module",
+                                    "(`themes::flat::tile` / `themes::flora::tile`); `None` carries both",
+                                    "looks, each in its `@theme(<name>)` block, and the app theme picks."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TileOnClick": {
+                        "external": "azul_layout::widgets::tile::TileOnClick",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "TileOnClickCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TileCapacity": {
+                        "external": "azul_layout::widgets::tile::TileCapacity",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "total": {
+                                    "type": "u64"
+                                },
+                                "free": {
+                                    "type": "u64"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A capacity from the volume's size and its free bytes."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "total": "u64"
+                                    },
+                                    {
+                                        "free": "u64"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::tile::TileCapacity::create(total, free)"
+                            }
+                        },
+                        "functions": {
+                            "used": {
+                                "doc": [
+                                    "The bytes in use."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "u64"
+                                },
+                                "fn_body": "object.used()"
+                            },
+                            "used_percent": {
+                                "doc": [
+                                    "The bar's fill: the used share of the volume, 0 to 100."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.used_percent()"
+                            },
+                            "is_nearly_full": {
+                                "doc": [
+                                    "Whether less than a tenth of the volume is free - when Explorer",
+                                    "paints the bar red."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_nearly_full()"
+                            },
+                            "label": {
+                                "doc": [
+                                    "\"324 GB free of 456 GB\"."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.label().into()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "AddressBarOnEvent": {
+                        "external": "azul_layout::widgets::address_bar::AddressBarOnEvent",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "AddressBarOnEventCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "AddressBar": {
+                        "external": "azul_layout::widgets::address_bar::AddressBar",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "crumbs": {
+                                    "type": "StringVec"
+                                },
+                                "path": {
+                                    "type": "String"
+                                },
+                                "search": {
+                                    "type": "String"
+                                },
+                                "search_placeholder": {
+                                    "type": "String"
+                                },
+                                "on_event": {
+                                    "type": "OptionAddressBarOnEvent"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
+                                },
+                                "can_go_back": {
+                                    "type": "bool"
+                                },
+                                "can_go_forward": {
+                                    "type": "bool"
+                                },
+                                "can_go_up": {
+                                    "type": "bool"
+                                },
+                                "editing": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A bar showing `crumbs`, nothing to go back, forward or up to, no",
+                                    "search text."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "crumbs": "StringVec"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::address_bar::AddressBar::create(crumbs)"
+                            }
+                        },
+                        "functions": {
+                            "set_path": {
+                                "doc": [
+                                    "The path the field shows while editing."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "path": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_path(path)"
+                            },
+                            "with_path": {
+                                "doc": [
+                                    "[`Self::set_path`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "path": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AddressBar"
+                                },
+                                "fn_body": "object.with_path(path)"
+                            },
+                            "set_search": {
+                                "doc": [
+                                    "The search box's text."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "search": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_search(search)"
+                            },
+                            "with_search": {
+                                "doc": [
+                                    "[`Self::set_search`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "search": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AddressBar"
+                                },
+                                "fn_body": "object.with_search(search)"
+                            },
+                            "set_search_placeholder": {
+                                "doc": [
+                                    "The search box's prompt."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "placeholder": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_search_placeholder(placeholder)"
+                            },
+                            "with_search_placeholder": {
+                                "doc": [
+                                    "[`Self::set_search_placeholder`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "placeholder": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AddressBar"
+                                },
+                                "fn_body": "object.with_search_placeholder(placeholder)"
+                            },
+                            "set_can_go": {
+                                "doc": [
+                                    "Whether Back, Forward and Up do anything."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "back": "bool"
+                                    },
+                                    {
+                                        "forward": "bool"
+                                    },
+                                    {
+                                        "up": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_can_go(back, forward, up)"
+                            },
+                            "with_can_go": {
+                                "doc": [
+                                    "[`Self::set_can_go`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "back": "bool"
+                                    },
+                                    {
+                                        "forward": "bool"
+                                    },
+                                    {
+                                        "up": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AddressBar"
+                                },
+                                "fn_body": "object.with_can_go(back, forward, up)"
+                            },
+                            "set_editing": {
+                                "doc": [
+                                    "Show the path field instead of the trail."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "editing": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_editing(editing)"
+                            },
+                            "with_editing": {
+                                "doc": [
+                                    "[`Self::set_editing`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "editing": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AddressBar"
+                                },
+                                "fn_body": "object.with_editing(editing)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pin the widget theme; unset, the bar follows the app theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AddressBar"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "set_on_event": {
+                                "doc": [
+                                    "The callback that hears every action on the bar."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "AddressBarOnEventCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_event(data, callback)"
+                            },
+                            "with_on_event": {
+                                "doc": [
+                                    "[`Self::set_on_event`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "AddressBarOnEventCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AddressBar"
+                                },
+                                "fn_body": "object.with_on_event(data, callback)"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Replaces `self` with an empty bar and returns the original."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AddressBar"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "The bar's DOM. The look comes from the theme module",
+                                    "(`themes::flat::address_bar` / `themes::flora::address_bar`); `None`",
+                                    "carries both looks, each in its `@theme(<name>)` block, and the app",
+                                    "theme picks."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "AddressBarEventKind": {
+                        "external": "azul_layout::widgets::address_bar::AddressBarEventKind",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Back": {},
+                                "Forward": {},
+                                "Up": {},
+                                "Refresh": {},
+                                "Crumb": {},
+                                "CrumbMenu": {},
+                                "EditStarted": {},
+                                "PathEntered": {},
+                                "EditCancelled": {},
+                                "Search": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "AddressBarEvent": {
+                        "external": "azul_layout::widgets::address_bar::AddressBarEvent",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "text": {
+                                    "type": "String"
+                                },
+                                "index": {
+                                    "type": "usize"
+                                },
+                                "kind": {
+                                    "type": "AddressBarEventKind"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DetailsPane": {
+                        "external": "azul_layout::widgets::details_pane::DetailsPane",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "icon": {
+                                    "type": "String"
+                                },
+                                "title": {
+                                    "type": "String"
+                                },
+                                "subtitle": {
+                                    "type": "String"
+                                },
+                                "properties": {
+                                    "type": "StringPairVec"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A pane for `title`, with no icon, subtitle or properties."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "title": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::details_pane::DetailsPane::create(title)"
+                            }
+                        },
+                        "functions": {
+                            "set_icon": {
+                                "doc": [
+                                    "The big icon (a `Dom::create_icon` name)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "icon": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_icon(icon)"
+                            },
+                            "with_icon": {
+                                "doc": [
+                                    "[`Self::set_icon`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "icon": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DetailsPane"
+                                },
+                                "fn_body": "object.with_icon(icon)"
+                            },
+                            "set_subtitle": {
+                                "doc": [
+                                    "What the item is."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "subtitle": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_subtitle(subtitle)"
+                            },
+                            "with_subtitle": {
+                                "doc": [
+                                    "[`Self::set_subtitle`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "subtitle": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DetailsPane"
+                                },
+                                "fn_body": "object.with_subtitle(subtitle)"
+                            },
+                            "set_properties": {
+                                "doc": [
+                                    "The property rows, in order."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "properties": "StringPairVec"
+                                    }
+                                ],
+                                "fn_body": "object.set_properties(properties)"
+                            },
+                            "with_properties": {
+                                "doc": [
+                                    "[`Self::set_properties`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "properties": "StringPairVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DetailsPane"
+                                },
+                                "fn_body": "object.with_properties(properties)"
+                            },
+                            "add_property": {
+                                "doc": [
+                                    "Adds one property row."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "key": "String"
+                                    },
+                                    {
+                                        "value": "String"
+                                    }
+                                ],
+                                "fn_body": "object.add_property(key, value)"
+                            },
+                            "with_property": {
+                                "doc": [
+                                    "[`Self::add_property`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "key": "String"
+                                    },
+                                    {
+                                        "value": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DetailsPane"
+                                },
+                                "fn_body": "object.with_property(key, value)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pin the widget theme; unset, the pane follows the app theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DetailsPane"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Replaces `self` with an empty pane and returns the original."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DetailsPane"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "The pane's DOM. The look comes from the theme module",
+                                    "(`themes::flat::details_pane` / `themes::flora::details_pane`);",
+                                    "`None` carries both looks, each in its `@theme(<name>)` block, and the",
+                                    "app theme picks."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            }
+                        },
                         "repr": "C"
                     }
                 }
@@ -133146,6 +134533,85 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionTileCapacity": {
+                        "external": "azul_layout::widgets::tile::OptionTileCapacity",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "TileCapacity"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionTileOnClick": {
+                        "external": "azul_layout::widgets::tile::OptionTileOnClick",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "TileOnClick"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionAddressBarOnEvent": {
+                        "external": "azul_layout::widgets::address_bar::OptionAddressBarOnEvent",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "AddressBarOnEvent"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -146666,6 +148132,22 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "used": {
+                                "doc": [
+                                    "The bytes in use: `total - free`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "u64"
+                                },
+                                "fn_body": "object.used()"
+                            }
+                        },
                         "repr": "C"
                     }
                 }
