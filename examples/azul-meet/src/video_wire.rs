@@ -530,6 +530,10 @@ impl KeyframePolicy {
         }
     }
 
+    /// The frame [`Self::should_force`] was just asked about was not taken by the encoder (its
+    /// queue was full): nothing was forced, so the request stays open for the next frame.
+    pub fn not_taken(&mut self) {}
+
     /// The encoder must be closed and opened again.
     pub fn must_reopen(&self) -> bool {
         self.reopen
@@ -1296,6 +1300,29 @@ mod tests {
             broken.reopened();
         }
         assert!(broken.is_broken());
+    }
+
+    /// A frame the encoder did not take (its queue was full) was not forced: the request stays
+    /// open for the next frame it takes, and the P-frames before that count for nothing.
+    #[test]
+    fn a_forced_frame_the_encoder_did_not_take_is_forced_again() {
+        let mut policy = KeyframePolicy::new();
+        assert!(policy.should_force(0));
+        policy.on_output(true, 0);
+        policy.request();
+        assert!(policy.should_force(600));
+        policy.not_taken();
+        assert!(policy.should_force(633), "the next frame is forced");
+        for i in 0..u64::from(OUTPUT_LAG_PACKETS) {
+            policy.on_output(false, 640 + i);
+        }
+        assert!(!policy.must_reopen());
+        policy.on_output(true, 700);
+        assert_eq!(policy.stats().on_request, 1, "one forced keyframe answered the request");
+        // After a frame that was not forced, not_taken changes nothing.
+        assert!(!policy.should_force(766));
+        policy.not_taken();
+        assert!(!policy.should_force(800));
     }
 
     /// H.264 when both sides do it, JPEG when one cannot, nothing while the viewer's caps are
