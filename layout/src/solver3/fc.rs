@@ -1222,6 +1222,63 @@ fn position_float(
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose
                                                                // layout/render/parse routine (one
                                                                // branch per case)
+/// Does the block container `dom_id` center its block-level children the
+/// HTML legacy way (`text-align: -webkit-center`)?
+///
+/// HTML's rendering section: a `div`, `caption`, `thead`, `tbody`, `tfoot`,
+/// `tr`, `td` or `th` with `align="center"` (or `middle`) centers its
+/// text AND its block-level descendants, as if they had auto margins; the
+/// value inherits like `text-align`. So the newsletter's `<td align=
+/// "center"><table width="600">` centers the 600px table in the wide cell.
+/// The presentational hint gives such an element `text-align: center`
+/// (`azul_core::xml::attributes::presentational_css`); here the inherited
+/// half: walking up while the computed `text-align` stays `center`, a
+/// legacy-centering element found on the way decides. An element that
+/// says something else stops the walk.
+fn centers_blocks_the_legacy_way(styled_dom: &StyledDom, dom_id: NodeId) -> bool {
+    use azul_core::dom::{AttributeType, NodeType};
+    use azul_css::props::style::StyleTextAlign;
+
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let node_data = styled_dom.node_data.as_container();
+    let mut current = Some(dom_id);
+    for _ in 0..64 {
+        let Some(id) = current else {
+            return false;
+        };
+        let state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
+        if get_text_align(styled_dom, id, state).unwrap_or_default() != StyleTextAlign::Center {
+            return false;
+        }
+        let nd = &node_data[id];
+        let takes_align = matches!(
+            nd.get_node_type(),
+            NodeType::Div
+                | NodeType::Caption
+                | NodeType::THead
+                | NodeType::TBody
+                | NodeType::TFoot
+                | NodeType::Tr
+                | NodeType::Td
+                | NodeType::Th
+        );
+        if takes_align
+            && nd.attributes().as_ref().iter().any(|a| match a {
+                AttributeType::Custom(nv) => {
+                    nv.attr_name.as_str().eq_ignore_ascii_case("align")
+                        && (nv.value.as_str().trim().eq_ignore_ascii_case("center")
+                            || nv.value.as_str().trim().eq_ignore_ascii_case("middle"))
+                }
+                _ => false,
+            })
+        {
+            return true;
+        }
+        current = hierarchy.get(id).and_then(|h| h.parent_id());
+    }
+    false
+}
+
 fn layout_bfc<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -1238,6 +1295,11 @@ fn layout_bfc<T: ParsedFontTrait>(
     // axis) for ordering block-level boxes in BFC
     let writing_mode = constraints.writing_mode;
     let mut output = LayoutOutput::default();
+    // `<td align="center">` / `<div align="center">`: block children are
+    // centered too (`centers_blocks_the_legacy_way`).
+    let legacy_center = node
+        .dom_node_id
+        .is_some_and(|dom_id| centers_blocks_the_legacy_way(ctx.styled_dom, dom_id));
 
     debug_info!(
         ctx,
@@ -2774,6 +2836,13 @@ fn layout_bfc<T: ParsedFontTrait>(
                     (available_cross - child_used_size.cross(writing_mode) - child_margin.right)
                         .max(0.0);
                 cross_start + remaining
+            } else if legacy_center {
+                let remaining = (available_cross
+                    - child_used_size.cross(writing_mode)
+                    - child_margin.cross_start(writing_mode)
+                    - child_margin.cross_end(writing_mode))
+                .max(0.0);
+                cross_start + child_margin.cross_start(writing_mode) + remaining / 2.0
             } else {
                 cross_start + child_margin.cross_start(writing_mode)
             };
@@ -2836,6 +2905,13 @@ fn layout_bfc<T: ParsedFontTrait>(
                     child_margin.cross_start(writing_mode)
                 );
                 child_margin.cross_start(writing_mode)
+            } else if legacy_center {
+                let remaining = (available_cross
+                    - child_cross_size
+                    - child_margin.cross_start(writing_mode)
+                    - child_margin.cross_end(writing_mode))
+                .max(0.0);
+                child_margin.cross_start(writing_mode) + remaining / 2.0
             } else {
                 // +spec:box-model:218643 - over-constrained: drop end margin per containing block
                 // writing mode +spec:width-calculation:d172a4 - over-constrained:

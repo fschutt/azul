@@ -14,7 +14,8 @@ Brief: scratchpad `TABLE_A_go.md` (widths, row groups, presentational attributes
 - Items 1-5 code complete. Last code commit: "row groups, rows, columns and the caption are boxes".
 - Review pass of fc.rs layout_table_fc/caption done; expectations: 8 lines removed (commit "wpt
   expectations").
-- NEXT STEP: legacy align=center block centering (optional, item 3b) or straight to the report
+- f3c28b1b9 RED legacy center; next commit FIX (fc.rs centers_blocks_the_legacy_way + layout_bfc).
+- NEXT STEP: the report
   scripts/TABLE_A_2026_10_01.md.
 
 ## NEXT
