@@ -12,11 +12,14 @@ Report: scripts/DIALOGS_2026_10_01.md. House rules: no cargo, no rust-analyzer.
   `// RED stub` (scratchpad `dialogs/unstub.py` removes them).
 
 ## IN PROGRESS
-- Phase 1 GREEN done (`d9aa4a163` builds, `a18b2ae11` flat looks, this commit flora looks).
-  NEXT STEP: Phase 2 RED - new file `layout/src/widgets/shortcut_recorder.rs`
-  (ShortcutRecorder: records a GlobalHotkey, Enter/click starts, Escape cancels,
-  Backspace clears, HotkeyField role), then ShellSettingsLayout extensions
-  (category_icons, section keywords) and `shells/settings_dialog.rs`.
+- Phase 2. Done: `f386dc250`/`b7ec166ed` shortcut recorder (RED/GREEN), `ec3549e37`
+  dialog_kit::row_button + kit parts held/notice/category_icon, `87803130d`/`0ef699746`
+  ShellSettingsLayout icons / badges / footer / section keywords (RED/GREEN).
+  NEXT STEP: `layout/src/widgets/shells/settings_dialog.rs` part 1 (types: ShellSettingValue
+  + Choice/Number/Shortcut, ShellSetting(+Vec), ShellSettingsApplyMode, ShellSettingsEvent(+Kind),
+  callback, ShellSettingsDialog + apply_event / is_dirty / dirty_count / value_of; model
+  tests; RED stub in apply_event and build), register in shells/mod.rs; then part 2 (the
+  rows build + build tests, GREEN).
 
 ## NEXT
 - Phase 2: shortcut_recorder, ShellSettingsLayout extensions (category icons, section
