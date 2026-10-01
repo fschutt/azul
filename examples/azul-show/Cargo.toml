@@ -1,0 +1,36 @@
+[package]
+name = "AzShow"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzShow - a PowerPoint-style presentation editor on the public azul API.
+    Normal view (ribbon, slide rail with sections and drag reorder, the slide
+    canvas with selectable / movable / resizable / rotatable objects and
+    snapping guides, text edited in place with AzWriter's rich text model,
+    notes, the format pane, the status bar), slide sorter, outline and notes
+    page views, the slide show full screen with a presenter window (current,
+    next, notes, timer). Decks are files: show/<uuid>/deck.json and
+    show/<uuid>/media/ through azul-storage's LocalDrive; PDF export through
+    azul's PDF path.
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+azul-storage = { path = "../azul-storage", features = ["azul"] }
+# The rich text of a text box is AzWriter's IR (`azwriter::ir`): one rich text
+# model for both apps until it moves into azul as the RichTextEditor model.
+AzWriter = { path = "../azul-writer" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lib]
+name = "azshow"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzShow"
+path = "src/main.rs"
