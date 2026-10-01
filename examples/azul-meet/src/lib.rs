@@ -74,6 +74,7 @@
 
 mod audio;
 mod chat;
+mod pace;
 mod rooms;
 mod routes;
 mod speaker;
