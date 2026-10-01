@@ -51,9 +51,17 @@ report section 2 (A's structure and table_width kept, my logic ported, twins fol
   with padding/border, percentages of the columns' share, fixed only with a definite width,
   content width clamped, col widths in auto layout).
 
-## IN PROGRESS (last commit e38be3f8e)
-- next: compile-free review of every changed region (`git diff 39092feee -- layout/src`), fix what
-  does not type-check by reading; then the report `scripts/TABLE_B_2026_10_01.md`.
+- `5de5cfd0a` restored `white_space_runs` (a bulk edit had touched it).
+- Report started: `24fcb60bc` (summary), `fad03f6cd` (per item).
+- Alignment with TABLE-A (wt/table-a, integrated first): `51c16a9df` (spacing = A's
+  `resolve_table_border_spacing` verbatim), `bc087a71f` (layer 1 = A's generic box painting
+  verbatim), `349d1418e` (A's intrinsic-pass cell/table block verbatim; cell width rule moved into
+  `calculate_table_intrinsic_sizes`).
+
+## IN PROGRESS (last commit 349d1418e)
+- next: report sections 2 (merge guide for the parent: function by function, A first),
+  3 (WPT list), 4 (commits), 5 (api.json: none), 6 (least sure to compile), 7 (commands),
+  8 (what is left, notes for A). Then final progress + done.
 
 ## NEXT
 - Report `scripts/TABLE_B_2026_10_01.md`.
