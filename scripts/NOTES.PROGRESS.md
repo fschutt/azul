@@ -50,8 +50,13 @@ parse-checked with `rustfmt --edition 2021 --check`.
 
 - `4913910a7` scripts/aznotes_e2e.py + #open-settings button.
 
+- `9c88a887c` review fixes (match guard, *level).
+- E3 `ff496d1da` RED / `de4616f0a` GREEN: an acked split of a list item resumes past the new
+  item's marker (restore_caret_from_resume_point -> caret_past_markers). Test
+  layout/tests/an_acked_split_of_a_list_item_resumes_past_the_new_items_marker.rs (in all.rs).
+
 ## IN PROGRESS (precise next steps, in order)
-8. A careful compile-in-head review pass over every AzNotes file (types, borrows, imports).
+8. (continue) A careful compile-in-head review pass over every AzNotes file (types, borrows, imports).
 9. Report scripts/NOTES_2026_10_01.md.
    (old plan follows, done up to 6) REQUIRED by lib.rs/jobs.rs: `pub extern "C" fn layout(RefAny,
    LayoutCallbackInfo) -> Dom`, `pub const SETTINGS_SHORTCUTS: usize`, `pub const SETTINGS_ABOUT:
