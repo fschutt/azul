@@ -1146,6 +1146,14 @@ impl A11yManager {
             if info.is_live_region {
                 builder.set_live(accesskit::Live::Polite);
             }
+            // A cell's place in the WHOLE grid: a virtualised grid renders a
+            // window of its rows, so the tree position cannot say it.
+            if let azul_css::corety::OptionUsize::Some(row) = info.row_index {
+                builder.set_row_index(row);
+            }
+            if let azul_css::corety::OptionUsize::Some(column) = info.column_index {
+                builder.set_column_index(column);
+            }
         }
 
         // MWA-C-a11y: aria-live="polite|assertive" HTML attribute — arrives
@@ -1382,6 +1390,8 @@ impl A11yManager {
             AccessibilityRole::IpAddress => Role::TextInput,
             AccessibilityRole::Unknown => Role::Unknown,
             AccessibilityRole::Nothing => Role::GenericContainer,
+            AccessibilityRole::Grid => Role::Grid,
+            AccessibilityRole::GridCell => Role::GridCell,
         }
     }
 }
