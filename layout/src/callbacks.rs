@@ -3705,8 +3705,13 @@ impl CallbackInfo {
     /// can see needs no stream.
     #[must_use]
     pub fn is_node_visible(&self, node_id: DomNodeId) -> bool {
-        let _ = node_id;
-        true
+        match node_id.node.into_crate_internal() {
+            Some(node) => self
+                .get_layout_window()
+                .node_is_visible_in_window(node_id.dom, node),
+            // No node: nothing of it shows.
+            None => false,
+        }
     }
 
     /// Current animation MOMENTUM of a node: the velocity (logical px/s) of
