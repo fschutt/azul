@@ -4,7 +4,9 @@
 //! (a repeating event once per date its rule makes), the month view's "+N more", and the
 //! agenda's days. Weeks start on Monday, as the week view always did.
 
-use chrono::{Datelike, Duration, NaiveDate};
+use std::collections::BTreeSet;
+
+use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime};
 
 use crate::{event::Event, week};
 
@@ -321,6 +323,23 @@ pub fn default_view() -> ViewKind {
     ViewKind::Week
 }
 
+/// How long after an event's start its reminder still shows, in minutes (AzCalendar was not
+/// running at the reminder's time, or the machine slept).
+pub const REMINDER_GRACE_MINUTES: i64 = 5;
+
+/// The reminders due at `now`: the `shown` events' occurrences whose reminder time (the start
+/// less the reminder) has come, that have not started more than `REMINDER_GRACE_MINUTES` ago,
+/// and are not in `done` (shown already, by event id and day). `(event index, occurrence day)`,
+/// in order.
+pub fn due_reminders(
+    events: &[Event],
+    now: NaiveDateTime,
+    done: &BTreeSet<(String, NaiveDate)>,
+    shown: impl Fn(&Event) -> bool,
+) -> Vec<(usize, NaiveDate)> {
+    todo!()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -495,5 +514,31 @@ mod tests {
         }
         assert_eq!(ViewKind::from_name("fortnight"), None);
         assert!(ViewKind::Week.is_time_grid() && !ViewKind::Month.is_time_grid());
+    }
+
+    #[test]
+    fn a_reminder_is_due_from_its_time_until_just_after_the_start_and_once() {
+        let mut standup = event(1, "Standup", wed(), 9);
+        standup.reminder = Some(15);
+        let mut tomorrow = event(2, "Review", d(2026, 10, 1), 9);
+        tomorrow.reminder = Some(1440);
+        let events = vec![standup, tomorrow, event(3, "Quiet", wed(), 9)];
+        let when = |h: u32, m: u32| wed().and_hms_opt(h, m, 0).unwrap();
+        let none = BTreeSet::new();
+        let due = |now| due_reminders(&events, now, &none, |_| true);
+        assert_eq!(due(when(8, 44)), vec![]);
+        assert_eq!(due(when(8, 45)), vec![(0, wed()), (1, d(2026, 10, 1))]);
+        assert_eq!(due(when(9, 5)), vec![(0, wed()), (1, d(2026, 10, 1))]);
+        assert_eq!(due(when(9, 6)), vec![(1, d(2026, 10, 1))]);
+        let done: BTreeSet<(String, NaiveDate)> =
+            [(events[0].id.clone(), wed())].into_iter().collect();
+        assert_eq!(
+            due_reminders(&events, when(8, 50), &done, |_| true),
+            vec![(1, d(2026, 10, 1))]
+        );
+        assert_eq!(
+            due_reminders(&events, when(8, 50), &none, |e| e.title != "Review"),
+            vec![(0, wed())]
+        );
     }
 }
