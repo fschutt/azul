@@ -3228,7 +3228,10 @@ impl HeadlessWindow {
                 // wakes this loop 60 times a second, and anything that has
                 // work (a request, a timer change, an injected event)
                 // notifies the condvar.
-                let wait = if self.thread_poll_timer_running || has_hotkeys {
+                // Child windows are pumped by THIS loop (Phase 4): with any
+                // open, keep the frame poll for them as before.
+                let wait = if self.thread_poll_timer_running || has_hotkeys || !children.is_empty()
+                {
                     poll_interval
                 } else {
                     let get_time = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
