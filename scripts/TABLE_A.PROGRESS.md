@@ -6,20 +6,22 @@ Brief: scratchpad `TABLE_A_go.md` (widths, row groups, presentational attributes
 ## DONE
 - 6e3e48548 progress file
 - e719d122e RED: layout tests (5 files + common/table_markup.rs) + core/tests/xml_attributes.rs
-- ebcd5c936 table_width.rs: ColumnConstraint, specified_width, clamp_percentages, table_min_max,
-  distribute_to_columns (+unit tests), registered in solver3/mod.rs
 - bc6361f65 FIX item 3: presentational attributes (attribute table keeps them, StyledDom creation maps them), UA table defaults
+- ebcd5c936 table_width.rs; c06e62f4a column_element_widths
+- 58f7ccd60 border-spacing helper, columns get content minus spacing, width from used_size
+- 7e00f8d0d intrinsic sizes via table_width (nested tables)
+- c1266420f used width max(MIN, min(MAX, available)), floor at MIN
+- 3d2988ec1 CSS Tables 3 distribution in the layout
+- bb8963ee3 visual row order; aac1d3349 grid boxes, caption, cache-hit path, table border painting
+- 5cff90ef5 WPT expectations (8 removed)
+- f3c28b1b9 / f9816a688 RED / FIX legacy align=center block centering
+- report scripts/TABLE_A_2026_10_01.md (this commit)
 
 ## IN PROGRESS
-- Items 1-5 code complete. Last code commit: "row groups, rows, columns and the caption are boxes".
-- Review pass of fc.rs layout_table_fc/caption done; expectations: 8 lines removed (commit "wpt
-  expectations").
-- f3c28b1b9 RED legacy center; next commit FIX (fc.rs centers_blocks_the_legacy_way + layout_bfc).
-- NEXT STEP: the report
-  scripts/TABLE_A_2026_10_01.md.
+- nothing
 
 ## NEXT
-- (optional) legacy `align=center` block centering (-webkit-center) in layout_bfc.
+- parent: compile, run section 5 of the report, bless the WPT lists, send mail_boxes numbers.
 
 ## Decisions (unattended, noted here)
 - Presentational hints: the attribute table KEEPS the attribute on the node (AttributeType::Custom), and
