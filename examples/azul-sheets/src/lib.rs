@@ -2102,7 +2102,7 @@ fn grid_event(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, event: Ce
     let sheet = s.sheet;
     match event.kind {
         CellGridEventKind::Select | CellGridEventKind::Drag | CellGridEventKind::Scroll => {
-            if before.ranges != s.view.ranges {
+            if before.ranges.as_ref() != s.view.ranges.as_ref() {
                 // The status bar's statistics are the engine's.
                 send(info, app, s, Command::Fetch, Pending::Other, Post::None);
             } else {
