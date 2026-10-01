@@ -4649,6 +4649,7 @@ pub fn queue_e2e_tests(tests: Vec<E2eTest>) -> std::sync::mpsc::Receiver<DebugRe
         if let Ok(mut sender) = handle.request_tx.lock() {
             let _ = sender.send(request);
         }
+        announce_debug_request();
     }
 
     rx
@@ -5350,10 +5351,11 @@ pub fn handle_event_request(
                 response_tx: tx,
             };
 
-            // Send via spmc channel
+            // Send via spmc channel, then wake the UI loop that serves it
             if let Ok(mut sender) = request_tx.lock() {
                 let _ = sender.send(request);
             }
+            announce_debug_request();
 
             // Wait for response (with timeout)
             let timeout = Duration::from_secs(req.timeout_secs.unwrap_or(30));
@@ -20667,8 +20669,12 @@ pub const DEBUG_TIMER_ID: usize = 0xDEBE;
 /// The debug server's poll rate while requests arrive or a scenario is
 /// suspended, in ms.
 pub const DEBUG_POLL_BUSY_MS: u64 = 16;
-/// The poll rate once nothing has arrived for [`DEBUG_POLL_SETTLE_MS`].
-pub const DEBUG_POLL_IDLE_MS: u64 = 250;
+/// The poll rate once nothing has arrived for [`DEBUG_POLL_SETTLE_MS`]. A
+/// SAFETY NET only: a queued request wakes the UI loop itself
+/// ([`announce_debug_request`]), which re-arms the poll at the busy rate at
+/// once. Was 250 ms - four wake-ups a second of an idle app - while the
+/// server had no way to wake the loop.
+pub const DEBUG_POLL_IDLE_MS: u64 = 2000;
 /// Quiet time at the busy rate before the timer drops to the idle rate.
 pub const DEBUG_POLL_SETTLE_MS: u64 = 1000;
 
@@ -20740,24 +20746,54 @@ impl DebugPollPace {
     }
 }
 
-/// Wake the UI loops for a debug request the server thread just queued
-/// (`add_debug_request_waker`, `announce_debug_request`,
-/// `take_debug_request_wake`).
+/// Set by [`announce_debug_request`], cleared by [`take_debug_request_wake`].
+#[cfg(feature = "std")]
+static DEBUG_REQUEST_WAKE: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+
+/// Every loop that wants to hear about a queued debug request: the desktop
+/// run loops' `loop_waker::wake` (registered by the dll at debug-server
+/// setup), a headless window's condvar.
+#[cfg(feature = "std")]
+static DEBUG_REQUEST_WAKERS: Mutex<Vec<Arc<dyn Fn() + Send + Sync>>> = Mutex::new(Vec::new());
+
+/// Register a way to wake a UI loop when the debug server thread queues a
+/// request. Callable from any thread; wakers are kept for the process.
+///
+/// Why: the requests arrive on the server thread and the debug timer drains
+/// them on the UI thread. Without a wake, the UI loop had to LOOK - a poll
+/// timer that stayed at 250 ms in an idle app (IDLE_CPU, 2026-09-30). Now
+/// the server wakes the loop, the loop re-arms the poll at the busy rate
+/// (`PlatformWindow::serve_debug_request_wake` in the dll), and the idle
+/// poll ([`DEBUG_POLL_IDLE_MS`]) is only a safety net.
 #[cfg(feature = "std")]
 pub fn add_debug_request_waker(waker: Arc<dyn Fn() + Send + Sync>) {
-    let _ = waker; // RED stub
+    if let Ok(mut wakers) = DEBUG_REQUEST_WAKERS.lock() {
+        wakers.push(waker);
+    }
 }
 
 /// The server thread queued a request: flag it and wake every registered
-/// loop.
+/// loop. Call it AFTER the request is in the channel - a loop takes the
+/// requests after it saw the wake, never before.
 #[cfg(feature = "std")]
-pub fn announce_debug_request() {}
+pub fn announce_debug_request() {
+    DEBUG_REQUEST_WAKE.store(true, core::sync::atomic::Ordering::Release);
+    let wakers: Vec<Arc<dyn Fn() + Send + Sync>> = DEBUG_REQUEST_WAKERS
+        .lock()
+        .map(|w| w.clone())
+        .unwrap_or_default();
+    for wake in wakers {
+        wake();
+    }
+}
 
-/// Has a request been announced since the last call? Clears the flag.
+/// Has a request been announced since the last call? Clears the flag
+/// (UI thread: the loop that answers re-arms its debug poll).
 #[cfg(feature = "std")]
 #[must_use]
 pub fn take_debug_request_wake() -> bool {
-    false // RED stub
+    DEBUG_REQUEST_WAKE.swap(false, core::sync::atomic::Ordering::AcqRel)
 }
 
 #[cfg(all(test, feature = "std"))]
