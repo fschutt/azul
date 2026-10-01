@@ -194,6 +194,9 @@ struct Remote {
     /// The same tiles' size in device pixels: what the decoders hand frames
     /// out at (scaled once, by the decoder, not by the renderer every paint).
     tile_px: [Option<(u32, u32)>; 2],
+    /// Whether some of each tile shows in the window (`CallbackInfo::is_node_visible`): a tile
+    /// scrolled out of the tiles pane, or in a minimized window, asks for no stream.
+    tile_visible: [bool; 2],
     /// How far this side ran ahead of the peer on each of its own H.264 streams, by (track,
     /// rendition height).
     sent: BTreeMap<(u32, u16), video_wire::SendWindow>,
@@ -216,6 +219,7 @@ impl Remote {
             path: None,
             tile_height: [None; 2],
             tile_px: [None; 2],
+            tile_visible: [true; 2],
             sent: BTreeMap::new(),
             received: BTreeMap::new(),
         }
@@ -592,6 +596,8 @@ const THUMB: &str = "width: 142px; height: 80px; margin: 6px; border-radius: 8px
 const TILE_H: f32 = 200.0;
 const STAGE_H: f32 = 320.0;
 const THUMB_H: f32 = 80.0;
+/// A filmstrip tile's height: the CallShell's 176 px wide cell at 16:9.
+const FILMSTRIP_H: f32 = 99.0;
 
 fn track_slot(track: u32) -> Option<usize> {
     match track {
@@ -2926,32 +2932,89 @@ fn stop_culled(s: &mut MeetState) {
     }
 }
 
-/// The peer on the stage in speaker view: the one `AZMEET_STAGE` names, else the first by name.
-fn stage_key(s: &MeetState) -> Option<u64> {
-    if s.view != ViewMode::Speaker {
+/// The participant pinned to the stage: the one `AZMEET_STAGE` names, while connected.
+fn pinned_key(s: &MeetState) -> Option<u64> {
+    if s.stage_name.is_empty() {
         return None;
     }
-    let named = s.remotes.iter().find(|r| {
-        !s.stage_name.is_empty() && remote_name(s, &r.node_id).eq_ignore_ascii_case(&s.stage_name)
-    });
-    named
-        .or_else(|| s.remotes.iter().min_by_key(|r| remote_name(s, &r.node_id)))
+    s.remotes
+        .iter()
+        .find(|r| remote_name(s, &r.node_id).eq_ignore_ascii_case(&s.stage_name))
         .map(|r| r.key)
 }
 
+/// What the call view shows (`tiles::arrange`): a shared screen on the stage, else in speaker
+/// view the pinned participant, the active speaker or the first one; the other tiles in the
+/// filmstrip (with a stage) or the gallery.
+fn arrangement(s: &MeetState) -> tiles::Arrangement {
+    let others: Vec<tiles::Participant> = s
+        .remotes
+        .iter()
+        .map(|r| tiles::Participant {
+            key: r.key,
+            sharing: r.sync.as_ref().is_some_and(|sync| sync.sends_screen),
+        })
+        .collect();
+    let view = match s.view {
+        ViewMode::Grid => tiles::View::Gallery,
+        ViewMode::Speaker => tiles::View::Speaker,
+    };
+    tiles::arrange(
+        s.me,
+        s.screen_on,
+        &others,
+        view,
+        pinned_key(s),
+        s.speaker.current(),
+    )
+}
+
+/// The peer on the stage, when the stage shows a camera (the speaker view).
+fn stage_key(s: &MeetState) -> Option<u64> {
+    arrangement(s)
+        .stage
+        .filter(|tile| tile.kind == tiles::TileKind::Camera)
+        .map(|tile| tile.key)
+}
+
+/// A tile's role in the arrangement and the height of its box until it is laid out; `None` for
+/// a picture the view does not show (a screen nobody shares).
+fn tile_role(arr: &tiles::Arrangement, tile: tiles::Tile) -> Option<(IrohTileRole, f32)> {
+    if arr.stage == Some(tile) {
+        return Some((IrohTileRole::Stage, STAGE_H));
+    }
+    if !arr.tiles.contains(&tile) {
+        return None;
+    }
+    Some(if arr.stage.is_some() {
+        (IrohTileRole::Filmstrip, FILMSTRIP_H)
+    } else {
+        (IrohTileRole::Gallery, TILE_H)
+    })
+}
+
 /// What this side shows: for every peer's camera and screen, the rendition its tile needs, from
-/// the tile's role and its laid-out height (the box's height until it is laid out).
+/// the tile's role and its laid-out height (the box's height until it is laid out); nothing for a
+/// tile that is hidden, drawn tiny, or not shown at all (`tiles::tile_need`).
 fn my_wants(s: &MeetState) -> Vec<routes::Want> {
     let room_size = u32::try_from(s.remotes.len() + 1).unwrap_or(u32::MAX);
-    let stage = stage_key(s);
+    let arr = arrangement(s);
     let mut wants = Vec::new();
     for r in &s.remotes {
-        for (slot, track) in [(0usize, CAMERA_TRACK), (1, SCREEN_TRACK)] {
-            let (role, box_height, _) = tile_kind(s.view, stage == Some(r.key), track);
-            let height = r.tile_height[slot]
-                .filter(|h| *h > 1.0)
-                .unwrap_or(box_height);
-            let need = role.rendition_height(height, s.scale, room_size);
+        for (slot, track, kind) in [
+            (0usize, CAMERA_TRACK, tiles::TileKind::Camera),
+            (1, SCREEN_TRACK, tiles::TileKind::Screen),
+        ] {
+            let tile = tiles::Tile { key: r.key, kind };
+            let need = tile_role(&arr, tile).map_or(0, |(role, box_height)| {
+                let height = tiles::tile_need(
+                    r.tile_visible[slot],
+                    r.tile_height[slot],
+                    box_height,
+                    s.scale,
+                );
+                role.rendition_height(height, s.scale, room_size)
+            });
             wants.push(routes::Want {
                 origin: r.key,
                 track,
@@ -3093,6 +3156,11 @@ fn measure_tiles(s: &mut MeetState, info: &mut CallbackInfo) {
             let node = info
                 .get_node_id_by_marker(AzString::from(marker.as_str()))
                 .into_option();
+            // A tile not laid out yet counts as visible (its box's height asks).
+            r.tile_visible[slot] = match &node {
+                Some(node) => info.is_node_visible(node.clone()),
+                None => true,
+            };
             let size = node.and_then(|node| info.get_node_size(node).into_option());
             r.tile_height[slot] = size.map(|size| size.height);
             r.tile_px[slot] = size.and_then(|size| {
