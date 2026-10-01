@@ -342,9 +342,6 @@ impl WizardOption {
 /// `checked`; a radio, ticked, clears the rest of its set and cannot be
 /// cleared on its own. The rule both the options and the finish page use.
 fn choose_option(options: &mut WizardOptionVec, index: usize, checked: bool) {
-    if true {
-        return;
-    } // RED stub
     let mut v = core::mem::replace(options, WizardOptionVec::from_const_slice(&[]))
         .into_library_owned_vec();
     if let Some(group) = v.get(index).map(|o| o.group) {
@@ -722,9 +719,6 @@ page_theme_and_dom!(
 );
 
 fn build_welcome(page: WizardWelcomePage, look: &DialogKitLook) -> Dom {
-    if true {
-        return Dom::create_div();
-    } // RED stub
     let mut children: Vec<Dom> = Vec::new();
     children.extend(logo(&page.logo, look));
     children.push(dialog_kit::line(
@@ -831,9 +825,6 @@ impl WizardLicensePage {
     /// The validation hook: empty once accepted, else [`Self::reason`].
     #[must_use]
     pub fn blocked_reason(&self) -> AzString {
-        if true {
-            return AzString::from_const_str("");
-        } // RED stub
         if self.accepted {
             AzString::from_const_str("")
         } else {
@@ -849,9 +840,6 @@ page_theme_and_dom!(
 );
 
 fn build_license(page: WizardLicensePage, look: &DialogKitLook) -> Dom {
-    if true {
-        return Dom::create_div();
-    } // RED stub
     let theme = dialog_kit::inner_theme(page.theme);
     let mut children: Vec<Dom> = Vec::new();
     children.push(dialog_kit::line(
@@ -1049,9 +1037,6 @@ impl WizardDestinationPage {
     /// Whether the drive is known to be short.
     #[must_use]
     pub const fn is_short(&self) -> bool {
-        if true {
-            return false;
-        } // RED stub
         self.available_known && self.available_bytes < self.required_bytes
     }
 
@@ -1059,9 +1044,6 @@ impl WizardDestinationPage {
     /// folder, not enough space).
     #[must_use]
     pub fn blocked_reason(&self) -> AzString {
-        if true {
-            return AzString::from_const_str("");
-        } // RED stub
         if self.path.as_str().trim().is_empty() {
             self.empty_reason.clone()
         } else if self.is_short() {
@@ -1079,9 +1061,6 @@ page_theme_and_dom!(
 );
 
 fn build_destination(page: WizardDestinationPage, look: &DialogKitLook) -> Dom {
-    if true {
-        return Dom::create_div();
-    } // RED stub
     let theme = dialog_kit::inner_theme(page.theme);
     let short = page.is_short();
     let mut children: Vec<Dom> = Vec::new();
@@ -1220,9 +1199,6 @@ impl WizardComponentsPage {
     /// The bytes of the ticked components.
     #[must_use]
     pub fn total_bytes(&self) -> u64 {
-        if true {
-            return 0;
-        } // RED stub
         self.components
             .as_ref()
             .iter()
@@ -1235,9 +1211,6 @@ impl WizardComponentsPage {
     /// (a required part stays ticked), and every group above it is ticked
     /// while any of its parts is. A required component cannot be cleared.
     pub fn toggle(&mut self, index: usize, checked: bool) {
-        if true {
-            return;
-        } // RED stub
         let mut v = core::mem::replace(
             &mut self.components,
             WizardComponentVec::from_const_slice(&[]),
@@ -1275,9 +1248,6 @@ impl WizardComponentsPage {
     /// The validation hook: empty while anything is ticked.
     #[must_use]
     pub fn blocked_reason(&self) -> AzString {
-        if true {
-            return AzString::from_const_str("");
-        } // RED stub
         if self.components.as_ref().iter().any(|c| c.checked) {
             AzString::from_const_str("")
         } else {
@@ -1350,9 +1320,6 @@ fn component_row(
 }
 
 fn build_components(page: WizardComponentsPage, look: &DialogKitLook) -> Dom {
-    if true {
-        return Dom::create_div();
-    } // RED stub
     let theme = dialog_kit::inner_theme(page.theme);
     let total = page.total_bytes();
     let rows: Vec<Dom> = page
@@ -1455,9 +1422,6 @@ page_theme_and_dom!(
 );
 
 fn build_options(page: WizardOptionsPage, look: &DialogKitLook) -> Dom {
-    if true {
-        return Dom::create_div();
-    } // RED stub
     let theme = dialog_kit::inner_theme(page.theme);
     let mut children: Vec<Dom> = Vec::new();
     children.push(dialog_kit::line(
@@ -1530,9 +1494,6 @@ page_theme_and_dom!(
 );
 
 fn build_summary(page: WizardSummaryPage, look: &DialogKitLook) -> Dom {
-    if true {
-        return Dom::create_div();
-    } // RED stub
     let entries: Vec<Dom> = page
         .rows
         .as_ref()
@@ -1685,9 +1646,6 @@ impl WizardProgressPage {
     /// Whether the work is done (100 %).
     #[must_use]
     pub fn is_done(&self) -> bool {
-        if true {
-            return false;
-        } // RED stub
         self.percent >= 100.0
     }
 }
@@ -1706,9 +1664,6 @@ fn percent_text(percent: f32) -> AzString {
 }
 
 fn build_progress(page: WizardProgressPage, look: &DialogKitLook) -> Dom {
-    if true {
-        return Dom::create_div();
-    } // RED stub
     let theme = dialog_kit::inner_theme(page.theme);
     let mut children: Vec<Dom> = Vec::new();
     children.push(dialog_kit::line(
@@ -1879,9 +1834,6 @@ page_theme_and_dom!(
 );
 
 fn build_finish(page: WizardFinishPage, look: &DialogKitLook) -> Dom {
-    if true {
-        return Dom::create_div();
-    } // RED stub
     let theme = dialog_kit::inner_theme(page.theme);
     let mut children: Vec<Dom> = Vec::new();
     children.extend(logo(&page.logo, look));

@@ -316,9 +316,6 @@ extern "C" fn on_picked(mut data: RefAny, info: CallbackInfo, result: RefAny) ->
 /// The widget's DOM in `look`: row [field box [TextInput], browse box
 /// [Button]].
 pub(crate) fn build(input: PathInput, look: &DialogKitLook) -> Dom {
-    if true {
-        return Dom::create_div();
-    } // RED stub
     let PathInput {
         path,
         placeholder,

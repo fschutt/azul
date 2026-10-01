@@ -1439,7 +1439,28 @@ fn disk_space_of(_path: &str) -> Option<DiskSpace> {
 /// `None` when no ancestor exists or the platform cannot tell.
 #[must_use]
 pub fn disk_space_for_new(path: &str) -> Option<DiskSpace> {
-    disk_space(path) // RED stub
+    if path.is_empty() {
+        return None;
+    }
+    #[cfg(feature = "std")]
+    {
+        // The path, then each ancestor in turn, until one exists.
+        let mut current = Some(Path::new(path));
+        while let Some(p) = current {
+            let s = p.to_string_lossy();
+            if !s.is_empty() {
+                if let Some(space) = disk_space(&s) {
+                    return Some(space);
+                }
+            }
+            current = p.parent();
+        }
+        None
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        disk_space(path)
+    }
 }
 
 impl FilePath {

@@ -44,7 +44,7 @@ use azul_css::{
         basic::length::FloatValue,
         layout::{
             LayoutAlignItems, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
-            LayoutFlexShrink, LayoutMinHeight, LayoutMinWidth,
+            LayoutFlexShrink, LayoutHeight, LayoutMinHeight, LayoutMinWidth, LayoutWidth,
         },
         property::CssProperty,
         style::StyleUserSelect,
@@ -633,16 +633,28 @@ extern "C" fn on_rail_step(mut data: RefAny, info: CallbackInfo, state: StepperS
     emit(&mut data, info, WizardEventKind::Step, state.current_step)
 }
 
-/// The layout's DOM in `look`: layout [rail [stepper], page [title,
-/// content?], buttons [cancel?, spacer, back, next | finish]]. Every part
-/// is its base (the structure), then the look's skin; the rail and the
-/// buttons are the toolkit's own widgets, pinned to the layout's theme (or
-/// following the app theme with it).
+/// The layout's DOM in `look`. Rail: layout [rail [stepper], page [title,
+/// subtitle?, content?], buttons]. Banner: layout [banner [text [step,
+/// subtitle?], glyph?], page [content?], buttons]. Side panel: layout [body
+/// [side panel [glyph?, steps], page [title, subtitle?, content?]],
+/// buttons]. Buttons: [cancel?, reason | spacer, back, next | finish]; an
+/// inert button has no click, takes no Tab stop, is announced unavailable
+/// and its box is dimmed (`look.held`). Every part is its base (the
+/// structure), then the look's skin; the rail and the buttons are the
+/// toolkit's own widgets, pinned to the layout's theme (or following the
+/// app theme with it).
 pub(crate) fn build(wizard: WizardLayout, look: &WizardLayoutLook) -> Dom {
+    use azul_core::{
+        a11y::{AccessibilityInfo, AccessibilityRole, AccessibilityState, AccessibilityStateVec},
+        dom::TabIndex,
+    };
+    use crate::widgets::themes::theme_blocks::stack_parts;
+
     let part = |base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
         CssPropertyWithConditionsVec::from_vec(crate::widgets::themes::decl::on_base(base, skin))
     };
     let last = wizard.is_last_step();
+    let next_held = wizard.is_next_held();
     let WizardLayout {
         steps,
         page,
@@ -659,11 +671,9 @@ pub(crate) fn build(wizard: WizardLayout, look: &WizardLayoutLook) -> Dom {
         theme,
         style,
         size,
-        can_go_next,
+        can_go_next: _,
         can_go_back,
     } = wizard;
-    // RED: the frames, the validation reason and Back's hold are not built yet.
-    let _ = (subtitle, icon, blocked_reason, style, size, can_go_back);
     let theme = theme.into_option();
     let count = steps.as_ref().len();
     let step_label = steps
@@ -674,36 +684,77 @@ pub(crate) fn build(wizard: WizardLayout, look: &WizardLayoutLook) -> Dom {
         on_event,
         step: current_step,
     });
+    let text = |s: AzString, base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
+        crate::widgets::widget_p_with_text(s).with_css_props(part(base, skin))
+    };
 
-    // The rail: the stepper, a click on a step asking the app.
-    let mut rail = Stepper::create(steps)
-        .with_current_step(current_step)
-        .with_on_step_change(shared.clone(), on_rail_step as StepperOnStepChangeCallbackType);
-    if let Some(theme) = theme {
-        rail = rail.with_theme(theme);
-    }
-    let rail = Dom::create_div()
-        .with_ids_and_classes(IdOrClassVec::from_const_slice(RAIL_CLASS))
-        .with_css_props(part(WIZARD_LAYOUT_BAND_BASE, &look.rail))
-        .with_child(rail.dom());
-
-    // The page: the title over the app's content.
+    // The page: the title and the subtitle over the app's content - in the
+    // banner's frame the banner says them instead.
     let mut page_dom = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(PAGE_CLASS))
-        .with_css_props(part(WIZARD_LAYOUT_PAGE_BASE, &look.page))
-        .with_child(
-            crate::widgets::widget_p_with_text(title.clone())
-                .with_ids_and_classes(IdOrClassVec::from_const_slice(TITLE_CLASS))
-                .with_css_props(part(&[], &look.title)),
+        .with_css_props(part(WIZARD_LAYOUT_PAGE_BASE, &look.page));
+    if style != WizardLayoutStyle::Banner {
+        page_dom = page_dom.with_child(
+            text(title.clone(), &[], &look.title)
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(TITLE_CLASS)),
         );
+        if !subtitle.as_str().is_empty() {
+            page_dom = page_dom.with_child(text(subtitle.clone(), &[], &look.subtitle));
+        }
+    }
     if let Some(content) = page.into_option() {
         page_dom = page_dom.with_child(content);
     }
 
-    // The buttons: a button in its box; an inert one has no click.
+    // The frame over (or beside) the page.
+    let glyph = |skin: &[CssPropertyWithConditions]| {
+        (!icon.as_str().is_empty()).then(|| {
+            Dom::create_icon(icon.clone()).with_css_props(part(WIZARD_LAYOUT_FIXED_BASE, skin))
+        })
+    };
+    let header: Option<Dom> = match style {
+        WizardLayoutStyle::Rail => {
+            // The rail: the stepper, a click on a step asking the app.
+            let mut rail = Stepper::create(steps.clone())
+                .with_current_step(current_step)
+                .with_on_step_change(shared.clone(), on_rail_step as StepperOnStepChangeCallbackType);
+            if let Some(theme) = theme {
+                rail = rail.with_theme(theme);
+            }
+            Some(
+                Dom::create_div()
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(RAIL_CLASS))
+                    .with_css_props(part(WIZARD_LAYOUT_BAND_BASE, &look.rail))
+                    .with_child(rail.dom()),
+            )
+        }
+        WizardLayoutStyle::Banner => {
+            let mut words: Vec<Dom> = alloc::vec![text(step_label.clone(), &[], &look.banner_title)];
+            if !subtitle.as_str().is_empty() {
+                words.push(text(subtitle.clone(), &[], &look.subtitle));
+            }
+            let mut band: Vec<Dom> = alloc::vec![Dom::create_div()
+                .with_css_props(part(WIZARD_LAYOUT_GROW_COLUMN_BASE, &[]))
+                .with_children(DomVec::from_vec(words))];
+            band.extend(glyph(&look.banner_icon));
+            Some(
+                Dom::create_div()
+                    .with_ids_and_classes(classes_of(BANNER_CLASS))
+                    .with_css_props(part(WIZARD_LAYOUT_BAND_BASE, &look.banner))
+                    .with_children(DomVec::from_vec(band)),
+            )
+        }
+        WizardLayoutStyle::SidePanel => None,
+    };
+
+    // The buttons: a button in its box; an inert one has no click, no Tab
+    // stop, is announced unavailable (a held Next described by the reason)
+    // and its box is dimmed.
     let button = |label: AzString,
                   kind: ButtonType,
-                  on_click: Option<ButtonOnClickCallbackType>| {
+                  on_click: Option<ButtonOnClickCallbackType>,
+                  reason: Option<AzString>| {
+        let inert = on_click.is_none();
         let mut b = Button::with_type(label, kind);
         if let Some(on_click) = on_click {
             b = b.with_on_click(shared.clone(), on_click);
@@ -711,50 +762,142 @@ pub(crate) fn build(wizard: WizardLayout, look: &WizardLayoutLook) -> Dom {
         if let Some(theme) = theme {
             b = b.with_theme(theme);
         }
+        let mut dom = b.dom();
+        let mut classes: Vec<IdOrClass> = BUTTON_CLASS.to_vec();
+        let mut css = part(WIZARD_LAYOUT_BUTTON_BASE, &look.button);
+        if inert {
+            dom.set_tab_index(TabIndex::NoKeyboardFocus);
+            dom = dom.with_accessibility_assign(AccessibilityInfo {
+                states: AccessibilityStateVec::from_vec(alloc::vec![
+                    AccessibilityState::Unavailable
+                ]),
+                description: reason.filter(|r| !r.as_str().is_empty()).into(),
+                ..Default::default()
+            });
+            classes.push(Class(AzString::from_const_str(HELD_CLASS)));
+            css = stack_parts(&css, &CssPropertyWithConditionsVec::from_vec(look.held.clone()));
+        }
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(BUTTON_CLASS))
-            .with_css_props(part(WIZARD_LAYOUT_BUTTON_BASE, &look.button))
-            .with_child(b.dom())
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+            .with_css_props(css)
+            .with_child(dom)
     };
-    let mut buttons: Vec<Dom> = Vec::with_capacity(4);
+    let mut buttons: Vec<Dom> = Vec::with_capacity(5);
     if !cancel_label.as_str().is_empty() {
-        buttons.push(button(cancel_label, ButtonType::Default, Some(on_cancel)));
+        buttons.push(button(cancel_label, ButtonType::Default, Some(on_cancel), None));
     }
-    buttons.push(
-        Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(SPACER_CLASS))
-            .with_css_props(part(WIZARD_LAYOUT_SPACER_BASE, &[])),
-    );
+    if next_held && !blocked_reason.as_str().is_empty() {
+        // The reason takes the spacer's place, beside the held button.
+        buttons.push(
+            text(blocked_reason.clone(), WIZARD_LAYOUT_REASON_BASE, &look.reason)
+                .with_ids_and_classes(classes_of(REASON_CLASS)),
+        );
+    } else {
+        buttons.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(SPACER_CLASS))
+                .with_css_props(part(WIZARD_LAYOUT_SPACER_BASE, &[])),
+        );
+    }
     buttons.push(button(
         back_label,
         ButtonType::Default,
-        (current_step > 0).then_some(on_back as ButtonOnClickCallbackType),
+        (current_step > 0 && can_go_back).then_some(on_back as ButtonOnClickCallbackType),
+        None,
     ));
-    if last {
-        buttons.push(button(
-            finish_label,
-            ButtonType::Primary,
-            can_go_next.then_some(on_finish as ButtonOnClickCallbackType),
-        ));
+    let (forward_label, forward) = if last {
+        (finish_label, on_finish as ButtonOnClickCallbackType)
     } else {
-        buttons.push(button(
-            next_label,
-            ButtonType::Primary,
-            can_go_next.then_some(on_next as ButtonOnClickCallbackType),
-        ));
-    }
+        (next_label, on_next as ButtonOnClickCallbackType)
+    };
+    buttons.push(button(
+        forward_label,
+        ButtonType::Primary,
+        (!next_held).then_some(forward),
+        Some(blocked_reason),
+    ));
     let buttons = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(BUTTONS_CLASS))
         .with_css_props(part(WIZARD_LAYOUT_BAND_BASE, &look.buttons))
         .with_children(DomVec::from_vec(buttons));
 
+    let children: Vec<Dom> = match header {
+        Some(header) => alloc::vec![header, page_dom, buttons],
+        None => {
+            // The side panel: the glyph over the steps, done / current /
+            // to come; the current one selected.
+            let mut side: Vec<Dom> = Vec::with_capacity(count + 1);
+            side.extend(glyph(&look.side_icon));
+            for (i, label) in steps.as_ref().iter().enumerate() {
+                let mark = if i < current_step {
+                    "\u{2713}"
+                } else if i == current_step {
+                    "\u{25CF}"
+                } else {
+                    "\u{25CB}"
+                };
+                let base = part(WIZARD_LAYOUT_SIDE_STEP_BASE, &look.side_step);
+                let css = if i == current_step {
+                    stack_parts(
+                        &base,
+                        &CssPropertyWithConditionsVec::from_vec(look.side_step_current.clone()),
+                    )
+                } else {
+                    base
+                };
+                side.push(
+                    Dom::create_div()
+                        .with_ids_and_classes(classes_of(SIDE_STEP_CLASS))
+                        .with_css_props(css)
+                        .with_accessibility_info(AccessibilityInfo {
+                            states: if i == current_step {
+                                AccessibilityStateVec::from_vec(alloc::vec![
+                                    AccessibilityState::Selected
+                                ])
+                            } else {
+                                AccessibilityStateVec::from_const_slice(&[])
+                            },
+                            ..AccessibilityInfo::named(label.clone(), AccessibilityRole::ListItem)
+                        })
+                        .with_children(DomVec::from_vec(alloc::vec![
+                            text(AzString::from_const_str(mark), WIZARD_LAYOUT_FIXED_BASE, &[]),
+                            text(label.clone(), WIZARD_LAYOUT_GROW_LABEL_BASE, &[]),
+                        ])),
+                );
+            }
+            let side_panel = Dom::create_div()
+                .with_ids_and_classes(classes_of(SIDE_PANEL_CLASS))
+                .with_css_props(part(WIZARD_LAYOUT_SIDE_PANEL_BASE, &look.side_panel))
+                .with_accessibility_info(AccessibilityInfo::named(
+                    AzString::from_const_str("Steps"),
+                    AccessibilityRole::List,
+                ))
+                .with_children(DomVec::from_vec(side));
+            let body = Dom::create_div()
+                .with_ids_and_classes(classes_of(BODY_CLASS))
+                .with_css_props(part(WIZARD_LAYOUT_BODY_BASE, &[]))
+                .with_children(DomVec::from_vec(alloc::vec![side_panel, page_dom]));
+            alloc::vec![body, buttons]
+        }
+    };
+
     let mut classes: Vec<IdOrClass> = LAYOUT_CLASS.to_vec();
     if let Some(marker) = look.marker {
         classes.push(Class(AzString::from_const_str(marker)));
     }
+    // A standard size fixes the frame (the same in every theme).
+    let mut base: Vec<CssPropertyWithConditions> = WIZARD_LAYOUT_BASE.to_vec();
+    if size != WizardLayoutSize::Fill {
+        base.push(CssPropertyWithConditions::simple(CssProperty::const_width(
+            LayoutWidth::px(size.width()),
+        )));
+        base.push(CssPropertyWithConditions::simple(CssProperty::const_height(
+            LayoutHeight::px(size.height()),
+        )));
+    }
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_vec(classes))
-        .with_css_props(part(WIZARD_LAYOUT_BASE, &look.layout))
+        .with_css_props(part(&base, &look.layout))
         // A GROUP named "<title>: step i of n, <step>".
         .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
             role: azul_core::a11y::AccessibilityRole::Grouping,
@@ -768,8 +911,72 @@ pub(crate) fn build(wizard: WizardLayout, look: &WizardLayoutLook) -> Dom {
             .into(),
             ..Default::default()
         })
-        .with_children(DomVec::from_vec(alloc::vec![rail, page_dom, buttons]))
+        .with_children(DomVec::from_vec(children))
 }
+
+/// One class on a node.
+fn classes_of(class: &'static str) -> IdOrClassVec {
+    IdOrClassVec::from_vec(alloc::vec![Class(AzString::from_const_str(class))])
+}
+
+/// A part that keeps its size in its row (a glyph, a step's mark).
+pub(crate) static WIZARD_LAYOUT_FIXED_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+];
+
+/// A column that takes the rest of its row (the banner's words).
+pub(crate) static WIZARD_LAYOUT_GROW_COLUMN_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
+];
+
+/// A label that takes the rest of its row (a step's name).
+pub(crate) static WIZARD_LAYOUT_GROW_LABEL_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
+];
+
+/// The reason in the button row: the spacer's place, its text never
+/// selected by a drag (the band's rule).
+pub(crate) static WIZARD_LAYOUT_REASON_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
+];
+
+/// The row of the side panel beside the page: the rest of the layout.
+pub(crate) static WIZARD_LAYOUT_BODY_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(0))),
+];
+
+/// The side panel: a column of fixed width, whose text a drag never selects.
+pub(crate) static WIZARD_LAYOUT_SIDE_PANEL_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// One step of the side panel: its mark beside its name, on one midline.
+pub(crate) static WIZARD_LAYOUT_SIDE_STEP_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+];
 
 #[cfg(test)]
 mod wizard_layout_tests {
@@ -1091,6 +1298,8 @@ mod wizard_layout_tests {
             assert_eq!(parts.len(), 3, "{}: banner, page, buttons", theme.name());
             let mut banner = Vec::new();
             texts(&parts[0], &mut banner);
+            // The glyph's text leaf is empty until the icon resolves.
+            banner.retain(|t| !t.is_empty());
             assert_eq!(
                 banner,
                 vec!["Server", "Where should AzOffice be installed?"],
