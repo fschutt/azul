@@ -2727,6 +2727,9 @@ macro_rules! html_tag_node_types {
                     crate::transient::TransientWindowConfig::closed(),
                 ),
                 $($tag => NodeType::$variant,)*
+                // An element of a foreign vocabulary (Word's `<o:p>`,
+                // Outlook's `<st1:place>`) is HTML's unknown element: inline.
+                t if is_foreign_element(t) => NodeType::Span,
                 _ => NodeType::Div,
             }
         }
@@ -2741,6 +2744,7 @@ macro_rules! html_tag_node_types {
                 "icon" => NodeTypeTag::Icon,
                 "transient-window" => NodeTypeTag::TransientWindow,
                 $($tag => NodeTypeTag::$variant,)*
+                t if is_foreign_element(t) => NodeTypeTag::Span,
                 _ => NodeTypeTag::Div,
             }
         }
@@ -6219,7 +6223,7 @@ pub(crate) fn collect_style_text(node: &XmlNode, out: &mut Vec<String>, depth: u
         let XmlNodeChild::Element(element) = child else {
             continue;
         };
-        if normalize_casing(&element.node_type) == "style" {
+        if element.node_type.as_str().eq_ignore_ascii_case("style") {
             let text = element.get_text_content();
             if !text.is_empty() {
                 out.push(text);
@@ -6251,15 +6255,26 @@ pub(crate) fn collect_style_text(node: &XmlNode, out: &mut Vec<String>, depth: u
 /// `<style>` belongs to this family too but is handled separately at the call
 /// site: its text is not nothing, it is a stylesheet, and it is lifted onto
 /// the element that contains it.
+///
+/// Both are SVG's rules: the DOM builders ask this for the elements INSIDE an
+/// `<svg>`. In an HTML document a foreign element (Word's `<o:p>`, Outlook's
+/// `<st1:place>`) is an unknown element, which HTML renders inline with its
+/// content ([`tag_to_node_type`] makes it a `<span>`).
 pub fn element_draws_nothing(raw_tag: &str, normalized_tag: &str) -> bool {
-    if normalized_tag == "metadata" {
-        return true;
-    }
-    match raw_tag.split_once(':') {
-        Some((prefix, _)) => !matches!(
-            prefix.trim().to_lowercase().as_str(),
-            "svg" | "html" | "xhtml"
-        ),
+    normalized_tag == "metadata" || is_foreign_element(raw_tag)
+}
+
+/// Whether `tag` is an element of a foreign namespace: a prefix other than
+/// `svg`, `html` and `xhtml` (`o:p`, `sodipodi:namedview`).
+#[must_use]
+pub fn is_foreign_element(tag: &str) -> bool {
+    match tag.split_once(':') {
+        Some((prefix, _)) => {
+            let prefix = prefix.trim();
+            !(prefix.eq_ignore_ascii_case("svg")
+                || prefix.eq_ignore_ascii_case("html")
+                || prefix.eq_ignore_ascii_case("xhtml"))
+        }
         None => false,
     }
 }
@@ -6277,7 +6292,12 @@ fn xml_node_to_dom_fast<'a>(
 ) -> Result<Dom, RenderDomError> {
     use crate::dom::Dom;
 
-    let component_name = normalize_casing(&xml_node.node_type);
+    // HTML and SVG element names are ASCII-case-insensitive: `TABLE` is a
+    // table, `linearGradient` a gradient, `transient-window` a transient
+    // window (`normalize_casing` made them `t_a_b_l_e`, `linear_gradient`,
+    // `transient_window` - three unknown divs - and the document loader read
+    // them right).
+    let component_name = xml_node.node_type.as_str().to_ascii_lowercase();
 
     // Look up the component definition
     let node_type = tag_to_node_type(&component_name);
@@ -6329,7 +6349,7 @@ fn xml_node_to_dom_fast<'a>(
     for child in xml_node.children.as_ref() {
         match child {
             XmlNodeChild::Element(child_node)
-                if normalize_casing(&child_node.node_type) == "style" =>
+                if child_node.node_type.as_str().eq_ignore_ascii_case("style") =>
             {
                 // Never a rendered node. Inside an `<svg>` it was already
                 // hoisted above; elsewhere it scopes to THIS element.
@@ -6346,10 +6366,11 @@ fn xml_node_to_dom_fast<'a>(
             // `<div>`, and a `<div>` full of an icon's RDF block renders the
             // RDF.
             XmlNodeChild::Element(child_node)
-                if element_draws_nothing(
-                    child_node.node_type.as_str(),
-                    &normalize_casing(&child_node.node_type),
-                ) => {}
+                if child_inside_svg
+                    && element_draws_nothing(
+                        child_node.node_type.as_str(),
+                        &child_node.node_type.as_str().to_ascii_lowercase(),
+                    ) => {}
             XmlNodeChild::Element(child_node) => {
                 let child_dom =
                     xml_node_to_dom_fast(child_node, component_map, child_inside_svg, depth + 1)?;
@@ -6504,7 +6525,8 @@ fn xml_node_to_fast_dom<'a>(
 ) -> Result<(), RenderDomError> {
     use crate::dom::NodeData;
 
-    let component_name = normalize_casing(&xml_node.node_type);
+    // Names read as `xml_node_to_dom_fast` reads them (case-insensitive).
+    let component_name = xml_node.node_type.as_str().to_ascii_lowercase();
     let node_type = tag_to_node_type(&component_name);
     let mut node_data = NodeData::create_node(node_type);
 
@@ -6533,10 +6555,11 @@ fn xml_node_to_fast_dom<'a>(
                 // The same law as in the tree builder: an element that draws
                 // nothing contributes nothing, subtree and all.
                 XmlNodeChild::Element(child_node)
-                    if element_draws_nothing(
-                        child_node.node_type.as_str(),
-                        &normalize_casing(&child_node.node_type),
-                    ) => {}
+                    if child_inside_svg
+                        && element_draws_nothing(
+                            child_node.node_type.as_str(),
+                            &child_node.node_type.as_str().to_ascii_lowercase(),
+                        ) => {}
                 XmlNodeChild::Element(child_node) => {
                     xml_node_to_fast_dom(
                         child_node,
