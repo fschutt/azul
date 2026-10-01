@@ -6,16 +6,18 @@ Branch `wt/notes` from `39092feee`. Worktree
 parse-checked with `rustfmt --edition 2021 --check`.
 
 ## DONE
-- (none yet)
+- `149a2cf36` RED / `853792345` GREEN E1: `compute_counters` skipped counter-reset in any
+  pseudo-state (a hovered `ol` renumbered its items) - unit test in `solver3/cache.rs`.
+- `546d645eb` RED / `9d6a3e80d` GREEN E2: `MessageListMark` (Flag / Pin / None) on MessageList.
+- `6271b43ca` azul-storage `time::iso8601` (+ test).
+- examples/azul-notes/src/{doc,markdown,model}.rs: the flat block document with its edits,
+  front matter + Markdown both ways, the library / queries / keys (unit tests inside).
 
 ## IN PROGRESS
-- engine: E1 counters in a hovered / focused list, E2 the message list's row mark
+- examples/azul-notes: store.rs (jobs), editor.rs (Doc <-> DOM, engine glue), lib.rs (UI on
+  PimShell), args.rs, sample.rs, Cargo.toml, main.rs.
 
 ## NEXT
-- examples/azul-notes: model (notes, notebooks, tags, search, sort, sections), the editor
-  document (blocks + runs), front matter + Markdown both ways (pulldown-cmark 0.9, already in
-  Cargo.lock through AzWriter), storage jobs on a Thread through azul-storage's LocalDrive,
-  the UI on PimShell, palette, settings, about, history, sample data, args.
 - registration (workspace, test members, CI), scripts/aznotes_e2e.py, the report.
 
 ## Decisions (made unattended, for the report)
