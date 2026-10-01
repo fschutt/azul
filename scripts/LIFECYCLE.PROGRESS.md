@@ -9,7 +9,16 @@ thread, monitor change re-reads the frame interval); dark "Dark" segment.
 - 2. threads of unmounted nodes: RED e379b2fb4, GREEN 6c3ffd0da
 
 ## IN PROGRESS
-- 3a-d. idle leftovers
+- 3a. FLIP springs never settle. Last commit: 4c2b4718d. Findings: settle =
+  |x|<0.06 && |v|<0.06 (css SpringCurve::is_settled); on a spring's tail
+  |v| ~ omega*|x| (omega=13 for SMOOTH), so the VELOCITY epsilon decides and
+  demands x<0.0046; FB3 saw values frozen at 0.016 (v~0.2) never settling.
+  NEXT STEP: RED test in core/src/animation_test.rs "a spring that can no
+  longer move more than the epsilon has settled" (x=0.016,v=-0.2 must
+  settle, overshoot at zero-crossing with large v must not), then GREEN:
+  energy criterion x^2 + (m/k) v^2 < EPS^2 in SpringCurve::is_settled; plus
+  drop Move/Enter anims whose key has no node after finish_reconciliation
+  (exits are zombie-owned, keep them).
 
 ## NEXT
 - 4. Segmented dark pair
