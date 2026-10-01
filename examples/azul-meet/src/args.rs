@@ -59,8 +59,54 @@ where
     I: IntoIterator<Item = S>,
     S: Into<String>,
 {
-    let _ = argv.into_iter().map(Into::into).count();
-    Ok(Args::default())
+    let argv: Vec<String> = argv.into_iter().map(Into::into).collect();
+    let mut args = Args::default();
+    let mut i = 0;
+    while i < argv.len() {
+        let (name, inline) = match argv[i].split_once('=') {
+            Some((name, value)) if name.starts_with("--") => (name.to_string(), Some(value.to_string())),
+            _ => (argv[i].clone(), None),
+        };
+        let mut value = || -> Result<String, String> {
+            if let Some(value) = inline.clone() {
+                return Ok(value);
+            }
+            i += 1;
+            argv.get(i).cloned().ok_or_else(|| format!("{name} needs a value"))
+        };
+        match name.as_str() {
+            "--screen" => {
+                args.screen = match value()?.as_str() {
+                    "lobby" => Screen::Lobby,
+                    "call" => Screen::Call,
+                    "settings" => Screen::Settings,
+                    other => {
+                        return Err(format!("--screen {other}: lobby, call or settings"));
+                    }
+                }
+            }
+            "--theme" => {
+                let theme = value()?;
+                if !matches!(theme.as_str(), "flat" | "flora") {
+                    return Err(format!("--theme {theme}: flat or flora"));
+                }
+                args.theme = Some(theme);
+            }
+            "--mode" => {
+                args.mode = match value()?.as_str() {
+                    "light" => Mode::Light,
+                    "dark" => Mode::Dark,
+                    "system" => Mode::System,
+                    other => return Err(format!("--mode {other}: light, dark or system")),
+                }
+            }
+            "--name" => args.name = Some(value()?),
+            "-h" | "--help" => args.help = true,
+            other => return Err(format!("{other}: not an AzMeet option (see --help)")),
+        }
+        i += 1;
+    }
+    Ok(args)
 }
 
 #[cfg(test)]
