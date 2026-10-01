@@ -13,9 +13,20 @@ parse-checked with `rustfmt --edition 2021 --check`.
 - examples/azul-notes/src/{doc,markdown,model}.rs: the flat block document with its edits,
   front matter + Markdown both ways, the library / queries / keys (unit tests inside).
 
-## IN PROGRESS
-- examples/azul-notes: store.rs (jobs), editor.rs (Doc <-> DOM, engine glue), lib.rs (UI on
-  PimShell), args.rs, sample.rs, Cargo.toml, main.rs.
+- store.rs: the storage jobs (Load, Rescan, Save with move + version, Delete, PutText,
+  History, Version, Import, Images, Seed) over `&dyn Drive`, tests on a LocalDrive in a temp
+  folder; Note gained `generation` + `file_modified`.
+
+## IN PROGRESS (precise next steps, in order)
+1. Cargo.toml + .cargo/config.toml + main.rs + args.rs (flags: --sample, --data, --screen,
+   --theme, --mode, --size).
+2. sample.rs (the sample library as (key, text) files).
+3. editor.rs: Doc -> DOM of the contenteditable host (one child per block, one per run; check
+   box as an abspos contenteditable=false island AFTER the runs), the node -> block mapping,
+   and the pure edit-application helpers.
+4. lib.rs in pieces: AppState + start; threads/write-back; layout (PimShell: nav pane, message
+   list, editor pane with title/tags/toolbar, status bar); callbacks (editor sync, structural
+   edits, keys, toolbar, list, nav, palette, settings, history, export, autosave timer, close).
 
 ## NEXT
 - registration (workspace, test members, CI), scripts/aznotes_e2e.py, the report.

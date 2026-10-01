@@ -52,6 +52,12 @@ pub struct Note {
     pub moved_from: Option<String>,
     /// Edited since the last save.
     pub dirty: bool,
+    /// Bumped by every edit: a save that took generation `g` leaves the
+    /// note dirty when an edit came in while it ran.
+    pub generation: u64,
+    /// The file's modified time (seconds) as last read or written: a
+    /// rescan reads only files whose time differs.
+    pub file_modified: u64,
     /// Lowercased title, text, tags and notebook (the search's haystack).
     pub haystack: String,
     /// The first line of text that is not the title.
@@ -74,6 +80,8 @@ impl Note {
             saved: String::new(),
             moved_from: None,
             dirty: true,
+            generation: 1,
+            file_modified: 0,
             haystack: String::new(),
             preview: String::new(),
         };
@@ -95,6 +103,8 @@ impl Note {
             saved: text.to_string(),
             moved_from: None,
             dirty: false,
+            generation: 0,
+            file_modified,
             haystack: String::new(),
             preview: String::new(),
         };
@@ -162,10 +172,17 @@ impl Note {
         self.preview = self.doc.preview(&self.meta.title);
     }
 
+    /// Marks the note as needing a save (without a new modified date: a
+    /// pin, a move).
+    pub fn mark_dirty(&mut self) {
+        self.dirty = true;
+        self.generation += 1;
+    }
+
     /// Marks the note edited at `now`.
     pub fn touch(&mut self, now: u64) {
         self.meta.modified = now.max(self.meta.created);
-        self.dirty = true;
+        self.mark_dirty();
     }
 
     /// Moves the note to `notebook` (the next save deletes the old file).
@@ -177,7 +194,7 @@ impl Note {
             self.moved_from = Some(self.key());
         }
         self.notebook = notebook.to_string();
-        self.dirty = true;
+        self.mark_dirty();
         self.refresh();
     }
 
