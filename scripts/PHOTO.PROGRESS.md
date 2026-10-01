@@ -17,18 +17,17 @@ updates by dirty rect); tests; `scripts/azphoto_e2e.py`; report `scripts/PHOTO_2
 - the app crate (see NEXT)
 
 ## NEXT
-- DONE so far: engine piece (829b9a1a9 RED; 8a344ccfd, 279bae778, 383672264 GREEN);
-  skeleton af9a50285; raster RED tests 58e0bffeb, f3f41aeee, 0cee88238, 772ee1b48
-  (examples/azul-photo/src/raster/tests.rs - the API it fixes is in raster/mod.rs re-exports).
-- next: raster GREEN, one module per commit, in this order:
-  geom.rs (IRect) -> tile.rs (Tile, TileGrid) -> blend.rs -> adjust.rs (Adjustment) ->
-  layer.rs (Layer, LayerContent, tree helpers find/find_mut/remove/insert/flatten) ->
-  selection.rs (Mask, Shape, SelectMode, magic_wand, feather) -> brush.rs (stamps via
-  azul RawImage::paint_dot, Stroke) -> filter.rs -> transform.rs -> history.rs ->
-  document.rs (Document, Composite w/ worker threads) -> engine.rs (Op, RasterEngine,
-  TileEngine; history labels "Open", "New Layer", "Brush", "Opacity" coalesced).
-- then: the app (view.rs canvas viewport, ui, tools, files/storage, --sample),
-  registration, scripts/azphoto_e2e.py, report scripts/PHOTO_2026_10_01.md.
+- DONE: engine piece (829b9a1a9 RED; 8a344ccfd, 279bae778, 383672264 GREEN); skeleton
+  af9a50285; raster RED 58e0bffeb..772ee1b48; raster GREEN 33943cbe5..38a2028d8 (geom, tile,
+  blend, adjust, layer, selection, filter, transform, brush, history, document, engine);
+  b21469443 test slips. The raster core type-checks and its 53 tests PASS in the scratchpad
+  (scratchpad/photo/tc/run_raster_tests.sh: rustc against a stub azul, no cargo).
+- next: src/view.rs (viewport: zoom/pan mapping, checkerboard, nearest/box sampling of the
+  composite, marching ants, render a view rect into a BGRA buffer) + tests -> commit;
+  src/storage.rs (doc.json model with serde, tile keys photo/<uuid>/layers/<id>/<tx>_<ty>.png,
+  save/load through azul_storage::Drive, encode via azul RawImage) + tests -> commit;
+  src/args.rs -> commit; then lib.rs UI in pieces (state, layout, canvas callbacks, tools,
+  panels, menus, threads) committing each.
 
 ## Decisions (made unattended, noted here)
 - The canvas is ONE image node: a `RenderImageCallback` renders the VIEWPORT (the visible part
