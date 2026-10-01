@@ -152,6 +152,8 @@ pub struct PhotoApp {
     pub dark: bool,
     /// The marching-ants timer runs.
     pub ants_timer: bool,
+    /// The last pinch scale (pinches report it cumulatively).
+    pub last_pinch: Option<f32>,
 }
 
 /// Print one line for scripts.
@@ -427,6 +429,7 @@ pub fn start() {
         theme: args.theme.clone().unwrap_or_else(|| "flat".to_string()),
         dark,
         ants_timer: false,
+        last_pinch: None,
     };
     eprintln!("[azphoto] data folder {}", data_root.display());
     app.announce();
