@@ -337,7 +337,25 @@ pub fn due_reminders(
     done: &BTreeSet<(String, NaiveDate)>,
     shown: impl Fn(&Event) -> bool,
 ) -> Vec<(usize, NaiveDate)> {
-    todo!()
+    let today = now.date();
+    // A reminder a day before is the longest there is: the days around today hold every due one.
+    occurrences(
+        events,
+        today - Duration::days(1),
+        today + Duration::days(2),
+        shown,
+    )
+    .into_iter()
+    .filter_map(|o| {
+        let e = &events[o.index];
+        let minutes = e.reminder?;
+        let start = o.first.and_time(e.start);
+        let fire = start - Duration::minutes(i64::from(minutes));
+        let late = start + Duration::minutes(REMINDER_GRACE_MINUTES);
+        let shown_already = done.contains(&(e.id.clone(), o.first));
+        (fire <= now && now <= late && !shown_already).then_some((o.index, o.first))
+    })
+    .collect()
 }
 
 #[cfg(test)]
@@ -520,13 +538,14 @@ mod tests {
     fn a_reminder_is_due_from_its_time_until_just_after_the_start_and_once() {
         let mut standup = event(1, "Standup", wed(), 9);
         standup.reminder = Some(15);
-        let mut tomorrow = event(2, "Review", d(2026, 10, 1), 9);
+        let mut tomorrow = event(2, "Review", d(2026, 10, 1), 8);
         tomorrow.reminder = Some(1440);
         let events = vec![standup, tomorrow, event(3, "Quiet", wed(), 9)];
         let when = |h: u32, m: u32| wed().and_hms_opt(h, m, 0).unwrap();
         let none = BTreeSet::new();
         let due = |now| due_reminders(&events, now, &none, |_| true);
-        assert_eq!(due(when(8, 44)), vec![]);
+        assert_eq!(due(when(7, 59)), Vec::<(usize, NaiveDate)>::new());
+        assert_eq!(due(when(8, 44)), vec![(1, d(2026, 10, 1))]);
         assert_eq!(due(when(8, 45)), vec![(0, wed()), (1, d(2026, 10, 1))]);
         assert_eq!(due(when(9, 5)), vec![(0, wed()), (1, d(2026, 10, 1))]);
         assert_eq!(due(when(9, 6)), vec![(1, d(2026, 10, 1))]);
