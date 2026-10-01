@@ -692,14 +692,21 @@ impl From<SelectionAdorner> for Dom {
 /// (`x`, `y`) in `f`'s own axes, relative to its centre (the frame's
 /// rotation undone).
 pub(crate) fn to_local(f: &AdornerFrame, x: f32, y: f32) -> (f32, f32) {
-    let _ = (f, x, y);
-    (0.0, 0.0)
+    let (dx, dy) = (x - f.center_x(), y - f.center_y());
+    if f.rotation.abs() < f32::EPSILON {
+        return (dx, dy);
+    }
+    let (s, c) = (-f.rotation).to_radians().sin_cos();
+    (dx * c - dy * s, dx * s + dy * c)
 }
 
 /// A point in `f`'s own axes (relative to its centre) back on the canvas.
 pub(crate) fn from_local(f: &AdornerFrame, lx: f32, ly: f32) -> (f32, f32) {
-    let _ = (f, lx, ly);
-    (0.0, 0.0)
+    if f.rotation.abs() < f32::EPSILON {
+        return (f.center_x() + lx, f.center_y() + ly);
+    }
+    let (s, c) = f.rotation.to_radians().sin_cos();
+    (f.center_x() + lx * c - ly * s, f.center_y() + lx * s + ly * c)
 }
 
 /// The handle of `f` under (`x`, `y`) at `scale` px per unit: a resize
@@ -711,20 +718,60 @@ pub(crate) fn handle_at(
     scale: f32,
     rotate: bool,
 ) -> Option<AdornerHandle> {
-    let _ = (f, x, y, scale, rotate);
-    None
+    let scale = if scale > f32::EPSILON { scale } else { 1.0 };
+    let reach = GRAB_PX / scale;
+    let (lx, ly) = to_local(f, x, y);
+    let (hw, hh) = (f.width / 2.0, f.height / 2.0);
+    if rotate {
+        let ry = -hh - ROTATE_OFFSET_PX / scale;
+        if lx.abs() <= reach && (ly - ry).abs() <= reach {
+            return Some(AdornerHandle::Rotate);
+        }
+    }
+    // The corners win over the edges where a small frame's handles overlap.
+    let order = [
+        AdornerHandle::TopLeft,
+        AdornerHandle::TopRight,
+        AdornerHandle::BottomRight,
+        AdornerHandle::BottomLeft,
+        AdornerHandle::Top,
+        AdornerHandle::Right,
+        AdornerHandle::Bottom,
+        AdornerHandle::Left,
+    ];
+    for handle in order {
+        let (ax, ay) = handle.anchor();
+        let (px, py) = (f32::from(ax) * hw, f32::from(ay) * hh);
+        if (lx - px).abs() <= reach && (ly - py).abs() <= reach {
+            return Some(handle);
+        }
+    }
+    (lx.abs() <= hw && ly.abs() <= hh).then_some(AdornerHandle::Body)
 }
 
 /// The topmost item whose frame holds (`x`, `y`).
 pub(crate) fn hit_item(items: &[AdornerItem], x: f32, y: f32) -> Option<usize> {
-    let _ = (items, x, y);
-    None
+    items
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, it)| it.frame.contains(x, y))
+        .map(|(i, _)| i)
 }
 
 /// The axis-aligned box around the rotated `frames`.
 pub(crate) fn union(frames: &[AdornerFrame]) -> Option<AdornerFrame> {
-    let _ = frames;
-    None
+    let mut boxes = frames.iter().map(AdornerFrame::bounds);
+    let first = boxes.next()?;
+    let (mut x0, mut y0) = (first.x, first.y);
+    let (mut x1, mut y1) = (first.x + first.width, first.y + first.height);
+    for b in boxes {
+        x0 = x0.min(b.x);
+        y0 = y0.min(b.y);
+        x1 = x1.max(b.x + b.width);
+        y1 = y1.max(b.y + b.height);
+    }
+    Some(AdornerFrame::create(x0, y0, x1 - x0, y1 - y0))
 }
 
 /// `start` dragged by `handle` over (`dx`, `dy`) canvas units: the opposite
@@ -737,8 +784,45 @@ pub(crate) fn resized(
     dy: f32,
     keep_ratio: bool,
 ) -> AdornerFrame {
-    let _ = (handle, dx, dy, keep_ratio);
-    *start
+    // The drag in the frame's own axes.
+    let (s, c) = (-start.rotation).to_radians().sin_cos();
+    let (ldx, ldy) = (dx * c - dy * s, dx * s + dy * c);
+    let (hw, hh) = (start.width / 2.0, start.height / 2.0);
+    let (ax, ay) = handle.anchor();
+    let (mut left, mut right, mut top, mut bottom) = (-hw, hw, -hh, hh);
+    if ax < 0 {
+        left = (left + ldx).min(right - MIN_SIZE);
+    } else if ax > 0 {
+        right = (right + ldx).max(left + MIN_SIZE);
+    }
+    if ay < 0 {
+        top = (top + ldy).min(bottom - MIN_SIZE);
+    } else if ay > 0 {
+        bottom = (bottom + ldy).max(top + MIN_SIZE);
+    }
+    if keep_ratio && handle.is_corner() && start.width > 0.0 && start.height > 0.0 {
+        let k = ((right - left) / start.width).max((bottom - top) / start.height);
+        let (w, h) = (start.width * k, start.height * k);
+        if ax < 0 {
+            left = right - w;
+        } else {
+            right = left + w;
+        }
+        if ay < 0 {
+            top = bottom - h;
+        } else {
+            bottom = top + h;
+        }
+    }
+    let (w, h) = (right - left, bottom - top);
+    let (cx, cy) = from_local(start, (left + right) / 2.0, (top + bottom) / 2.0);
+    AdornerFrame {
+        x: cx - w / 2.0,
+        y: cy - h / 2.0,
+        width: w,
+        height: h,
+        rotation: start.rotation,
+    }
 }
 
 /// `start` turned so its top points at (`x`, `y`); `snap15` snaps to 15
@@ -750,15 +834,77 @@ pub(crate) fn rotated(
     snap15: bool,
     magnet: bool,
 ) -> AdornerFrame {
-    let _ = (x, y, snap15, magnet);
-    *start
+    let (cx, cy) = (start.center_x(), start.center_y());
+    // The top of an unturned frame points up: -90 degrees on the screen.
+    let mut deg = (y - cy).atan2(x - cx).to_degrees() + 90.0;
+    if snap15 {
+        deg = (deg / 15.0).round() * 15.0;
+    } else if magnet {
+        let right_angle = (deg / 90.0).round() * 90.0;
+        if (deg - right_angle).abs() <= 3.0 {
+            deg = right_angle;
+        }
+    }
+    deg = deg.rem_euclid(360.0);
+    if (deg - 360.0).abs() < 1e-3 {
+        deg = 0.0;
+    }
+    AdornerFrame {
+        rotation: deg,
+        ..*start
+    }
 }
 
 /// `f` mapped from the box `from` onto the box `to` (a member of a resized
 /// multi-selection).
 pub(crate) fn map_frame(f: &AdornerFrame, from: &AdornerFrame, to: &AdornerFrame) -> AdornerFrame {
-    let _ = (from, to);
-    *f
+    let sx = if from.width.abs() > f32::EPSILON {
+        to.width / from.width
+    } else {
+        1.0
+    };
+    let sy = if from.height.abs() > f32::EPSILON {
+        to.height / from.height
+    } else {
+        1.0
+    };
+    AdornerFrame {
+        x: to.x + (f.x - from.x) * sx,
+        y: to.y + (f.y - from.y) * sy,
+        width: f.width * sx,
+        height: f.height * sy,
+        rotation: f.rotation,
+    }
+}
+
+/// The snap lines of the canvas and of `others`, one axis: the canvas's
+/// edges and centre line, and every other object's edges and centre.
+fn snap_lines(others: &[AdornerFrame], size: f32, vertical: bool) -> Vec<f32> {
+    let mut lines = vec![0.0, size / 2.0, size];
+    for o in others {
+        let b = o.bounds();
+        if vertical {
+            lines.extend([b.x, b.center_x(), b.x + b.width]);
+        } else {
+            lines.extend([b.y, b.center_y(), b.y + b.height]);
+        }
+    }
+    lines
+}
+
+/// The nearest snap: (the shift, the line it snaps to) for the first of
+/// `edges` closest to one of `lines`, within `tolerance`.
+fn nearest_snap(edges: &[f32], lines: &[f32], tolerance: f32) -> Option<(f32, f32)> {
+    let mut best: Option<(f32, f32)> = None;
+    for &edge in edges {
+        for &line in lines {
+            let shift = line - edge;
+            if shift.abs() <= tolerance && best.map_or(true, |(b, _)| shift.abs() < b.abs()) {
+                best = Some((shift, line));
+            }
+        }
+    }
+    best
 }
 
 /// The shift that snaps the box `moving` to the canvas (`width` x `height`:
@@ -771,8 +917,58 @@ pub(crate) fn snap_move(
     height: f32,
     tolerance: f32,
 ) -> (f32, f32, Vec<AdornerGuide>) {
-    let _ = (moving, others, width, height, tolerance);
-    (0.0, 0.0, Vec::new())
+    let xs = [moving.x, moving.center_x(), moving.x + moving.width];
+    let ys = [moving.y, moving.center_y(), moving.y + moving.height];
+    let sx = nearest_snap(&xs, &snap_lines(others, width, true), tolerance);
+    let sy = nearest_snap(&ys, &snap_lines(others, height, false), tolerance);
+    let mut guides = Vec::new();
+    if let Some((_, line)) = sx {
+        guides.push(AdornerGuide::create(line, 0.0, height, true));
+    }
+    if let Some((_, line)) = sy {
+        guides.push(AdornerGuide::create(line, 0.0, width, false));
+    }
+    (sx.map_or(0.0, |s| s.0), sy.map_or(0.0, |s| s.0), guides)
+}
+
+/// `target` (an unturned frame being resized by `handle`) with the edges
+/// the handle drags snapped to the canvas and `others`, and the guides.
+fn snap_resize(
+    target: &AdornerFrame,
+    handle: AdornerHandle,
+    others: &[AdornerFrame],
+    width: f32,
+    height: f32,
+    tolerance: f32,
+) -> (AdornerFrame, Vec<AdornerGuide>) {
+    let (ax, ay) = handle.anchor();
+    let mut out = *target;
+    let mut guides = Vec::new();
+    if ax != 0 {
+        let edge = if ax < 0 { out.x } else { out.x + out.width };
+        if let Some((shift, line)) = nearest_snap(&[edge], &snap_lines(others, width, true), tolerance) {
+            if ax < 0 {
+                out.x += shift;
+                out.width = (out.width - shift).max(MIN_SIZE);
+            } else {
+                out.width = (out.width + shift).max(MIN_SIZE);
+            }
+            guides.push(AdornerGuide::create(line, 0.0, height, true));
+        }
+    }
+    if ay != 0 {
+        let edge = if ay < 0 { out.y } else { out.y + out.height };
+        if let Some((shift, line)) = nearest_snap(&[edge], &snap_lines(others, height, false), tolerance) {
+            if ay < 0 {
+                out.y += shift;
+                out.height = (out.height - shift).max(MIN_SIZE);
+            } else {
+                out.height = (out.height + shift).max(MIN_SIZE);
+            }
+            guides.push(AdornerGuide::create(line, 0.0, width, false));
+        }
+    }
+    (out, guides)
 }
 
 // ==== The state machine (the root's dataset) ====
