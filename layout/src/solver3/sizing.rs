@@ -438,10 +438,25 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                     .get(LayoutNodeId::new(node_index))
                     .map(|n| n.box_props.unpack())
                     .unwrap_or_default();
+                // Two exceptions (CSS 2.1 17.5.2.2 / CSS Tables 3 3.8): a
+                // TABLE CELL's width is read by its table's column algorithm
+                // (`table_width::specified_width`), which needs the content's
+                // own min- and max-content beside it - a `width` does not lower
+                // a column's minimum below its content. And a TABLE is never
+                // narrower than its columns' minimum: its contribution is
+                // `max(width, MIN)`.
+                let formatting_context = tree
+                    .get(LayoutNodeId::new(node_index))
+                    .map(|n| n.formatting_context);
+                let is_table_cell =
+                    matches!(formatting_context, Some(FormattingContext::TableCell));
+                let is_table = matches!(formatting_context, Some(FormattingContext::Table));
                 if let MultiValue::Exact(LayoutWidth::Px(px)) =
                     get_css_width(self.ctx.styled_dom, dom_id, node_state)
                 {
-                    if let Some(mut w) = super::calc::resolve_pixel_value_no_percent(&px, em, rem) {
+                    if let Some(mut w) = super::calc::resolve_pixel_value_no_percent(&px, em, rem)
+                        .filter(|_| !is_table_cell)
+                    {
                         if box_sizing == LayoutBoxSizing::BorderBox {
                             w = (w
                                 - bp.border.left
@@ -449,6 +464,9 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                                 - bp.padding.left
                                 - bp.padding.right)
                                 .max(0.0);
+                        }
+                        if is_table {
+                            w = w.max(intrinsic.min_content_width);
                         }
                         intrinsic.min_content_width = w;
                         intrinsic.max_content_width = w;
@@ -1210,23 +1228,42 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         }
     }
 
-    /// Calculate intrinsic sizes for a table element by aggregating cell content
-    /// widths per column and row heights.
+    /// Calculate intrinsic sizes for a table element: its columns' min- and
+    /// max-content (the cells', a constrained column's fixed width, the
+    /// percentage-aware max of CSS Tables 3 3.9.1 - `table_width`), the cell
+    /// spacing, and at least its caption's min-content (CAPMIN, CSS 2.1
+    /// 17.5.2.2). Content-box sizes, like every intrinsic size here.
     /// +spec:table-layout:93b13c - shrink-to-fit for tables uses intrinsic sizing
+    #[allow(clippy::cast_precision_loss)] // column / span counts
     fn calculate_table_intrinsic_sizes(
         &mut self,
         tree: &LayoutTree,
         node_index: usize,
         child_intrinsics: &[(usize, IntrinsicSizes)],
     ) -> IntrinsicSizes {
-        // Collect per-column min/max widths and total row heights.
-        // Table structure: table > row-group? > row > cell
-        let mut col_min: Vec<f32> = Vec::new();
-        let mut col_max: Vec<f32> = Vec::new();
-        let mut total_height = 0.0f32;
+        use super::table_width::{
+            clamp_percentages, column_element_widths, specified_width, table_min_max,
+            ColumnAccumulator, SpecifiedWidth,
+        };
 
-        // Iterate rows — children may be row groups (thead/tbody/tfoot) or direct rows
+        // A child's intrinsic sizes: the ones the caller passed, else the
+        // ones the bottom-up pass stored on it. A cell's stored sizes are its
+        // content's whatever kind it is - a nested table, a paragraph, an
+        // image - where measuring every cell as an inline formatting context
+        // (as this did) saw nothing of a table in a cell, so an outer table
+        // came out narrower than the table it holds.
+        let stored = |idx: usize| -> Option<IntrinsicSizes> {
+            child_intrinsics
+                .iter()
+                .find(|(k, _)| *k == idx)
+                .map(|(_, v)| *v)
+                .or_else(|| tree.warm(LayoutNodeId::new(idx)).and_then(|w| w.intrinsic_sizes))
+        };
+
+        // Table structure: table > row-group? > row > cell; captions and
+        // column groups beside them.
         let mut rows: Vec<usize> = Vec::new();
+        let mut caption_min = 0.0f32;
         for &child_idx in tree.children(node_index) {
             let Some(child) = tree.get(LayoutNodeId::new(child_idx)) else {
                 continue;
@@ -1243,32 +1280,40 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                         }
                     }
                 }
+                FormattingContext::TableCaption => {
+                    let bp = child.box_props.unpack();
+                    let extras = bp.margin.left
+                        + bp.margin.right
+                        + bp.border.left
+                        + bp.border.right
+                        + bp.padding.left
+                        + bp.padding.right;
+                    let cap = stored(child_idx).unwrap_or_default();
+                    caption_min = caption_min.max(cap.min_content_width + extras);
+                }
                 _ => {}
             }
         }
 
         // A cell's widths go to the columns it SPANS (CSS 2.2 17.5.2.2): a
-        // one-column cell raises its column's minimum and maximum; a spanning
-        // cell starts at the column after the previous cell's span and is
-        // spread over its columns once every row is in. Counting a spanning
-        // cell in its first column only, as this did, made a table with a
-        // `colspan` header as wide as the header PLUS the other columns under
-        // a shrink-to-fit parent.
+        // one-column cell to its column (with its `width`); a spanning cell
+        // starts at the column after the previous cell's span and is spread
+        // over its columns once every row is in. Counting a spanning cell
+        // in its first column only made a table with a `colspan` header as
+        // wide as the header PLUS the other columns under a shrink-to-fit
+        // parent.
+        let mut columns: Vec<ColumnAccumulator> = Vec::new();
         let mut spanning: Vec<(usize, usize, f32, f32)> = Vec::new();
+        let mut total_height = 0.0f32;
         for &row_idx in &rows {
             let mut row_height = 0.0f32;
             let mut col = 0_usize;
             for &cell_idx in tree.children(row_idx) {
-                let cell_intrinsic = child_intrinsics
-                    .iter()
-                    .find(|(k, _)| k == &cell_idx)
-                    .map(|(_, v)| *v)
-                    .unwrap_or_default();
-                // Also check if cell has IFC content we can measure
+                let cell_intrinsic = stored(cell_idx).unwrap_or_default();
+                // A cell nothing measured yet: measure its inline content.
                 let cell_is = if cell_intrinsic.max_content_width > 0.0 {
                     cell_intrinsic
                 } else {
-                    // Try to measure cell content via IFC
                     self.calculate_ifc_root_intrinsic_sizes(tree, cell_idx)
                         .unwrap_or_default()
                 };
@@ -1287,19 +1332,18 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 let cell_max = cell_is.max_content_width + h_extras;
                 let cell_h = cell_is.max_content_height + v_extras;
 
-                let span = cell_node
-                    .and_then(|cn| cn.dom_node_id)
-                    .map_or(1, |dom| {
-                        super::fc::get_cell_spans(self.ctx.styled_dom, dom).0
-                    })
+                let cell_dom = cell_node.and_then(|cn| cn.dom_node_id);
+                let span = cell_dom
+                    .map_or(1, |dom| super::fc::get_cell_spans(self.ctx.styled_dom, dom).0)
                     .max(1);
-                if col + span > col_min.len() {
-                    col_min.resize(col + span, 0.0);
-                    col_max.resize(col + span, 0.0);
+                if col + span > columns.len() {
+                    columns.resize(col + span, ColumnAccumulator::default());
                 }
                 if span == 1 {
-                    col_min[col] = col_min[col].max(cell_min);
-                    col_max[col] = col_max[col].max(cell_max);
+                    let width = cell_dom.map_or(SpecifiedWidth::Auto, |dom| {
+                        specified_width(self.ctx.styled_dom, dom, h_extras)
+                    });
+                    columns[col].add_cell(cell_min, cell_max, width);
                 } else {
                     spanning.push((col, span, cell_min, cell_max));
                 }
@@ -1308,32 +1352,55 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             }
             total_height += row_height;
         }
+
+        // The `<col>` / `<colgroup>` widths of the columns the cells made.
+        for (accumulator, width) in columns
+            .iter_mut()
+            .zip(column_element_widths(self.ctx.styled_dom, tree, node_index))
+        {
+            accumulator.add_width(width);
+        }
+
+        let mut cons: Vec<_> = columns.into_iter().map(ColumnAccumulator::finish).collect();
         // Each spanning cell widens the columns it spans, evenly, by what
         // they lack together.
         for (start, span, cell_min, cell_max) in spanning {
-            let end = (start + span).min(col_min.len());
-            let parts = f32::from(u16::try_from(end - start).unwrap_or(u16::MAX).max(1));
-            let have_min: f32 = col_min[start..end].iter().sum();
+            let end = (start + span).min(cons.len());
+            if end <= start {
+                continue;
+            }
+            let parts = (end - start) as f32;
+            let have_min: f32 = cons[start..end].iter().map(|c| c.min).sum();
             if cell_min > have_min {
                 let extra = (cell_min - have_min) / parts;
-                for c in &mut col_min[start..end] {
-                    *c += extra;
+                for c in &mut cons[start..end] {
+                    c.min += extra;
                 }
             }
-            let have_max: f32 = col_max[start..end].iter().sum();
+            let have_max: f32 = cons[start..end].iter().map(|c| c.max).sum();
             if cell_max > have_max {
                 let extra = (cell_max - have_max) / parts;
-                for c in &mut col_max[start..end] {
-                    *c += extra;
+                for c in &mut cons[start..end] {
+                    c.max += extra;
                 }
             }
+            for c in &mut cons[start..end] {
+                c.max = c.max.max(c.min);
+            }
         }
-        for (max, min) in col_max.iter_mut().zip(&col_min) {
-            *max = max.max(*min);
-        }
+        clamp_percentages(&mut cons);
 
-        let min_width: f32 = col_min.iter().sum();
-        let max_width: f32 = col_max.iter().sum();
+        let (columns_min, columns_max) = table_min_max(&cons);
+        // The cell spacing: one per gutter, the outer two included (0 in
+        // the collapsing model).
+        let spacing = if cons.is_empty() {
+            0.0
+        } else {
+            let (h_spacing, _) = super::fc::resolve_table_border_spacing(self.ctx, tree, node_index);
+            h_spacing * (cons.len() + 1) as f32
+        };
+        let min_width = (columns_min + spacing).max(caption_min);
+        let max_width = (columns_max + spacing).max(caption_min);
 
         IntrinsicSizes {
             min_content_width: min_width,

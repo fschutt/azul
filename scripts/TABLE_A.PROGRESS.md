@@ -14,8 +14,7 @@ Brief: scratchpad `TABLE_A_go.md` (widths, row groups, presentational attributes
 - FIX items 1/4/5. Done in the working tree / last commit: fc.rs `resolve_table_border_spacing` (twins
   replaced), layout_table_fc reads the table width from `used_size` and gives the columns the content
   width minus the spacing (`columns_width`).
-- Next step (b): sizing.rs `calculate_table_intrinsic_sizes` via table_width (cell warm intrinsic,
-  spacing, caption, col widths) + TableCell exempt from the px override + Table keeps MIN.
+- (b) DONE (c06e62f4a col widths; next commit: sizing.rs intrinsic via table_width + px override exemptions).
 - Then (c): `calculate_used_size_for_node`: auto table = clamp(MIN, avail, MAX), border box floored at MIN.
 - Then (d): fc.rs `calculate_column_widths_auto_with_width` Step 2 via `distribute_to_columns` with
   percent/fixed from single-span cells and `<col>`s.
