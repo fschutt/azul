@@ -788,6 +788,60 @@ mod tests {
         assert_eq!(state(&store, "inbox").uidvalidity, 2);
     }
 
+    /// A mail sent from this computer, filed by SEND into Sent before that folder was ever
+    /// synced (its state says UIDVALIDITY 0, its UID is a local one).
+    fn file_local_sent(store: &LocalFolder) -> IndexEntry {
+        let flags = [String::from("\\Seen")];
+        crate::send::file_message(store.root(), "sent", &message(99), &flags, SEP_30).unwrap()
+    }
+
+    #[test]
+    fn mail_sent_from_here_stays_in_sent_when_the_first_sync_adopts_the_folder() {
+        let dir = TempDir::new("sync");
+        let store = LocalFolder::new(dir.0.clone());
+        let local = file_local_sent(&store);
+        assert_eq!(state(&store, "sent").uidvalidity, 0);
+        let mut server = FakeServer::default().with_folder("Sent", &["\\Sent"], &[1, 2]);
+        let report = run(&mut server, &store).unwrap();
+        assert_eq!(report.folders[0].renumbered, None, "nothing is moved aside");
+        assert_eq!(
+            index(&store, "sent").iter().map(|e| e.uid).collect::<Vec<_>>(),
+            vec![1, 2, local.uid]
+        );
+        assert_eq!(store.get(&local.path).unwrap(), message(99));
+        assert_eq!(state(&store, "sent").uidvalidity, 1, "the server's from now on");
+        assert_eq!(state(&store, "sent").last_uid, 2, "a local UID is never the server's");
+    }
+
+    #[test]
+    fn mail_sent_from_here_survives_the_server_renumbering_the_folder() {
+        let dir = TempDir::new("sync");
+        let store = LocalFolder::new(dir.0.clone());
+        let mut server = FakeServer::default().with_folder("Sent", &["\\Sent"], &[1, 2]);
+        run(&mut server, &store).unwrap();
+        let local = file_local_sent(&store);
+        {
+            let sent = server.folders.get_mut("Sent").unwrap();
+            sent.uidvalidity = 2;
+            sent.messages = [(1, message(21))].into_iter().collect();
+        }
+        let report = run(&mut server, &store).unwrap();
+        assert_eq!(report.folders[0].renumbered, Some(1));
+        assert_eq!(
+            store.get("stale/sent/1/2026/09/2.eml").unwrap(),
+            message(2),
+            "the server's old numbering is moved aside"
+        );
+        let sent = index(&store, "sent");
+        assert_eq!(
+            sent.iter().map(|e| e.uid).collect::<Vec<_>>(),
+            vec![1, local.uid],
+            "the local mail is carried across"
+        );
+        assert_eq!(store.get(&local.path).unwrap(), message(99));
+        assert_eq!(sent[0].subject, "Message 21");
+    }
+
     #[test]
     fn a_sync_that_broke_off_is_picked_up_without_fetching_twice() {
         let dir = TempDir::new("sync");
