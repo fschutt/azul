@@ -745,6 +745,12 @@ jobs:
           cargo test -p AzShells --lib --no-fail-fast 2>&1 | tee azul-shells-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-shells-tests.txt
 
+      - name: Run azul-appkit tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-appkit --no-fail-fast 2>&1 | tee azul-appkit-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-appkit-tests.txt
+
       - name: Run AzMail tests (and the local IMAP test server's)
         env:
           AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi

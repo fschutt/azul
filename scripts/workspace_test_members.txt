@@ -34,6 +34,7 @@ tested: AzDrive              # dll_tests (the drive list, browse state, sizes an
 tested: azul-storage         # dll_tests (Drive trait, LocalDrive, S3Drive, SigV4 vectors)
 tested: AzMail               # dll_tests (accounts, folder keys, sync, the HTML sanitizer)
 tested: AzShells             # dll_tests (the shell table: every shell's slot ids, the picker)
+tested: azul-appkit          # dll_tests (switches, data layout, settings file, shortcuts, file jobs)
 
 # ── members with genuinely no tests. The script verifies the claim by grepping
 #    for #[test]; if any of these grows one, it fails until it is moved up and

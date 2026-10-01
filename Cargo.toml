@@ -14,6 +14,7 @@ members = [
     "examples/azul-drive", # AzDrive: Explorer-like browser of Home and S3 drives (azul-storage)
     "examples/azul-mail", # AzMail: IMAP sync to files (mail/<folder>/...), folder and message view
     "examples/azul-shells", # AzShells: the eleven app shells (S1..S11) with placeholder content, a picker, the headless E2E
+    "examples/azul-appkit", # azul-appkit: the shared app skeleton (switches, data layout, settings, shortcuts, About, file jobs)
     "dll", # dll module with auto-gen C functions (optional pyO3 support), depends on layout, core and css
     "doc", # doc / test generator, depends on layout, core and css
     "layout", # layout depends on core + css
