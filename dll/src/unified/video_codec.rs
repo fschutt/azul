@@ -389,3 +389,135 @@ pub mod provision {
         }
     }
 }
+
+// ==== MP4 container handles (wasm stubs) ====
+//
+// The desktop `video_codec::container::{Mp4Demuxer, Mp4Muxer}` over the `mp4`
+// crate; on wasm there is no container engine, so the demuxer never opens
+// (and says why) and the muxer does not open. `#[repr(C)]` layout MUST match
+// the desktop handles (the C-ABI bindings `transmute`).
+
+/// wasm stub of the desktop `Mp4Demuxer` handle.
+#[cfg(target_arch = "wasm32")]
+#[repr(C)]
+pub struct Mp4Demuxer {
+    pub ptr: *mut c_void,
+    pub run_destructor: bool,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Clone for Mp4Demuxer {
+    fn clone(&self) -> Self {
+        Mp4Demuxer {
+            ptr: self.ptr,
+            run_destructor: false,
+        }
+    }
+}
+#[cfg(target_arch = "wasm32")]
+impl Default for Mp4Demuxer {
+    fn default() -> Self {
+        Mp4Demuxer {
+            ptr: core::ptr::null_mut(),
+            run_destructor: false,
+        }
+    }
+}
+#[cfg(target_arch = "wasm32")]
+impl Drop for Mp4Demuxer {
+    fn drop(&mut self) {}
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Mp4Demuxer {
+    /// No container engine on wasm: always a handle that did not open.
+    pub fn create(_bytes: U8Vec) -> Mp4Demuxer {
+        Mp4Demuxer::default()
+    }
+    pub fn is_open(&self) -> bool {
+        false
+    }
+    pub fn error(&self) -> AzString {
+        AzString::from_const_str("MP4 demux has no wasm backend")
+    }
+    pub fn width(&self) -> u32 {
+        0
+    }
+    pub fn height(&self) -> u32 {
+        0
+    }
+    pub fn fps(&self) -> f32 {
+        0.0
+    }
+    pub fn duration_ms(&self) -> f64 {
+        0.0
+    }
+    pub fn chunk_count(&self) -> usize {
+        0
+    }
+    pub fn chunk(&self, _index: usize) -> azul_core::video::OptionVideoChunk {
+        azul_core::video::OptionVideoChunk::None
+    }
+    pub fn frame_at(&self, _time_ms: f64) -> usize {
+        0
+    }
+    pub fn keyframe_before(&self, _index: usize) -> usize {
+        0
+    }
+    pub fn close(&mut self) {}
+}
+
+/// wasm stub of the desktop `Mp4Muxer` handle.
+#[cfg(target_arch = "wasm32")]
+#[repr(C)]
+pub struct Mp4Muxer {
+    pub ptr: *mut c_void,
+    pub run_destructor: bool,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Clone for Mp4Muxer {
+    fn clone(&self) -> Self {
+        Mp4Muxer {
+            ptr: self.ptr,
+            run_destructor: false,
+        }
+    }
+}
+#[cfg(target_arch = "wasm32")]
+impl Default for Mp4Muxer {
+    fn default() -> Self {
+        Mp4Muxer {
+            ptr: core::ptr::null_mut(),
+            run_destructor: false,
+        }
+    }
+}
+#[cfg(target_arch = "wasm32")]
+impl Drop for Mp4Muxer {
+    fn drop(&mut self) {}
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Mp4Muxer {
+    /// No container engine on wasm: always an invalid handle.
+    pub fn create(_width: u32, _height: u32, _fps: f32) -> Mp4Muxer {
+        Mp4Muxer::default()
+    }
+    pub fn is_open(&self) -> bool {
+        false
+    }
+    pub fn write_annexb(&mut self, _data: U8Vec) -> bool {
+        false
+    }
+    pub fn samples_written(&self) -> u64 {
+        0
+    }
+    pub fn finish(&mut self) -> U8Vec {
+        U8Vec::from_vec(Vec::new())
+    }
+    pub fn error(&self) -> AzString {
+        AzString::from_const_str("MP4 mux has no wasm backend")
+    }
+    pub fn close(&mut self) {}
+}

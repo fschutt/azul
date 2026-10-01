@@ -17,6 +17,10 @@ use std::io::Cursor;
 
 use mp4::{MediaType, Mp4Reader};
 
+// AVCC -> Annex-B is the container module's (`container::append_avcc_as_annexb`):
+// one rewrite for this demuxer and the VideoToolbox encoder's output.
+use super::container::append_avcc_as_annexb;
+
 /// 4-byte Annex-B start code, prefixed before every NAL unit.
 const START_CODE: [u8; 4] = [0, 0, 0, 1];
 
@@ -132,23 +136,6 @@ pub fn demux_mp4_h264(mp4_bytes: &[u8]) -> Result<DemuxedH264, String> {
 /// its composition offset (`ctts`), over the track's `timescale`.
 fn presentation_ms(start_time: u64, rendering_offset: i32, timescale: f64) -> f64 {
     (start_time as f64 + f64::from(rendering_offset)) * 1000.0 / timescale
-}
-
-/// Rewrite one AVCC sample (a run of `[u32 big-endian length][NAL bytes]`) into
-/// Annex-B by replacing each length prefix with a start code. Malformed tails
-/// (a length that runs past the buffer) stop the walk rather than panicking.
-fn append_avcc_as_annexb(avcc: &[u8], out: &mut Vec<u8>) {
-    let mut i = 0usize;
-    while i + 4 <= avcc.len() {
-        let len = u32::from_be_bytes([avcc[i], avcc[i + 1], avcc[i + 2], avcc[i + 3]]) as usize;
-        i += 4;
-        if len == 0 || i + len > avcc.len() {
-            break;
-        }
-        out.extend_from_slice(&START_CODE);
-        out.extend_from_slice(&avcc[i..i + len]);
-        i += len;
-    }
 }
 
 #[cfg(test)]

@@ -367,6 +367,25 @@ impl_vec_debug!(VideoFrame, VideoFrameVec);
 impl_vec_clone!(VideoFrame, VideoFrameVec, VideoFrameVecDestructor);
 impl_vec_partialeq!(VideoFrame, VideoFrameVec);
 
+/// One encoded access unit of a video stream (one picture's worth of NAL
+/// units), as a demuxer hands it out: Annex-B bytes (start-code-prefixed
+/// NALs, the parameter sets in front of a keyframe so a decoder can start
+/// there), when it is SHOWN, and whether a decoder can start at it.
+/// `VideoDecoder::decode` takes `data` as it is.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct VideoChunk {
+    /// Presentation time in milliseconds from the start of the stream.
+    pub pts_ms: f64,
+    /// Annex-B bytes of the access unit.
+    pub data: U8Vec,
+    /// A keyframe (IDR): decoding can start here.
+    pub is_keyframe: bool,
+}
+
+// FFI Option wrapper for the demuxer's by-index accessor. `copy = false` (U8Vec).
+impl_option!(VideoChunk, OptionVideoChunk, copy = false, [Clone, Debug]);
+
 #[cfg(test)]
 #[path = "video_test.rs"]
 mod video_test;

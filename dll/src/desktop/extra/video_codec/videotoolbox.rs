@@ -517,43 +517,9 @@ pub(crate) fn is_available() -> bool {
 // Annex-B helpers
 // ---------------------------------------------------------------------------
 
-/// Iterate NAL units of an Annex-B stream (3- or 4-byte start codes),
-/// yielding each NAL's payload slice (start code stripped).
-fn annexb_nals(data: &[u8]) -> Vec<&[u8]> {
-    let mut out = Vec::new();
-    let mut i = 0usize;
-    let mut start: Option<usize> = None;
-    while i + 3 <= data.len() {
-        let (is_sc, sc_len) = if data[i] == 0 && data[i + 1] == 0 {
-            if data[i + 2] == 1 {
-                (true, 3)
-            } else if i + 4 <= data.len() && data[i + 2] == 0 && data[i + 3] == 1 {
-                (true, 4)
-            } else {
-                (false, 0)
-            }
-        } else {
-            (false, 0)
-        };
-        if is_sc {
-            if let Some(s) = start {
-                if i > s {
-                    out.push(&data[s..i]);
-                }
-            }
-            i += sc_len;
-            start = Some(i);
-        } else {
-            i += 1;
-        }
-    }
-    if let Some(s) = start {
-        if s < data.len() {
-            out.push(&data[s..]);
-        }
-    }
-    out
-}
+// The NAL splitter is the container module's (`container::annexb_nals`): one
+// splitter for the decoder here, the MP4 muxer and the demuxer's tests.
+use super::container::{annexb_nals, append_avcc_as_annexb};
 
 // ---------------------------------------------------------------------------
 // Encoder
@@ -635,19 +601,7 @@ extern "C" fn enc_output(
             return;
         }
         let bytes = std::slice::from_raw_parts(data, total);
-        let mut off = 0usize;
-        while off + 4 <= bytes.len() {
-            let len =
-                u32::from_be_bytes([bytes[off], bytes[off + 1], bytes[off + 2], bytes[off + 3]])
-                    as usize;
-            off += 4;
-            if len == 0 || off + len > bytes.len() {
-                break;
-            }
-            chunk.extend_from_slice(&[0, 0, 0, 1]);
-            chunk.extend_from_slice(&bytes[off..off + len]);
-            off += len;
-        }
+        append_avcc_as_annexb(bytes, &mut chunk);
         if !chunk.is_empty() {
             if let Ok(mut q) = shared.chunks.lock() {
                 q.push_back(chunk);

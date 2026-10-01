@@ -142,15 +142,21 @@ fn a_seek_starts_at_the_keyframe_at_or_before_the_frame() {
 }
 
 #[test]
-fn a_bad_file_opens_no_demuxer_and_says_why() {
+fn a_bad_file_opens_no_demuxer_and_says_why_and_a_build_without_mp4_has_no_muxer() {
     let demuxer = Mp4Demuxer::create(U8Vec::from_vec(b"not an mp4 file at all".to_vec()));
     assert!(!demuxer.is_open());
     assert!(!demuxer.error().as_str().is_empty(), "the reason is kept");
     assert_eq!(demuxer.chunk_count(), 0);
     assert!(matches!(demuxer.chunk(0), OptionVideoChunk::None));
     assert_eq!(demuxer.width(), 0);
+    if !cfg!(feature = "video-native") {
+        let muxer = Mp4Muxer::create(320, 180, 25.0);
+        assert!(!muxer.is_open(), "no mp4 crate, no muxer");
+        assert!(!muxer.error().as_str().is_empty());
+    }
 }
 
+#[cfg(feature = "video-native")]
 #[test]
 fn a_muxer_that_never_saw_a_keyframe_writes_no_file_and_says_why() {
     let mut muxer = Mp4Muxer::create(320, 180, 25.0);

@@ -33,6 +33,9 @@ pub mod demux;
 // `Mp4Demuxer` / `Mp4Muxer`. The handles are always present; the `mp4` crate
 // behind them is `video-native`'s.
 pub mod container;
+// Surfaced at the module level so `unified::video_codec`'s glob re-export
+// exposes `azul_dll::unified::video_codec::{Mp4Demuxer, Mp4Muxer}`.
+pub use container::{Mp4Demuxer, Mp4Muxer};
 
 // Streaming decode worker for the VideoWidget: runs the VK decode on a background
 // framework Thread (off-main), exactly like the map's tile_fetch_worker. The
