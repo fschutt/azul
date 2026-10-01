@@ -4010,8 +4010,12 @@ fn compute_counters_recursive(
 
     // FAST PATH: almost no nodes declare counter-reset/counter-increment.
     // Single-bit check in compact cache lets us skip two cascade walks per node.
-    let has_counter_css = node_state.is_normal()
-        && cache
+    // The bit describes the NORMAL state only (like every compact-cache fast
+    // path): a hovered / focused node takes the cascade walk, whose Normal
+    // tier still applies under the state - skipping it instead dropped a
+    // hovered list's `counter-reset` and renumbered its items.
+    let has_counter_css = !node_state.is_normal()
+        || cache
             .compact_cache
             .as_ref()
             .is_none_or(|cc| cc.has_counter(dom_id.index()));
