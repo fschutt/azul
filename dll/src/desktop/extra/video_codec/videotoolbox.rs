@@ -1684,4 +1684,51 @@ mod vt_tests {
             "a software H.264 encoder on this Mac"
         );
     }
+
+    /// Noise frames: every pixel differs from frame to frame, so the
+    /// encoder spends every bit the rate control allows.
+    fn noise_frame(f: u32, w: u32, h: u32) -> VideoFrame {
+        let mut state = 0x9E37_79B9u32 ^ f.wrapping_mul(0x85EB_CA6B);
+        let mut rgba = vec![0u8; (w * h * 4) as usize];
+        for px in rgba.chunks_exact_mut(4) {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            px.copy_from_slice(&[state as u8, (state >> 8) as u8, (state >> 16) as u8, 255]);
+        }
+        VideoFrame::new(w, h, U8Vec::from_vec(rgba))
+    }
+
+    /// An EXPORT submits frames as fast as it renders them, far faster than
+    /// they play. Stamped with the wall clock (what `encode` does for a
+    /// live call), sixty frames rendered in a fraction of a second are a
+    /// fraction of a second of video to the rate control, which then gives
+    /// them a fraction of the bitrate; stamped with the frames' own times
+    /// (`encode_at`), they are two seconds of video and get two seconds'
+    /// worth of bits.
+    #[test]
+    fn frames_stamped_with_their_own_times_get_the_bitrate_of_their_duration() {
+        if VtLib::get().is_none() {
+            eprintln!("VideoToolbox unavailable — skipping");
+            return;
+        }
+        let (w, h, kbps) = (320u32, 240u32, 1000u32);
+        let mut live = VtEncoder::open(w, h, kbps).expect("encoder open");
+        let mut offline = VtEncoder::open(w, h, kbps).expect("encoder open");
+        let (mut live_bytes, mut offline_bytes) = (0usize, 0usize);
+        for f in 0..60u32 {
+            let frame = noise_frame(f, w, h);
+            live_bytes += live.encode(&frame, f == 0).len();
+            offline_bytes += offline
+                .encode_at(&frame, f == 0, i64::from(f) * 33_333)
+                .len();
+        }
+        eprintln!("60 noise frames at {kbps} kbps: wall clock {live_bytes} B, own times {offline_bytes} B");
+        assert!(offline_bytes > 0 && live_bytes > 0);
+        assert!(
+            offline_bytes >= 2 * live_bytes,
+            "frames 1/30 s apart must get their duration's bits: {offline_bytes} B vs {live_bytes} B \
+             stamped with the wall clock"
+        );
+    }
 }

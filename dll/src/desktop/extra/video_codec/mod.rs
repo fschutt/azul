@@ -947,6 +947,30 @@ mod honest_handle_tests {
         );
     }
 
+    /// An export stamps every frame with its own time (`encode_at`); an
+    /// open encoder takes stamped frames and gives packets back, one that
+    /// did not open takes none.
+    #[test]
+    fn an_encoder_takes_frames_stamped_with_their_own_times() {
+        assert!(
+            !VideoEncoder::default().encode_at(bars(0), 0, true),
+            "an encoder that did not open takes no frame"
+        );
+        let mut encoder = VideoEncoder::open(W, H, false, 400);
+        if !encoder.is_open() {
+            return;
+        }
+        let mut chunks = 0usize;
+        for i in 0..8u32 {
+            assert!(encoder.encode_at(bars(i), u64::from(i) * 40_000, i == 0));
+            while let OptionU8Vec::Some(_) = encoder.recv_packet() {
+                chunks += 1;
+            }
+        }
+        assert!(chunks > 0, "stamped frames come back as packets");
+        assert_eq!(encoder.frames_encoded(), 8);
+    }
+
     /// No backend implements H.265 yet: neither handle opens for it.
     #[test]
     fn no_codec_handle_opens_for_h265_which_no_backend_implements() {
