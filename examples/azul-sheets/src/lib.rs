@@ -129,6 +129,27 @@ pub enum Panel {
     Chart,
 }
 
+/// What a message to the engine was for.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Pending {
+    /// Nothing beyond the snapshot.
+    Other,
+    /// `Reply::found`: move the cursor there.
+    Find,
+    /// `Reply::area`: propose `=SUM(area)` in this cell's editor.
+    SumRange(CellAddr),
+    /// `Reply::count`: duplicates removed.
+    RemoveDuplicates,
+    /// `Reply::count`: rows hidden by the filter.
+    Filter,
+    /// The workbook `id` was loaded.
+    Opened(String),
+    /// The workbook was written (`AZSHEETS_SAVED`).
+    Saved,
+    /// The CSV was written.
+    Exported,
+}
+
 /// The workbook on screen.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DocInfo {
@@ -203,6 +224,9 @@ pub struct AppState {
     pub applied: u64,
     /// Messages sent, not yet answered (CALCULATING while any).
     pub in_flight: usize,
+    /// What the messages in flight were for, by number (a reply's extras
+    /// mean something only for the command that asked).
+    pub pending: HashMap<u64, Pending>,
     pub cache: Arc<ViewCache>,
     /// The sheet shown.
     pub sheet: u32,
@@ -244,6 +268,7 @@ impl AppState {
             seq: 0,
             applied: 0,
             in_flight: 0,
+            pending: HashMap::new(),
             cache: Arc::new(ViewCache::default()),
             sheet: 0,
             view: CellGridView::create(),
@@ -472,4 +497,466 @@ pub const fn grid_kind(kind: ValueKind) -> CellGridCellKind {
         ValueKind::Boolean => CellGridCellKind::Boolean,
         ValueKind::Error => CellGridCellKind::Error,
     }
+}
+
+// ==== The engine: messages out, replies back ====
+
+/// What the thread waiting for a reply does with it before handing it to
+/// the UI: the file I/O a save or an export needs (through the `Drive`,
+/// never on the UI thread).
+enum Post {
+    None,
+    /// `sheets/<id>.xlsx` and `.json` from `Reply::saved`.
+    Save {
+        root: PathBuf,
+        id: String,
+        sidecar: Sidecar,
+    },
+    /// `exports/<name>.csv` from `Reply::csv`.
+    Csv { root: PathBuf, name: String },
+}
+
+/// A waiting thread's start data, taken out once.
+struct WaitInit {
+    rx: Option<Receiver<Reply>>,
+    post: Option<Post>,
+}
+
+/// A reply on its way to the UI, taken out once; `io` is what the post
+/// step did (the id saved, the file written, or the error).
+struct ReplyMsg {
+    reply: Option<Reply>,
+    io: Option<Result<String, String>>,
+}
+
+/// A name usable as a file name: letters, digits, '-' and '_'; the rest
+/// becomes '-'.
+#[must_use]
+pub fn safe_name(title: &str) -> String {
+    let s: String = title
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .collect();
+    let s = s.trim_matches('-').to_string();
+    if s.is_empty() {
+        String::from("workbook")
+    } else {
+        s
+    }
+}
+
+/// The post step of a reply.
+fn run_post(post: Post, reply: &Reply) -> Option<Result<String, String>> {
+    match post {
+        Post::None => None,
+        Post::Save { root, id, sidecar } => {
+            let bytes = reply.saved.as_ref()?;
+            let drive = LocalDrive::new(root);
+            Some(
+                storage::save(&drive, &id, bytes, &sidecar)
+                    .map(|()| id)
+                    .map_err(|e| format!("Could not save the workbook: {e}")),
+            )
+        }
+        Post::Csv { root, name } => {
+            let csv = reply.csv.as_ref()?;
+            let key = format!("exports/{name}.csv");
+            let drive = LocalDrive::new(root.clone());
+            Some(
+                drive
+                    .put(&key, csv.as_bytes())
+                    .map(|()| root.join(&key).display().to_string())
+                    .map_err(|e| format!("Could not export: {e}")),
+            )
+        }
+    }
+}
+
+/// The waiting thread: blocks on the reply (this thread, never the UI),
+/// does the post step, writes the reply back.
+extern "C" fn wait_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
+    let taken = init
+        .downcast_mut::<WaitInit>()
+        .and_then(|mut w| Some((w.rx.take()?, w.post.take().unwrap_or(Post::None))));
+    let Some((rx, post)) = taken else {
+        return;
+    };
+    let Ok(reply) = rx.recv() else {
+        return; // the engine thread is gone; the UI notices on its next send
+    };
+    let io = run_post(post, &reply);
+    let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
+        on_reply,
+        RefAny::new(ReplyMsg {
+            reply: Some(reply),
+            io,
+        }),
+    )));
+}
+
+/// Sends `command` to the engine with the window in view, and starts the
+/// thread that waits for its reply.
+fn send(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut AppState,
+    command: Command,
+    pending: Pending,
+    post: Post,
+) {
+    let Some(engine) = s.engine.clone() else {
+        s.message = String::from("The spreadsheet engine is not running.");
+        return;
+    };
+    s.seq += 1;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let msg = EngineMsg {
+        seq: s.seq,
+        command,
+        view: s.view_request(),
+        reply: tx,
+    };
+    if engine.send(msg).is_err() {
+        s.engine = None;
+        s.message = String::from("The spreadsheet engine stopped.");
+        return;
+    }
+    s.in_flight += 1;
+    s.pending.insert(s.seq, pending);
+    info.add_thread(
+        ThreadId::unique(),
+        Thread::create(
+            RefAny::new(WaitInit {
+                rx: Some(rx),
+                post: Some(post),
+            }),
+            app.clone(),
+            wait_thread,
+        ),
+    );
+}
+
+/// `send` for a command with no extras and no post step.
+fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, command: Command) {
+    let changes = !matches!(command, Command::Fetch | Command::Save | Command::ExportCsv { .. });
+    if changes {
+        s.doc.dirty = true;
+    }
+    send(info, app, s, command, Pending::Other, Post::None);
+}
+
+/// Fetches the window again if the snapshot does not hold it (a scroll, a
+/// sheet switch) and nothing is on its way that will.
+fn fetch_if_needed(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState) {
+    if s.in_flight == 0 && !s.window_fetched() {
+        send(info, app, s, Command::Fetch, Pending::Other, Post::None);
+    }
+}
+
+/// The lines scripts read after a reply.
+fn announce(s: &AppState) {
+    let at = s.active();
+    println!(
+        "AZSHEETS_CELL {} {}",
+        a1(at),
+        s.cache.shown(at.row, at.column)
+    );
+    let stats = &s.cache.snapshot.stats;
+    println!(
+        "AZSHEETS_STATS count={} sum={}",
+        stats.count,
+        model::format_number(stats.sum)
+    );
+    let (fr, fc) = s.cache.snapshot.frozen;
+    println!("AZSHEETS_FROZEN {fr} {fc}");
+    let names: Vec<&str> = s.cache.snapshot.sheets.iter().map(|x| x.name.as_str()).collect();
+    println!("AZSHEETS_SHEETS {}", names.join(","));
+}
+
+/// The cursor on `at`, the window scrolled to show it (a few rows of
+/// context above).
+fn go_to(s: &mut AppState, sheet: u32, range: CellGridRange) {
+    s.sheet = sheet;
+    let mut view = CellGridView::create();
+    view.active = range.first;
+    view.anchor = range.first;
+    view.ranges = vec![range].into();
+    let (rows, columns) = s.window_cells();
+    let (rows, columns) = (u32::try_from(rows).unwrap_or(30), u32::try_from(columns).unwrap_or(12));
+    if range.first.row >= view.top_row + rows.saturating_sub(2) {
+        view.top_row = range.first.row.saturating_sub(3);
+    }
+    if range.first.column >= view.left_column + columns.saturating_sub(1) {
+        view.left_column = range.first.column.saturating_sub(1);
+    }
+    s.view = view;
+}
+
+/// A reply arrives: the snapshot (if it is the newest), the command's
+/// extras, the post step's outcome.
+fn apply_reply(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, reply: Reply, io: Option<Result<String, String>>) {
+    s.in_flight = s.in_flight.saturating_sub(1);
+    let pending = s.pending.remove(&reply.seq).unwrap_or(Pending::Other);
+    println!(
+        "AZSHEETS_REPLY {} {}",
+        reply.seq,
+        if reply.result.is_ok() { "ok" } else { "err" }
+    );
+    match &reply.result {
+        Ok(()) => {}
+        Err(e) => s.message = e.clone(),
+    }
+    match io {
+        Some(Ok(text)) => match pending {
+            Pending::Saved => {
+                s.doc.dirty = false;
+                s.message = format!("Saved \"{}\".", s.doc.title);
+                println!("AZSHEETS_SAVED {text}");
+            }
+            Pending::Exported => {
+                s.message = format!("Exported to {text}");
+                println!("AZSHEETS_EXPORTED {text}");
+            }
+            _ => {}
+        },
+        Some(Err(e)) => s.message = e,
+        None => {}
+    }
+    match &pending {
+        Pending::Find => match reply.found {
+            Some(at) => {
+                let cell = to_cell(at);
+                go_to(s, at.sheet, CellGridRange { first: cell, last: cell });
+            }
+            None => s.message = format!("\"{}\" was not found.", s.find),
+        },
+        Pending::SumRange(at) => {
+            let formula = match reply.area {
+                Some(area) => format!("=SUM({})", a1_area(area)),
+                None => String::from("=SUM()"),
+            };
+            let cursor = if reply.area.is_some() {
+                formula.chars().count()
+            } else {
+                5
+            };
+            let cell = to_cell(*at);
+            if s.view.active == cell {
+                s.view.edit_mode = CellGridEditMode::Edit;
+                s.view.edit_text = AzString::from(formula);
+                s.view.edit_cursor = u32::try_from(cursor).unwrap_or(0);
+            }
+        }
+        Pending::RemoveDuplicates => {
+            if let Some(n) = reply.count {
+                s.message = format!("{n} duplicate row(s) removed.");
+            }
+        }
+        Pending::Filter => {
+            if let Some(n) = reply.count {
+                s.message = format!("{n} row(s) hidden by the filter.");
+            }
+        }
+        Pending::Opened(id) => {
+            if reply.result.is_ok() {
+                println!("AZSHEETS_OPENED {id}");
+            }
+        }
+        Pending::Other | Pending::Saved | Pending::Exported => {}
+    }
+    if reply.seq >= s.applied {
+        s.applied = reply.seq;
+        let snapshot = reply.snapshot;
+        if snapshot.sheet != s.sheet {
+            // The sheet shown is gone (deleted): the engine clamped it.
+            s.sheet = snapshot.sheet;
+            s.view = CellGridView::create();
+        }
+        s.cache = Arc::new(ViewCache::of(snapshot));
+        announce(s);
+    }
+    fetch_if_needed(info, app, s);
+}
+
+/// The writeback of a reply.
+extern "C" fn on_reply(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let taken = msg
+        .downcast_mut::<ReplyMsg>()
+        .and_then(|mut m| Some((m.reply.take()?, m.io.take())));
+    let Some((reply, io)) = taken else {
+        return Update::DoNothing;
+    };
+    let handle = app.clone();
+    let Some(mut guard) = app.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    apply_reply(&mut info, &handle, &mut guard, reply, io);
+    Update::RefreshDom
+}
+
+// ==== Storage jobs: listing, loading, importing, writing a file ====
+
+/// A blocking storage call for a worker thread.
+enum Job {
+    /// The workbooks in the data folder.
+    List { root: PathBuf },
+    /// `sheets/<id>.xlsx` and its sidecar.
+    Load { root: PathBuf, id: String },
+    /// An `.xlsx` from anywhere on disk.
+    Import { path: PathBuf },
+    /// Bytes to `<root>/<key>` (the PDF export).
+    Write { root: PathBuf, key: String, bytes: Vec<u8> },
+}
+
+/// What a job answers.
+enum JobDone {
+    Listed(Result<Vec<(String, Sidecar)>, String>),
+    /// (id, bytes, sidecar, imported?)
+    Loaded(Result<(String, Vec<u8>, Sidecar, bool), String>),
+    Wrote(Result<String, String>),
+}
+
+struct JobInit {
+    job: Option<Job>,
+}
+
+struct JobMsg {
+    done: Option<JobDone>,
+}
+
+fn run_job(job: Job) -> JobDone {
+    match job {
+        Job::List { root } => JobDone::Listed(
+            storage::list(&LocalDrive::new(root)).map_err(|e| format!("Could not list the workbooks: {e}")),
+        ),
+        Job::Load { root, id } => JobDone::Loaded(
+            storage::load(&LocalDrive::new(root), &id)
+                .map(|(bytes, sidecar)| (id.clone(), bytes, sidecar, false))
+                .map_err(|e| format!("Could not open the workbook: {e}")),
+        ),
+        Job::Import { path } => JobDone::Loaded(
+            std::fs::read(&path)
+                .map(|bytes| {
+                    let title = path
+                        .file_stem()
+                        .map_or_else(|| String::from("Imported"), |s| s.to_string_lossy().into_owned());
+                    (storage::new_id(), bytes, Sidecar::titled(&title), true)
+                })
+                .map_err(|e| format!("Could not read {}: {e}", path.display())),
+        ),
+        Job::Write { root, key, bytes } => {
+            let drive = LocalDrive::new(root.clone());
+            JobDone::Wrote(
+                drive
+                    .put(&key, &bytes)
+                    .map(|()| root.join(&key).display().to_string())
+                    .map_err(|e| format!("Could not write {key}: {e}")),
+            )
+        }
+    }
+}
+
+extern "C" fn job_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
+    let Some(job) = init.downcast_mut::<JobInit>().and_then(|mut i| i.job.take()) else {
+        return;
+    };
+    let done = run_job(job);
+    let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
+        on_job_done,
+        RefAny::new(JobMsg { done: Some(done) }),
+    )));
+}
+
+fn spawn_job(info: &mut CallbackInfo, app: &RefAny, job: Job) {
+    info.add_thread(
+        ThreadId::unique(),
+        Thread::create(RefAny::new(JobInit { job: Some(job) }), app.clone(), job_thread),
+    );
+}
+
+/// A job's answer.
+extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(done) = msg.downcast_mut::<JobMsg>().and_then(|mut m| m.done.take()) else {
+        return Update::DoNothing;
+    };
+    let handle = app.clone();
+    let Some(mut guard) = app.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    match done {
+        JobDone::Listed(Ok(list)) => s.workbooks = list,
+        JobDone::Listed(Err(e)) | JobDone::Wrote(Err(e)) | JobDone::Loaded(Err(e)) => s.message = e,
+        JobDone::Wrote(Ok(path)) => {
+            s.message = format!("Exported to {path}");
+            println!("AZSHEETS_EXPORTED {path}");
+        }
+        JobDone::Loaded(Ok((id, bytes, sidecar, imported))) => {
+            open_bytes(&mut info, &handle, s, id, bytes, sidecar, imported);
+        }
+    }
+    Update::RefreshDom
+}
+
+/// Shows a loaded workbook: the engine loads the bytes, the view comes
+/// from the sidecar.
+fn open_bytes(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut AppState,
+    id: String,
+    bytes: Vec<u8>,
+    sidecar: Sidecar,
+    imported: bool,
+) {
+    s.doc = DocInfo {
+        id: id.clone(),
+        title: if sidecar.title.is_empty() {
+            id.clone()
+        } else {
+            sidecar.title.clone()
+        },
+        dirty: imported,
+    };
+    s.zoom = sidecar.zoom.clamp(10, 400);
+    s.screen = Screen::Workbook;
+    let active = to_cell(CellAddr::new(sidecar.sheet, sidecar.active.0.max(1), sidecar.active.1.max(1)));
+    go_to(s, sidecar.sheet, CellGridRange { first: active, last: active });
+    s.view.top_row = u32::try_from(sidecar.top_left.0 - 1).unwrap_or(0);
+    s.view.left_column = u32::try_from(sidecar.top_left.1 - 1).unwrap_or(0);
+    let name = s.doc.title.clone();
+    send(
+        info,
+        app,
+        s,
+        Command::Load { bytes, name },
+        Pending::Opened(id),
+        Post::None,
+    );
+}
+
+/// The sidecar of the workbook on screen.
+fn sidecar_of(s: &AppState) -> Sidecar {
+    let at = s.active();
+    Sidecar {
+        title: s.doc.title.clone(),
+        zoom: s.zoom,
+        sheet: s.sheet,
+        active: (at.row, at.column),
+        top_left: (
+            i32::try_from(s.view.top_row).unwrap_or(0) + 1,
+            i32::try_from(s.view.left_column).unwrap_or(0) + 1,
+        ),
+        modified: storage::now_secs(),
+    }
+}
+
+/// Saves the workbook on screen as `sheets/<id>.xlsx` (+ sidecar).
+fn save(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState) {
+    let post = Post::Save {
+        root: s.data_root.clone(),
+        id: s.doc.id.clone(),
+        sidecar: sidecar_of(s),
+    };
+    send(info, app, s, Command::Save, Pending::Saved, post);
 }
