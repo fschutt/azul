@@ -90,7 +90,14 @@ pub enum Overlay {
     /// The name of a new notebook.
     NewNotebook { name: String, error: String },
     /// The URL to link the selection to.
-    Link { url: String },
+    Link {
+        url: String,
+        /// The selection to link, `(block, start, end)`, taken when the
+        /// sheet opened (the field takes the focus from the text).
+        spans: Vec<(usize, usize, usize)>,
+        /// The caret's block, for a link typed where nothing is selected.
+        block: usize,
+    },
     /// Delete a trashed note for good.
     ConfirmDelete { id: String },
 }

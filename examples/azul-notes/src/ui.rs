@@ -232,7 +232,7 @@ extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
         }
         (VirtualKeyCode::K, true, true) => {
             info.prevent_default();
-            open_link_sheet(s);
+            open_link_sheet(s, info);
             Update::RefreshDom
         }
         (VirtualKeyCode::S, true, false) => {
@@ -894,7 +894,7 @@ extern "C" fn on_tool(mut data: RefAny, mut info: CallbackInfo) -> Update {
         Tool::Indent(delta) => editor::indent(s, &mut info, delta),
         Tool::Rule => editor::insert_rule(s, &mut info),
         Tool::Link => {
-            open_link_sheet(s);
+            open_link_sheet(s, &info);
             Update::RefreshDom
         }
     };
@@ -1227,15 +1227,20 @@ fn reborrow_info(info: &CallbackInfo) -> CallbackInfo {
     }
 }
 
-/// The open note as a PDF (A4 at 96 dpi), through azul's paged pipeline.
 extern "C" fn on_export_pdf(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    export_pdf(&mut data, &mut info)
+}
+
+/// The open note as a PDF (A4 at 96 dpi), through azul's paged pipeline;
+/// the state is let go before the render.
+fn export_pdf(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
     let app = data.clone();
     let (name, dom) = {
         let Some(mut guard) = data.downcast_mut::<AppState>() else {
             return Update::DoNothing;
         };
         let s = &mut *guard;
-        let _ = editor::sync_text(s, &mut info, false);
+        let _ = editor::sync_text(s, info, false);
         let Some(note) = s.open_note() else {
             return Update::DoNothing;
         };
@@ -1252,7 +1257,7 @@ extern "C" fn on_export_pdf(mut data: RefAny, mut info: CallbackInfo) -> Update 
         (export_name(note.display_title(), "pdf"), page)
     };
     let bytes = azul::pdf::Pdf::create()
-        .from_dom_in_callback(reborrow_info(&info), dom, 794.0, 1123.0)
+        .from_dom_in_callback(reborrow_info(info), dom, 794.0, 1123.0)
         .as_ref()
         .to_vec();
     if bytes.is_empty() {
@@ -1266,9 +1271,13 @@ extern "C" fn on_export_pdf(mut data: RefAny, mut info: CallbackInfo) -> Update 
     Update::DoNothing
 }
 
-/// The open note's file as it is on disk (front matter and Markdown).
 extern "C" fn on_export_markdown(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    with_state(&mut data, &mut info, |s, info, _| {
+    export_markdown(&mut data, &mut info)
+}
+
+/// The open note's file as it is on disk (front matter and Markdown).
+fn export_markdown(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+    with_state(data, info, |s, info, _| {
         let _ = editor::sync_text(s, info, false);
         let Some(note) = s.open_note() else {
             return Update::DoNothing;
@@ -1280,4 +1289,480 @@ extern "C" fn on_export_markdown(mut data: RefAny, mut info: CallbackInfo) -> Up
         }
         Update::DoNothing
     })
+}
+
+// ==== Sheets over the window ====
+
+/// A sheet: a panel centred over a backdrop, `id` on the panel.
+fn sheet(look: &Look, id: &str, title: &str, body: Dom, buttons: Dom) -> Dom {
+    Dom::create_div()
+        .with_id("sheet-backdrop")
+        .with_css(format!(
+            "position: absolute; left: 0px; top: 0px; right: 0px; bottom: 0px; background: {}; \
+             display: flex; flex-direction: column; align-items: center; justify-content: center;",
+            look.backdrop
+        ))
+        .with_child(
+            Dom::create_div()
+                .with_id(id)
+                .with_accessibility_name(title)
+                .with_css(format!(
+                    "width: 440px; padding: 18px 20px; background: {}; color: {}; border-radius: 8px; \
+                     border: 1px solid {}; display: flex; flex-direction: column;",
+                    look.sheet, look.text, look.line
+                ))
+                .with_child(text_line(title, "font-size: 16px; font-weight: bold; margin-bottom: 12px;"))
+                .with_child(body)
+                .with_child(
+                    buttons.with_css(
+                        "display: flex; flex-direction: row; justify-content: flex-end; margin-top: 14px;",
+                    ),
+                ),
+        )
+}
+
+/// A sheet's button.
+fn sheet_button(app: &RefAny, id: &str, label: &str, kind: ButtonType, action: ButtonOnClickCallbackType) -> Dom {
+    Button::create(label)
+        .with_button_type(kind)
+        .with_on_click(app.clone(), action)
+        .dom()
+        .with_id(id)
+        .with_css("margin-left: 6px;")
+}
+
+/// What is over the window, if anything.
+fn overlay_dom(s: &AppState, app: &RefAny, look: &Look) -> Dom {
+    match &s.overlay {
+        Overlay::None => Dom::create_div(),
+        Overlay::Palette => palette_dom(s, app),
+        Overlay::NewNotebook { name, error } => {
+            let mut body = Dom::create_div()
+                .with_css("display: flex; flex-direction: column;")
+                .with_child(text_line(
+                    "A name, or a path for a notebook inside another (Work/Ideas).",
+                    &format!("font-size: 12px; color: {}; margin-bottom: 8px;", look.muted),
+                ))
+                .with_child(
+                    TextInput::create()
+                        .with_text(name.as_str())
+                        .with_placeholder("Notebook name")
+                        .with_accessibility_name("Notebook name")
+                        .with_on_text_input(app.clone(), on_sheet_text as TextInputOnTextInputCallbackType)
+                        .with_on_virtual_key_down(app.clone(), on_sheet_key as TextInputOnVirtualKeyDownCallbackType)
+                        .dom()
+                        .with_id("sheet-field"),
+                );
+            if !error.is_empty() {
+                body.add_child(text_line(error, &format!("font-size: 12px; color: {}; margin-top: 6px;", look.error)));
+            }
+            let buttons = Dom::create_div()
+                .with_child(sheet_button(app, "sheet-cancel", "Cancel", ButtonType::Default, on_sheet_cancel))
+                .with_child(sheet_button(app, "sheet-ok", "Create", ButtonType::Primary, on_sheet_ok));
+            sheet(look, "sheet-new-notebook", "New notebook", body, buttons)
+        }
+        Overlay::Link { url, spans, .. } => {
+            let hint = if spans.is_empty() {
+                "Nothing is selected: the link is added as its own text."
+            } else {
+                "The selected text links to this address."
+            };
+            let body = Dom::create_div()
+                .with_css("display: flex; flex-direction: column;")
+                .with_child(text_line(hint, &format!("font-size: 12px; color: {}; margin-bottom: 8px;", look.muted)))
+                .with_child(
+                    TextInput::create_url()
+                        .with_text(url.as_str())
+                        .with_placeholder("https://")
+                        .with_accessibility_name("Link address")
+                        .with_on_text_input(app.clone(), on_sheet_text as TextInputOnTextInputCallbackType)
+                        .with_on_virtual_key_down(app.clone(), on_sheet_key as TextInputOnVirtualKeyDownCallbackType)
+                        .dom()
+                        .with_id("sheet-field"),
+                );
+            let buttons = Dom::create_div()
+                .with_child(sheet_button(app, "sheet-remove", "Remove link", ButtonType::Default, on_link_remove))
+                .with_child(sheet_button(app, "sheet-cancel", "Cancel", ButtonType::Default, on_sheet_cancel))
+                .with_child(sheet_button(app, "sheet-ok", "Link", ButtonType::Primary, on_sheet_ok));
+            sheet(look, "sheet-link", "Link", body, buttons)
+        }
+        Overlay::ConfirmDelete { id } => {
+            let title = s.library.get(id).map_or(model::UNTITLED, |n| n.display_title());
+            let body = text_line(
+                &format!("\"{title}\" is deleted for good: its file, its images and its versions."),
+                "font-size: 13px;",
+            );
+            let buttons = Dom::create_div()
+                .with_child(sheet_button(app, "sheet-cancel", "Cancel", ButtonType::Default, on_sheet_cancel))
+                .with_child(sheet_button(app, "sheet-ok", "Delete forever", ButtonType::Danger, on_sheet_ok));
+            sheet(look, "sheet-delete", "Delete forever?", body, buttons)
+        }
+    }
+}
+
+/// Opens the link sheet for the editor's selection (taken now: the sheet's
+/// field takes the focus).
+pub fn open_link_sheet(s: &mut AppState, info: &CallbackInfo) {
+    let (spans, block) = match editor::host_node(info, editor::root_dom()) {
+        Some(host) => (
+            editor::selection(info, host),
+            editor::caret(info, host).map_or(s.editor.caret_block, |(b, _)| b),
+        ),
+        None => (Vec::new(), s.editor.caret_block),
+    };
+    let url = s
+        .open_note()
+        .and_then(|n| {
+            spans.first().and_then(|(b, start, _)| {
+                n.doc.blocks.get(*b).and_then(|blk| {
+                    let mut at = 0usize;
+                    blk.runs.iter().find_map(|r| {
+                        let hit = at <= *start && *start < at + r.text.len();
+                        at += r.text.len();
+                        if hit {
+                            r.link.clone()
+                        } else {
+                            None
+                        }
+                    })
+                })
+            })
+        })
+        .unwrap_or_default();
+    s.overlay = Overlay::Link { url, spans, block };
+}
+
+extern "C" fn on_sheet_text(mut data: RefAny, mut info: CallbackInfo, field: TextInputState) -> OnTextInputReturn {
+    let text = field.get_text().as_str().to_string();
+    with_state(&mut data, &mut info, |s, _, _| {
+        match &mut s.overlay {
+            Overlay::NewNotebook { name, error } => {
+                *name = text;
+                error.clear();
+            }
+            Overlay::Link { url, .. } => *url = text,
+            _ => {}
+        }
+        Update::DoNothing
+    });
+    text_return(Update::DoNothing)
+}
+
+extern "C" fn on_sheet_key(mut data: RefAny, mut info: CallbackInfo, _field: TextInputState) -> OnTextInputReturn {
+    let key = info.get_current_keyboard_state().current_virtual_keycode.into_option();
+    let update = match key {
+        Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter) => {
+            with_state(&mut data, &mut info, |s, info, app| sheet_ok(info, app, s))
+        }
+        Some(VirtualKeyCode::Escape) => with_state(&mut data, &mut info, |s, _, _| {
+            s.overlay = Overlay::None;
+            Update::RefreshDom
+        }),
+        _ => Update::DoNothing,
+    };
+    text_return(update)
+}
+
+extern "C" fn on_sheet_cancel(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |s, info, _| {
+        s.overlay = Overlay::None;
+        editor::focus_editor(info);
+        Update::RefreshDom
+    })
+}
+
+extern "C" fn on_sheet_ok(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |s, info, app| sheet_ok(info, app, s))
+}
+
+extern "C" fn on_link_remove(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |s, info, _| {
+        if let Overlay::Link { url, .. } = &mut s.overlay {
+            url.clear();
+        }
+        apply_link(s, None);
+        s.overlay = Overlay::None;
+        editor::focus_editor(info);
+        Update::RefreshDom
+    })
+}
+
+/// Links the sheet's selection to `url` (`None`: unlinks it); with nothing
+/// selected, the address is added at the end of the caret's block as its
+/// own linked text.
+fn apply_link(s: &mut AppState, url: Option<String>) {
+    let Overlay::Link { spans, block, .. } = s.overlay.clone() else {
+        return;
+    };
+    let Some(note) = s.open_note_mut() else {
+        return;
+    };
+    let mut changed = false;
+    if spans.is_empty() {
+        if let (Some(url), Some(b)) = (url, note.doc.blocks.get_mut(block)) {
+            if b.kind.has_text() && !matches!(b.kind, BlockKind::Code { .. }) {
+                b.runs.push(crate::doc::Run::plain(url.clone()).linked(url));
+                changed = true;
+            }
+        }
+    } else {
+        for (b, start, end) in spans {
+            changed |= note.doc.set_link(b, start, end, url.clone());
+        }
+    }
+    if changed {
+        note.doc.normalize();
+        s.edited();
+    }
+}
+
+/// The sheet's main button (or Enter in its field).
+fn sheet_ok(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState) -> Update {
+    match s.overlay.clone() {
+        Overlay::NewNotebook { name, .. } => match model::clean_notebook_path(&name) {
+            Ok(path) => {
+                s.library.notebooks.insert(path.clone());
+                let mut so_far = String::new();
+                for segment in path.split('/') {
+                    if !so_far.is_empty() {
+                        so_far.push('/');
+                    }
+                    so_far.push_str(segment);
+                    s.nav.expanded.insert(so_far.clone());
+                }
+                s.overlay = Overlay::None;
+                let job = Job::PutText {
+                    key: model::marker_key(&path),
+                    text: String::new(),
+                };
+                jobs::spawn(info, app, s, job);
+                println!("AZNOTES_NOTEBOOK {path}");
+                show_scope(info, app, s, Scope::Notebook(path));
+                Update::RefreshDom
+            }
+            Err(e) => {
+                s.overlay = Overlay::NewNotebook {
+                    name,
+                    error: e.to_string(),
+                };
+                Update::RefreshDom
+            }
+        },
+        Overlay::Link { url, .. } => {
+            let url = url.trim().to_string();
+            apply_link(s, if url.is_empty() { None } else { Some(url) });
+            s.overlay = Overlay::None;
+            editor::focus_editor(info);
+            Update::RefreshDom
+        }
+        Overlay::ConfirmDelete { id } => {
+            s.overlay = Overlay::None;
+            delete_forever(info, app, s, &id);
+            Update::RefreshDom
+        }
+        Overlay::None | Overlay::Palette => Update::DoNothing,
+    }
+}
+
+// ==== The command palette ====
+
+/// What a palette command does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Action {
+    NewNote,
+    NewNotebook,
+    Open(String),
+    MoveTo(String),
+    Pin,
+    History,
+    ExportPdf,
+    ExportMarkdown,
+    Trash,
+    Show(Scope),
+    Settings(usize),
+    Theme(&'static str),
+    Mode(&'static str),
+}
+
+/// The palette's table: `(action, label, category, icon, shortcut)`, built
+/// from the state alone (a run names a row of the same table).
+fn palette_actions(s: &AppState) -> Vec<(Action, String, &'static str, &'static str, &'static str)> {
+    let mut out = vec![
+        (Action::NewNote, "New note".to_string(), "Notes", "note_add", "Ctrl+N"),
+        (Action::NewNotebook, "New notebook".to_string(), "Notes", "create_new_folder", ""),
+    ];
+    if let Some(note) = s.open_note() {
+        out.push((
+            Action::Pin,
+            if note.meta.pinned { "Unpin note" } else { "Pin note" }.to_string(),
+            "Note",
+            "push_pin",
+            "Ctrl+Shift+P",
+        ));
+        out.push((Action::History, "Version history".to_string(), "Note", "history", "Ctrl+Shift+H"));
+        out.push((Action::ExportPdf, "Export as PDF".to_string(), "Note", "picture_as_pdf", ""));
+        out.push((Action::ExportMarkdown, "Export as Markdown".to_string(), "Note", "file_download", ""));
+        out.push((Action::Trash, "Move to Trash".to_string(), "Note", "delete", ""));
+        let here = note.home_notebook().to_string();
+        for path in s.library.notebook_paths() {
+            if path != here {
+                out.push((Action::MoveTo(path.clone()), format!("Move to {path}"), "Move", "drive_file_move", ""));
+            }
+        }
+    }
+    out.push((Action::Show(Scope::All), "Show all notes".to_string(), "Go", "notes", ""));
+    out.push((Action::Show(Scope::Pinned), "Show pinned notes".to_string(), "Go", "push_pin", ""));
+    out.push((Action::Show(Scope::Trash), "Show the Trash".to_string(), "Go", "delete", ""));
+    for path in s.library.notebook_paths() {
+        out.push((Action::Show(Scope::Notebook(path.clone())), format!("Show {path}"), "Go", "folder", ""));
+    }
+    for (tag, _) in s.library.tags() {
+        out.push((Action::Show(Scope::Tag(tag.clone())), format!("Show #{tag}"), "Go", "tag", ""));
+    }
+    out.push((Action::Settings(0), "Settings".to_string(), "App", "settings", "Ctrl+,"));
+    out.push((Action::Settings(SETTINGS_SHORTCUTS), "Keyboard shortcuts".to_string(), "App", "keyboard", ""));
+    out.push((Action::Settings(SETTINGS_ABOUT), "About AzNotes".to_string(), "App", "info", ""));
+    out.push((Action::Theme("flat"), "Theme: Flat".to_string(), "App", "palette", ""));
+    out.push((Action::Theme("flora"), "Theme: Flora".to_string(), "App", "palette", ""));
+    out.push((Action::Mode("light"), "Mode: Light".to_string(), "App", "light_mode", ""));
+    out.push((Action::Mode("dark"), "Mode: Dark".to_string(), "App", "dark_mode", ""));
+    out.push((Action::Mode("system"), "Mode: Follow the system".to_string(), "App", "contrast", ""));
+    // Jump to a note: the most recently edited first.
+    let mut notes: Vec<&model::Note> = s.library.notes.iter().filter(|n| !n.is_trashed()).collect();
+    notes.sort_by(|a, b| b.meta.modified.cmp(&a.meta.modified));
+    for note in notes.into_iter().take(500) {
+        out.push((Action::Open(note.id.clone()), note.display_title().to_string(), "Open", "description", ""));
+    }
+    out
+}
+
+fn palette_dom(s: &AppState, app: &RefAny) -> Dom {
+    let commands: Vec<ShellPaletteCommand> = palette_actions(s)
+        .into_iter()
+        .map(|(_, label, category, icon, shortcut)| {
+            let mut c = ShellPaletteCommand::create(label).with_category(category).with_icon(icon);
+            if !shortcut.is_empty() {
+                c = c.with_shortcut(shortcut);
+            }
+            c
+        })
+        .collect();
+    ShellCommandPalette::create()
+        .with_commands(commands)
+        .with_query(s.palette_query.as_str())
+        .with_placeholder("Open a note, move it, run a command")
+        .with_open(true)
+        .with_on_query(app.clone(), on_palette_query as ShellCommandPaletteOnQueryCallbackType)
+        .with_on_run(app.clone(), on_palette_run as ShellCommandPaletteOnRunCallbackType)
+        .with_on_close(app.clone(), on_palette_close as ButtonOnClickCallbackType)
+        .dom()
+}
+
+extern "C" fn on_palette_query(mut data: RefAny, mut info: CallbackInfo, query: AzString) -> Update {
+    let query = query.as_str().to_string();
+    with_state(&mut data, &mut info, |s, _, _| {
+        s.palette_query = query;
+        Update::RefreshDom
+    })
+}
+
+extern "C" fn on_palette_close(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |s, _, _| {
+        s.overlay = Overlay::None;
+        Update::RefreshDom
+    })
+}
+
+/// Applies the app theme / mode and keeps it in the settings.
+fn set_look(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, theme: Option<&str>, mode: Option<&str>) {
+    if let Some(theme) = theme {
+        s.settings.theme = theme.to_string();
+        info.set_theme(theme);
+    }
+    if let Some(mode) = mode {
+        s.settings.mode = mode.to_string();
+        info.set_mode(match mode {
+            "light" => OptionDarkLightMode::Some(DarkLightMode::Light),
+            "dark" => OptionDarkLightMode::Some(DarkLightMode::Dark),
+            _ => OptionDarkLightMode::None,
+        });
+    }
+    save_settings(info, app, s);
+}
+
+/// Writes the settings file.
+fn save_settings(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState) {
+    let job = Job::PutText {
+        key: crate::SETTINGS_KEY.to_string(),
+        text: s.settings.to_text(),
+    };
+    jobs::spawn(info, app, s, job);
+}
+
+extern "C" fn on_palette_run(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    // An export renders with the state let go: it runs after the palette
+    // closed.
+    let mut export: Option<Action> = None;
+    let update = with_state(&mut data, &mut info, |s, info, app| {
+        let Some((action, label, ..)) = palette_actions(s).into_iter().nth(index) else {
+            return Update::DoNothing;
+        };
+        println!("AZNOTES_RUN {label}");
+        s.overlay = Overlay::None;
+        s.palette_query.clear();
+        match action {
+            Action::NewNote => jobs::new_note(info, app, s),
+            Action::NewNotebook => {
+                s.overlay = Overlay::NewNotebook {
+                    name: String::new(),
+                    error: String::new(),
+                };
+            }
+            Action::Open(id) => {
+                s.screen = Screen::Notes;
+                if !s.library.get(&id).is_some_and(|n| model::in_scope(n, &s.query.scope)) {
+                    s.query.scope = Scope::All;
+                }
+                jobs::open_note(info, app, s, &id);
+                jobs::focus_editor_soon(info);
+            }
+            Action::MoveTo(path) => {
+                if let Some(id) = s.open.clone() {
+                    if let Some(note) = s.library.get_mut(&id) {
+                        note.move_to(&path);
+                    }
+                    jobs::save_note(info, app, s, &id, false);
+                }
+            }
+            Action::Pin => {
+                toggle_pin(info, app, s);
+            }
+            Action::History => show_history(info, app, s),
+            Action::ExportPdf | Action::ExportMarkdown => export = Some(action),
+            Action::Trash => {
+                if let Some(id) = s.open.clone() {
+                    delete_note(info, app, s, &id);
+                }
+            }
+            Action::Show(scope) => show_scope(info, app, s, scope),
+            Action::Settings(category) => {
+                s.screen = Screen::Settings;
+                s.settings_category = category;
+                println!("AZNOTES_SCREEN settings");
+            }
+            Action::Theme(theme) => set_look(info, app, s, Some(theme), None),
+            Action::Mode(mode) => set_look(info, app, s, None, Some(mode)),
+        }
+        Update::RefreshDom
+    });
+    match export {
+        Some(Action::ExportPdf) => {
+            export_pdf(&mut data, &mut info);
+        }
+        Some(Action::ExportMarkdown) => {
+            export_markdown(&mut data, &mut info);
+        }
+        _ => {}
+    }
+    update
 }
