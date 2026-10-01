@@ -1,4 +1,3 @@
-use azul::css::SpinnerStyle;
 use azul::window::WindowDecorations;
 use azul::dom::{
     AccordionOnToggleCallback, AlertOnDismissCallback, AttributeNameValue, AttributeType,
@@ -16,7 +15,7 @@ use azul::{
     option::OptionDarkLightMode,
     prelude::*,
     widgets::*,
-    window::{TransientWindowConfig, UiTheme},
+    window::TransientWindowConfig,
 };
 
 mod forms;

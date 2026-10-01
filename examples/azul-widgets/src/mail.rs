@@ -11,7 +11,7 @@
 //! few rows and reports the window a settled scroll asks for in the status
 //! line.
 
-use azul::{prelude::*, str::String as AzString, widgets::*, window::UiTheme};
+use azul::{prelude::*, str::String as AzString, widgets::*};
 
 use crate::{captioned, section, strs, Showcase};
 

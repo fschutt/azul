@@ -16,7 +16,7 @@ use azul::{
     notification::{Notification, NotificationEvent, NotificationEventType},
     prelude::*,
     widgets::*,
-    window::{PlatformCapability, UiTheme},
+    window::PlatformCapability,
 };
 
 use crate::{labelled, section, Showcase};

@@ -25,8 +25,8 @@ use azul::{
     app::{GlobalHotkey, GlobalHotkeyStatus, HotkeyModifiers},
     dom::VirtualKeyCode,
     prelude::*,
-    widgets::Button,
-    window::{PlatformCapability, UiTheme},
+    widgets::{Button, UiTheme},
+    window::PlatformCapability,
 };
 
 use super::{captioned, labelled, section, Showcase};

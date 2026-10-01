@@ -18,8 +18,7 @@ use azul::{
     prelude::*,
     url::Url,
     video::{VideoConfig, VideoPhase, VideoSource, VideoStatus},
-    widgets::VideoWidget,
-    window::UiTheme,
+    widgets::{UiTheme, VideoWidget},
 };
 
 /// Big Buck Bunny: 10 s of 640 x 360 H.264 in an MP4, the clip

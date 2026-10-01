@@ -35,7 +35,6 @@ use azul::{
     prelude::*,
     str::String as AzString,
     widgets::*,
-    window::UiTheme,
 };
 
 use crate::{captioned, section, strs, text_area_text, Showcase};
