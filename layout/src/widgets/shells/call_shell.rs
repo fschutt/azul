@@ -73,6 +73,14 @@ pub const PANEL_CLASS: &str = "__azul-native-call-shell-panel";
 pub const DEVICES_CLASS: &str = "__azul-native-call-shell-devices";
 /// The controls bar's class.
 pub const CONTROLS_CLASS: &str = "__azul-native-call-shell-controls";
+/// The speaker layout's column (the stage over the filmstrip).
+pub const SPEAKER_CLASS: &str = "__azul-native-call-shell-speaker";
+/// The stage's cell (a shared screen, the active speaker).
+pub const STAGE_CLASS: &str = "__azul-native-call-shell-stage";
+/// The filmstrip under the stage: a row of the other tiles.
+pub const FILMSTRIP_CLASS: &str = "__azul-native-call-shell-filmstrip";
+/// A filmstrip cell's width (16:9 tiles: 99 px tall), in logical pixels.
+pub const FILMSTRIP_CELL_PX: isize = 176;
 
 /// The number of columns the gallery lays `count` tiles out in.
 #[must_use]
@@ -104,6 +112,11 @@ pub struct CallShell {
     pub on_pane_focus: OptionShellOnPaneFocus,
     /// A splitter moved.
     pub on_pane_resize: OptionShellOnPaneResize,
+    /// The stage (a shared screen, the active speaker), or nothing. With a
+    /// stage the main pane shows it large over a filmstrip of the tiles
+    /// (the speaker / presentation layout); without one the tiles are an
+    /// even gallery.
+    pub stage: OptionDom,
     /// The tiles' share of the width beside the side column (default 0.75).
     pub tiles_ratio: f32,
     /// The widget theme this shell is PINNED to (`with_theme`), or `None`
@@ -123,9 +136,22 @@ impl CallShell {
             controls,
             on_pane_focus: None.into(),
             on_pane_resize: None.into(),
+            stage: OptionDom::None,
             tiles_ratio: 0.75,
             theme: OptionUiTheme::None,
         }
+    }
+
+    /// The stage: shown large over a filmstrip of the tiles.
+    pub fn set_stage(&mut self, stage: Dom) {
+        self.stage = OptionDom::Some(stage);
+    }
+
+    /// [`Self::set_stage`] for the builder chain.
+    #[must_use]
+    pub fn with_stage(mut self, stage: Dom) -> Self {
+        self.set_stage(stage);
+        self
     }
 
     /// The header.
@@ -281,6 +307,7 @@ pub(crate) fn build(shell: CallShell, look: &ShellLook) -> Dom {
         controls,
         on_pane_focus,
         on_pane_resize,
+        stage: _,
         tiles_ratio,
         theme,
     } = shell;
@@ -428,6 +455,66 @@ mod call_shell_tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    /// A stage (a shared screen, the active speaker) shows large over a
+    /// filmstrip of the other tiles - the speaker / presentation layout of a
+    /// call - instead of an even gallery. The stage takes the room; every
+    /// filmstrip cell keeps a fixed width, so its stream's size does not
+    /// change with the number of people.
+    #[test]
+    fn a_stage_shows_large_over_a_filmstrip_of_the_tiles() {
+        let dom = full(3).with_stage(slot()).with_theme(UiTheme::Flat).dom();
+        assert!(tc::find(&dom, GRID_CLASS).is_none(), "no gallery beside a stage");
+        let speaker = tc::find(&dom, SPEAKER_CLASS).expect("the speaker layout");
+        let stage = tc::find(speaker, STAGE_CLASS).expect("the stage in it");
+        let strip = tc::find(speaker, FILMSTRIP_CLASS).expect("the filmstrip in it");
+        assert_eq!(tc::find_all(strip, TILE_CLASS).len(), 3, "every tile in the filmstrip");
+        let grow = tc::resolve(
+            stage,
+            azul_css::props::property::CssPropertyType::FlexGrow,
+            false,
+            None,
+        );
+        assert!(
+            matches!(grow, Some(CssProperty::FlexGrow(ref g)) if g.get_property().is_some_and(|g| g.inner.get() > 0.0)),
+            "the stage takes the room: {grow:?}"
+        );
+        let cell = tc::find(strip, TILE_CLASS).expect("a cell");
+        let width = tc::resolve(
+            cell,
+            azul_css::props::property::CssPropertyType::Width,
+            false,
+            None,
+        );
+        match width {
+            Some(CssProperty::Width(w)) => match w.get_property() {
+                Some(LayoutWidth::Px(pv)) => assert!(
+                    (pv.number.get() - FILMSTRIP_CELL_PX as f32).abs() < 0.01,
+                    "{pv:?}"
+                ),
+                other => panic!("{other:?}"),
+            },
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// Without a stage the tiles stay the even gallery.
+    #[test]
+    fn without_a_stage_the_tiles_are_the_gallery() {
+        let dom = full(3).with_theme(UiTheme::Flat).dom();
+        assert!(tc::find(&dom, GRID_CLASS).is_some());
+        assert!(tc::find(&dom, STAGE_CLASS).is_none());
+        assert!(tc::find(&dom, FILMSTRIP_CLASS).is_none());
+    }
+
+    /// A stage with nobody else (one person sharing a screen) is the stage
+    /// alone, no empty filmstrip under it.
+    #[test]
+    fn a_stage_without_tiles_has_no_filmstrip() {
+        let dom = full(0).with_stage(slot()).with_theme(UiTheme::Flat).dom();
+        assert!(tc::find(&dom, STAGE_CLASS).is_some());
+        assert!(tc::find(&dom, FILMSTRIP_CLASS).is_none());
     }
 
     #[test]
