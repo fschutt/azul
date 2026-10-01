@@ -420,6 +420,12 @@ pub mod wizard_pages;
 /// `GlobalHotkey`): click or Enter listens, the next chord is the shortcut;
 /// see `shortcut_recorder.rs`.
 pub mod shortcut_recorder;
+/// Standard dialogs.
+///
+/// The bodies of the dialogs every app shows: message box (with "Don't ask
+/// again"), About box, progress dialog, login, find / replace; see
+/// `standard_dialogs.rs`.
+pub mod standard_dialogs;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
 
