@@ -3031,3 +3031,177 @@ pub fn start(args: Args) {
     window.create_callback = Some(Callback::create(startup)).into();
     app.run(window);
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc::channel;
+
+    use super::*;
+    use crate::{
+        engine::{SheetEngine, StylePatch},
+        fake_engine::FakeEngine,
+        worker::{handle, CellView},
+    };
+
+    fn cell(row: u32, column: u32) -> CellGridCellRef {
+        CellGridCellRef { row, column }
+    }
+
+    fn sheets(names: &[&str]) -> Vec<SheetInfo> {
+        names
+            .iter()
+            .map(|n| SheetInfo {
+                name: (*n).to_string(),
+                color: None,
+                hidden: false,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn grid_cells_and_engine_addresses_convert_both_ways() {
+        let at = to_addr(2, cell(6, 1));
+        assert_eq!(at, CellAddr::new(2, 7, 2), "0-based grid, 1-based engine");
+        assert_eq!(to_cell(at), cell(6, 1));
+        let area = to_area(0, CellGridRange { first: cell(2, 1), last: cell(5, 3) });
+        assert_eq!(area, CellArea::spanning(0, 3, 2, 6, 4));
+    }
+
+    #[test]
+    fn a1_names_come_from_the_grid_widget() {
+        assert_eq!(a1(CellAddr::new(0, 7, 2)), "B7");
+        assert_eq!(a1_area(CellArea::spanning(0, 3, 2, 6, 2)), "B3:B6");
+        assert_eq!(a1_area(CellArea::cell(CellAddr::new(0, 1, 1))), "A1");
+        assert_eq!(absolute(CellArea::spanning(0, 3, 2, 6, 4)), "$B$3:$D$6");
+    }
+
+    #[test]
+    fn the_name_box_reads_cells_ranges_and_sheet_references() {
+        let book = sheets(&["Summary", "Data"]);
+        assert_eq!(
+            parse_reference("B7", &book, 0),
+            Some((0, CellGridRange { first: cell(6, 1), last: cell(6, 1) }))
+        );
+        assert_eq!(
+            parse_reference("data!C3:a1", &book, 0),
+            Some((1, CellGridRange { first: cell(0, 0), last: cell(2, 2) })),
+            "the sheet by name in any case, the corners in any order"
+        );
+        assert_eq!(parse_reference("Other!A1", &book, 0), None);
+        assert_eq!(parse_reference("A1:", &book, 0), None);
+        assert_eq!(parse_reference("Total", &book, 0), None, "a name, not a reference");
+        assert!(is_name("Total") && is_name("_x.y") && !is_name("1st") && !is_name("a b"));
+    }
+
+    fn snapshot_with(cells: Vec<CellView>, styles: Vec<CellStyle>) -> Snapshot {
+        Snapshot {
+            cells,
+            styles,
+            ..Snapshot::default()
+        }
+    }
+
+    fn view(row: i32, column: i32, shown: &str, input: &str, kind: ValueKind, style: u32) -> CellView {
+        CellView {
+            row,
+            column,
+            formatted: shown.to_string(),
+            input: input.to_string(),
+            kind,
+            style,
+        }
+    }
+
+    #[test]
+    fn the_view_cache_indexes_the_snapshot_and_maps_its_styles_to_the_grid() {
+        let bold_yellow = CellStyle {
+            bold: true,
+            fill: Some(String::from("#FFFF00")),
+            h_align: HAlign::Right,
+            ..CellStyle::default()
+        };
+        let cache = ViewCache::of(snapshot_with(
+            vec![
+                view(2, 3, "1,250.00", "1250", ValueKind::Number, 1),
+                view(4, 1, "9", "=SUM(A1:A3)", ValueKind::Number, 0),
+            ],
+            vec![CellStyle::default(), bold_yellow],
+        ));
+        assert_eq!(cache.shown(2, 3), "1,250.00");
+        assert_eq!(cache.input(4, 1), "=SUM(A1:A3)");
+        assert_eq!(cache.input(9, 9), "", "not fetched: empty");
+        let style = &cache.styles[1];
+        assert!(style.bold);
+        assert_eq!(style.align, CellGridHorizontalAlign::Right);
+        match style.fill {
+            OptionColorU::Some(c) => assert_eq!((c.r, c.g, c.b), (255, 255, 0)),
+            OptionColorU::None => panic!("the fill is mapped"),
+        }
+        assert!(matches!(cache.styles[0].fill, OptionColorU::None));
+    }
+
+    #[test]
+    fn the_current_region_grows_over_touching_filled_cells() {
+        let cache = ViewCache::of(snapshot_with(
+            vec![
+                view(2, 1, "Category", "Category", ValueKind::Text, 0),
+                view(2, 2, "Jan", "Jan", ValueKind::Text, 0),
+                view(3, 1, "Rent", "Rent", ValueKind::Text, 0),
+                view(3, 2, "1250", "1250", ValueKind::Number, 0),
+                view(4, 2, "400", "400", ValueKind::Number, 0),
+                view(9, 9, "far", "far", ValueKind::Text, 0),
+            ],
+            vec![CellStyle::default()],
+        ));
+        assert_eq!(
+            current_region(&cache, CellAddr::new(0, 3, 2)),
+            CellArea::spanning(0, 2, 1, 4, 2),
+            "the block, not the far cell"
+        );
+    }
+
+    #[test]
+    fn a_new_state_asks_for_its_window_and_selection() {
+        let s = AppState::new(PathBuf::from("/tmp/azsheets-test"));
+        let request = s.view_request();
+        assert_eq!(request.sheet, 0);
+        assert_eq!(request.rows.first().map(|r| r.0), Some(1));
+        assert_eq!(request.selection, vec![CellArea::cell(CellAddr::new(0, 1, 1))]);
+        assert!(!s.window_fetched(), "nothing fetched yet");
+        assert_eq!(safe_name("Budget 2027 / Q1"), "Budget-2027---Q1");
+        assert_eq!(safe_name("///"), "workbook");
+    }
+
+    #[test]
+    fn the_grid_shows_what_the_engine_answered_for_the_window() {
+        let mut engine = FakeEngine::new();
+        engine.set_cell_input(CellAddr::new(0, 1, 1), "4").unwrap();
+        engine.set_cell_input(CellAddr::new(0, 2, 1), "5").unwrap();
+        engine.set_cell_input(CellAddr::new(0, 3, 1), "=SUM(A1:A2)").unwrap();
+        engine
+            .update_style(CellArea::cell(CellAddr::new(0, 3, 1)), &StylePatch::Bold(true))
+            .unwrap();
+        let s = AppState::new(PathBuf::from("/tmp/azsheets-test"));
+        let (tx, _rx) = channel();
+        let reply = handle(
+            &mut engine,
+            &EngineMsg {
+                seq: 1,
+                command: Command::Fetch,
+                view: s.view_request(),
+                reply: tx,
+            },
+        );
+        let cache = Arc::new(ViewCache::of(reply.snapshot));
+        assert_eq!(cache.shown(3, 1), "9");
+        let source = RefAny::new(GridSource {
+            cache: Arc::clone(&cache),
+        });
+        let shown = cell_data(source.clone(), cell(2, 0));
+        assert_eq!(shown.text.as_str(), "9");
+        assert_eq!(shown.kind, CellGridCellKind::Number);
+        assert!(cell_look(source.clone(), cell(2, 0)).bold, "the total is bold");
+        let empty = cell_data(source, cell(40, 40));
+        assert_eq!(empty.kind, CellGridCellKind::Empty);
+    }
+}
