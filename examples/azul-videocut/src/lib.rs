@@ -707,7 +707,318 @@ extern "C" fn on_job_done(mut data: RefAny, mut msg: RefAny, mut info: CallbackI
     }
 }
 
-// ==== PIECE C: pictures and playback ====
+// ==== pictures and playback ====
+
+/// A picture as an image for an image node (opaque RGBA8).
+fn image_of(c: &Canvas) -> Option<ImageRef> {
+    let raw = RawImage {
+        pixels: RawImageData::U8(U8Vec::from(c.rgba.clone())),
+        width: c.width as usize,
+        height: c.height as usize,
+        premultiplied_alpha: true,
+        data_format: RawImageFormat::RGBA8,
+        tag: U8Vec::create(),
+    };
+    ImageRef::create_rawimage(raw).into_option()
+}
+
+/// An empty picture for an image node with nothing to show yet.
+fn blank_image(width: u32, height: u32) -> ImageRef {
+    ImageRef::null_image(
+        width as usize,
+        height as usize,
+        RawImageFormat::RGBA8,
+        U8VecRef::from(&[][..]),
+    )
+}
+
+/// Swaps the picture of the image node carrying `marker` in place: no
+/// layout, no DOM rebuild.
+fn show_in_place(info: &mut CallbackInfo, marker: &str, c: &Canvas) {
+    let Some(image) = image_of(c) else {
+        return;
+    };
+    let Some(node) = info.get_node_id_by_marker(AzString::from(marker)).into_option() else {
+        return;
+    };
+    let index = node.node.into_raw();
+    if index > 0 {
+        info.change_node_image(node.dom, NodeId { inner: index - 1 }, image, UpdateImageType::Content);
+    }
+}
+
+/// Shows the program picture at the playhead: from the last one when it is
+/// that frame, else from a render job (one at a time; while one runs, the
+/// newest request waits).
+fn request_program_frame(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App) {
+    if app.project.is_none() || app.playback.is_some() {
+        return;
+    }
+    let frame = app.playhead;
+    if app.program_frame.as_ref().is_some_and(|(f, _)| *f == frame) {
+        return;
+    }
+    if app.program_job.running {
+        app.program_job.wanted = Some(frame);
+        return;
+    }
+    start_program_render(info, app_ref, app, frame);
+}
+
+fn start_program_render(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App, frame: Frame) {
+    let Some(project) = app.project.clone() else {
+        return;
+    };
+    let (width, height) = app.monitor_size();
+    app.program_job.running = true;
+    let revision = app.revision;
+    spawn(
+        info,
+        app_ref,
+        app,
+        Job::Render {
+            project,
+            frame,
+            width,
+            height,
+            revision,
+        },
+    );
+}
+
+/// Shows the source monitor's picture at its position (coalesced like the
+/// program's).
+fn request_source_frame(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App) {
+    let Some(marks) = app.source else {
+        return;
+    };
+    if app
+        .source_frame
+        .as_ref()
+        .is_some_and(|(m, f, _)| *m == marks.media && *f == marks.position)
+    {
+        return;
+    }
+    if app.source_job.running {
+        app.source_job.wanted = Some(marks.position);
+        return;
+    }
+    start_source_render(info, app_ref, app, marks.position);
+}
+
+fn start_source_render(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App, frame: Frame) {
+    let Some(marks) = app.source else {
+        return;
+    };
+    let Some(media) = app.project.as_ref().and_then(|p| p.media(marks.media)).cloned() else {
+        return;
+    };
+    let fps = app.fps();
+    app.source_job.running = true;
+    spawn(
+        info,
+        app_ref,
+        app,
+        Job::RenderSource {
+            media,
+            frame,
+            width: MONITOR_W,
+            height: MONITOR_H,
+            fps,
+        },
+    );
+}
+
+/// What the playback job works with.
+struct PlaybackInit {
+    project: Project,
+    start: Frame,
+    speed: i64,
+    width: u32,
+    height: u32,
+    shared: Arc<PlaybackShared>,
+    drive: Arc<dyn Drive>,
+    files: Arc<MediaFiles>,
+}
+
+/// Renders the frames playback will show, a few ahead, then waits for the
+/// timer to take them (or for the stop).
+extern "C" fn playback_thread(mut init: RefAny, _sender: ThreadSender, mut receiver: ThreadReceiver) {
+    let Some((project, start, speed, width, height, shared, drive, files)) =
+        init.downcast_ref::<PlaybackInit>().map(|i| {
+            (
+                i.project.clone(),
+                i.start,
+                i.speed,
+                i.width,
+                i.height,
+                i.shared.clone(),
+                i.drive.clone(),
+                i.files.clone(),
+            )
+        })
+    else {
+        return;
+    };
+    let mut library = Library::new(files, drive, project.sequence.fps);
+    let end = project.sequence.end();
+    let mut f = start;
+    while f >= 0 && f < end {
+        if shared.stop.load(Ordering::Relaxed) {
+            break;
+        }
+        if matches!(receiver.recv().into_option(), Some(ThreadSendMsg::TerminateThread)) {
+            break;
+        }
+        let picture = compose(&project, f, width, height, &mut library);
+        let Ok(mut queue) = shared.frames.lock() else {
+            break;
+        };
+        queue.push_back((f, picture));
+        while queue.len() >= PLAY_AHEAD && !shared.stop.load(Ordering::Relaxed) {
+            queue = match shared.room.wait_timeout(queue, std::time::Duration::from_millis(100)) {
+                Ok((q, _)) => q,
+                Err(_) => return,
+            };
+        }
+        drop(queue);
+        f += speed;
+    }
+}
+
+/// The monitor's frame interval in milliseconds (its highest refresh rate;
+/// 60 Hz when it says none).
+fn monitor_interval_ms(info: &CallbackInfo) -> u64 {
+    let hz = info
+        .get_current_monitor()
+        .into_option()
+        .and_then(|m| m.video_modes.as_slice().iter().map(|v| v.refresh_rate).max())
+        .filter(|hz| *hz > 0)
+        .unwrap_or(60);
+    (1000 / u64::from(hz.max(24))).max(4)
+}
+
+/// Plays from the playhead at `speed` (frames per frame: 1, 2, 4 forward,
+/// negative backward).
+fn start_playback(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut App, speed: i64) {
+    stop_playback(app);
+    let Some(project) = app.project.clone() else {
+        return;
+    };
+    let end = project.sequence.end();
+    if end == 0 {
+        return;
+    }
+    if speed > 0 && app.playhead >= end - 1 {
+        app.playhead = 0;
+    }
+    if speed < 0 && app.playhead <= 0 {
+        app.playhead = end - 1;
+    }
+    let shared = Arc::new(PlaybackShared::default());
+    let (width, height) = app.monitor_size();
+    let thread = ThreadId::unique();
+    info.add_thread(
+        thread,
+        Thread::create(
+            RefAny::new(PlaybackInit {
+                project,
+                start: app.playhead,
+                speed,
+                width,
+                height,
+                shared: shared.clone(),
+                drive: app.drive.clone(),
+                files: app.files.clone(),
+            }),
+            app_ref.clone(),
+            playback_thread,
+        ),
+    );
+    let timer = TimerId::unique();
+    let get_time = info.get_system_time_fn();
+    let interval = monitor_interval_ms(info);
+    info.add_timer(
+        timer,
+        Timer::create(app_ref.clone(), playback_tick, get_time)
+            .with_interval(Duration::System(SystemTimeDiff::from_millis(interval))),
+    );
+    app.playback = Some(Playback {
+        shared,
+        timer,
+        thread,
+        start: app.playhead,
+        started: StdInstant::now(),
+        speed,
+        shown: app.playhead,
+        last_ui: StdInstant::now(),
+    });
+    app.status = format!("Playing at {speed}x.");
+}
+
+/// Stops playback; its job ends by itself, its timer ends at its next tick.
+fn stop_playback(app: &mut App) {
+    if let Some(pb) = app.playback.take() {
+        pb.shared.stop.store(true, Ordering::Relaxed);
+        pb.shared.room.notify_all();
+        app.playhead = pb.shown;
+        app.status = String::from("Stopped.");
+        let _ = (pb.timer, pb.thread);
+    }
+}
+
+/// A tick of the monitor's frame interval while playing: shows the frame
+/// that is due, moves the timeline a few times a second, ends at the end.
+extern "C" fn playback_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
+    let Some(mut guard) = data.downcast_mut::<App>() else {
+        return TimerCallbackReturn::terminate_unchanged();
+    };
+    let app = &mut *guard;
+    let fps = app.fps();
+    let end = app.end();
+    let Some(pb) = app.playback.as_mut() else {
+        // Stopped by a key or a button: this timer is done.
+        return TimerCallbackReturn::terminate_unchanged();
+    };
+    #[allow(clippy::cast_possible_truncation)]
+    let due = pb.start + (pb.started.elapsed().as_secs_f64() * f64::from(fps)) as Frame * pb.speed;
+    let mut shown = None;
+    if let Ok(mut queue) = pb.shared.frames.lock() {
+        while let Some((f, _)) = queue.front() {
+            let reached = if pb.speed > 0 { *f <= due } else { *f >= due };
+            if !reached {
+                break;
+            }
+            shown = queue.pop_front();
+        }
+    }
+    pb.shared.room.notify_all();
+    let finished = if pb.speed > 0 { due >= end } else { due < 0 };
+    let refresh_ui = pb.last_ui.elapsed().as_millis() >= 250;
+    if refresh_ui {
+        pb.last_ui = StdInstant::now();
+    }
+    if let Some((f, _)) = &shown {
+        pb.shown = *f;
+    }
+    if let Some((f, picture)) = shown {
+        show_in_place(&mut info.callback_info, PROGRAM_IMAGE, &picture);
+        app.playhead = f;
+        app.program_frame = Some((f, picture));
+        announce(&format!("FRAME {f}"));
+    }
+    if finished {
+        stop_playback(app);
+        app.playhead = app.playhead.clamp(0, (end - 1).max(0));
+        announce(&format!("PLAYHEAD {}", app.playhead));
+        return TimerCallbackReturn::terminate_and_refresh_dom();
+    }
+    if refresh_ui {
+        TimerCallbackReturn::continue_and_refresh_dom()
+    } else {
+        TimerCallbackReturn::continue_unchanged()
+    }
+}
 
 // ==== PIECE D: layout ====
 
