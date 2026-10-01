@@ -20,9 +20,13 @@ Branch `wt/mail2` from `39092feee`. Worktree
 
 - App UI (NEXT step 3), in pieces, each committed. Done: a (`a7add8cae`/`94d8ea0ee`), b
   (`968973d2a`), c (`ffff895d3`, `f3d582151`, `d1c39f4bd`), d part 1 (`ae989a728`: state +
-  start + skeleton files). NEXT: d part 2 = lib.rs keyring callbacks, sync (prepare/spawn/thread/
-  event, from MAIL1's code in scratchpad `mail2/lib_mail1.rs` lines 1307-1628), the IO thread
-  (account / flags / settings writes off the UI thread).
+  start + skeleton files), d part 2 (`f0a2f7160`, `0573fe057`: keyring, Send/Receive thread with
+  outbox retry, IO thread). Extra: account name RED/GREEN (`87b20c2a0`/`50d2bc6e8`); local Sent
+  mail across the first sync and a renumbering RED/GREEN (`c406c9905`/`b8d087b3d`, the gap SEND's
+  report names). NEXT: f = ui_account.rs (AccountEditor, open_wizard(s, Option<AccountForm>),
+  open_settings(s), open_settings_with_error(s, id, err), account_saved(s, info, app, account,
+  editing), wizard_page, settings_page, callbacks), then e = ui_main.rs, g = ui_compose.rs,
+  h = sample.rs.
   a. compose.rs `draft_mail` (lenient OutgoingMail for drafts) RED + GREEN
   b. args.rs (`--screen --theme --mode --sample --size`) + tests
   c. editor.rs (MailDoc <-> Dom for the Path-2 editor; text sync; structural edit apply)
