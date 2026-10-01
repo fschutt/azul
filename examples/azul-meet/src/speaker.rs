@@ -21,8 +21,15 @@ pub const SILENCE_DB: f32 = -100.0;
 
 /// The RMS level of 16-bit PCM `samples`, in dBFS ([`SILENCE_DB`] for silence or no samples).
 pub fn level_db(samples: &[i16]) -> f32 {
-    let _ = samples;
-    SILENCE_DB
+    if samples.is_empty() {
+        return SILENCE_DB;
+    }
+    let sum: f64 = samples.iter().map(|s| f64::from(*s) * f64::from(*s)).sum();
+    let rms = (sum / samples.len() as f64).sqrt() / 32768.0;
+    if rms <= 0.0 {
+        return SILENCE_DB;
+    }
+    ((20.0 * rms.log10()) as f32).max(SILENCE_DB)
 }
 
 /// One peer's current run of speech: when it began and when it was last heard.
@@ -47,8 +54,27 @@ impl ActiveSpeaker {
     /// A packet of `peer`'s audio at `level` dBFS arrived at `now_ms`. True when the active
     /// speaker changed.
     pub fn observe(&mut self, peer: u64, level: f32, now_ms: u64) -> bool {
-        let _ = (peer, level, now_ms);
-        false
+        if level < SPEAKING_DB {
+            // Quiet: the run ends by itself once GAP_MS pass without speech.
+            return false;
+        }
+        let run = self.runs.entry(peer).or_insert(Run {
+            started_ms: now_ms,
+            last_ms: now_ms,
+        });
+        if now_ms.saturating_sub(run.last_ms) > GAP_MS {
+            run.started_ms = now_ms;
+        }
+        run.last_ms = now_ms;
+        let long = run.last_ms.saturating_sub(run.started_ms) >= SWITCH_MS;
+        if !long || self.current == Some(peer) {
+            return false;
+        }
+        if self.current.is_some_and(|on_stage| self.is_speaking(on_stage, now_ms)) {
+            return false;
+        }
+        self.current = Some(peer);
+        true
     }
 
     /// The active speaker: the peer on the stage.
@@ -58,13 +84,17 @@ impl ActiveSpeaker {
 
     /// Whether `peer` is speaking right now (the speaking indicator).
     pub fn is_speaking(&self, peer: u64, now_ms: u64) -> bool {
-        let _ = (peer, now_ms);
-        false
+        self.runs
+            .get(&peer)
+            .is_some_and(|run| now_ms.saturating_sub(run.last_ms) <= GAP_MS)
     }
 
     /// `peer` left the call.
     pub fn forget(&mut self, peer: u64) {
-        let _ = peer;
+        self.runs.remove(&peer);
+        if self.current == Some(peer) {
+            self.current = None;
+        }
     }
 }
 
