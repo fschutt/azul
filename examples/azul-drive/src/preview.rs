@@ -1,6 +1,7 @@
 //! What the preview pane can show for a file: an image (decoded by azul), the
-//! first 64 KB of a text or code file, a video (azul's video widget), or why
-//! it cannot (audio and PDF have no renderer in azul yet). No azul types.
+//! first 64 KB of a text or code file, a PDF's first page (azul's PDF reader
+//! and SVG renderer), a video (azul's video widget), or why it cannot (azul
+//! has no audio decoder). No azul types.
 
 use crate::browse;
 
@@ -11,7 +12,8 @@ pub enum PreviewKind {
     Image,
     /// The first [`TEXT_PREVIEW_BYTES`] as text.
     Text,
-    /// No PDF renderer in azul's public API: the pane says so.
+    /// The first page: azul's PDF reader turns it into SVG, azul's SVG
+    /// renderer draws it.
     Pdf,
     /// azul's video widget (H.264 MP4; a cloud file is fetched first).
     Video,
@@ -79,9 +81,11 @@ pub fn preview_kind(name: &str) -> PreviewKind {
 pub fn fits_preview(kind: PreviewKind, size: Option<u64>) -> bool {
     match kind {
         PreviewKind::Text => true,
-        PreviewKind::Image => size.is_some_and(|s| s <= IMAGE_PREVIEW_MAX_BYTES),
+        PreviewKind::Image | PreviewKind::Pdf => {
+            size.is_some_and(|s| s <= IMAGE_PREVIEW_MAX_BYTES)
+        }
         PreviewKind::Video => size.is_some_and(|s| s <= VIDEO_PREVIEW_MAX_BYTES),
-        PreviewKind::Pdf | PreviewKind::Audio | PreviewKind::None => false,
+        PreviewKind::Audio | PreviewKind::None => false,
     }
 }
 
@@ -107,15 +111,11 @@ pub fn text_preview(bytes: &[u8], truncated: bool) -> Result<String, &'static st
 #[must_use]
 pub fn no_preview_reason(kind: PreviewKind) -> Option<&'static str> {
     match kind {
-        PreviewKind::Pdf => Some(
-            "No preview: azul's public API cannot draw a PDF page yet (its PDF reader turns pages \
-             into SVG inside the library only).",
-        ),
         PreviewKind::Audio => {
             Some("No preview: azul plays raw PCM samples and has no audio decoder for this format.")
         }
         PreviewKind::None => Some("No preview available."),
-        PreviewKind::Image | PreviewKind::Text | PreviewKind::Video => None,
+        PreviewKind::Image | PreviewKind::Pdf | PreviewKind::Text | PreviewKind::Video => None,
     }
 }
 

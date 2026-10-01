@@ -282,6 +282,54 @@ fn preview_bytes(
     }
 }
 
+/// A PDF's first page as a picture: azul's PDF reader turns the page into
+/// SVG, azul's SVG renderer draws it 560 px wide on white.
+fn pdf_first_page(bytes: &[u8]) -> PreviewContent {
+    use azul::{
+        error::ResultParsedSvgSvgParseError,
+        option::OptionColorU,
+        svg::{ParsedSvg, SvgFitTo, SvgParseOptions, SvgRenderOptions},
+    };
+    let pages = azul::pdf::Pdf::create().to_svg_pages(bytes.to_vec());
+    let Some(svg) = pages.as_slice().first().map(|s| s.as_str().to_string()) else {
+        return PreviewContent::Message(String::from(
+            "No preview: azul could not read this PDF.",
+        ));
+    };
+    let parsed = match ParsedSvg::from_string(svg, SvgParseOptions::create_default()) {
+        ResultParsedSvgSvgParseError::Ok(parsed) => parsed,
+        ResultParsedSvgSvgParseError::Err(_) => {
+            return PreviewContent::Message(String::from(
+                "No preview: the PDF's first page could not be drawn.",
+            ))
+        }
+    };
+    let mut options = SvgRenderOptions::create_default();
+    options.fit = SvgFitTo::Width(560);
+    options.background_color = OptionColorU::Some(ColorU {
+        r: 255,
+        g: 255,
+        b: 255,
+        a: 255,
+    });
+    let drawn = parsed.render(options).into_option().and_then(|image| {
+        let (width, height) = (image.width, image.height);
+        ImageRef::create_rawimage(image)
+            .into_option()
+            .map(|image| (image, width, height))
+    });
+    match drawn {
+        Some((image, width, height)) => PreviewContent::Image {
+            image,
+            width,
+            height,
+        },
+        None => PreviewContent::Message(String::from(
+            "No preview: the PDF's first page could not be drawn.",
+        )),
+    }
+}
+
 /// The preview of `key`, made on the worker thread.
 fn make_preview(
     drive: &dyn Drive,
@@ -329,6 +377,7 @@ fn make_preview(
             Ok(text) => PreviewContent::Text(text),
             Err(why) => PreviewContent::Message(format!("No preview: {why}.")),
         },
+        PreviewKind::Pdf => pdf_first_page(&bytes),
         PreviewKind::Image => {
             match RawImage::decode_image_bytes_any(U8VecRef::from(bytes.as_slice())) {
                 azul::error::ResultRawImageDecodeImageError::Ok(image) => {
