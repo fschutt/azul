@@ -7486,3 +7486,135 @@ pub(crate) fn dialog_kit_look() -> crate::widgets::dialog_kit::DialogKitLook {
         marker: Some(super::style_kit::FLORA_CLASS),
     }
 }
+// ==== timeline ====
+//
+// A flora timeline is the editor's bench: the ruler on the toolbar strip
+// (--fl-strip) under a --fl-bd hairline, the track headers on the leaf with
+// their names in `.fl-label`, the lanes on the desk a --fl-sep hairline
+// apart, the clips as rounded blocks in earthy tints (slate video, moss
+// audio, plum titles, the accent, a stone grey) with warm white names, the
+// selected clip ringed in brass, the playhead a clay line; focus is the
+// accent halo inside the lanes (the glow at night).
+
+const TIMELINE_VIDEO_LIGHT: ColorU = ColorU::rgb(0x5A, 0x72, 0xA3);
+const TIMELINE_VIDEO_DARK: ColorU = ColorU::rgb(0x45, 0x5B, 0x85);
+const TIMELINE_AUDIO_LIGHT: ColorU = ColorU::rgb(0x5E, 0x85, 0x50);
+const TIMELINE_AUDIO_DARK: ColorU = ColorU::rgb(0x4A, 0x6A, 0x3F);
+const TIMELINE_TITLE_LIGHT: ColorU = ColorU::rgb(0x96, 0x68, 0x8A);
+const TIMELINE_TITLE_DARK: ColorU = ColorU::rgb(0x77, 0x50, 0x6D);
+const TIMELINE_MUTED_LIGHT: ColorU = ColorU::rgb(0x84, 0x7F, 0x74);
+const TIMELINE_MUTED_DARK: ColorU = ColorU::rgb(0x5A, 0x56, 0x4F);
+const TIMELINE_CLIP_INK: ColorU = ColorU::rgb(0xFB, 0xF8, 0xF0);
+const TIMELINE_PLAYHEAD_LIGHT: ColorU = ColorU::rgb(0xB4, 0x3C, 0x2C);
+const TIMELINE_PLAYHEAD_DARK: ColorU = ColorU::rgb(0xE0, 0x6A, 0x55);
+const TIMELINE_SELECTED_RING: ColorU = ColorU::rgb(0xE0, 0xB3, 0x41);
+
+/// A line `px` wide (a tick, the playhead).
+fn flora_timeline_line(px: isize, light: ColorU, dark: ColorU) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = vec![CssPropertyWithConditions::simple(CssProperty::const_width(
+        LayoutWidth::const_px(px),
+    ))];
+    v.extend(decl::themed_fill(light, dark));
+    v
+}
+
+/// A flora clip of `tint`: its block, its warm white name.
+fn flora_timeline_clip(
+    tint: crate::widgets::timeline::TimelineClipTint,
+) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    use crate::widgets::timeline::TimelineClipTint as T;
+    let (light, dark) = match tint {
+        T::Video => (TIMELINE_VIDEO_LIGHT, TIMELINE_VIDEO_DARK),
+        T::Audio => (TIMELINE_AUDIO_LIGHT, TIMELINE_AUDIO_DARK),
+        T::Title => (TIMELINE_TITLE_LIGHT, TIMELINE_TITLE_DARK),
+        T::Accent => (LIGHT_ACC, DARK_ACC),
+        T::Muted => (TIMELINE_MUTED_LIGHT, TIMELINE_MUTED_DARK),
+    };
+    let mut v = decl::themed_fill(light, dark).to_vec();
+    v.extend(decl::themed_ink(TIMELINE_CLIP_INK, TIMELINE_CLIP_INK));
+    v.extend(decl::radius(4));
+    v.extend(decl::padding(0, 6, 0, 4));
+    v
+}
+
+/// Flora's timeline look.
+#[must_use]
+pub(crate) fn timeline_look() -> crate::widgets::timeline::TimelineLook {
+    use super::{decl, style_kit as kit};
+
+    let mut corner = vec![kit::font_size(12), decl::semibold()];
+    corner.extend(decl::padding(0, 10, 0, 10));
+    corner.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
+
+    let mut ruler = decl::border_left(1).to_vec();
+    ruler.extend(decl::themed_border_left_color(LIGHT_BD, DARK_BD));
+
+    let mut tick_label = vec![kit::font_size(10)];
+    tick_label.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut header = decl::padding(0, 2, 0, 10).to_vec();
+    header.extend(decl::border_bottom(1));
+    header.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut lanes = decl::themed_fill(LIGHT_DESK, DARK_DESK).to_vec();
+    lanes.extend(decl::border_left(1));
+    lanes.extend(decl::themed_border_left_color(LIGHT_BD, DARK_BD));
+    lanes.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+
+    let mut lane = decl::border_bottom(1).to_vec();
+    lane.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let selected = CssPropertyWithConditions::themed(
+        decl::shadow(0, 0, 2, TIMELINE_SELECTED_RING, true),
+        decl::shadow(0, 0, 2, TIMELINE_SELECTED_RING, true),
+    )
+    .to_vec();
+
+    let mut clip_thumb = decl::margin(0, 5, 0, 0).to_vec();
+    clip_thumb.extend(decl::radius(3));
+
+    let clip_label = vec![kit::font_size(11), decl::semibold()];
+    let mut clip_detail = vec![kit::font_size(10)];
+    clip_detail.extend(decl::margin(0, 0, 0, 6));
+
+    let mut scroll_track = decl::themed_fill(LIGHT_TRACK, DARK_TRACK).to_vec();
+    scroll_track.extend(decl::radius(4));
+    scroll_track.extend(decl::margin(2, 8, 2, 4));
+
+    let mut thumb = decl::themed_fill(LIGHT_BD3, DARK_BD3).to_vec();
+    thumb.extend(decl::radius(3));
+
+    crate::widgets::timeline::TimelineLook {
+        root: flora_leaf(),
+        head: flora_strip_below(),
+        corner,
+        ruler,
+        tick: flora_timeline_line(1, LIGHT_BD3, DARK_BD3),
+        tick_minor: flora_timeline_line(1, LIGHT_BD, DARK_BD),
+        tick_label,
+        ruler_head: flora_timeline_line(2, TIMELINE_PLAYHEAD_LIGHT, TIMELINE_PLAYHEAD_DARK),
+        headers: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
+        header,
+        track_name: flora_label(),
+        lanes,
+        lane,
+        clip: flora_timeline_clip,
+        clip_selected: selected,
+        clip_thumb,
+        clip_label,
+        clip_detail,
+        playhead: flora_timeline_line(2, TIMELINE_PLAYHEAD_LIGHT, TIMELINE_PLAYHEAD_DARK),
+        scroll: flora_strip_above(),
+        scroll_track,
+        thumb,
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}
+
+/// The flora timeline.
+#[must_use]
+pub fn timeline(t: crate::widgets::timeline::Timeline) -> Dom {
+    crate::widgets::timeline::build(t, &timeline_look())
+}
