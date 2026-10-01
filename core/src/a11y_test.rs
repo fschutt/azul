@@ -12,6 +12,28 @@ mod assign_tests {
     use super::*;
     use crate::{dom::OptionDomNodeId, geom::LogicalPosition, window::OptionVirtualKeyCodeCombo};
 
+    /// A grid cell's position (`aria-rowindex` / `aria-colindex`) rides
+    /// through `assign` like every field a patch sets, an unset index in the
+    /// patch keeps the one the node had, and a fresh declaration has none.
+    #[test]
+    fn assign_carries_a_grid_cells_row_and_column_index() {
+        let mut cell = AccessibilityInfo {
+            role: AccessibilityRole::GridCell,
+            row_index: azul_css::corety::OptionUsize::Some(7),
+            ..Default::default()
+        };
+        cell.assign(AccessibilityInfo {
+            column_index: azul_css::corety::OptionUsize::Some(3),
+            ..Default::default()
+        });
+        assert_eq!(cell.row_index.into_option(), Some(7));
+        assert_eq!(cell.column_index.into_option(), Some(3));
+        assert_eq!(cell.role, AccessibilityRole::GridCell);
+        let fresh = AccessibilityInfo::default();
+        assert_eq!(fresh.row_index.into_option(), None);
+        assert_eq!(fresh.column_index.into_option(), None);
+    }
+
     /// Partial updates must leave unset fields intact.
     #[test]
     fn assign_takes_only_what_the_patch_sets() {
@@ -641,6 +663,8 @@ mod autotest_generated {
             IpAddress,
             Nothing,
             Unknown,
+            Grid,
+            GridCell,
         ]
     }
 
@@ -683,7 +707,7 @@ mod autotest_generated {
                 | RadioButton | ComboBox | DropList | ProgressBar | Dial | HotkeyField | Slider
                 | SpinButton | Diagram | Animation | Equation | ButtonDropdown | ButtonMenu
                 | ButtonDropdownGrid | Whitespace | PageTabList | Clock | SplitButton
-                | IpAddress | Nothing | Unknown => true,
+                | IpAddress | Nothing | Unknown | Grid | GridCell => true,
             };
             assert!(known);
         }
@@ -1266,6 +1290,8 @@ mod autotest_generated {
                 dom: DomId { inner: 3 },
                 node: NodeHierarchyItemId::from_raw(7),
             }),
+            row_index: azul_css::corety::OptionUsize::Some(4),
+            column_index: azul_css::corety::OptionUsize::Some(2),
             role: AccessibilityRole::PushButton,
             is_live_region: true,
         }

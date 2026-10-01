@@ -1575,6 +1575,8 @@ mod autotest_generated {
             supported_actions: Vec::<AccessibilityAction>::new().into(),
             labelled_by: OptionDomNodeId::None,
             described_by: OptionDomNodeId::None,
+            row_index: azul_css::corety::OptionUsize::None,
+            column_index: azul_css::corety::OptionUsize::None,
             role,
             is_live_region: false,
         }
@@ -1987,7 +1989,7 @@ mod autotest_generated {
 
     #[test]
     fn map_role_is_total_and_matches_the_documented_table() {
-        let cases: [(AccessibilityRole, Role); 65] = [
+        let cases: [(AccessibilityRole, Role); 67] = [
             (AccessibilityRole::TitleBar, Role::TitleBar),
             (AccessibilityRole::MenuBar, Role::MenuBar),
             (AccessibilityRole::ScrollBar, Role::ScrollBar),
@@ -2053,6 +2055,8 @@ mod autotest_generated {
             (AccessibilityRole::IpAddress, Role::TextInput),
             (AccessibilityRole::Unknown, Role::Unknown),
             (AccessibilityRole::Nothing, Role::GenericContainer),
+            (AccessibilityRole::Grid, Role::Grid),
+            (AccessibilityRole::GridCell, Role::GridCell),
         ];
         for (role, expected) in cases {
             assert_eq!(A11yManager::map_role(&role), expected, "{role:?}");
@@ -2663,6 +2667,38 @@ mod autotest_generated {
             &[A11yManager::encode_a11y_node_id(0, 0)]
         );
         assert_eq!(node.live(), Some(Live::Polite));
+    }
+
+    /// A virtualised grid shows a window of its rows: each cell names its
+    /// place in the WHOLE grid (`aria-rowindex` / `aria-colindex`), so a
+    /// screen reader says "row 1000" for the thousandth row although it is
+    /// the first one in the DOM.
+    #[test]
+    fn build_node_carries_a_grid_cells_row_and_column_index() {
+        let mut a11y = info(AccessibilityRole::GridCell);
+        a11y.row_index = azul_css::corety::OptionUsize::Some(1000);
+        a11y.column_index = azul_css::corety::OptionUsize::Some(3);
+        let node = A11yManager::build_node(
+            &NodeData::create_node(NodeType::Div),
+            &plain_hot(),
+            None,
+            Some(&a11y),
+            1.0,
+            LogicalSize::new(800.0, 600.0),
+        );
+        assert_eq!(node.role(), Role::GridCell);
+        assert_eq!(node.row_index(), Some(1000));
+        assert_eq!(node.column_index(), Some(3));
+
+        let plain = A11yManager::build_node(
+            &NodeData::create_node(NodeType::Div),
+            &plain_hot(),
+            None,
+            Some(&info(AccessibilityRole::Cell)),
+            1.0,
+            LogicalSize::new(800.0, 600.0),
+        );
+        assert_eq!(plain.row_index(), None, "no index declared, none published");
     }
 
     #[test]
