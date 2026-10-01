@@ -1223,6 +1223,8 @@ impl Drop for VtEncoder {
 /// Frames produced by the VT decode callback, in the asked-for output.
 struct DecShared {
     frames: Mutex<VecDeque<VideoFrame>>,
+    /// The pictures kept where they are (`OutputStage::keep_native`).
+    native: Mutex<VecDeque<NativePicture>>,
     /// What the pictures are handed out as, and the converter that gets them
     /// there. Read by the output callback for every picture, so a change
     /// applies to the next picture.
@@ -1247,6 +1249,9 @@ struct DecoderOutput {
 /// the next picture, not at the next IDR.
 struct OutputStage {
     output: DecoderOutput,
+    /// Pictures stay where they are (`NativePicture`s in
+    /// `DecShared::native`) instead of being copied into frames.
+    keep_native: bool,
     /// The VTPixelTransferSessionRef, made on first use; null before.
     transfer: *mut c_void,
     /// The CVPixelBufferPoolRef of the transfer's destinations, made for
@@ -1262,18 +1267,19 @@ impl OutputStage {
     fn new(output: DecoderOutput) -> Self {
         OutputStage {
             output,
+            keep_native: false,
             transfer: core::ptr::null_mut(),
             pool: core::ptr::null_mut(),
             pool_for: (0, 0, 0),
         }
     }
 
-    /// The picture in `image` (a decoded CVPixelBuffer, not locked) as a
-    /// frame in the asked output: copied as it is when it already is that
-    /// format and size, else transferred first. Without a pixel transfer
-    /// session on this OS, the picture as it was decoded (its frame says its
-    /// format and size).
-    unsafe fn picture(&mut self, lib: &VtLib, image: *mut c_void) -> Option<VideoFrame> {
+    /// The picture in `image` (a decoded CVPixelBuffer) in the asked output,
+    /// kept where it is: the decoded buffer itself, retained, when it
+    /// already is that format and size, else a transferred one. Without a
+    /// pixel transfer session on this OS, the picture as it was decoded (its
+    /// frame says its format and size).
+    unsafe fn native(&mut self, lib: &VtLib, image: *mut c_void) -> NativePicture {
         unsafe {
             let (w, h) = (
                 (lib.CVPixelBufferGetWidth)(image),
@@ -1284,18 +1290,21 @@ impl OutputStage {
                 .output
                 .size
                 .map_or((w, h), |(tw, th)| (tw as usize, th as usize));
-            let want_rgba = self.output.format == RawImageFormat::RGBA8;
             let as_decoded =
                 (lib.CVPixelBufferGetPixelFormatType)(image) == pixel_format && (tw, th) == (w, h);
             if !as_decoded {
                 if let Some(converted) = self.transfer(lib, image, (tw, th), pixel_format) {
-                    let frame = locked_copy(lib, converted, want_rgba);
-                    (lib.CFRelease)(converted);
-                    return frame;
+                    return NativePicture::adopt(converted);
                 }
             }
-            locked_copy(lib, image, want_rgba)
+            NativePicture::retain(lib, image)
         }
+    }
+
+    /// The app asked for RGBA8 (the old contract): a BGRA picture is
+    /// swizzled when it is copied out.
+    fn want_rgba(&self) -> bool {
+        self.output.format == RawImageFormat::RGBA8
     }
 
     /// `image` scaled to `size` and converted to `pixel_format`, in a new
@@ -1392,16 +1401,41 @@ pub(super) struct NativePicture {
 unsafe impl Send for NativePicture {}
 
 impl NativePicture {
+    /// Keeps `buffer` (a CVPixelBufferRef the caller does not own) alive.
+    unsafe fn retain(lib: &VtLib, buffer: *mut c_void) -> Self {
+        unsafe { (lib.CFRetain)(buffer) };
+        NativePicture { buffer }
+    }
+
+    /// Takes over `buffer`, which the caller owns (+1).
+    fn adopt(buffer: *mut c_void) -> Self {
+        NativePicture { buffer }
+    }
+
     /// The IOSurfaceRef behind the picture (null for a buffer without one).
+    /// (The display binding that samples it is the next step; until then
+    /// only the tests ask.)
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn io_surface(&self) -> *mut c_void {
-        core::ptr::null_mut()
+        match VtLib::get() {
+            Some(lib) => unsafe { (lib.CVPixelBufferGetIOSurface)(self.buffer) },
+            None => core::ptr::null_mut(),
+        }
     }
 
     /// The picture copied into a frame (NV12 / BGRA as it is, RGBA when
     /// `want_rgba`): what the byte path hands out.
     pub(super) fn to_frame(&self, want_rgba: bool) -> Option<VideoFrame> {
-        let _ = (self.buffer, want_rgba);
-        None
+        let lib = VtLib::get()?;
+        unsafe { locked_copy(lib, self.buffer, want_rgba) }
+    }
+}
+
+impl Drop for NativePicture {
+    fn drop(&mut self) {
+        if let Some(lib) = VtLib::get() {
+            unsafe { (lib.CFRelease)(self.buffer) };
+        }
     }
 }
 
@@ -1438,11 +1472,22 @@ extern "C" fn dec_output(
         None => return,
     };
     let shared = unsafe { &*(refcon as *const DecShared) };
-    let frame = match shared.stage.lock() {
-        Ok(mut stage) => unsafe { stage.picture(lib, image) },
-        Err(_) => None,
+    let (picture, keep_native, want_rgba) = match shared.stage.lock() {
+        Ok(mut stage) => (
+            unsafe { stage.native(lib, image) },
+            stage.keep_native,
+            stage.want_rgba(),
+        ),
+        Err(_) => return,
     };
-    if let (Some(frame), Ok(mut q)) = (frame, shared.frames.lock()) {
+    // Copied (or kept) outside the stage's lock: an output change from the
+    // app's thread never waits for a copy.
+    if keep_native {
+        if let Ok(mut q) = shared.native.lock() {
+            q.push_back(picture);
+        }
+    } else if let (Some(frame), Ok(mut q)) = (picture.to_frame(want_rgba), shared.frames.lock())
+    {
         q.push_back(frame);
     }
 }
@@ -1546,6 +1591,7 @@ impl VtDecoder {
             format_desc: core::ptr::null_mut(),
             shared: Arc::new(DecShared {
                 frames: Mutex::new(VecDeque::new()),
+                native: Mutex::new(VecDeque::new()),
                 stage: Mutex::new(OutputStage::new(DecoderOutput {
                     format: RawImageFormat::RGBA8,
                     size: None,
@@ -1755,13 +1801,20 @@ impl VtDecoder {
     /// Keep decoded pictures where VideoToolbox put them (`NativePicture`s,
     /// taken with [`Self::take_native`]) instead of copying them into
     /// frames.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn set_native_output(&mut self, native: bool) {
-        let _ = native;
+        if let Ok(mut stage) = self.shared.stage.lock() {
+            stage.keep_native = native;
+        }
     }
 
     /// The pictures kept since the last call (see [`Self::set_native_output`]).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn take_native(&mut self) -> Vec<NativePicture> {
-        Vec::new()
+        match self.shared.native.lock() {
+            Ok(mut q) => q.drain(..).collect(),
+            Err(_) => Vec::new(),
+        }
     }
 
     fn reset_session(&mut self) {
