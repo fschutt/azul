@@ -23,8 +23,11 @@
 - mini-mail-auth (branch azul-send-2026-10-01): 0f0592c + 62e06de REDs, 0e73dd3 fix (body
   canonicalized by cb, simple keeps its last CRLF; 0.1.1)
 
+- e915d366a fix(azmail): send tests match on a clone of the status
+- report scripts/SEND_2026_10_01.md (committed with this file)
+
 ## IN PROGRESS
-- report scripts/SEND_2026_10_01.md (next step: write it, commit it with this file)
+- nothing: the task is complete
 
 ## NEXT
 - (parent) build, run the suites listed in the report, publish micromail 0.2.0, drop the patch
