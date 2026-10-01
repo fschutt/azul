@@ -48,8 +48,9 @@ parse-checked with `rustfmt --edition 2021 --check`.
   interactive + line_diff, `361490786` history). The crate parses from lib.rs (rustfmt).
 - `27e956cdd` registration (Cargo.toml member, workspace_test_members, CI step).
 
+- `4913910a7` scripts/aznotes_e2e.py + #open-settings button.
+
 ## IN PROGRESS (precise next steps, in order)
-7. scripts/aznotes_e2e.py (model: examples/azul-shells/scripts/shells_e2e.py).
 8. A careful compile-in-head review pass over every AzNotes file (types, borrows, imports).
 9. Report scripts/NOTES_2026_10_01.md.
    (old plan follows, done up to 6) REQUIRED by lib.rs/jobs.rs: `pub extern "C" fn layout(RefAny,
