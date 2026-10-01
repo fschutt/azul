@@ -7,41 +7,41 @@ outage-resilience section: commit every unit, keep this file exact).
 
 Scratchpad helpers (`<scratchpad>/cal3/`): `api.py Type...` (generated binding signatures, from a copy of
 `target/codegen/dll_api_external.rs`), `mod.py Name...` (which `azul::<module>` exports a name),
-`fmtcheck.py [--write] FILE...` (rustfmt parse check), `red.py` / `stub_lib.py` (RED stubs), `green/` (GREEN
-copies of the model files as of the RED commit).
+`fmtcheck.py [--write] FILE...` (rustfmt parse check), `methods.py FILE...` (method names vs the
+bindings), `unused.py FILE...` (unused imports, heuristic), `red.py` / `stub_lib.py` (RED stubs).
 
-## DONE (commit hashes)
+## DONE (commit hashes, oldest first)
 
-- `22e3f8f8e` progress file and plan
-- `4392bc17e` test(azcalendar) RED: rrule.rs, ics.rs, event.rs v3 fields, editor.rs, calendars.rs,
-  views.rs, settings value/line/flag (todo!() bodies; lib.rs declares the modules)
-- (this commit) feat(azcalendar) GREEN: the same model, implemented
+- `22e3f8f8e` plan
+- model RED `4392bc17e` / GREEN `c1cf234de`: rrule.rs, ics.rs, event.rs v3, editor.rs, calendars.rs,
+  views.rs, settings value/line/flag
+- args + sample RED `734c016ea` / GREEN `02381effc`; tasks RED `ee5567a85` / GREEN `bf2451e64`;
+  event::remove RED `0d49138d0` / GREEN `25bd33c74`; due reminders RED `ebd4c5b05` / GREEN `1e8575201`;
+  editor repeat segments RED `920ef751b` / GREEN `bdf6897e4`
+- UI (wip commits, compile as a whole only now): lib.rs `a6c872201` `49abda592`, timegrid.rs `35ebe5540`
+  `4a9ae2583`, views_ui.rs `569746f2b`, editor_ui.rs `dd5efd03c` `e1f6afb29`, chrome.rs `887bc8303`
+  `302fc8196` `11680bf24`, meeting::sibling_program `4733a3364`, shared picked()/typed() `edd864289`,
+  imports `6a8be31c2`
+- CAL2 scripts on the new UI: week_interactions `000e21e7f`, offline_links `dabf2ca6c`,
+  mint-and-join `4bb53188c`
 
 ## IN PROGRESS
 
-- UI rewrite (does NOT compile until chrome.rs, timegrid.rs, views_ui.rs, editor_ui.rs exist):
-  lib.rs is assembled by `<scratchpad>/cal3/patch_segs.py` from `lib_head.rs` + CAL2's kept segments
-  (`seg_sync.rs`, `seg_syncnow.rs`, `seg_join.rs`, `seg_modetests.rs`, from `lib_cal2.rs` = CAL2's lib.rs)
-  + `lib_tail.rs` (start). Edit those and re-run, or edit lib.rs directly once committed.
+- nothing half-done
 
 ## NEXT (in order, precise)
 
-1. UI, file by file, each committed on its own:
-   a. `src/args.rs` (`--screen`, `--theme flat|flora`, `--mode light|dark`, `--sample`, `--date`), with
-      unit tests; `src/sample.rs` (first-run sample events).
-   b. `src/chrome.rs`: title row, ribbon (FILE / HOME / VIEW), navigation pane (inline DatePicker month +
-      "My calendars" checkboxes with swatches + module switcher), status bar, To-Do bar, backstage pages
-      (Info, Open & Export (.ics import path + Browse, export), Print (later), Calendars, Options on
-      ShellSettingsLayout (meeting server), About).
-   c. `src/timegrid.rs`: CAL2's week grid generalised to Day / Work Week / Week (ids `#week-scroll`,
-      `#week-grid`, `#day-<i>`, `#draft*` kept), all-day row, today line.
-   d. `src/month_ui.rs`: month (with "+N more"), schedule, list (agenda) views.
-   e. `src/editor_ui.rs`: the event editor window (`info.create_window`, `window_id` "azcalendar-editor").
-   f. `src/lib.rs`: CalState grows (view, anchor, calendars, hidden, editor, backstage, ...), the layout on
-      OfficeShell + ShellThemeScope, callbacks; CAL2's sync / zoom / popover code kept.
-2. DatePicker range highlight (engine widget, RED first) - only if time allows; else note.
-3. `scripts/azcalendar_e2e.py` (switch views, editor window create, weekly repeat on next week, import .ics).
-4. Report `scripts/CAL3_2026_10_01.md`.
+1. `scripts/azcalendar_e2e.py` (new; imports week_interactions' Debug / Week / helpers): stages
+   views (Ctrl+Alt+1..6 + ribbon clicks, `AZCAL_VIEW` on stdout, `#view-<name>`), editor (Ctrl+N ->
+   `AZCAL_EDITOR open`; requests with `window_id: "azcalendar-editor"`; BLOCKED message when the
+   debug server cannot reach the window - MAIL2's engine fix), repeat (weekly event: via editor if
+   reachable, else an .ics import with RRULE; next week shows `#event-<id>-<yyyymmdd>`), import
+   (FILE > Open & Export: `#import-path` text, `#import-run`; `AZCAL_IMPORTED`).
+2. Theme / mode review: every button on a surface of the app's own (event blocks with Join meeting);
+   `--theme flora --mode dark` screenshots stage in the E2E.
+3. DatePicker visible-range highlight (engine widget, RED first) if time allows; else listed as left.
+4. Report `scripts/CAL3_2026_10_01.md` (commits, api.json list = none new unless DatePicker range,
+   least-sure spots, test commands, what is left).
 
 ## Decisions (unattended run)
 
@@ -51,13 +51,20 @@ copies of the model files as of the RED commit).
   listed as left.
 - Calendars are files too: `calendars/<uuid>.json`, the default calendar `calendars/default.json` (only once
   renamed / recoloured). Hidden calendars are a device setting (`hidden_calendars=` in settings.txt).
+  Tasks: `tasks/default/<uuid>.json`.
 - .ics export writes floating times (AzCalendar's model is wall-clock); import converts UTC and TZID times
-  (through the file's VTIMEZONE) into the reader's zone.
+  (through the file's VTIMEZONE) into the reader's zone. Re-import updates by iCalendar UID (ours:
+  `<id>@azcalendar`).
 - One editor window at a time (the layout callback cannot tell two editor windows apart); a second request
   while one is open says so in the main window.
-- Headless child windows are not laid out / pumped in the base (MAIL2 owns that engine fix on `wt/mail2`); the
-  E2E's editor stage addresses the window by `window_id` and reports BLOCKED when the debug server cannot
-  reach it.
+- The editor's repeat is picked on Segmented rows (scriptable), not a DropDown (a native menu a headless
+  script cannot drive). Reminder and calendar are DropDowns.
+- The navigation pane is a rail of 252 px (56 folded), not a split ratio (the date navigator needs its
+  width).
+- Headless child windows are not laid out / pumped in the base (MAIL2 owns that engine fix on `wt/mail2`);
+  the E2E's editor stage addresses the window by `window_id` and reports BLOCKED when the debug server
+  cannot reach it. The CAL2 scripts make their events in the week's popover (DOM 0) instead of the old
+  side sheet.
 
 ## Open questions
 
