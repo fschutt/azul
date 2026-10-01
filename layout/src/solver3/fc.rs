@@ -6761,6 +6761,26 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     // Phase 4: Calculate row heights based on cell content
     calculate_row_heights(&mut table_ctx, tree, text_cache, ctx, constraints)?;
 
+    // A table taller than its rows (its own `height`, CSS 2.2 17.5.3) gives
+    // the rest to its rows, so its cells fill it.
+    if let Some(table_dom) = table_node.dom_node_id {
+        if let Some(h) = specified_length_height(ctx.styled_dom, table_dom, ctx.viewport_size) {
+            let node_state = &ctx.styled_dom.styled_nodes.as_container()[table_dom].styled_node_state;
+            let content_h = match get_css_box_sizing(ctx.styled_dom, table_dom, node_state) {
+                MultiValue::Exact(azul_css::props::layout::LayoutBoxSizing::BorderBox) => {
+                    h - tbp.padding.top - tbp.padding.bottom - tbp.border.top - tbp.border.bottom
+                }
+                _ => h,
+            };
+            let spacings = if table_ctx.num_rows == 0 {
+                0.0
+            } else {
+                (table_ctx.num_rows + 1).saturating_sub(table_ctx.hidden_empty_rows.len()) as f32
+            };
+            stretch_rows_to(&mut table_ctx, content_h - table_ctx.v_spacing * spacings);
+        }
+    }
+
     // Phase 5: Position cells in final grid and collect positions
     // The table's positioned children (row groups, rows, column groups) and
     // the rows' tops, relative to the table's content box.
@@ -8902,6 +8922,35 @@ fn calculate_row_heights<T: ParsedFontTrait>(
     }
 
     Ok(())
+}
+
+/// Give the rows the height they lack together to reach `target` (the
+/// table's own height less its border-spacing): in proportion to their
+/// heights, evenly when all are empty. Collapsed and hidden-empty rows
+/// take nothing.
+#[allow(clippy::cast_precision_loss)] // a row count
+fn stretch_rows_to(table_ctx: &mut TableLayoutContext, target: f32) {
+    let rows: Vec<usize> = (0..table_ctx.num_rows.min(table_ctx.row_heights.len()))
+        .filter(|r| {
+            !table_ctx.collapsed_rows.contains(r) && !table_ctx.hidden_empty_rows.contains(r)
+        })
+        .collect();
+    if rows.is_empty() || !target.is_finite() {
+        return;
+    }
+    let current: f32 = rows.iter().map(|&r| table_ctx.row_heights[r]).sum();
+    let extra = target - current;
+    if extra <= 0.01 {
+        return;
+    }
+    for &r in &rows {
+        let share = if current > 0.0 {
+            table_ctx.row_heights[r] / current
+        } else {
+            1.0 / rows.len() as f32
+        };
+        table_ctx.row_heights[r] += extra * share;
+    }
 }
 
 /// Position all cells in the table grid with calculated widths and heights
