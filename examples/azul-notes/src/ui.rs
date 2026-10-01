@@ -499,3 +499,273 @@ extern "C" fn on_new_notebook(mut data: RefAny, mut info: CallbackInfo) -> Updat
         Update::RefreshDom
     })
 }
+
+// ==== The note list ====
+
+/// The list's rows as the model orders them now (a callback reads the same
+/// rows the layout drew).
+fn list_rows(s: &AppState) -> Vec<ListRow> {
+    s.library
+        .rows(&s.query, azul_storage::time::now_unix(), AppState::utc_offset())
+}
+
+/// The second line of a row: the notebook and the tags.
+fn row_detail(note: &model::Note) -> String {
+    let mut out = note.home_notebook().replace('/', " \u{203a} ");
+    for tag in &note.meta.tags {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push('#');
+        out.push_str(tag);
+    }
+    out
+}
+
+/// A row's glyph: what kind of note it is at a glance.
+fn row_icon(note: &model::Note) -> &'static str {
+    if !note.doc.image_srcs().is_empty() {
+        "image"
+    } else if note.doc.checklist().1 > 0 {
+        "checklist"
+    } else if note
+        .doc
+        .blocks
+        .iter()
+        .any(|b| matches!(b.kind, BlockKind::Code { .. }))
+    {
+        "code"
+    } else {
+        "description"
+    }
+}
+
+fn note_list(s: &AppState, app: &RefAny) -> Dom {
+    let now = azul_storage::time::now_unix();
+    let offset = AppState::utc_offset();
+    let rows = s.library.rows(&s.query, now, offset);
+    let any_note = rows.iter().any(|r| matches!(r, ListRow::Note(_)));
+    let mut message_rows = Vec::with_capacity(rows.len());
+    for row in &rows {
+        match row {
+            ListRow::Section(title) => message_rows.push(MessageRow::create_group(title.as_str())),
+            ListRow::Note(i) => {
+                let note = &s.library.notes[*i];
+                let date = if s.query.sort == SortKey::Created {
+                    note.meta.created
+                } else {
+                    note.meta.modified
+                };
+                // The row's id is its note's place in the library, plus one
+                // (0 is "no row" in the list's events).
+                let id = u64::try_from(*i + 1).unwrap_or(0);
+                let mut preview = model::row_preview(note);
+                if preview.is_empty() {
+                    preview = String::from("No text");
+                }
+                message_rows.push(
+                    MessageRow::create(id, note.display_title(), preview)
+                        .with_preview(row_detail(note))
+                        .with_date(model::short_date(date, now, offset))
+                        .with_icon(row_icon(note))
+                        .with_flagged(note.meta.pinned)
+                        .with_selected(s.open.as_deref() == Some(note.id.as_str())),
+                );
+            }
+        }
+    }
+    let cb = on_list_event as MessageListOnEventCallbackType;
+    let list = MessageList::create(MessageRowVec::from_vec(message_rows))
+        .with_search(s.query.search.as_str())
+        .with_search_placeholder("Search notes")
+        .with_sort("Arrange by:", s.query.sort.label(), s.query.descending)
+        .with_sort_direction_label(s.query.sort.direction_label(s.query.descending))
+        .with_mark(MessageListMark::Pin)
+        .with_row_height(64)
+        .with_on_select(app.clone(), cb)
+        .with_on_open(app.clone(), cb)
+        .with_on_flag(app.clone(), cb)
+        .with_on_delete(app.clone(), cb)
+        .with_on_sort(app.clone(), cb)
+        .with_on_search(app.clone(), cb)
+        .dom();
+    let mut column = Dom::create_div()
+        .with_id("note-list")
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
+    if !s.notice.is_empty() {
+        column.add_child(
+            Dom::create_div()
+                .with_id("notice")
+                .with_css("padding: 6px 10px; font-size: 12px;")
+                .with_child(text_line(&s.notice, "")),
+        );
+    }
+    column.add_child(list);
+    if !any_note {
+        let (title, detail) = if !s.query.search.trim().is_empty() {
+            (
+                "Nothing matches".to_string(),
+                format!("No note holds \"{}\" in {}.", s.query.search.trim(), s.query.scope.label()),
+            )
+        } else if s.query.scope == Scope::Trash {
+            ("The Trash is empty".to_string(), String::from("Deleted notes wait here."))
+        } else if s.library.notes.is_empty() {
+            (
+                "No notes yet".to_string(),
+                String::from("Notes are Markdown files in your AzNotes folder."),
+            )
+        } else {
+            (format!("No notes in {}", s.query.scope.label()), String::new())
+        };
+        column.add_child(
+            ShellEmptyState::create(title)
+                .with_icon("note_add")
+                .with_detail(detail)
+                .with_action_label("New note")
+                .with_on_action(app.clone(), on_new_note as ButtonOnClickCallbackType)
+                .dom(),
+        );
+    }
+    column
+}
+
+/// The note of row `event.id` (the library index plus one).
+fn event_note(s: &AppState, event: &MessageListEvent) -> Option<String> {
+    let index = usize::try_from(event.id).ok()?.checked_sub(1)?;
+    s.library.notes.get(index).map(|n| n.id.clone())
+}
+
+extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: MessageListEvent) -> Update {
+    with_state(&mut data, &mut info, |s, info, app| match event.kind {
+        MessageListEventKind::Select => {
+            if let Some(id) = event_note(s, &event) {
+                jobs::open_note(info, app, s, &id);
+            }
+            Update::RefreshDom
+        }
+        MessageListEventKind::Open => {
+            if let Some(id) = event_note(s, &event) {
+                jobs::open_note(info, app, s, &id);
+                editor::focus_editor(info);
+            }
+            Update::RefreshDom
+        }
+        MessageListEventKind::Flag => match event_note(s, &event) {
+            Some(id) => {
+                if let Some(note) = s.library.get_mut(&id) {
+                    note.meta.pinned = !note.meta.pinned;
+                    note.mark_dirty();
+                }
+                jobs::save_note(info, app, s, &id, false);
+                Update::RefreshDom
+            }
+            None => Update::DoNothing,
+        },
+        MessageListEventKind::Delete => match event_note(s, &event) {
+            Some(id) => {
+                delete_note(info, app, s, &id);
+                Update::RefreshDom
+            }
+            None => Update::DoNothing,
+        },
+        MessageListEventKind::Sort => {
+            s.query.sort = s.query.sort.next();
+            s.query.descending = s.query.sort != SortKey::Title;
+            Update::RefreshDom
+        }
+        MessageListEventKind::SortDirection => {
+            s.query.descending = !s.query.descending;
+            Update::RefreshDom
+        }
+        MessageListEventKind::Search => {
+            s.query.search = event.text.as_str().to_string();
+            Update::RefreshDom
+        }
+        MessageListEventKind::Scope | MessageListEventKind::Scroll => Update::DoNothing,
+    })
+}
+
+/// Pins or unpins the open note.
+pub fn toggle_pin(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState) -> Update {
+    let Some(id) = s.open.clone() else {
+        return Update::DoNothing;
+    };
+    if let Some(note) = s.library.get_mut(&id) {
+        note.meta.pinned = !note.meta.pinned;
+        note.mark_dirty();
+    }
+    jobs::save_note(info, app, s, &id, false);
+    Update::RefreshDom
+}
+
+/// Opens the list's first note other than `id`, or none.
+fn open_next(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, id: &str) {
+    let next = list_rows(s).into_iter().find_map(|r| match r {
+        ListRow::Note(i) if s.library.notes[i].id != id => Some(s.library.notes[i].id.clone()),
+        _ => None,
+    });
+    match next {
+        Some(next) => jobs::open_note(info, app, s, &next),
+        None => {
+            if let Some(host) = editor::host_node(info, editor::root_dom()) {
+                info.reset_editor_content(host, false);
+            }
+            s.open = None;
+        }
+    }
+}
+
+/// Delete in the list: a note goes to the Trash; in the Trash, a
+/// confirmation deletes it for good.
+pub fn delete_note(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, id: &str) {
+    let Some(note) = s.library.get(id) else {
+        return;
+    };
+    if note.is_trashed() {
+        s.overlay = Overlay::ConfirmDelete { id: id.to_string() };
+        return;
+    }
+    let trash = model::trash_path(note.home_notebook());
+    if let Some(note) = s.library.get_mut(id) {
+        note.move_to(&trash);
+    }
+    if s.open.as_deref() == Some(id) {
+        open_next(info, app, s, id);
+    }
+    jobs::save_note(info, app, s, id, false);
+}
+
+/// Restores a trashed note into its notebook.
+pub fn restore_note(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, id: &str) {
+    let Some(home) = s.library.get(id).map(|n| n.home_notebook().to_string()) else {
+        return;
+    };
+    if let Some(note) = s.library.get_mut(id) {
+        note.move_to(&home);
+    }
+    jobs::save_note(info, app, s, id, false);
+}
+
+/// Deletes a note for good: its file, its images, its versions.
+pub fn delete_forever(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, id: &str) {
+    let Some(note) = s.library.get(id) else {
+        return;
+    };
+    let mut keys = vec![note.key()];
+    if let Some(old) = &note.moved_from {
+        keys.push(old.clone());
+    }
+    let job = Job::Delete {
+        id: id.to_string(),
+        keys,
+        prefixes: vec![note.assets_prefix(), model::history_prefix(id)],
+    };
+    let saved = !note.saved.is_empty();
+    if s.open.as_deref() == Some(id) {
+        open_next(info, app, s, id);
+    }
+    s.library.notes.retain(|n| n.id != id);
+    if saved {
+        jobs::spawn(info, app, s, job);
+    }
+}
