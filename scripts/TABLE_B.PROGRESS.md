@@ -15,10 +15,17 @@ Brief: scratchpad `TABLE_B_go.md`; house rules `wave4_common.md`. Nothing is com
 - `bfc46b3c5` RED: separated model (spacing in the intrinsic width, spanning cell covers inner
   spacing, empty-cells: hide).
 
-## IN PROGRESS
-- Coordinator item (item 5): remove the `cell_is_ifc` early return in
-  `layout_formatting_context` (the parent reverted it on main), make the table's MEASUREMENT of a
-  prose cell use its IFC min-content explicitly, un-ignore `prose_cells_wrap_inside_a_220px_table`.
+- `8a4ae1cc3` FIX (coordinator item 5): early `cell_is_ifc` return in `layout_formatting_context`
+  removed; `measure_cell_content_width` measures an IFC cell with `layout_ifc` under the min/max
+  constraint (final pass untouched). Report: the parent removes the `#[ignore]` on
+  `prose_cells_wrap_inside_a_220px_table` at merge (it is not in my base).
+
+## IN PROGRESS (last commit 8a4ae1cc3)
+- next: GREEN for `bfc46b3c5` - (1) sizing.rs `calculate_table_intrinsic_sizes` adds
+  (cols+1)*h / (rows+1)*v spacing via `fc::used_border_spacing`; (2) `layout_table_fc` hands the
+  column algorithms the content width minus (cols+1)*h; (3) `distribute_cell_width_across_columns`
+  and the sizing.rs spanning loop subtract the inner spacing; (4) `calculate_row_heights` gives a
+  spanning cell its inner spacing; (5) `empty-cells: hide` in display_list (cell bg + border).
 
 ## NEXT
 - FIX for the separated-model RED (`bfc46b3c5`).
