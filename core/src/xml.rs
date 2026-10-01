@@ -6114,6 +6114,33 @@ fn apply_xml_node_attributes(
 ) {
     use crate::dom::NodeType;
 
+    // `<transient-window open="true" anchor="bottom" ...>`: the config rides
+    // INSIDE the NodeType, so its attributes are applied onto that payload
+    // (the document loader's `open_fast_node` does the same) - else the tree
+    // loader built every popup closed with every default. `tearoff="zone:<selector>"`
+    // leaves its selector on the node as `tearoff-zone`, where the engine's
+    // drop handling reads it. The keys a config takes set nothing else (the
+    // attribute table has no entry for them).
+    if let NodeType::TransientWindow(cfg) = node.get_node_type() {
+        let mut cfg = *cfg;
+        let mut zone = None;
+        for pair in xml_node.attributes.as_slice() {
+            let (key, value) = (pair.key.as_str(), pair.value.as_str());
+            if cfg.apply_attr(key, value) && key == "tearoff" {
+                zone = value.trim().strip_prefix("zone:").map(|z| AzString::from(z.trim()));
+            }
+        }
+        node.set_node_type(NodeType::TransientWindow(cfg));
+        if let Some(selector) = zone {
+            let mut all = node.attributes().clone().into_library_owned_vec();
+            all.push(crate::dom::AttributeType::Custom(crate::dom::AttributeNameValue {
+                attr_name: AzString::from_const_str("tearoff-zone"),
+                value: selector,
+            }));
+            node.set_attributes(all.into());
+        }
+    }
+
     // `<img src="...">`: rebuild the placeholder Image node so its `NullImage`
     // carries the `src` string (as UTF-8 bytes in `tag`). The bytes are NOT
     // resolved here — a downstream renderer (printpdf, the compositor, ...) uses
