@@ -741,7 +741,203 @@ impl From<Timeline> for Dom {
     }
 }
 
-// ==== PIECE 2: the time math (pure, unit-tested) ====
+// ==== the time math (pure, unit-tested) ====
+
+/// What a clip drag does: move the clip, or move one of its edges.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimelineDragMode {
+    /// The whole clip moves (and may change track).
+    Move,
+    /// The in point moves; the end stays.
+    TrimStart,
+    /// The out point moves; the start stays.
+    TrimEnd,
+}
+
+/// `time`, in px from the lanes' left edge, in the view from `view_start`
+/// at `pps` px a second.
+#[must_use]
+#[allow(clippy::cast_possible_truncation)]
+pub fn x_of(time: f64, view_start: f64, pps: f32) -> f32 {
+    ((time - view_start) * f64::from(pps)) as f32
+}
+
+/// The time at `x` px from the lanes' left edge.
+#[must_use]
+pub fn time_at(x: f32, view_start: f64, pps: f32) -> f64 {
+    view_start + f64::from(x) / f64::from(pps.max(MIN_PPS))
+}
+
+/// The span of time the widget renders for a view from `view_start` over
+/// `view_width` px at `pps`: the view and a quarter of it on each side, so
+/// a small scroll shows rendered clips before the app rebuilds.
+#[must_use]
+pub fn visible_window(view_start: f64, view_width: f32, pps: f32) -> (f64, f64) {
+    let span = f64::from(view_width.max(1.0)) / f64::from(pps.max(MIN_PPS));
+    let margin = span * 0.25;
+    (view_start - margin, view_start + span + margin)
+}
+
+/// A clip's `(left, width)` in px in the lanes: at its time, as wide as its
+/// duration, never narrower than 2 px.
+#[must_use]
+#[allow(clippy::cast_possible_truncation)]
+pub fn clip_geometry(start: f64, duration: f64, view_start: f64, pps: f32) -> (f32, f32) {
+    let left = x_of(start, view_start, pps);
+    let width = ((duration.max(0.0) * f64::from(pps)) as f32).max(2.0);
+    (left, width)
+}
+
+/// The scroll bar thumb's `(left, width)` as fractions of the bar: the view
+/// (`span` seconds from `view_start`) over the sequence (`duration`, or
+/// the view's end when that is further).
+#[must_use]
+#[allow(clippy::cast_possible_truncation)]
+pub fn thumb_span(view_start: f64, span: f64, duration: f64) -> (f32, f32) {
+    let total = duration.max(view_start + span);
+    if total <= 0.0 {
+        return (0.0, 1.0);
+    }
+    let left = (view_start / total).clamp(0.0, 1.0);
+    let width = (span / total).clamp(0.0, 1.0 - left);
+    (left as f32, width as f32)
+}
+
+/// The step between two labelled ruler ticks, in seconds: the finest of
+/// whole frames (1, 2, 5, 10 at `fps`) and of round seconds and minutes
+/// that leaves [`MIN_TICK_PX`] between two labels at `pps`.
+#[must_use]
+pub fn tick_step(pps: f32, fps: f32) -> f64 {
+    let pps = f64::from(pps.max(MIN_PPS));
+    let min = f64::from(MIN_TICK_PX);
+    let mut candidates: Vec<f64> = Vec::new();
+    if fps > 0.0 {
+        for frames in [1.0, 2.0, 5.0, 10.0] {
+            candidates.push(frames / f64::from(fps));
+        }
+    } else {
+        candidates.extend_from_slice(&[0.01, 0.02, 0.05, 0.1, 0.2, 0.5]);
+    }
+    candidates.extend_from_slice(&[
+        1.0, 2.0, 5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 900.0, 1800.0, 3600.0,
+    ]);
+    for step in &candidates {
+        if step * pps >= min {
+            return *step;
+        }
+    }
+    // Hours: as many as it takes.
+    let hours = (min / pps / 3600.0).ceil().max(1.0);
+    hours * 3600.0
+}
+
+/// `seconds` at `fps` as `HH:MM:SS:FF` (the frame count of `fps` rounded
+/// to a whole rate; negative times read as zero).
+#[must_use]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+pub fn timecode(seconds: f64, fps: f32) -> String {
+    let rate = f64::from(fps.max(1.0));
+    let nominal = (rate.round() as u64).max(1);
+    let frames = (seconds.max(0.0) * rate + 1e-6).floor() as u64;
+    let ff = frames % nominal;
+    let total_seconds = frames / nominal;
+    let ss = total_seconds % 60;
+    let mm = (total_seconds / 60) % 60;
+    let hh = total_seconds / 3600;
+    format!("{hh:02}:{mm:02}:{ss:02}:{ff:02}")
+}
+
+/// `t` on the nearest frame boundary at `fps` (as it is when `fps` is 0).
+#[must_use]
+pub fn on_frame(t: f64, fps: f32) -> f64 {
+    if fps > 0.0 {
+        (t * f64::from(fps)).round() / f64::from(fps)
+    } else {
+        t
+    }
+}
+
+/// The frame `frames` frames from the one at `t` (at `fps`), clamped to
+/// `0..=duration`.
+#[must_use]
+#[allow(clippy::cast_precision_loss)]
+pub fn step_frames(t: f64, fps: f32, frames: i64, duration: f64) -> f64 {
+    let rate = f64::from(if fps > 0.0 { fps } else { 25.0 });
+    (((t * rate).round() + frames as f64) / rate).clamp(0.0, duration.max(0.0))
+}
+
+/// `t` snapped to the nearest of `points` within [`SNAP_PX`] at `pps`, or
+/// `t` itself when none is that near.
+#[must_use]
+pub fn snap_time(t: f64, points: &[f64], pps: f32) -> f64 {
+    let reach = f64::from(SNAP_PX) / f64::from(pps.max(MIN_PPS));
+    let mut best: Option<(f64, f64)> = None;
+    for p in points {
+        let d = (p - t).abs();
+        if d <= reach && best.map_or(true, |(bd, _)| d < bd) {
+            best = Some((d, *p));
+        }
+    }
+    best.map_or(t, |(_, p)| p)
+}
+
+/// What a dragged edge snaps to: the sequence's start, the playhead and
+/// every clip's start and end - but those of the clip being dragged
+/// (`skip_clip`).
+#[must_use]
+pub fn snap_points(tracks: &[TimelineTrack], playhead: f64, skip_clip: u64) -> Vec<f64> {
+    let mut points = alloc::vec![0.0, playhead];
+    for track in tracks {
+        for c in track.clips.as_ref() {
+            if c.id != skip_clip {
+                points.push(c.start);
+                points.push(c.end());
+            }
+        }
+    }
+    points
+}
+
+/// The edit points Up / Down jump between: the start, the end of the
+/// sequence (`duration`) and every clip edge, ascending, each once.
+#[must_use]
+pub fn edit_points(tracks: &[TimelineTrack], duration: f64) -> Vec<f64> {
+    let mut points = alloc::vec![0.0, duration.max(0.0)];
+    for track in tracks {
+        for c in track.clips.as_ref() {
+            points.push(c.start);
+            points.push(c.end());
+        }
+    }
+    points.sort_by(f64::total_cmp);
+    points.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+    points
+}
+
+/// A clip `start` + `duration` seconds after a drag of `dt` seconds in
+/// `mode`: a move keeps the length and stops at 0; a trim moves one edge and
+/// never brings it closer than `min_duration` to the other.
+#[must_use]
+pub fn drag_result(
+    mode: TimelineDragMode,
+    start: f64,
+    duration: f64,
+    dt: f64,
+    min_duration: f64,
+) -> (f64, f64) {
+    let end = start + duration;
+    match mode {
+        TimelineDragMode::Move => ((start + dt).max(0.0), duration),
+        TimelineDragMode::TrimStart => {
+            let new_start = (start + dt).clamp(0.0, (end - min_duration).max(0.0));
+            (new_start, end - new_start)
+        }
+        TimelineDragMode::TrimEnd => {
+            let new_end = (end + dt).max(start + min_duration);
+            (start, new_end - start)
+        }
+    }
+}
 
 // ==== PIECE 3: the callbacks ====
 
