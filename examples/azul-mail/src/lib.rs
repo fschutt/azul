@@ -479,6 +479,444 @@ pub(crate) fn now_unix() -> i64 {
         .map_or(0, |d| d.as_secs() as i64)
 }
 
+/// Runs `f` on the app's state with a clone of the app's `RefAny` (for threads and callback
+/// data); `None` when `data` is not the app.
+pub(crate) fn with_app<R>(data: &mut RefAny, f: impl FnOnce(&mut MailApp, RefAny) -> R) -> Option<R> {
+    let app = data.clone();
+    let mut guard = data.downcast_mut::<MailApp>()?;
+    Some(f(&mut guard, app))
+}
+
+// ==== The keyring ====
+
+/// A keyring answer, by name (never with the secret).
+fn keyring_outcome(result: &KeyringResult) -> &'static str {
+    match result {
+        KeyringResult::Stored => "stored",
+        KeyringResult::Retrieved(_) => "retrieved",
+        KeyringResult::Deleted => "deleted",
+        KeyringResult::NotFound => "not found",
+        KeyringResult::Denied => "denied",
+        KeyringResult::Unavailable => "unavailable",
+        KeyringResult::Error => "error",
+    }
+}
+
+/// The answer to the awaited keyring operation (a window event of the main window).
+pub(crate) extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let OptionKeyringResult::Some(result) = info.get_keyring_result() else {
+        return Update::DoNothing;
+    };
+    let outcome = keyring_outcome(&result);
+    println!("AZMAIL_KEYRING {outcome}");
+    with_app(&mut data, |s, app| {
+        match (s.keyring.take(), result) {
+            (None, _) => return Update::DoNothing,
+            (Some(KeyringOp::Store), KeyringResult::Stored) => {
+                s.notice = String::from("The password is saved in the system keyring.");
+            }
+            (Some(KeyringOp::Store), _) => {
+                s.notice = format!(
+                    "The password could not be saved in the system keyring ({outcome}): AzMail \
+                     keeps it only until it is closed."
+                );
+            }
+            (Some(KeyringOp::Get { account }), KeyringResult::Retrieved(secret)) => {
+                s.secrets
+                    .insert(account.clone(), Secret::new(secret.as_str().to_string()));
+                s.notice.clear();
+                if s.current_account().map(|a| a.id.as_str()) == Some(account.as_str()) {
+                    start_sync(s, &mut info, app);
+                }
+            }
+            (Some(KeyringOp::Get { account }), _) => {
+                s.sync = SyncState::Idle;
+                ui_account::open_settings_with_error(
+                    s,
+                    &account,
+                    format!(
+                        "Enter the password again: the system keyring has none for this \
+                         account ({outcome})."
+                    ),
+                );
+            }
+        }
+        Update::RefreshDom
+    })
+    .unwrap_or(Update::DoNothing)
+}
+
+/// Puts `secret` for `account_id` into the OS keyring (when no other keyring call is pending)
+/// and keeps it in memory for this run.
+pub(crate) fn remember_secret(s: &mut MailApp, info: &mut CallbackInfo, account_id: &str, secret: Secret) {
+    if s.keyring.is_none() && test_secret().is_none() {
+        info.keyring_store(account::keyring_key(account_id), secret.expose(), false);
+        s.keyring = Some(KeyringOp::Store);
+    }
+    s.secrets.insert(account_id.to_string(), secret);
+}
+
+// ==== Send / Receive: on an azul Thread, progress back through write-backs ====
+
+/// Starts Send / Receive for the current account: with its secret the sync thread; without one
+/// a keyring read whose answer starts it (`on_keyring_result`).
+pub(crate) fn start_sync(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) {
+    if matches!(s.sync, SyncState::Running { .. }) {
+        return;
+    }
+    let Some(account) = s.current_account().cloned() else {
+        return;
+    };
+    let secret = s.secrets.get(&account.id).cloned().or_else(test_secret);
+    let Some(secret) = secret else {
+        if s.keyring.is_none() {
+            info.keyring_get(account::keyring_key(&account.id));
+            s.keyring = Some(KeyringOp::Get {
+                account: account.id.clone(),
+            });
+        }
+        s.sync = SyncState::Done(String::from(
+            "Reading the password from the system keyring...",
+        ));
+        return;
+    };
+    let mail_root = account::mail_root(&s.root, &account);
+    println!("AZMAIL_SYNC_START {}", mail_root.display());
+    let thread = ThreadId::unique();
+    s.sync = SyncState::Running {
+        thread,
+        account: account.id.clone(),
+        status: format!("Connecting to {}...", account.imap.host),
+        percent: 0.0,
+    };
+    let init = SyncInit {
+        account,
+        secret,
+        mail_root,
+        azmail_root: s.root.clone(),
+        extra_ca: test_ca(),
+    };
+    info.add_thread(thread, Thread::create(RefAny::new(init), app, sync_thread));
+}
+
+/// Stops a running Send / Receive: the thread sees TerminateThread between batches, writes what
+/// it has and stops.
+pub(crate) fn stop_sync(s: &mut MailApp, info: &mut CallbackInfo) {
+    if let SyncState::Running { thread, status, .. } = &mut s.sync {
+        info.remove_thread(*thread);
+        *status = String::from("Stopping...");
+    }
+}
+
+/// What the sync thread starts with.
+#[derive(Clone)]
+struct SyncInit {
+    account: Account,
+    secret: Secret,
+    mail_root: PathBuf,
+    /// The AzMail folder (for the outbox).
+    azmail_root: PathBuf,
+    extra_ca: Option<PathBuf>,
+}
+
+/// What the thread reports.
+#[derive(Clone)]
+enum SyncEvent {
+    Progress(Progress),
+    /// The sync's result, and what the outbox retry did (sent, still queued, failed).
+    Finished(Result<SyncReport, SyncError>, (usize, usize, usize)),
+}
+
+struct SyncMessage {
+    account: String,
+    event: SyncEvent,
+}
+
+/// Runs Send / Receive: the IMAP sync, then the outbox's queued mail. The connections block
+/// here, never in a callback.
+extern "C" fn sync_thread(mut init: RefAny, mut sender: ThreadSender, mut receiver: ThreadReceiver) {
+    let Some(job) = init
+        .downcast_ref::<SyncInit>()
+        .map(|job| SyncInit::clone(&job))
+    else {
+        return;
+    };
+    let outcome = run_sync(&job, &mut sender, &mut receiver);
+    // "Send" of Send / Receive: whatever waits in the outbox gets another try.
+    let settings = send::SendSettings::load(&job.azmail_root, &job.account.id);
+    let mut outbox = (0, 0, 0);
+    for (_, status) in send::retry_outbox(&job.azmail_root, &job.account.id, &settings, false) {
+        match status {
+            send::SendStatus::Sent { .. } => outbox.0 += 1,
+            send::SendStatus::Queued { .. } => outbox.1 += 1,
+            send::SendStatus::Failed { .. } => outbox.2 += 1,
+        }
+    }
+    post(
+        &mut sender,
+        &job.account.id,
+        SyncEvent::Finished(outcome, outbox),
+    );
+}
+
+fn run_sync(
+    job: &SyncInit,
+    sender: &mut ThreadSender,
+    receiver: &mut ThreadReceiver,
+) -> Result<SyncReport, SyncError> {
+    let mut source =
+        imap_client::ImapSource::connect(&job.account, &job.secret, job.extra_ca.as_deref())?;
+    let store = LocalFolder::new(job.mail_root.clone());
+    let options = SyncOptions {
+        now: now_unix(),
+        ..SyncOptions::default()
+    };
+    let account = job.account.id.clone();
+    let mut on_progress = |progress: Progress| -> bool {
+        let delivered = post(sender, &account, SyncEvent::Progress(progress));
+        let mut stop = false;
+        while let OptionThreadSendMsg::Some(message) = receiver.recv() {
+            if matches!(message, ThreadSendMsg::TerminateThread) {
+                stop = true;
+            }
+        }
+        delivered && !stop
+    };
+    let result = sync::sync_account(&mut source, &store, &options, &mut on_progress);
+    source.logout();
+    result
+}
+
+fn post(sender: &mut ThreadSender, account: &str, event: SyncEvent) -> bool {
+    sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
+        refany: RefAny::new(SyncMessage {
+            account: account.to_string(),
+            event,
+        }),
+        callback: WriteBackCallback {
+            cb: on_sync_event,
+            ctx: OptionRefAny::None,
+        },
+    }))
+}
+
+/// A report from the sync thread, on the UI thread.
+extern "C" fn on_sync_event(mut app: RefAny, mut payload: RefAny, _info: CallbackInfo) -> Update {
+    let Some((account, event)) = payload
+        .downcast_ref::<SyncMessage>()
+        .map(|m| (m.account.clone(), m.event.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    let Some(mut guard) = app.downcast_mut::<MailApp>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let running_this = matches!(&s.sync, SyncState::Running { account: a, .. } if *a == account);
+    match event {
+        SyncEvent::Progress(progress) => {
+            if !running_this {
+                return Update::DoNothing;
+            }
+            if let SyncState::Running {
+                status, percent, ..
+            } = &mut s.sync
+            {
+                match progress {
+                    Progress::Folder {
+                        index,
+                        count,
+                        display,
+                    } => {
+                        *status = format!("Receiving {display} (folder {} of {count})", index + 1);
+                        *percent = 0.0;
+                    }
+                    Progress::Messages {
+                        display,
+                        done,
+                        total,
+                    } => {
+                        *status = format!("Receiving {display}: {done} of {total} messages");
+                        *percent = if total == 0 {
+                            100.0
+                        } else {
+                            done as f32 * 100.0 / total as f32
+                        };
+                    }
+                }
+            }
+        }
+        SyncEvent::Finished(Ok(report), (sent, queued, failed)) => {
+            println!(
+                "AZMAIL_SYNC_DONE fetched={} reused={} folders={}",
+                report.fetched(),
+                report.reused(),
+                report.folders.len()
+            );
+            eprintln!(
+                "[azmail] synced {} folder(s): {} new message(s)",
+                report.folders.len(),
+                report.fetched()
+            );
+            let mut text = if report.fetched() == 0 {
+                String::from("All folders are up to date.")
+            } else {
+                format!("{} new messages.", report.fetched())
+            };
+            if sent + queued + failed > 0 {
+                text.push_str(&format!(
+                    " Outbox: {sent} sent, {queued} waiting, {failed} failed."
+                ));
+            }
+            s.sync = SyncState::Done(text);
+            s.reload_folders();
+            s.reload_messages();
+        }
+        SyncEvent::Finished(Err(e), _) => {
+            println!("AZMAIL_SYNC_FAILED {e}");
+            eprintln!("[azmail] sync failed: {e}");
+            if matches!(e, SyncError::Auth(_)) {
+                // A wrong password in memory (or the keyring) would fail again: ask for it.
+                s.secrets.remove(&account);
+                ui_account::open_settings_with_error(s, &account, format!("Sign-in failed: {e}"));
+            }
+            s.sync = SyncState::Failed(format!("Send/Receive error: {e}"));
+            s.reload_folders();
+            s.reload_messages();
+        }
+    }
+    Update::RefreshDom
+}
+
+// ==== Writing files: on an azul Thread, never in a callback ====
+
+/// A write the UI asks for.
+#[derive(Clone)]
+pub(crate) enum IoJob {
+    /// A new or edited account: `account.json` and SEND's `sending.json`.
+    SaveAccount {
+        root: PathBuf,
+        account: Account,
+        settings: send::SendSettings,
+        editing: bool,
+    },
+    /// A folder's read / flag marks.
+    SaveFlags {
+        store_root: PathBuf,
+        folder: String,
+        flags: LocalFlags,
+    },
+}
+
+/// What a write did.
+#[derive(Clone)]
+pub(crate) enum IoDone {
+    AccountSaved {
+        account: Account,
+        path: PathBuf,
+        editing: bool,
+    },
+    AccountFailed(String),
+    FlagsSaved,
+    Failed(String),
+}
+
+/// Runs `job` on a thread of the window whose callback asks.
+pub(crate) fn spawn_io(info: &mut CallbackInfo, app: RefAny, job: IoJob) {
+    info.add_thread(ThreadId::unique(), Thread::create(RefAny::new(job), app, io_thread));
+}
+
+extern "C" fn io_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
+    let Some(job) = init.downcast_ref::<IoJob>().map(|job| IoJob::clone(&job)) else {
+        return;
+    };
+    let done = match job {
+        IoJob::SaveAccount {
+            root,
+            account,
+            settings,
+            editing,
+        } => match account::save(&root, &account) {
+            Ok(path) => match settings.save(&root, &account.id) {
+                Ok(_) => IoDone::AccountSaved {
+                    account,
+                    path,
+                    editing,
+                },
+                Err(e) => IoDone::AccountFailed(format!("Could not write the sending settings: {e}")),
+            },
+            Err(e) => IoDone::AccountFailed(format!("Could not write the account file: {e}")),
+        },
+        IoJob::SaveFlags {
+            store_root,
+            folder,
+            flags,
+        } => match LocalFolder::new(store_root).put(
+            &listing::flags_key(&folder),
+            flags.to_json().as_bytes(),
+            true,
+        ) {
+            Ok(()) => IoDone::FlagsSaved,
+            Err(e) => IoDone::Failed(format!("Could not save the read marks: {e}")),
+        },
+    };
+    sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
+        refany: RefAny::new(done),
+        callback: WriteBackCallback {
+            cb: on_io_done,
+            ctx: OptionRefAny::None,
+        },
+    }));
+}
+
+/// Saves the shown folder's marks (after a message was opened or flagged).
+pub(crate) fn save_flags(s: &MailApp, info: &mut CallbackInfo, app: RefAny, flags: LocalFlags) {
+    let (Some(store), Some(folder)) = (s.store(), s.folder.clone()) else {
+        return;
+    };
+    spawn_io(
+        info,
+        app,
+        IoJob::SaveFlags {
+            store_root: store.root().to_path_buf(),
+            folder,
+            flags,
+        },
+    );
+}
+
+/// A write is done.
+extern "C" fn on_io_done(mut app: RefAny, mut payload: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(done) = payload.downcast_ref::<IoDone>().map(|d| IoDone::clone(&d)) else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, |s, app| match done {
+        IoDone::AccountSaved {
+            account,
+            path,
+            editing,
+        } => {
+            println!("AZMAIL_ACCOUNT_SAVED {}", path.display());
+            ui_account::account_saved(s, &mut info, app, account, editing);
+            Update::RefreshDom
+        }
+        IoDone::AccountFailed(error) => {
+            if let Some(editor) = s.editor.as_mut() {
+                editor.error = error;
+            } else {
+                s.notice = error;
+            }
+            Update::RefreshDom
+        }
+        IoDone::FlagsSaved => Update::DoNothing,
+        IoDone::Failed(error) => {
+            s.notice = error;
+            Update::RefreshDom
+        }
+    })
+    .unwrap_or(Update::DoNothing)
+}
+
 // ==== Start ====
 
 fn user_data_dir() -> Option<PathBuf> {
