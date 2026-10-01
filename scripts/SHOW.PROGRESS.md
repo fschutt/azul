@@ -33,15 +33,13 @@ Brief: scratchpad `SHOW_go.md`; house rules: scratchpad `wave4_common.md`. Repor
 
 ## IN PROGRESS
 
-- The app UI (`examples/azul-show/src/`). NEXT STEP, in this order, one commit each:
-  1. `text.rs`: TextBody <-> azwriter::ir::IrDocument, the text box DOM (ir::to_content_dom + p/li per
-     paragraph with ids `tb<element id>-<i>`), sync of the engine's text edits, structural edits, formats.
-  2. `render.rs`: slide -> Dom at a scale (absolute boxes; shapes; images; tables; placeholders; the
-     theme background; build visibility for the show).
-  3. `storage.rs`: data root, LocalDrive, save / load / list decks + media from an azul Thread.
-  4. `args.rs` (like AzWriter's), `themes.rs` (deck themes from ShellThemeAccent), `app.rs` state +
-     undo, `ribbon.rs`, `backstage.rs`, `views.rs` (normal / sorter / outline / notes), `show.rs`
-     (slide show + presenter window, timers), `lib.rs` (layout, callbacks, start).
+- The app UI (`examples/azul-show/src/`). DONE: text.rs 0e128010c, render.rs 1441e2df3, storage.rs
+  c75706697, args.rs 44196ab6d, editor.rs a4e73ff3b (pure session + tests), themes.rs 57a7d5570.
+  (scratchpad tc_pure.py type-checks model + editor + themes standalone; gen.py lists generated API.)
+  NEXT STEP, one commit each: `app.rs` (AppState, Screen / View / BackstagePage, ShowRuntime, the
+  Command enum + CommandData), `commands.rs` (apply_command), `ribbon.rs`, `backstage.rs`, `views.rs`
+  (normal / sorter / outline / notes page, format pane, status bar), `show.rs` (show + presenter),
+  `lib.rs` (mod decls, layouts, widget / text / notes callbacks, storage thread, timers, start).
 
 ## NEXT
 
