@@ -31,11 +31,19 @@ here (house rule); Rust files are parse-checked with `rustfmt --check` / `--emit
   caps, `002d71c37` chat, `9e41a685f` active speaker, `450b21fab` culling via arrange +
   is_node_visible. (`a34ffdefe`/`246136a89` KeyframePolicy::not_taken.)
 
-## IN PROGRESS (last commit: 450b21fab)
-- next: `pace.rs` (PumpPace: 15 ms busy, 250 ms after 1 s quiet) RED -> GREEN; then pump_link uses
-  it (re-arms its timer), stats tick by time (2 s), no RefreshDom for statistics unless the
-  overlay is open and its text changed. Then src/ui.rs (CallShell view, lobby, chat, people,
-  controls, stats overlay, settings), then scripts/azmeet_e2e.py, report.
+- `c80fa4e94` RED / `e1e04689b` pace.rs; `2c4d92e57` pump paces itself, stats repaint only in
+  the open overlay.
+
+## IN PROGRESS (last commit: 2c4d92e57)
+- next: `src/args.rs` (--screen lobby|call|settings, --theme flat|flora, --mode light|dark|system,
+  --name) RED -> GREEN; then `src/ui.rs` in pieces (skeleton + styles; tiles; side panel people /
+  chat / statistics; controls; lobby; settings on ShellSettingsLayout), each committed; then
+  switch meet_layout to ui.rs and delete the old call_layout/start_layout; callbacks for chat
+  send, panel switch, settings, devices; keyboard shortcuts. Then scripts/azmeet_e2e.py, the
+  chat-input layout test, report.
+- UI decisions: lobby = CallShell with the self preview as its one tile and the join form in the
+  side panel; statistics = side-panel mode (SidePanel::Statistics); settings = an in-window
+  screen on ShellSettingsLayout with a Back button.
 
 ## NEXT (plan, in order)
 1. Engine video leftovers (RED then fix each):
