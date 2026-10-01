@@ -13,9 +13,10 @@ Task: AzCalculator (F1/F2/F6/F7 vehicle) + AzContacts (A4). Report: scripts/SMAL
 - c2ce0f107 feat(azcalculator): the window (ui.rs wired into lib.rs)
 - c64368968 test(e2e): azlin_e2e.py shared driver
 - 30d459a21 test(azcalculator): scripts/azcalculator_e2e.py
+- 392058389 / f176d2f3b azcontacts vcard.rs (RED / GREEN)
 
 ## IN PROGRESS
-- AzContacts model: vcard.rs (parser + writer, 3.0/4.0, folding, escaping, multiple values)
+- contact.rs: the Contact model and its vCard mapping
 
 ## NEXT
 3. DONE (calculator UI + E2E).
