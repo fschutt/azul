@@ -65,7 +65,7 @@ use azul_css::{
             LayoutMarginTop, LayoutOverflow, LayoutPosition, LayoutTop, LayoutWidth,
         },
         property::CssProperty,
-        style::{StyleCursor, StyleTransform, StyleTransformVec, StyleUserSelect},
+        style::{StyleCursor, StyleTransform, StyleTransformVec},
     },
     AzString,
 };
@@ -1829,7 +1829,7 @@ pub(crate) struct SelectionAdornerLook {
     pub editing: Vec<CssPropertyWithConditions>,
     /// A resize handle.
     pub handle: Vec<CssPropertyWithConditions>,
-    /// The rotate handle.
+    /// The rotate handle (laid over `handle`).
     pub rotate: Vec<CssPropertyWithConditions>,
     /// The stem to the rotate handle.
     pub stem: Vec<CssPropertyWithConditions>,
@@ -1841,19 +1841,505 @@ pub(crate) struct SelectionAdornerLook {
     pub marker: Option<&'static str>,
 }
 
+// ---- the base: the adorner's structure, in every theme ----
+
+/// The root: the canvas's box, the positioning context of every piece, and
+/// what overflows it is clipped.
+pub(crate) static ADORNER_ROOT_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+];
+
+/// A frame, the box, an edge, a guide, the marquee: placed on the canvas.
+pub(crate) static ADORNER_PIECE_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
+    CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+];
+
+/// A handle: a small square centred on its point of the frame.
+pub(crate) static ADORNER_HANDLE_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
+    CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(8))),
+    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(8))),
+    CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(-4))),
+    CssPropertyWithConditions::simple(CssProperty::const_margin_top(LayoutMarginTop::const_px(-4))),
+];
+
+/// The stem: a hairline from the top edge's middle up to the rotate handle.
+pub(crate) static ADORNER_STEM_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
+    CssPropertyWithConditions::simple(CssProperty::const_left(LayoutLeft {
+        inner: PixelValue::const_percent(50),
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop {
+        inner: PixelValue::const_px(-24),
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(24))),
+];
+
+/// The width of an edge of the object being edited, px.
+const EDGE_PX: f32 = 2.0;
+
 /// The look an adorner with the theme option `theme` is built with: the
 /// pinned theme's own look, or both looks merged in the structure of the
 /// theme the DOM is being built for (the app's content is built once).
 pub(crate) fn look_for(theme: OptionUiTheme) -> SelectionAdornerLook {
-    let _ = theme;
-    SelectionAdornerLook::default()
+    use crate::widgets::themes::{flat, flora, theme_blocks::follow_props};
+    match theme.into_option() {
+        Some(UiTheme::Flat) => flat::selection_adorner_look(),
+        Some(UiTheme::Flora) => flora::selection_adorner_look(),
+        None => {
+            let (a, b) = (flat::selection_adorner_look(), flora::selection_adorner_look());
+            let both = |x: &[CssPropertyWithConditions], y: &[CssPropertyWithConditions]| {
+                follow_props(x, y).into_library_owned_vec()
+            };
+            SelectionAdornerLook {
+                root: both(&a.root, &b.root),
+                frame: both(&a.frame, &b.frame),
+                group: both(&a.group, &b.group),
+                editing: both(&a.editing, &b.editing),
+                handle: both(&a.handle, &b.handle),
+                rotate: both(&a.rotate, &b.rotate),
+                stem: both(&a.stem, &b.stem),
+                guide: both(&a.guide, &b.guide),
+                marquee: both(&a.marquee, &b.marquee),
+                marker: match UiTheme::current() {
+                    UiTheme::Flat => a.marker,
+                    UiTheme::Flora => b.marker,
+                },
+            }
+        }
+    }
+}
+
+/// A part's declarations: its base (the structure), then the look's skin.
+fn part(base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]) -> Vec<CssPropertyWithConditions> {
+    crate::widgets::themes::decl::on_base(base, skin)
+}
+
+/// `left` / `top` / `width` / `height` in px, and the turn.
+fn placed(x: f32, y: f32, w: f32, h: f32, rotation: f32) -> Vec<CssPropertyWithConditions> {
+    let mut out = alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::const_left(LayoutLeft {
+            inner: PixelValue::px(x),
+        })),
+        CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop {
+            inner: PixelValue::px(y),
+        })),
+        CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::px(w))),
+        CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::px(h))),
+    ];
+    if rotation.abs() > f32::EPSILON {
+        out.push(CssPropertyWithConditions::simple(CssProperty::const_transform(
+            StyleTransformVec::from_vec(alloc::vec![StyleTransform::Rotate(AngleValue::deg(rotation))]),
+        )));
+    }
+    out
+}
+
+/// A piece of class `class` over the canvas box `f` (canvas units) at `scale`.
+fn piece(
+    class: &'static str,
+    base: &[CssPropertyWithConditions],
+    skin: &[CssPropertyWithConditions],
+    f: &AdornerFrame,
+    scale: f32,
+    cursor: Option<StyleCursor>,
+) -> Dom {
+    let mut css = part(base, skin);
+    css.extend(placed(f.x * scale, f.y * scale, f.width * scale, f.height * scale, f.rotation));
+    if let Some(cursor) = cursor {
+        css.push(CssPropertyWithConditions::simple(CssProperty::const_cursor(cursor)));
+    }
+    Dom::create_div()
+        .with_class(AzString::from_const_str(class))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(css))
+}
+
+/// The resize cursor of a handle.
+const fn cursor_of(handle: AdornerHandle) -> StyleCursor {
+    match handle {
+        AdornerHandle::TopLeft | AdornerHandle::BottomRight => StyleCursor::NwseResize,
+        AdornerHandle::TopRight | AdornerHandle::BottomLeft => StyleCursor::NeswResize,
+        AdornerHandle::Top | AdornerHandle::Bottom => StyleCursor::NsResize,
+        AdornerHandle::Left | AdornerHandle::Right => StyleCursor::EwResize,
+        AdornerHandle::Rotate => StyleCursor::Grab,
+        AdornerHandle::Body => StyleCursor::Move,
+        AdornerHandle::Canvas => StyleCursor::Default,
+    }
+}
+
+/// The eight resize handles of a frame (and, with `rotate`, the stem and the
+/// rotate handle), placed in percent of the frame so they turn with it.
+fn handles(look: &SelectionAdornerLook, rotate: bool) -> Vec<Dom> {
+    let mut out = Vec::with_capacity(10);
+    for handle in AdornerHandle::RESIZE {
+        let (ax, ay) = handle.anchor();
+        let mut css = part(ADORNER_HANDLE_BASE, &look.handle);
+        css.push(CssPropertyWithConditions::simple(CssProperty::const_left(LayoutLeft {
+            inner: PixelValue::percent(f32::from(ax + 1) * 50.0),
+        })));
+        css.push(CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop {
+            inner: PixelValue::percent(f32::from(ay + 1) * 50.0),
+        })));
+        css.push(CssPropertyWithConditions::simple(CssProperty::const_cursor(cursor_of(handle))));
+        out.push(
+            Dom::create_div()
+                .with_class(AzString::from_const_str(HANDLE_CLASS))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(css)),
+        );
+    }
+    if rotate {
+        out.push(
+            Dom::create_div()
+                .with_class(AzString::from_const_str(STEM_CLASS))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(part(
+                    ADORNER_STEM_BASE,
+                    &look.stem,
+                ))),
+        );
+        let mut skin = look.handle.clone();
+        skin.extend(look.rotate.iter().cloned());
+        let mut css = part(ADORNER_HANDLE_BASE, &skin);
+        css.push(CssPropertyWithConditions::simple(CssProperty::const_left(LayoutLeft {
+            inner: PixelValue::const_percent(50),
+        })));
+        css.push(CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop {
+            inner: PixelValue::px(-ROTATE_OFFSET_PX),
+        })));
+        css.push(CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Grab)));
+        out.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_vec(alloc::vec![
+                    Class(AzString::from_const_str(HANDLE_CLASS)),
+                    Class(AzString::from_const_str(ROTATE_CLASS)),
+                ]))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(css)),
+        );
+    }
+    out
+}
+
+/// The four edges around `f` (unturned), just outside it, at `scale`.
+fn editing_edges(look: &SelectionAdornerLook, f: &AdornerFrame, scale: f32) -> Vec<Dom> {
+    let (x, y, w, h) = (f.x * scale, f.y * scale, f.width * scale, f.height * scale);
+    let e = EDGE_PX;
+    [
+        (x - e, y - e, w + 2.0 * e, e),
+        (x - e, y + h, w + 2.0 * e, e),
+        (x - e, y, e, h),
+        (x + w, y, e, h),
+    ]
+    .into_iter()
+    .map(|(ex, ey, ew, eh)| {
+        let mut css = part(ADORNER_PIECE_BASE, &look.editing);
+        css.extend(placed(ex, ey, ew, eh, 0.0));
+        Dom::create_div()
+            .with_class(AzString::from_const_str(EDITING_CLASS))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(css))
+    })
+    .collect()
+}
+
+/// A guide: a 1 px line at `scale`.
+fn guide_dom(look: &SelectionAdornerLook, g: &AdornerGuide, scale: f32) -> Dom {
+    let (pos, start, len) = (g.position * scale, g.start * scale, (g.end - g.start).max(0.0) * scale);
+    let mut css = part(ADORNER_PIECE_BASE, &look.guide);
+    if g.vertical {
+        css.extend(placed(pos, start, 1.0, len, 0.0));
+    } else {
+        css.extend(placed(start, pos, len, 1.0, 0.0));
+    }
+    Dom::create_div()
+        .with_class(AzString::from_const_str(GUIDE_CLASS))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(css))
 }
 
 /// The adorner's DOM in `look`: root [content, frames.., box, edges..,
 /// guides.., marquee].
 pub(crate) fn build(adorner: SelectionAdorner, look: &SelectionAdornerLook) -> Dom {
-    let _ = look;
-    Dom::create_div().with_child(adorner.content)
+    let SelectionAdorner {
+        content,
+        items,
+        guides,
+        on_event,
+        accessibility_name,
+        editing,
+        marquee,
+        width,
+        height,
+        scale,
+        snap_distance,
+        nudge,
+        theme: _,
+        snap,
+    } = adorner;
+    let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+    let items = items.into_library_owned_vec();
+    let editing = editing.into_option();
+    let selected: Vec<usize> = items
+        .iter()
+        .enumerate()
+        .filter(|(_, it)| it.selected)
+        .map(|(i, _)| i)
+        .collect();
+
+    let mut children: Vec<Dom> = Vec::with_capacity(selected.len() + guides.as_ref().len() + 4);
+    children.push(content);
+    let alone = selected.len() == 1 && editing != Some(selected[0]);
+    for &i in &selected {
+        if editing == Some(i) {
+            continue;
+        }
+        let frame = piece(
+            FRAME_CLASS,
+            ADORNER_PIECE_BASE,
+            &look.frame,
+            &items[i].frame,
+            scale,
+            Some(StyleCursor::Move),
+        );
+        children.push(if alone {
+            frame.with_children(DomVec::from_vec(handles(look, true)))
+        } else {
+            frame
+        });
+    }
+    if selected.len() > 1 {
+        let frames: Vec<AdornerFrame> = selected.iter().map(|&i| items[i].frame).collect();
+        if let Some(around) = union(&frames) {
+            children.push(
+                piece(GROUP_CLASS, ADORNER_PIECE_BASE, &look.group, &around, scale, Some(StyleCursor::Move))
+                    .with_children(DomVec::from_vec(handles(look, false))),
+            );
+        }
+    }
+    if let Some(item) = editing.and_then(|e| items.get(e)) {
+        if item.frame.rotation.abs() < f32::EPSILON {
+            children.extend(editing_edges(look, &item.frame, scale));
+        }
+    }
+    for g in guides.as_ref() {
+        children.push(guide_dom(look, g, scale));
+    }
+    if let Some(m) = marquee.into_option() {
+        children.push(piece(MARQUEE_CLASS, ADORNER_PIECE_BASE, &look.marquee, &m, scale, None));
+    }
+
+    let value = alloc::format!("{} of {} objects selected", selected.len(), items.len());
+    let state = RefAny::new(AdornerState {
+        items,
+        on_event,
+        editing,
+        width,
+        height,
+        scale,
+        snap_distance,
+        nudge,
+        snap,
+        drag: AdornerDrag::default(),
+    });
+    let hook = |event: EventFilter, cb: usize| CoreCallbackData {
+        event,
+        callback: CoreCallback {
+            cb,
+            ctx: OptionRefAny::None,
+        },
+        refany: state.clone(),
+    };
+    let callbacks = alloc::vec![
+        hook(EventFilter::Hover(HoverEventFilter::MouseDown), on_press as usize),
+        hook(EventFilter::Hover(HoverEventFilter::MouseMove), on_move as usize),
+        hook(EventFilter::Hover(HoverEventFilter::MouseUp), on_release as usize),
+        hook(EventFilter::Hover(HoverEventFilter::MouseLeave), on_leave as usize),
+        hook(EventFilter::Hover(HoverEventFilter::DoubleClick), on_double_click as usize),
+        hook(EventFilter::Focus(FocusEventFilter::VirtualKeyDown), on_key as usize),
+    ];
+
+    let mut classes: Vec<IdOrClass> = alloc::vec![Class(AzString::from_const_str(ROOT_CLASS))];
+    if let Some(marker) = look.marker {
+        classes.push(Class(AzString::from_const_str(marker)));
+    }
+    let mut css = part(ADORNER_ROOT_BASE, &look.root);
+    css.push(CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::px(
+        width * scale,
+    ))));
+    css.push(CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::px(
+        height * scale,
+    ))));
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(css))
+        .with_tab_index(TabIndex::Auto)
+        // The canvas: a diagram of objects, named by the app, its value the
+        // selection.
+        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+            role: azul_core::a11y::AccessibilityRole::Diagram,
+            accessibility_name: Some(accessibility_name).into(),
+            accessibility_value: Some(AzString::from(value)).into(),
+            ..Default::default()
+        })
+        .with_callbacks(callbacks.into())
+        // The callbacks' state is also the root's DATASET, so the
+        // reconciler can carry a drag across an app rebuild.
+        .with_dataset(OptionRefAny::Some(state))
+        .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(merge_adorner_state))
+        .with_children(DomVec::from_vec(children))
+}
+
+// ==== The callbacks ====
+
+/// The pointer in canvas units (the callback node is the root).
+fn cursor_units(info: &CallbackInfo, scale: f32) -> Option<(f32, f32)> {
+    let p = info.get_cursor_relative_to_node().into_option()?;
+    let s = if scale > f32::EPSILON { scale } else { 1.0 };
+    Some((p.x / s, p.y / s))
+}
+
+/// Shift, and Ctrl or Cmd.
+fn modifiers(info: &CallbackInfo) -> (bool, bool) {
+    let ks = info.get_current_keyboard_state();
+    (ks.shift_down(), ks.ctrl_down() || ks.super_down())
+}
+
+/// Hands `events` to the app, one after the other; the strongest update wins.
+fn emit(hook: &OptionSelectionAdornerOnEvent, info: CallbackInfo, events: Vec<SelectionAdornerEvent>) -> Update {
+    let Some(SelectionAdornerOnEvent { refany, callback }) = hook.as_ref() else {
+        return Update::DoNothing;
+    };
+    let mut update = Update::DoNothing;
+    for event in events {
+        update.max_self(callback.invoke(refany.clone(), info, event));
+    }
+    update
+}
+
+/// A press: select, start a drag (and capture the pointer) or leave it to
+/// the text being edited. The right button is the context menu's.
+extern "C" fn on_press(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    if info.get_current_mouse_state().right_down {
+        return Update::DoNothing;
+    }
+    let (shift, ctrl) = modifiers(&info);
+    let (events, capture, hook) = {
+        let Some(mut state) = data.downcast_mut::<AdornerState>() else {
+            return Update::DoNothing;
+        };
+        let Some((x, y)) = cursor_units(&info, state.scale) else {
+            return Update::DoNothing;
+        };
+        let (events, capture) = state.press(x, y, shift, ctrl);
+        (events, capture, state.on_event.clone())
+    };
+    if capture {
+        let root = info.get_hit_node();
+        info.capture_pointer(root);
+    }
+    emit(&hook, info, events)
+}
+
+/// A move: the drag's next step.
+extern "C" fn on_move(mut data: RefAny, info: CallbackInfo) -> Update {
+    let (shift, _) = modifiers(&info);
+    let (event, hook) = {
+        let Some(mut state) = data.downcast_mut::<AdornerState>() else {
+            return Update::DoNothing;
+        };
+        if state.drag.kind == DragKind::Idle {
+            return Update::DoNothing;
+        }
+        let Some((x, y)) = cursor_units(&info, state.scale) else {
+            return Update::DoNothing;
+        };
+        (state.drag_to(x, y, shift), state.on_event.clone())
+    };
+    match event {
+        Some(e) => emit(&hook, info, alloc::vec![e]),
+        None => Update::DoNothing,
+    }
+}
+
+/// Ends the drag in flight at the pointer (or where it last was).
+fn finish(data: &mut RefAny, mut info: CallbackInfo) -> Update {
+    let (event, hook) = {
+        let Some(mut state) = data.downcast_mut::<AdornerState>() else {
+            return Update::DoNothing;
+        };
+        if state.drag.kind == DragKind::Idle {
+            return Update::DoNothing;
+        }
+        let (x, y) = cursor_units(&info, state.scale).unwrap_or((state.drag.start_x, state.drag.start_y));
+        (state.release(x, y), state.on_event.clone())
+    };
+    info.release_pointer_capture();
+    match event {
+        Some(e) => emit(&hook, info, alloc::vec![e]),
+        None => Update::DoNothing,
+    }
+}
+
+/// The release: commit, end the marquee, or settle a click.
+extern "C" fn on_release(mut data: RefAny, info: CallbackInfo) -> Update {
+    finish(&mut data, info)
+}
+
+/// A leave ends a drag only when its release was lost (the button is up):
+/// while the button is held, the capture delivers the moves and the release.
+extern "C" fn on_leave(mut data: RefAny, info: CallbackInfo) -> Update {
+    if info.get_current_mouse_state().left_down {
+        return Update::DoNothing;
+    }
+    finish(&mut data, info)
+}
+
+/// A double-click on an object: edit it.
+extern "C" fn on_double_click(mut data: RefAny, info: CallbackInfo) -> Update {
+    let (event, hook) = {
+        let Some(state) = data.downcast_ref::<AdornerState>() else {
+            return Update::DoNothing;
+        };
+        let Some((x, y)) = cursor_units(&info, state.scale) else {
+            return Update::DoNothing;
+        };
+        (state.activate(x, y), state.on_event.clone())
+    };
+    match event {
+        Some(e) => emit(&hook, info, alloc::vec![e]),
+        None => Update::DoNothing,
+    }
+}
+
+/// A key on the focused canvas. While a text is edited only Escape is the
+/// canvas's; every other key is the text's.
+extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let ks = info.get_current_keyboard_state();
+    let Some(key) = ks.current_virtual_keycode.into_option() else {
+        return Update::DoNothing;
+    };
+    if ks.alt_down() {
+        return Update::DoNothing;
+    }
+    let (shift, ctrl) = (ks.shift_down(), ks.ctrl_down() || ks.super_down());
+    let (event, hook) = {
+        let Some(state) = data.downcast_ref::<AdornerState>() else {
+            return Update::DoNothing;
+        };
+        if state.editing.is_some() && key != VirtualKeyCode::Escape {
+            return Update::DoNothing;
+        }
+        (state.key(key, shift, ctrl), state.on_event.clone())
+    };
+    let Some(event) = event else {
+        return Update::DoNothing;
+    };
+    info.prevent_default();
+    emit(&hook, info, alloc::vec![event])
 }
 
 #[cfg(test)]
