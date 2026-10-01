@@ -742,3 +742,493 @@ pub fn drag_shape(a: (f32, f32), b: (f32, f32), ellipse: bool, square: bool) -> 
         Shape::Rect(r)
     }
 }
+
+// ==== The pointer ====
+
+impl PhotoState {
+    /// The pointer went down at view point (`vx`, `vy`).
+    pub fn pointer_down(&mut self, vx: f32, vy: f32, pressure: f32, mods: Mods) -> Effects {
+        let (dx, dy) = self.view.view_to_doc(vx, vy);
+        let doc = (dx, dy);
+        self.drag = None;
+        match self.tool {
+            Tool::Brush | Tool::Pencil | Tool::Eraser | Tool::CloneStamp => {
+                if self.tool == Tool::CloneStamp {
+                    if mods.alt {
+                        self.opts.clone_source = Some(doc);
+                        self.opts.clone_offset = None;
+                        self.status = "Clone source set.".into();
+                        return Effects::dom();
+                    }
+                    let Some(source) = self.opts.clone_source else {
+                        self.status = "Alt-click to set where the clone stamp copies from.".into();
+                        return Effects::dom();
+                    };
+                    if self.opts.clone_offset.is_none() {
+                        self.opts.clone_offset = Some((source.0 - dx, source.1 - dy));
+                    }
+                }
+                let settings = self.brush_settings();
+                let at = StrokePoint {
+                    x: dx,
+                    y: dy,
+                    pressure: pressure.clamp(0.0, 1.0),
+                };
+                if let Err(e) = self.engine.begin_stroke(settings, at) {
+                    return self.refused(e);
+                }
+                self.modified = true;
+                self.drag = Some(Drag::Stroke);
+                self.refresh()
+            }
+            Tool::MarqueeRect | Tool::MarqueeEllipse => {
+                self.drag = Some(Drag::Marquee {
+                    start: doc,
+                    ellipse: self.tool == Tool::MarqueeEllipse,
+                });
+                Effects::default()
+            }
+            Tool::Lasso => {
+                self.drag = Some(Drag::Lasso { points: vec![doc] });
+                Effects::default()
+            }
+            Tool::MagicWand => match self.doc_pixel(vx, vy) {
+                Some((x, y)) => self.apply(Op::SelectMagicWand {
+                    x,
+                    y,
+                    tolerance: self.opts.wand_tolerance,
+                    contiguous: self.opts.wand_contiguous,
+                    mode: self.select_mode(mods),
+                    sample_merged: self.opts.sample_merged,
+                }),
+                None => Effects::default(),
+            },
+            Tool::Crop => {
+                self.drag = Some(Drag::Crop { start: doc, end: doc });
+                Effects::default()
+            }
+            Tool::Eyedropper => match self.doc_pixel(vx, vy) {
+                Some((x, y)) => {
+                    let _ = self.engine.take_dirty();
+                    let mut c = self.engine.sample(x, y);
+                    c[3] = 255;
+                    if mods.alt {
+                        self.bg = c;
+                    } else {
+                        self.fg = c;
+                    }
+                    let mut e = self.refresh();
+                    e.dom = true;
+                    e
+                }
+                None => Effects::default(),
+            },
+            Tool::Bucket => match self.doc_pixel(vx, vy) {
+                Some((x, y)) => self.apply(Op::FloodFill {
+                    x,
+                    y,
+                    color: self.fg,
+                    tolerance: self.opts.bucket_tolerance,
+                    contiguous: self.opts.bucket_contiguous,
+                }),
+                None => Effects::default(),
+            },
+            Tool::Gradient => {
+                self.drag = Some(Drag::Gradient { start: doc, end: doc });
+                Effects::default()
+            }
+            Tool::Shape => {
+                self.drag = Some(Drag::Shape { start: doc, end: doc });
+                Effects::default()
+            }
+            Tool::Move => {
+                self.drag = Some(Drag::Move { start: doc, end: doc });
+                Effects::default()
+            }
+            Tool::Hand => {
+                self.drag = Some(Drag::Pan {
+                    at: (vx, vy),
+                    pan: (self.view.pan_x, self.view.pan_y),
+                });
+                Effects::default()
+            }
+            Tool::Zoom => self.zoom_step(if mods.alt { -1 } else { 1 }, Some((vx, vy))),
+            Tool::Text => {
+                self.status = TEXT_TOOL_NOTE.to_string();
+                Effects::dom()
+            }
+        }
+    }
+
+    /// The pointer moved to view point (`vx`, `vy`) (pressed or not).
+    pub fn pointer_move(&mut self, vx: f32, vy: f32, pressure: f32, mods: Mods) -> Effects {
+        let (dx, dy) = self.view.view_to_doc(vx, vy);
+        let doc = (dx, dy);
+        let cursor = Some((dx.floor() as i32, dy.floor() as i32));
+        let cursor_moved = cursor != self.cursor;
+        self.cursor = cursor;
+        let mut e = match self.drag.as_mut() {
+            None => Effects::default(),
+            Some(Drag::Stroke) => {
+                self.engine.stroke_to(StrokePoint {
+                    x: dx,
+                    y: dy,
+                    pressure: pressure.clamp(0.0, 1.0),
+                });
+                self.refresh()
+            }
+            Some(Drag::Marquee { start, ellipse }) => {
+                let (start, ellipse) = (*start, *ellipse);
+                let r = drag_rect(start, doc, mods.shift);
+                let (a, b) = ((r.x as f32, r.y as f32), (r.right() as f32, r.bottom() as f32));
+                self.overlays.outline = if ellipse { ellipse_outline(a, b) } else { rect_outline(a, b) };
+                self.overlays.closed = true;
+                self.refresh()
+            }
+            Some(Drag::Lasso { points }) => {
+                let last = points.last().copied().unwrap_or(doc);
+                let far = ((last.0 - doc.0).powi(2) + (last.1 - doc.1).powi(2)).sqrt() * self.view.zoom >= 2.0;
+                if far {
+                    points.push(doc);
+                }
+                self.overlays.outline = points.clone();
+                self.overlays.closed = false;
+                self.refresh()
+            }
+            Some(Drag::Crop { start, end }) => {
+                *end = doc;
+                let r = drag_rect(*start, doc, mods.shift);
+                self.overlays.crop = Some(r);
+                self.refresh()
+            }
+            Some(Drag::Gradient { start, end }) | Some(Drag::Move { start, end }) => {
+                *end = doc;
+                self.overlays.guide = Some((*start, doc));
+                self.refresh()
+            }
+            Some(Drag::Shape { start, end }) => {
+                *end = doc;
+                let r = drag_rect(*start, doc, mods.shift);
+                let (a, b) = ((r.x as f32, r.y as f32), (r.right() as f32, r.bottom() as f32));
+                self.overlays.outline = if self.opts.shape_ellipse { ellipse_outline(a, b) } else { rect_outline(a, b) };
+                self.overlays.closed = true;
+                self.refresh()
+            }
+            Some(Drag::Pan { at, pan }) => {
+                self.view.pan_x = (pan.0 + vx - at.0).round();
+                self.view.pan_y = (pan.1 + vy - at.1).round();
+                self.render_all()
+            }
+        };
+        e.cursor = e.cursor || cursor_moved;
+        e
+    }
+
+    /// The pointer went up at view point (`vx`, `vy`).
+    pub fn pointer_up(&mut self, vx: f32, vy: f32, mods: Mods) -> Effects {
+        let (dx, dy) = self.view.view_to_doc(vx, vy);
+        let doc = (dx, dy);
+        let Some(drag) = self.drag.take() else {
+            return Effects::default();
+        };
+        self.overlays = Overlays::default();
+        let cleared = self.refresh();
+        let e = match drag {
+            Drag::Stroke => {
+                self.engine.end_stroke();
+                Effects::dom()
+            }
+            Drag::Marquee { start, ellipse } => {
+                let r = drag_rect(start, doc, mods.shift);
+                if r.w < 2 && r.h < 2 {
+                    // A click without a drag drops the selection.
+                    self.apply(Op::Deselect)
+                } else {
+                    let shape = if ellipse { Shape::Ellipse(r) } else { Shape::Rect(r) };
+                    let mut e = self.apply(Op::Select(shape, self.select_mode(mods)));
+                    if self.opts.feather > 0.0 {
+                        e = e.merge(self.apply(Op::Feather(self.opts.feather)));
+                    }
+                    e
+                }
+            }
+            Drag::Lasso { mut points } => {
+                points.push(doc);
+                if points.len() < 3 {
+                    self.apply(Op::Deselect)
+                } else {
+                    let mut e = self.apply(Op::Select(Shape::Polygon(points), self.select_mode(mods)));
+                    if self.opts.feather > 0.0 {
+                        e = e.merge(self.apply(Op::Feather(self.opts.feather)));
+                    }
+                    e
+                }
+            }
+            Drag::Crop { start, .. } => {
+                let r = drag_rect(start, doc, mods.shift);
+                if r.w < 2 || r.h < 2 {
+                    Effects::default()
+                } else {
+                    let e = self.apply(Op::Crop(r));
+                    e.merge(self.fit())
+                }
+            }
+            Drag::Gradient { start, .. } => {
+                if (start.0 - doc.0).abs() < 0.5 && (start.1 - doc.1).abs() < 0.5 {
+                    Effects::default()
+                } else {
+                    self.apply(Op::Gradient {
+                        from: start,
+                        to: doc,
+                        start: self.fg,
+                        end: self.bg,
+                    })
+                }
+            }
+            Drag::Shape { start, .. } => {
+                let r = drag_rect(start, doc, mods.shift);
+                if r.w < 1 || r.h < 1 {
+                    Effects::default()
+                } else {
+                    let shape = if self.opts.shape_ellipse { Shape::Ellipse(r) } else { Shape::Rect(r) };
+                    self.apply(Op::DrawShape { shape, color: self.fg })
+                }
+            }
+            Drag::Move { start, .. } => {
+                let ox = (doc.0 - start.0).round() as i32;
+                let oy = (doc.1 - start.1).round() as i32;
+                if ox == 0 && oy == 0 {
+                    Effects::default()
+                } else {
+                    self.apply(Op::Offset { dx: ox, dy: oy })
+                }
+            }
+            Drag::Pan { .. } => Effects::dom(),
+        };
+        cleared.merge(e)
+    }
+
+    /// The pointer left the canvas: finish a stroke, keep other drags.
+    pub fn pointer_left(&mut self) -> Effects {
+        self.cursor = None;
+        if self.drag == Some(Drag::Stroke) {
+            self.drag = None;
+            self.engine.end_stroke();
+            return Effects {
+                dom: true,
+                cursor: true,
+                ..Effects::default()
+            };
+        }
+        Effects {
+            cursor: true,
+            ..Effects::default()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::raster::{layer, LayerContent};
+
+    const NO: Mods = Mods {
+        shift: false,
+        alt: false,
+        cmd: false,
+    };
+
+    /// A 400 x 300 white document shown at 100 % in a 400 x 300 view.
+    fn editor() -> PhotoState {
+        let mut s = PhotoState::new(Document::with_background(400, 300, [255, 255, 255, 255]), "Test", "u");
+        let _ = s.set_view_size(400, 300);
+        s.view = View {
+            zoom: 1.0,
+            pan_x: 0.0,
+            pan_y: 0.0,
+            width: 400,
+            height: 300,
+        };
+        let _ = s.render_all();
+        s
+    }
+
+    fn active_pixel(s: &PhotoState, x: u32, y: u32) -> [u8; 4] {
+        let id = s.engine.active_layer().unwrap();
+        match &layer::find(&s.engine.document().layers, id).unwrap().content {
+            LayerContent::Raster(g) => g.pixel(x, y),
+            _ => panic!("not raster"),
+        }
+    }
+
+    #[test]
+    fn a_brush_drag_paints_and_redraws_only_around_the_stroke() {
+        let mut s = editor();
+        s.fg = [255, 0, 0, 255];
+        s.opts.brush_size = 10.0;
+        let down = s.pointer_down(50.0, 50.0, 1.0, NO);
+        let moved = s.pointer_move(90.0, 50.0, 1.0, NO);
+        let up = s.pointer_up(90.0, 50.0, NO);
+        assert_eq!(active_pixel(&s, 70, 50), [255, 0, 0, 255]);
+        let r = down.merge(moved).view.expect("the stroke redraws its rect");
+        assert!(r.w < 400 && r.h < 300, "not the whole view: {r:?}");
+        assert!(r.contains(70, 50));
+        assert!(up.dom, "the History panel shows the stroke");
+        assert_eq!(s.buf.rgba(70, 50), [255, 0, 0, 255], "the view shows it");
+        assert_eq!(s.engine.history().0.last().map(String::as_str), Some("Brush"));
+    }
+
+    #[test]
+    fn a_marquee_drag_selects_and_a_click_deselects() {
+        let mut s = editor();
+        s.tool = Tool::MarqueeRect;
+        s.pointer_down(10.0, 10.0, 1.0, NO);
+        s.pointer_move(60.0, 40.0, 1.0, NO);
+        assert!(!s.overlays.outline.is_empty(), "the marquee shows while dragging");
+        s.pointer_up(60.0, 40.0, NO);
+        let m = s.engine.document().selection.clone().expect("a selection");
+        assert_eq!(m.bounds(), Some(IRect::new(10, 10, 50, 30)));
+        assert!(s.overlays.outline.is_empty());
+        // Shift adds a second rect.
+        let shift = Mods { shift: true, ..NO };
+        s.pointer_down(100.0, 100.0, 1.0, shift);
+        s.pointer_up(120.0, 120.0, shift);
+        let m = s.engine.document().selection.clone().unwrap();
+        assert_eq!(m.bounds(), Some(IRect::new(10, 10, 110, 110)));
+        // A click drops it.
+        s.pointer_down(5.0, 5.0, 1.0, NO);
+        s.pointer_up(5.0, 5.0, NO);
+        assert!(s.engine.document().selection.is_none());
+    }
+
+    #[test]
+    fn the_hand_pans_the_view_and_leaves_the_document_alone() {
+        let mut s = editor();
+        s.tool = Tool::Hand;
+        s.pointer_down(100.0, 100.0, 1.0, NO);
+        let e = s.pointer_move(130.0, 90.0, 1.0, NO);
+        s.pointer_up(130.0, 90.0, NO);
+        assert!(e.view_all);
+        assert_eq!((s.view.pan_x, s.view.pan_y), (30.0, -10.0));
+        assert_eq!(s.engine.history().0.len(), 1, "no document change");
+    }
+
+    #[test]
+    fn the_zoom_tool_zooms_in_about_the_click_and_alt_zooms_out() {
+        let mut s = editor();
+        s.tool = Tool::Zoom;
+        let before = s.view.view_to_doc(200.0, 150.0);
+        s.pointer_down(200.0, 150.0, 1.0, NO);
+        assert_eq!(s.view.zoom, 2.0);
+        let after = s.view.view_to_doc(200.0, 150.0);
+        assert!((before.0 - after.0).abs() < 1.0 && (before.1 - after.1).abs() < 1.0);
+        s.pointer_down(200.0, 150.0, 1.0, Mods { alt: true, ..NO });
+        assert_eq!(s.view.zoom, 1.0);
+    }
+
+    #[test]
+    fn the_eyedropper_picks_the_composite_colour() {
+        let mut s = editor();
+        s.engine.apply(Op::FillSelection([10, 200, 30, 255])).unwrap();
+        s.tool = Tool::Eyedropper;
+        s.pointer_down(5.0, 5.0, 1.0, NO);
+        assert_eq!(s.fg, [10, 200, 30, 255]);
+        s.pointer_down(5.0, 5.0, 1.0, Mods { alt: true, ..NO });
+        assert_eq!(s.bg, [10, 200, 30, 255], "Alt picks the background colour");
+    }
+
+    #[test]
+    fn the_bucket_and_the_wand_act_where_clicked() {
+        let mut s = editor();
+        s.fg = [0, 0, 255, 255];
+        s.tool = Tool::Bucket;
+        s.pointer_down(20.0, 20.0, 1.0, NO);
+        assert_eq!(active_pixel(&s, 399, 299), [0, 0, 255, 255]);
+        s.tool = Tool::MagicWand;
+        s.pointer_down(20.0, 20.0, 1.0, NO);
+        let m = s.engine.document().selection.clone().unwrap();
+        assert_eq!(m.bounds(), Some(IRect::new(0, 0, 400, 300)));
+    }
+
+    #[test]
+    fn a_crop_drag_crops_and_fits_the_view() {
+        let mut s = editor();
+        s.tool = Tool::Crop;
+        s.pointer_down(100.0, 50.0, 1.0, NO);
+        s.pointer_move(300.0, 250.0, 1.0, NO);
+        assert!(s.overlays.crop.is_some());
+        s.pointer_up(300.0, 250.0, NO);
+        assert_eq!(s.engine.size(), (200, 200));
+        assert!(s.overlays.crop.is_none());
+    }
+
+    #[test]
+    fn a_gradient_drag_fills_from_the_foreground_to_the_background_colour() {
+        let mut s = editor();
+        s.fg = [0, 0, 0, 255];
+        s.bg = [255, 255, 255, 255];
+        s.tool = Tool::Gradient;
+        s.pointer_down(0.0, 10.0, 1.0, NO);
+        s.pointer_move(200.0, 10.0, 1.0, NO);
+        assert!(s.overlays.guide.is_some());
+        s.pointer_up(200.0, 10.0, NO);
+        assert!(active_pixel(&s, 0, 10)[0] <= 2, "black at the start");
+        assert!(active_pixel(&s, 100, 10)[0].abs_diff(128) <= 2, "grey half way");
+    }
+
+    #[test]
+    fn the_clone_stamp_wants_a_source_first() {
+        let mut s = editor();
+        s.tool = Tool::CloneStamp;
+        let e = s.pointer_down(50.0, 50.0, 1.0, NO);
+        assert!(e.dom && !s.status.is_empty(), "it explains the Alt-click");
+        assert!(!s.dragging());
+        s.pointer_down(10.0, 10.0, 1.0, Mods { alt: true, ..NO });
+        assert_eq!(s.opts.clone_source, Some((10.0, 10.0)));
+        s.pointer_down(50.0, 50.0, 1.0, NO);
+        assert!(s.dragging());
+        assert_eq!(s.opts.clone_offset, Some((-40.0, -40.0)));
+        s.pointer_up(50.0, 50.0, NO);
+    }
+
+    #[test]
+    fn the_text_tool_explains_why_it_is_off() {
+        let mut s = editor();
+        let e = s.set_tool(Tool::Text);
+        assert!(e.dom);
+        assert_eq!(s.tool, Tool::Brush, "the tool did not change");
+        assert_eq!(s.status, TEXT_TOOL_NOTE);
+    }
+
+    #[test]
+    fn undo_after_a_stroke_redraws_the_stroke_rect_only() {
+        let mut s = editor();
+        s.fg = [255, 0, 0, 255];
+        s.pointer_down(50.0, 50.0, 1.0, NO);
+        s.pointer_up(50.0, 50.0, NO);
+        let e = s.undo();
+        let r = e.view.expect("the undo redraws");
+        assert!(r.w <= 256 + 4 && r.h <= 256 + 4, "one tile's worth: {r:?}");
+        assert_eq!(s.buf.rgba(50, 50), [255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn a_tool_key_cycles_through_the_tools_that_share_it() {
+        assert_eq!(Tool::for_key('M', Tool::Brush), Some(Tool::MarqueeRect));
+        assert_eq!(Tool::for_key('M', Tool::MarqueeRect), Some(Tool::MarqueeEllipse));
+        assert_eq!(Tool::for_key('M', Tool::MarqueeEllipse), Some(Tool::MarqueeRect));
+        assert_eq!(Tool::for_key('Q', Tool::Brush), None);
+        let ids: std::collections::HashSet<&str> = Tool::ALL.iter().map(|t| t.dom_id()).collect();
+        assert_eq!(ids.len(), Tool::ALL.len(), "every tool button has its own id");
+    }
+
+    #[test]
+    fn the_marching_ants_redraw_only_the_selection() {
+        let mut s = editor();
+        s.engine.apply(Op::Select(Shape::Rect(IRect::new(10, 10, 20, 20)), SelectMode::Replace)).unwrap();
+        let _ = s.refresh();
+        let e = s.tick_ants();
+        let r = e.view.expect("the ants move");
+        assert!(r.w <= 26 && r.h <= 26, "{r:?}");
+    }
+}
