@@ -35,8 +35,8 @@ use azul::{
     str::String as AzString,
     vec::{DomVec, StringVec, U8VecRef},
     widgets::{
-        Avatar, Badge, Button, ButtonType, CameraWidget, DropDown, MicrophoneWidget, ProgressBar,
-        ScreenCaptureWidget, Segmented, Titlebar,
+        Avatar, AvatarSize, Badge, Button, ButtonType, CameraWidget, DropDown, MicrophoneWidget,
+        ProgressBar, ScreenCaptureWidget, Segmented, Titlebar,
     },
 };
 
@@ -395,4 +395,201 @@ fn initials(name: &str) -> String {
     } else {
         letters
     }
+}
+
+// ==== The side panel: people, chat, statistics ====
+
+/// The side panel's tabs, in `PanelView` order.
+const PANEL_TABS: [PanelView; 3] = [PanelView::People, PanelView::Chat, PanelView::Statistics];
+
+/// The side panel: tabs over the people, the chat or the statistics; `None` when closed.
+fn side_panel(view: &CallView, data: &RefAny, actions: &Actions) -> Option<Dom> {
+    let selected = PANEL_TABS.iter().position(|p| *p == view.panel)?;
+    let chat_tab = if view.chat_unread > 0 {
+        format!("Chat ({})", view.chat_unread)
+    } else {
+        String::from("Chat")
+    };
+    let tabs = Segmented::create(strings(&[
+        String::from("People"),
+        chat_tab,
+        String::from("Statistics"),
+    ]))
+    .with_selected_index(selected)
+    .with_on_change(data.clone(), actions.panel)
+    .dom();
+    let body = match view.panel {
+        PanelView::People => people(view),
+        PanelView::Chat => chat(view, data, actions),
+        PanelView::Statistics | PanelView::Closed => statistics(view),
+    };
+    Some(
+        Dom::create_div()
+            .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+            .with_child(
+                Dom::create_div()
+                    .with_css("padding: 8px 8px 0px 8px;")
+                    .with_child(tabs),
+            )
+            .with_child(body),
+    )
+}
+
+/// Everyone in the call: initials, name, what they do.
+fn people(view: &CallView) -> Dom {
+    let mut list = Dom::create_div()
+        .with_css(PANEL_SCROLL)
+        .with_id(AzString::from("azmeet-people"));
+    for person in &view.people {
+        let mut row = Dom::create_div()
+            .with_css("display: flex; flex-direction: row; align-items: center; padding: 4px 0px;")
+            .with_child(
+                Avatar::create(AzString::from(initials(&person.name).as_str()))
+                    .with_size(AvatarSize::Small)
+                    .dom(),
+            )
+            .with_child(
+                Dom::create_div()
+                    .with_css(
+                        "display: flex; flex-direction: column; flex-grow: 1; min-width: 0px; \
+                         margin-left: 8px;",
+                    )
+                    .with_child(text(&person.name, "font-size: 13px;"))
+                    .with_child(text(&person.status, SECONDARY)),
+            );
+        if person.speaking {
+            row = row.with_child(Badge::create(AzString::from("speaking")).dom());
+        }
+        if person.muted {
+            row = row.with_child(Badge::create(AzString::from("muted")).dom());
+        }
+        if person.deafened {
+            row = row.with_child(Badge::create(AzString::from("deafened")).dom());
+        }
+        list = list.with_child(row);
+    }
+    list
+}
+
+/// The chat: the messages, oldest first, over the field and its Send button.
+fn chat(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
+    let mut messages = Dom::create_div()
+        .with_css(PANEL_SCROLL)
+        .with_id(AzString::from("azmeet-chat-messages"));
+    if view.chat.is_empty() {
+        messages = messages.with_child(text("No messages yet.", SECONDARY));
+    }
+    for line in &view.chat {
+        let who = if line.mine { "You" } else { line.name.as_str() };
+        messages = messages.with_child(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: column; padding: 3px 0px;")
+                .with_child(text(who, "font-size: 12px; font-weight: bold;"))
+                .with_child(text(&line.text, "font-size: 13px;")),
+        );
+    }
+    let field = TextInput::create()
+        .with_text(view.chat_draft.as_str())
+        .with_placeholder("Message everyone")
+        .with_on_text_input(data.clone(), actions.chat_text)
+        .with_on_virtual_key_down(data.clone(), actions.chat_key)
+        .dom()
+        .with_css(CHAT_FIELD)
+        .with_id(AzString::from("azmeet-chat-field"));
+    let send = Button::with_type("Send", ButtonType::Primary)
+        .with_on_click(data.clone(), actions.chat_send)
+        .dom()
+        .with_id(AzString::from("azmeet-chat-send"));
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+        .with_child(messages)
+        .with_child(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: row; align-items: center; padding: 8px;")
+                .with_child(field)
+                .with_child(send),
+        )
+}
+
+/// The statistics: one titled section per subject, every line wrapping inside the panel.
+fn statistics(view: &CallView) -> Dom {
+    let mut panel = Dom::create_div()
+        .with_css(PANEL_SCROLL)
+        .with_id(AzString::from("azmeet-statistics"));
+    for section in &view.stats {
+        panel = panel.with_child(text(&section.title, SECTION_TITLE));
+        if section.lines.is_empty() {
+            panel = panel.with_child(text("(nothing yet)", SECONDARY));
+        }
+        for line in &section.lines {
+            panel = panel.with_child(text(line, STAT_LINE));
+        }
+    }
+    panel
+}
+
+/// The devices slot under the side panel: the microphone's level (and the hidden microphone
+/// widget that captures it) and the invite link.
+fn devices(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
+    let mut column =
+        Dom::create_div().with_css("display: flex; flex-direction: column; padding: 8px;");
+    if view.mic && !view.tone_mic {
+        column = column.with_child(microphone(data));
+    }
+    if view.mic {
+        column = column.with_child(level_meter(view, data));
+    }
+    if !view.link.is_empty() {
+        column = column.with_child(
+            Dom::create_div()
+                .with_css(ROW)
+                .with_child(text(
+                    &view.link,
+                    "font-size: 12px; flex-grow: 1; min-width: 0px; overflow: hidden; \
+                     white-space: nowrap;",
+                ))
+                .with_child(
+                    Button::create(if view.copied { "Copied" } else { "Copy link" })
+                        .with_on_click(data.clone(), actions.copy_link)
+                        .dom(),
+                ),
+        );
+    }
+    column
+}
+
+/// The microphone: a capture widget with no picture, 1 px.
+fn microphone(data: &RefAny) -> Dom {
+    MicrophoneWidget::create(AudioConfig {
+        sample_rate: crate::MIC_RATE,
+        channels: 1,
+    })
+    .with_on_frame(data.clone(), crate::mic_on_frame)
+    .dom()
+    .with_css("width: 1px; height: 1px; overflow: hidden;")
+}
+
+/// "Mic level" and the bar that moves with it (ten times a second at most).
+fn level_meter(view: &CallView, data: &RefAny) -> Dom {
+    Dom::create_div()
+        .with_css(ROW)
+        .with_child(text(
+            "Mic level",
+            "font-size: 12px; margin-right: 8px; white-space: nowrap;",
+        ))
+        .with_child(
+            ProgressBar::create(view.mic_level)
+                .dom()
+                .with_css("flex-grow: 1; min-width: 40px;")
+                .with_callback(
+                    EventFilter::Component(ComponentEventFilter::AfterMount),
+                    data.clone(),
+                    crate::meter_mounted,
+                )
+                .with_callback(
+                    EventFilter::Component(ComponentEventFilter::BeforeUnmount),
+                    data.clone(),
+                    crate::meter_unmounted,
+                ),
+        )
 }
