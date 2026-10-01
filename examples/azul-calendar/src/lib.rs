@@ -342,7 +342,10 @@ impl CalState {
     /// Saves one setting line in the settings file (the others are kept).
     pub(crate) fn save_setting(&self, line: &str) {
         if let Err(e) = settings::write_line(&settings::path(&self.data_dir), line) {
-            eprintln!("[azcalendar] could not save a setting ({}): {e}", line.trim());
+            eprintln!(
+                "[azcalendar] could not save a setting ({}): {e}",
+                line.trim()
+            );
         }
     }
 
@@ -355,7 +358,11 @@ impl CalState {
                 if let Some(m) = &event.meeting {
                     println!("AZCAL_LINK {}", m.link);
                 }
-                eprintln!("[azcalendar] saved \"{}\" to {}", event.title, path.display());
+                eprintln!(
+                    "[azcalendar] saved \"{}\" to {}",
+                    event.title,
+                    path.display()
+                );
                 match self.event_index(&event.id) {
                     Some(i) => self.events[i] = event,
                     None => self.events.push(event),
@@ -396,6 +403,19 @@ pub(crate) fn new_slot(s: &CalState, now: NaiveTime) -> (NaiveDate, NaiveTime, N
         return (s.today + chrono::Duration::days(1), at(9), at(10));
     }
     (s.today, at(next), at(next + 1))
+}
+
+/// The date a date picker reports (its day held to the month's length).
+pub(crate) fn picked(state: azul::widgets::DatePickerState) -> Option<NaiveDate> {
+    week::picked_date(i32::try_from(state.year).ok()?, state.month, state.day)
+}
+
+/// What a text field's callback answers: the text is kept, nothing is rebuilt.
+pub(crate) fn typed() -> azul::widgets::OnTextInputReturn {
+    azul::widgets::OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: azul::widgets::TextInputValid::Yes,
+    }
 }
 
 /// Three 64-bit draws of `event::random_seed` for a room id (130 of the bits are used).
@@ -570,10 +590,7 @@ extern "C" fn on_app_mounted(mut data: RefAny, mut info: CallbackInfo) -> Update
 
 /// Looks for due reminders: the first one is shown (an info bar over the view), every due one
 /// is marked shown.
-extern "C" fn on_reminder_tick(
-    mut data: RefAny,
-    _info: TimerCallbackInfo,
-) -> TimerCallbackReturn {
+extern "C" fn on_reminder_tick(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackReturn {
     let Some(mut guard) = data.downcast_mut::<CalState>() else {
         return TimerCallbackReturn::continue_unchanged();
     };
@@ -602,7 +619,11 @@ pub(crate) fn reminder_text(s: &CalState) -> Option<String> {
     } else if *day == s.today {
         format!("starts at {}", e.start.format("%H:%M"))
     } else {
-        format!("starts {} at {}", day.format("%A %-d %B"), e.start.format("%H:%M"))
+        format!(
+            "starts {} at {}",
+            day.format("%A %-d %B"),
+            e.start.format("%H:%M")
+        )
     };
     let place = if e.location.is_empty() {
         String::new()
@@ -869,9 +890,9 @@ fn start_syncing(data: &mut RefAny, info: &mut CallbackInfo) {
         let get_time = info.get_system_time_fn();
         info.add_timer(
             TimerId::unique(),
-            Timer::create(app.clone(), on_reminder_tick, get_time).with_interval(
-                Duration::System(SystemTimeDiff::from_millis(REMINDER_TICK_MS)),
-            ),
+            Timer::create(app.clone(), on_reminder_tick, get_time).with_interval(Duration::System(
+                SystemTimeDiff::from_millis(REMINDER_TICK_MS),
+            )),
         );
     }
     sync_links(s, info, &app);
@@ -888,7 +909,6 @@ pub(crate) extern "C" fn on_sync_now(mut data: RefAny, mut info: CallbackInfo) -
     sync_links(s, &mut info, &app);
     Update::RefreshDom
 }
-
 
 // ==== Join meeting ====
 

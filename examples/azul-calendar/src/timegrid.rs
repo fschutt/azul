@@ -885,10 +885,7 @@ extern "C" fn on_draft_title(
             d.title = state.get_text().as_str().to_string();
         }
     }
-    OnTextInputReturn {
-        update: Update::DoNothing,
-        valid: TextInputValid::Yes,
-    }
+    crate::typed()
 }
 
 /// Enter in the popover's title saves the event, as Save does.

@@ -59,11 +59,8 @@ const CALENDAR_MODULE: usize = 1;
 
 /// The window: title row, ribbon or backstage, the panes, the To-Do bar, the status bar.
 pub(crate) fn office_shell(s: &CalState, app: &RefAny, window_height: f32) -> Dom {
-    let mut shell = OfficeShell::create().with_title_row(
-        Titlebar::create("AzCalendar")
-            .without_border_bottom()
-            .dom(),
-    );
+    let mut shell = OfficeShell::create()
+        .with_title_row(Titlebar::create("AzCalendar").without_border_bottom().dom());
     match s.backstage {
         Some(page) => shell = shell.with_backstage(backstage(s, app, page)),
         None => shell = shell.with_ribbon(ribbon(s, app)),
@@ -140,7 +137,12 @@ fn ribbon(s: &CalState, app: &RefAny) -> Dom {
                     "New Appointment",
                     editor_ui::on_new_appointment,
                 ))
-                .with_item(large(app, "video_call", "New Meeting", editor_ui::on_new_meeting)),
+                .with_item(large(
+                    app,
+                    "video_call",
+                    "New Meeting",
+                    editor_ui::on_new_meeting,
+                )),
         )
         .with_group(
             RibbonGroup::create("Go To")
@@ -153,10 +155,12 @@ fn ribbon(s: &CalState, app: &RefAny) -> Dom {
                 .with_item(large(app, "folder_open", "Open Calendar", on_open_page))
                 .with_item(large(app, "edit_calendar", "Calendars", on_calendars_page)),
         )
-        .with_group(
-            RibbonGroup::create("Share")
-                .with_item(large(app, "share", "Share Calendar", on_share)),
-        );
+        .with_group(RibbonGroup::create("Share").with_item(large(
+            app,
+            "share",
+            "Share Calendar",
+            on_share,
+        )));
     let view = RibbonTab::create("VIEW")
         .with_group(
             RibbonGroup::create("Current View")
@@ -185,7 +189,13 @@ fn ribbon(s: &CalState, app: &RefAny) -> Dom {
                     !s.nav_folded,
                     on_toggle_navigation,
                 ))
-                .with_item(toggled(app, "checklist", "To-Do Bar", s.todo_bar, on_toggle_todo)),
+                .with_item(toggled(
+                    app,
+                    "checklist",
+                    "To-Do Bar",
+                    s.todo_bar,
+                    on_toggle_todo,
+                )),
         )
         .with_group(
             RibbonGroup::create("Look")
@@ -220,11 +230,7 @@ fn date_navigator(s: &CalState, app: &RefAny) -> Dom {
     };
     DatePicker::create(year.max(1) as u32, month, day)
         .with_inline(true)
-        .with_today(
-            s.today.year().max(1) as u32,
-            s.today.month(),
-            s.today.day(),
-        )
+        .with_today(s.today.year().max(1) as u32, s.today.month(), s.today.day())
         .with_accessibility_name("Date navigator")
         .with_on_change(app.clone(), on_nav_date)
         .dom()
@@ -263,8 +269,9 @@ fn my_calendars(s: &CalState, app: &RefAny) -> Dom {
                     c.colour.swatch_css()
                 )))
                 .with_child(
-                    Dom::create_span_with_text(c.name.as_str())
-                        .with_css("white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"),
+                    Dom::create_span_with_text(c.name.as_str()).with_css(
+                        "white-space: nowrap; overflow: hidden; text-overflow: ellipsis;",
+                    ),
                 ),
         );
     }
@@ -365,11 +372,7 @@ fn todo_bar(s: &CalState, app: &RefAny) -> Dom {
         s.anchor.month(),
         s.anchor.day(),
     )
-    .with_today(
-        s.today.year().max(1) as u32,
-        s.today.month(),
-        s.today.day(),
-    )
+    .with_today(s.today.year().max(1) as u32, s.today.month(), s.today.day())
     .with_appointments(StringVec::from(appointments))
     .with_appointments_empty("No upcoming appointments.")
     .with_task_line("Type a new task", s.task_text.as_str())
@@ -423,7 +426,8 @@ fn heading(text: &str) -> Dom {
 }
 
 fn note(text: &str) -> Dom {
-    Dom::create_span_with_text(text).with_css(format!("font-size: 12px; {SECONDARY} margin-top: 4px;"))
+    Dom::create_span_with_text(text)
+        .with_css(format!("font-size: 12px; {SECONDARY} margin-top: 4px;"))
 }
 
 fn line(children: Vec<Dom>) -> Dom {
@@ -461,7 +465,9 @@ fn text_field(
     cb: TextInputOnTextInputCallbackType,
 ) -> Dom {
     Dom::create_div()
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-width: 0; margin-right: 8px;")
+        .with_css(
+            "display: flex; flex-direction: column; flex-grow: 1; min-width: 0; margin-right: 8px;",
+        )
         .with_child(
             TextInput::create()
                 .with_text(text)
@@ -473,9 +479,19 @@ fn text_field(
         )
 }
 
-fn choices(labels: Vec<String>, selected: usize, name: &str, id: &str, data: RefAny, cb: azul::callbacks::DropDownOnChoiceChangeCallbackType) -> Dom {
+fn choices(
+    labels: Vec<String>,
+    selected: usize,
+    name: &str,
+    id: &str,
+    data: RefAny,
+    cb: azul::callbacks::DropDownOnChoiceChangeCallbackType,
+) -> Dom {
     DropDown::create(StringVec::from(
-        labels.into_iter().map(AzString::from).collect::<Vec<AzString>>(),
+        labels
+            .into_iter()
+            .map(AzString::from)
+            .collect::<Vec<AzString>>(),
     ))
     .with_selected(selected)
     .with_accessibility_name(name)
@@ -726,7 +742,12 @@ fn options_page(s: &CalState, app: &RefAny) -> Dom {
             button("Light", "settings-light", app, on_light),
             button("Dark", "settings-dark", app, on_dark),
         ]))
-        .with_child(check(s.todo_bar, "Show the To-Do bar", "settings-todo", on_todo_checked))
+        .with_child(check(
+            s.todo_bar,
+            "Show the To-Do bar",
+            "settings-todo",
+            on_todo_checked,
+        ))
         .with_child(check(
             !s.nav_folded,
             "Show the navigation pane",
@@ -753,7 +774,10 @@ fn about_page() -> Dom {
     let keys = [
         ("Ctrl / Cmd + N", "New appointment"),
         ("Ctrl / Cmd + Shift + Q", "New meeting"),
-        ("Ctrl / Cmd + Alt + 1 .. 6", "Day, Work Week, Week, Month, Schedule View, List"),
+        (
+            "Ctrl / Cmd + Alt + 1 .. 6",
+            "Day, Work Week, Week, Month, Schedule View, List",
+        ),
         ("Ctrl / Cmd + T", "Today"),
         ("Alt + Left / Right", "Back, forward"),
         ("F6 / Shift + F6", "The next / previous pane"),
@@ -770,7 +794,8 @@ fn about_page() -> Dom {
         .with_child(heading("Keyboard shortcuts"));
     for (key, what) in keys {
         page.add_child(line(vec![
-            Dom::create_span_with_text(key).with_css("width: 220px; flex-shrink: 0; font-weight: bold;"),
+            Dom::create_span_with_text(key)
+                .with_css("width: 220px; flex-shrink: 0; font-weight: bold;"),
             Dom::create_span_with_text(what),
         ]));
     }
@@ -959,7 +984,11 @@ extern "C" fn on_navigation_checked(
     })
 }
 
-extern "C" fn on_todo_checked(mut data: RefAny, _info: CallbackInfo, state: CheckBoxState) -> Update {
+extern "C" fn on_todo_checked(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: CheckBoxState,
+) -> Update {
     with_state(&mut data, |s| {
         set_todo_bar(s, state.checked);
         Update::RefreshDom
@@ -1006,7 +1035,11 @@ extern "C" fn on_nav_date(mut data: RefAny, _info: CallbackInfo, state: DatePick
 }
 
 /// A calendar's box in "My calendars": shown or hidden, kept for the next start.
-extern "C" fn on_calendar_shown(mut data: RefAny, _info: CallbackInfo, state: CheckBoxState) -> Update {
+extern "C" fn on_calendar_shown(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: CheckBoxState,
+) -> Update {
     let Some((mut app, id)) = data
         .downcast_ref::<CalendarRef>()
         .map(|r| (r.app.clone(), r.id.clone()))
@@ -1078,7 +1111,11 @@ extern "C" fn on_navigation_event(
 
 // ==== Callbacks: To-Do bar ====
 
-extern "C" fn on_todo_event(mut data: RefAny, mut info: CallbackInfo, event: ToDoBarEvent) -> Update {
+extern "C" fn on_todo_event(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    event: ToDoBarEvent,
+) -> Update {
     match event.kind {
         ToDoBarEventKind::DatePicked => {
             let Some(date) = crate::picked(event.date) else {
@@ -1133,7 +1170,11 @@ extern "C" fn on_todo_event(mut data: RefAny, mut info: CallbackInfo, event: ToD
 
 // ==== Callbacks: Open & Export ====
 
-fn set_text(data: &mut RefAny, state: &TextInputState, field: fn(&mut CalState) -> &mut String) -> OnTextInputReturn {
+fn set_text(
+    data: &mut RefAny,
+    state: &TextInputState,
+    field: fn(&mut CalState) -> &mut String,
+) -> OnTextInputReturn {
     let text = state.get_text().as_str().to_string();
     with_state(data, |s| {
         *field(s) = text;
@@ -1142,11 +1183,19 @@ fn set_text(data: &mut RefAny, state: &TextInputState, field: fn(&mut CalState) 
     crate::typed()
 }
 
-extern "C" fn on_import_path(mut data: RefAny, _info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+extern "C" fn on_import_path(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
     set_text(&mut data, &state, |s| &mut s.import_path)
 }
 
-extern "C" fn on_export_path(mut data: RefAny, _info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+extern "C" fn on_export_path(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
     set_text(&mut data, &state, |s| &mut s.export_path)
 }
 
@@ -1158,7 +1207,11 @@ extern "C" fn on_new_calendar_name(
     set_text(&mut data, &state, |s| &mut s.calendar_name)
 }
 
-extern "C" fn on_server_text(mut data: RefAny, _info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+extern "C" fn on_server_text(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
     set_text(&mut data, &state, |s| &mut s.server_text)
 }
 
@@ -1252,7 +1305,11 @@ extern "C" fn on_import_run(mut data: RefAny, _info: CallbackInfo) -> Update {
 fn import(s: &mut CalState) {
     let typed = s.import_path.trim().to_string();
     if typed.is_empty() {
-        report(s, true, String::from("Give the file to import, or Browse for it."));
+        report(
+            s,
+            true,
+            String::from("Give the file to import, or Browse for it."),
+        );
         return;
     }
     let path = PathBuf::from(&typed);
@@ -1287,7 +1344,11 @@ fn import(s: &mut CalState) {
             colour: calendars::next_colour(&s.calendars),
         };
         if let Err(e) = calendars::save(&s.data_dir, &made) {
-            report(s, true, format!("Could not make the calendar {:?}: {e}", made.name));
+            report(
+                s,
+                true,
+                format!("Could not make the calendar {:?}: {e}", made.name),
+            );
             return;
         }
         let id = made.id.clone();
@@ -1374,7 +1435,11 @@ fn export(s: &mut CalState) {
     let events: Vec<&event::Event> = s
         .events
         .iter()
-        .filter(|e| chosen.as_ref().map_or(true, |id| s.calendar_id_of(e) == *id))
+        .filter(|e| {
+            chosen
+                .as_ref()
+                .map_or(true, |id| s.calendar_id_of(e) == *id)
+        })
         .collect();
     let text = ics::write(&events, &name, chrono::Utc::now().naive_utc());
     let count = events.len();
@@ -1382,7 +1447,11 @@ fn export(s: &mut CalState) {
         Ok(()) => {
             println!("AZCAL_EXPORTED {count} {}", path.display());
             s.export_path = path.display().to_string();
-            report(s, false, format!("Exported {count} event(s) to {}.", path.display()));
+            report(
+                s,
+                false,
+                format!("Exported {count} event(s) to {}.", path.display()),
+            );
         }
         Err(e) => report(s, true, format!("Could not write {}: {e}", path.display())),
     }
@@ -1400,7 +1469,10 @@ extern "C" fn on_calendar_rename(
         .get_current_keyboard_state()
         .current_virtual_keycode
         .into_option();
-    if !matches!(key, Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter)) {
+    if !matches!(
+        key,
+        Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter)
+    ) {
         return crate::typed();
     }
     let name = state.get_text().as_str().trim().to_string();
@@ -1502,8 +1574,7 @@ extern "C" fn on_calendar_add(mut data: RefAny, _info: CallbackInfo) -> Update {
             s.calendar_error = String::from("Give the new calendar a name.");
             return Update::RefreshDom;
         }
-        if s
-            .calendars
+        if s.calendars
             .iter()
             .any(|c| c.name.eq_ignore_ascii_case(&name))
         {

@@ -662,14 +662,6 @@ fn with_form(data: &mut RefAny, edit: impl FnOnce(&mut EditorForm) -> bool) -> U
     }
 }
 
-/// What a text field's callback answers: the text is kept, nothing is rebuilt.
-fn typed() -> OnTextInputReturn {
-    OnTextInputReturn {
-        update: Update::DoNothing,
-        valid: TextInputValid::Yes,
-    }
-}
-
 extern "C" fn on_title(
     mut data: RefAny,
     _info: CallbackInfo,
@@ -680,7 +672,7 @@ extern "C" fn on_title(
         f.title = text;
         false
     });
-    typed()
+    crate::typed()
 }
 
 extern "C" fn on_location(
@@ -693,7 +685,7 @@ extern "C" fn on_location(
         f.location = text;
         false
     });
-    typed()
+    crate::typed()
 }
 
 extern "C" fn on_attendees(
@@ -706,7 +698,7 @@ extern "C" fn on_attendees(
         f.attendees = text;
         false
     });
-    typed()
+    crate::typed()
 }
 
 extern "C" fn on_notes(
@@ -725,7 +717,7 @@ extern "C" fn on_notes(
         f.notes = text;
         false
     });
-    typed()
+    crate::typed()
 }
 
 extern "C" fn on_interval(
@@ -740,7 +732,7 @@ extern "C" fn on_interval(
         }
         false
     });
-    typed()
+    crate::typed()
 }
 
 extern "C" fn on_count(
@@ -755,12 +747,7 @@ extern "C" fn on_count(
         }
         false
     });
-    typed()
-}
-
-/// The date a date picker reports (its day held to the month's length).
-fn picked(state: DatePickerState) -> Option<NaiveDate> {
-    week::picked_date(i32::try_from(state.year).ok()?, state.month, state.day)
+    crate::typed()
 }
 
 /// The start date: the end date (an all-day event's) and a repeat's last date move along; the
@@ -770,7 +757,7 @@ extern "C" fn on_start_date(
     _info: CallbackInfo,
     state: DatePickerState,
 ) -> Update {
-    let Some(date) = picked(state) else {
+    let Some(date) = crate::picked(state) else {
         return Update::DoNothing;
     };
     with_form(&mut data, |f| {
@@ -780,7 +767,7 @@ extern "C" fn on_start_date(
 }
 
 extern "C" fn on_end_date(mut data: RefAny, _info: CallbackInfo, state: DatePickerState) -> Update {
-    let Some(date) = picked(state) else {
+    let Some(date) = crate::picked(state) else {
         return Update::DoNothing;
     };
     with_form(&mut data, |f| {
@@ -791,7 +778,7 @@ extern "C" fn on_end_date(mut data: RefAny, _info: CallbackInfo, state: DatePick
 }
 
 extern "C" fn on_until(mut data: RefAny, _info: CallbackInfo, state: DatePickerState) -> Update {
-    let Some(date) = picked(state) else {
+    let Some(date) = crate::picked(state) else {
         return Update::DoNothing;
     };
     with_form(&mut data, |f| {
