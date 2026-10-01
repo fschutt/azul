@@ -14,17 +14,14 @@ details panes, a Properties dialog, Settings on ShellSettingsLayout, and a headl
   AddressBar recent chevron + dimmed arrows, BrowserShell `tree_visible`.
 
 ## IN PROGRESS
-- Last commit: `2ff3dae8b` (`afd1bafca` RED / `2ff3dae8b` PDF first-page preview; api: Pdf::to_svg_pages).
-- Before: `958da8cd9`. Since the last checkpoint: `92492e8a9` RED / `11df978f5` GREEN
-  image_scale::fit_within + thumbnail (api: RawImage::thumbnail -> OptionRawImage);
-  `ea18d5e7a` AzDrive thumbnails in Medium/Large/XL icons; `958da8cd9` E2E thumbnail step.
-- WAITING: two read-only review agents (core and UI).
-- NEXT STEP: apply their findings ("fix(azul-drive): ..."), then finish the report sections 5 and 7
-  (api.json adds: TreeView.on_node_drop + set/with_on_node_drop; ShellNavigationPaneEventKind::
-  NodeDropped; RawImage::thumbnail; Pdf::to_svg_pages) and commit.
+- Last commit: `dfdc437f6`. Reviews done and applied (`677c72032`); WAV preview `65ca3ee97` /
+  `b81e10937`; sample sound `555daabed`; report sections 5 and 7 written.
+- NOW: server-side copies: `Drive::copy` (default get + put; LocalDrive file copy; S3 CopyObject;
+  ScopedDrive forwards), `ops::rename_by_copy` through it, fileops same-drive copies through it.
+  RED tests in azul-storage tests/ops.rs + tests/s3.rs, then GREEN.
 
 ## NEXT
-- report; final progress update.
+- report: add the copy commits; final progress update.
 
 ## Decisions (unattended run)
 - Details view: ListView is single-select with fixed column widths and the table code belongs to
