@@ -29,22 +29,23 @@ Brief: scratchpad `SHOW_go.md`; house rules: scratchpad `wave4_common.md`. Repor
   487b2ffbb (RED DOM + registration in widgets/mod.rs: module, manifest, CHROME), 2d7c9f040 (GREEN DOM +
   callbacks), bcf09c2a9 (flat + flora looks).
 
+- ThumbnailStrip: 302f45ee7 (types), 04138ad8b (RED + registration), 5dc922ace (GREEN), 3a4987b49 (looks).
+
 ## IN PROGRESS
 
-- ThumbnailStrip (`layout/src/widgets/thumbnail_strip.rs`). NEXT STEP: types + builder (commit), tests
-  RED with stub build (commit), build + callbacks GREEN (commit), looks in flat/flora (commit), register
-  (pub mod + manifest + CHROME). Design: items (content Dom + number label + name + badge + section
-  title + selected + hidden), layout Column (rail) / Grid (sorter), one tab stop (the active item),
-  Up/Down (Left/Right in grid) select, Shift extends, Ctrl+Up/Down moves (Move event), Home/End,
-  Enter activates, Delete deletes; click selects (shift/ctrl), double-click activates; drag reorder via
-  draggable + DragStart (set_drag_data mime "application/x-azul-thumbnail" + shared state) / DragOver
-  (accept_drop) / Drop (Move{index: from, target: to}); section headers toggle (SectionToggled).
+- The app UI (`examples/azul-show/src/`). NEXT STEP, in this order, one commit each:
+  1. `text.rs`: TextBody <-> azwriter::ir::IrDocument, the text box DOM (ir::to_content_dom + p/li per
+     paragraph with ids `tb<element id>-<i>`), sync of the engine's text edits, structural edits, formats.
+  2. `render.rs`: slide -> Dom at a scale (absolute boxes; shapes; images; tables; placeholders; the
+     theme background; build visibility for the show).
+  3. `storage.rs`: data root, LocalDrive, save / load / list decks + media from an azul Thread.
+  4. `args.rs` (like AzWriter's), `themes.rs` (deck themes from ShellThemeAccent), `app.rs` state +
+     undo, `ribbon.rs`, `backstage.rs`, `views.rs` (normal / sorter / outline / notes), `show.rs`
+     (slide show + presenter window, timers), `lib.rs` (layout, callbacks, start).
 
 ## NEXT
 
-3. ThumbnailStrip RED + GREEN
-4. the app UI (ribbon, backstage, normal / sorter / outline / notes views, show + presenter window, storage, PDF)
-5. registrations (workspace, test members, CI), E2E script, report
+5. scripts/azshow_e2e.py, the report (`scripts/SHOW_2026_10_01.md`)
 
 ## Open questions
 
