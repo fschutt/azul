@@ -10,13 +10,22 @@
 - The MIME builder lives in micromail too (one generator for AzMail and, later, crash mail).
 - DKIM: micromail's `dkim` feature signs with mini-mail-auth 0.1.0 (crates.io; rsa/sha2/base64 already
   in azul's tree).
+- New AzMail code (send.rs) came with its tests in one commit (no stub-RED split: a new module, not a
+  behaviour change); the micromail bug fixes are RED first (10b1a2b, then 7ad0c3f).
 
 ## DONE
+- micromail 10b1a2b test(smtp): four wire-level REDs against a local sink
+- micromail 7ad0c3f feat!: 0.2.0 (send_raw, verified STARTTLS, MessageBuilder, real DKIM)
+- 86b60af66 chore(send): progress file
+- 311a1dad0 feat(azmail): send.rs + azmail-send + the temporary micromail patch + supply chain
+- 72642e297 test(azmail): scripts/azmail_smtp_sink.py + scripts/azmail_send_test.py
 
 ## IN PROGRESS
-- micromail 0.2.0 on branch azul-send-2026-10-01
+- report scripts/SEND_2026_10_01.md
 
 ## NEXT
-- examples/azul-mail/src/send.rs, bin azmail-send, scripts, tests, report
+- (parent) build, run the suites listed in the report, publish micromail 0.2.0, drop the patch
 
 ## Open questions
+- Sync renumbering: MAIL1's sync moves mail/sent aside when the server's UIDVALIDITY differs from the
+  local state (0 for a Sent folder AzMail created); see the report, follow-up for MAIL2.
