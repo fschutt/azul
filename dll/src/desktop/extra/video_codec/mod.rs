@@ -368,6 +368,8 @@ struct EncoderInner {
     packets: std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<U8Vec>>>,
     /// The engine's own thread (VideoToolbox's H.264 session lives on it).
     thread: CodecThread<EncodeJob>,
+    /// The engine said, when it opened, that it runs in hardware.
+    hardware: bool,
 }
 
 impl EncoderInner {
@@ -381,16 +383,24 @@ impl EncoderInner {
                 std::collections::VecDeque::new(),
             ));
             let out = std::sync::Arc::clone(&packets);
+            let hardware = std::sync::Arc::new(core::sync::atomic::AtomicBool::new(false));
+            let said = std::sync::Arc::clone(&hardware);
             let thread = CodecThread::spawn(
                 "azul-video-encode",
                 Some(ENCODE_QUEUE_FRAMES),
                 move || {
-                    videotoolbox::VtEncoder::open(width, height, bitrate_kbps).ok_or_else(|| {
-                        format!(
-                            "VideoToolbox could not create a {width}x{height} H.264 session (see \
-                             the [video] log lines)"
-                        )
-                    })
+                    let vt = videotoolbox::VtEncoder::open(width, height, bitrate_kbps)
+                        .ok_or_else(|| {
+                            format!(
+                                "VideoToolbox could not create a {width}x{height} H.264 session \
+                                 (see the [video] log lines)"
+                            )
+                        })?;
+                    said.store(
+                        vt.settings().hardware == Some(true),
+                        core::sync::atomic::Ordering::Release,
+                    );
+                    Ok(vt)
                 },
                 move |vt: &mut videotoolbox::VtEncoder, job: EncodeJob| match job {
                     EncodeJob::Frame(frame, force_keyframe, micros) => {
@@ -414,6 +424,8 @@ impl EncoderInner {
                 frames_encoded: 0,
                 packets,
                 thread,
+                // The open's answer came back before `spawn` returned.
+                hardware: hardware.load(core::sync::atomic::Ordering::Acquire),
             })
         }
         #[cfg(not(all(any(target_os = "macos", target_os = "ios"), feature = "libloading")))]
@@ -738,7 +750,7 @@ impl VideoEncoder {
     /// Whether the encoder runs in hardware (as its engine opened). False when it runs in
     /// software, when the platform cannot say, and for a handle that is not open.
     pub fn is_hardware(&self) -> bool {
-        false
+        unsafe { (self.ptr as *const EncoderInner).as_ref() }.is_some_and(|inner| inner.hardware)
     }
 
     /// Frames submitted to [`encode`](Self::encode) so far (stub progress).
