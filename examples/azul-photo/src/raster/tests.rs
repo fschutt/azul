@@ -160,3 +160,178 @@ fn every_blend_mode_has_a_name_that_maps_back() {
         assert_eq!(BlendMode::from_name(mode.name()), Some(mode));
     }
 }
+
+// ==== Layers, compositing, dirty tiles ====
+
+#[test]
+fn a_new_layer_lands_above_the_active_one_and_becomes_active() {
+    let mut e = white_engine(64, 64);
+    let background = e.active_layer().expect("the background is active");
+    e.apply(Op::NewLayer { name: "Sky".into() }).unwrap();
+    let sky = e.active_layer().unwrap();
+    assert_ne!(sky, background);
+    let order: Vec<LayerId> = e.document().layers.iter().map(|l| l.id).collect();
+    assert_eq!(order, vec![background, sky], "bottom to top");
+}
+
+#[test]
+fn the_composite_shows_a_layer_at_its_opacity() {
+    let mut e = white_engine(64, 64);
+    e.apply(Op::NewLayer { name: "Blue".into() }).unwrap();
+    let blue = e.active_layer().unwrap();
+    e.apply(Op::FillSelection(BLUE)).unwrap(); // no selection: the whole layer
+    e.take_dirty();
+    assert_px(e.sample(10, 10), BLUE);
+    e.apply(Op::SetOpacity(blue, 0.5)).unwrap();
+    e.take_dirty();
+    assert_px(e.sample(10, 10), [128, 128, 255, 255]);
+    e.apply(Op::SetVisible(blue, false)).unwrap();
+    e.take_dirty();
+    assert_px(e.sample(10, 10), WHITE);
+}
+
+#[test]
+fn a_layer_in_multiply_mode_darkens_the_layers_below() {
+    let mut e = TileEngine::new(Document::with_background(32, 32, [128, 128, 128, 255]));
+    e.apply(Op::NewLayer { name: "Red".into() }).unwrap();
+    let red = e.active_layer().unwrap();
+    e.apply(Op::FillSelection(RED)).unwrap();
+    e.apply(Op::SetBlend(red, BlendMode::Multiply)).unwrap();
+    e.take_dirty();
+    assert_px(e.sample(0, 0), [128, 0, 0, 255]);
+}
+
+#[test]
+fn painting_a_small_dab_composites_only_the_tiles_it_touched() {
+    let mut e = white_engine(1024, 1024); // 4 x 4 tiles
+    let first = e.take_dirty().expect("a new document is dirty everywhere");
+    assert_eq!(first, IRect::new(0, 0, 1024, 1024));
+    assert_eq!(e.take_dirty(), None, "nothing changed since");
+    e.apply(Op::NewLayer { name: "Ink".into() }).unwrap();
+    let _ = e.take_dirty();
+    e.begin_stroke(brush(RED, 8.0), pt(300.0, 300.0)).unwrap();
+    e.end_stroke();
+    let dirty = e.take_dirty().expect("the dab changed pixels");
+    assert_eq!(dirty, IRect::new(256, 256, 256, 256), "one tile, not the canvas");
+    assert_px(e.sample(300, 300), RED);
+    assert_px(e.sample(600, 600), WHITE);
+}
+
+#[test]
+fn a_group_composites_its_children_and_then_applies_its_own_opacity() {
+    let mut e = white_engine(16, 16);
+    e.apply(Op::NewLayer { name: "Red".into() }).unwrap();
+    e.apply(Op::FillSelection(RED)).unwrap();
+    let red = e.active_layer().unwrap();
+    e.apply(Op::NewGroup).unwrap();
+    let group = e.active_layer().unwrap();
+    e.apply(Op::MoveLayer { id: red, to: Placement::IntoGroup(group) }).unwrap();
+    assert!(matches!(
+        &layer::find(&e.document().layers, group).unwrap().content,
+        LayerContent::Group(children) if children.len() == 1 && children[0].id == red
+    ));
+    e.apply(Op::SetOpacity(group, 0.5)).unwrap();
+    e.take_dirty();
+    assert_px(e.sample(4, 4), [255, 128, 128, 255]);
+}
+
+#[test]
+fn reordering_puts_a_layer_above_another() {
+    let mut e = white_engine(8, 8);
+    e.apply(Op::NewLayer { name: "A".into() }).unwrap();
+    let a = e.active_layer().unwrap();
+    e.apply(Op::FillSelection(RED)).unwrap();
+    e.apply(Op::NewLayer { name: "B".into() }).unwrap();
+    let b = e.active_layer().unwrap();
+    e.apply(Op::FillSelection(GREEN)).unwrap();
+    e.take_dirty();
+    assert_px(e.sample(0, 0), GREEN);
+    e.apply(Op::MoveLayer { id: a, to: Placement::Above(b) }).unwrap();
+    e.take_dirty();
+    assert_px(e.sample(0, 0), RED);
+}
+
+#[test]
+fn duplicate_copies_and_merge_down_flattens_two_layers_into_one() {
+    let mut e = white_engine(8, 8);
+    e.apply(Op::NewLayer { name: "Half blue".into() }).unwrap();
+    let top = e.active_layer().unwrap();
+    e.apply(Op::FillSelection(BLUE)).unwrap();
+    e.apply(Op::SetOpacity(top, 0.5)).unwrap();
+    e.apply(Op::DuplicateLayer(top)).unwrap();
+    assert_eq!(e.document().layers.len(), 3);
+    let copy = e.active_layer().unwrap();
+    assert_ne!(copy, top);
+    e.apply(Op::DeleteLayer(copy)).unwrap();
+    e.take_dirty();
+    let before = e.sample(3, 3);
+    e.apply(Op::MergeDown(top)).unwrap();
+    assert_eq!(e.document().layers.len(), 1, "merged into the background");
+    e.take_dirty();
+    assert_px(e.sample(3, 3), before);
+}
+
+#[test]
+fn a_locked_layer_refuses_paint() {
+    let mut e = white_engine(16, 16);
+    let bg = e.active_layer().unwrap();
+    e.apply(Op::SetLocked(bg, true)).unwrap();
+    assert_eq!(e.begin_stroke(brush(RED, 4.0), pt(8.0, 8.0)), Err(EngineError::Locked));
+    assert_eq!(e.apply(Op::FillSelection(RED)), Err(EngineError::Locked));
+    assert_eq!(layer_pixel(&e, bg, 8, 8), WHITE);
+}
+
+// ==== Adjustments: non-destructive layers ====
+
+#[test]
+fn the_adjustments_map_colours_as_documented() {
+    let c = [0.2, 0.4, 0.6];
+    let inv = Adjustment::Invert.apply(c);
+    assert!((inv[0] - 0.8).abs() < 1e-5 && (inv[2] - 0.4).abs() < 1e-5);
+    let t = Adjustment::Threshold { level: 128 };
+    assert_eq!(t.apply([0.9, 0.9, 0.9]), [1.0, 1.0, 1.0]);
+    assert_eq!(t.apply([0.1, 0.2, 0.1]), [0.0, 0.0, 0.0]);
+    let levels = Adjustment::Levels {
+        in_black: 51,
+        in_white: 204,
+        gamma: 1.0,
+        out_black: 0,
+        out_white: 255,
+    };
+    let l = levels.apply([0.2, 0.8, 0.5]);
+    assert!(l[0].abs() < 0.01 && (l[1] - 1.0).abs() < 0.01 && (l[2] - 0.5).abs() < 0.01, "{l:?}");
+    let identity = Adjustment::Curves { points: vec![(0, 0), (255, 255)] };
+    let i = identity.apply(c);
+    assert!(i.iter().zip(c.iter()).all(|(a, b)| (a - b).abs() < 0.01), "{i:?}");
+    let darker = Adjustment::Curves { points: vec![(0, 0), (128, 64), (255, 255)] };
+    assert!(darker.apply([0.5, 0.5, 0.5])[0] < 0.3);
+    let cyan = Adjustment::HueSaturation { hue: 180.0, saturation: 0.0, lightness: 0.0 }
+        .apply([1.0, 0.0, 0.0]);
+    assert!(cyan[0] < 0.01 && cyan[1] > 0.99 && cyan[2] > 0.99, "{cyan:?}");
+    let gray = Adjustment::HueSaturation { hue: 0.0, saturation: -1.0, lightness: 0.0 }
+        .apply([1.0, 0.0, 0.0]);
+    assert!((gray[0] - gray[1]).abs() < 0.01 && (gray[1] - gray[2]).abs() < 0.01, "{gray:?}");
+    let brighter = Adjustment::BrightnessContrast { brightness: 0.2, contrast: 0.0 }
+        .apply([0.5, 0.5, 0.5]);
+    assert!((brighter[0] - 0.7).abs() < 0.01, "{brighter:?}");
+    let flat = Adjustment::BrightnessContrast { brightness: 0.0, contrast: -1.0 }
+        .apply([0.9, 0.1, 0.5]);
+    assert!(flat.iter().all(|v| (v - 0.5).abs() < 0.01), "no contrast is mid gray: {flat:?}");
+}
+
+#[test]
+fn an_adjustment_layer_changes_the_composite_but_not_the_pixels_below() {
+    let mut e = TileEngine::new(Document::with_background(16, 16, [51, 102, 153, 255]));
+    let bg = e.active_layer().unwrap();
+    e.apply(Op::NewAdjustment(Adjustment::Invert)).unwrap();
+    let inv = e.active_layer().unwrap();
+    e.take_dirty();
+    assert_px(e.sample(1, 1), [204, 153, 102, 255]);
+    assert_eq!(layer_pixel(&e, bg, 1, 1), [51, 102, 153, 255], "non-destructive");
+    e.apply(Op::SetOpacity(inv, 0.5)).unwrap();
+    e.take_dirty();
+    assert_px(e.sample(1, 1), [128, 128, 128, 255]);
+    e.apply(Op::DeleteLayer(inv)).unwrap();
+    e.take_dirty();
+    assert_px(e.sample(1, 1), [51, 102, 153, 255]);
+}
