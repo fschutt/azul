@@ -188,12 +188,12 @@ pub fn pane(s: &Tasks, app: &RefAny, today: NaiveDate) -> Dom {
 
 // ==== Callbacks ====
 
-extern "C" fn on_nav_event(mut data: RefAny, _info: CallbackInfo, event: ShellNavigationPaneEvent) -> Update {
-    let Some(mut guard) = data.downcast_mut::<Tasks>() else {
-        return Update::DoNothing;
-    };
-    let s = &mut *guard;
-    match event.kind {
+extern "C" fn on_nav_event(mut data: RefAny, mut info: CallbackInfo, event: ShellNavigationPaneEvent) -> Update {
+    crate::with_tasks(&mut data, &mut info, |_info, _app, s| nav_event(s, &event))
+}
+
+fn nav_event(s: &mut Tasks, event: &ShellNavigationPaneEvent) {
+    match &event.kind {
         ShellNavigationPaneEventKind::GroupToggled => {
             if let Some(open) = s.nav_open.get_mut(event.group) {
                 *open = event.expand;
@@ -214,7 +214,6 @@ extern "C" fn on_nav_event(mut data: RefAny, _info: CallbackInfo, event: ShellNa
             }
         }
     }
-    Update::RefreshDom
 }
 
 /// A click on node `index` of group `group`.
@@ -303,18 +302,16 @@ extern "C" fn on_search_key(mut data: RefAny, mut info: CallbackInfo, state: Tex
     }
 }
 
-extern "C" fn on_new_list(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let Some(mut s) = data.downcast_mut::<Tasks>() else {
-        return Update::DoNothing;
-    };
-    let id = s.new_list("New list", "");
-    s.show(View::List(id.clone()));
-    // Its name and colour are set in the list settings, shown at once.
-    s.editing_list = Some(id.clone());
-    s.drafts.list = id;
-    s.drafts.list_name = "New list".to_string();
-    s.drafts.list_group.clear();
-    Update::RefreshDom
+extern "C" fn on_new_list(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    crate::with_tasks(&mut data, &mut info, |_info, _app, s| {
+        let id = s.new_list("New list", "");
+        s.show(View::List(id.clone()));
+        // Its name and colour are set in the list settings, shown at once.
+        s.editing_list = Some(id.clone());
+        s.drafts.list = id;
+        s.drafts.list_name = "New list".to_string();
+        s.drafts.list_group.clear();
+    })
 }
 
 #[cfg(test)]
