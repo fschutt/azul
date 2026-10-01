@@ -335,6 +335,278 @@ fn link_of(node: &Dom) -> Option<String> {
         })
 }
 
+// ==== The engine's edits on the model ====
+
+/// The editor host in the window whose callback runs, if it is there.
+pub fn host_node(info: &CallbackInfo) -> Option<DomNodeId> {
+    let dom = info.get_hit_node().dom;
+    let node = info.get_node_id_by_id_attribute(dom, HOST_ID);
+    (node.into_raw() != 0).then_some(DomNodeId { dom, node })
+}
+
+/// The child-index path from the host to `node` (empty: the host itself).
+fn path_of(info: &CallbackInfo, host: DomNodeId, node: DomNodeId) -> Option<Vec<u32>> {
+    if node == host {
+        return Some(Vec::new());
+    }
+    info.get_node_child_index_path(host, node)
+        .into_option()
+        .map(|path| path.as_ref().to_vec())
+}
+
+/// The model node at `path`.
+fn node_at_mut<'a>(model: &'a mut Dom, path: &[u32]) -> Option<&'a mut Dom> {
+    let mut node = model;
+    for &i in path {
+        node = node.children.get_mut(i as usize)?;
+    }
+    Some(node)
+}
+
+/// Copies the text the engine edited in place into the model; `true` when something changed.
+pub fn sync_text(model: &mut Dom, info: &mut CallbackInfo, host: DomNodeId) -> bool {
+    let edits = info.get_unsynced_text_edits();
+    let mut changed = false;
+    let mut revision = 0u64;
+    for edit in edits.as_ref() {
+        revision = revision.max(edit.revision);
+        let Some(path) = path_of(info, host, edit.node) else {
+            continue;
+        };
+        let Some(node) = node_at_mut(model, &path) else {
+            continue;
+        };
+        let text = Dom::create_text_do_not_use_without_block_level_wrapper(edit.text.as_str());
+        if node.root.is_text_node() {
+            *node = text;
+        } else {
+            // An element whose text the engine reports whole (a block typed into while
+            // empty): its text becomes its one child.
+            node.children = vec![text].into();
+        }
+        changed = true;
+    }
+    if revision > 0 {
+        info.mark_text_revision_synced(revision);
+    }
+    if changed {
+        model.fixup_children_estimated();
+    }
+    changed
+}
+
+/// Applies the structural edit the engine recorded (Enter, Backspace / Delete across blocks, a
+/// paste, a delete over a selection) to the model with the engine's own applier and
+/// acknowledges it with its inverse; `true` when the model changed (the window rebuilds).
+pub fn apply_structural_edit(model: &mut Dom, info: &mut CallbackInfo, host: DomNodeId) -> bool {
+    let Some(changeset) = info.get_document_edit_clone().into_option() else {
+        return false;
+    };
+    // The node whose CHILDREN the operation edits: for a split or a merge the parent of the
+    // node the resume point names (the applier reads the index from it), else the node the
+    // operation names.
+    let host_path = match &changeset.operation {
+        DocumentOperation::SplitNode(_) | DocumentOperation::MergeNodes(_) => {
+            let path = changeset.resume.node_path.as_ref();
+            Some(path[..path.len().saturating_sub(1)].to_vec())
+        }
+        DocumentOperation::InsertChildren(op) => path_of(info, host, op.parent),
+        DocumentOperation::RemoveChildren(op) => path_of(info, host, op.parent),
+        DocumentOperation::ReplaceChildren(op) => path_of(info, host, op.parent),
+        DocumentOperation::WrapRange(op) => path_of(info, host, op.node),
+        DocumentOperation::UnwrapRange(op) => path_of(info, host, op.node),
+    };
+    let Some(host_path) = host_path else {
+        return false;
+    };
+    match changeset.apply_to_dom(model, host_path).into_result() {
+        Ok(applied) => {
+            info.mark_document_edit_applied_with_inverse(changeset.id, applied.inverse);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// A resume point for an edit the app applies itself (the applier only reads its last index
+/// for splits and merges, which the app never makes).
+fn resume_at(path: &[u32]) -> EditResumePoint {
+    EditResumePoint {
+        anchor_key: 0,
+        node_path: path.to_vec().into(),
+        position: NodePosition {
+            child_index: 0,
+            text_byte: azul::option::OptionU32::None,
+        },
+    }
+}
+
+/// Wraps every selected piece of text in a copy of `wrapper` (`<b>`, `<i>`, `<u>`, a link) with
+/// the engine's applier (`WrapRange`); `true` when there was a selection.
+pub fn wrap_selection(model: &mut Dom, info: &CallbackInfo, host: DomNodeId, wrapper: &Dom) -> bool {
+    let spans = info.get_document_selection();
+    let mut targets: Vec<(Vec<u32>, u32, u32)> = spans
+        .as_ref()
+        .iter()
+        .filter(|span| span.end_byte > span.start_byte)
+        .filter_map(|span| {
+            path_of(info, host, span.node)
+                .filter(|path| !path.is_empty())
+                .map(|path| (path, span.start_byte, span.end_byte))
+        })
+        .collect();
+    // The last piece first: wrapping one splits its text node, which shifts the indices of
+    // the nodes after it, never of those before.
+    targets.sort_by(|a, b| b.0.cmp(&a.0));
+    let mut changed = false;
+    for (path, start, end) in targets {
+        let (parent, index) = path.split_at(path.len() - 1);
+        let op = DocumentOperation::WrapRange(DocOpWrapRange {
+            node: host,
+            start: NodePosition {
+                child_index: index[0],
+                text_byte: Some(start).into(),
+            },
+            end: NodePosition {
+                child_index: index[0],
+                text_byte: Some(end).into(),
+            },
+            wrapper: wrapper.clone(),
+        });
+        let changeset = DocumentChangeset::create(host, op, resume_at(parent), Instant::now());
+        changed |= changeset.apply_to_dom(model, parent.to_vec()).into_result().is_ok();
+    }
+    changed
+}
+
+/// Whether a model node is a block that holds text (where a caret stands).
+fn is_text_block(node: &Dom) -> bool {
+    matches!(
+        node.root.node_type,
+        NodeType::P
+            | NodeType::Div
+            | NodeType::Li
+            | NodeType::H1
+            | NodeType::H2
+            | NodeType::H3
+            | NodeType::H4
+            | NodeType::H5
+            | NodeType::H6
+            | NodeType::Pre
+    )
+}
+
+/// The path of the innermost text block on `path` (where the caret is).
+fn block_path(model: &Dom, path: &[u32]) -> Option<Vec<u32>> {
+    let mut node = model;
+    let mut found = None;
+    for (depth, &i) in path.iter().enumerate() {
+        node = node.children.as_ref().get(i as usize)?;
+        if is_text_block(node) {
+            found = Some(path[..=depth].to_vec());
+        }
+    }
+    found
+}
+
+/// The path of the block the caret is in.
+fn caret_block(model: &Dom, info: &CallbackInfo, host: DomNodeId) -> Option<Vec<u32>> {
+    let caret = info.get_document_caret().into_option()?;
+    let path = path_of(info, host, caret.node)?;
+    block_path(model, &path)
+}
+
+/// A list of `ordered` kind holding `items`.
+fn list_dom(ordered: bool, items: Vec<Dom>) -> Dom {
+    let list = if ordered {
+        Dom::create_ol()
+    } else {
+        Dom::create_ul()
+    };
+    list.with_children(items.into())
+}
+
+/// The toolbar's Bullets / Numbering on the caret's block: a paragraph becomes a list item; an
+/// item of a list of that kind takes its whole list back to paragraphs; an item of the other
+/// kind turns its list into this kind. `true` when the model changed.
+pub fn toggle_list(model: &mut Dom, info: &CallbackInfo, host: DomNodeId, ordered: bool) -> bool {
+    let Some(block) = caret_block(model, info, host) else {
+        return false;
+    };
+    let Some((&index, parent_path)) = block.split_last() else {
+        return false;
+    };
+    let index = index as usize;
+    let Some(parent) = node_at_mut(model, parent_path) else {
+        return false;
+    };
+    let parent_is_list = matches!(parent.root.node_type, NodeType::Ul | NodeType::Ol);
+    let parent_ordered = matches!(parent.root.node_type, NodeType::Ol);
+    if !parent_is_list {
+        // A paragraph: the same content as the one item of a new list.
+        let Some(slot) = parent.children.get_mut(index) else {
+            return false;
+        };
+        let content: Vec<Dom> = slot.children.as_ref().to_vec();
+        *slot = list_dom(ordered, vec![Dom::create_li().with_children(content.into())]);
+    } else if parent_ordered != ordered {
+        let items: Vec<Dom> = parent.children.as_ref().to_vec();
+        *parent = list_dom(ordered, items);
+    } else {
+        // Back to paragraphs: the list's items replace the list in ITS parent.
+        let Some((&list_index, outer_path)) = parent_path.split_last() else {
+            return false;
+        };
+        let paragraphs: Vec<Dom> = parent
+            .children
+            .as_ref()
+            .iter()
+            .map(|item| Dom::create_p().with_children(item.children.as_ref().to_vec().into()))
+            .collect();
+        let Some(outer) = node_at_mut(model, outer_path) else {
+            return false;
+        };
+        let mut children: Vec<Dom> = outer.children.as_ref().to_vec();
+        let at = list_index as usize;
+        if at >= children.len() {
+            return false;
+        }
+        children.splice(at..=at, paragraphs);
+        outer.children = children.into();
+    }
+    model.fixup_children_estimated();
+    true
+}
+
+/// Insert Link: the selection becomes a link to `href`; with no selection, `text` (the address
+/// when empty) is added as a link at the end of the caret's block. `true` when the model changed.
+pub fn insert_link(model: &mut Dom, info: &CallbackInfo, host: DomNodeId, href: &str, text: &str) -> bool {
+    if wrap_selection(model, info, host, &link_dom(href)) {
+        return true;
+    }
+    let Some(block) = caret_block(model, info, host).or_else(|| {
+        // No caret: the end of the first block.
+        model
+            .children
+            .as_ref()
+            .first()
+            .map(|_| vec![0u32])
+    }) else {
+        return false;
+    };
+    let Some(node) = node_at_mut(model, &block) else {
+        return false;
+    };
+    let label = if text.trim().is_empty() { href } else { text };
+    node.add_child(run_dom(&Run {
+        text: label.to_string(),
+        link: Some(href.to_string()),
+        ..Run::default()
+    }));
+    model.fixup_children_estimated();
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
