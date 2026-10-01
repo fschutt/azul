@@ -12,10 +12,13 @@
 //! A reply starts with an empty line for the caret, then "On <date>, <sender> wrote:" and the
 //! original one quote level deeper; a forward with the original's header block and its text.
 //!
-//! A draft is a whole message file in `mail/drafts/<yyyy>/<mm>/<uid>.eml` with its index line,
-//! the same layout as the synced mail. Its UID is a LOCAL one, counted down from `u32::MAX`
-//! ([`next_local_uid`]): a server counts its UIDs up from 1 and never reaches them, so a later
-//! sync of the server's Drafts folder files its messages beside the local ones.
+//! A draft is SEND's message (`send::build_message`, micromail's MIME builder - the one
+//! generator AzMail has) with the Bcc a draft keeps, filed by SEND's `send::file_message` in
+//! `mail/drafts/<yyyy>/<mm>/<uid>.eml` with its index line: the same layout as the synced mail,
+//! a local UID from `send::LOCAL_UID_FLOOR` up (far above any server's), and a state that says
+//! the folder is local only until a sync adopts it (`sync::plan_folder`).
+
+use std::path::Path;
 
 use crate::{
     message::MessageView,
@@ -25,11 +28,6 @@ use crate::{
 
 /// The folder drafts are saved in (the `\Drafts` folder's fixed key).
 pub const DRAFTS_FOLDER: &str = "drafts";
-/// The first local UID; local UIDs count down from here.
-pub const LOCAL_UID_TOP: u32 = u32::MAX;
-/// UIDs above this are local ones (a draft saved here), never a server's.
-pub const LOCAL_UID_FLOOR: u32 = 0xF000_0000;
-
 /// What a compose window was opened for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComposeKind {
@@ -551,160 +549,24 @@ pub fn mime_type_for(file_name: &str) -> &'static str {
     }
 }
 
-/// The next local UID for a draft in a folder whose index holds `existing`: one below the
-/// lowest local UID there, `LOCAL_UID_TOP` for the first.
-pub fn next_local_uid(existing: &[IndexEntry]) -> u32 {
-    existing
-        .iter()
-        .map(|e| e.uid)
-        .filter(|uid| is_local_uid(*uid))
-        .min()
-        .map_or(LOCAL_UID_TOP, |lowest| lowest - 1)
+/// The draft as a message file: SEND's message for `mail` (`send::build_message`, dated
+/// `now_secs`) with `Bcc` (a draft keeps it; the sent message has none - bare addresses, which
+/// need no encoding) and `X-AzMail-Draft: 1` in front of its header.
+pub fn draft_bytes(mail: &OutgoingMail, now_secs: i64) -> Vec<u8> {
+    todo!()
 }
 
-/// Whether `uid` is a local one (a draft saved here).
-pub fn is_local_uid(uid: u32) -> bool {
-    uid > LOCAL_UID_FLOOR
-}
-
-/// A Message-ID for a mail written here, bare (no angle brackets):
-/// `azmail.<secs>.<salt>@<the sender's domain>` (`localhost` without one).
-pub fn new_message_id(from: &str, now_secs: i64, salt: u64) -> String {
-    let domain = bare_address(from)
-        .and_then(|address| crate::account::email_domain(&address))
-        .unwrap_or_else(|| String::from("localhost"));
-    format!("azmail.{now_secs}.{salt}@{domain}")
-}
-
-/// `secs` since 1970 as an RFC 5322 date in UTC (`Wed, 30 Sep 2026 08:42:00 +0000`).
-pub fn rfc5322_date(secs: i64) -> String {
-    chrono::DateTime::<chrono::Utc>::from_timestamp(secs, 0)
-        .map(|d| d.format("%a, %d %b %Y %H:%M:%S +0000").to_string())
-        .unwrap_or_default()
-}
-
-/// A header value as RFC 2047 encoded-words when it is not plain ASCII (`=?UTF-8?B?..?=`).
-pub fn encode_header_value(value: &str) -> String {
-    if value.is_ascii() && !value.contains(['\r', '\n']) {
-        return value.to_string();
-    }
-    // Encoded-words of at most 45 bytes of UTF-8 each (60 characters of base64), cut at
-    // character boundaries; a reader joins adjacent ones without the space between them.
-    let mut words = Vec::new();
-    let mut chunk = String::new();
-    for c in value.chars().filter(|c| *c != '\r' && *c != '\n') {
-        if chunk.len() + c.len_utf8() > 45 {
-            words.push(encoded_word(&chunk));
-            chunk.clear();
-        }
-        chunk.push(c);
-    }
-    if !chunk.is_empty() {
-        words.push(encoded_word(&chunk));
-    }
-    words.join(" ")
-}
-
-/// The draft as a message file: the headers (From, To, Cc, Bcc - a draft keeps its Bcc -,
-/// Subject, Date, Message-ID, In-Reply-To, References, MIME-Version, `X-AzMail-Draft: 1`),
-/// `multipart/alternative` of the text and the HTML (base64, UTF-8), inside `multipart/mixed`
-/// with the attachments (base64) when there are any. Lines end in CRLF.
-pub fn draft_eml(mail: &OutgoingMail, date_secs: i64, message_id: &str) -> Vec<u8> {
-    let mut out = String::new();
-    let mut header = |name: &str, value: &str| {
-        out.push_str(name);
-        out.push_str(": ");
-        out.push_str(value);
-        out.push_str("\r\n");
-    };
-    let addresses = |list: &[String]| list.iter().map(|a| encode_address(a)).collect::<Vec<_>>().join(", ");
-    header("From", &encode_address(&mail.from));
-    if !mail.to.is_empty() {
-        header("To", &addresses(&mail.to));
-    }
-    if !mail.cc.is_empty() {
-        header("Cc", &addresses(&mail.cc));
-    }
-    if !mail.bcc.is_empty() {
-        header("Bcc", &addresses(&mail.bcc));
-    }
-    header("Subject", &encode_header_value(&mail.subject));
-    header("Date", &rfc5322_date(date_secs));
-    header("Message-ID", &format!("<{message_id}>"));
-    if let Some(parent) = mail.in_reply_to.as_deref().filter(|p| !p.is_empty()) {
-        header("In-Reply-To", &format!("<{parent}>"));
-    }
-    if !mail.references.is_empty() {
-        let ids: Vec<String> = mail.references.iter().map(|r| format!("<{r}>")).collect();
-        header("References", &ids.join(" "));
-    }
-    header("MIME-Version", "1.0");
-    header("X-AzMail-Draft", "1");
-    // The boundaries hold `=_`, which no base64 line can: no part can contain them.
-    let alternative = format!("=_azmail_alt_{date_secs}");
-    let mixed = format!("=_azmail_mix_{date_secs}");
-    let text_part = |out: &mut String, media: &str, body: &str| {
-        out.push_str(&format!("Content-Type: {media}; charset=utf-8\r\n"));
-        out.push_str("Content-Transfer-Encoding: base64\r\n\r\n");
-        out.push_str(&base64_lines(body.as_bytes()));
-    };
-    let body_part = |out: &mut String| match mail.html_body.as_deref() {
-        Some(html) => {
-            out.push_str(&format!(
-                "Content-Type: multipart/alternative; boundary=\"{alternative}\"\r\n\r\n"
-            ));
-            out.push_str(&format!("--{alternative}\r\n"));
-            text_part(out, "text/plain", &mail.text_body);
-            out.push_str(&format!("--{alternative}\r\n"));
-            text_part(out, "text/html", html);
-            out.push_str(&format!("--{alternative}--\r\n"));
-        }
-        None => text_part(out, "text/plain", &mail.text_body),
-    };
-    if mail.attachments.is_empty() {
-        body_part(&mut out);
-    } else {
-        out.push_str(&format!(
-            "Content-Type: multipart/mixed; boundary=\"{mixed}\"\r\n\r\n"
-        ));
-        out.push_str(&format!("--{mixed}\r\n"));
-        body_part(&mut out);
-        for attachment in &mail.attachments {
-            out.push_str(&format!("--{mixed}\r\n"));
-            let name = file_name_parameter(&attachment.file_name);
-            let media = if attachment.mime_type.trim().is_empty() {
-                mime_type_for(&attachment.file_name)
-            } else {
-                attachment.mime_type.trim()
-            };
-            out.push_str(&format!("Content-Type: {media}; name{name}\r\n"));
-            out.push_str(&format!("Content-Disposition: attachment; filename{name}\r\n"));
-            out.push_str("Content-Transfer-Encoding: base64\r\n\r\n");
-            out.push_str(&base64_lines(&attachment.bytes));
-        }
-        out.push_str(&format!("--{mixed}--\r\n"));
-    }
-    out.into_bytes()
-}
-
-/// Saves a draft's message file under `uid` in the Drafts folder of `store` with its index
-/// line (replacing the draft's earlier file and line), and makes the folder known to the
-/// window (a state file that says it is local only, see `sync::plan_folder`). Returns the line.
-pub fn save_draft(store: &LocalFolder, uid: u32, eml: &[u8], now_secs: i64) -> std::io::Result<IndexEntry> {
-    let mut index = read_drafts_index(store);
-    let (year, month) = crate::message::year_month(now_secs);
-    let path = store::message_key(DRAFTS_FOLDER, year, month, uid);
-    // The draft saved before, in another month's folder: replaced, not left behind.
-    if let Some(old) = index.iter().find(|e| e.uid == uid && e.path != path) {
-        let _ = store.delete(&old.path);
-    }
-    store.put(&path, eml, true)?;
-    let flags = [String::from("\\Seen"), String::from("\\Draft")];
-    let entry = crate::message::index_entry(uid, eml, &flags, Some(now_secs), &path);
-    index.retain(|e| e.uid != uid);
-    index.push(entry.clone());
-    write_drafts_index(store, &index)?;
-    Ok(entry)
+/// Files a draft's message file in the Drafts folder under `store_root` through SEND's
+/// `send::file_message` (a new local UID, its index line, a local-only state for a folder never
+/// synced), after removing `replaces` - the same draft saved before - so it is there once.
+/// Returns the new index line.
+pub fn save_draft(
+    store_root: &Path,
+    replaces: Option<u32>,
+    bytes: &[u8],
+    now_secs: i64,
+) -> std::io::Result<IndexEntry> {
+    todo!()
 }
 
 /// Removes a draft (once it is sent): its file and its index line.
@@ -831,62 +693,6 @@ fn checked_line(line: &str) -> Result<Vec<String>, ComposeError> {
         Some(bad) => Err(ComposeError::BadAddress(bad.clone())),
         None => Ok(entries),
     }
-}
-
-/// `bytes` in base64, 76 characters a line, each line ending in CRLF.
-fn base64_lines(bytes: &[u8]) -> String {
-    use base64::Engine as _;
-    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-    let mut out = String::with_capacity(encoded.len() + encoded.len() / 38 + 2);
-    for chunk in encoded.as_bytes().chunks(76) {
-        // Base64 is ASCII: every chunk is a whole str.
-        out.push_str(std::str::from_utf8(chunk).unwrap_or_default());
-        out.push_str("\r\n");
-    }
-    out
-}
-
-/// One RFC 2047 encoded-word: `=?UTF-8?B?<base64>?=`.
-fn encoded_word(text: &str) -> String {
-    use base64::Engine as _;
-    format!(
-        "=?UTF-8?B?{}?=",
-        base64::engine::general_purpose::STANDARD.encode(text.as_bytes())
-    )
-}
-
-/// An address entry for a header: a display name that is not plain ASCII as encoded-words, the
-/// `<address>` as it is.
-fn encode_address(entry: &str) -> String {
-    let entry = entry.trim();
-    if entry.is_ascii() {
-        return entry.to_string();
-    }
-    match entry.rfind('<') {
-        Some(open) => {
-            let name = entry[..open].trim().trim_matches('"').trim();
-            format!("{} {}", encode_header_value(name), &entry[open..])
-        }
-        None => encode_header_value(entry),
-    }
-}
-
-/// A file name as a MIME parameter value, after the parameter's name: `="plan.txt"`, or
-/// RFC 2231's `*=UTF-8''<percent-encoded>` for a name that is not plain ASCII or holds a quote.
-fn file_name_parameter(name: &str) -> String {
-    let name = name.trim();
-    if name.is_ascii() && !name.contains(['"', '\\', '\r', '\n']) {
-        return format!("=\"{name}\"");
-    }
-    let mut encoded = String::new();
-    for byte in name.bytes() {
-        if byte.is_ascii_alphanumeric() || b".-_~".contains(&byte) {
-            encoded.push(char::from(byte));
-        } else {
-            encoded.push_str(&format!("%{byte:02X}"));
-        }
-    }
-    format!("*=UTF-8''{encoded}")
 }
 
 /// The Drafts folder's index; empty when there is none.
@@ -1236,44 +1042,17 @@ mod tests {
     }
 
     #[test]
-    fn local_uids_count_down_from_the_top_and_never_meet_the_servers() {
-        let server = IndexEntry {
-            uid: 41,
-            ..IndexEntry::default()
-        };
-        assert_eq!(next_local_uid(&[server.clone()]), LOCAL_UID_TOP);
-        let local = IndexEntry {
-            uid: LOCAL_UID_TOP,
-            ..IndexEntry::default()
-        };
-        assert_eq!(next_local_uid(&[server, local]), LOCAL_UID_TOP - 1);
-        assert!(is_local_uid(LOCAL_UID_TOP) && !is_local_uid(41));
-    }
-
-    #[test]
-    fn ids_dates_and_header_words_are_rfc_5322() {
-        assert_eq!(new_message_id("Ada <ada@example.org>", 1_790_757_720, 7), "azmail.1790757720.7@example.org");
-        assert_eq!(new_message_id("", 1, 2), "azmail.1.2@localhost");
-        assert_eq!(rfc5322_date(1_790_757_720), "Wed, 30 Sep 2026 08:42:00 +0000");
-        assert_eq!(encode_header_value("Garden plan"), "Garden plan");
-        assert_eq!(encode_header_value("Grüße"), "=?UTF-8?B?R3LDvMOfZQ==?=");
-    }
-
-    #[test]
-    fn a_draft_is_a_message_file_mail_parser_reads_back() {
+    fn a_draft_is_sends_message_with_its_bcc_and_mail_parser_reads_it_back() {
         let attachment = Attachment {
             file_name: String::from("plan.txt"),
             mime_type: String::from("text/plain"),
             bytes: b"tulips\n".to_vec(),
         };
         let mail = outgoing(&fields(), vec![attachment]).unwrap();
-        let eml = draft_eml(&mail, 1_790_757_720, "azmail.1.2@example.org");
-        let text = String::from_utf8(eml.clone()).unwrap();
-        assert!(text.contains("\r\nBcc: dan@example.org\r\n"), "a draft keeps its Bcc: {text}");
-        assert!(text.contains("\r\nX-AzMail-Draft: 1\r\n"), "{text}");
-        assert!(text.contains("\r\nIn-Reply-To: <garden-1@example.org>\r\n"), "{text}");
-        assert!(text.contains("multipart/mixed") && text.contains("multipart/alternative"), "{text}");
-        let view = crate::message::parse_view(&eml).unwrap();
+        let bytes = draft_bytes(&mail, 1_790_757_720);
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        assert!(text.starts_with("Bcc: dan@example.org\r\nX-AzMail-Draft: 1\r\n"), "{text}");
+        let view = crate::message::parse_view(&bytes).unwrap();
         assert_eq!(view.subject, "Re: Garden plan");
         assert_eq!(view.from, "Ada <ada@example.org>");
         assert_eq!(view.to, "Ben <ben@example.org>, cleo@example.org");
@@ -1282,7 +1061,13 @@ mod tests {
         assert!(view.html.as_deref().unwrap_or("").contains("See you."));
         assert_eq!(view.attachments.len(), 1);
         assert_eq!(view.attachments[0].name, "plan.txt");
-        assert_eq!(view.message_id, "azmail.1.2@example.org");
+        assert!(!view.message_id.is_empty());
+        let no_bcc = OutgoingMail {
+            bcc: Vec::new(),
+            ..mail
+        };
+        let text = String::from_utf8(draft_bytes(&no_bcc, 1_790_757_720)).unwrap();
+        assert!(text.starts_with("X-AzMail-Draft: 1\r\n"), "{text}");
     }
 
     #[test]
@@ -1290,20 +1075,30 @@ mod tests {
         let dir = TempDir::new("drafts");
         let store = LocalFolder::new(dir.0.clone());
         let mail = outgoing(&fields(), Vec::new()).unwrap();
-        let eml = draft_eml(&mail, 1_790_757_720, "azmail.1.2@example.org");
-        let entry = save_draft(&store, LOCAL_UID_TOP, &eml, 1_790_757_720).unwrap();
-        assert_eq!(entry.path, "mail/drafts/2026/09/4294967295.eml");
-        assert_eq!(entry.subject, "Re: Garden plan");
-        assert_eq!(store.get(&entry.path).unwrap(), eml);
+        let bytes = draft_bytes(&mail, 1_790_757_720);
+        let first = save_draft(&dir.0, None, &bytes, 1_790_757_720).unwrap();
+        let floor = crate::send::LOCAL_UID_FLOOR;
+        assert_eq!(first.uid, floor, "a local UID, far above any server's");
+        assert_eq!(first.path, format!("mail/drafts/2026/09/{floor}.eml"));
+        assert_eq!(first.subject, "Re: Garden plan");
+        assert!(first.flags.iter().any(|f| f == "\\Draft"), "{:?}", first.flags);
+        assert_eq!(store.get(&first.path).unwrap(), bytes);
         assert_eq!(store.folders(), vec![String::from("drafts")], "the window lists the folder");
-        let state = FolderState::from_json(&String::from_utf8(store.get(&store::state_key("drafts")).unwrap()).unwrap()).unwrap();
+        let state = FolderState::from_json(
+            &String::from_utf8(store.get(&store::state_key(DRAFTS_FOLDER)).unwrap()).unwrap(),
+        )
+        .unwrap();
         assert_eq!(state.uidvalidity, 0, "local only until a sync adopts it");
-        let again = save_draft(&store, LOCAL_UID_TOP, &eml, 1_790_757_720).unwrap();
-        let index = store::index_from_jsonl(&String::from_utf8(store.get(&store::index_key("drafts")).unwrap()).unwrap());
-        assert_eq!(index, vec![again], "one line per draft");
-        delete_draft(&store, LOCAL_UID_TOP).unwrap();
-        assert!(store.get(&entry.path).is_err());
-        let index = store::index_from_jsonl(&String::from_utf8(store.get(&store::index_key("drafts")).unwrap()).unwrap());
+        let again = save_draft(&dir.0, Some(first.uid), &bytes, 1_790_757_720).unwrap();
+        let index = store::index_from_jsonl(
+            &String::from_utf8(store.get(&store::index_key(DRAFTS_FOLDER)).unwrap()).unwrap(),
+        );
+        assert_eq!(index, vec![again.clone()], "one line per draft");
+        delete_draft(&store, again.uid).unwrap();
+        assert!(store.get(&again.path).is_err());
+        let index = store::index_from_jsonl(
+            &String::from_utf8(store.get(&store::index_key(DRAFTS_FOLDER)).unwrap()).unwrap(),
+        );
         assert!(index.is_empty());
     }
 }
