@@ -132,6 +132,11 @@ pub enum Command {
         from: CellAddr,
         needle: String,
     },
+    /// AutoSum: `Reply::area` = the run of numbers above `at` (else to its
+    /// left) the `=SUM(..)` should add up; nothing is written.
+    SumRange {
+        at: CellAddr,
+    },
     AddSheet,
     RenameSheet {
         sheet: u32,
@@ -259,6 +264,8 @@ pub struct Reply {
     pub found: Option<CellAddr>,
     /// `Command::RemoveDuplicates` / `Command::Filter`.
     pub count: Option<usize>,
+    /// `Command::SumRange` (`None`: no numbers next to the cell).
+    pub area: Option<CellArea>,
     /// The command and the snapshot on the engine thread, ms.
     pub elapsed_ms: f64,
 }
@@ -279,6 +286,7 @@ struct Extras {
     csv: Option<String>,
     found: Option<CellAddr>,
     count: Option<usize>,
+    area: Option<CellArea>,
 }
 
 /// Inclusive spans clamped to `1..=limit`, empty ones dropped.
@@ -445,6 +453,10 @@ fn run(
             extras.found = ops::find_next(engine, *from, needle);
             Ok(())
         }
+        Command::SumRange { at } => {
+            extras.area = ops::sum_range_above(engine, *at);
+            Ok(())
+        }
         Command::AddSheet => engine.add_sheet(),
         Command::RenameSheet { sheet, name } => engine.rename_sheet(*sheet, name),
         Command::DeleteSheet { sheet } => engine.delete_sheet(*sheet),
@@ -500,6 +512,7 @@ pub fn handle(engine: &mut dyn SheetEngine, msg: &EngineMsg) -> Reply {
         csv: extras.csv,
         found: extras.found,
         count: extras.count,
+        area: extras.area,
         elapsed_ms: started.elapsed().as_secs_f64() * 1000.0,
     }
 }
@@ -681,6 +694,26 @@ mod tests {
             ),
         );
         assert_eq!(found.found, Some(at(3, 2)));
+    }
+
+    #[test]
+    fn autosum_asks_for_the_run_of_numbers_above_the_cell_and_writes_nothing() {
+        let mut e = FakeEngine::new();
+        for (row, v) in [(1, "4"), (2, "5"), (3, "6")] {
+            e.set_cell_input(at(row, 2), v).unwrap();
+        }
+        let (tx, _rx) = channel();
+        let reply = handle(
+            &mut e,
+            &msg(
+                1,
+                Command::SumRange { at: at(4, 2) },
+                ViewRequest::default(),
+                tx,
+            ),
+        );
+        assert_eq!(reply.area, Some(CellArea::spanning(0, 1, 2, 3, 2)));
+        assert_eq!(e.cell_input(at(4, 2)), "", "the UI proposes the formula, the engine writes nothing");
     }
 
     #[test]
