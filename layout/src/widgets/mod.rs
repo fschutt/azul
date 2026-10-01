@@ -293,6 +293,11 @@ pub(crate) mod roving;
 ///
 /// See `screencap.rs`.
 pub mod screencap;
+/// The app shells: the eleven window layouts the Azlin apps share
+/// (OfficeShell, the navigation pane, the command palette, S1..S11) in one
+/// Office-like design; see `shells/mod.rs`. Their own api.json module,
+/// `shells`, apart from the smaller widgets.
+pub mod shells;
 /// Segmented control widget.
 ///
 /// Joined row of mutually-exclusive buttons; see `segmented.rs`.
@@ -1042,7 +1047,7 @@ mod label_convention {
             tree_view::{TreeView, TreeViewNode},
         };
 
-        vec![
+        let mut all: Vec<(&'static str, Dom)> = vec![
             (
                 "accordion",
                 Accordion::new(AccordionSectionVec::from_vec(vec![
@@ -1318,7 +1323,10 @@ mod label_convention {
                     .with_selected(true)
                     .dom(),
             ),
-        ]
+        ];
+        // The app shells, each with placeholder content (`shells::fixtures`).
+        all.extend(super::shells::fixtures::every_shell());
+        all
     }
 
     /// THE convention. A widget that trips this has attached box-model CSS, a
@@ -1404,16 +1412,11 @@ mod theme_pairs {
             "node root declares a dark twin for color (states [])",
             "light text = the UA default by design; the dark twin predates the themed UA colour",
         ),
-        (
-            "tree_view",
-            "node root/0/1 declares a dark twin for color (states [])",
-            "light text = the UA default by design; the dark twin predates the themed UA colour",
-        ),
-        (
-            "tree_view",
-            "node root/1/0/1 declares a dark twin for color (states [])",
-            "light text = the UA default by design; the dark twin predates the themed UA colour",
-        ),
+        // The tree view's label used to be listed here twice (its root row's
+        // and its first child's label): the label now declares its light ink
+        // beside the dark twin (`tree_view::LABEL_STYLE`), so the pair is
+        // whole wherever the tree is built - the shells' navigation pane
+        // embeds it at paths no mask could name.
     ];
 
     /// Every half-pair in one node's inline declarations, as messages. The
@@ -2200,6 +2203,25 @@ mod theme_contrast {
         "tabs (header)",
         "titlebar",
         "tree_view",
+        // The app shells (`shells::fixtures::every_shell`): window chrome.
+        "office_shell",
+        "navigation_pane",
+        "navigation_pane (collapsed)",
+        "command_palette",
+        "settings_layout",
+        "empty_state",
+        "theme_scope",
+        "document_shell",
+        "canvas_shell",
+        "timeline_shell",
+        "pim_shell",
+        "browser_shell",
+        "records_shell",
+        "media_shell",
+        "developer_shell",
+        "utility_shell",
+        "call_shell",
+        "mobile_shell",
     ];
 
     /// A widget added to the manifest must land in a group, or it is simply

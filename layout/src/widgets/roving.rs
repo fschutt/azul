@@ -386,6 +386,31 @@ pub(crate) mod test_support {
         )
     }
 
+    /// Presses `key` - holding the `held` modifier keys - as the WINDOW
+    /// delivers it: runs the `Window(VirtualKeyDown)` handler the widget
+    /// registered on `target` (a shell root's F6 hook, a backstage's
+    /// Escape), which fires whatever node has the focus.
+    ///
+    /// `None` when the node carries no window-level key handler.
+    pub(crate) fn press_window(
+        styled: &StyledDom,
+        target: DomNodeId,
+        key: VirtualKeyCode,
+        held: &[VirtualKeyCode],
+    ) -> Option<(Update, Vec<CallbackChange>)> {
+        let mut current_window_state = FullWindowState::default();
+        current_window_state.keyboard_state.current_virtual_keycode = Some(key).into();
+        let mut pressed: Vec<VirtualKeyCode> = held.to_vec();
+        pressed.push(key);
+        current_window_state.keyboard_state.pressed_virtual_keycodes = pressed.into();
+        run(
+            styled,
+            target,
+            EventFilter::Window(azul_core::events::WindowEventFilter::VirtualKeyDown),
+            current_window_state,
+        )
+    }
+
     /// Fires `event` on `target`: runs the handler the widget registered ON
     /// THAT NODE for exactly that event, with the payload it registered - a
     /// click on a node, as the engine dispatches it to the node it hit.
