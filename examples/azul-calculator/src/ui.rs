@@ -1257,3 +1257,735 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_callback(EventFilter::Focus(FocusEventFilter::Paste), app.clone(), on_paste)
         .with_callback(EventFilter::Focus(FocusEventFilter::Copy), app, on_copy)
 }
+
+// ==== Callbacks ====
+
+/// Runs `f` on the app's state; the window is rebuilt afterwards.
+fn with_app(
+    app: &mut RefAny,
+    info: &mut CallbackInfo,
+    f: impl FnOnce(&mut CalcApp, &mut CallbackInfo, &RefAny),
+) -> Update {
+    let handle = app.clone();
+    let Some(mut guard) = app.downcast_mut::<CalcApp>() else {
+        return Update::DoNothing;
+    };
+    f(&mut guard, info, &handle);
+    Update::RefreshDom
+}
+
+fn keep_history(s: &CalcApp) -> bool {
+    let mut k = s.kit.clone();
+    k.downcast_ref::<kit::Kit>()
+        .map_or(true, |k| k.settings.get_bool("history", true))
+}
+
+/// Writes the history file (one write at a time; a newer state waits).
+fn save_history(s: &mut CalcApp, info: &mut CallbackInfo, app: &RefAny) {
+    if !s.calc.history_dirty {
+        return;
+    }
+    if !keep_history(s) {
+        s.calc.history_dirty = false;
+        return;
+    }
+    if s.saving {
+        s.save_pending = true;
+        return;
+    }
+    s.calc.history_dirty = false;
+    s.saving = true;
+    kit::spawn_file_jobs(
+        info,
+        &s.data_root,
+        vec![FileJob::Put {
+            key: history_key(),
+            bytes: history::to_jsonl(&s.calc.history).into_bytes(),
+        }],
+        app.clone(),
+        TAG_SAVE,
+        on_files_done,
+    );
+}
+
+/// After a key: the display lines for scripts, the history to disk.
+fn after_calc(s: &mut CalcApp, info: &mut CallbackInfo, app: &RefAny) {
+    s.announce_display();
+    save_history(s, info, app);
+}
+
+fn run_action(s: &mut CalcApp, action: Action) {
+    s.notice.clear();
+    match action {
+        Action::Calc(cmd) => s.calc.apply(cmd, now_secs()),
+        Action::Second => s.calc.second = !s.calc.second,
+        Action::FlipFe => s.calc.fe = !s.calc.fe,
+        Action::Blank => {}
+    }
+}
+
+fn set_screen(s: &mut CalcApp, info: &mut CallbackInfo, screen: Screen) {
+    if s.screen == screen {
+        return;
+    }
+    remember_conversion(s);
+    s.screen = screen;
+    if let Some(mode) = screen.calc_mode() {
+        s.calc.set_mode(mode);
+    }
+    println!("AZCALC_SCREEN {}", screen.key());
+    kit::set_value(&s.kit, info, "screen", screen.key());
+}
+
+fn copy_result(s: &CalcApp, info: &mut CallbackInfo) {
+    let text = s.calc.copy_text();
+    info.set_clipboard_content(ClipboardContent {
+        plain_text: AzString::from(text.as_str()),
+        styled_runs: StyledTextRunVec::create(),
+        html: OptionString::None,
+    });
+    println!("AZCALC_COPIED {text}");
+}
+
+extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app = data.clone();
+    let Some(s) = data.downcast_ref::<CalcApp>() else {
+        return Update::DoNothing;
+    };
+    kit::on_window_created(&s.kit, &mut info);
+    kit::spawn_file_jobs(
+        &mut info,
+        &s.data_root,
+        vec![FileJob::Get { key: history_key() }],
+        app.clone(),
+        TAG_LOAD,
+        on_files_done,
+    );
+    s.announce_display();
+    Update::DoNothing
+}
+
+extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(reply) = kit::take_reply(&mut msg) else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, &mut info, |s, info, handle| match reply.tag {
+        TAG_LOAD => {
+            s.history_loaded = true;
+            let mut loaded = Vec::new();
+            for outcome in reply.outcomes {
+                match outcome {
+                    FileOutcome::Got {
+                        result: Ok(Some(bytes)),
+                        ..
+                    } => {
+                        let (entries, skipped) = history::parse_jsonl(&String::from_utf8_lossy(&bytes));
+                        if skipped > 0 {
+                            eprintln!("[azcalculator] {skipped} history line(s) could not be read");
+                        }
+                        loaded = entries;
+                    }
+                    FileOutcome::Got { result: Err(e), .. } => {
+                        s.notice = format!("The history could not be read: {e}");
+                    }
+                    _ => {}
+                }
+            }
+            if loaded.is_empty() && s.sample {
+                loaded = sample_history();
+                s.calc.history_dirty = true;
+            }
+            // Calculations made before the file arrived come after it.
+            let session = std::mem::take(&mut s.calc.history);
+            if !session.is_empty() {
+                s.calc.history_dirty = true;
+            }
+            loaded.extend(session);
+            history::trim(&mut loaded);
+            s.calc.history = loaded;
+            println!("AZCALC_HISTORY_LOADED {}", s.calc.history.len());
+            save_history(s, info, handle);
+        }
+        _ => {
+            s.saving = false;
+            match reply.outcomes.iter().find_map(FileOutcome::error) {
+                Some(e) => s.notice = format!("The history could not be saved: {e}"),
+                None => println!("AZCALC_HISTORY_SAVED {}", s.calc.history.len()),
+            }
+            if s.save_pending {
+                s.save_pending = false;
+                s.calc.history_dirty = true;
+                save_history(s, info, handle);
+            }
+        }
+    })
+}
+
+extern "C" fn on_key_button(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, action)) = data.downcast_ref::<KeyRef>().map(|k| (k.app.clone(), k.action)) else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, &mut info, |s, info, handle| {
+        run_action(s, action);
+        after_calc(s, info, handle);
+    })
+}
+
+extern "C" fn on_base(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, base)) = data.downcast_ref::<BaseRef>().map(|b| (b.app.clone(), b.base)) else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, &mut info, |s, _info, _| {
+        s.calc.set_base(base);
+        s.announce_display();
+    })
+}
+
+extern "C" fn on_bit(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, bit)) = data.downcast_ref::<BitRef>().map(|b| (b.app.clone(), b.bit)) else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, &mut info, |s, _info, _| {
+        s.calc.toggle_bit(bit);
+        s.announce_display();
+    })
+}
+
+extern "C" fn on_word(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| {
+        s.calc.set_word(WordSize::ALL[index.min(WordSize::ALL.len() - 1)]);
+        s.announce_display();
+    })
+}
+
+extern "C" fn on_angle(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    with_app(&mut data, &mut info, |s, info, _| {
+        let angle = AngleUnit::ALL[state.selected_index.min(AngleUnit::ALL.len() - 1)];
+        s.calc.angle = angle;
+        kit::set_value(&s.kit, info, "angle", &angle.label().to_lowercase());
+        s.announce_display();
+    })
+}
+
+extern "C" fn on_history_entry(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, index)) = data.downcast_ref::<HistoryRef>().map(|h| (h.app.clone(), h.index)) else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, &mut info, |s, _info, _| {
+        let before = s.calc.clone();
+        s.calc.use_history(index);
+        if s.calc == before {
+            s.notice = "That calculation belongs to another mode.".to_string();
+        }
+        s.announce_display();
+    })
+}
+
+extern "C" fn on_memory_entry(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, index)) = data.downcast_ref::<HistoryRef>().map(|h| (h.app.clone(), h.index)) else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, &mut info, |s, _info, _| {
+        if index < s.calc.memory.items.len() {
+            let item = s.calc.memory.items.remove(index);
+            s.calc.memory.items.insert(0, item);
+            s.calc.apply(Cmd::MemRecall, now_secs());
+            s.announce_display();
+        }
+    })
+}
+
+extern "C" fn on_clear_history(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, info, handle| {
+        s.calc.clear_history();
+        save_history(s, info, handle);
+    })
+}
+
+extern "C" fn on_panel_tab(mut data: RefAny, mut info: CallbackInfo, state: TabHeaderState) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| {
+        s.panel = if state.active_tab == 1 { Panel::Memory } else { Panel::History };
+    })
+}
+
+extern "C" fn on_toggle_panel(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let wide = info.get_current_window_state().size.dimensions.width > PANEL_MIN_WIDTH;
+    with_app(&mut data, &mut info, |s, _info, _| {
+        let shown = s.panel_shown.unwrap_or(wide);
+        s.panel_shown = Some(!shown);
+    })
+}
+
+extern "C" fn on_open_settings(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| kit::open_settings(&s.kit, None))
+}
+
+extern "C" fn on_screen(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    with_app(&mut data, &mut info, |s, info, _| {
+        set_screen(s, info, Screen::ALL[state.selected_index.min(Screen::ALL.len() - 1)]);
+    })
+}
+
+extern "C" fn on_grouping(mut data: RefAny, mut info: CallbackInfo, state: SwitchState) -> Update {
+    with_app(&mut data, &mut info, |s, info, _| {
+        s.calc.grouping = state.checked;
+        kit::set_value(&s.kit, info, "grouping", if state.checked { "true" } else { "false" });
+    })
+}
+
+extern "C" fn on_keep_history(mut data: RefAny, mut info: CallbackInfo, state: SwitchState) -> Update {
+    with_app(&mut data, &mut info, |s, info, handle| {
+        kit::set_value(&s.kit, info, "history", if state.checked { "true" } else { "false" });
+        if state.checked {
+            s.calc.history_dirty = true;
+            save_history(s, info, handle);
+        }
+    })
+}
+
+// ==== Date and converter ====
+
+fn announce_date(s: &CalcApp) {
+    println!("AZCALC_DATE {}", date_result(&s.date).join(" | "));
+}
+
+fn announce_conversion(s: &CalcApp) {
+    let (from, to) = convert_values(&s.convert);
+    let category = &CATEGORIES[s.convert.category.min(CATEGORIES.len() - 1)];
+    println!(
+        "AZCALC_CONVERT {} {} = {} {}",
+        from,
+        category.units[s.convert.from].symbol,
+        to,
+        category.units[s.convert.to].symbol
+    );
+}
+
+/// Puts the conversion on screen into the recent list (newest first, five kept).
+fn remember_conversion(s: &mut CalcApp) {
+    let c = &s.convert;
+    let category = &CATEGORIES[c.category.min(CATEGORIES.len() - 1)];
+    let (from_text, _) = convert_values(c);
+    let Ok(value) = Num::parse(&from_text) else {
+        return;
+    };
+    let Ok(line) = units::recent_line(&value, &category.units[c.from], &category.units[c.to]) else {
+        return;
+    };
+    let recent = &mut s.convert.recent;
+    recent.retain(|r| *r != line);
+    recent.insert(0, line);
+    recent.truncate(5);
+}
+
+extern "C" fn on_field_text(mut data: RefAny, mut info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+    let keep = OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: TextInputValid::Yes,
+    };
+    let Some((mut app, field)) = data.downcast_ref::<FieldRef>().map(|f| (f.app.clone(), f.field)) else {
+        return keep;
+    };
+    let text = state.get_text().as_str().to_string();
+    let update = with_app(&mut app, &mut info, |s, _info, _| {
+        match field {
+            Field::DateFrom => s.date.from = text,
+            Field::DateTo => s.date.to = text,
+            Field::Years => s.date.years = text,
+            Field::Months => s.date.months = text,
+            Field::Days => s.date.days = text,
+            Field::ConvertFrom => {
+                s.convert.from_text = text;
+                s.convert.source = Side::From;
+            }
+            Field::ConvertTo => {
+                s.convert.to_text = text;
+                s.convert.source = Side::To;
+            }
+        }
+        match field {
+            Field::ConvertFrom | Field::ConvertTo => announce_conversion(s),
+            _ => announce_date(s),
+        }
+    });
+    OnTextInputReturn {
+        update,
+        valid: TextInputValid::Yes,
+    }
+}
+
+extern "C" fn on_date_kind(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| {
+        s.date.kind = state.selected_index.min(1);
+        announce_date(s);
+    })
+}
+
+extern "C" fn on_date_sign(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| {
+        s.date.subtract = state.selected_index == 1;
+        announce_date(s);
+    })
+}
+
+extern "C" fn on_date_today(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| {
+        s.date.from = today().to_string();
+        announce_date(s);
+    })
+}
+
+/// The converter's source value as the new "from" text (before units change).
+fn settle_source(s: &mut CalcApp) {
+    let (from, _) = convert_values(&s.convert);
+    s.convert.from_text = from;
+    s.convert.source = Side::From;
+}
+
+extern "C" fn on_convert_category(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| {
+        remember_conversion(s);
+        settle_source(s);
+        let old = &CATEGORIES[s.convert.category.min(CATEGORIES.len() - 1)];
+        let (old_from, old_to) = (old.units[s.convert.from], old.units[s.convert.to]);
+        let new = index.min(CATEGORIES.len() - 1);
+        let (from, to) = units::units_after_category_change(&old_from, &old_to, &CATEGORIES[new]);
+        s.convert.category = new;
+        s.convert.from = from;
+        s.convert.to = to;
+        announce_conversion(s);
+    })
+}
+
+extern "C" fn on_convert_from_unit(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| {
+        remember_conversion(s);
+        settle_source(s);
+        let units = CATEGORIES[s.convert.category.min(CATEGORIES.len() - 1)].units.len();
+        s.convert.from = index.min(units - 1);
+        announce_conversion(s);
+    })
+}
+
+extern "C" fn on_convert_to_unit(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| {
+        remember_conversion(s);
+        settle_source(s);
+        let units = CATEGORIES[s.convert.category.min(CATEGORIES.len() - 1)].units.len();
+        s.convert.to = index.min(units - 1);
+        announce_conversion(s);
+    })
+}
+
+extern "C" fn on_convert_swap(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, _info, _| {
+        remember_conversion(s);
+        let (_, to) = convert_values(&s.convert);
+        let c = &mut s.convert;
+        std::mem::swap(&mut c.from, &mut c.to);
+        c.from_text = to.replace(',', "");
+        c.source = Side::From;
+        announce_conversion(s);
+    })
+}
+
+// ==== Keyboard, copy and paste ====
+
+/// The character a key gives on a US layout (the key positions every shell
+/// reports), shifted or not.
+fn key_char(vk: VirtualKeyCode, shift: bool) -> Option<char> {
+    use VirtualKeyCode as K;
+    let digits = [K::Key0, K::Key1, K::Key2, K::Key3, K::Key4, K::Key5, K::Key6, K::Key7, K::Key8, K::Key9];
+    if let Some(d) = digits.iter().position(|k| *k == vk) {
+        let shifted = [')', '!', '@', '#', '$', '%', '^', '&', '*', '('];
+        return Some(if shift { shifted[d] } else { char::from(b'0' + d as u8) });
+    }
+    let pad = [
+        K::Numpad0, K::Numpad1, K::Numpad2, K::Numpad3, K::Numpad4, K::Numpad5, K::Numpad6, K::Numpad7,
+        K::Numpad8, K::Numpad9,
+    ];
+    if let Some(d) = pad.iter().position(|k| *k == vk) {
+        return Some(char::from(b'0' + d as u8));
+    }
+    let letters = [
+        K::A, K::B, K::C, K::D, K::E, K::F, K::G, K::H, K::I, K::J, K::K, K::L, K::M, K::N, K::O, K::P, K::Q,
+        K::R, K::S, K::T, K::U, K::V, K::W, K::X, K::Y, K::Z,
+    ];
+    if let Some(i) = letters.iter().position(|k| *k == vk) {
+        let c = char::from(b'a' + i as u8);
+        return Some(if shift { c.to_ascii_uppercase() } else { c });
+    }
+    Some(match (vk, shift) {
+        (K::NumpadAdd, _) | (K::Plus, _) | (K::Equals, true) => '+',
+        (K::NumpadSubtract, _) | (K::Minus, false) => '-',
+        (K::NumpadMultiply, _) | (K::Asterisk, _) => '*',
+        (K::NumpadDivide, _) | (K::Slash, false) => '/',
+        (K::NumpadDecimal, _) | (K::Period, false) => '.',
+        (K::NumpadComma, _) | (K::Comma, false) => ',',
+        (K::NumpadEquals, _) | (K::Equals, false) => '=',
+        (K::Comma, true) => '<',
+        (K::Period, true) => '>',
+        (K::Backslash, true) => '|',
+        (K::Grave, true) => '~',
+        (K::Caret, _) => '^',
+        (K::At, _) => '@',
+        _ => return None,
+    })
+}
+
+extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(kit_ref) = data.downcast_ref::<CalcApp>().map(|s| s.kit.clone()) else {
+        return Update::DoNothing;
+    };
+    if let Some(update) = kit::handle_key(&kit_ref, &mut info) {
+        return update;
+    }
+    if kit::settings_open(&kit_ref) {
+        return Update::DoNothing;
+    }
+    let Some(vk) = info.get_current_keyboard_state().current_virtual_keycode.into_option() else {
+        return Update::DoNothing;
+    };
+    let m = info.get_key_modifiers();
+    let command = m.ctrl || m.meta;
+    let Some(screen) = data.downcast_ref::<CalcApp>().map(|s| s.screen) else {
+        return Update::DoNothing;
+    };
+    // Alt+1..5: the modes.
+    if m.alt && !command {
+        let modes = [VirtualKeyCode::Key1, VirtualKeyCode::Key2, VirtualKeyCode::Key3, VirtualKeyCode::Key4, VirtualKeyCode::Key5];
+        if let Some(i) = modes.iter().position(|k| *k == vk) {
+            info.prevent_default();
+            return with_app(&mut data, &mut info, |s, info, _| set_screen(s, info, Screen::ALL[i]));
+        }
+        return Update::DoNothing;
+    }
+    let Some(mode) = screen.calc_mode() else {
+        // Date and Convert: the fields take the keys.
+        return Update::DoNothing;
+    };
+    if command {
+        let cmd = match vk {
+            VirtualKeyCode::C => {
+                info.prevent_default();
+                if let Some(s) = data.downcast_ref::<CalcApp>() {
+                    copy_result(&s, &mut info);
+                }
+                return Update::DoNothing;
+            }
+            VirtualKeyCode::H => {
+                info.prevent_default();
+                let wide = info.get_current_window_state().size.dimensions.width > PANEL_MIN_WIDTH;
+                return with_app(&mut data, &mut info, |s, _info, _| {
+                    let shown = s.panel_shown.unwrap_or(wide);
+                    s.panel_shown = Some(!shown);
+                });
+            }
+            VirtualKeyCode::M => Cmd::MemStore,
+            VirtualKeyCode::R => Cmd::MemRecall,
+            VirtualKeyCode::P => Cmd::MemAdd,
+            VirtualKeyCode::Q => Cmd::MemSub,
+            VirtualKeyCode::L => Cmd::MemClear,
+            _ => return Update::DoNothing,
+        };
+        info.prevent_default();
+        return with_app(&mut data, &mut info, |s, info, handle| {
+            run_action(s, Action::Calc(cmd));
+            after_calc(s, info, handle);
+        });
+    }
+    // The angle unit (Scientific) and the base (Programmer) by function key.
+    let setting = match (mode, vk) {
+        (CalcMode::Scientific, VirtualKeyCode::F3) => Some((Some(AngleUnit::Deg), None)),
+        (CalcMode::Scientific, VirtualKeyCode::F4) => Some((Some(AngleUnit::Rad), None)),
+        (CalcMode::Scientific, VirtualKeyCode::F5) => Some((Some(AngleUnit::Grad), None)),
+        (CalcMode::Programmer, VirtualKeyCode::F5) => Some((None, Some(Base::Hex))),
+        (CalcMode::Programmer, VirtualKeyCode::F6) => Some((None, Some(Base::Dec))),
+        (CalcMode::Programmer, VirtualKeyCode::F7) => Some((None, Some(Base::Oct))),
+        (CalcMode::Programmer, VirtualKeyCode::F8) => Some((None, Some(Base::Bin))),
+        _ => None,
+    };
+    if let Some((angle, base)) = setting {
+        info.prevent_default();
+        return with_app(&mut data, &mut info, |s, _info, _| {
+            if let Some(a) = angle {
+                s.calc.angle = a;
+            }
+            if let Some(b) = base {
+                s.calc.set_base(b);
+            }
+            s.announce_display();
+        });
+    }
+    let named = match vk {
+        VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter => Some(NamedKey::Enter),
+        VirtualKeyCode::Back => Some(NamedKey::Backspace),
+        VirtualKeyCode::Escape => Some(NamedKey::Escape),
+        VirtualKeyCode::Delete => Some(NamedKey::Delete),
+        VirtualKeyCode::F9 => Some(NamedKey::F9),
+        _ => None,
+    };
+    let cmd = match named {
+        Some(n) => Some(named_command(n)),
+        None => key_char(vk, m.shift).and_then(|c| char_command(c, mode)),
+    };
+    let Some(cmd) = cmd else {
+        return Update::DoNothing;
+    };
+    // Enter must not also click the focused key.
+    info.prevent_default();
+    with_app(&mut data, &mut info, |s, info, handle| {
+        run_action(s, Action::Calc(cmd));
+        after_calc(s, info, handle);
+    })
+}
+
+/// Ctrl/Cmd+V: the clipboard's text as an expression (the calculator screens
+/// only; the date and converter fields paste as text fields do).
+extern "C" fn on_paste(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((kit_ref, screen)) = data.downcast_ref::<CalcApp>().map(|s| (s.kit.clone(), s.screen)) else {
+        return Update::DoNothing;
+    };
+    if kit::settings_open(&kit_ref) || screen.calc_mode().is_none() {
+        return Update::DoNothing;
+    }
+    let Some(content) = info.get_clipboard_content().into_option() else {
+        return Update::DoNothing;
+    };
+    let text = content.plain_text.as_str().to_string();
+    info.prevent_default();
+    with_app(&mut data, &mut info, |s, info, handle| {
+        match s.calc.paste(&text) {
+            Ok(()) => {
+                println!("AZCALC_PASTED {text}");
+                s.notice.clear();
+            }
+            Err(e) => s.notice = format!("\"{}\" could not be pasted: {e}", text.trim()),
+        }
+        after_calc(s, info, handle);
+    })
+}
+
+/// The Copy event (Ctrl/Cmd+C, or Edit > Copy): the result, not a selection.
+extern "C" fn on_copy(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((kit_ref, screen)) = data.downcast_ref::<CalcApp>().map(|s| (s.kit.clone(), s.screen)) else {
+        return Update::DoNothing;
+    };
+    if kit::settings_open(&kit_ref) || screen.calc_mode().is_none() {
+        return Update::DoNothing;
+    }
+    info.prevent_default();
+    if let Some(s) = data.downcast_ref::<CalcApp>() {
+        copy_result(&s, &mut info);
+    }
+    Update::DoNothing
+}
+
+#[cfg(test)]
+mod tests {
+    //! The parts of the window that are plain data.
+
+    use super::*;
+
+    #[test]
+    fn every_keypad_key_has_a_unique_id() {
+        for (name, keys) in [
+            ("standard", standard_keys()),
+            ("scientific", scientific_keys(false, false)),
+            ("scientific 2nd", scientific_keys(true, true)),
+            ("programmer", programmer_keys()),
+        ] {
+            let mut seen = Vec::new();
+            for k in keys.iter().filter(|k| k.action != Action::Blank) {
+                assert!(k.id.starts_with("key-"), "{name}: {}", k.id);
+                assert!(!seen.contains(&k.id), "{name}: {} twice", k.id);
+                seen.push(k.id);
+            }
+        }
+    }
+
+    #[test]
+    fn the_keypads_fill_their_grids() {
+        assert_eq!(standard_keys().len(), 6 * 4);
+        assert_eq!(scientific_keys(false, false).len(), 5 * 9);
+        assert_eq!(programmer_keys().len(), 4 * 11);
+        assert_eq!(memory_keys().len(), 5);
+    }
+
+    #[test]
+    fn the_second_key_swaps_the_function_row() {
+        let first = scientific_keys(false, false);
+        let second = scientific_keys(true, false);
+        assert!(first.iter().any(|k| k.id == "key-sin"));
+        assert!(second.iter().any(|k| k.id == "key-asin"));
+        assert!(second.iter().any(|k| k.id == "key-cube"));
+        assert!(second.iter().find(|k| k.id == "key-second").unwrap().primary);
+    }
+
+    #[test]
+    fn the_us_key_positions_give_the_calculator_characters() {
+        assert_eq!(key_char(VirtualKeyCode::Key8, true), Some('*'));
+        assert_eq!(key_char(VirtualKeyCode::Equals, true), Some('+'));
+        assert_eq!(key_char(VirtualKeyCode::Equals, false), Some('='));
+        assert_eq!(key_char(VirtualKeyCode::Key9, true), Some('('));
+        assert_eq!(key_char(VirtualKeyCode::Key5, true), Some('%'));
+        assert_eq!(key_char(VirtualKeyCode::Key2, true), Some('@'));
+        assert_eq!(key_char(VirtualKeyCode::Numpad7, false), Some('7'));
+        assert_eq!(key_char(VirtualKeyCode::NumpadMultiply, false), Some('*'));
+        assert_eq!(key_char(VirtualKeyCode::Plus, false), Some('+'));
+        assert_eq!(key_char(VirtualKeyCode::A, false), Some('a'));
+        assert_eq!(key_char(VirtualKeyCode::E, true), Some('E'));
+        assert_eq!(key_char(VirtualKeyCode::F1, false), None);
+    }
+
+    #[test]
+    fn the_date_screen_explains_a_bad_date() {
+        let mut d = DateState {
+            kind: 0,
+            from: "2025-08-01".into(),
+            to: "2026-10-04".into(),
+            years: "0".into(),
+            months: "0".into(),
+            days: "0".into(),
+            subtract: false,
+        };
+        assert_eq!(date_result(&d), vec!["1 year, 2 months, 3 days", "61 weeks, 2 days", "429 days"]);
+        d.to = "soon".into();
+        assert_eq!(date_result(&d), vec!["Enter the second date as YYYY-MM-DD."]);
+        d.kind = 1;
+        d.days = "100".into();
+        d.from = "2026-10-01".into();
+        assert_eq!(date_result(&d), vec!["2027-01-09 (Saturday)"]);
+        d.days = "x".into();
+        assert_eq!(date_result(&d), vec!["Years, months and days are whole numbers."]);
+    }
+
+    #[test]
+    fn the_converter_computes_the_field_not_typed_into() {
+        let mut c = ConvertState {
+            category: 0,
+            from: 3,
+            to: 7,
+            from_text: "42.195".into(),
+            to_text: String::new(),
+            source: Side::From,
+            recent: Vec::new(),
+        };
+        assert_eq!(convert_values(&c), ("42.195".to_string(), "26.21875746".to_string()));
+        c.source = Side::To;
+        c.to_text = "1".into();
+        assert_eq!(convert_values(&c), ("1.609344".to_string(), "1".to_string()));
+        c.to_text = "abc".into();
+        assert_eq!(convert_values(&c).0, "\u{2014}");
+    }
+
+    #[test]
+    fn the_screens_map_to_keypad_modes() {
+        assert_eq!(Screen::by_key("programmer"), Some(Screen::Programmer));
+        assert_eq!(Screen::Programmer.calc_mode(), Some(CalcMode::Programmer));
+        assert_eq!(Screen::Convert.calc_mode(), None);
+        for s in Screen::ALL {
+            assert!(SCREENS.contains(&s.key()));
+        }
+    }
+}
