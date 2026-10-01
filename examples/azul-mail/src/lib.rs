@@ -549,7 +549,7 @@ pub(crate) extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackI
 /// Puts `secret` for `account_id` into the OS keyring (when no other keyring call is pending)
 /// and keeps it in memory for this run.
 pub(crate) fn remember_secret(s: &mut MailApp, info: &mut CallbackInfo, account_id: &str, secret: Secret) {
-    if s.keyring.is_none() && test_secret().is_none() {
+    if s.keyring.is_none() {
         info.keyring_store(account::keyring_key(account_id), secret.expose(), false);
         s.keyring = Some(KeyringOp::Store);
     }
