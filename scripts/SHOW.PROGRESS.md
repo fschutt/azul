@@ -25,20 +25,23 @@ Brief: scratchpad `SHOW_go.md`; house rules: scratchpad `wave4_common.md`. Repor
 - b704d7531 test(azshow): the deck model (RED) + crate registration (workspace, test members, CI step)
 - 5c4aeb8b8 feat(azshow): the deck model (GREEN) - type-checked standalone with rustc --emit=metadata
   (serde stripped; no codegen, no target dir)
+- SelectionAdorner: 24d2b2676 (types), a07776b1c (RED geometry/drag), b35b13cda + ba99af95d (GREEN),
+  487b2ffbb (RED DOM + registration in widgets/mod.rs: module, manifest, CHROME), 2d7c9f040 (GREEN DOM +
+  callbacks), bcf09c2a9 (flat + flora looks).
 
 ## IN PROGRESS
 
-- SelectionAdorner (`layout/src/widgets/selection_adorner.rs`). Last commit: ba99af95d (geometry +
-  drag machine GREEN; tests in `geometry_and_drag_tests`).
-  NEXT STEP: piece 3 = `SelectionAdornerLook` + `look_for` + `build` (root + content + frames /
-  handles / rotate / guides / marquee) + the extern "C" pointer / key callbacks + DOM tests (RED then
-  GREEN), then the looks at the END of themes/flat.rs + flora.rs, then register: `pub mod
-  selection_adorner;` appended at the end of the pub mod list in widgets/mod.rs, a manifest entry at the
-  end of `every_widget_dom`, "selection_adorner" in the CHROME contrast group.
+- ThumbnailStrip (`layout/src/widgets/thumbnail_strip.rs`). NEXT STEP: types + builder (commit), tests
+  RED with stub build (commit), build + callbacks GREEN (commit), looks in flat/flora (commit), register
+  (pub mod + manifest + CHROME). Design: items (content Dom + number label + name + badge + section
+  title + selected + hidden), layout Column (rail) / Grid (sorter), one tab stop (the active item),
+  Up/Down (Left/Right in grid) select, Shift extends, Ctrl+Up/Down moves (Move event), Home/End,
+  Enter activates, Delete deletes; click selects (shift/ctrl), double-click activates; drag reorder via
+  draggable + DragStart (set_drag_data mime "application/x-azul-thumbnail" + shared state) / DragOver
+  (accept_drop) / Drop (Move{index: from, target: to}); section headers toggle (SectionToggled).
 
 ## NEXT
 
-2. SelectionAdorner RED + GREEN (+ flat / flora looks, manifest)
 3. ThumbnailStrip RED + GREEN
 4. the app UI (ribbon, backstage, normal / sorter / outline / notes views, show + presenter window, storage, PDF)
 5. registrations (workspace, test members, CI), E2E script, report
