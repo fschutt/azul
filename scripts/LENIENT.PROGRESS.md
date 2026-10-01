@@ -13,29 +13,15 @@ Brief: scratchpad/LENIENT_go.md (lenient XML/HTML, components audit, paste parse
 - `8a9e682d7` builder.rs twins (VOID_ELEMENTS / AUTO_CLOSE) -> core is_void_element / start_tag_closes
 - `86aa95f82` RED paste / `f35506a22` GREEN paste (lenient tree, o:p inline, Word mso-list lists)
 - `a69f5195f` RED components / `e6045f05f` GREEN presentational hints / `cb1f1eead` GREEN counters
+- `af63953e4` RED / `12a06e54b` GREEN list-style shorthand; `d74733a8b` transient-window in the tree loader
+- report scripts/LENIENT_2026_10_01.md (`ae11f8a73`, `225cecae5`, `739aa8ca8`)
 
 ## IN PROGRESS
-- Design: one tree construction (`azul_core::xml::html`) for every loader; a lenient
-  HTML tokenizer in core; the strict loaders keep xmlparser as their tokenizer.
-- Drafted (uncommitted, kept until the RED commit lands): core/src/xml_html.rs (type-checked
-  and clippy-clean in a stub harness), core/src/xml_entities.rs + scripts/gen_html_entities.py.
-  A line-by-line Python mirror (scratchpad/lenient/mirror.py) builds Chrome's tree for 16/18
-  corpus mails (the 2 others: foster parenting, a documented simplification) and 43/50 snippets
-  (the 7 others: comment nodes, control characters dropped on purpose, simplified adoption).
-- The layout splice (both strict loaders onto the builder, FastDomSink, feed_xml_tokens) is
-  parked at scratchpad/lenient/mod.rs.new (made by scratchpad/lenient/splice_loaders.py from the
-  base file); layout/src/xml/mod.rs is back at base for the RED commit.
-- NEXT STEP: list-style-position: inside (find the root cause; the CSS has no `list-style`
-  shorthand - check it), then the report scripts/LENIENT_2026_10_01.md (api.json list:
-  Xml::create_from_html; least-sure spots; test commands; what is left).
+- (none) - TASK COMPLETE; the report lists what is left.
 
 ## NEXT
-1. RED: lenient parse of the mail corpus + E-XML-3 (the two loaders agree).
-2. FIX: core/src/xml_html.rs (tokenizer, tree builder, XmlNode sink) + layout adapters.
-3. Entities: the full HTML5 table.
-4. Components audit (ol/li/ul/img/font/center/align/body), list-style-position: inside.
-5. Paste parser on the lenient loader (Word / browser paste).
-6. Report scripts/LENIENT_2026_10_01.md.
+- Parent: compile, run the test commands in the report, add the api.json entries
+  (Xml::create_from_html, CombinedCssPropertyType::ListStyle).
 
 ## Decisions
 - xmlparser is RazrFalcon's crates.io crate (not ours, a [patch] trips the release gate):
