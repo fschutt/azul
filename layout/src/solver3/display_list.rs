@@ -6282,16 +6282,22 @@ where
             return Ok(());
         }
 
-        // Tables have a special 6-layer background painting order
-        if matches!(node.formatting_context, FormattingContext::Table) {
+        // A table paints its own background and border like any box (layer
+        // 1 of CSS 2.2 17.5.1, with its background images, shadow and
+        // radius), then the table layers above it (`paint_table_items`,
+        // below). It used to skip the box painting for a bare `push_rect` of
+        // its colour, so a table's border was never drawn in the separated
+        // model (WPT table-row-group-001: the 2px frame missing). In the
+        // collapsing model its border is part of the resolved grid
+        // (`paint_collapsed_table_borders`), so the box paints none.
+        let is_table = matches!(node.formatting_context, FormattingContext::Table);
+        if is_table {
             debug_info!(
                 self.ctx,
                 "Painting table backgrounds/borders for node {} at {:?}",
                 node_index,
                 paint_rect
             );
-            // Delegate to specialized table painting function
-            return self.paint_table_items(builder, node_index);
         }
 
         // CSS 2.2 section 17.5.1: a cell's BACKGROUND belongs to layer 6 of
@@ -6368,7 +6374,9 @@ where
             // `COMBINED_CSS_PROPERTIES_KEY_MAP`), so they are consumed here
             // and NOT handed to the rectangle painter.
             let stroke = self.svg_stroke_for(dom_id, &border_info);
-            let border_info = if stroke.is_some() {
+            let border_info = if stroke.is_some()
+                || (is_table && self.table_is_border_collapsed(node_index))
+            {
                 let mut without_border = border_info;
                 without_border.widths = StyleBorderWidths {
                     top: None,
@@ -6394,6 +6402,12 @@ where
             // The stroke is NOT painted here: it must land OUTSIDE this
             // node's own clip mask. See `paint_svg_stroke`.
             drop(stroke);
+        }
+
+        // The table layers 2-6 (column groups, columns, row groups, rows,
+        // cells) over the table's own background and border.
+        if is_table {
+            self.paint_table_items(builder, node_index)?;
         }
 
         // Seat focus ring (9b-ii-a-i-d-iii, the overlay half). `:focus` and
@@ -6484,27 +6498,10 @@ where
             .get(LayoutNodeId::new(table_index))
             .ok_or(LayoutError::InvalidTree)?;
 
-        let Some(table_paint_rect) = self.get_paint_rect(table_index) else {
+        // Layer 1 (the table's own background and border) is the table box's
+        // ordinary painting in `paint_node_background_and_border_inner`.
+        if table_node.dom_node_id.is_none() && self.get_paint_rect(table_index).is_none() {
             return Ok(());
-        };
-
-        // Layer 1: Table background
-        if let Some(dom_id) = table_node.dom_node_id {
-            let styled_node_state = self.get_styled_node_state(dom_id);
-            let bg_color = get_background_color(self.ctx.styled_dom, dom_id, &styled_node_state);
-            let element_size = PhysicalSizeImport {
-                width: table_paint_rect.size.width,
-                height: table_paint_rect.size.height,
-            };
-            let border_radius = get_border_radius(
-                self.ctx.styled_dom,
-                dom_id,
-                &styled_node_state,
-                element_size,
-                self.ctx.viewport_size,
-            );
-
-            builder.push_rect(table_paint_rect, bg_color, border_radius);
         }
 
         // Traverse table children to paint layers 2-6
@@ -6809,39 +6806,9 @@ where
     /// Layer 5: Row background
     /// Layer 6: Cell backgrounds (painted after row, so they appear on top)
     fn paint_table_row_and_cells(&self, builder: &mut DisplayListBuilder, row_idx: usize) {
-        // Layer 5: Paint row background.
-        // Rows don't have entries in calculated_positions (adding them would
-        // double-offset cells during position recursion). Compute the row rect
-        // from the bounding box of its cell children.
-        if let Some(row_node) = self.positioned_tree.tree.get(LayoutNodeId::new(row_idx)) {
-            if let Some(dom_id) = row_node.dom_node_id {
-                let styled_node_state = self.get_styled_node_state(dom_id);
-                let bg_color =
-                    get_background_color(self.ctx.styled_dom, dom_id, &styled_node_state);
-                if bg_color.a > 0 {
-                    // Compute row rect from cell children
-                    let mut min_x = f32::MAX;
-                    let mut min_y = f32::MAX;
-                    let mut max_x = f32::MIN;
-                    let mut max_y = f32::MIN;
-                    for &cell_idx in self.positioned_tree.tree.children(row_idx) {
-                        if let Some(cell_rect) = self.get_paint_rect(cell_idx) {
-                            min_x = min_x.min(cell_rect.origin.x);
-                            min_y = min_y.min(cell_rect.origin.y);
-                            max_x = max_x.max(cell_rect.origin.x + cell_rect.size.width);
-                            max_y = max_y.max(cell_rect.origin.y + cell_rect.size.height);
-                        }
-                    }
-                    if min_x < max_x && min_y < max_y {
-                        let row_rect = LogicalRect::new(
-                            LogicalPosition::new(min_x, min_y),
-                            LogicalSize::new(max_x - min_x, max_y - min_y),
-                        );
-                        builder.push_rect(row_rect, bg_color, BorderRadius::default());
-                    }
-                }
-            }
-        }
+        // Layer 5: the row's background, over the row's box (a row spans the
+        // grid's columns, fc.rs `place_table_grid_boxes`).
+        self.paint_element_background(builder, row_idx);
 
         // Layer 6: Paint cell backgrounds (topmost layer)
         if let Some(_node) = self.positioned_tree.tree.get(LayoutNodeId::new(row_idx)) {

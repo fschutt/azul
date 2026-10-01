@@ -11,17 +11,14 @@ Brief: scratchpad `TABLE_A_go.md` (widths, row groups, presentational attributes
 - bc6361f65 FIX item 3: presentational attributes (attribute table keeps them, StyledDom creation maps them), UA table defaults
 
 ## IN PROGRESS
-- Items 1/4/5 code complete (58f7ccd60, c06e62f4a, 7e00f8d0d, c1266420f, + the Step 2 commit).
-- NEXT STEP: item 2 (row groups) in fc.rs: analyze_table_structure visual order (thead first, tfoot
-  last), position_table_cells -> positions for row groups / direct rows / caption relative to the
-  table, rows relative to their group, cells relative to their row (warm.relative_position), col /
-  colgroup rects; cache.rs table cache hit positions only; display_list: the table paints its own
-  background + border (generic path), then paint_table_items layers 2-6.
+- Items 1-5 code complete. Last code commit: "row groups, rows, columns and the caption are boxes".
+- NEXT STEP: review pass (read every changed function once more for compile errors: fc.rs
+  layout_table_fc / position_table_cells / place_table_grid_boxes, sizing.rs, cache.rs hit path,
+  display_list.rs paint path, xml_attributes.rs), then the WPT expectation lines for the tests this
+  should fix (decide which to remove), then the report scripts/TABLE_A_2026_10_01.md.
 
 ## NEXT
-- FIX item 2: row groups / rows / cells positioned hierarchically; thead first, tfoot last; table paints
-  its own background + border, then the table layers; cache-hit path for tables positions only.
-- (optional) legacy `align=center` block centering; report.
+- (optional) legacy `align=center` block centering (-webkit-center) in layout_bfc.
 
 ## Decisions (unattended, noted here)
 - Presentational hints: the attribute table KEEPS the attribute on the node (AttributeType::Custom), and

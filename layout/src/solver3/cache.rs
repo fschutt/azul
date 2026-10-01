@@ -3292,6 +3292,10 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                             )
                         });
 
+                    let laid_out_by_table = tree
+                        .get(LayoutNodeId::new(node_index))
+                        .is_some_and(|n| matches!(n.formatting_context, FormattingContext::Table));
+
                     // Apply cached child positions and recurse
                     let result_size = cached_layout.result_size;
                     for (child_index, child_relative_pos) in &cached_layout.child_positions {
@@ -3300,6 +3304,30 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                             self_content_box_pos.y + child_relative_pos.y,
                         );
                         super::pos_set(calculated_positions, *child_index, child_abs_pos);
+
+                        // A table's children (its row groups, rows, column
+                        // groups, caption) were placed by the table algorithm
+                        // together with the table, and everything below them
+                        // carries its relative position (fc.rs
+                        // `place_table_grid_boxes`): position them, never lay
+                        // a row group out again as a block of its own.
+                        if laid_out_by_table {
+                            if let Some(child_warm) = tree.warm_mut(LayoutNodeId::new(*child_index))
+                            {
+                                child_warm.relative_position = Some(*child_relative_pos);
+                            }
+                            let child_bp = tree
+                                .get(LayoutNodeId::new(*child_index))
+                                .map(|c| c.box_props.unpack())
+                                .unwrap_or_default();
+                            position_bfc_child_descendants(
+                                tree,
+                                *child_index,
+                                calculate_content_box_pos(child_abs_pos, &child_bp),
+                                calculated_positions,
+                            );
+                            continue;
+                        }
 
                         if items_laid_out_by_taffy {
                             if let Some(child_warm) = tree.warm_mut(LayoutNodeId::new(*child_index))

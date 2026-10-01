@@ -6568,7 +6568,10 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     calculate_row_heights(&mut table_ctx, tree, text_cache, ctx, constraints)?;
 
     // Phase 5: Position cells in final grid and collect positions
-    let mut cell_positions = position_table_cells(&table_ctx, tree, ctx, node_index, constraints)?;
+    // The table's positioned children (row groups, rows, column groups) and
+    // the rows' tops, relative to the table's content box.
+    let (mut cell_positions, row_tops) =
+        position_table_cells(&table_ctx, tree, ctx, node_index, constraints)?;
 
     // Calculate final table size including border-spacing
     let mut table_width: f32 = table_ctx
@@ -6643,29 +6646,53 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
             fragmentainer: None,
         };
 
-        // Layout the caption node
-        let mut empty_float_cache = HashMap::new();
-        let caption_result = layout_formatting_context(
+        // Layout the caption node as the block box it is: sized against the
+        // table's width (its `used_size`, which paints and hit-tests it),
+        // its children laid out inside. Laid out through the formatting
+        // context alone, as this was, it kept no size and had no box.
+        let mut caption_scrollbar_reflow = false;
+        let mut caption_float_cache = HashMap::new();
+        let mut caption_positions: super::PositionVec = Vec::new();
+        crate::solver3::cache::calculate_layout_for_subtree(
             ctx,
             tree,
             text_cache,
             caption_idx,
-            &caption_constraints,
-            &mut empty_float_cache,
+            LogicalPosition::zero(),
+            &CBTY::from_flattened_with_width_type(
+                caption_constraints.available_size,
+                caption_constraints.available_width_type,
+            ),
+            &mut caption_positions,
+            &mut caption_scrollbar_reflow,
+            &mut caption_float_cache,
+            crate::solver3::cache::ComputeMode::ComputeSize,
         )?;
-        caption_height = caption_result.output.overflow_size.height;
+        let caption_margin = tree
+            .get(LayoutNodeId::new(caption_idx))
+            .map(|n| n.box_props.unpack().margin)
+            .unwrap_or_default();
+        let caption_box_height = tree
+            .get(LayoutNodeId::new(caption_idx))
+            .and_then(|n| n.used_size)
+            .map_or(0.0, |size| size.height);
+        caption_height = caption_box_height + caption_margin.top + caption_margin.bottom;
 
+        // The caption's border box, inside its margins.
         let caption_position = match caption_side {
             StyleCaptionSide::Top => {
                 // Caption on top: position at y=0, table starts below caption
                 table_y_offset = caption_height;
-                LogicalPosition { x: 0.0, y: 0.0 }
+                LogicalPosition {
+                    x: caption_margin.left,
+                    y: caption_margin.top,
+                }
             }
             StyleCaptionSide::Bottom => {
                 // Caption on bottom: table starts at y=0, caption below table
                 LogicalPosition {
-                    x: 0.0,
-                    y: table_height,
+                    x: caption_margin.left,
+                    y: table_height + caption_margin.top,
                 }
             }
         };
@@ -6690,9 +6717,11 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
             table_y_offset
         );
 
-        // Adjust cell positions in the map
-        for cell_info in &table_ctx.cells {
-            if let Some(pos) = cell_positions.get_mut(&cell_info.node_index) {
+        // Everything but the caption moves below it: the row groups, the
+        // rows and column groups in the map (the cells, rows in groups and
+        // columns are relative to those).
+        for (&child, pos) in &mut cell_positions {
+            if Some(child) != table_ctx.caption_index {
                 pos.y += table_y_offset;
             }
         }
@@ -6720,12 +6749,9 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         .first()
         .copied()
         .and_then(|row0_baseline| {
-            table_ctx
-                .cells
-                .iter()
-                .find(|c| c.row == 0)
-                .and_then(|c| cell_positions.get(&c.node_index))
-                .map(|pos| pos.y + row0_baseline)
+            row_tops
+                .first()
+                .map(|top| top + table_y_offset + row0_baseline)
         });
 
     // Create output with the table's final size and cell positions
@@ -8125,7 +8151,7 @@ fn position_table_cells<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     table_index: usize,
     constraints: &LayoutConstraints<'_>,
-) -> Result<BTreeMap<usize, LogicalPosition>> {
+) -> Result<(BTreeMap<usize, LogicalPosition>, Vec<f32>)> {
     debug_log!(ctx, "Positioning table cells in grid");
 
     let mut positions = BTreeMap::new();
@@ -8178,31 +8204,18 @@ fn position_table_cells<T: ParsedFontTrait>(
         }
     }
 
-    // Store row positions and sizes so paint_element_background can paint row backgrounds.
-    // Row width = sum of column widths + spacing. Row height from row_heights.
-    {
-        let total_col_width: f32 = table_ctx
-            .columns
-            .iter()
-            .map(|c| c.computed_width.unwrap_or(0.0))
-            .sum::<f32>()
-            + h_spacing * (table_ctx.columns.len().max(1) - 1) as f32
-            + h_spacing * 2.0; // border-spacing on left+right edges
-        for (i, &row_y) in row_positions.iter().enumerate() {
-            if let Some(&row_node_idx) = table_ctx.row_node_indices.get(i) {
-                let row_height = table_ctx.row_heights.get(i).copied().unwrap_or(0.0);
-                if let Some(row_node) = tree.get_mut(LayoutNodeId::new(row_node_idx)) {
-                    row_node.used_size = Some(LogicalSize {
-                        width: total_col_width,
-                        height: row_height,
-                    });
-                }
-                // Don't add to `positions` map (feeds position_bfc_child_descendants,
-                // would double-offset cells). The display list computes row paint
-                // rects from the row's cell children.
-            }
-        }
-    }
+    // The rows, row groups and columns are boxes of the grid: their rects,
+    // and the table's positioned children (row groups, rows directly in the
+    // table, column groups) - see `place_table_grid_boxes`.
+    let row_origins = place_table_grid_boxes(
+        table_ctx,
+        tree,
+        table_index,
+        &col_positions,
+        &row_positions,
+        constraints.writing_mode,
+        &mut positions,
+    );
 
     // Position each cell
     for cell_info in &table_ctx.cells {
@@ -8533,11 +8546,22 @@ fn position_table_cells<T: ParsedFontTrait>(
             }
         }
 
-        // Store position relative to table origin
+        // The cell's position in the table, then relative to its row's
+        // content box: a cell is its row's child, placed like any child
+        // (`position_bfc_child_descendants` adds the row's position). The
+        // row's own position is the table's child's (`positions`) or its
+        // group's (`place_table_grid_boxes`).
         let position = LogicalPosition::from_main_cross(y, x, writing_mode);
-
-        // Insert position into map so cache module can position the cell
-        positions.insert(cell_info.node_index, position);
+        let (row_origin, row_content_offset) = row_origins
+            .get(cell_info.row)
+            .copied()
+            .unwrap_or_default();
+        if let Some(warm) = tree.warm_mut(LayoutNodeId::new(cell_info.node_index)) {
+            warm.relative_position = Some(LogicalPosition::new(
+                position.x - row_origin.x - row_content_offset.x,
+                position.y - row_origin.y - row_content_offset.y,
+            ));
+        }
 
         debug_log!(
             ctx,
@@ -8551,7 +8575,201 @@ fn position_table_cells<T: ParsedFontTrait>(
         );
     }
 
-    Ok(positions)
+    Ok((positions, row_positions))
+}
+
+/// The offset of a node's content box inside its border box (its left/top
+/// border and padding): where its children's relative positions start.
+fn content_box_offset(tree: &LayoutTree, index: usize) -> LogicalPosition {
+    tree.get(LayoutNodeId::new(index))
+        .map_or_else(LogicalPosition::zero, |n| {
+            let bp = n.box_props.unpack();
+            LogicalPosition::new(bp.border.left + bp.padding.left, bp.border.top + bp.padding.top)
+        })
+}
+
+/// The row group a row sits in (`None`: the row is the table's child).
+fn row_group_of(tree: &LayoutTree, row: usize) -> Option<usize> {
+    tree.get(LayoutNodeId::new(row))
+        .and_then(|n| n.parent)
+        .filter(|&p| {
+            tree.get(LayoutNodeId::new(p))
+                .is_some_and(|n| matches!(n.formatting_context, FormattingContext::TableRowGroup))
+        })
+}
+
+/// Give the table's rows, row groups, columns and column groups their boxes
+/// (CSS 2.1 17.2, 17.5): a row spans the grid's columns and is as tall as
+/// its row; a row group spans its rows; a `<col>` spans its column and a
+/// `<colgroup>` its columns, over the height of the rows.
+///
+/// Every box is placed relative to its PARENT's content box, as every other
+/// box in the tree is (`position_bfc_child_descendants` and the layout
+/// cache walk them that way): row groups, rows directly in the table and
+/// column groups go into `positions` (the table's children, relative to the
+/// table's content box); a row in a group and a `<col>` get their
+/// `relative_position` here. Before this the cells were the table's only
+/// positioned descendants, relative to the table itself: rows and row groups
+/// had no rect at all, and a later group's rows were reported at the
+/// table's top.
+///
+/// `col_positions` / `row_positions` are the grid's column lefts and row
+/// tops relative to the table's content box (spacing included). Returns, per
+/// row, its origin relative to the table's content box and its content-box
+/// offset - what a cell's position in the table is made relative to.
+fn place_table_grid_boxes(
+    table_ctx: &TableLayoutContext,
+    tree: &mut LayoutTree,
+    table_index: usize,
+    col_positions: &[f32],
+    row_positions: &[f32],
+    writing_mode: LayoutWritingMode,
+    positions: &mut BTreeMap<usize, LogicalPosition>,
+) -> Vec<(LogicalPosition, LogicalPosition)> {
+    let col_width = |i: usize| {
+        table_ctx
+            .columns
+            .get(i)
+            .and_then(|c| c.computed_width)
+            .unwrap_or(0.0)
+    };
+    // The grid's horizontal extent: from the first column's left to the last
+    // column's right (the outer spacing is outside every row).
+    let grid_left = col_positions.first().copied().unwrap_or(0.0);
+    let grid_right = col_positions
+        .iter()
+        .enumerate()
+        .map(|(i, x)| x + col_width(i))
+        .fold(grid_left, f32::max);
+    let grid_width = (grid_right - grid_left).max(0.0);
+    let row_height = |i: usize| table_ctx.row_heights.get(i).copied().unwrap_or(0.0);
+    let rows_top = row_positions.first().copied().unwrap_or(0.0);
+    let rows_bottom = row_positions
+        .iter()
+        .enumerate()
+        .map(|(i, y)| y + row_height(i))
+        .fold(rows_top, f32::max);
+
+    // Rows: their size; a row group's extent; the rows directly in the table.
+    let mut group_extent: BTreeMap<usize, (f32, f32)> = BTreeMap::new();
+    let mut row_origins = Vec::with_capacity(table_ctx.row_node_indices.len());
+    for (i, &row) in table_ctx.row_node_indices.iter().enumerate() {
+        let top = row_positions.get(i).copied().unwrap_or(0.0);
+        let height = row_height(i);
+        if let Some(node) = tree.get_mut(LayoutNodeId::new(row)) {
+            node.used_size = Some(LogicalSize::from_main_cross(height, grid_width, writing_mode));
+        }
+        let origin = LogicalPosition::from_main_cross(top, grid_left, writing_mode);
+        row_origins.push((origin, content_box_offset(tree, row)));
+        match row_group_of(tree, row) {
+            Some(group) => {
+                group_extent
+                    .entry(group)
+                    .and_modify(|(t, b)| {
+                        *t = t.min(top);
+                        *b = b.max(top + height);
+                    })
+                    .or_insert((top, top + height));
+            }
+            None => {
+                positions.insert(row, origin);
+            }
+        }
+    }
+
+    // Row groups: the extent of their rows; their rows relative to them.
+    for (&group, &(top, bottom)) in &group_extent {
+        if let Some(node) = tree.get_mut(LayoutNodeId::new(group)) {
+            node.used_size = Some(LogicalSize::from_main_cross(
+                (bottom - top).max(0.0),
+                grid_width,
+                writing_mode,
+            ));
+        }
+        positions.insert(
+            group,
+            LogicalPosition::from_main_cross(top, grid_left, writing_mode),
+        );
+    }
+    for (i, &row) in table_ctx.row_node_indices.iter().enumerate() {
+        let Some(group) = row_group_of(tree, row) else {
+            continue;
+        };
+        let Some(&(group_top, _)) = group_extent.get(&group) else {
+            continue;
+        };
+        let group_origin = LogicalPosition::from_main_cross(group_top, grid_left, writing_mode);
+        let offset = content_box_offset(tree, group);
+        let (origin, _) = row_origins[i];
+        if let Some(warm) = tree.warm_mut(LayoutNodeId::new(row)) {
+            warm.relative_position = Some(LogicalPosition::new(
+                origin.x - group_origin.x - offset.x,
+                origin.y - group_origin.y - offset.y,
+            ));
+        }
+    }
+
+    // Column groups and columns, in document order over the grid's columns
+    // (`span` is not read: one column per `<col>`, a group without `<col>`s
+    // is one column).
+    let rows_height = (rows_bottom - rows_top).max(0.0);
+    let mut next_column = 0usize;
+    let groups: Vec<usize> = tree
+        .children(table_index)
+        .iter()
+        .copied()
+        .filter(|&c| {
+            tree.get(LayoutNodeId::new(c))
+                .is_some_and(|n| matches!(n.formatting_context, FormattingContext::TableColumnGroup))
+        })
+        .collect();
+    for group in groups {
+        let cols: Vec<usize> = tree.children(group).to_vec();
+        let first = next_column;
+        let count = cols.len().max(1);
+        next_column += count;
+        let last = (first + count).min(col_positions.len());
+        if first >= last {
+            continue;
+        }
+        let left = col_positions[first];
+        let right = (first..last)
+            .map(|i| col_positions[i] + col_width(i))
+            .fold(left, f32::max);
+        let group_origin = LogicalPosition::from_main_cross(rows_top, left, writing_mode);
+        if let Some(node) = tree.get_mut(LayoutNodeId::new(group)) {
+            node.used_size = Some(LogicalSize::from_main_cross(
+                rows_height,
+                (right - left).max(0.0),
+                writing_mode,
+            ));
+        }
+        positions.insert(group, group_origin);
+        let offset = content_box_offset(tree, group);
+        for (k, &col) in cols.iter().enumerate() {
+            let column = first + k;
+            if column >= last {
+                break;
+            }
+            let origin =
+                LogicalPosition::from_main_cross(rows_top, col_positions[column], writing_mode);
+            if let Some(node) = tree.get_mut(LayoutNodeId::new(col)) {
+                node.used_size = Some(LogicalSize::from_main_cross(
+                    rows_height,
+                    col_width(column),
+                    writing_mode,
+                ));
+            }
+            if let Some(warm) = tree.warm_mut(LayoutNodeId::new(col)) {
+                warm.relative_position = Some(LogicalPosition::new(
+                    origin.x - group_origin.x - offset.x,
+                    origin.y - group_origin.y - offset.y,
+                ));
+            }
+        }
+    }
+
+    row_origins
 }
 
 /// Gathers all inline content for `text3`, recursively laying out `inline-block` children
