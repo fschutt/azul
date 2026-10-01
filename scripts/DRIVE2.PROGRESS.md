@@ -14,13 +14,19 @@ details panes, a Properties dialog, Settings on ShellSettingsLayout, and a headl
   AddressBar recent chevron + dimmed arrows, BrowserShell `tree_visible`.
 
 ## IN PROGRESS
-- AzDrive model (pure modules) - RED tests.
+- `908e4b0f5` RED / `ddb4f6312` GREEN: the AzDrive model (browse, model, fileops, preview, keys).
+- `d2a0b20f6` WIP: new lib.rs (state, navigation, keyring, on_job_done, layout, start) + jobs.rs.
+  Still to write (lib.rs already declares them): `args.rs` (Args::parse, Screen, write_sample),
+  `actions.rs` (on_key_down, on_dropped_file, on_resized, run_command, open_drive_form,
+  request_preview, transfer_planned, transfer_ran, enqueue/pump of the queue, every ribbon
+  command), `ui_ribbon.rs`, `ui_view.rs` (content, on_column_drag_move/end), `ui_panes.rs`
+  (address_bar, navigation_pane, status_bar, preview_pane, details_pane), `ui_dialogs.rs`
+  (popup_parts, inline_sheet, on_dialog_closed, backstage).
 
 ## NEXT
-- AzDrive model (browse.rs and new pure modules: selection, type-ahead, layouts, grouping, columns,
-  conflicts, trash, transfer queue, preview kinds) - RED unit tests, then GREEN.
-- AzDrive UI rebuilt on BrowserShell + ShellNavigationPane + Ribbon + StatusBar + InfoBar.
-- scripts/azdrive_e2e.py; report.
+- the UI modules above; parse-check; commit "feat(azul-drive): ..." (GREEN of the app).
+- scripts/azdrive_e2e.py (headless), update examples/azul-drive/scripts/browse.py.
+- report scripts/DRIVE2_2026_10_01.md (api.json list, least-sure spots, test commands).
 
 ## Decisions (unattended run)
 - Details view: ListView is single-select with fixed column widths and the table code belongs to
