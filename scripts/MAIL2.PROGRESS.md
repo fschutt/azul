@@ -28,11 +28,14 @@ Branch `wt/mail2` from `39092feee`. Worktree
   RED/GREEN (`a55f964ad`/`83b0fab68`). e ui_main.rs parts 1-3 (`8af876dd7`, `6d9953a98`,
   `f87188002`), open sanitizes (`30b1a144f`). g ui_compose.rs parts 1-3 (`ddfebfbab`,
   `28b190ea2`, `0d1811053`). h sample.rs (`6a5a034c0`).
-- NEXT (step 4, engine): headless child windows are laid out and pumped (timers, threads,
-  events, close) - `dll/src/desktop/shell2/headless/mod.rs` Phase 3/4 of `run()`; the debug
-  server reaches every window (`window_id` routing instead of "consumed by the wrong window";
-  a debug timer on windows created at runtime) - `layout/src/e2e/full.rs` debug timer +
-  `dll/src/desktop/shell2/common/debug_server/platform.rs`. RED first. Then step 5 E2E
+- Step 4 engine, done so far: headless child windows laid out + pumped RED/GREEN
+  (`1d0bed92d`/`6f5e2cf8f`: `HeadlessWindow::pump_once(is_root)`, `pump_children`,
+  `children` field); RefreshDomAllWindows from timers/threads fans out RED/GREEN
+  (`ad1e4078b`/`86d6846e3`).
+- NEXT (step 4 rest): the debug server reaches every window (`window_id` routing instead of
+  "consumed by the wrong window"; a debug timer on windows created at runtime) -
+  `layout/src/e2e/full.rs` debug timer + `dll/src/desktop/shell2/common/debug_server/platform.rs`
+  (+ stub.rs twin) + headless `pump_children` registering it. RED first. Then step 5 E2E
   (`scripts/azmail_e2e.py`, sink = SEND's `scripts/azmail_smtp_sink.py <port> <out_dir>`,
   prints `AZMAIL_SINK_READY <port>`, writes `<nnnn>.eml` + `.json`), then update MAIL1's
   `examples/azul-mail/scripts/sync_e2e.py` to the wizard, then the report.
