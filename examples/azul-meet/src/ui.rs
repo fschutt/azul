@@ -275,3 +275,124 @@ fn text(s: &str, css: &str) -> Dom {
 fn strings(items: &[String]) -> StringVec {
     StringVec::from_vec(items.iter().map(|s| AzString::from(s.as_str())).collect())
 }
+
+// ==== The call: the shell with the arranged tiles ====
+
+/// The call: the shell with the arranged tiles (the stage over the filmstrip, or the gallery),
+/// the side panel, the devices slot and the controls bar.
+fn call(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
+    let tiles: Vec<Dom> = view.tiles.iter().map(|t| tile(view, t, data)).collect();
+    let mut shell = CallShell::create(DomVec::from_vec(tiles), controls(view, data, actions))
+        .with_header(header(view))
+        .with_devices(devices(view, data, actions));
+    if let Some(stage) = &view.stage {
+        shell = shell.with_stage(tile(view, stage, data));
+    }
+    if let Some(panel) = side_panel(view, data, actions) {
+        shell = shell.with_side_panel(panel);
+    }
+    shell.dom()
+}
+
+/// One tile: the picture (a remote stream's image node, this side's own capture, or the
+/// person's initials), the name label on it, and the speaking ring.
+fn tile(view: &CallView, t: &TileView, data: &RefAny) -> Dom {
+    let picture = if t.me {
+        own_picture(view, t, data)
+    } else {
+        remote_picture(t)
+    };
+    let mut css = String::from(TILE);
+    if t.speaking {
+        css.push_str(SPEAKING_RING);
+    }
+    Dom::create_div()
+        .with_css(css.as_str())
+        .with_child(picture)
+        .with_child(text(&tile_label(t), TILE_LABEL))
+}
+
+/// "Ada", "Ada · muted", "Ada's screen", "You".
+fn tile_label(t: &TileView) -> String {
+    let mut label = match t.kind {
+        TileKind::Camera => t.name.clone(),
+        TileKind::Screen => format!("{}'s screen", t.name),
+    };
+    if t.muted && t.kind == TileKind::Camera {
+        label.push_str(" · muted");
+    }
+    label
+}
+
+/// A remote stream's picture: the image node its frames go into (found by its marker), or the
+/// person's initials while nothing arrives.
+fn remote_picture(t: &TileView) -> Dom {
+    match &t.marker {
+        Some(marker) => Dom::create_image(ImageRef::null_image(
+            2,
+            2,
+            RawImageFormat::RGBA8,
+            U8VecRef::from(&[][..]),
+        ))
+        .with_marker(OptionString::Some(AzString::from(marker.as_str())))
+        .with_css(VIDEO),
+        None => Avatar::create(AzString::from(initials(&t.name).as_str())).dom(),
+    }
+}
+
+/// This side's own camera or screen: the capture widget (whose consumers cut every rendition
+/// someone shows - nothing is captured for nobody), the test pattern's word, or "camera off".
+fn own_picture(view: &CallView, t: &TileView, data: &RefAny) -> Dom {
+    match t.kind {
+        TileKind::Camera if view.cam && !view.pattern_video => {
+            let mut camera = CameraWidget::create(CameraConfig {
+                output_format: crate::VIDEO_FORMAT,
+                ..CameraConfig::default()
+            });
+            for height in &view.camera_renditions {
+                camera = camera.with_consumer(crate::feed_consumer(crate::CAMERA_TRACK, *height));
+            }
+            camera
+                .with_on_consumer_frame(data.clone(), crate::send_feed_frame)
+                .dom()
+                .with_css(VIDEO)
+        }
+        TileKind::Camera if view.cam && view.cam_culled => {
+            text("Test pattern - not shown to anyone, not sent", SECONDARY)
+        }
+        TileKind::Camera if view.cam => text("Test pattern", SECONDARY),
+        TileKind::Camera => Dom::create_div()
+            .with_css("display: flex; flex-direction: column; align-items: center;")
+            .with_child(Avatar::create(AzString::from(initials(&t.name).as_str())).dom())
+            .with_child(text("Camera off", "font-size: 12px; margin-top: 6px;")),
+        TileKind::Screen if view.pattern_video => text("Your screen - test pattern", SECONDARY),
+        TileKind::Screen => {
+            let mut screen = ScreenCaptureWidget::create(ScreenCaptureConfig {
+                output_format: crate::VIDEO_FORMAT,
+                ..ScreenCaptureConfig::default()
+            });
+            for height in &view.screen_renditions {
+                screen = screen.with_consumer(crate::feed_consumer(crate::SCREEN_TRACK, *height));
+            }
+            screen
+                .with_on_consumer_frame(data.clone(), crate::send_feed_frame)
+                .dom()
+                .with_css(VIDEO)
+        }
+    }
+}
+
+/// Up to two initials of `name` ("Ada Lovelace" -> "AL", "ben" -> "B").
+fn initials(name: &str) -> String {
+    let letters: String = name
+        .split_whitespace()
+        .filter_map(|word| word.chars().next())
+        .take(2)
+        .flat_map(char::to_uppercase)
+        .collect();
+    if letters.is_empty() {
+        String::from("?")
+    } else {
+        letters
+    }
+}
