@@ -3,7 +3,10 @@
 Brief: scratchpad VIDEOCUT_go.md; house rules wave4_common.md (no cargo, no LSP, RED first).
 
 ## DONE
-- (none yet) - reading done: plan doc, SHELLS report, VIDEO_PATH / VIDEO_REVIEW, video api,
+- 8b34d1c62 RED / e3d33ba36 GREEN: Mp4Demuxer + Mp4Muxer (dll video_codec/container.rs), VideoChunk
+  in core; annexb_nals + append_avcc_as_annexb unified (VT + demux import them).
+- beb8ad0ef RED / 6ec784a88 GREEN: VideoEncoder::encode_at (own timestamps for export).
+- reading done: plan doc, SHELLS report, VIDEO_PATH / VIDEO_REVIEW, video api,
   dll video_codec (demux.rs is behind `video-native`, which build-dll turns on; `mp4` 0.14 has
   `Mp4Writer`), TimelineShell, AzDrive structure, message_list / info_bar / split_pane patterns.
 
@@ -18,7 +21,7 @@ Brief: scratchpad VIDEOCUT_go.md; house rules wave4_common.md (no cargo, no LSP,
 - Data root: `AZVIDEOCUT_DATA` or `<FilePath::get_data_dir()>/azul`, keys `videocut/<uuid>/...`.
 
 ## IN PROGRESS
-- RED tests: dll mux/demux roundtrip; layout timeline widget.
+- layout timeline widget (RED tests next).
 
 ## NEXT
 1. dll: mux.rs + Mp4Demuxer/Mp4Muxer handles (+ wasm / no-video-native stubs), RED then GREEN.
