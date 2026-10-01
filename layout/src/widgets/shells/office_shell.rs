@@ -1001,13 +1001,13 @@ mod office_shell_tests {
         themes::{theme_blocks::checks, theme_checks as tc, UiTheme},
     };
 
-    fn id_of(node: &Dom) -> Option<&str> {
+    fn id_of(node: &Dom) -> Option<String> {
         node.root
             .get_ids_and_classes()
             .as_ref()
             .iter()
             .find_map(|c| match c {
-                IdOrClass::Id(s) => Some(s.as_str()),
+                IdOrClass::Id(s) => Some(s.as_str().to_string()),
                 IdOrClass::Class(_) => None,
             })
     }
@@ -1017,7 +1017,7 @@ mod office_shell_tests {
         tc::nodes(dom)
             .into_iter()
             .filter_map(|(_, n)| {
-                id_of(n).map(|id| (String::from(id), n.root.get_node_type().clone()))
+                id_of(n).map(|id| (id, n.root.get_node_type().clone()))
             })
             .collect()
     }
@@ -1027,11 +1027,11 @@ mod office_shell_tests {
         let dom = office_shell().with_theme(UiTheme::Flat).dom();
         let kids = dom.children.as_ref();
         assert_eq!(kids.len(), 4, "title, ribbon, body, status");
-        assert_eq!(id_of(&kids[0]), Some(TITLE_ID));
+        assert_eq!(id_of(&kids[0]).as_deref(), Some(TITLE_ID));
         assert!(matches!(kids[0].root.get_node_type(), NodeType::Header));
-        assert_eq!(id_of(&kids[1]), Some(RIBBON_ID));
+        assert_eq!(id_of(&kids[1]).as_deref(), Some(RIBBON_ID));
         assert!(tc::has_class(&kids[2], BODY_CLASS));
-        assert_eq!(id_of(&kids[3]), Some(STATUS_ID));
+        assert_eq!(id_of(&kids[3]).as_deref(), Some(STATUS_ID));
         assert!(matches!(kids[3].root.get_node_type(), NodeType::Footer));
     }
 
@@ -1086,7 +1086,7 @@ mod office_shell_tests {
         // pane holds the inner split.
         let outer = splits[0];
         let first = &outer.children.as_ref()[0];
-        assert_eq!(id_of(&first.children.as_ref()[0]), Some("shell-navigation"));
+        assert_eq!(id_of(&first.children.as_ref()[0]).as_deref(), Some("shell-navigation"));
         let second = &outer.children.as_ref()[2];
         assert!(tc::has_class(&second.children.as_ref()[0], "__azul-native-split-pane"));
     }
@@ -1104,7 +1104,7 @@ mod office_shell_tests {
         let dom = shell.with_theme(UiTheme::Flat).dom();
         assert!(tc::nodes(&dom)
             .iter()
-            .all(|(_, n)| id_of(n) != Some("shell-list")));
+            .all(|(_, n)| id_of(n).as_deref() != Some("shell-list")));
         assert_eq!(tc::find_all(&dom, "__azul-native-split-pane").len(), 1);
     }
 
@@ -1124,7 +1124,7 @@ mod office_shell_tests {
         let kids = body.children.as_ref();
         assert_eq!(kids.len(), 2, "the rail, then the splits box");
         assert!(tc::has_class(&kids[0], RAIL_CLASS));
-        assert_eq!(id_of(&kids[0]), Some("shell-tools"));
+        assert_eq!(id_of(&kids[0]).as_deref(), Some("shell-tools"));
         assert!(tc::has_class(&kids[1], SPLITS_CLASS));
         assert_eq!(tc::find_all(&dom, "__azul-native-split-pane").len(), 1);
         let width = tc::resolve(&kids[0], azul_css::props::property::CssPropertyType::Width, false, None);
@@ -1142,7 +1142,7 @@ mod office_shell_tests {
             .dom();
         let kids = dom.children.as_ref();
         assert_eq!(kids.len(), 3, "title, backstage, status");
-        assert_eq!(id_of(&kids[1]), Some(BACKSTAGE_ID));
+        assert_eq!(id_of(&kids[1]).as_deref(), Some(BACKSTAGE_ID));
         assert!(tc::find(&dom, BODY_CLASS).is_none());
         assert!(tc::find(&dom, RIBBON_CLASS).is_none());
     }
@@ -1166,9 +1166,7 @@ mod office_shell_tests {
             &vertical.children.as_ref()[0].children.as_ref()[0],
             BODY_CLASS
         ));
-        assert_eq!(
-            id_of(&vertical.children.as_ref()[2].children.as_ref()[0]),
-            Some("shell-details")
+        assert_eq!(id_of(&vertical.children.as_ref()[2].children.as_ref()[0]).as_deref(), Some("shell-details")
         );
     }
 

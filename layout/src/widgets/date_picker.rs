@@ -382,7 +382,7 @@ impl Default for DatePickerState {
 azul_css::impl_option!(
     DatePickerState,
     OptionDatePickerState,
-    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+    [Debug, Copy, Clone, PartialEq, Eq]
 );
 
 // ---------------------------------------------------------------------------

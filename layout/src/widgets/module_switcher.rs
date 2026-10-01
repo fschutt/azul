@@ -25,6 +25,7 @@ use azul_core::{
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
+    impl_vec_partialeq,
     props::{
         basic::length::FloatValue,
         layout::{
@@ -148,6 +149,7 @@ impl_vec!(
 );
 impl_vec_clone!(SwitcherModule, SwitcherModuleVec, SwitcherModuleVecDestructor);
 impl_vec_debug!(SwitcherModule, SwitcherModuleVec);
+impl_vec_partialeq!(SwitcherModule, SwitcherModuleVec);
 impl_vec_mut!(SwitcherModule, SwitcherModuleVec);
 
 /// The module switcher: big buttons, or a strip of glyphs.
@@ -630,9 +632,13 @@ mod module_switcher_tests {
     }
 
     /// Every text of the subtree, in document order.
+    /// The visible texts. An icon's empty text leaf (`Dom::create_icon`
+    /// holds one for the resolved glyph) is not a text the user reads.
     fn texts(node: &Dom, out: &mut Vec<String>) {
         if let NodeType::Text(s) = node.root.get_node_type() {
-            out.push(s.as_ref().as_str().to_string());
+            if !s.as_ref().as_str().is_empty() {
+                out.push(s.as_ref().as_str().to_string());
+            }
         }
         for c in node.children.as_ref() {
             texts(c, out);

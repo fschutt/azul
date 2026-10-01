@@ -534,7 +534,7 @@ extern "C" fn on_calendar_change(mut data: RefAny, info: CallbackInfo, state: Da
     let Some(shared) = data.downcast_ref::<BarShared>() else {
         return Update::DoNothing;
     };
-    let mut e = event(shared, ToDoBarEventKind::DatePicked, 0, 0);
+    let mut e = event(&shared, ToDoBarEventKind::DatePicked, 0, 0);
     e.date = state;
     fire(&shared.on_pick, info, e)
 }
@@ -556,7 +556,7 @@ extern "C" fn on_task_key(
         .into_option();
     let update = match data.downcast_ref::<BarShared>() {
         Some(shared) if task_key_adds(key) => {
-            let mut e = event(shared, ToDoBarEventKind::TaskAdded, 0, 0);
+            let mut e = event(&shared, ToDoBarEventKind::TaskAdded, 0, 0);
             e.text = AzString::from(state.get_text());
             fire(&shared.on_task, info, e)
         }
@@ -595,7 +595,7 @@ extern "C" fn on_task_toggle(mut data: RefAny, info: CallbackInfo, _: CheckBoxSt
     fire(
         &shared.on_task,
         info,
-        event(shared, ToDoBarEventKind::TaskToggled, index, id),
+        event(&shared, ToDoBarEventKind::TaskToggled, index, id),
     )
 }
 
@@ -612,7 +612,7 @@ extern "C" fn on_task_open(mut data: RefAny, info: CallbackInfo) -> Update {
     fire(
         &shared.on_task,
         info,
-        event(shared, ToDoBarEventKind::TaskOpened, index, id),
+        event(&shared, ToDoBarEventKind::TaskOpened, index, id),
     )
 }
 
@@ -626,7 +626,7 @@ extern "C" fn on_appointment_open(mut data: RefAny, info: CallbackInfo) -> Updat
     let Some(shared) = shared.downcast_ref::<BarShared>() else {
         return Update::DoNothing;
     };
-    let mut e = event(shared, ToDoBarEventKind::AppointmentOpened, index, 0);
+    let mut e = event(&shared, ToDoBarEventKind::AppointmentOpened, index, 0);
     e.text = text;
     fire(&shared.on_appointment, info, e)
 }
@@ -1000,7 +1000,20 @@ mod todo_bar_tests {
             .expect("the check box");
         rv::fire(&styled, id(check), EventFilter::Hover(HoverEventFilter::Click))
             .expect("the box takes the click");
-        rv::fire(&styled, id(title), EventFilter::Hover(HoverEventFilter::Click))
+        // The title is a link Button: its label sits inside the button, and
+        // the click reaches the button by bubbling.
+        let takes_click = |n: NodeId| {
+            nodes[n.index()]
+                .get_callbacks()
+                .as_ref()
+                .iter()
+                .any(|cb| cb.event == EventFilter::Hover(HoverEventFilter::Click))
+        };
+        let mut link = title;
+        while !takes_click(link) {
+            link = hierarchy[link.index()].parent_id().expect("the title's link");
+        }
+        rv::fire(&styled, id(link), EventFilter::Hover(HoverEventFilter::Click))
             .expect("the title takes the click");
         let events = log.lock().expect("log").clone();
         assert_eq!(

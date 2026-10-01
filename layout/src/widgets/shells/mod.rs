@@ -394,7 +394,7 @@ pub(crate) fn stack_state(
             .any(|e| e.property.get_type() == p.property.get_type() && e.apply_if == p.apply_if)
     };
     let hover_overridden = |p: &CssPropertyWithConditions| {
-        p.has_state(PseudoStateType::Hover)
+        p.pseudo_state_conditions().contains(&PseudoStateType::Hover)
             && extra.iter().any(|e| {
                 e.property.get_type() == p.property.get_type()
                     && e.pseudo_state_conditions().is_empty()

@@ -895,7 +895,7 @@ mod reading_pane_tests {
         let nodes = styled.node_data.as_ref();
         let end = hierarchy[node.index()]
             .next_sibling_id()
-            .map_or(nodes.len(), NodeId::index);
+            .map_or(nodes.len(), |n| n.index());
         (node.index() + 1..end)
             .map(NodeId::new)
             .find(|n| nodes[n.index()].get_tab_index().is_some())

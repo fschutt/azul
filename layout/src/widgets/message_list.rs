@@ -1691,9 +1691,13 @@ mod message_list_tests {
     }
 
     /// Every text of the subtree, in document order.
+    /// The visible texts. An icon's empty text leaf (`Dom::create_icon`
+    /// holds one for the resolved glyph) is not a text the user reads.
     fn texts(node: &Dom, out: &mut Vec<String>) {
         if let NodeType::Text(s) = node.root.get_node_type() {
-            out.push(s.as_ref().as_str().to_string());
+            if !s.as_ref().as_str().is_empty() {
+                out.push(s.as_ref().as_str().to_string());
+            }
         }
         for c in node.children.as_ref() {
             texts(c, out);
@@ -1835,7 +1839,7 @@ mod message_list_tests {
             n.root
                 .get_style()
                 .iter_inline_properties()
-                .find_map(|p| match &p.property {
+                .find_map(|(property, _)| match property {
                     CssProperty::Height(h) => Some(format!("{h:?}")),
                     _ => None,
                 })
@@ -2026,11 +2030,16 @@ mod message_list_tests {
         assert_eq!(s.anchor, 7);
         let s = s.apply(4, false, true);
         assert_eq!(s.rows.as_ref(), &[7], "Ctrl again removes");
-        let s = s.apply(2, true, false);
-        assert_eq!(s.rows.as_ref(), &[2, 3, 4, 5, 6, 7], "Shift: the range from the anchor");
-        assert_eq!(s.anchor, 7, "the anchor stays");
+        // As in Explorer and Outlook, a Ctrl+click moves the anchor even when
+        // it deselects: the next Shift+click ranges from the row last clicked.
+        assert_eq!(s.anchor, 4);
+        let s = s.apply(9, true, false);
+        assert_eq!(s.rows.as_ref(), &[4, 5, 6, 7, 8, 9], "Shift: the range from the anchor");
+        assert_eq!(s.anchor, 4, "the anchor stays");
         assert!(s.contains(5));
         assert_eq!(s.len(), 6);
+        let s = s.apply(2, true, false);
+        assert_eq!(s.rows.as_ref(), &[2, 3, 4], "Shift again: the range flips around the anchor");
         let s = s.apply(9, false, false);
         assert_eq!(s.rows.as_ref(), &[9], "a plain click starts over");
     }
