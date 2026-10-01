@@ -1389,6 +1389,7 @@ fn apply_link_event(s: &mut MeetState, event: &IrohEvent) -> bool {
             };
             let gone = s.remotes.remove(pos);
             drop_audio(s, Some(gone.key));
+            s.speaker.forget(gone.key);
             forget_relaying(s, &gone);
             // Dial again on the next poll if the peer is still listed.
             if let Some(room) = s.room.as_mut() {
@@ -1702,13 +1703,25 @@ fn send_audio(s: &mut MeetState, sample_rate: u32, channels: u16, samples: &[f32
 }
 
 /// Takes a frame of `origin`'s audio (from it directly, or passed on) into its jitter buffer.
-fn receive_audio(s: &mut MeetState, origin: u64, bytes: &[u8]) {
-    if s.deafened || !s.remotes.iter().any(|r| r.key == origin) {
-        return;
+/// Returns whether the active speaker changed (the speaker view's stage).
+fn receive_audio(s: &mut MeetState, origin: u64, bytes: &[u8]) -> bool {
+    if !s.remotes.iter().any(|r| r.key == origin) {
+        return false;
     }
     let Some(wire) = audio::decode_frame(bytes) else {
-        return;
+        return false;
     };
+    // Who speaks: the newest packet's level (a frame repeats the two before it). Measured even
+    // while deafened, so the stage still follows the conversation.
+    let now = now_ms(s);
+    let level = wire
+        .packets
+        .last()
+        .map_or(speaker::SILENCE_DB, |packet| speaker::level_db(&packet.samples));
+    let stage_moved = s.speaker.observe(origin, level, now);
+    if s.deafened {
+        return stage_moved;
+    }
     let play = s.play_audio;
     let shared = s.playout.get_or_insert_with(|| start_playout(play));
     let mut playout = lock(shared);
@@ -1719,6 +1732,25 @@ fn receive_audio(s: &mut MeetState, origin: u64, bytes: &[u8]) {
     for packet in wire.packets {
         jitter.push(wire.sample_rate, packet);
     }
+    stage_moved
+}
+
+/// The active speaker changed: in the speaker view the stage (and with it what this side asks
+/// for) moves; in the gallery nothing on screen does. True when the window changes.
+fn speaker_moved(s: &mut MeetState) -> bool {
+    if let Some(key) = s.speaker.current() {
+        eprintln!("[azmeet] {}: {} is speaking", s.name, name_of(s, key));
+    }
+    if s.view != ViewMode::Speaker {
+        return false;
+    }
+    for r in s.remotes.iter_mut() {
+        // Until the tiles are laid out again, their new boxes' heights count.
+        r.tile_height = [None; 2];
+        r.tile_px = [None; 2];
+    }
+    network_changed(s, false);
+    true
 }
 
 /// Forgets the received audio of the peer with key `origin` (it left), or everyone's.
@@ -3192,9 +3224,9 @@ fn receive_item(
         return receive_relayed(s, endpoint, conn, relayed, bytes, pictures);
     }
     if event.kind == IrohEventKind::Frame && event.track == AUDIO_TRACK {
-        receive_audio(s, sender, bytes);
+        let stage_moved = receive_audio(s, sender, bytes);
         pass_on_audio(s, endpoint, sender, conn, Carried::Direct(bytes));
-        return false;
+        return stage_moved && speaker_moved(s);
     }
     if let Some(sync) = routes::decode_sync(bytes) {
         return apply_sync(s, conn, sync);
@@ -3237,9 +3269,9 @@ fn receive_relayed(
         };
     }
     if relayed.track == AUDIO_TRACK {
-        receive_audio(s, origin, relayed.inner);
+        let stage_moved = receive_audio(s, origin, relayed.inner);
         pass_on_audio(s, endpoint, origin, conn, Carried::Relayed(envelope));
-        return false;
+        return stage_moved && speaker_moved(s);
     }
     match video_wire::decode_message(relayed.inner) {
         Some(Message::Packet(header, payload)) => {
