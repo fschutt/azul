@@ -28,7 +28,7 @@ use chrono::NaiveDate;
 
 use crate::{
     model::TaskList,
-    state::Tasks,
+    state::{self, Tasks},
     views::{self, NavEntry, Smart, View},
 };
 
@@ -189,10 +189,10 @@ pub fn pane(s: &Tasks, app: &RefAny, today: NaiveDate) -> Dom {
 // ==== Callbacks ====
 
 extern "C" fn on_nav_event(mut data: RefAny, mut info: CallbackInfo, event: ShellNavigationPaneEvent) -> Update {
-    crate::with_tasks(&mut data, &mut info, |_info, _app, s| nav_event(s, &event))
+    crate::with_tasks(&mut data, &mut info, |info, app, s| nav_event(info, app, s, &event))
 }
 
-fn nav_event(s: &mut Tasks, event: &ShellNavigationPaneEvent) {
+fn nav_event(info: &mut CallbackInfo, app: &RefAny, s: &mut Tasks, event: &ShellNavigationPaneEvent) {
     match &event.kind {
         ShellNavigationPaneEventKind::GroupToggled => {
             if let Some(open) = s.nav_open.get_mut(event.group) {
@@ -202,6 +202,10 @@ fn nav_event(s: &mut Tasks, event: &ShellNavigationPaneEvent) {
         ShellNavigationPaneEventKind::CollapseToggled => s.nav_collapsed = !event.expand,
         ShellNavigationPaneEventKind::ModuleSelected => {}
         ShellNavigationPaneEventKind::NodeClicked => node_clicked(s, event.group, event.index),
+        ShellNavigationPaneEventKind::NodeDropped => {
+            let moves = node_dropped(s, event.group, event.index, state::now());
+            crate::jobs::move_files(info, app, s, moves);
+        }
         ShellNavigationPaneEventKind::NodeToggled => {
             if event.group == 1 {
                 if let Some(ListTarget::Group(name)) = list_targets(&s.lists).get(event.index) {
@@ -213,6 +217,77 @@ fn nav_event(s: &mut Tasks, event: &ShellNavigationPaneEvent) {
                 }
             }
         }
+    }
+}
+
+/// The tasks a drop carries: the dragged one, with the rest of the selection when it is
+/// part of it.
+fn dropped_tasks(s: &Tasks) -> Vec<String> {
+    let Some(dragged) = s.drag.clone() else {
+        return Vec::new();
+    };
+    if s.selection.contains(&dragged) {
+        s.selection.clone()
+    } else {
+        vec![dragged]
+    }
+}
+
+/// A drag dropped on node `index` of group `group`: on a list it moves the tasks there; on
+/// Today it makes them due today, on Upcoming tomorrow, on Flagged flags them, on Completed
+/// completes them; on a tag it tags them. Returns attachment folders to move.
+fn node_dropped(s: &mut Tasks, group: usize, index: usize, now: chrono::NaiveDateTime) -> Vec<(String, String)> {
+    let ids = dropped_tasks(s);
+    s.drag = None;
+    if ids.is_empty() {
+        return Vec::new();
+    }
+    match group {
+        1 => match list_targets(&s.lists).get(index) {
+            Some(ListTarget::List(list)) => {
+                let list = list.clone();
+                s.move_tasks(&ids, &list)
+            }
+            _ => Vec::new(),
+        },
+        0 => {
+            let smart = if index == 0 { None } else { SMART_NODES.get(index - 1).copied() };
+            for id in &ids {
+                let Some(i) = s.index_of(id) else {
+                    continue;
+                };
+                match smart {
+                    Some(Smart::Today) => s.tasks[i].due = Some(now.date()),
+                    Some(Smart::Upcoming | Smart::Scheduled) => {
+                        s.tasks[i].due = Some(now.date() + chrono::Duration::days(1));
+                    }
+                    Some(Smart::Flagged) => s.tasks[i].flagged = true,
+                    Some(Smart::Completed) => {
+                        if !s.tasks[i].is_done() {
+                            s.toggle_done(i, now);
+                        }
+                        continue;
+                    }
+                    _ => continue,
+                }
+                s.tasks[i].reminded = None;
+                s.save_task(i);
+            }
+            Vec::new()
+        }
+        2 => {
+            if let Some((tag, _)) = index.checked_sub(1).and_then(|n| views::tags(&s.tasks).get(n).cloned()) {
+                for id in &ids {
+                    if let Some(i) = s.index_of(id) {
+                        if s.tasks[i].add_tag(&tag) {
+                            s.save_task(i);
+                        }
+                    }
+                }
+            }
+            Vec::new()
+        }
+        _ => Vec::new(),
     }
 }
 
