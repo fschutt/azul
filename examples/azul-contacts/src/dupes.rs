@@ -17,28 +17,85 @@ use crate::contact::{Address, Contact, Labeled};
 /// An email as compared: trimmed, lower-case.
 #[must_use]
 pub fn normalize_email(email: &str) -> String {
-        todo!("RED: normalize_email")
-    }
+    email.trim().to_lowercase()
+}
 
 /// A phone number as compared: its last nine digits (country code and
 /// trunk prefix drop out); `None` for fewer than seven digits.
 #[must_use]
 pub fn normalize_phone(phone: &str) -> Option<String> {
-        todo!("RED: normalize_phone")
+    let digits: String = phone.chars().filter(char::is_ascii_digit).collect();
+    if digits.len() < 7 {
+        return None;
     }
+    let start = digits.len().saturating_sub(9);
+    Some(digits[start..].to_string())
+}
 
 /// A name as compared: folded words without a parenthesised note; empty
 /// when the contact has no name.
 #[must_use]
 pub fn name_key(c: &Contact) -> String {
-        todo!("RED: name_key")
+    let name = if c.composed_name().is_empty() {
+        if c.formatted.trim().is_empty() {
+            c.org.clone()
+        } else {
+            c.formatted.clone()
+        }
+    } else {
+        c.composed_name()
+    };
+    let mut out = String::new();
+    let mut depth = 0usize;
+    for ch in name.chars() {
+        match ch {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth = depth.saturating_sub(1),
+            other if depth == 0 => out.push(other),
+            _ => {}
+        }
     }
+    fold(&out).split_whitespace().collect::<Vec<_>>().join(" ")
+}
 
 /// How alike two contacts are (0..=1) and why.
 #[must_use]
 pub fn similarity(a: &Contact, b: &Contact) -> (f32, Vec<String>) {
-        todo!("RED: similarity")
+    let mut score: f32 = 0.0;
+    let mut reasons = Vec::new();
+    let (na, nb) = (name_key(a), name_key(b));
+    let same_name = !na.is_empty() && na == nb;
+    if same_name {
+        // Exactly the same name, or the same only after dropping a note such as "(imported)".
+        let exact = fold(&a.display_name()) == fold(&b.display_name());
+        score = score.max(if exact { 0.93 } else { 0.9 });
+        reasons.push("same name".to_string());
     }
+    if let Some(e) = a
+        .emails
+        .iter()
+        .map(|e| normalize_email(&e.value))
+        .filter(|e| !e.is_empty())
+        .find(|e| b.emails.iter().any(|f| normalize_email(&f.value) == *e))
+    {
+        score = score.max(0.95);
+        reasons.push(format!("same email {e}"));
+    }
+    let phones_b: Vec<String> = b.phones.iter().filter_map(|p| normalize_phone(&p.value)).collect();
+    if a
+        .phones
+        .iter()
+        .filter_map(|p| normalize_phone(&p.value))
+        .any(|p| phones_b.contains(&p))
+    {
+        score = score.max(0.9);
+        reasons.push("same phone number".to_string());
+    }
+    if same_name && reasons.len() > 1 {
+        score = 0.99;
+    }
+    (score, reasons)
+}
 
 /// A pair of possible duplicates.
 #[derive(Clone, Debug, PartialEq)]
@@ -53,8 +110,25 @@ pub struct Pair {
 /// "not a duplicate" (`ignored`, by UID, either order) are left out.
 #[must_use]
 pub fn find_duplicates(contacts: &[Contact], threshold: f32, ignored: &[(String, String)]) -> Vec<Pair> {
-        todo!("RED: find_duplicates")
+    let mut out = Vec::new();
+    for i in 0..contacts.len() {
+        for j in i + 1..contacts.len() {
+            let (a, b) = (&contacts[i], &contacts[j]);
+            if ignored
+                .iter()
+                .any(|(x, y)| (x == &a.uid && y == &b.uid) || (x == &b.uid && y == &a.uid))
+            {
+                continue;
+            }
+            let (score, reasons) = similarity(a, b);
+            if score >= threshold {
+                out.push(Pair { a: i, b: j, score, reasons });
+            }
+        }
     }
+    out.sort_by(|x, y| y.score.partial_cmp(&x.score).unwrap_or(std::cmp::Ordering::Equal).then(x.a.cmp(&y.a)));
+    out
+}
 
 /// The default threshold of the duplicates finder.
 pub const THRESHOLD: f32 = 0.9;
@@ -107,8 +181,82 @@ fn union_labeled(a: &[Labeled], b: &[Labeled], key: impl Fn(&str) -> String) -> 
 /// `b`'s deleted).
 #[must_use]
 pub fn merge(a: &Contact, b: &Contact, plan: &MergePlan) -> Contact {
-        todo!("RED: merge")
+    let name_from = match plan.name {
+        Pick::B if !name_key(b).is_empty() => b,
+        _ if name_key(a).is_empty() => b,
+        _ => a,
+    };
+    let company_from = match plan.company {
+        Pick::B if !(b.org.trim().is_empty() && b.title.trim().is_empty()) => b,
+        _ if a.org.trim().is_empty() && a.title.trim().is_empty() => b,
+        _ => a,
+    };
+    let birthday = match plan.birthday {
+        Pick::A => a.birthday.or(b.birthday),
+        Pick::B => b.birthday.or(a.birthday),
+    };
+    let notes = if plan.notes_both {
+        let (x, y) = (a.notes.trim(), b.notes.trim());
+        match (x.is_empty(), y.is_empty()) {
+            (false, false) if x != y => format!("{x}\n{y}"),
+            (false, _) => x.to_string(),
+            _ => y.to_string(),
+        }
+    } else {
+        pick(plan.notes, &a.notes, &b.notes).to_string()
+    };
+    let mut addresses: Vec<Address> = Vec::new();
+    for addr in a.addresses.iter().chain(&b.addresses) {
+        let k = fold(&addr.lines().join(" "));
+        if !k.is_empty() && !addresses.iter().any(|x| fold(&x.lines().join(" ")) == k) {
+            addresses.push(addr.clone());
+        }
     }
+    let mut groups = a.groups.clone();
+    for g in &b.groups {
+        if !groups.contains(g) {
+            groups.push(g.clone());
+        }
+    }
+    let mut extra = a.extra.clone();
+    for p in &b.extra {
+        if !extra.iter().any(|x| x.to_line() == p.to_line()) {
+            extra.push(p.clone());
+        }
+    }
+    Contact {
+        uid: a.uid.clone(),
+        prefix: name_from.prefix.clone(),
+        given: name_from.given.clone(),
+        additional: name_from.additional.clone(),
+        family: name_from.family.clone(),
+        suffix: name_from.suffix.clone(),
+        formatted: name_from.formatted.clone(),
+        nickname: pick(plan.name, &a.nickname, &b.nickname).to_string(),
+        org: company_from.org.clone(),
+        department: company_from.department.clone(),
+        title: company_from.title.clone(),
+        phones: union_labeled(&a.phones, &b.phones, |v| normalize_phone(v).unwrap_or_else(|| v.trim().to_string())),
+        emails: union_labeled(&a.emails, &b.emails, normalize_email),
+        addresses,
+        urls: union_labeled(&a.urls, &b.urls, |v| v.trim().trim_end_matches('/').to_lowercase()),
+        birthday,
+        notes,
+        photo: pick(plan.photo, &a.photo, &b.photo).to_string(),
+        groups,
+        favorite: a.favorite || b.favorite,
+        custom: {
+            let mut custom = a.custom.clone();
+            for f in &b.custom {
+                if !custom.contains(f) {
+                    custom.push(f.clone());
+                }
+            }
+            custom
+        },
+        extra,
+    }
+}
 
 #[cfg(test)]
 mod tests {
