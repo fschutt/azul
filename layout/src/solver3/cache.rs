@@ -3870,6 +3870,10 @@ pub fn compute_counters(
     // When we pop back up the tree, we need to pop these counter scopes
     let mut scope_stack: Vec<Vec<String>> = Vec::new();
 
+    // The `list-item` scope depths of the open `<ol reversed>` lists: an
+    // item whose list counts down steps by -1.
+    let mut reversed_lists: Vec<usize> = Vec::new();
+
     compute_counters_recursive(
         styled_dom,
         tree,
@@ -3877,7 +3881,56 @@ pub fn compute_counters(
         counters,
         &mut counter_stacks,
         &mut scope_stack,
+        &mut reversed_lists,
     );
+}
+
+/// An HTML attribute an element carries as a custom attribute (`reversed`,
+/// `start`), by name.
+fn custom_attribute<'a>(node_data: &'a azul_core::dom::NodeData, name: &str) -> Option<&'a str> {
+    node_data.attributes().as_ref().iter().find_map(|a| match a {
+        azul_core::dom::AttributeType::Custom(nv) if nv.attr_name.as_str().eq_ignore_ascii_case(name) => {
+            Some(nv.value.as_str())
+        }
+        _ => None,
+    })
+}
+
+/// The `list-item` counter an `<ol reversed>` starts at (the HTML Standard's
+/// ordinal values, 4.4.5): its `start`, else its number of items - plus one,
+/// which its first item's step takes away. `None` for a list that counts up.
+fn reversed_list_start(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    node_data: &azul_core::dom::NodeData,
+) -> Option<i32> {
+    if !matches!(node_data.get_node_type(), NodeType::Ol) {
+        return None;
+    }
+    custom_attribute(node_data, "reversed")?;
+    let start = custom_attribute(node_data, "start")
+        .and_then(|s| s.trim().parse::<i32>().ok())
+        .unwrap_or_else(|| {
+            let hierarchy = styled_dom.node_hierarchy.as_container();
+            let data = styled_dom.node_data.as_container();
+            let items = dom_id
+                .az_children(&hierarchy)
+                .filter(|child| matches!(data[*child].get_node_type(), NodeType::Li))
+                .count();
+            i32::try_from(items).unwrap_or(i32::MAX)
+        });
+    Some(start.saturating_add(1))
+}
+
+/// An `<li value>`'s number: the item's own, the next items count on from it.
+fn list_item_value(node_data: &azul_core::dom::NodeData) -> Option<i32> {
+    if !matches!(node_data.get_node_type(), NodeType::Li) {
+        return None;
+    }
+    node_data.attributes().as_ref().iter().find_map(|a| match a {
+        azul_core::dom::AttributeType::Value(v) => v.as_str().trim().parse::<i32>().ok(),
+        _ => None,
+    })
 }
 
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
@@ -3889,6 +3942,7 @@ fn compute_counters_recursive(
     counters: &mut HashMap<(usize, String), i32>,
     counter_stacks: &mut HashMap<String, Vec<i32>>,
     scope_stack: &mut Vec<Vec<String>>,
+    reversed_lists: &mut Vec<usize>,
 ) {
     let Some(node) = tree.get(LayoutNodeId::new(node_idx)) else {
         return;
@@ -3933,6 +3987,7 @@ fn compute_counters_recursive(
                 counters,
                 counter_stacks,
                 scope_stack,
+                reversed_lists,
             );
         }
         return;
@@ -3985,6 +4040,24 @@ fn compute_counters_recursive(
         }
     }
 
+    // HTML's `<ol reversed>`: its `list-item` scope starts at its `start`
+    // (else its number of items) plus one, and its items count DOWN.
+    let reversed_here = if let Some(initial) = reversed_list_start(styled_dom, dom_id, node_data) {
+        let stack = counter_stacks.entry("list-item".to_string()).or_default();
+        if reset_counters_at_this_level.iter().any(|n| n == "list-item") {
+            if let Some(top) = stack.last_mut() {
+                *top = initial;
+            }
+        } else {
+            stack.push(initial);
+            reset_counters_at_this_level.push("list-item".to_string());
+        }
+        reversed_lists.push(stack.len());
+        true
+    } else {
+        false
+    };
+
     // Process counter-increment (now properly typed)
     let counter_inc = if has_counter_css {
         cache
@@ -4012,14 +4085,27 @@ fn compute_counters_recursive(
     }
 
     // CSS Lists §3: display: list-item automatically increments "list-item" counter
+    // (by -1 in an `<ol reversed>`); an `<li value>` then SETS it (the
+    // `counter-set` of HTML's presentational hint): its own number, the next
+    // items count on from it.
     if is_list_item {
         let counter_name = "list-item".to_string();
         let stack = counter_stacks.entry(counter_name).or_default();
+        let step = if !stack.is_empty() && reversed_lists.last() == Some(&stack.len()) {
+            -1
+        } else {
+            1
+        };
         if stack.is_empty() {
             // Auto-initialize if counter doesn't exist
             stack.push(1);
         } else if let Some(current) = stack.last_mut() {
-            *current += 1;
+            *current += step;
+        }
+        if let Some(value) = list_item_value(node_data) {
+            if let Some(current) = stack.last_mut() {
+                *current = value;
+            }
         }
     }
 
@@ -4042,7 +4128,12 @@ fn compute_counters_recursive(
             counters,
             counter_stacks,
             scope_stack,
+            reversed_lists,
         );
+    }
+
+    if reversed_here {
+        reversed_lists.pop();
     }
 
     // Pop counter scopes that were created at this level
