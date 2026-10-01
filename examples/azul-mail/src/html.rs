@@ -48,9 +48,7 @@ pub struct Sanitized {
 
 /// See the module documentation.
 pub fn sanitize(html: &str) -> Sanitized {
-    let mut s = Sanitizer::default();
-    s.run(html);
-    s.finish()
+    sanitize_with(html, false)
 }
 
 /// [`sanitize`], or - with `pictures` (the reader clicked "download pictures") - the same with
@@ -58,7 +56,12 @@ pub fn sanitize(html: &str) -> Sanitized {
 /// [`Sanitized::remote_images`]. A tracking pixel stays out either way, and a picture that is
 /// not on the web (`cid:` - an attached one -, `data:`, anything else) stays a placeholder.
 pub fn sanitize_with(html: &str, pictures: bool) -> Sanitized {
-    todo!()
+    let mut s = Sanitizer {
+        pictures,
+        ..Sanitizer::default()
+    };
+    s.run(html);
+    s.finish()
 }
 
 /// Tags deeper than this keep their text only.
@@ -246,6 +249,10 @@ struct Sanitizer {
     /// The mail's own style rules, made safe and scoped to the paper.
     styles: String,
     has_dark_rules: bool,
+    /// Web pictures are kept ("download pictures").
+    pictures: bool,
+    /// The web pictures kept, each once.
+    remote_images: Vec<String>,
 }
 
 impl Sanitizer {
@@ -361,6 +368,33 @@ impl Sanitizer {
                     return;
                 }
                 let alt = attribute("alt").filter(|a| !a.is_empty());
+                let src = attribute("src").unwrap_or("");
+                let scheme = src.to_ascii_lowercase();
+                if self.pictures && (scheme.starts_with("https://") || scheme.starts_with("http://")) {
+                    // Loaded after all: an image the app fetches and caches under its src.
+                    self.blocked_images -= 1;
+                    self.out.push_str("<img src=\"");
+                    escape_into(&mut self.out, src, true);
+                    self.out.push('"');
+                    if let Some(alt) = alt {
+                        self.out.push_str(" alt=\"");
+                        escape_into(&mut self.out, alt, true);
+                        self.out.push('"');
+                    }
+                    for name in ["width", "height"] {
+                        let pixels = attribute(name)
+                            .map(|v| v.trim_end_matches("px").trim())
+                            .and_then(|v| v.parse::<u32>().ok());
+                        if let Some(n) = pixels {
+                            self.out.push_str(&format!(" {name}=\"{n}\""));
+                        }
+                    }
+                    self.out.push_str("/>");
+                    if !self.remote_images.iter().any(|u| u == src) {
+                        self.remote_images.push(src.to_string());
+                    }
+                    return;
+                }
                 let label = match alt {
                     Some(alt) => format!("[image: {alt}]"),
                     None => String::from("[image]"),
@@ -471,7 +505,7 @@ impl Sanitizer {
             xhtml,
             blocked_images: self.blocked_images,
             has_dark_rules: self.has_dark_rules,
-            remote_images: Vec::new(),
+            remote_images: std::mem::take(&mut self.remote_images),
         }
     }
 }
