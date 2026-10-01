@@ -1,0 +1,204 @@
+//! AzCalendar's command line, as AzWriter's: `--screen <name>` opens a view, a FILE (backstage)
+//! page or the event editor (for scripts and screenshots), `--theme flat|flora` and
+//! `--mode light|dark` pick the app theme and the mode, `--sample` puts sample events into an
+//! empty calendar, `--date YYYY-MM-DD` opens on that day, `--data <dir>` is the data folder
+//! (as `AZCAL_DATA`).
+
+use std::path::PathBuf;
+
+use chrono::NaiveDate;
+
+use crate::views::ViewKind;
+
+/// The FILE (backstage) pages, in the order of its list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BackstagePage {
+    Info,
+    /// Open & Export: import an .ics file, export a calendar as one.
+    Open,
+    Print,
+    /// Manage calendars: add, rename, recolour, remove.
+    Calendars,
+    /// Options: the meeting server, the look.
+    Options,
+    About,
+}
+
+impl BackstagePage {
+    pub const ALL: [BackstagePage; 6] = [
+        BackstagePage::Info,
+        BackstagePage::Open,
+        BackstagePage::Print,
+        BackstagePage::Calendars,
+        BackstagePage::Options,
+        BackstagePage::About,
+    ];
+
+    /// What the page list says.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        todo!()
+    }
+
+    /// The page's name after `backstage-` in `--screen`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        todo!()
+    }
+
+    /// The page at `index` of the list.
+    #[must_use]
+    pub fn at(index: usize) -> Option<BackstagePage> {
+        todo!()
+    }
+
+    /// The page's index in the list.
+    #[must_use]
+    pub fn index(self) -> usize {
+        todo!()
+    }
+}
+
+/// What the window opens on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Screen {
+    View(ViewKind),
+    Backstage(BackstagePage),
+    /// The event editor window, with a new appointment.
+    Editor,
+}
+
+/// Light or dark, when the command line says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    Light,
+    Dark,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Args {
+    pub screen: Option<Screen>,
+    /// "flat" or "flora".
+    pub theme: Option<String>,
+    pub mode: Option<Mode>,
+    pub sample: bool,
+    pub date: Option<NaiveDate>,
+    pub data: Option<PathBuf>,
+}
+
+pub const HELP: &str = "\
+AzCalendar - a calendar like Outlook's, with AzMeet links
+
+USAGE:
+    AzCalendar [OPTIONS]
+
+OPTIONS:
+    --screen <NAME>     day | work-week | week | month | schedule | agenda | editor |
+                        backstage-info | backstage-open | backstage-print |
+                        backstage-calendars | backstage-options | backstage-about
+    --theme <NAME>      flat | flora (the app theme)
+    --mode <MODE>       light | dark (else the system's)
+    --sample            put sample events into an empty calendar
+    --date <DATE>       open on this day (YYYY-MM-DD)
+    --data <DIR>        the data folder (else AZCAL_DATA, else the user's data folder)
+    -h, --help          print this help
+";
+
+/// The screen `--screen` names.
+fn screen_of(name: &str) -> Option<Screen> {
+    if name == "editor" {
+        return Some(Screen::Editor);
+    }
+    if let Some(page) = name.strip_prefix("backstage-") {
+        return BackstagePage::ALL
+            .into_iter()
+            .find(|p| p.name() == page)
+            .map(Screen::Backstage);
+    }
+    ViewKind::from_name(name).map(Screen::View)
+}
+
+impl Args {
+    /// Reads the arguments after the program's name. `Err` holds what to print: the help, or
+    /// what is wrong and the help.
+    pub fn parse<I, S>(argv: I) -> Result<Args, String>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        todo!()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(args: &[&str]) -> Result<Args, String> {
+        Args::parse(args.iter().copied())
+    }
+
+    #[test]
+    fn no_arguments_open_the_calendar_as_it_was() {
+        assert_eq!(parse(&[]), Ok(Args::default()));
+    }
+
+    #[test]
+    fn a_screen_names_a_view_a_backstage_page_or_the_editor() {
+        assert_eq!(
+            parse(&["--screen", "month"]).unwrap().screen,
+            Some(Screen::View(ViewKind::Month))
+        );
+        assert_eq!(
+            parse(&["--screen=work-week"]).unwrap().screen,
+            Some(Screen::View(ViewKind::WorkWeek))
+        );
+        assert_eq!(
+            parse(&["--screen", "backstage-open"]).unwrap().screen,
+            Some(Screen::Backstage(BackstagePage::Open))
+        );
+        assert_eq!(
+            parse(&["--screen", "editor"]).unwrap().screen,
+            Some(Screen::Editor)
+        );
+        assert!(parse(&["--screen", "backstage-nothing"]).is_err());
+        assert!(parse(&["--screen"]).is_err());
+    }
+
+    #[test]
+    fn the_theme_the_mode_the_day_the_sample_and_the_data_folder() {
+        let a = parse(&[
+            "--theme",
+            "flora",
+            "--mode",
+            "dark",
+            "--date",
+            "2026-09-30",
+            "--sample",
+            "--data",
+            "/tmp/cal",
+        ])
+        .unwrap();
+        assert_eq!(a.theme.as_deref(), Some("flora"));
+        assert_eq!(a.mode, Some(Mode::Dark));
+        assert_eq!(a.date, NaiveDate::from_ymd_opt(2026, 9, 30));
+        assert!(a.sample);
+        assert_eq!(a.data, Some(PathBuf::from("/tmp/cal")));
+        assert!(parse(&["--theme", "neon"]).is_err());
+        assert!(parse(&["--mode", "dim"]).is_err());
+        assert!(parse(&["--date", "30.09.2026"]).is_err());
+        assert!(parse(&["--frobnicate"]).is_err());
+        assert_eq!(parse(&["--help"]), Err(HELP.to_string()));
+    }
+
+    #[test]
+    fn every_backstage_page_has_a_name_that_reads_back() {
+        for page in BackstagePage::ALL {
+            assert_eq!(
+                screen_of(&format!("backstage-{}", page.name())),
+                Some(Screen::Backstage(page))
+            );
+            assert_eq!(BackstagePage::at(page.index()), Some(page));
+        }
+    }
+}
