@@ -1396,7 +1396,11 @@ fn overlay_dom(s: &AppState, app: &RefAny, look: &Look) -> Dom {
                         .dom()
                         .with_id("sheet-field"),
                 );
-            let buttons = Dom::create_div()
+            let mut buttons = Dom::create_div();
+            if !url.trim().is_empty() {
+                buttons.add_child(sheet_button(app, "sheet-open", "Open", ButtonType::Link, on_link_open));
+            }
+            let buttons = buttons
                 .with_child(sheet_button(app, "sheet-remove", "Remove link", ButtonType::Default, on_link_remove))
                 .with_child(sheet_button(app, "sheet-cancel", "Cancel", ButtonType::Default, on_sheet_cancel))
                 .with_child(sheet_button(app, "sheet-ok", "Link", ButtonType::Primary, on_sheet_ok));
@@ -1489,6 +1493,19 @@ extern "C" fn on_sheet_cancel(mut data: RefAny, mut info: CallbackInfo) -> Updat
 
 extern "C" fn on_sheet_ok(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |s, info, app| sheet_ok(info, app, s))
+}
+
+/// The link sheet's Open: the address with the system's handler.
+extern "C" fn on_link_open(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |s, _, _| {
+        if let Overlay::Link { url, .. } = &s.overlay {
+            let url = url.trim().to_string();
+            if editor::open_url(&url) {
+                println!("AZNOTES_OPENED_LINK {url}");
+            }
+        }
+        Update::DoNothing
+    })
 }
 
 extern "C" fn on_link_remove(mut data: RefAny, mut info: CallbackInfo) -> Update {

@@ -84,10 +84,45 @@ fn run_dom(run: &Run, look: &Look) -> Dom {
             look.code_bg
         ));
     }
-    if run.link.is_some() {
+    let mut span = Dom::create_span();
+    if let Some(url) = &run.link {
         css.push_str(&format!("color: {};", look.link));
+        // Ctrl / Cmd + click opens the link (a plain click places the caret).
+        span = span.with_callback(
+            EventFilter::Hover(HoverEventFilter::Click),
+            RefAny::new(LinkRef { url: url.clone() }),
+            on_link_click,
+        );
     }
-    Dom::create_span().with_css(css).with_child(text)
+    span.with_css(css).with_child(text)
+}
+
+/// The payload of a link in the text.
+struct LinkRef {
+    url: String,
+}
+
+/// Opens `url` with the system's handler (the browser, for a web address).
+pub fn open_url(url: &str) -> bool {
+    match azul::url::Url::parse(url).into_result() {
+        Ok(url) => url.open(),
+        Err(_) => false,
+    }
+}
+
+/// Ctrl / Cmd + click on a link in the text opens it.
+extern "C" fn on_link_click(mut data: RefAny, info: CallbackInfo) -> Update {
+    let modifiers = info.get_key_modifiers();
+    if !(modifiers.ctrl || modifiers.meta) {
+        return Update::DoNothing;
+    }
+    let Some(url) = data.downcast_ref::<LinkRef>().map(|l| l.url.clone()) else {
+        return Update::DoNothing;
+    };
+    if open_url(&url) {
+        println!("AZNOTES_OPENED_LINK {url}");
+    }
+    Update::DoNothing
 }
 
 /// `node` with the runs of `block` as its children (none for an empty
@@ -268,7 +303,8 @@ pub fn host_dom(view: &View<'_>, app: &RefAny) -> Dom {
             view.look.text, view.font_px
         ));
     for (index, block) in view.doc.blocks.iter().enumerate() {
-        host.add_child(block_dom(view, index, block, app));
+        // `#nb-<index>`: a script (and a test) names a block by its index.
+        host.add_child(block_dom(view, index, block, app).with_id(format!("nb-{index}")));
     }
     host.with_callback(
         EventFilter::Focus(FocusEventFilter::TextChanged),
@@ -989,6 +1025,47 @@ pub extern "C" fn on_editor_key(mut data: RefAny, mut info: CallbackInfo) -> Upd
             indent(state, &mut info, if shift { -1 } else { 1 })
         }
         _ => Update::DoNothing,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bold() -> FormatSet {
+        FormatSet {
+            bold: true,
+            ..FormatSet::default()
+        }
+    }
+
+    #[test]
+    fn the_typing_style_follows_insertions_at_its_caret_and_ends_with_anything_else() {
+        let mut editor = EditorState {
+            typing: Some(Typing {
+                block: 2,
+                at: 3,
+                formats: bold(),
+            }),
+            caret_block: 2,
+        };
+        assert_eq!(editor.typing_for(2, "abc", "abcX"), Some(bold()), "typed at the caret");
+        assert_eq!(editor.typing.map(|t| t.at), Some(4), "the style moves past the typed text");
+        assert_eq!(editor.typing_for(2, "abcX", "abcXY"), Some(bold()));
+        assert_eq!(editor.typing_for(2, "abcXY", "aXbcXY"), None, "typed elsewhere");
+        assert_eq!(editor.typing, None, "and dropped");
+        editor.typing = Some(Typing {
+            block: 2,
+            at: 3,
+            formats: bold(),
+        });
+        assert_eq!(editor.typing_for(1, "abc", "abcX"), None, "another block");
+        editor.typing = Some(Typing {
+            block: 2,
+            at: 3,
+            formats: bold(),
+        });
+        assert_eq!(editor.typing_for(2, "abc", "ab"), None, "a delete");
     }
 }
 
