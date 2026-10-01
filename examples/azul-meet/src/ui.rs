@@ -841,6 +841,26 @@ fn join_form(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                         .with_id(AzString::from("azmeet-join")),
                 ),
         ))
+        .with_child(text("Devices", SECTION_TITLE))
+        .with_child(device_pickers(&view.settings, data, actions))
+}
+
+/// The microphone, speaker and camera pickers (the lobby and the settings' Devices).
+fn device_pickers(s: &SettingsView, data: &RefAny, actions: &Actions) -> Dom {
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column;")
+        .with_child(labelled(
+            "Microphone",
+            choice(&s.mics, s.mic_choice, "Microphone", data, actions.mic_choice),
+        ))
+        .with_child(labelled(
+            "Speaker",
+            choice(&s.speakers, s.speaker_choice, "Speaker", data, actions.speaker_choice),
+        ))
+        .with_child(labelled(
+            "Camera",
+            choice(&s.cameras, s.camera_choice, "Camera", data, actions.camera_choice),
+        ))
 }
 
 // ==== The settings ====
@@ -862,20 +882,7 @@ fn settings(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
     let section = match category {
         0 => ShellSettingsSection::create(
             AzString::from("Devices"),
-            Dom::create_div()
-                .with_css("display: flex; flex-direction: column;")
-                .with_child(labelled(
-                    "Microphone",
-                    choice(&s.mics, s.mic_choice, "Microphone", data, actions.mic_choice),
-                ))
-                .with_child(labelled(
-                    "Speaker",
-                    choice(&s.speakers, s.speaker_choice, "Speaker", data, actions.speaker_choice),
-                ))
-                .with_child(labelled(
-                    "Camera",
-                    choice(&s.cameras, s.camera_choice, "Camera", data, actions.camera_choice),
-                )),
+            device_pickers(s, data, actions),
         ),
         1 => ShellSettingsSection::create(
             AzString::from("Video"),
