@@ -18,7 +18,10 @@
 //!
 //! Not compiled by the author (house rule); expected RED before the fix.
 
-use crate::table_harness::{count_colour, laid_out, near, page, pixels_differing, rect, render};
+use crate::table_markup::{
+    count_colour, laid_out_page as laid_out, near_tenth as near, page, pixels_differing, rect,
+    render,
+};
 
 const RED: (u8, u8, u8) = (255, 0, 0);
 
