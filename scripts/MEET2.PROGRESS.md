@@ -10,8 +10,16 @@ here (house rule); Rust files are parse-checked with `rustfmt --check` / `--emit
   decoder matrix by CFEqual; output size / format changes at the next picture (OutputStage with
   VTPixelTransferSession); CoreVideo pixel-format rule moved to capture_slot.rs (twin removed).
 
+- `66d27172e` RED / `b8cd68319` feat: CodecThread - VideoEncoder / VideoDecoder engines on a
+  thread of their own (encode queue of 3 drops when full; decode unbounded); VideoEncoder::flush
+  (new API); VideoDecoder::open_on_this_thread (crate) for stream.rs / pipeline.rs.
+- `477e7f539` RED / `f990d6c99` fix: the `<video>` decoder applies VideoConfig::output_format.
+- `acc9d162f` RED / `9ec56f6cc` feat: NativePicture (retained IOSurface-backed decoded picture,
+  copied on demand) - the zero-copy step.
+
 ## IN PROGRESS
-- stream.rs output_format; codec worker (mod.rs).
+- AzMeet: async codec (drain encoders / decoders in the pump, keyframe policy with lag), no JPEG
+  to a peer whose caps have not arrived (macOS never defaults to JPEG), probe with flush.
 
 ## NEXT (plan, in order)
 1. Engine video leftovers (RED then fix each):
