@@ -7,14 +7,15 @@ walk the navigation tree, go Back / Forward / Up.
        and 60 objects under bulk/;
     2. starts AzDrive headless (AZ_BACKEND=headless, the debug server on --debug-port) with a
        temporary Home folder, drives file and Downloads folder; it opens on "This PC";
-    3. through AzDrive's debug server: the ribbon's DRIVE tab, "Add drive", types name, endpoint,
+    3. through AzDrive's debug server: the ribbon's DRIVE tab, "Add S3 drive", types name, endpoint,
        region, bucket, access key and secret key into the form, clicks "Test connection" (asserts
        it says "Connection OK" after exactly one ListObjectsV2 call) and "Save drive";
     4. asserts the drives file names the drive and holds neither key;
-    5. double-clicks the "mail/" and "inbox/" tiles (the view shows 0001.eml), and asserts that
+    5. double-clicks the "mail" and "inbox" folders (the view shows 0001.eml), and asserts that
        browsing fetched listings only, not one object;
-    6. selects 0001.eml, clicks "Download" (HOME tab), and asserts the downloaded bytes are the
-       object's and that the server saw exactly one GetObject, for mail/inbox/0001.eml;
+    6. selects 0001.eml, clicks "Download" (SHARE tab: a transfer into the Downloads folder), and
+       asserts the downloaded bytes are the object's and that the server saw exactly one
+       GetObject, for mail/inbox/0001.eml;
     7. clicks "Home" in the navigation tree (the Home drive lists, notes.txt shows), then the
        address bar's Back (mail/inbox/ again), Forward (Home again) and Up ("This PC").
 
@@ -226,7 +227,7 @@ def seed(root):
 
 
 def open_folder(app, label, prefix):
-    """Double-clicks the row `label` and waits for the listing of `prefix`."""
+    """Double-clicks the item `label` and waits for the listing of `prefix`."""
     listed = r"\S+ %s \d+" % re.escape(prefix)
     before = len(app.printed("AZDRIVE_LISTED", listed))
     app.must("double_click", text=label)
@@ -234,13 +235,13 @@ def open_folder(app, label, prefix):
         app.until("the listing of %s" % prefix,
                   lambda: len(app.printed("AZDRIVE_LISTED", listed)) > before)
     except Failure:
-        # The double-click did not open it: select the tile and press "Open" (HOME tab).
-        log("WARNING: double-clicking %s did not open it; selecting it and pressing Open" % label)
+        # The double-click did not open it: select the item and press Enter (Explorer's Open).
+        log("WARNING: double-clicking %s did not open it; selecting it and pressing Enter" % label)
         app.must("click", text=label)
         time.sleep(0.3)
-        app.must("click", text="HOME")
-        time.sleep(0.2)
-        app.must("click", text="Open")
+        mods = {"shift": False, "ctrl": False, "alt": False, "meta": False}
+        app.must("key_down", key="enter", modifiers=mods)
+        app.must("key_up", key="enter", modifiers=mods)
         app.until("the listing of %s (Open)" % prefix,
                   lambda: len(app.printed("AZDRIVE_LISTED", listed)) > before)
 
@@ -249,10 +250,11 @@ NAV_CLASS = "__azul-native-address-bar-nav"
 
 
 def nav_click(app, index, what):
-    """Clicks the address bar's arrow `index` (0 Back, 1 Forward, 2 Up), found afresh each time."""
+    """Clicks the address bar's button `index` (0 Back, 1 Forward, 2 Recent locations, 3 Up,
+    4 Refresh), found afresh each time."""
     arrows = app.until("the address bar's arrows", lambda: app.nodes_with_class(NAV_CLASS))
-    if len(arrows) < 3:
-        raise Failure("the address bar has %d arrows, not Back / Forward / Up" % len(arrows))
+    if len(arrows) < 4:
+        raise Failure("the address bar has %d buttons, not Back / Forward / Recent / Up" % len(arrows))
     log("%s: arrow node %d" % (what, arrows[index]))
     app.must("click", node_id=arrows[index])
 
@@ -296,8 +298,8 @@ def run(args, logs):
 
         # 3. The "Add drive" form: the ribbon's DRIVE tab.
         app.must("click", text="DRIVE")
-        app.until("the DRIVE tab", lambda: app.shows("Add drive"))
-        app.must("click", text="Add drive")
+        app.until("the DRIVE tab", lambda: app.shows("Add S3 drive"))
+        app.must("click", text="Add S3 drive")
         dom = None
         if args.window_dialogs:
             def dialog_dom():
@@ -354,10 +356,10 @@ def run(args, logs):
 
         # 5. Browse to mail/inbox/.
         server.clear_log()
-        app.until("the mail/ folder in the list", lambda: app.shows("mail/"))
-        open_folder(app, "mail/", "mail/")
-        app.until("inbox/ in the list", lambda: app.shows("inbox/"))
-        open_folder(app, "inbox/", "mail/inbox/")
+        app.until("the mail folder in the list", lambda: app.shows("mail"))
+        open_folder(app, "mail", "mail/")
+        app.until("inbox in the list", lambda: app.shows("inbox"))
+        open_folder(app, "inbox", "mail/inbox/")
         app.until("0001.eml in the list", lambda: app.shows("0001.eml"))
         ops = sorted({r["op"] for r in server.requests()})
         if server.object_gets() or ops != ["ListObjectsV2"]:
@@ -365,14 +367,15 @@ def run(args, logs):
         prefixes = [r["query"].get("prefix") for r in server.requests()]
         log("browsing made %d listing call(s) (%s) and fetched no object" % (len(prefixes), prefixes))
 
-        # 6. Download ONE file: select its tile, "Download" on the HOME tab.
+        # 6. Download ONE file: select it, "Download" on the SHARE tab (a transfer of the queue).
         app.must("click", text="0001.eml")
         time.sleep(0.3)
-        app.must("click", text="HOME")
-        app.until("the HOME tab", lambda: app.shows("Download"))
+        app.must("click", text="SHARE")
+        app.until("the SHARE tab", lambda: app.shows("Download"))
         app.must("click", text="Download")
-        downloaded = app.until("the download (AZDRIVE_DOWNLOADED)", lambda: app.printed("AZDRIVE_DOWNLOADED", r".+"))
-        path = downloaded[-1]
+        app.until("the download (AZDRIVE_TRANSFER done)",
+                  lambda: app.printed("AZDRIVE_TRANSFER", r"\d+ done 1"))
+        path = os.path.join(downloads, "0001.eml")
         if os.path.dirname(os.path.abspath(path)) != os.path.abspath(downloads):
             raise Failure("the file went to %s, not into %s" % (path, downloads))
         with open(path, "rb") as f:
@@ -403,7 +406,7 @@ def run(args, logs):
         app.until("Forward to the Home drive",
                   lambda: len(app.printed("AZDRIVE_LISTED", home_listed)) > before)
         before = len(app.printed("AZDRIVE_PLACE", r"this-pc"))
-        nav_click(app, 2, "Up")
+        nav_click(app, 3, "Up")
         app.until("Up to This PC", lambda: len(app.printed("AZDRIVE_PLACE", r"this-pc")) > before)
         log("the tree opened the Home drive; Back, Forward and Up walked the history")
         log("PASS: AzDrive added an S3 drive, browsed to /mail/inbox/, downloaded exactly one "
