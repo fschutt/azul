@@ -2730,6 +2730,7 @@ fn copies_of_owning_values_are_never_freed_twice() {
         // copies the handle and the flag, and both are finalized.
         let mut bad = Vec::new();
         let mut total = 0;
+        let mut bound_destructors = 0;
         for (path, text) in files {
             let lower = text.to_ascii_lowercase();
             for chunk in lower.split("\n  type ::").skip(1) {
@@ -2742,14 +2743,29 @@ fn copies_of_owning_values_are_never_freed_twice() {
                 }
             }
             // `delete` must clear the flag, or deleting a variable twice frees twice.
+            // The destructors are the subroutines bound as `procedure :: delete
+            // => <name>` - not every name ending in `_delete`
+            // (`message_list_with_on_delete` sets an on-delete callback).
+            let destructors: Vec<&str> = lower
+                .lines()
+                .filter_map(|l| l.trim().strip_prefix("procedure :: delete =>"))
+                .map(str::trim)
+                .collect();
+            bound_destructors += destructors.len();
             for chunk in lower.split("\n  subroutine ").skip(1) {
                 let body = chunk.split("end subroutine").next().unwrap_or("");
                 let name = body.split('(').next().unwrap_or("").trim();
-                if name.ends_with("_delete") && body.contains("%owned") && !body.contains("%owned = .false.") {
+                if destructors.contains(&name) && body.contains("%owned") && !body.contains("%owned = .false.") {
                     bad.push(format!("{path}: {name} leaves `owned` set"));
                 }
             }
         }
+        // Not vacuous: the owning wrappers bind their destructors.
+        assert!(
+            total == 0 || bound_destructors > 0,
+            "{total} owning Fortran wrappers but no `procedure :: delete =>` binding found - the \
+             destructor check would prove nothing"
+        );
         if !bad.is_empty() {
             offenders.push(summarize("fortran", "owning wrappers freed twice", &bad, total));
         }
