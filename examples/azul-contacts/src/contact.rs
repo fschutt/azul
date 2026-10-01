@@ -49,7 +49,27 @@ impl Address {
     /// The lines on an envelope: street, `postcode locality`, region, country.
     #[must_use]
     pub fn lines(&self) -> Vec<String> {
-        todo!("RED: lines")
+        let mut out = Vec::new();
+        for part in [&self.po_box, &self.extended, &self.street] {
+            if !part.trim().is_empty() {
+                out.push(part.trim().to_string());
+            }
+        }
+        let city = [self.postcode.trim(), self.locality.trim()]
+            .iter()
+            .filter(|s| !s.is_empty())
+            .copied()
+            .collect::<Vec<_>>()
+            .join(" ");
+        if !city.is_empty() {
+            out.push(city);
+        }
+        for part in [&self.region, &self.country] {
+            if !part.trim().is_empty() {
+                out.push(part.trim().to_string());
+            }
+        }
+        out
     }
 
     #[must_use]
@@ -76,19 +96,64 @@ impl Birthday {
     /// the day-first `14.03.1987` / `14.03.` the edit form takes too.
     #[must_use]
     pub fn parse(text: &str) -> Option<Birthday> {
-        todo!("RED: parse")
+        let t = text.trim();
+        let t = t.split(['T', 't']).next().unwrap_or(t);
+        let valid = |year: Option<i32>, month: u32, day: u32| {
+            let max = match month {
+                1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+                4 | 6 | 9 | 11 => 30,
+                2 => 29,
+                _ => 0,
+            };
+            (day >= 1 && day <= max && year.is_none_or_valid()).then_some(Birthday { year, month, day })
+        };
+        if t.contains('.') {
+            let parts: Vec<&str> = t.split('.').map(str::trim).collect();
+            let day = parts.first()?.parse().ok()?;
+            let month = parts.get(1)?.parse().ok()?;
+            let year = match parts.get(2).filter(|y| !y.is_empty()) {
+                Some(y) => Some(y.parse().ok()?),
+                None => None,
+            };
+            return valid(year, month, day);
+        }
+        if let Some(rest) = t.strip_prefix("--") {
+            let digits: String = rest.chars().filter(char::is_ascii_digit).collect();
+            if digits.len() != 4 {
+                return None;
+            }
+            return valid(None, digits[..2].parse().ok()?, digits[2..].parse().ok()?);
+        }
+        let digits: String = t.chars().filter(char::is_ascii_digit).collect();
+        if digits.len() != 8 {
+            return None;
+        }
+        valid(
+            Some(digits[..4].parse().ok()?),
+            digits[4..6].parse().ok()?,
+            digits[6..].parse().ok()?,
+        )
     }
 
     /// As vCard writes it: 4.0 `19870314` / `--0314`, 3.0 `1987-03-14` / `--03-14`.
     #[must_use]
     pub fn to_vcard(&self, version: Version) -> String {
-        todo!("RED: to_vcard")
+        match (version, self.year) {
+            (Version::V4, Some(y)) => format!("{y:04}{:02}{:02}", self.month, self.day),
+            (Version::V4, None) => format!("--{:02}{:02}", self.month, self.day),
+            (Version::V3, Some(y)) => format!("{y:04}-{:02}-{:02}", self.month, self.day),
+            (Version::V3, None) => format!("--{:02}-{:02}", self.month, self.day),
+        }
     }
 
     /// `14 March 1987`, `14 March`.
     #[must_use]
     pub fn describe(&self) -> String {
-        todo!("RED: describe")
+        let month = MONTHS[(self.month.clamp(1, 12) - 1) as usize];
+        match self.year {
+            Some(y) => format!("{} {month} {y}", self.day),
+            None => format!("{} {month}", self.day),
+        }
     }
 
     /// The edit form's text: `14.03.1987` or `14.03.`.
@@ -145,8 +210,19 @@ pub struct Contact {
 
 /// The label of a TYPE list, or `None` if it names none.
 fn label_of_types(types: &[String]) -> Option<String> {
-        todo!("RED: label_of_types")
+    const GENERIC: [&str; 8] = ["voice", "pref", "internet", "x400", "msg", "text", "uri", "postal"];
+    for t in types {
+        let t = t.as_str();
+        if GENERIC.contains(&t) || t.chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        return Some(match t {
+            "cell" | "mobile" | "iphone" => "mobile".to_string(),
+            other => other.strip_prefix("x-").unwrap_or(other).replace('-', " "),
+        });
     }
+    None
+}
 
 /// Apple's label text without its `_$!<...>!$_` wrapper, lower-case.
 fn clean_ab_label(text: &str) -> String {
@@ -160,8 +236,21 @@ fn clean_ab_label(text: &str) -> String {
 
 /// The TYPE a label is written with.
 fn type_of_label(label: &str, version: Version, phone: bool) -> String {
-        todo!("RED: type_of_label")
+    let l = label.trim().to_lowercase();
+    let t = match l.as_str() {
+        "mobile" | "cell" => "cell".to_string(),
+        "work" | "home" | "fax" | "pager" => l.clone(),
+        "main" if version == Version::V3 && phone => "x-main".to_string(),
+        "main" => "main".to_string(),
+        "" | "other" => "other".to_string(),
+        other => format!("x-{}", other.replace(' ', "-")),
+    };
+    if version == Version::V3 {
+        t.to_uppercase()
+    } else {
+        t
     }
+}
 
 fn nonempty(s: &str) -> Option<&str> {
     let t = s.trim();
@@ -183,7 +272,22 @@ impl Contact {
     /// else the first email or phone.
     #[must_use]
     pub fn display_name(&self) -> String {
-        todo!("RED: display_name")
+        let composed = self.composed_name();
+        if !composed.is_empty() {
+            return composed;
+        }
+        for candidate in [&self.formatted, &self.org] {
+            if let Some(s) = nonempty(candidate) {
+                return s.to_string();
+            }
+        }
+        if let Some(e) = self.emails.first() {
+            return e.value.clone();
+        }
+        if let Some(p) = self.phones.first() {
+            return p.value.clone();
+        }
+        "(no name)".to_string()
     }
 
     /// A company card: no personal name, a company.
@@ -210,19 +314,281 @@ impl Contact {
     /// a dot after it, a birthday that is not a date.
     #[must_use]
     pub fn problems(&self, birthday_text: Option<&str>) -> Vec<String> {
-        todo!("RED: problems")
+        let mut out = Vec::new();
+        if self.composed_name().is_empty() && nonempty(&self.formatted).is_none() && nonempty(&self.org).is_none() {
+            out.push("A contact needs a name or a company.".to_string());
+        }
+        for e in &self.emails {
+            let v = e.value.trim();
+            if v.is_empty() {
+                continue;
+            }
+            let ok = match v.split_once('@') {
+                Some((local, domain)) => {
+                    !local.is_empty() && domain.contains('.') && !domain.starts_with('.') && !domain.ends_with('.')
+                        && !v.contains(char::is_whitespace)
+                }
+                None => false,
+            };
+            if !ok {
+                out.push(format!("\"{v}\" is not an email address."));
+            }
+        }
+        if let Some(text) = birthday_text {
+            if !text.trim().is_empty() && Birthday::parse(text).is_none() {
+                out.push(format!("\"{}\" is not a date (DD.MM.YYYY, or DD.MM. without a year).", text.trim()));
+            }
+        }
+        out
     }
 
     /// Reads one card.
     #[must_use]
     pub fn from_card(card: &Card) -> Contact {
-        todo!("RED: from_card")
+        let mut c = Contact::default();
+        // Apple's grouped labels: item1.X-ABLabel names item1.TEL.
+        let ab_labels: Vec<(String, String)> = card
+            .properties
+            .iter()
+            .filter(|p| p.name == "X-ABLABEL")
+            .filter_map(|p| p.group.clone().map(|g| (g, clean_ab_label(&p.text()))))
+            .collect();
+        let label_for = |p: &Property| -> String {
+            if let Some(g) = &p.group {
+                if let Some((_, l)) = ab_labels.iter().find(|(lg, _)| lg == g) {
+                    return if l == "cell" || l == "iphone" { "mobile".to_string() } else { l.clone() };
+                }
+            }
+            label_of_types(&p.types()).unwrap_or_else(|| "other".to_string())
+        };
+        let mut used_groups: Vec<String> = Vec::new();
+        for p in &card.properties {
+            let mut used = true;
+            match p.name.as_str() {
+                "FN" => c.formatted = p.text(),
+                "N" => {
+                    let parts = p.components();
+                    let part = |i: usize| parts.get(i).cloned().unwrap_or_default();
+                    c.family = part(0);
+                    c.given = part(1);
+                    c.additional = part(2);
+                    c.prefix = part(3);
+                    c.suffix = part(4);
+                }
+                "NICKNAME" => c.nickname = p.list().join(", "),
+                "ORG" => {
+                    let parts = p.components();
+                    c.org = parts.first().cloned().unwrap_or_default();
+                    c.department = parts.get(1..).map(|r| r.join(", ")).unwrap_or_default();
+                }
+                "TITLE" => c.title = p.text(),
+                "TEL" => {
+                    let raw = p.text();
+                    let value = raw.strip_prefix("tel:").unwrap_or(&raw).to_string();
+                    c.phones.push(Labeled { label: label_for(p), value });
+                }
+                "EMAIL" => {
+                    let raw = p.text();
+                    let value = raw.strip_prefix("mailto:").unwrap_or(&raw).to_string();
+                    c.emails.push(Labeled { label: label_for(p), value });
+                }
+                "ADR" => {
+                    let parts = p.components();
+                    let part = |i: usize| parts.get(i).cloned().unwrap_or_default();
+                    c.addresses.push(Address {
+                        label: label_for(p),
+                        po_box: part(0),
+                        extended: part(1),
+                        street: part(2),
+                        locality: part(3),
+                        region: part(4),
+                        postcode: part(5),
+                        country: part(6),
+                    });
+                }
+                "URL" => c.urls.push(Labeled {
+                    label: label_for(p),
+                    value: p.text(),
+                }),
+                "BDAY" => {
+                    c.birthday = Birthday::parse(&p.value).map(|mut b| {
+                        // Apple stores a birthday without a year as 1604.
+                        if p.param("X-APPLE-OMIT-YEAR").is_some() {
+                            b.year = None;
+                        }
+                        b
+                    });
+                    if c.birthday.is_none() {
+                        used = false;
+                    }
+                }
+                "NOTE" => {
+                    if !c.notes.is_empty() {
+                        c.notes.push('\n');
+                    }
+                    c.notes.push_str(&p.text());
+                }
+                "PHOTO" => {
+                    let encoded = p
+                        .param("ENCODING")
+                        .is_some_and(|v| v.iter().any(|e| e.eq_ignore_ascii_case("b") || e.eq_ignore_ascii_case("base64")));
+                    c.photo = if encoded {
+                        let subtype = p
+                            .types()
+                            .first()
+                            .cloned()
+                            .unwrap_or_else(|| "jpeg".to_string())
+                            .trim_start_matches("image/")
+                            .to_string();
+                        format!("data:image/{subtype};base64,{}", p.value.trim())
+                    } else {
+                        p.value.trim().to_string()
+                    };
+                }
+                "CATEGORIES" => {
+                    for g in p.list() {
+                        if !c.groups.contains(&g) {
+                            c.groups.push(g);
+                        }
+                    }
+                }
+                "UID" => {
+                    let v = p.text();
+                    c.uid = v.strip_prefix("urn:uuid:").unwrap_or(&v).to_string();
+                }
+                "X-AZLIN-FAVORITE" => c.favorite = p.text().trim().eq_ignore_ascii_case("true"),
+                "X-AZLIN-FIELD" => c.custom.push(Labeled {
+                    label: p.param("X-LABEL").and_then(|v| v.first().cloned()).unwrap_or_default(),
+                    value: p.text(),
+                }),
+                // Written fresh every time.
+                "PRODID" | "REV" | "KIND" => {}
+                "X-ABLABEL" => used = false,
+                _ => used = false,
+            }
+            if used {
+                if let Some(g) = &p.group {
+                    used_groups.push(g.clone());
+                }
+            }
+        }
+        // Everything else is kept, except the labels that were applied.
+        for p in &card.properties {
+            let known = matches!(
+                p.name.as_str(),
+                "FN" | "N" | "NICKNAME" | "ORG" | "TITLE" | "TEL" | "EMAIL" | "ADR" | "URL" | "NOTE" | "PHOTO"
+                    | "CATEGORIES" | "UID" | "X-AZLIN-FAVORITE" | "X-AZLIN-FIELD" | "PRODID" | "REV" | "KIND"
+            ) || (p.name == "BDAY" && c.birthday.is_some());
+            let applied_label = p.name == "X-ABLABEL"
+                && p.group.as_ref().is_some_and(|g| used_groups.contains(g));
+            if !known && !applied_label {
+                c.extra.push(p.clone());
+            }
+        }
+        // An FN that only repeats what the name parts (or the company) say is not kept apart.
+        let fn_text = std::mem::take(&mut c.formatted);
+        if c.display_name() != fn_text.trim() {
+            c.formatted = fn_text;
+        }
+        c
     }
 
     /// The card of this contact in `version`.
     #[must_use]
     pub fn to_card(&self, version: Version) -> Card {
-        todo!("RED: to_card")
+        let mut props = Vec::new();
+        let fn_text = if nonempty(&self.formatted).is_some() && self.composed_name().is_empty() {
+            self.formatted.trim().to_string()
+        } else {
+            self.display_name()
+        };
+        if version == Version::V4 && self.is_company() {
+            props.push(Property::new("KIND", "org"));
+        }
+        props.push(Property::text_value("FN", &fn_text));
+        props.push(Property::new(
+            "N",
+            &[&self.family, &self.given, &self.additional, &self.prefix, &self.suffix]
+                .iter()
+                .map(|s| escape_text(s))
+                .collect::<Vec<_>>()
+                .join(";"),
+        ));
+        if let Some(n) = nonempty(&self.nickname) {
+            props.push(Property::text_value("NICKNAME", n));
+        }
+        if nonempty(&self.org).is_some() || nonempty(&self.department).is_some() {
+            let mut value = escape_text(self.org.trim());
+            if let Some(d) = nonempty(&self.department) {
+                value.push(';');
+                value.push_str(&escape_text(d));
+            }
+            props.push(Property::new("ORG", &value));
+        }
+        if let Some(t) = nonempty(&self.title) {
+            props.push(Property::text_value("TITLE", t));
+        }
+        for p in self.phones.iter().filter(|p| nonempty(&p.value).is_some()) {
+            let t = type_of_label(&p.label, version, true);
+            let types: Vec<&str> = if version == Version::V3 { vec![t.as_str(), "VOICE"] } else { vec![t.as_str()] };
+            let types: Vec<&str> = if t.eq_ignore_ascii_case("fax") || t.eq_ignore_ascii_case("pager") {
+                vec![t.as_str()]
+            } else {
+                types
+            };
+            props.push(Property::text_value("TEL", p.value.trim()).with_param("TYPE", &types));
+        }
+        for e in self.emails.iter().filter(|e| nonempty(&e.value).is_some()) {
+            let t = type_of_label(&e.label, version, false);
+            let types: Vec<&str> = if version == Version::V3 { vec!["INTERNET", t.as_str()] } else { vec![t.as_str()] };
+            props.push(Property::text_value("EMAIL", e.value.trim()).with_param("TYPE", &types));
+        }
+        for a in self.addresses.iter().filter(|a| !a.is_empty()) {
+            let value = [&a.po_box, &a.extended, &a.street, &a.locality, &a.region, &a.postcode, &a.country]
+                .iter()
+                .map(|s| escape_text(s.trim()))
+                .collect::<Vec<_>>()
+                .join(";");
+            let t = type_of_label(&a.label, version, false);
+            props.push(Property::new("ADR", &value).with_param("TYPE", &[t.as_str()]));
+        }
+        for u in self.urls.iter().filter(|u| nonempty(&u.value).is_some()) {
+            let t = type_of_label(&u.label, version, false);
+            props.push(Property::text_value("URL", u.value.trim()).with_param("TYPE", &[t.as_str()]));
+        }
+        if let Some(b) = &self.birthday {
+            props.push(Property::new("BDAY", &b.to_vcard(version)));
+        }
+        if let Some(n) = nonempty(&self.notes) {
+            props.push(Property::text_value("NOTE", n));
+        }
+        if let Some(photo) = nonempty(&self.photo) {
+            props.push(photo_property(photo, version));
+        }
+        if !self.groups.is_empty() {
+            let value = self.groups.iter().map(|g| escape_text(g)).collect::<Vec<_>>().join(",");
+            props.push(Property::new("CATEGORIES", &value));
+        }
+        if self.favorite {
+            props.push(Property::new("X-AZLIN-FAVORITE", "true"));
+        }
+        for f in self.custom.iter().filter(|f| nonempty(&f.value).is_some()) {
+            props.push(Property::text_value("X-AZLIN-FIELD", f.value.trim()).with_param("X-LABEL", &[f.label.trim()]));
+        }
+        props.extend(self.extra.iter().cloned());
+        if !self.uid.is_empty() {
+            let uid = if version == Version::V4 && azul_appkit::data::is_uuid(&self.uid) {
+                format!("urn:uuid:{}", self.uid)
+            } else {
+                self.uid.clone()
+            };
+            props.push(Property::text_value("UID", &uid));
+        }
+        props.push(Property::text_value("PRODID", "-//Azlin//AzContacts//EN"));
+        Card {
+            version,
+            properties: props,
+        }
     }
 
     /// The contact as `.vcf` text.
@@ -234,8 +600,22 @@ impl Contact {
 
 /// PHOTO: 4.0 a URI (`data:` or a link); 3.0 inline base64 with ENCODING=b, or VALUE=uri.
 fn photo_property(photo: &str, version: Version) -> Property {
-        todo!("RED: photo_property")
+    if version == Version::V4 {
+        return Property::new("PHOTO", photo);
     }
+    if let Some(rest) = photo.strip_prefix("data:") {
+        if let Some((meta, data)) = rest.split_once(',') {
+            if meta.ends_with(";base64") {
+                let subtype = meta
+                    .trim_end_matches(";base64")
+                    .trim_start_matches("image/")
+                    .to_uppercase();
+                return Property::new("PHOTO", data).with_param("ENCODING", &["b"]).with_param("TYPE", &[subtype.as_str()]);
+            }
+        }
+    }
+    Property::new("PHOTO", photo).with_param("VALUE", &["uri"])
+}
 
 /// Every contact of a `.vcf` text, and what could not be read.
 #[must_use]
