@@ -1234,7 +1234,7 @@ fn generate_addition_patch(addition: &diff::TypeAddition) -> String {
         // A type under `widgets::` belongs to the widgets module; without
         // this the apply side guessed from the name and put AccordionVariant
         // in `dom` (2026-10-01). Everything else keeps the name-based choice.
-        module: function_diff::widget_module_for(&addition.type_name, &addition.full_path),
+        module: module_map::widget_module_for(&addition.type_name, &addition.full_path),
         kind,
         derives,
         repr_c: Some(true), // All API types should have repr(C)

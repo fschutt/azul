@@ -774,13 +774,18 @@ impl AutofixPatch {
                         external: Some(p.new_path.clone()),
                         ..Default::default()
                     };
-                    let (module_name, warn) = determine_module(&p.type_name);
-                    if warn {
-                        eprintln!(
-                            "Warning: Could not determine module for '{}', using 'misc'",
-                            p.type_name
-                        );
-                    }
+                    // Like a modify: the module the type is in, not a guess
+                    // from its name (a guess makes a second, empty class).
+                    let module_name = find_existing_module(&p.type_name).unwrap_or_else(|| {
+                        let (module, warn) = determine_module(&p.type_name);
+                        if warn {
+                            eprintln!(
+                                "Warning: Could not determine module for '{}', using 'misc'",
+                                p.type_name
+                            );
+                        }
+                        module
+                    });
                     insert_class_patch(
                         &mut api_patch,
                         API_VERSION,

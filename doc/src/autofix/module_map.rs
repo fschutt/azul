@@ -834,6 +834,45 @@ pub fn determine_module(type_name: &str) -> (String, bool) {
     (module.to_string(), !keyword_is_whole_word(type_name, keyword))
 }
 
+/// THE module of a type whose source is a widget (`azul_layout::widgets::`),
+/// used by every path that places or checks a widget type (the add command,
+/// the scan's additions, the scan's move check) - two rules used to disagree,
+/// so the scan moved callback wrappers the add had put in `dom` out to
+/// `shells` and the next modify landed in an empty stub (2026-10-01).
+/// Widget types live in `widgets` (the app shells in `shells`) EXCEPT the
+/// by-concern types, which match the established placement: `*CallbackType`
+/// -> callbacks, `*Callback` -> dom, `Option*` -> option, the `*Vec` family
+/// -> vec (a `*VecSlice` stays with its widget). `None` for a non-widget
+/// path: the caller falls back to `determine_module`.
+pub fn widget_module_for(type_name: &str, full_path: &str) -> Option<String> {
+    if !full_path.starts_with("azul_layout::widgets::") {
+        return None;
+    }
+    let lower = type_name.to_lowercase();
+    let module = if type_name.ends_with("CallbackType") {
+        "callbacks"
+    } else if type_name.ends_with("Callback") {
+        "dom"
+    } else if type_name.starts_with("Option") {
+        "option"
+    } else if lower.ends_with("vec")
+        || lower.ends_with("vecdestructor")
+        || lower.ends_with("vecdestructortype")
+        || lower.ends_with("vecref")
+        || lower.ends_with("vecrefmut")
+    {
+        "vec"
+    } else if full_path.starts_with("azul_layout::widgets::shells::") {
+        // The app shells (OfficeShell, ShellNavigationPane, the S1..S11
+        // shells) have a module of their own, apart from the smaller
+        // widgets: `from azul.shells import ShellNavigationPane`.
+        "shells"
+    } else {
+        "widgets"
+    };
+    Some(module.to_string())
+}
+
 /// Check if a type is in the correct module and return the correct module if not.
 /// Uses the external path (if available) as the primary signal, falling back to
 /// keyword-based `determine_module` if no external path is provided.
@@ -881,6 +920,11 @@ pub fn get_correct_module_with_path(
     // `HidDeviceVec` from `vec`.
     if let Some(forced) = difficult_type_module(type_name) {
         return (forced != current_module).then(|| forced.to_string());
+    }
+
+    // A widget type is placed by the one widget rule, never by keywords.
+    if let Some(module) = external_path.and_then(|p| widget_module_for(type_name, p)) {
+        return (module != current_module).then_some(module);
     }
 
     // If the external path CONFIRMS the current module, the type is correctly
@@ -1222,6 +1266,34 @@ mod tests {
                 Some("azul_layout::widgets::accordion::AccordionVariant"),
             ),
             None
+        );
+    }
+
+    /// The scan's move check and the add command place widget types by the
+    /// same rule: a shell's callback wrapper stays in dom, its typedef in
+    /// callbacks, its Vec in vec, the shell itself in shells.
+    #[test]
+    fn the_move_check_uses_the_widget_rule_of_the_add_command() {
+        let path = |t: &str| format!("azul_layout::widgets::shells::command_palette::{t}");
+        for (name, module) in [
+            ("ShellCommandPaletteOnRunCallback", "dom"),
+            ("ShellCommandPaletteOnRunCallbackType", "callbacks"),
+            ("OptionShellCommandPaletteOnRun", "option"),
+            ("ShellPaletteCommandVec", "vec"),
+            ("ShellPaletteCommandVecSlice", "shells"),
+            ("ShellCommandPalette", "shells"),
+        ] {
+            assert_eq!(widget_module_for(name, &path(name)).as_deref(), Some(module), "{name}");
+            assert_eq!(get_correct_module_with_path(name, module, Some(&path(name))), None, "{name}");
+        }
+        assert_eq!(
+            get_correct_module_with_path(
+                "ShellCommandPaletteOnRunCallback",
+                "shells",
+                Some(&path("ShellCommandPaletteOnRunCallback"))
+            )
+            .as_deref(),
+            Some("dom")
         );
     }
 
