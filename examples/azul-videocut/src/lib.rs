@@ -192,6 +192,8 @@ struct ExportState {
 /// Everything the window shows and its jobs share.
 pub struct App {
     drive: Arc<dyn Drive>,
+    /// Where the drive is, for the settings.
+    drive_root: String,
     files: Arc<MediaFiles>,
     args: Args,
     project: Option<Project>,
@@ -1020,7 +1022,723 @@ extern "C" fn playback_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> Ti
     }
 }
 
-// ==== PIECE D: layout ====
+// ==== layout ====
+//
+// The panes' own surfaces are `system:` colours (they follow the mode); the
+// chrome is azul's widgets, which follow the app theme (flat / flora) and
+// the mode themselves.
+
+const ROOT_CSS: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;";
+const PANE_CSS: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
+     min-width: 0px; padding: 6px; background-color: system:window-background;";
+const PANE_TITLE_CSS: &str = "font-size: 12px; font-weight: bold; color: system:secondary-text; \
+     padding: 0px 2px 6px 2px; user-select: none;";
+const STAGE_CSS: &str = "display: flex; flex-grow: 1; min-height: 120px; background-color: #000000; \
+     overflow: hidden;";
+const IMAGE_CSS: &str = "width: 100%; height: 100%;";
+const ROW_CSS: &str = "display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; \
+     padding-top: 6px;";
+const GAP_CSS: &str = "margin-right: 6px;";
+const TC_CSS: &str = "font-size: 13px; font-family: system:monospace; color: system:text; \
+     margin-right: 10px; user-select: none;";
+const NOTE_CSS: &str = "font-size: 11px; color: system:secondary-text; user-select: none;";
+const LIST_CSS: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
+     overflow-y: auto;";
+const BIN_ITEM_CSS: &str = "display: flex; flex-direction: row; align-items: center; padding: 4px; \
+     margin-bottom: 2px; border-radius: 4px; cursor: pointer;";
+const BIN_ITEM_SELECTED_CSS: &str = "background-color: system:selection-background;";
+const BIN_THUMB_CSS: &str = "width: 64px; height: 36px; margin-right: 8px; background-color: #000000;";
+const BIN_NAME_CSS: &str = "font-size: 12px; color: system:text; user-select: none;";
+const FIELD_CSS: &str = "display: flex; flex-direction: row; align-items: center; padding: 2px 0px;";
+const FIELD_LABEL_CSS: &str = "font-size: 12px; color: system:secondary-text; width: 92px; \
+     user-select: none;";
+const METERS_CSS: &str = "display: flex; flex-direction: column; align-items: center; width: 56px; \
+     padding: 6px 4px; background-color: system:window-background;";
+const METER_ROW_CSS: &str = "display: flex; flex-direction: row; flex-grow: 1; min-height: 40px; \
+     margin: 6px 0px;";
+const METER_CSS: &str = "width: 8px; margin: 0px 3px; background-color: system:control-background; \
+     border-radius: 2px;";
+const TOOLBAR_CSS: &str = "display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; \
+     padding: 4px 8px; background-color: system:window-background;";
+const TIMELINE_HOST_CSS: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;";
+const DIALOG_BODY_CSS: &str = "display: flex; flex-direction: column; min-width: 420px; padding: 4px;";
+
+/// What a pane title or a note says, as a paragraph.
+fn text(t: &str, css: &str) -> Dom {
+    Dom::create_p_with_text(t).with_css(css)
+}
+
+/// A pane: its title over its content.
+fn pane(title: &str, content: Vec<Dom>) -> Dom {
+    let mut d = Dom::create_div().with_css(PANE_CSS).with_child(text(title, PANE_TITLE_CSS));
+    for c in content {
+        d.add_child(c);
+    }
+    d
+}
+
+/// A button calling `cb` with the app.
+fn button(label: &str, app_ref: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
+    Button::create(label)
+        .with_on_click(app_ref.clone(), cb)
+        .dom()
+        .with_css(GAP_CSS)
+}
+
+/// A primary button calling `cb` with the app.
+fn primary(label: &str, app_ref: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
+    Button::with_type(label, ButtonType::Primary)
+        .with_on_click(app_ref.clone(), cb)
+        .dom()
+        .with_css(GAP_CSS)
+}
+
+/// A row of controls.
+fn row(children: Vec<Dom>) -> Dom {
+    let mut d = Dom::create_div().with_css(ROW_CSS);
+    for c in children {
+        d.add_child(c);
+    }
+    d
+}
+
+/// A picture for an image node: the canvas, or an empty one.
+fn monitor_image(picture: Option<&Canvas>, marker: &str, size: (u32, u32)) -> Dom {
+    let image = picture
+        .and_then(image_of)
+        .unwrap_or_else(|| blank_image(size.0, size.1));
+    Dom::create_image(image)
+        .with_marker(OptionString::Some(AzString::from(marker)))
+        .with_css(IMAGE_CSS)
+}
+
+extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    let mode = info.get_mode();
+    let width = info.get_window_width();
+    let theme = info.get_theme();
+    let app_ref = data.clone();
+    let Some(mut guard) = data.downcast_mut::<App>() else {
+        return Dom::create_body();
+    };
+    let app = &mut *guard;
+    app.window_width = width;
+    app.dark = matches!(mode, DarkLightMode::Dark);
+    app.flora = theme.as_str() == "flora";
+
+    let main = if app.loading {
+        ShellEmptyState::create("Opening the project...")
+            .with_icon("hourglass_empty")
+            .dom()
+    } else if app.project.is_none() {
+        empty_state(&app_ref)
+    } else {
+        editor(app, &app_ref)
+    };
+    let mut column = Dom::create_div().with_css(ROOT_CSS).with_child(main);
+    if app.project.is_some() && app.export.open {
+        column.add_child(export_dialog(app, &app_ref));
+    }
+    if app.settings_open {
+        column.add_child(settings_dialog(app, &app_ref));
+    }
+    if app.about_open {
+        column.add_child(about_dialog(&app_ref));
+    }
+    Dom::create_body()
+        .with_css("display: flex; flex-direction: column;")
+        .with_child(
+            ShellThemeScope::create(column)
+                .with_accent(ShellThemeAccent::Slate)
+                .dom(),
+        )
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::VirtualKeyDown),
+            app_ref.clone(),
+            on_key,
+        )
+}
+
+/// No project yet: make the sample or start an empty one.
+fn empty_state(app_ref: &RefAny) -> Dom {
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; align-items: center; justify-content: center;")
+        .with_child(Titlebar::create("AzVideoCut").without_border_bottom().dom())
+        .with_child(
+            ShellEmptyState::create("No project yet")
+                .with_icon("movie")
+                .with_detail(
+                    "Make the sample project (generated clips, encoded to MP4 where this \
+                     machine can), or start an empty project and import MP4 files.",
+                )
+                .with_action_label("Make the sample project")
+                .with_on_action(app_ref.clone(), on_make_sample as ButtonOnClickCallbackType)
+                .dom(),
+        )
+        .with_child(row(vec![button("New empty project", app_ref, on_new_project)]))
+}
+
+/// The editor: the S3 shell, the menu row, the meters, the status bar.
+fn editor(app: &App, app_ref: &RefAny) -> Dom {
+    TimelineShell::create(
+        media_pane(app, app_ref),
+        source_pane(app, app_ref),
+        program_pane(app, app_ref),
+        inspector_pane(app, app_ref),
+        timeline_pane(app, app_ref),
+    )
+    .with_menu_bar(menu_row(app, app_ref))
+    .with_meters(meters())
+    .office_shell()
+    .with_status_bar(status_bar(app))
+    .dom()
+}
+
+/// The title row (the window is `NoTitle`) over the tools.
+fn menu_row(app: &App, app_ref: &RefAny) -> Dom {
+    let name = app.project.as_ref().map_or("", |p| p.name.as_str());
+    let tools: Vec<AzString> = Tool::ALL.iter().map(|t| AzString::from(t.label())).collect();
+    let undo = app
+        .project
+        .as_ref()
+        .and_then(Project::undo_label)
+        .map_or_else(|| String::from("Undo"), |l| format!("Undo {l}"));
+    let redo = app
+        .project
+        .as_ref()
+        .and_then(Project::redo_label)
+        .map_or_else(|| String::from("Redo"), |l| format!("Redo {l}"));
+    let toolbar = Dom::create_div()
+        .with_css(TOOLBAR_CSS)
+        .with_child(
+            Segmented::create(StringVec::from(tools))
+                .with_selected_index(app.tool.index())
+                .with_on_change(app_ref.clone(), on_tool as SegmentedOnChangeCallbackType)
+                .dom()
+                .with_css(GAP_CSS),
+        )
+        .with_child(button(if app.snapping { "Snap: on (S)" } else { "Snap: off (S)" }, app_ref, on_snap))
+        .with_child(button(&undo, app_ref, on_undo))
+        .with_child(button(&redo, app_ref, on_redo))
+        .with_child(button("Import...", app_ref, on_import))
+        .with_child(primary("Export...", app_ref, on_export_open))
+        .with_child(button("Settings", app_ref, on_settings_open))
+        .with_child(button(if app.flora { "Theme: Flora" } else { "Theme: Flat" }, app_ref, on_theme_toggle))
+        .with_child(button(if app.dark { "Mode: Dark" } else { "Mode: Light" }, app_ref, on_mode_toggle));
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column;")
+        .with_child(
+            Titlebar::create(format!("AzVideoCut - {name}"))
+                .without_border_bottom()
+                .dom(),
+        )
+        .with_child(toolbar)
+}
+
+/// "00:00:04:00 - 640 x 360 - H.264" for the bin.
+fn media_line(app: &App, m: &MediaItem) -> String {
+    format!("{} - {} x {} - {}", app.timecode(m.frames), m.width, m.height, m.codec)
+}
+
+/// The media bin.
+fn media_pane(app: &App, app_ref: &RefAny) -> Dom {
+    let Some(project) = app.project.as_ref() else {
+        return pane("Project", Vec::new());
+    };
+    let mut list = Dom::create_div().with_css(LIST_CSS);
+    if project.media.is_empty() {
+        list.add_child(
+            ShellEmptyState::create("No media")
+                .with_icon("perm_media")
+                .with_detail("Import MP4 files (Ctrl+I).")
+                .with_action_label("Import...")
+                .with_on_action(app_ref.clone(), on_import as ButtonOnClickCallbackType)
+                .dom(),
+        );
+    }
+    for m in &project.media {
+        let selected = app.selected_media == Some(m.id);
+        let thumb = match app.thumbs.get(&m.id) {
+            Some(image) => Dom::create_image(image.clone()).with_css(BIN_THUMB_CSS),
+            None => Dom::create_div().with_css(BIN_THUMB_CSS),
+        };
+        let item_data = RefAny::new(BinItem {
+            app: app_ref.clone(),
+            media: m.id,
+        });
+        let css = if selected {
+            format!("{BIN_ITEM_CSS} {BIN_ITEM_SELECTED_CSS}")
+        } else {
+            String::from(BIN_ITEM_CSS)
+        };
+        list.add_child(
+            Dom::create_div()
+                .with_css(css.as_str())
+                .with_child(thumb)
+                .with_child(
+                    Dom::create_div()
+                        .with_css("display: flex; flex-direction: column; min-width: 0px;")
+                        .with_child(text(&m.name, BIN_NAME_CSS))
+                        .with_child(text(&media_line(app, m), NOTE_CSS)),
+                )
+                .with_callback(
+                    EventFilter::Hover(HoverEventFilter::MouseUp),
+                    item_data.clone(),
+                    on_bin_click,
+                )
+                .with_callback(
+                    EventFilter::Hover(HoverEventFilter::DoubleClick),
+                    item_data,
+                    on_bin_open,
+                ),
+        );
+    }
+    pane(
+        &format!("Project: {}", project.name),
+        vec![
+            list,
+            row(vec![
+                button("Import...", app_ref, on_import),
+                button("Open in source", app_ref, on_bin_open_selected),
+            ]),
+        ],
+    )
+}
+
+/// The source monitor: the media's picture, its position, its marks.
+fn source_pane(app: &App, app_ref: &RefAny) -> Dom {
+    let media = app
+        .source
+        .and_then(|marks| app.project.as_ref().and_then(|p| p.media(marks.media)));
+    let Some((marks, media)) = app.source.zip(media) else {
+        return pane(
+            "Source",
+            vec![
+                Dom::create_div().with_css(STAGE_CSS).with_child(monitor_image(
+                    None,
+                    SOURCE_IMAGE,
+                    (MONITOR_W, MONITOR_H),
+                )),
+                text("Double-click an item of the bin to open it here.", NOTE_CSS),
+            ],
+        );
+    };
+    let picture = app
+        .source_frame
+        .as_ref()
+        .filter(|(m, _, _)| *m == marks.media)
+        .map(|(_, _, c)| c);
+    let mark = |f: Option<Frame>| f.map_or_else(|| String::from("--"), |f| app.timecode(f));
+    #[allow(clippy::cast_precision_loss)]
+    let slider = Slider::create(marks.position as f32, 0.0, (media.frames - 1).max(1) as f32)
+        .with_on_value_change(app_ref.clone(), on_source_slider as SliderOnValueChangeCallbackType)
+        .with_accessibility_name("Source position")
+        .dom();
+    let active = if app.active == Monitor::Source { " (active)" } else { "" };
+    pane(
+        &format!("Source: {}{active}", media.name),
+        vec![
+            Dom::create_div()
+                .with_css(STAGE_CSS)
+                .with_child(monitor_image(picture, SOURCE_IMAGE, (MONITOR_W, MONITOR_H)))
+                .with_callback(
+                    EventFilter::Hover(HoverEventFilter::MouseDown),
+                    app_ref.clone(),
+                    on_activate_source,
+                ),
+            slider,
+            row(vec![
+                text(
+                    &format!(
+                        "{}  In {}  Out {}",
+                        app.timecode(marks.position),
+                        mark(marks.mark_in),
+                        mark(marks.mark_out)
+                    ),
+                    TC_CSS,
+                ),
+            ]),
+            row(vec![
+                button("Mark In (I)", app_ref, on_source_in),
+                button("Mark Out (O)", app_ref, on_source_out),
+                button("Insert (,)", app_ref, on_insert),
+                button("Overwrite (.)", app_ref, on_overwrite),
+            ]),
+        ],
+    )
+}
+
+/// The program monitor: the sequence at the playhead and the transport.
+fn program_pane(app: &App, app_ref: &RefAny) -> Dom {
+    let name = app.project.as_ref().map_or("", |p| p.sequence.name.as_str());
+    let picture = app.program_frame.as_ref().map(|(_, c)| c);
+    let playing = app.playback.is_some();
+    let mark = |f: Option<Frame>| f.map_or_else(|| String::from("--"), |f| app.timecode(f));
+    let active = if app.active == Monitor::Program { " (active)" } else { "" };
+    pane(
+        &format!("Program: {name}{active}"),
+        vec![
+            Dom::create_div()
+                .with_css(STAGE_CSS)
+                .with_child(monitor_image(picture, PROGRAM_IMAGE, app.monitor_size()))
+                .with_callback(
+                    EventFilter::Hover(HoverEventFilter::MouseDown),
+                    app_ref.clone(),
+                    on_activate_program,
+                ),
+            row(vec![
+                Dom::create_p_with_text(app.timecode(app.playhead).as_str())
+                    .with_css(TC_CSS)
+                    .with_marker(OptionString::Some(AzString::from(PROGRAM_TC))),
+                text(
+                    &format!(
+                        "/ {}  In {}  Out {}",
+                        app.timecode(app.end()),
+                        mark(app.program_in),
+                        mark(app.program_out)
+                    ),
+                    NOTE_CSS,
+                ),
+            ]),
+            row(vec![
+                button("|<", app_ref, on_go_start),
+                button("< Frame", app_ref, on_step_back),
+                primary(if playing { "Pause (K)" } else { "Play (L)" }, app_ref, on_play_toggle),
+                button("Frame >", app_ref, on_step_forward),
+                button(">|", app_ref, on_go_end),
+                button("In (I)", app_ref, on_program_in),
+                button("Out (O)", app_ref, on_program_out),
+            ]),
+            text("Space plays and pauses; J / K / L shuttle; Home / End; Up / Down jump to edits.", NOTE_CSS),
+        ],
+    )
+}
+
+/// One numeric effect control.
+fn effect_field(app_ref: &RefAny, clip: u64, field: EffectField, value: f32) -> Dom {
+    Dom::create_div()
+        .with_css(FIELD_CSS)
+        .with_child(text(field.label(), FIELD_LABEL_CSS))
+        .with_child(
+            NumberInput::create(value)
+                .with_on_value_change(
+                    RefAny::new(EffectInput {
+                        app: app_ref.clone(),
+                        clip,
+                        field,
+                    }),
+                    on_effect_value as NumberInputOnValueChangeCallbackType,
+                )
+                .with_accessibility_name(field.label())
+                .dom(),
+        )
+}
+
+/// The effect controls of the selected clip.
+fn inspector_pane(app: &App, app_ref: &RefAny) -> Dom {
+    let clip = app.selected.first().and_then(|id| {
+        app.project
+            .as_ref()
+            .and_then(|p| p.sequence.clip(*id).map(|c| (c.clone(), p.media(c.media).map(|m| m.name.clone()))))
+    });
+    let Some((clip, name)) = clip else {
+        return pane(
+            "Effect Controls",
+            vec![ShellEmptyState::create("No clip selected")
+                .with_icon("tune")
+                .with_detail("Select a clip in the timeline to set its position, scale, opacity, crop and transition.")
+                .dom()],
+        );
+    };
+    let e = clip.effects;
+    let mut content = vec![text(
+        &format!(
+            "{} - {} to {}",
+            name.unwrap_or_default(),
+            app.timecode(clip.start),
+            app.timecode(clip.end())
+        ),
+        BIN_NAME_CSS,
+    )];
+    for (field, value) in [
+        (EffectField::X, e.x),
+        (EffectField::Y, e.y),
+        (EffectField::Scale, e.scale * 100.0),
+        (EffectField::Opacity, e.opacity * 100.0),
+        (EffectField::CropLeft, e.crop_left * 100.0),
+        (EffectField::CropRight, e.crop_right * 100.0),
+        (EffectField::CropTop, e.crop_top * 100.0),
+        (EffectField::CropBottom, e.crop_bottom * 100.0),
+    ] {
+        content.push(effect_field(app_ref, clip.id, field, value));
+    }
+    let kind = match clip.transition.map(|t| t.kind) {
+        None => 0,
+        Some(TransitionKind::CrossDissolve) => 1,
+        Some(TransitionKind::DipToBlack) => 2,
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let frames = clip.transition.map_or(12, |t| t.frames) as f32;
+    content.push(text("Transition at the clip's head", FIELD_LABEL_CSS));
+    content.push(
+        Segmented::create(StringVec::from(vec![
+            AzString::from("None"),
+            AzString::from("Cross dissolve"),
+            AzString::from("Dip to black"),
+        ]))
+        .with_selected_index(kind)
+        .with_on_change(app_ref.clone(), on_transition_kind as SegmentedOnChangeCallbackType)
+        .dom(),
+    );
+    content.push(effect_field(app_ref, clip.id, EffectField::TransitionFrames, frames));
+    content.push(row(vec![
+        button(if clip.enabled { "Disable clip" } else { "Enable clip" }, app_ref, on_toggle_enabled),
+        button("Reset effects", app_ref, on_reset_effects),
+    ]));
+    pane("Effect Controls", content)
+}
+
+/// The timeline: azul's Timeline widget over the sequence. The wheel over
+/// it is the app's (the widget leaves it to the page): it scrolls the view,
+/// with Ctrl / Cmd it zooms.
+fn timeline_pane(app: &App, app_ref: &RefAny) -> Dom {
+    let Some(project) = app.project.as_ref() else {
+        return Dom::create_div();
+    };
+    let secs = |f: Frame| app.seconds(f);
+    let tracks: Vec<TimelineTrack> = project
+        .sequence
+        .tracks
+        .iter()
+        .map(|t| {
+            let kind = match t.kind {
+                TrackKind::Video => TimelineTrackKind::Video,
+                TrackKind::Audio => TimelineTrackKind::Audio,
+            };
+            let clips: Vec<TimelineClip> = t
+                .clips
+                .iter()
+                .map(|c| {
+                    let media = project.media(c.media);
+                    let name = media.map_or_else(|| String::from("(missing media)"), |m| m.name.clone());
+                    let tint = match (t.kind, media.map(|m| &m.source)) {
+                        (TrackKind::Audio, _) => TimelineClipTint::Audio,
+                        (_, Some(MediaSource::Generated { pattern: model::Pattern::Matte { .. } })) => {
+                            TimelineClipTint::Title
+                        }
+                        _ => TimelineClipTint::Video,
+                    };
+                    let mut clip = TimelineClip::create(c.id, secs(c.start), secs(c.length), name.as_str())
+                        .with_selected(app.selected.contains(&c.id))
+                        .with_tint(tint)
+                        .with_disabled(!c.enabled);
+                    if let Some(tr) = c.transition {
+                        clip = clip.with_detail(match tr.kind {
+                            TransitionKind::CrossDissolve => "Cross dissolve",
+                            TransitionKind::DipToBlack => "Dip to black",
+                        });
+                    }
+                    if let Some(image) = app.thumbs.get(&c.media) {
+                        clip = clip.with_thumbnail(image.clone());
+                    }
+                    clip
+                })
+                .collect();
+            TimelineTrack::create(t.id, t.name.as_str(), kind)
+                .with_clips(TimelineClipVec::from(clips))
+                .with_muted(t.hidden)
+                .with_locked(t.locked)
+        })
+        .collect();
+    let duration = (app.seconds(project.sequence.end()) + 10.0).max(30.0);
+    let timeline = Timeline::create(TimelineTrackVec::from(tracks), duration)
+        .with_playhead(app.seconds(app.playhead))
+        .with_view(app.view_start, app.pps)
+        .with_view_width((app.window_width - 180.0).max(400.0))
+        .with_fps(app.fps() as f32)
+        .with_snapping(app.snapping)
+        .with_on_event(app_ref.clone(), on_timeline as TimelineOnEventCallbackType)
+        .dom();
+    Dom::create_div()
+        .with_css(TIMELINE_HOST_CSS)
+        .with_child(timeline)
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::Scroll),
+            app_ref.clone(),
+            on_timeline_wheel,
+        )
+}
+
+/// The audio meters. azul decodes no audio (AudioSink plays PCM, there is
+/// no audio decoder), so the A tracks hold clips that play silent and the
+/// meters say so.
+fn meters() -> Dom {
+    Dom::create_div()
+        .with_css(METERS_CSS)
+        .with_child(text("L  R", NOTE_CSS))
+        .with_child(
+            Dom::create_div()
+                .with_css(METER_ROW_CSS)
+                .with_child(Dom::create_div().with_css(METER_CSS))
+                .with_child(Dom::create_div().with_css(METER_CSS)),
+        )
+        .with_child(text("-inf dB", NOTE_CSS))
+        .with_child(text("no audio decoder", NOTE_CSS))
+}
+
+/// The status bar: the last message, the tool, the snapping, the format.
+fn status_bar(app: &App) -> Dom {
+    let format = app.project.as_ref().map_or_else(String::new, |p| {
+        format!("{} x {} at {} fps", p.sequence.width, p.sequence.height, p.sequence.fps)
+    });
+    StatusBar::create(vec![
+        StatusBarSegment::create(app.status.as_str()),
+        StatusBarSegment::create(format!("Tool: {}", app.tool.label()).as_str()),
+        StatusBarSegment::create(if app.snapping { "Snapping on" } else { "Snapping off" }),
+        StatusBarSegment::create(format.as_str()),
+        StatusBarSegment::create(format!("Encoder: {}", app.encoder).as_str()),
+    ])
+    .dom()
+}
+
+/// The export dialog: size, bitrate, range, progress.
+fn export_dialog(app: &App, app_ref: &RefAny) -> Dom {
+    let progress = app
+        .export
+        .shared
+        .as_ref()
+        .and_then(|s| s.progress.lock().ok().map(|p| p.clone()));
+    let running = progress.as_ref().is_some_and(|p| !p.finished);
+    let percent = progress.as_ref().map_or(0.0, |p| p.percent());
+    let line = progress.as_ref().map_or_else(
+        || String::from("Ready."),
+        |p| match (&p.error, &p.output, p.finished) {
+            (Some(e), _, _) => format!("Failed: {e}"),
+            (None, Some(out), true) => format!("Done: {out}"),
+            _ => format!("{} of {} frames - {}", p.done, p.total, p.how),
+        },
+    );
+    let labels = |items: &[&str]| StringVec::from(items.iter().map(|s| AzString::from(*s)).collect::<Vec<_>>());
+    let body = Dom::create_div()
+        .with_css(DIALOG_BODY_CSS)
+        .with_child(text(
+            &format!("H.264 in MP4, encoded by {}; a machine without an H.264 encoder writes Y4M.", app.encoder),
+            NOTE_CSS,
+        ))
+        .with_child(text("Size", FIELD_LABEL_CSS))
+        .with_child(
+            Segmented::create(labels(&["1280 x 720", "854 x 480", "640 x 360"]))
+                .with_selected_index(app.export.size)
+                .with_on_change(app_ref.clone(), on_export_size as SegmentedOnChangeCallbackType)
+                .dom(),
+        )
+        .with_child(text("Bitrate", FIELD_LABEL_CSS))
+        .with_child(
+            Segmented::create(labels(&["8 Mbit/s", "4 Mbit/s", "1.5 Mbit/s"]))
+                .with_selected_index(app.export.bitrate)
+                .with_on_change(app_ref.clone(), on_export_bitrate as SegmentedOnChangeCallbackType)
+                .dom(),
+        )
+        .with_child(text("Range", FIELD_LABEL_CSS))
+        .with_child(
+            Segmented::create(labels(&["Sequence", "In to Out", "First second"]))
+                .with_selected_index(app.export.range)
+                .with_on_change(app_ref.clone(), on_export_range as SegmentedOnChangeCallbackType)
+                .dom(),
+        )
+        .with_child(
+            ProgressBar::create(percent)
+                .with_accessibility_name("Export progress")
+                .dom(),
+        )
+        .with_child(text(&line, NOTE_CSS))
+        .with_child(row(if running {
+            vec![button("Cancel export", app_ref, on_export_cancel)]
+        } else {
+            vec![
+                primary("Export", app_ref, on_export_start),
+                button("Close", app_ref, on_export_close),
+            ]
+        }));
+    Dialog::create(body)
+        .with_title("Export")
+        .with_open(true)
+        .with_modal(true)
+        .with_close_button(true)
+        .with_on_close(app_ref.clone(), on_dialog_close as DialogOnCloseCallbackType)
+        .dom()
+}
+
+/// The settings: playback, export, storage, about.
+fn settings_dialog(app: &App, app_ref: &RefAny) -> Dom {
+    let root = app.drive_root.clone();
+    let sections = vec![
+        ShellSettingsSection::create(
+            "Playback",
+            text(
+                "Playback is paced by the monitor's refresh: each tick shows the frame that is \
+                 due. Pictures are composed on the CPU at the monitor's size.",
+                NOTE_CSS,
+            ),
+        ),
+        ShellSettingsSection::create(
+            "Export",
+            text(
+                &format!(
+                    "Encoder: {}. Exports go to videocut/<project>/exports/ on the data drive.",
+                    app.encoder
+                ),
+                NOTE_CSS,
+            ),
+        ),
+        ShellSettingsSection::create(
+            "Storage",
+            text(&format!("Data root: {root}"), NOTE_CSS),
+        ),
+        ShellSettingsSection::create(
+            "About",
+            row(vec![
+                text("AzVideoCut 0.1 on azul's video stack.", NOTE_CSS),
+                button("About...", app_ref, on_about_open),
+            ]),
+        ),
+    ];
+    let layout = ShellSettingsLayout::create(StringVec::from(vec![
+        AzString::from("Playback"),
+        AzString::from("Export"),
+        AzString::from("Storage"),
+        AzString::from("About"),
+    ]))
+    .with_sections(sections)
+    .dom();
+    Dialog::create(Dom::create_div().with_css(DIALOG_BODY_CSS).with_child(layout))
+        .with_title("Settings")
+        .with_open(true)
+        .with_modal(true)
+        .with_close_button(true)
+        .with_on_close(app_ref.clone(), on_dialog_close as DialogOnCloseCallbackType)
+        .dom()
+}
+
+/// About AzVideoCut.
+fn about_dialog(app_ref: &RefAny) -> Dom {
+    let body = Dom::create_div()
+        .with_css(DIALOG_BODY_CSS)
+        .with_child(text("AzVideoCut 0.1", BIN_NAME_CSS))
+        .with_child(text(
+            "A video editor on the public azul API: Mp4Demuxer + VideoDecoder read the \
+             frames, a CPU compositor puts the tracks together, VideoEncoder + Mp4Muxer write \
+             the export. The project is files on a Drive.",
+            NOTE_CSS,
+        ))
+        .with_child(row(vec![button("Close", app_ref, on_about_close)]));
+    Dialog::create(body)
+        .with_title("About AzVideoCut")
+        .with_open(true)
+        .with_modal(true)
+        .with_close_button(true)
+        .with_on_close(app_ref.clone(), on_dialog_close as DialogOnCloseCallbackType)
+        .dom()
+}
 
 // ==== PIECE E: callbacks ====
 
