@@ -1377,7 +1377,7 @@ pub(crate) fn build(list: MessageList, look: &MessageListLook) -> Dom {
         first_row,
         row_height,
         scope,
-        mark: _,
+        mark,
         theme,
         sort_descending,
     } = list;
@@ -1560,24 +1560,25 @@ pub(crate) fn build(list: MessageList, look: &MessageListLook) -> Dom {
                     .with_css_props(part(MESSAGE_LIST_FIXED_BASE, &look.attachment)),
             );
         }
-        let mut flag = Button::create(AzString::from_const_str(""))
-            .with_icon(AzString::from_const_str(if flagged {
-                "flag"
-            } else {
-                "outlined_flag"
-            }))
-            .with_on_click(data.clone(), on_flag_click as ButtonOnClickCallbackType);
-        // The flag's name says what a press does.
-        flag.alt = AzString::from_const_str(if flagged { "Unflag" } else { "Flag" });
-        if let Some(theme) = theme {
-            flag = flag.with_theme(theme);
+        // The mark (the flag, or a pinned note's pin): a row of a kind the
+        // mark leaves bare carries none.
+        let mark_icon = mark.icon(flagged);
+        if !mark_icon.is_empty() {
+            let mut flag = Button::create(AzString::from_const_str(""))
+                .with_icon(AzString::from_const_str(mark_icon))
+                .with_on_click(data.clone(), on_flag_click as ButtonOnClickCallbackType);
+            // The mark's name says what a press does.
+            flag.alt = AzString::from_const_str(mark.name(flagged));
+            if let Some(theme) = theme {
+                flag = flag.with_theme(theme);
+            }
+            marks.push(
+                Dom::create_div()
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(FLAG_CLASS))
+                    .with_css_props(part(MESSAGE_LIST_FIXED_BASE, &look.flag))
+                    .with_child(flag.dom()),
+            );
         }
-        marks.push(
-            Dom::create_div()
-                .with_ids_and_classes(IdOrClassVec::from_const_slice(FLAG_CLASS))
-                .with_css_props(part(MESSAGE_LIST_FIXED_BASE, &look.flag))
-                .with_child(flag.dom()),
-        );
         let meta = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(META_CLASS))
             .with_css_props(part(MESSAGE_LIST_META_BASE, &[]))
