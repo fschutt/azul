@@ -212,6 +212,9 @@ pub struct Plan {
     pub source_folders: Vec<String>,
     /// The items the transfer makes at the target (what to select after).
     pub tops: Vec<String>,
+    /// Source and target are one drive: a file goes by the drive's own copy
+    /// (a file copy on disk, a CopyObject in a bucket).
+    pub same_drive: bool,
     /// The target keys that are taken (for "Keep both" names).
     taken: HashSet<String>,
 }
@@ -304,7 +307,10 @@ pub fn plan_transfer(
     same_drive: bool,
     kind: TransferKind,
 ) -> Result<Plan, DriveError> {
-    let mut plan = Plan::default();
+    let mut plan = Plan {
+        same_drive,
+        ..Plan::default()
+    };
     for item in items {
         let name = key::last_segment(&item.key).to_string();
         let parent = parent_of(&item.key);
@@ -502,7 +508,12 @@ pub fn run_transfer(
                 // Out of the way first: a rename over a file fails on Windows.
                 let _ = target.delete(&file.target_key);
             }
-            let result = {
+            let result = if plan.same_drive {
+                // The drive copies (on disk, or in the bucket): no byte here.
+                source
+                    .copy(&file.source_key, &file.target_key)
+                    .map(|()| file.size.unwrap_or(0))
+            } else {
                 let mut on_bytes = |bytes: u64| {
                     progress.bytes_done = base + bytes;
                     report(&progress);
@@ -1183,6 +1194,12 @@ mod tests {
         fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
             self.copies.fetch_add(1, Ordering::SeqCst);
             self.inner.copy(from, to)
+        }
+        fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
+            self.inner.create_folder(prefix)
+        }
+        fn local_path(&self, key: &str) -> Option<PathBuf> {
+            self.inner.local_path(key)
         }
     }
 
