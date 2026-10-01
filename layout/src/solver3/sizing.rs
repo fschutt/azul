@@ -2127,7 +2127,7 @@ pub fn calculate_used_size_for_node(
                     LayoutDisplay::TableCell => {
                         if matches!(cb_w, Text3AvailableSpace::MinContent) {
                             // The table's MIN-content measurement of the cell
-                            // (`measure_cell_min_content_width`): the cell is
+                            // (`measure_cell_widths`, its min pass): the cell is
                             // as narrow as its content can be, so the text in
                             // it wraps at every opportunity and the column's
                             // minimum is its longest word, not its longest

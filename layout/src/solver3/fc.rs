@@ -7413,40 +7413,34 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
         + border.cross_end(wm))
 }
 
-/// Measure a cell's minimum content width (with maximum wrapping)
-fn measure_cell_min_content_width<T: ParsedFontTrait>(
+/// Measure a cell's minimum and maximum content widths for its column (CSS
+/// 2.2 17.5.2.2): the content laid out with maximum wrapping and without
+/// wrapping, as border-box widths. The cell's own `width` is read beside
+/// them by the column model (`table_width::specified_width`).
+fn measure_cell_widths<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
     text_cache: &mut TextLayoutCache,
     cell_index: usize,
     constraints: &LayoutConstraints<'_>,
-) -> Result<f32> {
-    measure_cell_content_width(
+) -> Result<(f32, f32)> {
+    let min_content = measure_cell_content_width(
         ctx,
         tree,
         text_cache,
         cell_index,
         constraints,
         text3::cache::AvailableSpace::MinContent,
-    )
-}
-
-/// Measure a cell's maximum content width (without wrapping)
-fn measure_cell_max_content_width<T: ParsedFontTrait>(
-    ctx: &mut LayoutContext<'_, T>,
-    tree: &mut LayoutTree,
-    text_cache: &mut TextLayoutCache,
-    cell_index: usize,
-    constraints: &LayoutConstraints<'_>,
-) -> Result<f32> {
-    measure_cell_content_width(
+    )?;
+    let max_content = measure_cell_content_width(
         ctx,
         tree,
         text_cache,
         cell_index,
         constraints,
         text3::cache::AvailableSpace::MaxContent,
-    )
+    )?;
+    Ok((min_content, max_content.max(min_content)))
 }
 
 /// Calculate column widths using the auto table layout algorithm
@@ -7520,21 +7514,8 @@ fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
             continue;
         }
 
-        let min_width = measure_cell_min_content_width(
-            ctx,
-            tree,
-            text_cache,
-            cell_info.node_index,
-            constraints,
-        )?;
-
-        let max_width = measure_cell_max_content_width(
-            ctx,
-            tree,
-            text_cache,
-            cell_info.node_index,
-            constraints,
-        )?;
+        let (min_width, max_width) =
+            measure_cell_widths(ctx, tree, text_cache, cell_info.node_index, constraints)?;
 
         // Handle single-column cells
         if cell_info.colspan == 1 {
