@@ -15,7 +15,8 @@ parse-checked with `rustfmt --edition 2021 --check`. Report: `scripts/TASKS_2026
 ## IN PROGRESS
 
 - UI written: state.rs, jobs.rs, nav.rs, list.rs (`5acb8c983`), detail.rs (`f4886366a`, `f494ee873`), listedit.rs (`eb13dce20`), chrome.rs (`ec8f10b3e`), backstage.rs (`a0504a540`), lib.rs (`5c37a8edc`).
-- NEXT STEP: a careful compile-read of every UI file against the generated bindings (`target/codegen/dll_api_external.rs` in the main checkout) - signatures, imports, borrows; then `scripts/aztasks_e2e.py`; then engine gaps; then the report.
+- Compile-read done (scratchpad `methods.py` checks every called method against the generated bindings; only false positives). `scripts/aztasks_e2e.py` written (`29f35763f`).
+- NEXT STEP: engine gaps (RED then GREEN in azul) - candidates in the Open questions below; then the report `scripts/TASKS_2026_10_01.md`.
 
 - App UI on PimShell, one module per file, each committed when written:
   `state.rs` (the app state + mutations) -> `jobs.rs` (Thread jobs, the write queue pump)
@@ -51,6 +52,10 @@ parse-checked with `rustfmt --edition 2021 --check`. Report: `scripts/TASKS_2026
 - D4 The TaskRow, QuickAddParser, RecurrenceEditor and SmartListRules are app-local, as
   `planning/core/todo.md` section 5 says (promote RecurrenceEditor with AzCalendar's later).
 
-## Open questions
+## Open questions / engine-gap candidates
 
-- (none yet)
+- G1 `CallbackInfo::get_node_attribute(node, "contenteditable")` answers only the attribute,
+  never the flag (`NodeData::is_contenteditable`), so an app cannot ask "is the focus in a
+  text field" for its single-key shortcuts. AzTasks works around it by its own ids
+  (`task-*` rows): root-cause fix in `layout/src/callbacks.rs` (RED: a flag-only
+  contenteditable node reports `contenteditable` = true).
