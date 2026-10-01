@@ -257,6 +257,8 @@ pub struct AppState {
     pub workbooks: Vec<(String, Sidecar)>,
     /// The window size the last layout saw.
     pub window: (f32, f32),
+    /// The command line, until the window's startup has acted on it.
+    pub args: Option<Args>,
 }
 
 impl AppState {
@@ -291,6 +293,7 @@ impl AppState {
             data_root,
             workbooks: Vec::new(),
             window: (1280.0, 800.0),
+            args: None,
         }
     }
 
@@ -1957,4 +1960,1074 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             app,
             on_window_key,
         )
+}
+
+// ==== Callbacks ====
+
+/// Runs `f` on the app state and rebuilds.
+fn with_app(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    f: impl FnOnce(&mut CallbackInfo, &RefAny, &mut AppState),
+) -> Update {
+    let app = data.clone();
+    let Some(mut guard) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    f(info, &app, &mut guard);
+    Update::RefreshDom
+}
+
+/// The inputs of `area` from the snapshot (what the internal clipboard
+/// keeps).
+fn inputs_of(s: &AppState, area: CellArea) -> Vec<Vec<String>> {
+    (area.row..=area.last_row())
+        .map(|r| (area.column..=area.last_column()).map(|c| s.cache.input(r, c)).collect())
+        .collect()
+}
+
+/// The block of filled cells around `at` (Excel's "current region"): grown
+/// while a filled cell touches its edge, within the snapshot.
+#[must_use]
+pub fn current_region(cache: &ViewCache, at: CellAddr) -> CellArea {
+    let filled = |r: i32, c: i32| cache.cell(r, c).is_some_and(|v| !v.input.is_empty() || !v.formatted.is_empty());
+    let (mut r0, mut c0, mut r1, mut c1) = (at.row, at.column, at.row, at.column);
+    loop {
+        let mut grew = false;
+        if r0 > 1 && (c0.max(1) - 1..=c1 + 1).any(|c| filled(r0 - 1, c)) {
+            r0 -= 1;
+            grew = true;
+        }
+        if r1 < LAST_ROW && (c0.max(1) - 1..=c1 + 1).any(|c| filled(r1 + 1, c)) {
+            r1 += 1;
+            grew = true;
+        }
+        if c0 > 1 && (r0.max(1) - 1..=r1 + 1).any(|r| filled(r, c0 - 1)) {
+            c0 -= 1;
+            grew = true;
+        }
+        if c1 < LAST_COLUMN && (r0.max(1) - 1..=r1 + 1).any(|r| filled(r, c1 + 1)) {
+            c1 += 1;
+            grew = true;
+        }
+        if !grew {
+            break;
+        }
+    }
+    CellArea::spanning(at.sheet, r0, c0, r1, c1)
+}
+
+/// The range a sort / filter / dedupe works on: the selection when it is
+/// more than one cell (no header), else the current region (a header when
+/// its first row is all text).
+fn data_area(s: &AppState) -> (CellArea, bool) {
+    let area = s.current_area();
+    if area.width > 1 || area.height > 1 {
+        return (area, false);
+    }
+    let region = current_region(&s.cache, s.active());
+    let header = region.height > 1
+        && (region.column..=region.last_column()).all(|c| {
+            s.cache
+                .cell(region.row, c)
+                .map_or(true, |v| v.kind == ValueKind::Text || v.kind == ValueKind::Empty)
+        });
+    (region, header)
+}
+
+/// "$B$3:$D$6" (absolute) for a defined name.
+fn absolute(area: CellArea) -> String {
+    let dollar = |at: CellAddr| {
+        let cell = to_cell(at);
+        format!(
+            "${}${}",
+            CellGrid::column_label(cell.column).as_str(),
+            at.row
+        )
+    };
+    let first = dollar(CellAddr::new(area.sheet, area.row, area.column));
+    if area.width <= 1 && area.height <= 1 {
+        return first;
+    }
+    format!("{first}:{}", dollar(CellAddr::new(area.sheet, area.last_row(), area.last_column())))
+}
+
+/// Whether `text` can be a defined name (a letter or '_' first, then
+/// letters, digits, '_' and '.').
+fn is_name(text: &str) -> bool {
+    let mut chars = text.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_alphabetic() || c == '_')
+        && chars.all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+}
+
+/// A grid event: store the view the grid computed, then do what the event
+/// asks of the engine.
+fn grid_event(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, event: CellGridEvent) {
+    let before = s.view.clone();
+    s.view = event.view.clone();
+    s.name_box = None;
+    let sheet = s.sheet;
+    match event.kind {
+        CellGridEventKind::Select | CellGridEventKind::Drag | CellGridEventKind::Scroll => {
+            if before.ranges != s.view.ranges {
+                // The status bar's statistics are the engine's.
+                send(info, app, s, Command::Fetch, Pending::Other, Post::None);
+            } else {
+                fetch_if_needed(info, app, s);
+            }
+        }
+        CellGridEventKind::EditStart => {
+            if s.view.edit_mode == CellGridEditMode::Edit && s.view.edit_text.as_str().is_empty() {
+                // F2 / double-click: the edit starts from the cell's input.
+                let at = s.active();
+                let input = s.cache.input(at.row, at.column);
+                s.view.edit_cursor = u32::try_from(input.chars().count()).unwrap_or(0);
+                s.view.edit_text = AzString::from(input);
+            }
+        }
+        CellGridEventKind::EditCommit => {
+            let at = to_addr(sheet, event.range.first);
+            let input = event.text.as_str().to_string();
+            run(info, app, s, Command::SetInput { at, input });
+        }
+        CellGridEventKind::Fill => {
+            let source = to_area(sheet, before.current_range());
+            let reach = to_area(sheet, event.range);
+            if let Some(to) = model::fill_to(source, reach) {
+                run(info, app, s, Command::Fill { source, to });
+            }
+        }
+        CellGridEventKind::ResizeColumn | CellGridEventKind::AutoFitColumn => {
+            let column = i32::try_from(event.index).unwrap_or(0) + 1;
+            let px = if event.kind == CellGridEventKind::AutoFitColumn {
+                let texts: Vec<String> = s
+                    .cache
+                    .snapshot
+                    .cells
+                    .iter()
+                    .filter(|c| c.column == column)
+                    .map(|c| c.formatted.clone())
+                    .collect();
+                model::autofit_px(texts.iter().map(String::as_str), 13.0)
+            } else {
+                f64::from(event.size)
+            };
+            run(
+                info,
+                app,
+                s,
+                Command::ColumnWidth {
+                    sheet,
+                    first: column,
+                    last: column,
+                    px,
+                },
+            );
+        }
+        CellGridEventKind::ResizeRow => {
+            let row = i32::try_from(event.index).unwrap_or(0) + 1;
+            run(
+                info,
+                app,
+                s,
+                Command::RowHeight {
+                    sheet,
+                    first: row,
+                    last: row,
+                    px: f64::from(event.size),
+                },
+            );
+        }
+        CellGridEventKind::Copy | CellGridEventKind::Cut => {
+            let area = to_area(sheet, event.range);
+            let cut = event.kind == CellGridEventKind::Cut;
+            s.clipboard = Some((area, cut, inputs_of(s, area)));
+        }
+        CellGridEventKind::Paste => {
+            let at = to_addr(sheet, event.range.first);
+            let tsv = event.text.as_str().to_string();
+            run(info, app, s, Command::Paste { at, tsv });
+            if let Some((source, true, _)) = s.clipboard.clone() {
+                // A cut moves: the source is cleared once it is pasted.
+                if source.row != at.row || source.column != at.column {
+                    run(info, app, s, Command::Clear { areas: vec![source] });
+                }
+                s.clipboard = None;
+            }
+        }
+        CellGridEventKind::Delete => {
+            let areas = s.areas();
+            run(info, app, s, Command::Clear { areas });
+        }
+        _ => {}
+    }
+}
+
+extern "C" fn on_grid_event(mut data: RefAny, mut info: CallbackInfo, event: CellGridEvent) -> Update {
+    with_app(&mut data, &mut info, |info, app, s| grid_event(info, app, s, event))
+}
+
+/// Several style changes to the selection.
+fn restyle(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, patches: Vec<StylePatch>) {
+    let areas = s.areas();
+    for patch in patches {
+        run(
+            info,
+            app,
+            s,
+            Command::Style {
+                areas: areas.clone(),
+                patch,
+            },
+        );
+    }
+}
+
+/// A ribbon command (or its keyboard shortcut).
+#[allow(clippy::too_many_lines)]
+fn act(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, action: Action) {
+    let at = s.active();
+    let area = s.current_area();
+    let sheet = s.sheet;
+    let style = s
+        .cache
+        .cell(at.row, at.column)
+        .and_then(|c| s.cache.snapshot.styles.get(c.style as usize))
+        .cloned()
+        .unwrap_or_default();
+    let color = |hex: &str| Some(String::from(hex));
+    match action {
+        Action::Undo => run(info, app, s, Command::Undo),
+        Action::Redo => run(info, app, s, Command::Redo),
+        Action::Copy | Action::Cut => {
+            s.clipboard = Some((area, action == Action::Cut, inputs_of(s, area)));
+            s.message = format!("{} {}.", if action == Action::Cut { "Cut" } else { "Copied" }, a1_area(area));
+        }
+        Action::Paste => match s.clipboard.clone() {
+            Some((source, cut, rows)) => {
+                run(info, app, s, Command::Paste { at, tsv: model::tsv_of(&rows) });
+                if cut {
+                    run(info, app, s, Command::Clear { areas: vec![source] });
+                    s.clipboard = None;
+                }
+            }
+            None => s.message = String::from("Nothing copied in AzSheets yet; Ctrl+V pastes from other apps."),
+        },
+        Action::Bold => restyle(info, app, s, vec![StylePatch::Bold(!style.bold)]),
+        Action::Italic => restyle(info, app, s, vec![StylePatch::Italic(!style.italic)]),
+        Action::Underline => restyle(info, app, s, vec![StylePatch::Underline(!style.underline)]),
+        Action::Strike => restyle(info, app, s, vec![StylePatch::Strike(!style.strike)]),
+        Action::Grow => restyle(info, app, s, vec![StylePatch::FontSizeDelta(1)]),
+        Action::Shrink => restyle(info, app, s, vec![StylePatch::FontSizeDelta(-1)]),
+        Action::InkRed => restyle(info, app, s, vec![StylePatch::FontColor(color("#C00000"))]),
+        Action::InkAuto => restyle(info, app, s, vec![StylePatch::FontColor(None)]),
+        Action::FillYellow => restyle(info, app, s, vec![StylePatch::Fill(color("#FFF2CC"))]),
+        Action::FillGreen => restyle(info, app, s, vec![StylePatch::Fill(color("#E2EFDA"))]),
+        Action::FillNone => restyle(info, app, s, vec![StylePatch::Fill(None)]),
+        Action::AlignLeft => restyle(info, app, s, vec![StylePatch::HAlign(HAlign::Left)]),
+        Action::AlignCenter => restyle(info, app, s, vec![StylePatch::HAlign(HAlign::Center)]),
+        Action::AlignRight => restyle(info, app, s, vec![StylePatch::HAlign(HAlign::Right)]),
+        Action::AlignTop => restyle(info, app, s, vec![StylePatch::VAlign(VAlign::Top)]),
+        Action::AlignMiddle => restyle(info, app, s, vec![StylePatch::VAlign(VAlign::Center)]),
+        Action::AlignBottom => restyle(info, app, s, vec![StylePatch::VAlign(VAlign::Bottom)]),
+        Action::Wrap => restyle(info, app, s, vec![StylePatch::Wrap(!style.wrap)]),
+        Action::FormatGeneral => restyle(info, app, s, vec![StylePatch::NumberFormat(String::from("general"))]),
+        Action::FormatNumber => restyle(info, app, s, vec![StylePatch::NumberFormat(String::from("#,##0.00"))]),
+        Action::FormatCurrency => {
+            restyle(info, app, s, vec![StylePatch::NumberFormat(String::from("\"$\"#,##0.00"))]);
+        }
+        Action::FormatPercent => restyle(info, app, s, vec![StylePatch::NumberFormat(String::from("0.00%"))]),
+        Action::FormatDate => restyle(info, app, s, vec![StylePatch::NumberFormat(String::from("yyyy-mm-dd"))]),
+        Action::DecimalMore => {
+            restyle(info, app, s, vec![StylePatch::NumberFormat(model::step_decimals(&style.num_fmt, true))]);
+        }
+        Action::DecimalLess => {
+            restyle(info, app, s, vec![StylePatch::NumberFormat(model::step_decimals(&style.num_fmt, false))]);
+        }
+        Action::StyleHeading => restyle(
+            info,
+            app,
+            s,
+            vec![
+                StylePatch::Bold(true),
+                StylePatch::FontSize(15),
+                StylePatch::Borders {
+                    preset: BorderPreset::Bottom,
+                    color: String::from("#4472C4"),
+                },
+            ],
+        ),
+        Action::StyleTotal => restyle(
+            info,
+            app,
+            s,
+            vec![
+                StylePatch::Bold(true),
+                StylePatch::Borders {
+                    preset: BorderPreset::Top,
+                    color: String::from("#000000"),
+                },
+            ],
+        ),
+        Action::StyleGood => restyle(
+            info,
+            app,
+            s,
+            vec![StylePatch::Fill(color("#C6EFCE")), StylePatch::FontColor(color("#006100"))],
+        ),
+        Action::StyleBad => restyle(
+            info,
+            app,
+            s,
+            vec![StylePatch::Fill(color("#FFC7CE")), StylePatch::FontColor(color("#9C0006"))],
+        ),
+        Action::BordersAll | Action::BordersOutline | Action::BordersNone => {
+            let preset = match action {
+                Action::BordersAll => BorderPreset::All,
+                Action::BordersOutline => BorderPreset::Outer,
+                _ => BorderPreset::None,
+            };
+            restyle(
+                info,
+                app,
+                s,
+                vec![StylePatch::Borders {
+                    preset,
+                    color: String::from("#000000"),
+                }],
+            );
+        }
+        Action::InsertRow => run(info, app, s, Command::InsertRows { sheet, row: area.row, count: area.height }),
+        Action::InsertColumn => run(
+            info,
+            app,
+            s,
+            Command::InsertColumns {
+                sheet,
+                column: area.column,
+                count: area.width,
+            },
+        ),
+        Action::DeleteRow => run(info, app, s, Command::DeleteRows { sheet, row: area.row, count: area.height }),
+        Action::DeleteColumn => run(
+            info,
+            app,
+            s,
+            Command::DeleteColumns {
+                sheet,
+                column: area.column,
+                count: area.width,
+            },
+        ),
+        Action::InsertSheet => {
+            let next = u32::try_from(s.cache.snapshot.sheets.len()).unwrap_or(0);
+            run(info, app, s, Command::AddSheet);
+            s.sheet = next;
+            s.view = CellGridView::create();
+        }
+        Action::DeleteSheet => {
+            if s.cache.snapshot.sheets.len() > 1 {
+                run(info, app, s, Command::DeleteSheet { sheet });
+                s.sheet = sheet.saturating_sub(1);
+                s.view = CellGridView::create();
+            } else {
+                s.message = String::from("A workbook keeps at least one sheet.");
+            }
+        }
+        Action::RenameSheet => {
+            let name = s
+                .cache
+                .snapshot
+                .sheets
+                .get(sheet as usize)
+                .map(|x| x.name.clone())
+                .unwrap_or_default();
+            s.renaming = Some((sheet, name));
+        }
+        Action::SheetLeft => {
+            if sheet > 0 {
+                run(info, app, s, Command::MoveSheet { sheet, to: sheet - 1 });
+                s.sheet = sheet - 1;
+            }
+        }
+        Action::SheetRight => {
+            if (sheet as usize) + 1 < s.cache.snapshot.sheets.len() {
+                run(info, app, s, Command::MoveSheet { sheet, to: sheet + 1 });
+                s.sheet = sheet + 1;
+            }
+        }
+        Action::TabColor => {
+            const COLORS: [Option<&str>; 5] = [Some("#C00000"), Some("#70AD47"), Some("#4472C4"), Some("#ED7D31"), None];
+            let current = s.cache.snapshot.sheets.get(sheet as usize).and_then(|x| x.color.clone());
+            let index = COLORS
+                .iter()
+                .position(|c| c.map(str::to_ascii_uppercase) == current.as_deref().map(str::to_ascii_uppercase))
+                .map_or(0, |i| (i + 1) % COLORS.len());
+            let color = COLORS[index].map(String::from);
+            run(info, app, s, Command::SheetColor { sheet, color });
+        }
+        Action::AutoSum => send(info, app, s, Command::SumRange { at }, Pending::SumRange(at), Post::None),
+        Action::FillDown => {
+            if area.height > 1 {
+                let source = CellArea::spanning(sheet, area.row, area.column, area.row, area.last_column());
+                run(
+                    info,
+                    app,
+                    s,
+                    Command::Fill {
+                        source,
+                        to: engine::FillTo::Row(area.last_row()),
+                    },
+                );
+            }
+        }
+        Action::FillRight => {
+            if area.width > 1 {
+                let source = CellArea::spanning(sheet, area.row, area.column, area.last_row(), area.column);
+                run(
+                    info,
+                    app,
+                    s,
+                    Command::Fill {
+                        source,
+                        to: engine::FillTo::Column(area.last_column()),
+                    },
+                );
+            }
+        }
+        Action::SortAsc | Action::SortDesc => {
+            let (data, has_header) = data_area(s);
+            run(
+                info,
+                app,
+                s,
+                Command::Sort {
+                    area: data,
+                    key_column: at.column.clamp(data.column, data.last_column()),
+                    descending: action == Action::SortDesc,
+                    has_header,
+                },
+            );
+        }
+        Action::Filter | Action::ClearFilter => {
+            let (data, _) = data_area(s);
+            let keep = (action == Action::Filter).then(|| s.cache.shown(at.row, at.column));
+            s.doc.dirty = true;
+            send(
+                info,
+                app,
+                s,
+                Command::Filter {
+                    area: data,
+                    column: at.column,
+                    keep,
+                },
+                Pending::Filter,
+                Post::None,
+            );
+        }
+        Action::RemoveDuplicates => {
+            let (data, has_header) = data_area(s);
+            s.doc.dirty = true;
+            send(
+                info,
+                app,
+                s,
+                Command::RemoveDuplicates { area: data, has_header },
+                Pending::RemoveDuplicates,
+                Post::None,
+            );
+        }
+        Action::Find => s.panel = Panel::Find,
+        Action::ClearContents => {
+            let areas = s.areas();
+            run(info, app, s, Command::Clear { areas });
+        }
+        Action::ClearFormats => {
+            let areas = s.areas();
+            run(info, app, s, Command::ClearFormats { areas });
+        }
+        Action::Chart => s.panel = Panel::Chart,
+        Action::InsertFunction => s.panel = Panel::Functions,
+        Action::NameManager => s.panel = Panel::Names,
+        Action::DefineName => {
+            s.message = String::from("Select the range, type the name into the name box and press Enter.");
+        }
+        Action::CalculateNow => run(info, app, s, Command::Evaluate),
+        Action::FreezePanes => {
+            let cell = s.view.active;
+            run(
+                info,
+                app,
+                s,
+                Command::Freeze {
+                    sheet,
+                    rows: i32::try_from(cell.row).unwrap_or(0),
+                    columns: i32::try_from(cell.column).unwrap_or(0),
+                },
+            );
+        }
+        Action::FreezeTopRow => run(info, app, s, Command::Freeze { sheet, rows: 1, columns: 0 }),
+        Action::FreezeFirstColumn => run(info, app, s, Command::Freeze { sheet, rows: 0, columns: 1 }),
+        Action::Unfreeze => run(info, app, s, Command::Freeze { sheet, rows: 0, columns: 0 }),
+        Action::Gridlines => {
+            let show = !s.cache.snapshot.grid_lines;
+            run(info, app, s, Command::GridLines { sheet, show });
+        }
+        Action::Headings => s.show_headers = !s.show_headers,
+        Action::ZoomIn | Action::ZoomOut | Action::Zoom100 => {
+            s.zoom = match action {
+                Action::ZoomIn => (s.zoom + 10).min(400),
+                Action::ZoomOut => s.zoom.saturating_sub(10).max(10),
+                _ => 100,
+            };
+            fetch_if_needed(info, app, s);
+        }
+        Action::ThemeFlat => info.set_theme(AzString::from("flat")),
+        Action::ThemeFlora => info.set_theme(AzString::from("flora")),
+        Action::ModeLight => info.set_mode(OptionDarkLightMode::Some(DarkLightMode::Light)),
+        Action::ModeDark => info.set_mode(OptionDarkLightMode::Some(DarkLightMode::Dark)),
+        Action::Save => save(info, app, s),
+        Action::ExportCsv => {
+            let post = Post::Csv {
+                root: s.data_root.clone(),
+                name: safe_name(&s.doc.title),
+            };
+            send(info, app, s, Command::ExportCsv { sheet }, Pending::Exported, post);
+        }
+        Action::ExportPdf => export_pdf(info, app, s),
+    }
+}
+
+extern "C" fn on_action(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, action)) = data
+        .downcast_ref::<ActionRef>()
+        .map(|r| (r.app.clone(), r.action))
+    else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, &mut info, |info, app, s| act(info, app, s, action))
+}
+
+/// A copy of the callback info for the PDF renderer, which takes it by
+/// value (the pattern AzWriter's PDF export uses).
+fn reborrow_info(info: &CallbackInfo) -> CallbackInfo {
+    CallbackInfo {
+        ref_data: info.ref_data,
+        hit_dom_node: info.hit_dom_node,
+        cursor_relative_to_item: info.cursor_relative_to_item,
+        cursor_in_viewport: info.cursor_in_viewport,
+        changes: info.changes,
+    }
+}
+
+/// The sheet's data as a plain table, rendered to PDF, written to
+/// `exports/<title>.pdf` from a worker thread.
+fn export_pdf(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState) {
+    let (max_row, max_column) = s.cache.snapshot.extent;
+    if max_row == 0 || max_column == 0 {
+        s.message = String::from("The sheet is empty: nothing to export.");
+        return;
+    }
+    let mut table = Dom::create_div().with_css("display: flex; flex-direction: column; font-size: 10px;");
+    for r in 1..=max_row.min(500) {
+        let mut line = Dom::create_div().with_css("display: flex; flex-direction: row;");
+        for c in 1..=max_column.min(26) {
+            let text = s.cache.shown(r, c);
+            let numeric = s.cache.cell(r, c).is_some_and(|v| v.kind == ValueKind::Number);
+            line.add_child(
+                Dom::create_div()
+                    .with_css(format!(
+                        "width: 80px; min-width: 80px; padding: 1px 3px; border: 1px solid #cccccc; \
+                         overflow: hidden; text-align: {};",
+                        if numeric { "right" } else { "left" }
+                    ))
+                    .with_child(Dom::create_p_with_text(AzString::from(text))),
+            );
+        }
+        table.add_child(line);
+    }
+    let doc = Dom::create_body()
+        .with_css("margin: 0px; padding: 48px; background: white; color: black; font-family: sans-serif;")
+        .with_child(
+            Dom::create_p_with_text(AzString::from(s.doc.title.as_str()))
+                .with_css("font-size: 16px; font-weight: bold; margin: 0px 0px 12px 0px;"),
+        )
+        .with_child(table);
+    let bytes = Pdf::create()
+        .from_dom_in_callback(reborrow_info(info), doc, 794.0, 1123.0)
+        .as_ref()
+        .to_vec();
+    if bytes.is_empty() {
+        s.message = String::from("The PDF export produced nothing.");
+        return;
+    }
+    spawn_job(
+        info,
+        app,
+        Job::Write {
+            root: s.data_root.clone(),
+            key: format!("exports/{}.pdf", safe_name(&s.doc.title)),
+            bytes,
+        },
+    );
+}
+
+extern "C" fn on_file(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |_, _, s| {
+        s.screen = Screen::Backstage;
+        s.backstage_pane = 0;
+    })
+}
+
+extern "C" fn on_ribbon_tab(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    with_app(&mut data, &mut info, |_, _, s| s.ribbon_tab = index)
+}
+
+/// The text of a field's state.
+fn state_text(state: &TextInputState) -> String {
+    state.get_text().as_str().to_string()
+}
+
+const fn text_return(update: Update) -> OnTextInputReturn {
+    OnTextInputReturn {
+        update,
+        valid: TextInputValid::Yes,
+    }
+}
+
+extern "C" fn on_field_text(mut data: RefAny, mut info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+    let Some((mut app, which)) = data.downcast_ref::<FieldRef>().map(|r| (r.app.clone(), r.field)) else {
+        return text_return(Update::DoNothing);
+    };
+    let text = state_text(&state);
+    let mut rebuild = false;
+    with_app(&mut app, &mut info, |_, _, s| match which {
+        Field::NameBox => s.name_box = Some(text),
+        Field::Find => s.find = text,
+        Field::Rename => {
+            if let Some((sheet, _)) = s.renaming.clone() {
+                s.renaming = Some((sheet, text));
+            }
+        }
+        Field::Formula => {
+            // The formula bar edits the active cell: the grid shows the
+            // same edit in the cell.
+            if s.view.edit_mode == CellGridEditMode::None {
+                s.view.edit_mode = CellGridEditMode::Edit;
+            }
+            s.view.edit_cursor = u32::try_from(text.chars().count()).unwrap_or(0);
+            s.view.edit_text = AzString::from(text);
+            rebuild = true;
+        }
+    });
+    text_return(if rebuild { Update::RefreshDom } else { Update::DoNothing })
+}
+
+/// Commits the edit in progress at the active cell and moves on (Enter in
+/// the formula bar).
+fn commit_formula(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, down: bool) {
+    let at = s.active();
+    let input = s.view.edit_text.as_str().to_string();
+    s.view.edit_mode = CellGridEditMode::None;
+    s.view.edit_text = AzString::from("");
+    s.view.edit_cursor = 0;
+    run(info, app, s, Command::SetInput { at, input });
+    let next = if down {
+        CellGridCellRef {
+            row: s.view.active.row.saturating_add(1),
+            column: s.view.active.column,
+        }
+    } else {
+        CellGridCellRef {
+            row: s.view.active.row,
+            column: s.view.active.column.saturating_add(1),
+        }
+    };
+    s.view.active = next;
+    s.view.anchor = next;
+    s.view.ranges = vec![CellGridRange { first: next, last: next }].into();
+}
+
+extern "C" fn on_field_key(mut data: RefAny, mut info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+    let Some((mut app, which)) = data.downcast_ref::<FieldRef>().map(|r| (r.app.clone(), r.field)) else {
+        return text_return(Update::DoNothing);
+    };
+    let key = info.get_current_keyboard_state().current_virtual_keycode.into_option();
+    let text = state_text(&state);
+    let handled = matches!(key, Some(VirtualKeyCode::Return | VirtualKeyCode::Escape | VirtualKeyCode::Tab));
+    if !handled {
+        return text_return(Update::DoNothing);
+    }
+    let update = with_app(&mut app, &mut info, |info, app, s| match (which, key) {
+        (Field::NameBox, Some(VirtualKeyCode::Return)) => {
+            let sheets = s.cache.snapshot.sheets.clone();
+            match parse_reference(&text, &sheets, s.sheet) {
+                Some((sheet, range)) => {
+                    let switched = sheet != s.sheet;
+                    go_to(s, sheet, range);
+                    if switched {
+                        send(info, app, s, Command::Fetch, Pending::Other, Post::None);
+                    } else {
+                        fetch_if_needed(info, app, s);
+                    }
+                }
+                None if is_name(text.trim()) => {
+                    let area = s.current_area();
+                    let sheet_name = sheets.get(s.sheet as usize).map(|x| x.name.clone()).unwrap_or_default();
+                    let formula = format!("='{sheet_name}'!{}", absolute(area));
+                    run(
+                        info,
+                        app,
+                        s,
+                        Command::DefineName {
+                            name: text.trim().to_string(),
+                            scope: None,
+                            formula,
+                        },
+                    );
+                    s.message = format!("Defined the name {} for {}.", text.trim(), a1_area(area));
+                }
+                None => s.message = format!("\"{text}\" is not a cell, a range or a name."),
+            }
+            s.name_box = None;
+        }
+        (Field::NameBox, _) => s.name_box = None,
+        (Field::Formula, Some(VirtualKeyCode::Escape)) => {
+            s.view.edit_mode = CellGridEditMode::None;
+            s.view.edit_text = AzString::from("");
+            s.view.edit_cursor = 0;
+        }
+        (Field::Formula, Some(VirtualKeyCode::Tab)) => commit_formula(info, app, s, false),
+        (Field::Formula, _) => commit_formula(info, app, s, true),
+        (Field::Find, Some(VirtualKeyCode::Return)) => {
+            let needle = s.find.clone();
+            if !needle.is_empty() {
+                let from = s.active();
+                send(info, app, s, Command::Find { from, needle }, Pending::Find, Post::None);
+            }
+        }
+        (Field::Find, _) => s.panel = Panel::None,
+        (Field::Rename, Some(VirtualKeyCode::Return)) => {
+            if let Some((sheet, name)) = s.renaming.take() {
+                let name = name.trim().to_string();
+                if !name.is_empty() {
+                    run(info, app, s, Command::RenameSheet { sheet, name });
+                }
+            }
+        }
+        (Field::Rename, _) => s.renaming = None,
+    });
+    text_return(update)
+}
+
+extern "C" fn on_suggestion(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, name)) = data.downcast_ref::<SuggestionRef>().map(|r| (r.app.clone(), r.name)) else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, &mut info, |_, _, s| {
+        let text = s.view.edit_text.as_str().to_string();
+        let (completed, cursor) = functions::complete(&text, s.view.edit_cursor as usize, name);
+        s.view.edit_text = AzString::from(completed);
+        s.view.edit_cursor = u32::try_from(cursor).unwrap_or(0);
+        if s.view.edit_mode == CellGridEditMode::None {
+            s.view.edit_mode = CellGridEditMode::Edit;
+        }
+    })
+}
+
+extern "C" fn on_insert_function(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, name)) = data.downcast_ref::<FunctionRef>().map(|r| (r.app.clone(), r.name)) else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, &mut info, |_, _, s| {
+        let mut text = s.view.edit_text.as_str().to_string();
+        if s.view.edit_mode == CellGridEditMode::None || text.is_empty() {
+            text = String::from("=");
+        }
+        text.push_str(name);
+        text.push('(');
+        s.view.edit_mode = CellGridEditMode::Edit;
+        s.view.edit_cursor = u32::try_from(text.chars().count()).unwrap_or(0);
+        s.view.edit_text = AzString::from(text);
+        s.panel = Panel::None;
+    })
+}
+
+extern "C" fn on_delete_name(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, index)) = data.downcast_ref::<NameRef>().map(|r| (r.app.clone(), r.index)) else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, &mut info, |info, app, s| {
+        if let Some(n) = s.cache.snapshot.names.get(index).cloned() {
+            run(
+                info,
+                app,
+                s,
+                Command::DeleteName {
+                    name: n.name,
+                    scope: n.scope,
+                },
+            );
+        }
+    })
+}
+
+extern "C" fn on_panel_close(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |_, _, s| s.panel = Panel::None)
+}
+
+extern "C" fn on_tab_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, sheet)) = data.downcast_ref::<TabRef>().map(|r| (r.app.clone(), r.sheet)) else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, &mut info, |info, app, s| {
+        if s.sheet != sheet {
+            s.sheet = sheet;
+            s.view = CellGridView::create();
+            send(info, app, s, Command::Fetch, Pending::Other, Post::None);
+        }
+    })
+}
+
+extern "C" fn on_tab_double_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, sheet)) = data.downcast_ref::<TabRef>().map(|r| (r.app.clone(), r.sheet)) else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, &mut info, |_, _, s| {
+        let name = s
+            .cache
+            .snapshot
+            .sheets
+            .get(sheet as usize)
+            .map(|x| x.name.clone())
+            .unwrap_or_default();
+        s.renaming = Some((sheet, name));
+    })
+}
+
+/// Enters the backstage's `pane`; the Open pane lists the data folder.
+fn backstage_pane(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, pane: usize) {
+    s.screen = Screen::Backstage;
+    s.backstage_pane = pane.min(BACKSTAGE_ITEMS.len() - 1);
+    if BACKSTAGE_ITEMS[s.backstage_pane] == "Open" {
+        spawn_job(
+            info,
+            app,
+            Job::List {
+                root: s.data_root.clone(),
+            },
+        );
+    }
+}
+
+extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    with_app(&mut data, &mut info, |info, app, s| {
+        match BACKSTAGE_ITEMS.get(index).copied() {
+            // Save acts at once, like Excel's: the pane only confirms.
+            Some("Save") => {
+                save(info, app, s);
+                s.backstage_pane = index;
+            }
+            _ => backstage_pane(info, app, s, index),
+        }
+    })
+}
+
+extern "C" fn on_backstage_back(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |_, _, s| s.screen = Screen::Workbook)
+}
+
+/// A new workbook (blank or the sample) under a fresh id.
+fn new_workbook(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, sample: bool) {
+    let taken: Vec<String> = s.workbooks.iter().map(|(_, c)| c.title.clone()).collect();
+    let title = if sample {
+        String::from("Budget 2027")
+    } else {
+        model::next_book_title(&taken)
+    };
+    s.doc = DocInfo {
+        id: storage::new_id(),
+        title: title.clone(),
+        dirty: sample,
+    };
+    s.sheet = 0;
+    s.view = CellGridView::create();
+    s.screen = Screen::Workbook;
+    s.panel = Panel::None;
+    let command = if sample {
+        Command::Sample
+    } else {
+        Command::New { name: title }
+    };
+    send(info, app, s, command, Pending::Other, Post::None);
+}
+
+extern "C" fn on_new_blank(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |info, app, s| new_workbook(info, app, s, false))
+}
+
+extern "C" fn on_new_sample(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |info, app, s| new_workbook(info, app, s, true))
+}
+
+extern "C" fn on_save_as(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |info, app, s| {
+        s.doc.id = storage::new_id();
+        s.doc.title = format!("{} (copy)", s.doc.title);
+        save(info, app, s);
+        s.screen = Screen::Workbook;
+    })
+}
+
+extern "C" fn on_open_entry(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, index)) = data.downcast_ref::<OpenRef>().map(|r| (r.app.clone(), r.index)) else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, &mut info, |info, app, s| {
+        if let Some((id, _)) = s.workbooks.get(index).cloned() {
+            s.message = String::from("Opening...");
+            spawn_job(
+                info,
+                app,
+                Job::Load {
+                    root: s.data_root.clone(),
+                    id,
+                },
+            );
+        }
+    })
+}
+
+extern "C" fn on_browse(data: RefAny, _info: CallbackInfo) -> Update {
+    let _request = FileDialog::open_file(
+        AzString::from("Open a workbook"),
+        OptionString::None,
+        OptionFileTypeList::None,
+        data,
+        on_picked,
+    );
+    Update::DoNothing
+}
+
+extern "C" fn on_picked(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    let Some(picked) = FileOpenResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(path) = picked.path.into_option() else {
+        return Update::DoNothing; // cancelled
+    };
+    let path = PathBuf::from(path.as_string().as_str());
+    with_app(&mut data, &mut info, |info, app, s| {
+        s.message = format!("Opening {}...", path.display());
+        spawn_job(info, app, Job::Import { path });
+    })
+}
+
+/// The shortcuts no widget takes (the grid has its own keys).
+extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let key = info.get_current_keyboard_state().current_virtual_keycode.into_option();
+    let modifiers = info.get_key_modifiers();
+    let command = modifiers.ctrl || modifiers.meta;
+    let action = match key {
+        Some(VirtualKeyCode::S) if command => Some(Action::Save),
+        Some(VirtualKeyCode::Z) if command && modifiers.shift => Some(Action::Redo),
+        Some(VirtualKeyCode::Z) if command => Some(Action::Undo),
+        Some(VirtualKeyCode::Y) if command => Some(Action::Redo),
+        Some(VirtualKeyCode::B) if command => Some(Action::Bold),
+        Some(VirtualKeyCode::I) if command => Some(Action::Italic),
+        Some(VirtualKeyCode::U) if command => Some(Action::Underline),
+        Some(VirtualKeyCode::F) if command => Some(Action::Find),
+        Some(VirtualKeyCode::F9) => Some(Action::CalculateNow),
+        _ => None,
+    };
+    if let Some(action) = action {
+        return with_app(&mut data, &mut info, |info, app, s| act(info, app, s, action));
+    }
+    match key {
+        Some(VirtualKeyCode::O) if command => {
+            with_app(&mut data, &mut info, |info, app, s| backstage_pane(info, app, s, 2))
+        }
+        Some(VirtualKeyCode::N) if command => {
+            with_app(&mut data, &mut info, |info, app, s| new_workbook(info, app, s, false))
+        }
+        Some(VirtualKeyCode::Escape) => with_app(&mut data, &mut info, |_, _, s| {
+            if s.screen == Screen::Backstage {
+                s.screen = Screen::Workbook;
+            }
+        }),
+        _ => Update::DoNothing,
+    }
+}
+
+/// The window is up: act on the command line.
+extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |info, app, s| {
+        let args = s.args.take().unwrap_or_default();
+        if let Some(path) = args.open.clone() {
+            spawn_job(info, app, Job::Import { path });
+        } else if args.sample {
+            new_workbook(info, app, s, true);
+        } else {
+            send(info, app, s, Command::Fetch, Pending::Other, Post::None);
+        }
+        match args.screen {
+            args::Screen::Workbook => {}
+            args::Screen::BackstageInfo => backstage_pane(info, app, s, 0),
+            args::Screen::BackstageNew => backstage_pane(info, app, s, 1),
+            args::Screen::BackstageOpen => backstage_pane(info, app, s, 2),
+        }
+        println!("AZSHEETS_READY {}", s.data_root.display());
+    })
+}
+
+// ==== Entry ====
+
+fn user_data_dir() -> Option<PathBuf> {
+    FilePath::get_data_dir()
+        .into_option()
+        .map(|dir| PathBuf::from(dir.inner.as_str()))
+}
+
+/// The engine the app runs: IronCalc, built on the engine thread.
+fn make_engine() -> Box<dyn engine::SheetEngine> {
+    Box::new(IronCalcEngine::new_empty())
+}
+
+pub fn start(args: Args) {
+    let data_root = storage::data_root(
+        std::env::var(storage::DATA_VAR).ok().as_deref(),
+        user_data_dir(),
+    );
+    let mut state = AppState::new(data_root);
+    match worker::spawn_engine(make_engine) {
+        Ok(tx) => state.engine = Some(tx),
+        Err(e) => state.message = format!("The spreadsheet engine could not start: {e}"),
+    }
+    let (width, height) = args.size.unwrap_or((1280.0, 800.0));
+    state.window = (width, height);
+    let mut config = AppConfig::create();
+    if let Some(theme) = args.theme {
+        config = config.with_theme(AzString::from(match theme {
+            args::Theme::Flat => "flat",
+            args::Theme::Flora => "flora",
+        }));
+    }
+    if let Some(mode) = args.mode {
+        config = config.with_mode(OptionDarkLightMode::Some(match mode {
+            args::Mode::Light => DarkLightMode::Light,
+            args::Mode::Dark => DarkLightMode::Dark,
+        }));
+    }
+    eprintln!("[azsheets] data folder {}", state.data_root.display());
+    state.args = Some(args);
+    let app = App::create(RefAny::new(state), config);
+    let mut window = WindowCreateOptions::create(layout);
+    window.window_state.size.dimensions = LogicalSize::create(width, height);
+    window.window_state.title = AzString::from("AzSheets");
+    window.window_state.flags.decorations = WindowDecorations::NoTitle;
+    window.create_callback = Some(Callback::create(startup)).into();
+    app.run(window);
 }
