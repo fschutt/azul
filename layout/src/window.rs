@@ -5331,7 +5331,10 @@ impl LayoutWindow {
         // The byte indexes the caret node's OWN run in the block, which is run
         // 0 only for the block's first text: `(run 0, byte)` put a caret
         // meant for the text after a `<b>` or a `<br>` into the paragraph's
-        // first run. A node with no laid-out text keeps the block's start.
+        // first run. A node with no laid-out text keeps the block's start -
+        // the start of its TEXT: a list item's layout numbers its `::marker`
+        // first, and a caret on the marker is no caret in the item (an empty
+        // item resumed after Enter had nothing else to stand on).
         let cursor = self
             .caret_at_node_byte(block, caret_node, byte)
             .unwrap_or(TextCursor {
@@ -5341,6 +5344,7 @@ impl LayoutWindow {
                 },
                 affinity: CursorAffinity::Leading,
             });
+        let cursor = self.caret_past_markers(block, cursor);
         self.text_edit_manager.multi_cursor = Some(MultiCursorState::new_with_cursor(
             cursor,
             block,
