@@ -283,7 +283,7 @@ fn find_function_differences(
 }
 
 /// Find a class/type in api.json for a specific version
-fn find_api_class<'a>(type_name: &str, version_data: &'a VersionData) -> Option<&'a ClassData> {
+pub(crate) fn find_api_class<'a>(type_name: &str, version_data: &'a VersionData) -> Option<&'a ClassData> {
     for (_, module) in &version_data.api {
         if let Some(class) = module.classes.get(type_name) {
             return Some(class);
@@ -741,6 +741,61 @@ fn is_primitive_type(type_name: &str) -> bool {
 
 // patch generation
 /// Generate a patch to add functions to api.json
+/// The API name of a Rust method. Public constructors are `create*` (`new`
+/// is reserved in C++, Java, C# and JavaScript): `new` -> `create`,
+/// `new_x` -> `create_x`. The fn_body keeps calling the Rust name.
+pub fn api_name_of(method: &MethodDef) -> String {
+    if method.name == "new" {
+        "create".to_string()
+    } else if let Some(rest) = method.name.strip_prefix("new_") {
+        format!("create_{rest}")
+    } else {
+        method.name.clone()
+    }
+}
+
+/// THE answer to "which methods of `type_name` does `autofix add
+/// <Type>.<spec>` export" (the add command had three copies of this filter
+/// and only one skipped trait impls, so `default` constructors went out on
+/// 2026-10-01): public; not a standard trait's impl (those are derives /
+/// custom_impls); matching `spec` (`*` = all, else the Rust or the API name);
+/// and, when the type is already in the API, not reached by an existing
+/// entry - under its API name, or as the call of an entry's body (`create`
+/// whose body is `T::new(..)`).
+pub fn api_candidate_methods<'a>(
+    type_name: &str,
+    methods: &[&'a MethodDef],
+    spec: &str,
+    api_class: Option<&ClassData>,
+) -> Vec<&'a MethodDef> {
+    let existing: Vec<(&String, &FunctionData)> = api_class
+        .map(|c| {
+            c.constructors
+                .iter()
+                .chain(c.functions.iter())
+                .flat_map(|entries| entries.iter())
+                .collect()
+        })
+        .unwrap_or_default();
+    methods
+        .iter()
+        .copied()
+        .filter(|m| m.is_public && !m.is_std_trait_impl())
+        .filter(|m| spec == "*" || m.name == spec || api_name_of(m) == spec)
+        .filter(|m| {
+            let api_name = api_name_of(m);
+            let static_call = format!("{type_name}::{}(", m.name);
+            let method_call = format!("object.{}(", m.name);
+            !existing.iter().any(|(name, f)| {
+                **name == api_name
+                    || f.fn_body.as_deref().is_some_and(|body| {
+                        body.contains(&static_call) || body.starts_with(&method_call)
+                    })
+            })
+        })
+        .collect()
+}
+
 pub fn generate_add_functions_patch(
     type_name: &str,
     methods: &[&MethodDef],
@@ -758,9 +813,9 @@ pub fn generate_add_functions_patch(
         let fn_data = method_to_function_data(method, full_path);
 
         if method.is_constructor {
-            constructors.insert(method.name.clone(), fn_data);
+            constructors.insert(api_name_of(method), fn_data);
         } else {
-            functions.insert(method.name.clone(), fn_data);
+            functions.insert(api_name_of(method), fn_data);
         }
     }
 
@@ -1429,12 +1484,13 @@ pub fn generate_add_type_patches(
         // function: it becomes a `custom_impls` entry below, and the codegen
         // makes `T_default` from that. Exporting it as a constructor named
         // `default` is what the FFI check rejects.
-        let methods: Vec<_> = type_def
-            .methods
-            .iter()
-            .filter(|m| m.is_public && !m.is_std_trait_impl())
-            .filter(|m| spec == "*" || m.name == spec)
-            .collect();
+        let all: Vec<&MethodDef> = type_def.methods.iter().collect();
+        let methods = api_candidate_methods(
+            type_name,
+            &all,
+            spec,
+            find_api_class(type_name, version_data),
+        );
         let mut std_impls: Vec<String> = type_def
             .methods
             .iter()

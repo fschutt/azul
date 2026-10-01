@@ -1067,12 +1067,13 @@ fn main() -> anyhow::Result<()> {
 
                         // Also generate the functions patch if methods were requested
                         if !result.added_methods.is_empty() {
-                            let methods: Vec<_> = type_def
-                                .methods
-                                .iter()
-                                .filter(|m| m.is_public)
-                                .filter(|m| method_spec == "*" || m.name == method_spec)
-                                .collect();
+                            let all: Vec<_> = type_def.methods.iter().collect();
+                            let methods = autofix::function_diff::api_candidate_methods(
+                                type_name,
+                                &all,
+                                method_spec,
+                                None,
+                            );
 
                             let func_patch = autofix::function_diff::generate_add_functions_patch(
                                 type_name,
@@ -1120,12 +1121,13 @@ fn main() -> anyhow::Result<()> {
                 .to_string();
 
             // Get matching methods
-            let methods: Vec<_> = type_def
-                .methods
-                .iter()
-                .filter(|m| m.is_public)
-                .filter(|m| method_spec == "*" || m.name == method_spec)
-                .collect();
+            let all: Vec<_> = type_def.methods.iter().collect();
+            let methods = autofix::function_diff::api_candidate_methods(
+                type_name,
+                &all,
+                method_spec,
+                autofix::function_diff::find_api_class(type_name, version_data),
+            );
 
             if methods.is_empty() {
                 println!(
