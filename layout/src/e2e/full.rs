@@ -152,39 +152,73 @@ pub enum DebugResponseData {
     },
     /// Error response
     Err(String),
+    /// A CPU screenshot whose PNG is not encoded yet: the UI thread rendered
+    /// the pixels, and whoever RECEIVES the response finishes it with
+    /// [`DebugResponseData::into_ready`] - the HTTP thread for a request that
+    /// came over the wire, so the deflate never runs on the UI thread.
+    PendingScreenshot(PendingScreenshot),
+}
+
+/// Pixels the UI thread rendered for a screenshot, PNG-encoded by
+/// [`DebugResponseData::into_ready`] on the receiving thread. Shared and
+/// taken once (`Option`), because the response type is `Clone`.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone)]
+pub struct PendingScreenshot {
+    pixmap: Arc<Mutex<Option<crate::cpurender::AzulPixmap>>>,
 }
 
 #[cfg(feature = "std")]
 impl DebugResponseData {
     /// The response to a CPU screenshot, from the pixels the UI thread
-    /// rendered.
+    /// rendered - not encoded yet.
     #[must_use]
     pub fn pending_screenshot(pixmap: crate::cpurender::AzulPixmap) -> Self {
-        // RED stub: encodes right here, on the caller's (UI) thread.
-        match pixmap.encode_png() {
-            Ok(png) => Self::Ok {
-                window_state: None,
-                data: Some(ResponseData::Screenshot(ScreenshotData {
-                    data: alloc::format!(
-                        "data:image/png;base64,{}",
-                        azul_layout::callbacks::base64_encode(&png)
-                    ),
-                })),
-            },
-            Err(e) => Self::Err(alloc::format!("PNG encoding failed: {e}")),
-        }
+        Self::PendingScreenshot(PendingScreenshot {
+            pixmap: Arc::new(Mutex::new(Some(pixmap))),
+        })
     }
 
     /// Is the PNG of this response still to be encoded?
     #[must_use]
-    pub fn is_pending(&self) -> bool {
-        false // RED stub
+    pub const fn is_pending(&self) -> bool {
+        matches!(self, Self::PendingScreenshot(_))
     }
 
-    /// Finish the response on the receiving thread.
+    /// Finish the response on the thread that received it: a pending
+    /// screenshot is PNG-encoded into the `Screenshot` data URI (and copied
+    /// to `AZ_E2E_SHOT_DIR` when set, like every screenshot); every other
+    /// response passes through.
     #[must_use]
     pub fn into_ready(self) -> Self {
-        self // RED stub
+        let Self::PendingScreenshot(pending) = self else {
+            return self;
+        };
+        let Some(pixmap) = pending.pixmap.lock().ok().and_then(|mut p| p.take()) else {
+            return Self::Err("screenshot: the pixels were already encoded".into());
+        };
+        match pixmap.encode_png() {
+            Ok(png) => {
+                let data = ScreenshotData {
+                    data: alloc::format!(
+                        "data:image/png;base64,{}",
+                        azul_layout::callbacks::base64_encode(&png)
+                    ),
+                };
+                write_shot_to_dir(&data.data);
+                let data = ResponseData::Screenshot(data);
+                if let Ok(json) = serde_json::to_string(&data) {
+                    if let Ok(mut last) = LAST_RESPONSE.lock() {
+                        *last = Some(json);
+                    }
+                }
+                Self::Ok {
+                    window_state: None,
+                    data: Some(data),
+                }
+            }
+            Err(e) => Self::Err(alloc::format!("PNG encoding failed: {e}")),
+        }
     }
 }
 
@@ -5421,7 +5455,9 @@ pub fn handle_event_request(
 
             // Wait for response (with timeout)
             let timeout = Duration::from_secs(req.timeout_secs.unwrap_or(30));
-            match rx.recv_timeout(timeout) {
+            // `into_ready`: a screenshot's PNG is encoded HERE, on this HTTP
+            // thread, not in the UI thread's debug timer.
+            match rx.recv_timeout(timeout).map(DebugResponseData::into_ready) {
                 Ok(response_data) => {
                     let http_response = match response_data {
                         DebugResponseData::Ok { window_state, data } => {
@@ -5435,6 +5471,12 @@ pub fn handle_event_request(
                             DebugHttpResponse::Error(DebugHttpResponseError {
                                 request_id: Some(request_id),
                                 message,
+                            })
+                        }
+                        DebugResponseData::PendingScreenshot(_) => {
+                            DebugHttpResponse::Error(DebugHttpResponseError {
+                                request_id: Some(request_id),
+                                message: "screenshot: the pixels were not encoded".to_string(),
                             })
                         }
                     };
@@ -12308,8 +12350,22 @@ fn resume_e2e_continuation_inner(
                             // into a DOM regeneration on the way out.
                             return needs_update;
                         }
-                        // Record result
-                        match step_rx.try_recv() {
+                        // Record result (a screenshot step's PNG is encoded
+                        // here: a scenario runs on this thread anyway)
+                        match step_rx.try_recv().map(DebugResponseData::into_ready) {
+                            Ok(DebugResponseData::PendingScreenshot(_)) => {
+                                cont.current_test_failed = true;
+                                cont.current_step_results.push(E2eStepResult {
+                                    step_index,
+                                    op: op.to_string(),
+                                    status: "fail".into(),
+                                    duration_ms: step_start.elapsed().as_millis() as u64,
+                                    logs: vec![],
+                                    screenshot: None,
+                                    error: Some("screenshot: the pixels were not encoded".into()),
+                                    response: None,
+                                });
+                            }
                             Ok(DebugResponseData::Ok { data, .. }) => {
                                 cont.current_step_results.push(E2eStepResult {
                                     step_index,
@@ -15739,19 +15795,20 @@ pub fn process_debug_event(
             );
             // Use DomId(0) as default - first DOM in the window
             let dom_id = target_dom(request);
-            match callback_info.take_screenshot_base64(dom_id) {
-                Ok(data_uri) => {
-                    let data = ScreenshotData {
-                        data: data_uri.as_str().to_string(),
-                    };
-                    // A base64 blob in a JSON response is not something a human
-                    // can look at. With AZ_E2E_SHOT_DIR set, every screenshot is
-                    // also written to disk, numbered in capture order — which is
-                    // what makes a mid-animation sequence inspectable at all.
-                    // Unset (the default, and always in CI) this does nothing.
-                    #[cfg(feature = "std")]
-                    write_shot_to_dir(&data.data);
-                    send_ok(request, None, Some(ResponseData::Screenshot(data)));
+            // Render HERE (the window is only reachable from the UI thread);
+            // the PNG encode - a deflate over every pixel - happens on the
+            // thread that receives the response (`DebugResponseData::
+            // into_ready`: the HTTP thread for a request over the wire). It
+            // also writes the AZ_E2E_SHOT_DIR copy: a base64 blob in a JSON
+            // response is not something a human can look at, so with that
+            // variable set every screenshot lands on disk, numbered in
+            // capture order.
+            match callback_info.render_screenshot(dom_id) {
+                Ok(pixmap) => {
+                    let _ = take_logs();
+                    let _ = request
+                        .response_tx
+                        .send(DebugResponseData::pending_screenshot(pixmap));
                 }
                 Err(e) => {
                     send_err(request, e.as_str().to_string());

@@ -4610,6 +4610,9 @@ fn run_e2e_test_keeping_runner(
             fail_result(test, "RunE2eTests returned a non-E2eResults response")
         }
         Ok(DebugResponseData::Err(e)) => fail_result(test, &e),
+        Ok(DebugResponseData::PendingScreenshot(_)) => {
+            fail_result(test, "RunE2eTests returned a screenshot")
+        }
         Err(_) => fail_result(test, "RunE2eTests produced no response"),
     };
 

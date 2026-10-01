@@ -431,6 +431,10 @@ fn setup_e2e_runner(test_file: &str) {
                     eprintln!("\nerror: {}", msg);
                     std::process::exit(1);
                 }
+                DebugResponseData::PendingScreenshot(_) => {
+                    eprintln!("\nerror: unexpected response (a screenshot, no E2eResults)");
+                    std::process::exit(1);
+                }
             };
 
             // The verdict tally (PASS / FAIL / XFAIL / XPASS / SKIP) is the
