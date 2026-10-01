@@ -1161,6 +1161,26 @@ mod tests {
     }
 
     #[test]
+    fn a_loose_list_from_another_editor_reads_as_items() {
+        let doc = markdown_to_doc("- a\n\n- [x] b\n\n1. c\n\n   more about c\n");
+        let kinds: Vec<BlockKind> = doc.blocks.iter().map(|b| b.kind.clone()).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                BlockKind::Bullet(0),
+                BlockKind::Check {
+                    indent: 0,
+                    checked: true
+                },
+                BlockKind::Numbered(0),
+                BlockKind::Paragraph,
+            ]
+        );
+        assert_eq!(doc.blocks[3].flat(), "more about c");
+        assert_eq!(body_to_markdown(&doc), "- a\n- [x] b\n\n1. c\n\nmore about c\n");
+    }
+
+    #[test]
     fn tags_are_cleaned_and_deduplicated_ignoring_case() {
         assert_eq!(
             clean_tags(["#Work", "work", " ideas ", "", "#"]),
