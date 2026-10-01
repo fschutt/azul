@@ -1574,7 +1574,7 @@ extern "C" fn on_address(mut data: RefAny, mut info: CallbackInfo, event: Addres
                             )
                         })
                         .collect();
-                    info.open_menu_for_hit_node(Menu::create(items.into()));
+                    info.open_menu_for_hit_node(Menu::create(items));
                 }
                 Some(_) => s.notice = String::from("This folder has no subfolders."),
                 None => {
