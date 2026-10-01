@@ -845,12 +845,13 @@ mod tests {
         assert_eq!(sel.single(), None);
         sel.toggle("b");
         assert_eq!(sel.keys(), keys(&["d"]).as_slice());
-        // The anchor is the last clicked item: d. Shift+click on a selects a..d.
+        // The anchor is the last Ctrl+clicked item, b - also when the click
+        // took it out (Explorer). Shift+click on a selects a..b.
         sel.extend("a", &ORDER);
-        assert_eq!(sel.keys(), keys(&["a", "b", "c", "d"]).as_slice());
+        assert_eq!(sel.keys(), keys(&["a", "b"]).as_slice());
         // A second Shift+click re-ranges from the same anchor.
         sel.extend("e", &ORDER);
-        assert_eq!(sel.keys(), keys(&["d", "e"]).as_slice());
+        assert_eq!(sel.keys(), keys(&["b", "c", "d", "e"]).as_slice());
         // Ctrl+Shift+click adds the range to what is selected.
         sel.click("a");
         sel.add_range("b", &ORDER);

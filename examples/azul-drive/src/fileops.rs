@@ -1034,7 +1034,7 @@ mod tests {
         assert_eq!(target.get("docs/sub/b.txt").unwrap(), b"beta");
         assert!(home.get("readme.txt").is_err());
         assert!(
-            home.local_path("docs/").map_or(true, |p| !p.exists()),
+            home.local_path("docs/").is_none_or(|p| !p.exists()),
             "the folder moved"
         );
     }
@@ -1108,7 +1108,7 @@ mod tests {
         assert_eq!(home.get("docs/sub/b.txt").unwrap(), b"beta");
         // For good: nothing left anywhere.
         delete_items(&home, &[item("docs/")], None).unwrap();
-        assert!(home.local_path("docs/").map_or(true, |p| !p.exists()));
+        assert!(home.local_path("docs/").is_none_or(|p| !p.exists()));
     }
 
     #[test]
