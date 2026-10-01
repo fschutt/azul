@@ -12,17 +12,15 @@ Report: scripts/DIALOGS_2026_10_01.md. House rules: no cargo, no rust-analyzer.
   `// RED stub` (scratchpad `dialogs/unstub.py` removes them).
 
 ## IN PROGRESS
-- Phase 2 done: recorder (`f386dc250`/`b7ec166ed`), row_button (`ec3549e37`), settings layout
-  (`87803130d`/`0ef699746`), settings dialog model RED `7dcda54a8`, build RED `27d80eaa2`,
-  GREEN `18548f32e`, lint fixtures `02a0f2224`.
-  NEXT STEP: Phase 3 - new file `layout/src/widgets/standard_dialogs.rs`: AboutDialog,
-  MessageBox (+kind, buttons, don't-ask-again), ProgressDialog (determinate /
-  indeterminate, cancel), LoginDialog, FindReplaceDialog; ONE callback type
-  (StandardDialogEvent); bodies only (the app wraps them in a Modal / Dialog). RED then GREEN.
+- Phase 3 done: check_row in kit `df0222ddb`, percent_text in kit `96985465e`, standard dialogs
+  RED `a2d17e458` + `e78f38f7d`, GREEN `724338cce`.
+  NEXT STEP: Phase 4 - examples/azul-setup (package AzSetup): Cargo.toml, src/main.rs,
+  src/lib.rs (model + wizard flow + timer progress + settings window/screen + About /
+  message box), registration (root Cargo.toml members, scripts/workspace_test_members.txt,
+  .github/workflows/rust.yml dll_tests step), scripts/azsetup_e2e.py; then AzWidgets
+  "Dialogs" cards (examples/azul-widgets/src/dialogs.rs + lib.rs wiring).
 
 ## NEXT
-- Phase 3: standard_dialogs (About, MessageBox, ProgressDialog, LoginDialog,
-  FindReplaceDialog). RED then GREEN.
 - Phase 4: examples/azul-setup (AzSetup), AzWidgets "Dialogs" cards, CI wiring,
   scripts/azsetup_e2e.py.
 - Phase 5: report.
