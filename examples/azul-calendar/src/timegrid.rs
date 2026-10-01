@@ -32,8 +32,8 @@ use crate::{
     editor_ui,
     event::{self, Event, Meeting},
     root_dom, settings, views, views_ui, week, CalState, EventRef, CLIPPED_LINE, CLIPPED_TITLE,
-    DAY_PAINT, DRAFT_PAINT, DRAFT_TITLE, ERROR, LINE, NOW_LINE, POPOVER, SECONDARY,
-    SELECTED_RING, TODAY_PAINT, UNTITLED,
+    DAY_PAINT, DRAFT_PAINT, DRAFT_TITLE, ERROR, LINE, NOW_LINE, POPOVER, SECONDARY, SELECTED_RING,
+    TODAY_PAINT, UNTITLED,
 };
 
 /// Width of the hour labels left of the days.
@@ -252,15 +252,13 @@ fn all_day_cell(s: &CalState, index: usize, date: NaiveDate, app: &RefAny) -> Do
 
 /// A day's column (`#day-<index>`): the hour lines, the events, the "now" line on today, and
 /// the draft with its popover. A press on empty time starts a click or a drag.
-fn day_column(
-    s: &CalState,
-    index: usize,
-    date: NaiveDate,
-    now: Option<u32>,
-    app: &RefAny,
-) -> Dom {
+fn day_column(s: &CalState, index: usize, date: NaiveDate, now: Option<u32>, app: &RefAny) -> Dom {
     let hour = s.hour_px;
-    let paint = if now.is_some() { TODAY_PAINT } else { DAY_PAINT };
+    let paint = if now.is_some() {
+        TODAY_PAINT
+    } else {
+        DAY_PAINT
+    };
     let target = RefAny::new(DayRef {
         app: app.clone(),
         day: index,
@@ -310,13 +308,7 @@ fn day_column(
 
 /// One event in its day's column (`#event-<id>-<yyyymmdd>`): title, time, place and, with a
 /// meeting link, "Join meeting" or that the link waits for the server.
-fn event_block(
-    s: &CalState,
-    e: &Event,
-    date: NaiveDate,
-    p: &week::Placement,
-    app: &RefAny,
-) -> Dom {
+fn event_block(s: &CalState, e: &Event, date: NaiveDate, p: &week::Placement, app: &RefAny) -> Dom {
     let hour_px = s.hour_px;
     let top = week::y_of_minute(p.top as f32, hour_px);
     let height = week::y_of_minute(p.height as f32, hour_px).max(week::MIN_BLOCK_PX);
@@ -342,9 +334,9 @@ fn event_block(
     if let Some(m) = &e.meeting {
         if m.pending {
             dom.add_child(
-                Dom::create_span_with_text("AzMeet link waits for the server").with_css(
-                    format!("{CLIPPED_LINE} font-size: 11px; font-style: italic;"),
-                ),
+                Dom::create_span_with_text("AzMeet link waits for the server").with_css(format!(
+                    "{CLIPPED_LINE} font-size: 11px; font-style: italic;"
+                )),
             );
         } else {
             let target = RefAny::new(EventRef {
@@ -486,9 +478,7 @@ fn popover_panel(d: &Draft, app: &RefAny) -> Dom {
     }
     panel.with_child(
         Dom::create_div()
-            .with_css(
-                "display: flex; flex-direction: row; align-items: center; margin-top: 16px;",
-            )
+            .with_css("display: flex; flex-direction: row; align-items: center; margin-top: 16px;")
             .with_child(
                 Button::create("More options")
                     .with_on_click(app.clone(), on_draft_more)
@@ -543,3 +533,507 @@ fn meet_toggle(d: &Draft, app: &RefAny) -> Dom {
     part
 }
 
+// ==== Scroll, zoom ====
+
+/// The hours' scroll area as a callback sees it: its node, where it is in the window, and how
+/// far it is scrolled.
+struct WeekScroll {
+    node: NodeHierarchyItemId,
+    top: f32,
+    height: f32,
+    scroll_y: f32,
+}
+
+fn week_scroll(info: &CallbackInfo) -> Option<WeekScroll> {
+    let node = info.get_node_id_by_id_attribute(root_dom(), WEEK_SCROLL_ID);
+    // 0 is "no node"; a node's raw id is its index + 1.
+    let index = node.into_raw().checked_sub(1)?;
+    let rect = info
+        .get_node_rect(DomNodeId {
+            dom: root_dom(),
+            node,
+        })
+        .into_option()?;
+    let scroll_y = info
+        .get_scroll_offset_for_node(root_dom(), NodeId::create(index))
+        .into_option()
+        .map_or(0.0, |offset| offset.y);
+    Some(WeekScroll {
+        node,
+        top: rect.origin.y,
+        height: rect.size.height,
+        scroll_y,
+    })
+}
+
+/// Zooms the hours by `factor`, keeping the time under the pointer (`pointer_y`, a window y;
+/// the view's middle without one) where it is; the zoom is saved a moment later.
+fn zoom(
+    s: &mut CalState,
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    factor: f32,
+    pointer_y: Option<f32>,
+) -> Update {
+    let old = s.hour_px;
+    let new = week::clamp_hour_px(old * factor);
+    if (new - old).abs() < 0.01 {
+        return Update::DoNothing;
+    }
+    s.hour_px = new;
+    queue_zoom_save(s, info, app);
+    if let Some(view) = week_scroll(info) {
+        let pointer = pointer_y.map_or(view.height / 2.0, |y| {
+            (y - view.top).clamp(0.0, view.height.max(0.0))
+        });
+        let y = week::zoom_scroll(old, new, pointer, view.scroll_y, view.height);
+        // Unclamped: the day is taller after zooming in than the layout the offset is checked
+        // against now; the rebuild this returns lays the new height out before anything draws.
+        info.scroll_to_unclamped(root_dom(), view.node, LogicalPosition { x: 0.0, y });
+    }
+    Update::RefreshDom
+}
+
+/// Saves the zoom in the settings file a moment from now, unless that is queued already.
+fn queue_zoom_save(s: &mut CalState, info: &mut CallbackInfo, app: &RefAny) {
+    if s.zoom_save_queued {
+        return;
+    }
+    s.zoom_save_queued = true;
+    let get_time = info.get_system_time_fn();
+    info.add_timer(
+        TimerId::unique(),
+        Timer::create(app.clone(), on_save_zoom, get_time).with_delay(Duration::System(
+            SystemTimeDiff::from_millis(ZOOM_SAVE_DELAY_MS),
+        )),
+    );
+}
+
+/// Writes the zoom as it is now into the settings file, for the next start.
+extern "C" fn on_save_zoom(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackReturn {
+    if let Some(mut s) = data.downcast_mut::<CalState>() {
+        s.zoom_save_queued = false;
+        s.save_setting(&settings::hour_px_line(s.hour_px));
+    }
+    TimerCallbackReturn::terminate_unchanged()
+}
+
+/// The wheel over the hours: with Ctrl or Cmd held it zooms (and the hours do not scroll as
+/// well); without, they scroll as any scroll area does.
+extern "C" fn on_week_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let modifiers = info.get_key_modifiers();
+    if !(modifiers.ctrl || modifiers.meta) {
+        return Update::DoNothing;
+    }
+    let hit = info.get_hit_node();
+    let node = NodeId::create(hit.node.into_raw().saturating_sub(1));
+    let dy = info
+        .get_scroll_delta(hit.dom, node)
+        .into_option()
+        .map_or(0.0, |delta| delta.y);
+    if dy == 0.0 {
+        return Update::DoNothing;
+    }
+    // The wheel has one consumer: this zoom. The scroll it would have made is taken back.
+    info.prevent_default();
+    let pointer_y = info
+        .get_cursor_relative_to_viewport()
+        .into_option()
+        .map(|p| p.y);
+    let app = data.clone();
+    let Some(mut guard) = data.downcast_mut::<CalState>() else {
+        return Update::DoNothing;
+    };
+    zoom(
+        &mut guard,
+        &mut info,
+        &app,
+        week::wheel_zoom_factor(dy),
+        pointer_y,
+    )
+}
+
+/// A pinch over the hours zooms them around the pinch's centre.
+extern "C" fn on_week_pinch(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(pinch) = info.get_pinch().into_option() else {
+        return Update::DoNothing;
+    };
+    // Cumulative since the gesture began: the zoom is the ratio to the previous update.
+    let sample = week::PinchSample {
+        scale: pinch.scale,
+        began: pinch.began,
+    };
+    let app = data.clone();
+    let Some(mut guard) = data.downcast_mut::<CalState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let factor = week::pinch_step(s.last_pinch_scale, sample);
+    s.last_pinch_scale = Some(sample.scale);
+    zoom(s, &mut info, &app, factor, Some(pinch.center.y))
+}
+
+/// The hours open at 08:00, or an hour before now when the view shows today.
+extern "C" fn on_week_mounted(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((minute, hour_px)) = data.downcast_ref::<CalState>().map(|s| {
+        let today_shown = days(&s).contains(&s.today);
+        (
+            week::first_minute_shown(today_shown, chrono::Local::now().time()),
+            s.hour_px,
+        )
+    }) else {
+        return Update::DoNothing;
+    };
+    let scroll = info.get_hit_node();
+    info.scroll_to(
+        scroll.dom,
+        scroll.node,
+        LogicalPosition {
+            x: 0.0,
+            y: week::y_of_minute(minute as f32, hour_px),
+        },
+    );
+    Update::DoNothing
+}
+
+/// Scrolls the view to an event on `date` at `start` that was just saved: another range of
+/// days when the view does not show `date`, else the hours when it is out of sight.
+pub(crate) fn reveal(s: &mut CalState, info: &mut CallbackInfo, date: NaiveDate, start: NaiveTime) {
+    let (first, last) = views::visible_range(s.view, s.anchor);
+    if date < first || date > last {
+        s.set_anchor(date);
+        return;
+    }
+    if !s.view.is_time_grid() {
+        return;
+    }
+    let Some(view) = week_scroll(info) else {
+        return;
+    };
+    let minute = week::minute_of_day(start);
+    if let Some(y) = week::reveal_scroll(minute, s.hour_px, view.scroll_y, view.height) {
+        info.scroll_to(root_dom(), view.node, LogicalPosition { x: 0.0, y });
+    }
+}
+
+// ==== Click or drag to make an event ====
+
+/// A day's column, for its callbacks.
+struct DayRef {
+    app: RefAny,
+    /// The column: an index into the view's days.
+    day: usize,
+}
+
+/// A draft, for a callback that must not act on a newer one.
+struct DraftRef {
+    app: RefAny,
+    serial: u32,
+}
+
+/// A press in a day's column. On empty time it starts a click or a drag; on an event it is the
+/// event's. While the popover is open, it is the press that closes it: the draft goes and
+/// nothing new starts (Google Calendar's way).
+extern "C" fn on_day_press(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, day)) = data
+        .downcast_ref::<DayRef>()
+        .map(|r| (r.app.clone(), r.day))
+    else {
+        return Update::DoNothing;
+    };
+    let Some(mut guard) = app.downcast_mut::<CalState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    s.press = None;
+    if s.draft.is_some() {
+        s.draft = None;
+        s.popover_closed_at = Some(Instant::now());
+        return Update::RefreshDom;
+    }
+    if s.popover_closed_at
+        .is_some_and(|closed| closed.elapsed() < DISMISSING_PRESS)
+    {
+        return Update::DoNothing;
+    }
+    let Some(at) = info.get_cursor_relative_to_node().into_option() else {
+        return Update::DoNothing;
+    };
+    let width = info
+        .get_hit_node_rect()
+        .into_option()
+        .map_or(0.0, |rect| rect.size.width);
+    let x_frac = if width > 0.0 { at.x / width } else { 0.5 };
+    if week::event_at(&placements_of(s, day), at.y, x_frac, s.hour_px).is_some() {
+        return Update::DoNothing;
+    }
+    s.press = Some(Press {
+        day,
+        from_y: at.y,
+        to_y: at.y,
+        dragging: false,
+    });
+    // The drag goes on when the pointer leaves the column (or the window).
+    let column = info.get_hit_node();
+    info.capture_pointer(column);
+    Update::DoNothing
+}
+
+/// The pointer moving over a day's column: a press on empty time that moved a few pixels is a
+/// drag, and the draft follows it (redrawn when its quarter hours change).
+extern "C" fn on_day_drag(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((mut app, day)) = data
+        .downcast_ref::<DayRef>()
+        .map(|r| (r.app.clone(), r.day))
+    else {
+        return Update::DoNothing;
+    };
+    let Some(mut guard) = app.downcast_mut::<CalState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let hour_px = s.hour_px;
+    let Some(press) = s.press.as_mut().filter(|p| p.day == day) else {
+        return Update::DoNothing;
+    };
+    let Some(at) = info.get_cursor_relative_to_node().into_option() else {
+        return Update::DoNothing;
+    };
+    let before = press.dragging.then(|| press.range(hour_px));
+    press.to_y = at.y;
+    if !press.dragging && !week::is_drag(press.from_y, press.to_y) {
+        return Update::DoNothing;
+    }
+    press.dragging = true;
+    if before == Some(press.range(hour_px)) {
+        Update::DoNothing
+    } else {
+        Update::RefreshDom
+    }
+}
+
+/// The press let go: a draft of what it made (an hour from a click, the quarter hours of a
+/// drag), with its popover. The selection goes.
+extern "C" fn on_day_release(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((mut app, day)) = data
+        .downcast_ref::<DayRef>()
+        .map(|r| (r.app.clone(), r.day))
+    else {
+        return Update::DoNothing;
+    };
+    let Some(mut guard) = app.downcast_mut::<CalState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let Some(mut press) = s.press.filter(|p| p.day == day) else {
+        return Update::DoNothing;
+    };
+    s.press = None;
+    if let Some(at) = info.get_cursor_relative_to_node().into_option() {
+        press.to_y = at.y;
+    }
+    let (start, end) = press.range(s.hour_px);
+    let Some(date) = days(s).get(day).copied() else {
+        return Update::RefreshDom;
+    };
+    s.drafts_made += 1;
+    s.draft = Some(Draft {
+        serial: s.drafts_made,
+        id: event::new_event_id(),
+        title: String::new(),
+        date,
+        start: week::time_of_minute(start),
+        end: week::time_of_minute(end),
+        add_meet: false,
+        link: None,
+        error: String::new(),
+    });
+    s.selected = None;
+    s.notice.clear();
+    Update::RefreshDom
+}
+
+/// The popover was dismissed (a press outside it, Escape, its window losing focus): the draft
+/// goes.
+extern "C" fn on_popover_dismissed(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some((mut app, serial)) = data
+        .downcast_ref::<DraftRef>()
+        .map(|r| (r.app.clone(), r.serial))
+    else {
+        return Update::DoNothing;
+    };
+    let Some(mut s) = app.downcast_mut::<CalState>() else {
+        return Update::DoNothing;
+    };
+    if !s.draft.as_ref().is_some_and(|d| d.serial == serial) {
+        return Update::DoNothing;
+    }
+    s.draft = None;
+    s.popover_closed_at = Some(Instant::now());
+    Update::RefreshDom
+}
+
+// ==== The popover's form ====
+
+extern "C" fn on_draft_title(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
+    if let Some(mut s) = data.downcast_mut::<CalState>() {
+        if let Some(d) = s.draft.as_mut() {
+            d.title = state.get_text().as_str().to_string();
+        }
+    }
+    OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: TextInputValid::Yes,
+    }
+}
+
+/// Enter in the popover's title saves the event, as Save does.
+extern "C" fn on_draft_title_key(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    _state: TextInputState,
+) -> OnTextInputReturn {
+    let key = info
+        .get_current_keyboard_state()
+        .current_virtual_keycode
+        .into_option();
+    let update = if matches!(
+        key,
+        Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter)
+    ) {
+        save_draft(&mut data, &mut info)
+    } else {
+        Update::DoNothing
+    };
+    OnTextInputReturn {
+        update,
+        valid: TextInputValid::Yes,
+    }
+}
+
+/// Ticks or clears "Add AzMeet link": `checked` from the box itself, or a toggle (its label).
+fn set_draft_meet(data: &mut RefAny, checked: Option<bool>) -> Update {
+    let Some(mut s) = data.downcast_mut::<CalState>() else {
+        return Update::DoNothing;
+    };
+    let Some(d) = s.draft.as_mut() else {
+        return Update::DoNothing;
+    };
+    d.add_meet = checked.unwrap_or(!d.add_meet);
+    d.error.clear();
+    Update::RefreshDom
+}
+
+extern "C" fn on_draft_meet_toggled(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: CheckBoxState,
+) -> Update {
+    set_draft_meet(&mut data, Some(state.checked))
+}
+
+extern "C" fn on_draft_meet_label(mut data: RefAny, _info: CallbackInfo) -> Update {
+    set_draft_meet(&mut data, None)
+}
+
+extern "C" fn on_draft_cancel(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut s) = data.downcast_mut::<CalState>() else {
+        return Update::DoNothing;
+    };
+    s.draft = None;
+    Update::RefreshDom
+}
+
+extern "C" fn on_draft_save(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    save_draft(&mut data, &mut info)
+}
+
+/// "More options": the draft goes to the event editor window, with what it has so far.
+extern "C" fn on_draft_more(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let form = {
+        let Some(mut guard) = data.downcast_mut::<CalState>() else {
+            return Update::DoNothing;
+        };
+        let s = &mut *guard;
+        let calendar = s.calendar_for_new();
+        let Some(d) = s.draft.take() else {
+            return Update::DoNothing;
+        };
+        s.editors_opened += 1;
+        let mut form =
+            EditorForm::new_event(s.editors_opened, &d.id, d.date, d.start, d.end, &calendar);
+        form.title = d.title;
+        form.add_meet = d.add_meet;
+        form.meeting = d.link;
+        form
+    };
+    editor_ui::open_form(&mut data, &mut info, form, None)
+}
+
+/// Save (the button, or Enter in the popover's title): writes the event at once, in the first
+/// calendar shown, "(No title)" without a title. With "Add AzMeet link" the link is made here,
+/// pending, and its room is registered with the meeting server right after (or as soon as the
+/// server answers), so saving never waits on the network.
+fn save_draft(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+    let app = data.clone();
+    let Some(mut guard) = data.downcast_mut::<CalState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let server = s.server.clone();
+    let calendar = s.calendar_for_new();
+    let Some(d) = s.draft.as_mut() else {
+        return Update::DoNothing;
+    };
+    d.error.clear();
+    let title = if d.title.trim().is_empty() {
+        UNTITLED.to_string()
+    } else {
+        d.title.trim().to_string()
+    };
+    let meeting = if d.add_meet {
+        Some(
+            d.link
+                .get_or_insert_with(|| crate::new_meeting(&server))
+                .clone(),
+        )
+    } else {
+        None
+    };
+    let made =
+        Event::create(&d.id, &title, d.date, d.start, d.end, meeting.clone()).and_then(|mut e| {
+            e.calendar = calendar;
+            e.check()
+        });
+    let event = match made {
+        Ok(event) => event,
+        Err(e) => {
+            d.error = crate::editor::error_text(&e);
+            eprintln!("[azcalendar] cannot save: {}", d.error);
+            return Update::RefreshDom;
+        }
+    };
+    let (date, start) = (event.date, event.start);
+    match s.store_event(event) {
+        Ok(_) => {
+            s.notice = match &meeting {
+                Some(m) => format!("Saved \"{title}\" with the AzMeet link {}", m.link),
+                None => format!("Saved \"{title}\"."),
+            };
+            s.draft = None;
+            reveal(s, info, date, start);
+            crate::sync_links(s, info, &app);
+        }
+        Err(message) => {
+            eprintln!("[azcalendar] {message}");
+            if let Some(d) = s.draft.as_mut() {
+                d.error = message;
+            }
+        }
+    }
+    Update::RefreshDom
+}
