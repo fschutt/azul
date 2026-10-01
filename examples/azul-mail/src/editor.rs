@@ -523,7 +523,7 @@ fn list_dom(ordered: bool, items: Vec<Dom>) -> Dom {
     } else {
         Dom::create_ul()
     };
-    list.with_children(items.into())
+    list.with_children(items)
 }
 
 /// The toolbar's Bullets / Numbering on the caret's block: a paragraph becomes a list item; an
@@ -548,7 +548,7 @@ pub fn toggle_list(model: &mut Dom, info: &CallbackInfo, host: DomNodeId, ordere
             return false;
         };
         let content: Vec<Dom> = slot.children.as_ref().to_vec();
-        *slot = list_dom(ordered, vec![Dom::create_li().with_children(content.into())]);
+        *slot = list_dom(ordered, vec![Dom::create_li().with_children(content)]);
     } else if parent_ordered != ordered {
         let items: Vec<Dom> = parent.children.as_ref().to_vec();
         *parent = list_dom(ordered, items);
@@ -561,7 +561,7 @@ pub fn toggle_list(model: &mut Dom, info: &CallbackInfo, host: DomNodeId, ordere
             .children
             .as_ref()
             .iter()
-            .map(|item| Dom::create_p().with_children(item.children.as_ref().to_vec().into()))
+            .map(|item| Dom::create_p().with_children(item.children.as_ref().to_vec()))
             .collect();
         let Some(outer) = node_at_mut(model, outer_path) else {
             return false;
