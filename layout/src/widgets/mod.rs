@@ -1577,7 +1577,7 @@ mod label_convention {
                     .dom(),
             ),
             (
-                "wizard welcome page",
+                "wizard_pages (welcome)",
                 super::wizard_pages::WizardWelcomePage::create(
                     AzString::from("Welcome to the AzOffice Setup Wizard"),
                     AzString::from("This will install AzOffice on your computer."),
@@ -1586,14 +1586,14 @@ mod label_convention {
                 .dom(),
             ),
             (
-                "wizard license page",
+                "wizard_pages (license)",
                 super::wizard_pages::WizardLicensePage::create(AzString::from(
                     "Permission is hereby granted.\n\nThe software is provided as is.",
                 ))
                 .dom(),
             ),
             (
-                "wizard destination page",
+                "wizard_pages (destination)",
                 super::wizard_pages::WizardDestinationPage::create(
                     AzString::from("/opt/AzOffice"),
                     1 << 30,
@@ -1602,7 +1602,7 @@ mod label_convention {
                 .dom(),
             ),
             (
-                "wizard components page",
+                "wizard_pages (components)",
                 super::wizard_pages::WizardComponentsPage::create(
                     super::wizard_pages::WizardComponentVec::from_vec(vec![
                         super::wizard_pages::WizardComponent::create(
@@ -1621,7 +1621,7 @@ mod label_convention {
                 .dom(),
             ),
             (
-                "wizard options page",
+                "wizard_pages (options)",
                 super::wizard_pages::WizardOptionsPage::create(
                     super::wizard_pages::WizardOptionVec::from_vec(vec![
                         super::wizard_pages::WizardOption::create(
@@ -1638,7 +1638,7 @@ mod label_convention {
                 .dom(),
             ),
             (
-                "wizard summary page",
+                "wizard_pages (summary)",
                 super::wizard_pages::WizardSummaryPage::create(
                     azul_core::window::StringPairVec::from_const_slice(&[]),
                 )
@@ -1646,7 +1646,7 @@ mod label_convention {
                 .dom(),
             ),
             (
-                "wizard progress page",
+                "wizard_pages (progress)",
                 super::wizard_pages::WizardProgressPage::create(42.0)
                     .with_current_item(AzString::from("Copying azword.dll"))
                     .with_log(labels(&["Created /opt/AzOffice"]))
@@ -1654,7 +1654,7 @@ mod label_convention {
                     .dom(),
             ),
             (
-                "wizard finish page",
+                "wizard_pages (finish)",
                 super::wizard_pages::WizardFinishPage::create(
                     AzString::from("Completing the AzOffice Setup Wizard"),
                     AzString::from("Setup has installed AzOffice."),
@@ -1686,7 +1686,7 @@ mod label_convention {
                     .dom(),
             ),
             (
-                "message_box",
+                "standard_dialogs (message box)",
                 super::standard_dialogs::MessageBox::create(
                     super::standard_dialogs::MessageBoxKind::Warning,
                     AzString::from("Replace the existing file?"),
@@ -1697,7 +1697,7 @@ mod label_convention {
                 .dom(),
             ),
             (
-                "about_dialog",
+                "standard_dialogs (about)",
                 super::standard_dialogs::AboutDialog::create(
                     AzString::from("AzOffice"),
                     AzString::from("Version 1.0.0"),
@@ -1708,20 +1708,20 @@ mod label_convention {
                 .dom(),
             ),
             (
-                "progress_dialog",
+                "standard_dialogs (progress)",
                 super::standard_dialogs::ProgressDialog::create(AzString::from("Copying 12 files"), 42.0)
                     .with_detail(AzString::from("report.docx"))
                     .dom(),
             ),
             (
-                "login_dialog",
+                "standard_dialogs (login)",
                 super::standard_dialogs::LoginDialog::create(AzString::from("Sign in to AzOffice"))
                     .with_error(AzString::from("The password is wrong."))
                     .with_remember(AzString::from("Remember me"), false)
                     .dom(),
             ),
             (
-                "find_replace_dialog",
+                "standard_dialogs (find / replace)",
                 super::standard_dialogs::FindReplaceDialog::create(AzString::from("azul"))
                     .with_replace(AzString::from("Azul"))
                     .with_status(AzString::from("3 of 12"))
@@ -2646,19 +2646,19 @@ mod theme_contrast {
         "wizard_layout",
         "wizard_layout (banner)",
         "wizard_layout (side panel)",
-        "wizard welcome page",
-        "wizard license page",
-        "wizard destination page",
-        "wizard components page",
-        "wizard options page",
-        "wizard summary page",
-        "wizard progress page",
-        "wizard finish page",
-        "message_box",
-        "about_dialog",
-        "progress_dialog",
-        "login_dialog",
-        "find_replace_dialog",
+        "wizard_pages (welcome)",
+        "wizard_pages (license)",
+        "wizard_pages (destination)",
+        "wizard_pages (components)",
+        "wizard_pages (options)",
+        "wizard_pages (summary)",
+        "wizard_pages (progress)",
+        "wizard_pages (finish)",
+        "standard_dialogs (message box)",
+        "standard_dialogs (about)",
+        "standard_dialogs (progress)",
+        "standard_dialogs (login)",
+        "standard_dialogs (find / replace)",
     ];
     /// Controls a user types into, picks from or toggles.
     const INPUTS: &[&str] = &[
