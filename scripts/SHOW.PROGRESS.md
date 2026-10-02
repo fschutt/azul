@@ -38,10 +38,9 @@ Brief: scratchpad `SHOW_go.md`; house rules: scratchpad `wave4_common.md`. Repor
   (scratchpad tc_pure.py type-checks model + editor + themes standalone; gen.py lists generated API.)
   app.rs ea1a81bd9, commands.rs 9267cb03e, ribbon.rs 383775a66, backstage.rs b3581f940,
   views.rs 71d67741e, show.rs 2962e5bf2, lib.rs + main.rs 302ea04b3. The app is complete (uncompiled).
-  scripts/azshow_e2e.py + Command::StopEditing: b01b3bf6b.
-  NEXT STEP: a review pass over the app and widget files for compile errors (read each file once,
-  fix, commit per file), then the report `scripts/SHOW_2026_10_01.md` (what was built, commits,
-  api.json list, least-sure spots, test commands, what is left incl. .pptx import needs).
+  scripts/azshow_e2e.py + Command::StopEditing: b01b3bf6b. Review pass done (no changes needed).
+  The report `scripts/SHOW_2026_10_01.md` is committed with this checkpoint. TASK DONE; what is left
+  is the parent's (compile, autofix api.json, suites, E2E) and the report's "What is left".
 
 ## NEXT
 
