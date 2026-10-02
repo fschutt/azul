@@ -1417,6 +1417,37 @@ mod tests {
         );
     }
 
+    /// The mail is read with the engine's HTML parser (`Xml::create_from_html`,
+    /// DEDUP_EDITORS B20), so the sanitized tree is the one a browser builds - where AzMail's
+    /// own tokenizer built a simpler one: a stray end tag in a table cell does not close the
+    /// table around it, a formatting element left open goes on in the next paragraph, `</p>`
+    /// alone is an empty paragraph, a row gets the `<tbody>` it implies, and every one of the
+    /// HTML Standard's 2231 named references decodes (with the legacy ones also without `;`).
+    #[test]
+    fn the_sanitizer_builds_the_tree_a_browser_builds() {
+        assert_eq!(
+            inner("<div><table><tr><td>a</div>b</td></tr></table></div>"),
+            "<div><table><tbody><tr><td>ab</td></tr></tbody></table></div>",
+            "a stray </div> inside a cell closes nothing"
+        );
+        assert_eq!(
+            inner("<p><b>x<p>y"),
+            "<p><b>x</b></p><p><b>y</b></p>",
+            "the bold left open goes on in the next paragraph"
+        );
+        assert_eq!(inner("x</p>y"), "x<p></p>y", "</p> alone is an empty paragraph");
+        assert_eq!(
+            inner("&star; &ThickSpace; &lrarr; &copy 2026"),
+            "\u{2606} \u{205f}\u{200a} \u{21c6} \u{a9} 2026",
+            "the named references a browser knows"
+        );
+        assert_eq!(
+            inner("<td>loose</td><tr>row"),
+            "looserow",
+            "a cell or a row outside any table is ignored, its content stays"
+        );
+    }
+
     #[test]
     fn nesting_is_bounded() {
         let deep = "<div>".repeat(1000) + "x";
