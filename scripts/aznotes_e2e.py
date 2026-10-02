@@ -206,6 +206,16 @@ class App:
         self.must("click", selector=selector)
         self.frame(2)
 
+    def type_into(self, selector, text):
+        """Types into a text field (AzMail's / AzCalendar's way: focus the field's root by
+        its id, let a redraw settle, focus again, then type)."""
+        self.must("focus_node", selector=selector)
+        self.frame(1)
+        time.sleep(0.2)
+        self.must("focus_node", selector=selector)
+        self.frame(1)
+        self.type(text)
+
     def screenshot(self, path):
         value = self.value("take_screenshot")
         data = value.get("data") if isinstance(value, dict) else None
@@ -244,8 +254,7 @@ def first_session(app, data, out):
     note_id = app.until("the new note", lambda: (app.printed("AZNOTES_NEW", r"[0-9a-f-]+") or [None])[-1])
     app.until("the new note to open", lambda: note_id in app.printed("AZNOTES_OPEN", r"[0-9a-f-]+"))
     log("new note %s" % note_id)
-    app.click("#note-title")
-    app.type("Shopping list")
+    app.type_into("#note-title", "Shopping list")
 
     # The body, with Markdown shortcuts.
     app.must("focus_node", selector="#note-body")
@@ -264,8 +273,7 @@ def first_session(app, data, out):
     app.type("call the bakery")
 
     # A tag, the pin.
-    app.click("#tag-input")
-    app.type("errands")
+    app.type_into("#tag-input", "errands")
     app.key("return")
     app.until("the tag chip", lambda: app.shows("#errands"))
     app.click("#pin-note")
