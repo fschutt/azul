@@ -292,8 +292,14 @@ fn notebook_for_new(state: &AppState) -> String {
 
 /// Creates a note in the shown notebook (tagged with the shown tag, pinned
 /// in Pinned), opens it, and puts the focus into its body.
+/// A fresh note id (the note's file name in the drive).
+#[must_use]
+pub fn new_note_id() -> String {
+    azul::uuid::Uuid::v4().as_str().to_string()
+}
+
 pub fn new_note(info: &mut CallbackInfo, app: &RefAny, state: &mut AppState) {
-    let id = azul::uuid::Uuid::v4().as_str().to_string();
+    let id = new_note_id();
     let now = azul_storage::time::now_unix();
     let mut note = Note::new(&id, &notebook_for_new(state), now);
     match &state.query.scope {

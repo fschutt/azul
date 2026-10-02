@@ -453,3 +453,6 @@ pub fn start() {
     window.window_state.flags.decorations = WindowDecorations::NoTitle;
     app.run(window);
 }
+
+#[cfg(test)]
+mod ids_tests;

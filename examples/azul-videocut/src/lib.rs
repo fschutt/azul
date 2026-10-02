@@ -2836,7 +2836,7 @@ extern "C" fn on_make_sample(mut data: RefAny, mut info: CallbackInfo) -> Update
         return Update::DoNothing;
     };
     app.loading = true;
-    let id = Uuid::v4().as_str().to_string();
+    let id = new_project_id();
     spawn(
         &mut info,
         &app_ref,
@@ -2855,7 +2855,7 @@ extern "C" fn on_new_project(mut data: RefAny, mut info: CallbackInfo) -> Update
     let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
-    let id = Uuid::v4().as_str().to_string();
+    let id = new_project_id();
     app.project = Some(Project::create(id.clone(), String::from("Untitled"), 1280, 720, 25));
     app.revision += 1;
     announce(&format!("PROJECT {id} 0 0"));
@@ -2871,7 +2871,7 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
-    let sample_id = app.args.sample.then(|| Uuid::v4().as_str().to_string());
+    let sample_id = app.args.sample.then(|| new_project_id());
     let project = app.args.project.clone();
     app.loading = true;
     spawn(&mut info, &app_ref, &app, Job::Load { sample_id, project });
@@ -2975,3 +2975,12 @@ pub fn start() {
     window.create_callback = Some(Callback::create(startup)).into();
     app.run(window);
 }
+
+/// A fresh project id (the project's folder in the drive).
+#[must_use]
+pub fn new_project_id() -> String {
+    Uuid::v4().as_str().to_string()
+}
+
+#[cfg(test)]
+mod ids_tests;

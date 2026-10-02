@@ -561,3 +561,6 @@ pub fn start(args: Args) {
     window.create_callback = Some(Callback::create(on_window_created)).into();
     app.run(window);
 }
+
+#[cfg(test)]
+mod ids_tests;

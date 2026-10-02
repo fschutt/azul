@@ -473,3 +473,6 @@ mod tests {
         assert_eq!(Settings::from_text("autosave_ms=1").autosave_ms, 100, "clamped");
     }
 }
+
+#[cfg(test)]
+mod ids_tests;
