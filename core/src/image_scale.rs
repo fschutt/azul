@@ -675,33 +675,41 @@ pub fn fit_within(width: u32, height: u32, max_w: u32, max_h: u32) -> (u32, u32)
 /// for an empty one.
 #[must_use]
 pub fn thumbnail(image: &RawImage, max_w: u32, max_h: u32) -> Option<RawImage> {
+    let width = u32::try_from(image.width).ok()?;
+    let height = u32::try_from(image.height).ok()?;
+    let (w, h) = fit_within(width, height, max_w, max_h);
+    resized(image, w, h)
+}
+
+/// A copy of `image` resampled to exactly `width x height` - up or down,
+/// the aspect NOT kept ([`thumbnail`] keeps it) - as straight RGBA8,
+/// sampled by [`resample_rgba`] (area-averaging down, bilinear up). `None`
+/// for a source the scaler cannot read (16-bit, float or two-channel
+/// pixels, a buffer shorter than its size), for an empty one and for a
+/// zero size.
+#[must_use]
+pub fn resized(image: &RawImage, width: u32, height: u32) -> Option<RawImage> {
     let bytes: &[u8] = match &image.pixels {
         RawImageData::U8(bytes) => bytes.as_ref(),
         RawImageData::U16(_) | RawImageData::F32(_) => return None,
     };
-    let width = u32::try_from(image.width).ok()?;
-    let height = u32::try_from(image.height).ok()?;
     let src = SrcImage {
         bytes,
         format: image.data_format,
-        width,
-        height,
+        width: u32::try_from(image.width).ok()?,
+        height: u32::try_from(image.height).ok()?,
     };
-    if !src.is_sampleable() {
+    if src.width == 0 || src.height == 0 || width == 0 || height == 0 || !src.is_sampleable() {
         return None;
     }
-    let (w, h) = fit_within(width, height, max_w, max_h);
-    if w == 0 || h == 0 {
-        return None;
-    }
-    let pixels = resample_rgba(&src, w, h);
+    let pixels = resample_rgba(&src, width, height);
     if pixels.is_empty() {
         return None;
     }
     Some(RawImage {
         pixels: RawImageData::U8(U8Vec::from_vec(pixels)),
-        width: w as usize,
-        height: h as usize,
+        width: width as usize,
+        height: height as usize,
         premultiplied_alpha: image.premultiplied_alpha,
         data_format: RawImageFormat::RGBA8,
         tag: U8Vec::from_vec(Vec::new()),
