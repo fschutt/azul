@@ -20,8 +20,8 @@ use azul_css::{
             ColorU, PhysicalSize, PropertyContext, ResolutionContext, SizeMetric,
         },
         layout::{
-            ColumnCount, ColumnWidth, LayoutBorderSpacing, LayoutClear, LayoutDisplay, LayoutFloat,
-            LayoutHeight, LayoutJustifyContent, LayoutOverflow, LayoutPosition, LayoutTableLayout,
+            LayoutBorderSpacing, LayoutClear, LayoutDisplay, LayoutFloat, LayoutHeight,
+            LayoutJustifyContent, LayoutOverflow, LayoutPosition, LayoutTableLayout,
             LayoutTextJustify, LayoutWidth, LayoutWritingMode, ShapeInside, ShapeOutside,
             StyleBorderCollapse, StyleCaptionSide, StyleEmptyCells,
         },
@@ -196,6 +196,11 @@ pub struct LayoutConstraints<'a> {
     /// K30b fragmentation: `None` = continuous (screen) layout, identical
     /// to pre-token behavior. `Some` arms the fit checks in `layout_bfc`.
     pub fragmentainer: Option<FragmentainerSpace<'a>>,
+    /// The inline formatting context laid out is one piece of a
+    /// multi-column block container's flow, its lines continuing in the
+    /// next columns at these line indices (`solver3::multicol`). `None` =
+    /// not split, for every caller but the multi-column block layout.
+    pub column_flow: Option<crate::text3::cache::ColumnFlow>,
 }
 
 /// Manages all layout state for a single Block Formatting Context.
@@ -1406,6 +1411,28 @@ fn layout_bfc<T: ParsedFontTrait>(
             (children_containing_block_size.width - scrollbar_reservation).max(0.0);
     }
 
+    // CSS Multicol 1: a multi-column block container lays its children out
+    // as ONE column of the column width - Passes 1 and 2 below, unchanged
+    // but for that width - and then cuts that column into its columns
+    // (`distribute_into_columns`, after Pass 2).
+    let multicol = block_columns(
+        ctx,
+        tree,
+        &node,
+        node_index,
+        constraints,
+        children_containing_block_size,
+    );
+    if let Some(columns) = &multicol {
+        children_containing_block_size.width = columns.geometry.width;
+    }
+    // The inline size the children are placed across (floats, auto
+    // margins, right to left): one column of a multi-column container.
+    let flow_cross_size = multicol.as_ref().map_or_else(
+        || constraints.available_size.cross(writing_mode),
+        |columns| columns.geometry.width,
+    );
+
     // === Pass 1: Pre-compute child sizes (restored two-pass BFC) ===
     //
     // Inspired by Taffy's two-pass approach: first measure, then position.
@@ -1888,7 +1915,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                     float_margin,
                     // Include last_margin_bottom since float margins don't collapse!
                     float_y,
-                    constraints.available_size.cross(writing_mode),
+                    flow_cross_size,
                     writing_mode,
                 );
 
@@ -2692,7 +2719,7 @@ fn layout_bfc<T: ParsedFontTrait>(
         let (cross_start, cross_end, available_cross) = if avoids_floats {
             // New BFC / replaced / table: Must shrink or move down to avoid overlapping floats
             let child_cross_needed = child_size.cross(writing_mode);
-            let bfc_cross = constraints.available_size.cross(writing_mode);
+            let bfc_cross = flow_cross_size;
 
             let (mut start, mut end) = float_context.available_line_box_space(
                 main_pen,
@@ -2755,7 +2782,7 @@ fn layout_bfc<T: ParsedFontTrait>(
             // Normal flow: Overlaps floats, positioned at full width
             // Only the child's INLINE CONTENT (if any) wraps around floats
             let start = 0.0;
-            let end = constraints.available_size.cross(writing_mode);
+            let end = flow_cross_size;
             let available = end - start;
 
             debug_info!(
@@ -2849,7 +2876,7 @@ fn layout_bfc<T: ParsedFontTrait>(
             (cross_pos, main_pen)
         } else {
             // Normal flow: Check for margin: auto centering
-            let available_cross = constraints.available_size.cross(writing_mode);
+            let available_cross = flow_cross_size;
             let child_cross_size = child_used_size.cross(writing_mode);
 
             debug_info!(
@@ -3109,6 +3136,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                 containing_block_size: constraints.containing_block_size,
                 available_width_type: Text3AvailableSpace::Definite(child_content_size.width),
                 fragmentainer: None,
+                column_flow: None,
             };
 
             // Re-layout the IFC with float awareness
@@ -3178,6 +3206,23 @@ fn layout_bfc<T: ParsedFontTrait>(
             child_cross_pos + child_size.cross(writing_mode) + child_margin.cross_end(writing_mode);
         max_cross_size = max_cross_size.max(child_cross_extent);
     }
+
+    // CSS Multicol 1: the children stand in ONE column of the column width;
+    // cut it into the container's columns and move them there.
+    let multicol_extent = match &multicol {
+        Some(columns) if has_content => Some(distribute_into_columns(
+            ctx,
+            tree,
+            text_cache,
+            float_cache,
+            columns,
+            &pos_children,
+            &mut output.positions,
+            !float_context.floats.is_empty(),
+            constraints,
+        )?),
+        _ => None,
+    };
 
     // Store the float context in cache for future layout passes
     // This happens after ALL children (floats and normal) have been positioned
@@ -3438,6 +3483,13 @@ fn layout_bfc<T: ParsedFontTrait>(
         }
     }
 
+    // A multi-column container is as tall as its tallest column (its
+    // floats are in the columns too) and as wide as its columns reach.
+    if let Some(extent) = multicol_extent {
+        content_box_height = extent.height;
+        max_cross_size = extent.width;
+    }
+
     // +spec:display-contents:f6de1a - content height overflow tracked via overflow_size
     // +spec:overflow:043182 - overflow computed from box bounds + children overflow
     output.overflow_size =
@@ -3478,6 +3530,315 @@ fn layout_bfc<T: ParsedFontTrait>(
         scrollbar_reflow_needed: child_scrollbar_reflow,
         reserved_scrollbar_width: scrollbar_reservation,
     })
+}
+
+// Multi-column block containers (CSS Multicol 1)
+
+/// The columns of a multi-column block container, as `layout_bfc` lays it
+/// out.
+struct BlockColumns {
+    style: crate::solver3::multicol::ColumnStyle,
+    geometry: crate::solver3::multicol::ColumnGeometry,
+    /// The container's content-box width, the columns are placed across.
+    content_width: f32,
+    /// The container's own content height, when it has a definite one.
+    definite_height: Option<f32>,
+    /// `direction: rtl`: the columns run right to left.
+    rtl: bool,
+}
+
+/// The content extent of a multi-column container's columns.
+struct ColumnsExtent {
+    /// The tallest column.
+    height: f32,
+    /// How far the columns reach on the inline axis.
+    width: f32,
+}
+
+/// The columns of the block container at `node_index`, when it is a
+/// multi-column container the column layout handles: continuous media (not
+/// a K30b fragment pass), a definite width, a horizontal writing mode. In
+/// every other case it lays out as one column, as it always did.
+/// `content_box` is the size its children's containing block has.
+fn block_columns<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    node: &LayoutNodeHot,
+    node_index: usize,
+    constraints: &LayoutConstraints<'_>,
+    content_box: LogicalSize,
+) -> Option<BlockColumns> {
+    if constraints.fragmentainer.is_some()
+        || constraints.writing_mode != LayoutWritingMode::HorizontalTb
+        || !matches!(
+            constraints.available_width_type,
+            Text3AvailableSpace::Definite(_)
+        )
+    {
+        return None;
+    }
+    let dom_id = node.dom_node_id?;
+    let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    let style = crate::solver3::multicol::column_style(
+        ctx.styled_dom,
+        dom_id,
+        node_state,
+        ctx.viewport_size,
+    )?;
+    let has_definite_height = node.used_size.is_some()
+        && tree.warm(LayoutNodeId::new(node_index)).is_some_and(|w| {
+            matches!(
+                w.computed_style.height,
+                Some(LayoutHeight::Px(_) | LayoutHeight::Calc(_))
+            )
+        });
+    let definite_height = has_definite_height
+        .then_some(content_box.height)
+        .filter(|h| h.is_finite() && *h > 0.0);
+    let rtl = matches!(
+        get_direction_property(ctx.styled_dom, dom_id, node_state),
+        MultiValue::Exact(StyleDirection::Rtl)
+    );
+    Some(BlockColumns {
+        geometry: style.geometry(content_box.width),
+        style,
+        content_width: content_box.width,
+        definite_height,
+        rtl,
+    })
+}
+
+/// Cuts a multi-column block container's single column into its columns
+/// (`multicol::plan_columns`) and moves its children there: an in-flow
+/// child to its column, a paragraph that continues in the next columns laid
+/// out again split between its lines ([`split_into_columns`]), a float to
+/// the column its top falls in. `positions` are the children's positions in
+/// the single column, relative to the container's content box.
+///
+/// With floats in the flow no paragraph splits: its lines wrapped around
+/// them, and a split must break its lines exactly as they are.
+#[allow(clippy::too_many_arguments)] // one layout step, the layout state it needs
+fn distribute_into_columns<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    text_cache: &mut TextLayoutCache,
+    float_cache: &mut HashMap<usize, FloatingContext>,
+    columns: &BlockColumns,
+    children: &[usize],
+    positions: &mut BTreeMap<usize, LogicalPosition>,
+    has_floats: bool,
+    constraints: &LayoutConstraints<'_>,
+) -> Result<ColumnsExtent> {
+    use crate::solver3::multicol::{plan_columns, FlowBox};
+
+    let mut flow: Vec<(usize, FlowBox)> = Vec::new();
+    let mut floats: Vec<usize> = Vec::new();
+    for &child in children {
+        let Some(&pos) = positions.get(&child) else {
+            continue;
+        };
+        let Some(node) = tree.get(LayoutNodeId::new(child)) else {
+            continue;
+        };
+        if get_float_property(ctx.styled_dom, node.dom_node_id) != LayoutFloat::None {
+            floats.push(child);
+            continue;
+        }
+        let height = node.used_size.unwrap_or_default().height;
+        let lines = if has_floats {
+            Vec::new()
+        } else {
+            splittable_lines(ctx, tree, child, pos.y)
+        };
+        flow.push((
+            child,
+            FlowBox {
+                top: pos.y,
+                bottom: pos.y + height,
+                lines,
+            },
+        ));
+    }
+
+    let boxes: Vec<FlowBox> = flow.iter().map(|(_, b)| b.clone()).collect();
+    let plan = plan_columns(
+        &boxes,
+        columns.geometry.count,
+        columns.definite_height,
+        columns.style.fill,
+    );
+    let column_x = |k: usize| {
+        columns
+            .geometry
+            .column_x(k, columns.content_width, columns.rtl)
+    };
+
+    for ((child, flow_box), placement) in flow.iter().zip(&plan.boxes) {
+        let k = placement.column;
+        let start = plan.starts.get(k).copied().unwrap_or(0.0);
+        if let Some(pos) = positions.get_mut(child) {
+            *pos = LogicalPosition::new(pos.x + column_x(k), pos.y - start);
+        }
+        if !placement.line_breaks.is_empty() {
+            let next_start = plan.starts.get(k + 1).copied().unwrap_or(flow_box.bottom);
+            split_into_columns(
+                ctx,
+                tree,
+                text_cache,
+                float_cache,
+                *child,
+                flow_box,
+                start,
+                next_start,
+                &placement.line_breaks,
+                columns,
+                constraints,
+            )?;
+        }
+    }
+    for child in floats {
+        if let Some(pos) = positions.get_mut(&child) {
+            let k = plan.column_at(pos.y);
+            let start = plan.starts.get(k).copied().unwrap_or(0.0);
+            *pos = LogicalPosition::new(pos.x + column_x(k), pos.y - start);
+        }
+    }
+
+    let width = (0..plan.starts.len())
+        .map(|k| column_x(k) + columns.geometry.width)
+        .fold(columns.content_width, f32::max);
+    Ok(ColumnsExtent {
+        height: plan.height,
+        width,
+    })
+}
+
+/// The lines of the in-flow child at `child` (its border box at flow
+/// offset `top`) when it may continue in the next column between two of
+/// them: a plain inline formatting context - no block formatting context of
+/// its own, not replaced, no columns of its own - whose stored layout is
+/// the unsplit one. The line boxes are not kept, so a line's extent is its
+/// items' (those with a height), offset into the flow.
+fn splittable_lines<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    child: usize,
+    top: f32,
+) -> Vec<crate::solver3::multicol::FlowLine> {
+    let id = LayoutNodeId::new(child);
+    let Some(node) = tree.get(id) else {
+        return Vec::new();
+    };
+    if node.formatting_context != FormattingContext::Inline
+        || establishes_new_bfc(ctx, node, tree.cold(id))
+        || is_block_level_replaced(ctx, node)
+    {
+        return Vec::new();
+    }
+    let unsplit = tree
+        .warm(id)
+        .and_then(|w| w.inline_layout_result.as_ref())
+        .and_then(|cached| cached.constraints.as_ref())
+        .is_some_and(|c| c.columns <= 1 && c.column_flow.is_none());
+    if !unsplit {
+        return Vec::new();
+    }
+    let Some(layout) = tree.materialized_inline_layout_for_node(child) else {
+        return Vec::new();
+    };
+    let bp = node.box_props.unpack();
+    let content_top = top + bp.border.top + bp.padding.top;
+    let mut extents: BTreeMap<usize, (f32, f32)> = BTreeMap::new();
+    for item in &layout.items {
+        let height = item.item.bounds().height;
+        if height.is_nan() || height <= 0.0 {
+            continue;
+        }
+        let item_top = content_top + item.position.y;
+        let item_bottom = item_top + height;
+        extents
+            .entry(item.line_index)
+            .and_modify(|(t, b)| {
+                *t = t.min(item_top);
+                *b = b.max(item_bottom);
+            })
+            .or_insert((item_top, item_bottom));
+    }
+    extents
+        .into_iter()
+        .map(|(index, (top, bottom))| crate::solver3::multicol::FlowLine { index, top, bottom })
+        .collect()
+}
+
+/// Lays the paragraph at `child` out again as one piece of its
+/// multi-column container's flow: from each line index in `line_breaks` on
+/// its lines continue at the top of the next column
+/// (`text3::cache::ColumnFlow`), and its box keeps the part in its first
+/// column (`column_start..next_column_start` on the flow). The lines break
+/// exactly as in the single column - same width, same content - so the
+/// plan made on that layout holds.
+#[allow(clippy::too_many_arguments)] // one layout step, the layout state it needs
+fn split_into_columns<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    text_cache: &mut TextLayoutCache,
+    float_cache: &mut HashMap<usize, FloatingContext>,
+    child: usize,
+    flow_box: &crate::solver3::multicol::FlowBox,
+    column_start: f32,
+    next_column_start: f32,
+    line_breaks: &[usize],
+    columns: &BlockColumns,
+    constraints: &LayoutConstraints<'_>,
+) -> Result<()> {
+    let node = tree
+        .get(LayoutNodeId::new(child))
+        .ok_or(LayoutError::InvalidTree)?;
+    let size = node.used_size.unwrap_or_default();
+    let bp = node.box_props.unpack();
+    let content_size = bp.inner_size(size, LayoutWritingMode::HorizontalTb);
+    let content_top = flow_box.top + bp.border.top + bp.padding.top;
+
+    let mut bfc_state = BfcState::new();
+    let split_constraints = LayoutConstraints {
+        available_size: content_size,
+        bfc_state: Some(&mut bfc_state),
+        writing_mode: constraints.writing_mode,
+        writing_mode_ctx: constraints.writing_mode_ctx,
+        text_align: constraints.text_align,
+        containing_block_size: constraints.containing_block_size,
+        available_width_type: Text3AvailableSpace::Definite(content_size.width),
+        fragmentainer: None,
+        column_flow: Some(crate::text3::cache::ColumnFlow {
+            breaks: line_breaks.to_vec(),
+            advance: columns.geometry.advance(columns.rtl),
+            // Every further column's top, from this paragraph's content
+            // top: as far up as the paragraph starts below its column's.
+            column_top: column_start - content_top,
+        }),
+    };
+    let split = layout_formatting_context(
+        ctx,
+        tree,
+        text_cache,
+        child,
+        &split_constraints,
+        float_cache,
+    )?;
+    // Its atomic inlines moved with their lines.
+    for (inner, pos) in split.output.positions {
+        if let Some(warm) = tree.warm_mut(LayoutNodeId::new(inner)) {
+            warm.relative_position = Some(pos);
+        }
+    }
+    // Its box is what stays in its first column.
+    if let Some(node) = tree.get_mut(LayoutNodeId::new(child)) {
+        node.used_size = Some(LogicalSize::new(
+            size.width,
+            (next_column_start - flow_box.top).max(0.0),
+        ));
+    }
+    Ok(())
 }
 
 // Inline Formatting Context (CSS 2.2 § 9.4.2)
@@ -3733,6 +4094,10 @@ fn layout_ifc<T: ParsedFontTrait>(
     let node = tree
         .get(LayoutNodeId::new(node_index))
         .ok_or(LayoutError::InvalidTree)?;
+    // An anonymous box borrows an element's id to resolve its style, but
+    // only the INHERITED properties are its own (§9.2.1.1): it has no
+    // columns of the element's (see translate_to_text3_constraints).
+    let ifc_root_is_anonymous = node.dom_node_id.is_none();
     let ifc_root_dom_id = if let Some(id) = node.dom_node_id {
         id
     } else {
@@ -3931,8 +4296,13 @@ fn layout_ifc<T: ParsedFontTrait>(
     // property (text-align, text-align-last, text-indent, direction, line-height,
     // white-space, columns) — which is NOT covered by the per-run content hash — would
     // otherwise silently reuse a stale, differently-aligned/indented cached layout.
-    let text3_constraints =
-        translate_to_text3_constraints(ctx, constraints, ctx.styled_dom, ifc_root_dom_id);
+    let text3_constraints = translate_to_text3_constraints(
+        ctx,
+        constraints,
+        ctx.styled_dom,
+        ifc_root_dom_id,
+        ifc_root_is_anonymous,
+    );
 
     let current_content_hash = {
         let _p = crate::probe::Probe::span("ifc_content_hash");
@@ -3953,6 +4323,9 @@ fn layout_ifc<T: ParsedFontTrait>(
         text3_constraints.white_space_mode.hash(&mut h);
         text3_constraints.direction.hash(&mut h);
         text3_constraints.columns.hash(&mut h);
+        // A split into a multi-column flow moves the lines: a layout of the
+        // other split (or of none) must not be reused.
+        text3_constraints.column_flow.hash(&mut h);
         text3_constraints.text_indent.to_bits().hash(&mut h);
         match text3_constraints.line_height {
             text3::cache::LineHeight::Normal => 0u64.hash(&mut h),
@@ -4635,6 +5008,13 @@ fn establishes_new_bfc<T: ParsedFontTrait>(
         return true;
     }
 
+    // +spec:multi-column - a multi-column container establishes a new block
+    // formatting context (CSS Multicol 1 §2): its children's margins and
+    // floats stay inside it, column by column.
+    if crate::solver3::multicol::is_multicol_container(ctx.styled_dom, dom_id, node_state) {
+        return true;
+    }
+
     // 6. Table, Flex, and Grid containers establish BFC (via FormattingContext)
     // +spec:block-formatting-context:f15b87 - display:table participates in a BFC
     if matches!(
@@ -4735,11 +5115,13 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     constraints: &'a LayoutConstraints<'a>,
     styled_dom: &StyledDom,
     dom_id: NodeId,
+    // The IFC root is an anonymous block box and `dom_id` the element it
+    // borrows its style from: the element's columns are not its own.
+    anonymous: bool,
 ) -> UnifiedConstraints {
     use azul_css::compact_cache::{
-        DOM_HAS_COLUMN_COUNT, DOM_HAS_COLUMN_GAP, DOM_HAS_COLUMN_WIDTH, DOM_HAS_EXCLUSION_MARGIN,
-        DOM_HAS_HANGING_PUNCTUATION, DOM_HAS_HYPHENATION_LANGUAGE, DOM_HAS_HYPHENS,
-        DOM_HAS_INITIAL_LETTER, DOM_HAS_INITIAL_LETTER_ALIGN, DOM_HAS_LINE_BREAK,
+        DOM_HAS_EXCLUSION_MARGIN, DOM_HAS_HANGING_PUNCTUATION, DOM_HAS_HYPHENATION_LANGUAGE,
+        DOM_HAS_HYPHENS, DOM_HAS_INITIAL_LETTER, DOM_HAS_INITIAL_LETTER_ALIGN, DOM_HAS_LINE_BREAK,
         DOM_HAS_LINE_CLAMP, DOM_HAS_LINE_HEIGHT, DOM_HAS_OVERFLOW_WRAP, DOM_HAS_SHAPE_INSIDE,
         DOM_HAS_SHAPE_MARGIN, DOM_HAS_SHAPE_OUTSIDE, DOM_HAS_TEXT_ALIGN_LAST,
         DOM_HAS_TEXT_COMBINE_UPRIGHT, DOM_HAS_TEXT_INDENT, DOM_HAS_TEXT_JUSTIFY,
@@ -5208,64 +5590,21 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     let text_indent_each_line = text_indent_prop.is_some_and(|ti| ti.each_line);
     let text_indent_hanging = text_indent_prop.is_some_and(|ti| ti.hanging);
 
-    // ResolutionContext shared by column-gap and column-width (both resolve
-    // lengths against the same font/viewport, with no containing-block size).
-    let column_resolve_ctx = ResolutionContext {
-        vertical_writing_mode: false,
-        element_font_size: get_element_font_size(styled_dom, id, node_state),
-        parent_font_size: get_parent_font_size(styled_dom, id, node_state),
-        root_font_size: get_root_font_size(styled_dom, node_state),
-        containing_block_size: PhysicalSize::new(0.0, 0.0),
-        element_size: None,
-        viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+    // Multi-column: THE reader of the column declarations and THE column
+    // resolution (`multicol::column_style` / `ColumnStyle::geometry`, CSS
+    // Multicol 1 §3.4), shared with the multi-column block layout. text3
+    // splits this inline formatting context's lines over the columns; the
+    // gap only matters between columns. The column properties are not
+    // inherited, so an anonymous box (laid out inside the multi-column
+    // container, `id` being the container's) has none.
+    let column_geometry = if anonymous {
+        None
+    } else {
+        crate::solver3::multicol::column_style(styled_dom, id, node_state, ctx.viewport_size)
+            .map(|style| style.geometry(constraints.available_size.width))
     };
-
-    // Read a declared CSS property from the cache, returning None when the
-    // DOM-level declared bit is clear (no node sets the property).
-    macro_rules! declared_prop {
-        ($bit:expr, $getter:ident) => {
-            if dom_declared & $bit != 0 {
-                styled_dom
-                    .css_property_cache
-                    .ptr
-                    .$getter(node_data, &id, node_state)
-                    .and_then(|s| s.get_property())
-            } else {
-                None
-            }
-        };
-    }
-
-    // Get column-gap for multi-column layout (default: normal = 1em)
-    let column_gap = declared_prop!(DOM_HAS_COLUMN_GAP, get_column_gap)
-        .map(|cg| {
-            cg.inner
-                .resolve_with_context(&column_resolve_ctx, PropertyContext::Other)
-        })
-        .unwrap_or_else(|| get_element_font_size(styled_dom, id, node_state));
-
-    // Get column-width for multi-column layout (None = auto)
-    let column_width =
-        declared_prop!(DOM_HAS_COLUMN_WIDTH, get_column_width).and_then(|cw| match cw {
-            ColumnWidth::Auto => None,
-            ColumnWidth::Length(px) => {
-                Some(px.resolve_with_context(&column_resolve_ctx, PropertyContext::Other))
-            }
-        });
-
-    // Get column-count for multi-column layout (default: 1 = no columns)
-    let explicit_column_count = declared_prop!(DOM_HAS_COLUMN_COUNT, get_column_count).copied();
-
-    // CSS multi-column: derive column count from column-width when column-count is auto.
-    // Per spec: N = max(1, floor((available-width + column-gap) / (column-width + column-gap)))
-    let columns = match (explicit_column_count, column_width) {
-        (Some(ColumnCount::Integer(n)), _) => n,
-        (_, Some(cw)) if cw > 0.0 => {
-            let avail = constraints.available_size.width;
-            ((avail + column_gap) / (cw + column_gap)).floor().max(1.0) as u32
-        }
-        _ => 1,
-    };
+    let columns = column_geometry.map_or(1, |g| g.count);
+    let column_gap = column_geometry.map_or(0.0, |g| g.gap);
 
     // +spec:line-breaking:b4928e - white-space values mapped to wrap/whitespace processing rules
     // Map white-space CSS property to TextWrap
@@ -5512,6 +5851,13 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         line_clamp,
         columns,
         column_gap,
+        // One piece of a multi-column block container's flow - unless this
+        // context has columns of its own, which split it instead.
+        column_flow: if columns == 1 {
+            constraints.column_flow.clone()
+        } else {
+            None
+        },
         hanging_punctuation,
         text_wrap,
         white_space_mode,
@@ -6887,6 +7233,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
             containing_block_size: constraints.containing_block_size,
             available_width_type: Text3AvailableSpace::Definite(table_width),
             fragmentainer: None,
+            column_flow: None,
         };
 
         // Layout the caption node as the block box it is: sized against the
@@ -8037,6 +8384,7 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
         containing_block_size: constraints.containing_block_size,
         available_width_type: width_type,
         fragmentainer: None,
+        column_flow: None,
     };
 
     let mut temp_positions: super::PositionVec = Vec::new();
@@ -8523,6 +8871,7 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
             // This replaces any previous MinContent/MaxContent measurement.
             available_width_type: Text3AvailableSpace::Definite(content_width),
             fragmentainer: None,
+            column_flow: None,
         };
 
         let output = layout_ifc(ctx, text_cache, tree, cell_index, &cell_constraints)?;
@@ -8561,6 +8910,7 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
             // Use Definite width for final cell layout!
             available_width_type: Text3AvailableSpace::Definite(content_width),
             fragmentainer: None,
+            column_flow: None,
         };
 
         let mut temp_positions: super::PositionVec = Vec::new();
@@ -10106,6 +10456,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     containing_block_size: constraints.containing_block_size,
                     available_width_type: Text3AvailableSpace::Definite(content_box_size.width),
                     fragmentainer: None,
+                    column_flow: None,
                 };
 
                 // Drop the immutable borrow before calling layout_formatting_context
@@ -10642,6 +10993,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 containing_block_size: constraints.containing_block_size,
                 available_width_type: Text3AvailableSpace::Definite(content_box_size.width),
                 fragmentainer: None,
+                column_flow: None,
             };
 
             // Drop the immutable borrow before calling layout_formatting_context
@@ -11181,6 +11533,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     containing_block_size: constraints.containing_block_size,
                     available_width_type: Text3AvailableSpace::Definite(width),
                     fragmentainer: None,
+                    column_flow: None,
                 };
 
                 drop(child_node);
@@ -12514,6 +12867,7 @@ mod autotest_generated {
             containing_block_size: available,
             available_width_type: Text3AvailableSpace::Definite(available.width),
             fragmentainer: None,
+            column_flow: None,
         }
     }
 

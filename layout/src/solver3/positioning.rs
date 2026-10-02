@@ -761,6 +761,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                         inner.width,
                     ),
                     fragmentainer: None,
+                    column_flow: None,
                 };
                 let mut reflow_float_cache: std::collections::HashMap<usize, FloatingContext> =
                     std::collections::HashMap::new();

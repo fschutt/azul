@@ -880,47 +880,80 @@ impl ReconciliationResult {
 /// flex row). Block-flow siblings need no promotion: `reposition_clean_subtrees`
 /// re-stacks them after the root is re-solved.
 ///
-/// `node` yields a node's parent and formatting context; the reconcile calls
-/// this on its tree builder, the css-dirty channel on the built tree - the
-/// two producers of layout roots, which used to disagree (only the reconcile
-/// promoted, so a `width` change delivered through the css-dirty channel
-/// re-solved a flex item in place while its siblings kept their slots).
+/// Nor can anything inside a MULTI-COLUMN container's flow: the container
+/// cuts its content into columns (`multicol::plan_columns`), so a size
+/// change anywhere in it can move every box into another column - and
+/// re-stacking block-flow siblings would pile the columns into one. Such a
+/// root goes to the outermost multi-column container around it.
+///
+/// `node` yields a node's parent, its formatting context and whether it is
+/// a multi-column container; the reconcile calls this on its tree builder,
+/// the css-dirty channel on the built tree - the two producers of layout
+/// roots, which used to disagree (only the reconcile promoted, so a `width`
+/// change delivered through the css-dirty channel re-solved a flex item in
+/// place while its siblings kept their slots).
 pub(crate) fn promote_layout_roots_to_containers(
     roots: &BTreeSet<usize>,
-    node: impl Fn(usize) -> Option<(Option<usize>, FormattingContext)>,
+    node: impl Fn(usize) -> Option<(Option<usize>, FormattingContext, bool)>,
 ) -> BTreeSet<usize> {
     roots
         .iter()
         .map(|&idx| {
             let mut root = idx;
-            while let Some((Some(parent), own_fc)) = node(root) {
-                let parent_fc = node(parent).map(|(_, fc)| fc);
-                // Inline-level by its OWN context (an inline box, an
-                // inline-block) — or by where it SITS: a box whose parent
-                // establishes an inline formatting context is on one of that
-                // context's lines whatever it establishes itself (an
-                // `inline-flex` button, an `inline-grid`, a replaced element).
-                // The own-context test alone missed exactly those: an
-                // inline-flex button dirtied by a colour twin was re-solved
-                // as its own root, under a definite containing-block height
-                // the line would never have given it, and grew by its
-                // line-height.
-                let inline_level = matches!(
-                    own_fc,
-                    FormattingContext::Inline | FormattingContext::InlineBlock
-                ) || matches!(parent_fc, Some(FormattingContext::Inline));
-                let parent_is_flex_or_grid = matches!(
-                    parent_fc,
-                    Some(FormattingContext::Flex | FormattingContext::Grid)
-                );
-                if !inline_level && !parent_is_flex_or_grid {
-                    break;
+            loop {
+                root = lift_to_slot_container(root, &node);
+                // The outermost multi-column container around it, if any.
+                let mut outermost = None;
+                let mut cursor = root;
+                while let Some((Some(parent), _, _)) = node(cursor) {
+                    if node(parent).is_some_and(|(_, _, multicol)| multicol) {
+                        outermost = Some(parent);
+                    }
+                    cursor = parent;
                 }
-                root = parent;
+                match outermost {
+                    Some(container) => root = container,
+                    None => break,
+                }
             }
             root
         })
         .collect()
+}
+
+/// [`promote_layout_roots_to_containers`]' flex / grid / inline-level lift
+/// of one root.
+fn lift_to_slot_container(
+    idx: usize,
+    node: &impl Fn(usize) -> Option<(Option<usize>, FormattingContext, bool)>,
+) -> usize {
+    let mut root = idx;
+    while let Some((Some(parent), own_fc, _)) = node(root) {
+        let parent_fc = node(parent).map(|(_, fc, _)| fc);
+        // Inline-level by its OWN context (an inline box, an
+        // inline-block) — or by where it SITS: a box whose parent
+        // establishes an inline formatting context is on one of that
+        // context's lines whatever it establishes itself (an
+        // `inline-flex` button, an `inline-grid`, a replaced element).
+        // The own-context test alone missed exactly those: an
+        // inline-flex button dirtied by a colour twin was re-solved
+        // as its own root, under a definite containing-block height
+        // the line would never have given it, and grew by its
+        // line-height.
+        let inline_level = matches!(
+            own_fc,
+            FormattingContext::Inline | FormattingContext::InlineBlock
+        ) || matches!(parent_fc, Some(FormattingContext::Inline));
+        let parent_is_flex_or_grid = matches!(
+            parent_fc,
+            Some(FormattingContext::Flex | FormattingContext::Grid)
+        );
+        if !inline_level && !parent_is_flex_or_grid {
+            break;
+        }
+        root = parent;
+    }
+    root
 }
 
 /// After dirty subtrees are laid out, this repositions their clean siblings
@@ -1326,11 +1359,17 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
     // painted 64 px into a 36 px slot, over the widget beneath it. (The
     // `reposition_clean_subtrees` comment always claimed the parent would
     // "already be a layout root"; now it is.)
+    let any_columns = crate::solver3::multicol::dom_declares_columns(ctx.styled_dom);
     let promoted_layout_roots =
         promote_layout_roots_to_containers(&recon_result.layout_roots, |idx| {
-            new_tree_builder
-                .get(idx)
-                .map(|n| (n.parent, n.formatting_context))
+            new_tree_builder.get(idx).map(|n| {
+                (
+                    n.parent,
+                    n.formatting_context,
+                    any_columns
+                        && crate::solver3::multicol::is_multicol_box(ctx.styled_dom, n.dom_node_id),
+                )
+            })
         });
     recon_result.layout_roots = promoted_layout_roots;
 
@@ -2400,6 +2439,7 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
         containing_block_size,
         available_width_type: Text3AvailableSpace::Definite(available_size_for_children.width),
         fragmentainer: None,
+        column_flow: None,
     };
 
     Ok(PreparedLayoutContext {

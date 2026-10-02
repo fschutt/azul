@@ -2342,6 +2342,54 @@ pub struct UnifiedConstraints {
     pub line_break: LineBreakStrictness,
     // CSS unicode-bidi property; Plaintext causes per-paragraph auto-detection
     pub unicode_bidi: UnicodeBidi,
+    /// This inline formatting context's share of a multi-column BLOCK
+    /// container's flow (`solver3::multicol`); `None` everywhere else.
+    /// Honoured only when `columns == 1` (a context with columns of its own
+    /// splits its lines itself).
+    pub column_flow: Option<ColumnFlow>,
+}
+
+/// One inline formatting context's share of a multi-column container's
+/// flow (CSS Multi-column Layout 1): its lines fill the rest of the column
+/// it starts in, and from each line index in `breaks` on they continue at
+/// the top of the next column.
+///
+/// The multi-column block layout (`solver3::multicol::plan_columns`)
+/// picks the breaks on the context's unsplit layout. Laying the context out
+/// again with them only MOVES lines - every column is as wide as the
+/// unsplit layout was, so the lines break exactly as before.
+#[derive(Debug, Clone, Default)]
+pub struct ColumnFlow {
+    /// The flow-wide index of the first line of every further column,
+    /// ascending: `[2, 7]` keeps lines 0-1 in the first column, 2-6 in
+    /// the second, the rest in the third.
+    pub breaks: Vec<usize>,
+    /// The inline distance from one column to the next: the column width
+    /// plus the gap, negative when the columns run right to left.
+    pub advance: f32,
+    /// Where the first line box of every further column starts on the block
+    /// axis, relative to this context's content-box top - minus how far
+    /// below the top of its first column the context starts.
+    pub column_top: f32,
+}
+
+impl PartialEq for ColumnFlow {
+    fn eq(&self, other: &Self) -> bool {
+        self.breaks == other.breaks
+            && round_eq(self.advance, other.advance)
+            && round_eq(self.column_top, other.column_top)
+    }
+}
+
+impl Eq for ColumnFlow {}
+
+impl Hash for ColumnFlow {
+    #[allow(clippy::cast_possible_truncation)] // the rounded-pixel key `round_eq` compares
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.breaks.hash(state);
+        (self.advance.round() as isize).hash(state);
+        (self.column_top.round() as isize).hash(state);
+    }
 }
 
 impl Default for UnifiedConstraints {
@@ -2378,6 +2426,7 @@ impl Default for UnifiedConstraints {
             hyphenation_language: None,
             columns: 1,
             column_gap: 0.0,
+            column_flow: None,
             hanging_punctuation: false,
             text_indent: 0.0,
             text_indent_each_line: false,
@@ -2429,6 +2478,7 @@ impl Hash for UnifiedConstraints {
         self.line_clamp.hash(state);
         self.columns.hash(state);
         (self.column_gap.round() as isize).hash(state);
+        self.column_flow.hash(state);
         self.hanging_punctuation.hash(state);
         self.overflow_wrap.hash(state);
         self.text_align_last.hash(state);
@@ -2473,6 +2523,7 @@ impl PartialEq for UnifiedConstraints {
             && self.line_clamp == other.line_clamp
             && self.columns == other.columns
             && round_eq(self.column_gap, other.column_gap)
+            && self.column_flow == other.column_flow
             && self.hanging_punctuation == other.hanging_punctuation
             && self.overflow_wrap == other.overflow_wrap
             && self.text_align_last == other.text_align_last
@@ -11064,18 +11115,46 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     // IFC's height is measured to, see below. A line with glyphs or an atomic
     // inline keeps measuring by its items, as it always did.
     let mut line_box_extent = 0.0_f32;
-    'column_loop: while current_column < num_columns {
+    // +spec:multi-column - this context's share of a multi-column BLOCK
+    // container's flow (`ColumnFlow`): a further column starts at each of
+    // the given line indices, `advance` further along the inline axis, its
+    // first line box at `column_top`. The lines are numbered across the whole
+    // flow (a line keeps the index it has in the unsplit layout), and one
+    // ending in a forced break still marks the next column's first line.
+    // Only for a context without columns of its own, and never while
+    // measuring intrinsic sizes.
+    let column_flow = fragment_constraints
+        .column_flow
+        .as_ref()
+        .filter(|_| num_columns == 1 && !is_min_content && !is_max_content);
+    let column_count = column_flow.map_or(num_columns, |flow| {
+        u32::try_from(flow.breaks.len())
+            .unwrap_or(u32::MAX)
+            .saturating_add(1)
+    });
+    let mut flow_line_index = 0usize;
+    let mut flow_after_forced_break = false;
+    'column_loop: while current_column < column_count {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
                 "\n-- Starting Column {current_column} --"
             )));
         }
-        let column_start_x =
-            (column_width + fragment_constraints.column_gap) * current_column as f32;
-        let mut line_top_y = 0.0;
-        let mut line_index = 0;
+        let column_start_x = match column_flow {
+            Some(flow) => flow.advance * current_column as f32,
+            None => (column_width + fragment_constraints.column_gap) * current_column as f32,
+        };
+        let mut line_top_y = match column_flow {
+            Some(flow) if current_column > 0 => flow.column_top,
+            _ => 0.0,
+        };
+        let mut line_index = if column_flow.is_some() {
+            flow_line_index
+        } else {
+            0
+        };
         let mut empty_segment_count = 0; // Failsafe counter for infinite loops
-        let mut is_after_forced_break = false;
+        let mut is_after_forced_break = column_flow.is_some() && flow_after_forced_break;
         // +spec:writing-modes:6e22a7 - vertical-rl advances columns (lines) right-to-left.
         // The positioner lays every line out at an increasing block-axis (x) offset from 0,
         // i.e. left-to-right. For vertical-rl we record each line's block band here so we can
@@ -11129,6 +11208,17 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // (so integer rounding of the per-column budget never drops content).
             if let Some(budget) = balanced_lines_per_column {
                 if current_column + 1 < num_columns && line_index >= budget {
+                    break;
+                }
+            }
+
+            // A multi-column flow's next column starts at this line.
+            if let Some(flow) = column_flow {
+                if flow
+                    .breaks
+                    .get(current_column as usize)
+                    .is_some_and(|&first_of_next| line_index >= first_of_next)
+                {
                     break;
                 }
             }
@@ -11372,6 +11462,8 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 }
             }
         }
+        flow_line_index = line_index;
+        flow_after_forced_break = is_after_forced_break;
         current_column += 1;
     }
 

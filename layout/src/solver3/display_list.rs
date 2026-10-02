@@ -1866,22 +1866,25 @@ pub fn empty_editable_caret_rect(font_size_px: f32, line_height: f32) -> Logical
     }
 }
 
-fn intersect_or(a: LogicalRect, b: LogicalRect) -> LogicalRect {
+/// The common area of `a` and `b`; `None` when they share no area (touching
+/// edges, a degenerate or NaN rect).
+fn intersect_rects(a: LogicalRect, b: LogicalRect) -> Option<LogicalRect> {
     let x0 = a.origin.x.max(b.origin.x);
     let y0 = a.origin.y.max(b.origin.y);
     let x1 = (a.origin.x + a.size.width).min(b.origin.x + b.size.width);
     let y1 = (a.origin.y + a.size.height).min(b.origin.y + b.size.height);
-    if x1 > x0 && y1 > y0 {
-        LogicalRect {
-            origin: LogicalPosition { x: x0, y: y0 },
-            size: LogicalSize {
-                width: x1 - x0,
-                height: y1 - y0,
-            },
-        }
-    } else {
-        b
-    }
+    (x1 > x0 && y1 > y0).then(|| LogicalRect {
+        origin: LogicalPosition { x: x0, y: y0 },
+        size: LogicalSize {
+            width: x1 - x0,
+            height: y1 - y0,
+        },
+    })
+}
+
+/// [`intersect_rects`], or `b` itself when the two share no area.
+fn intersect_or(a: LogicalRect, b: LogicalRect) -> LogicalRect {
+    intersect_rects(a, b).unwrap_or(b)
 }
 
 impl DisplayListItem {
@@ -8174,6 +8177,16 @@ where
                 size: LogicalSize::default(),
             }
         };
+        // Lines ABOVE the box: a paragraph continuing at the top of the
+        // next column of a multi-column container (`text3::cache::
+        // ColumnFlow`). The PDF bridge draws every glyph at `bounds.origin`
+        // plus its item position, so `bounds` stays anchored at the box -
+        // and then reaches a whole layout height below the box's top while
+        // missing the lines above it, for the page slicer and the paged
+        // extent alike. Such a layout's TextLayout carries its own copy of
+        // the layout moved down to start at 0, under an origin moved up by
+        // as much: every glyph stays where it is, `bounds` holds the lines.
+        let lines_above = layout_bounds.y < 0.0 && !layout.items.is_empty();
 
         // Only push TextLayout if layout has actual content
         // This prevents empty TextLayout items with 0x0 bounds at various Y positions
@@ -8236,15 +8249,30 @@ where
             // damage diffing is Arc::ptr_eq, so a fresh Arc per rebuild made
             // every blink / tween tick repaint the whole text run (and deep-
             // cloned all shaped glyphs per frame). Real text changes replace
-            // the cached Arc, so ptr_eq still fires damage then.
+            // the cached Arc, so ptr_eq still fires damage then. (A layout
+            // with lines above its box is the one exception, see
+            // `lines_above`: paged-only, a split multi-column paragraph.)
+            let (text_payload, text_bounds) = if lines_above {
+                let dy = layout_bounds.y;
+                let mut moved: UnifiedLayout = (**layout).clone();
+                for item in &mut moved.items {
+                    item.position.y -= dy;
+                }
+                let moved: Arc<dyn std::any::Any + Send + Sync> = Arc::new(moved);
+                let origin =
+                    LogicalPosition::new(container_rect.origin.x, container_rect.origin.y + dy);
+                (moved, LogicalRect::new(origin, actual_bounds.size))
+            } else {
+                (payload.clone(), actual_bounds)
+            };
             builder.push_text_layout(
                 // (d5) The CACHED payload Arc — TextPayload{dense,sparse}
                 // when the dense view is retained, the bare layout Arc
                 // otherwise. Cloned from the cache entry, so ptr_eq damage
                 // diffing sees the same allocation across paints exactly
                 // as before.
-                payload.clone(),
-                actual_bounds,
+                text_payload,
+                text_bounds,
                 FontHash::from_hash(primary_hash),
                 primary_size,
                 ColorU {
@@ -11079,21 +11107,57 @@ fn generate_text_display_items(
     }]
 }
 
-/// Calculate the total height of a display list (max Y + height of all items).
+/// The paged extent of a display list: the bottom of the lowest content
+/// that can be PAINTED.
+///
+/// Every item counts with the part of its bounds the clips it is painted in
+/// leave visible (`PushClip`, `PushScrollFrame`, `PushImageMaskClip`; nested
+/// ones intersect, their pops close them). Content an `overflow: hidden` box
+/// clips away shows on no page, so it must not make one - an abspos block's
+/// text running past a fixed-height clipped page box made empty pages. A
+/// clip marker's own rect counts like an item (it is the clipping box),
+/// within the clips around it. Items under 0.1px tall are no visible
+/// content; the result is never negative or NaN.
 pub(crate) fn calculate_display_list_height(display_list: &DisplayList) -> f32 {
+    // The clips open at each item: no entry = unclipped, `None` = an empty
+    // clip (nothing inside it is painted).
+    let mut clips: Vec<Option<LogicalRect>> = Vec::new();
     let mut max_bottom = 0.0f32;
 
     for item in &display_list.items {
-        if let Some(bounds) = get_display_item_bounds(item) {
-            // Skip items with zero height - they don't contribute to visible content
-            if bounds.0.size.height < 0.1 {
-                continue;
-            }
-
-            let item_bottom = bounds.0.origin.y + bounds.0.size.height;
-            if item_bottom > max_bottom {
-                max_bottom = item_bottom;
-            }
+        if matches!(
+            item,
+            DisplayListItem::PopClip
+                | DisplayListItem::PopScrollFrame
+                | DisplayListItem::PopImageMaskClip
+        ) {
+            clips.pop();
+            continue;
+        }
+        let Some(bounds) = get_display_item_bounds(item) else {
+            continue;
+        };
+        let visible = match clips.last().copied() {
+            None => Some(bounds.0),
+            Some(clip) => clip.and_then(|c| intersect_rects(c, bounds.0)),
+        };
+        if matches!(
+            item,
+            DisplayListItem::PushClip { .. }
+                | DisplayListItem::PushScrollFrame { .. }
+                | DisplayListItem::PushImageMaskClip { .. }
+        ) {
+            clips.push(visible);
+        }
+        let Some(visible) = visible else {
+            continue;
+        };
+        if visible.size.height < 0.1 {
+            continue;
+        }
+        let item_bottom = visible.origin.y + visible.size.height;
+        if item_bottom > max_bottom {
+            max_bottom = item_bottom;
         }
     }
 
@@ -13744,6 +13808,68 @@ mod autotest_generated {
             "a NaN total height would panic the page-break sort"
         );
         assert_eq!(h, 0.0);
+    }
+
+    #[test]
+    fn calculate_display_list_height_ends_where_the_enclosing_clip_ends() {
+        // A 300px `overflow: hidden` box whose text runs on to y=900: what is
+        // painted ends at the clip, and so does the extent the page count is
+        // measured by. Content wholly below the clip adds nothing; content
+        // after the clip is closed counts again.
+        let bg = |y: f32, h: f32| DisplayListItem::Rect {
+            bounds: rect(0.0, y, 400.0, h).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        };
+        let clipped = list_of(vec![
+            bg(0.0, 300.0),
+            DisplayListItem::PushClip {
+                bounds: rect(0.0, 0.0, 400.0, 300.0).into(),
+                border_radius: BorderRadius::default(),
+            },
+            bg(200.0, 700.0),
+            bg(1000.0, 50.0),
+            DisplayListItem::PopClip,
+        ]);
+        assert_eq!(calculate_display_list_height(&clipped), 300.0);
+
+        let after = list_of(vec![
+            DisplayListItem::PushClip {
+                bounds: rect(0.0, 0.0, 400.0, 300.0).into(),
+                border_radius: BorderRadius::default(),
+            },
+            bg(200.0, 700.0),
+            DisplayListItem::PopClip,
+            bg(300.0, 100.0),
+        ]);
+        assert_eq!(calculate_display_list_height(&after), 400.0);
+    }
+
+    #[test]
+    fn calculate_display_list_height_clips_by_scroll_frames_and_nested_clips() {
+        // `overflow: hidden` with content to scroll opens a scroll frame
+        // instead of a plain clip; it clips just the same. Nested clips
+        // intersect: the inner one cannot reach past the outer one.
+        let text = |y: f32, h: f32| DisplayListItem::Rect {
+            bounds: rect(20.0, y, 200.0, h).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        };
+        let dl = list_of(vec![
+            DisplayListItem::PushScrollFrame {
+                clip_bounds: rect(0.0, 0.0, 400.0, 300.0).into(),
+                content_size: LogicalSize::new(400.0, 900.0),
+                scroll_id: 7,
+            },
+            DisplayListItem::PushClip {
+                bounds: rect(20.0, 200.0, 200.0, 500.0).into(),
+                border_radius: BorderRadius::default(),
+            },
+            text(200.0, 700.0),
+            DisplayListItem::PopClip,
+            DisplayListItem::PopScrollFrame,
+        ]);
+        assert_eq!(calculate_display_list_height(&dl), 300.0);
     }
 
     // ---------------------------------------------------------------------
