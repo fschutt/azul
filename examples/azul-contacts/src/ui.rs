@@ -1795,7 +1795,7 @@ extern "C" fn on_form_text(mut data: RefAny, mut info: CallbackInfo, state: Text
 }
 
 extern "C" fn on_notes(mut data: RefAny, mut info: CallbackInfo, state: TextAreaState) -> OnTextInputReturn {
-    let notes: String = state.text.as_slice().iter().filter_map(|c| char::from_u32(*c)).collect();
+    let notes: String = state.get_text().to_string();
     let _ = with_form(&mut data, &mut info, |form| form.draft.notes = notes);
     OnTextInputReturn {
         update: Update::DoNothing,

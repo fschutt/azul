@@ -661,13 +661,7 @@ extern "C" fn on_notes(
     _info: CallbackInfo,
     state: TextAreaState,
 ) -> OnTextInputReturn {
-    // A text area's buffer is one u32 per character.
-    let text: String = state
-        .text
-        .as_slice()
-        .iter()
-        .filter_map(|c| char::from_u32(*c))
-        .collect();
+    let text: String = state.get_text().to_string();
     with_form(&mut data, |f| {
         f.notes = text;
         false

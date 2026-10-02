@@ -609,16 +609,6 @@ const KEEP: OnTextInputReturn = OnTextInputReturn {
     valid: TextInputValid::Yes,
 };
 
-/// The text of a text area's state.
-fn area_text(state: &TextAreaState) -> String {
-    state
-        .text
-        .as_slice()
-        .iter()
-        .filter_map(|c| char::from_u32(*c))
-        .collect()
-}
-
 /// The typed text is the app's: take it as seen (a field the app empties or reverts then
 /// rebuilds with what the app says).
 fn ack_typing(info: &mut CallbackInfo) {
@@ -681,13 +671,13 @@ extern "C" fn on_title_blur(mut data: RefAny, mut info: CallbackInfo, _state: Te
 extern "C" fn on_notes_text(mut data: RefAny, _info: CallbackInfo, state: TextAreaState) -> OnTextInputReturn {
     if let Some(mut s) = data.downcast_mut::<Tasks>() {
         s.sync_drafts();
-        s.drafts.notes = area_text(&state);
+        s.drafts.notes = state.get_text().to_string();
     }
     KEEP
 }
 
 extern "C" fn on_notes_blur(mut data: RefAny, mut info: CallbackInfo, state: TextAreaState) -> Update {
-    let text = area_text(&state);
+    let text = state.get_text().to_string();
     crate::with_tasks(&mut data, &mut info, |_info, _app, s| {
         s.sync_drafts();
         s.drafts.notes = text;

@@ -37,7 +37,7 @@ use azul::{
     widgets::*,
 };
 
-use crate::{captioned, section, strs, text_area_text, Showcase};
+use crate::{captioned, section, strs, Showcase};
 
 /// The radio group's options (`type=radio`).
 const PLANS: &[&str] = &["Free", "Team", "Enterprise"];
@@ -984,7 +984,7 @@ extern "C" fn on_notes(
     _: CallbackInfo,
     state: TextAreaState,
 ) -> OnTextInputReturn {
-    keep_text(&mut data, text_area_text(&state).into(), |v, t| v.notes = t)
+    keep_text(&mut data, state.get_text(), |v, t| v.notes = t)
 }
 extern "C" fn on_browser(mut data: RefAny, _: CallbackInfo, state: ComboBoxState) -> Update {
     keep(&mut data, |v| v.browser = state.text)

@@ -40,10 +40,6 @@ fn s(text: &str) -> AzString {
     AzString::from(text)
 }
 
-fn chars_of(text: &azul::vec::U32Vec) -> String {
-    text.as_ref().iter().filter_map(|&c| char::from_u32(c)).collect()
-}
-
 // ==== The slide rail and the sorter ====
 
 /// A slide's preview, `width` px wide.
@@ -323,7 +319,7 @@ fn notes_field(app: &RefAny, notes: &str) -> Dom {
 extern "C" fn on_notes_input(mut data: RefAny, _info: CallbackInfo, state: TextAreaState) -> OnTextInputReturn {
     if let Some(mut st) = data.downcast_mut::<AppState>() {
         if let Some(ed) = st.editor.as_mut() {
-            ed.set_notes(&chars_of(&state.text));
+            ed.set_notes(state.get_text().as_str());
         }
     }
     OnTextInputReturn {
@@ -335,7 +331,7 @@ extern "C" fn on_notes_input(mut data: RefAny, _info: CallbackInfo, state: TextA
 extern "C" fn on_notes_done(mut data: RefAny, _info: CallbackInfo, state: TextAreaState) -> Update {
     if let Some(mut st) = data.downcast_mut::<AppState>() {
         if let Some(ed) = st.editor.as_mut() {
-            ed.set_notes(&chars_of(&state.text));
+            ed.set_notes(state.get_text().as_str());
         }
     }
     Update::DoNothing
@@ -385,7 +381,7 @@ extern "C" fn on_outline_body(mut data: RefAny, _info: CallbackInfo, state: Text
         Some(f) => (f.app.clone(), f.slide, f.role),
         None => return Update::DoNothing,
     };
-    let text = chars_of(&state.text);
+    let text = state.get_text().to_string();
     if let Some(mut st) = app.downcast_mut::<AppState>() {
         if let Some(ed) = st.editor.as_mut() {
             ed.set_placeholder_text(slide, role, &text);
