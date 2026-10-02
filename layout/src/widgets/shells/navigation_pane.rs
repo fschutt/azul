@@ -631,8 +631,9 @@ extern "C" fn on_collapse_click(mut data: RefAny, info: CallbackInfo) -> Update 
 }
 
 /// Up / Down / Home / End move the keyboard stop between the module
-/// buttons (the switcher is one Tab stop, APG "roving tabindex"); Enter and
-/// Space are the engine's synthetic click, which selects.
+/// buttons (the switcher is one Tab stop, APG "roving tabindex"), wrapping
+/// at the ends as APG tabs do; Enter and Space are the engine's synthetic
+/// click, which selects.
 extern "C" fn on_module_key(_data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(key) = roving::plain_key(&info.get_current_keyboard_state()) else {
         return Update::DoNothing;
@@ -652,7 +653,7 @@ extern "C" fn on_module_key(_data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(current) = items.iter().position(|n| *n == me) else {
         return Update::DoNothing;
     };
-    let Some(target) = roving::step_target(current, items.len(), step, false) else {
+    let Some(target) = roving::step_target(current, items.len(), step, true) else {
         return Update::DoNothing;
     };
     info.prevent_default();
