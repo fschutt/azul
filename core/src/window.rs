@@ -650,7 +650,7 @@ impl KeyboardState {
     }
     /// The platform's PRIMARY shortcut modifier: Cmd (super) on macOS, Ctrl
     /// everywhere else (MWA-A2). Every standard editing shortcut
-    /// (copy / cut / paste / select-all / undo / redo) keys off this —
+    /// (copy / cut / paste / select-all / undo / redo) keys off this -
     /// hardcoding `ctrl_down()` made Cmd+C/X/V/A/Z dead on macOS, where Cmd
     /// arrives as LWin/super. "macOS" means [`mac_shortcut_conventions`]: an
     /// X11 window on a Mac follows the Linux rule.

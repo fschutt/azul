@@ -1423,12 +1423,12 @@ impl StatusBarZoom {
         self
     }
 
-    /// Sets the − button's callback.
+    /// Sets the - (zoom out) button's callback.
     pub fn set_on_zoom_out<C: Into<ButtonOnClickCallback>>(&mut self, data: RefAny, callback: C) {
         self.on_zoom_out = Some(ButtonOnClick::create(data, callback)).into();
     }
 
-    /// Builder method: sets the − button's callback.
+    /// Builder method: sets the - (zoom out) button's callback.
     #[must_use]
     pub fn with_on_zoom_out<C: Into<ButtonOnClickCallback>>(mut self, data: RefAny, callback: C) -> Self {
         self.set_on_zoom_out(data, callback);
