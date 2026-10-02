@@ -27,21 +27,20 @@ bindings), `unused.py FILE...` (unused imports, heuristic), `red.py` / `stub_lib
 
 ## IN PROGRESS
 
-- nothing half-done
+- nothing: the task is done (report `scripts/CAL3_2026_10_01.md`)
 
 ## DONE since (commit hashes)
 
 - `scripts/azcalendar_e2e.py` `05356abaa`; calendar colour contrast guard `304c43b25`
 - DatePicker lit range (engine widget): RED `7af90d031`, GREEN `ff96d1b81`; the app's navigator uses it
-  `59804ab76`; duplicate fn name fix `ecc63a794`
+  `59804ab76`
+- review fixes `ecc63a794` `ef44fb11e`; crate description `dd3d7183e`; one text-field / drop-down helper
+  `18f35b7de`; the report (this commit)
 
-## NEXT (in order, precise)
+## NEXT
 
-1. Review pass over the UI files for compile errors (names, borrows, types) - chrome.rs read up to
-   the backstage builder; continue with its pages and callbacks, then editor_ui.rs, views_ui.rs,
-   timegrid.rs, lib.rs. Commit each fix.
-2. Report `scripts/CAL3_2026_10_01.md` (commits, api.json list: DatePicker.range_start / range_end /
-   set_range / with_range; least-sure spots; test commands; what is left). Commit.
+- for the parent: regenerate api.json (DatePicker range), build, run the tests and the E2E listed in the
+  report; if resumed, fix what the compiler says, file by file, each fix committed.
 
 ## Decisions (unattended run)
 
