@@ -371,7 +371,7 @@ fn todo_bar(s: &CalState, app: &RefAny) -> Dom {
         .tasks
         .iter()
         .enumerate()
-        .map(|(i, t)| ToDoTask::create(i as u64, t.title.as_str()).with_done(t.done))
+        .map(|(i, t)| ToDoTask::create(i as u64, t.title.as_str()).with_done(t.is_done()))
         .collect();
     ToDoBar::create(
         s.anchor.year().max(1) as u32,
@@ -1092,9 +1092,11 @@ extern "C" fn on_todo_event(
             let title = event.text.as_str().to_string();
             with_state(&mut data, |s| {
                 s.task_text.clear();
-                if let Some(task) = tasks::new_task(&title) {
-                    match tasks::save(&s.data_dir, &task) {
-                        Ok(_) => {
+                let order = azul_pim::task::next_order(&s.tasks, &s.task_list);
+                let now = chrono::Local::now().naive_local();
+                if let Some(task) = tasks::new_task(&title, &s.task_list, order, now) {
+                    match tasks::save(&s.tasks_root, &task) {
+                        Ok(()) => {
                             s.tasks.push(task);
                             tasks::sort(&mut s.tasks);
                         }
@@ -1108,11 +1110,15 @@ extern "C" fn on_todo_event(
             let Some(task) = s.tasks.get_mut(event.id as usize) else {
                 return Update::DoNothing;
             };
-            task.done = !task.done;
+            // Ticking off a repeating task leaves its next occurrence, as in AzTasks.
+            let next = tasks::toggle_done(task, chrono::Local::now().naive_local());
             let task = task.clone();
-            if let Err(e) = tasks::save(&s.data_dir, &task) {
-                s.notice = format!("The task could not be saved: {e}");
+            for changed in std::iter::once(task).chain(next.clone()) {
+                if let Err(e) = tasks::save(&s.tasks_root, &changed) {
+                    s.notice = format!("The task could not be saved: {e}");
+                }
             }
+            s.tasks.extend(next);
             tasks::sort(&mut s.tasks);
             Update::RefreshDom
         }),

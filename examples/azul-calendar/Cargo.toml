@@ -25,6 +25,12 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 # store) and the drive the tasks are written through; both plain Rust, no new crates.
 azul-pim = { path = "../azul-pim" }
 azul-storage = { path = "../azul-storage" }
+# The Azlin data root (where the shared task store is): the plain modules, no azul feature.
+azul-appkit = { path = "../azul-appkit" }
+
+[dev-dependencies]
+# The shared temporary folder for tests (azul_pim::testing::TempDir).
+azul-pim = { path = "../azul-pim", features = ["test-util"] }
 
 [lib]
 name = "azcalendar"
