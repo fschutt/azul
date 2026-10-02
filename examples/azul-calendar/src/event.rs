@@ -75,6 +75,7 @@
 
 use std::path::{Path, PathBuf};
 
+use azul_pim::mail_address::is_email;
 use chrono::{Duration, NaiveDate, NaiveTime, Timelike};
 use serde::{Deserialize, Serialize};
 
@@ -233,26 +234,6 @@ impl std::fmt::Display for EventError {
 /// The last minute of a day: where an all-day event ends, and the latest an event can end.
 fn last_minute() -> NaiveTime {
     NaiveTime::from_hms_opt(23, 59, 0).unwrap_or(NaiveTime::MIN)
-}
-
-/// Whether `text` reads as an e-mail address: one `@` with something on both sides, a dot in
-/// the domain, no spaces or brackets. Not RFC 5322; what a person types into "To".
-#[must_use]
-pub fn is_email(text: &str) -> bool {
-    let Some((local, domain)) = text.split_once('@') else {
-        return false;
-    };
-    let clean = |s: &str| {
-        !s.is_empty()
-            && !s
-                .chars()
-                .any(|c| c.is_whitespace() || matches!(c, '@' | '<' | '>' | ',' | ';' | '"'))
-    };
-    clean(local)
-        && clean(domain)
-        && domain.contains('.')
-        && !domain.starts_with('.')
-        && !domain.ends_with('.')
 }
 
 impl Event {
@@ -1261,20 +1242,7 @@ mod tests {
             e.check(),
             Err(EventError::BadCalendar(String::from("../work")))
         );
-        for good in ["ana@example.com", "a.b+c@mail.example.org"] {
-            assert!(is_email(good), "{good}");
-        }
-        for bad in [
-            "",
-            "ana",
-            "ana@",
-            "@example.com",
-            "ana@example",
-            "a na@example.com",
-            "<a@b.c>",
-        ] {
-            assert!(!is_email(bad), "{bad}");
-        }
+        // What an address is: azul_pim::mail_address::is_email and its tests.
     }
 
     #[test]

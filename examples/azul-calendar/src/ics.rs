@@ -24,10 +24,11 @@
 
 use std::collections::BTreeMap;
 
+use azul_pim::mail_address::{is_email, parse_mailbox};
 use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike};
 
 use crate::{
-    event::{is_email, Event, EventError, Meeting},
+    event::{Event, EventError, Meeting},
     meet_rooms::{self, RoomKey},
     rrule::Rule,
 };
@@ -711,12 +712,9 @@ fn imported<Tz: TimeZone>(
     let attendees = event
         .all("ATTENDEE")
         .filter_map(|l| {
-            let value = l.value.trim();
-            let address = value
-                .get(..7)
-                .filter(|p| p.eq_ignore_ascii_case("mailto:"))
-                .map_or(value, |_| &value[7..]);
-            is_email(address).then(|| address.to_string())
+            // `mailto:ana@example.com`: the address after its scheme.
+            let address = parse_mailbox(&l.value).address;
+            is_email(&address).then_some(address)
         })
         .fold(Vec::<String>::new(), |mut all, a| {
             if !all.iter().any(|x| x.eq_ignore_ascii_case(&a)) {

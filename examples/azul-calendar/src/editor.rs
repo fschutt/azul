@@ -14,7 +14,7 @@ use chrono::{Datelike, Duration, NaiveDate, NaiveTime, Weekday};
 use azul_pim::dates::{nth_weekday_of_month, ordinal_word, weekday_name, WORK_DAYS};
 
 use crate::{
-    event::{is_email, Event, EventError, Meeting},
+    event::{Event, EventError, Meeting},
     rrule::{ByDay, Freq, RepeatEnd, Rule},
 };
 
@@ -550,24 +550,9 @@ pub fn reminder_index(minutes: Option<u32>) -> usize {
 /// breaks, each as `name <address>` or the address alone. `Err` names the first one that is no
 /// address.
 pub fn parse_attendees(text: &str) -> Result<Vec<String>, String> {
-    let mut out: Vec<String> = Vec::new();
-    for part in text.split(|c: char| matches!(c, ',' | ';' | '\n')) {
-        let part = part.trim();
-        if part.is_empty() {
-            continue;
-        }
-        let address = match (part.rfind('<'), part.rfind('>')) {
-            (Some(open), Some(close)) if open < close => part[open + 1..close].trim(),
-            _ => part,
-        };
-        if !is_email(address) {
-            return Err(format!("{part:?} is not an e-mail address."));
-        }
-        if !out.iter().any(|a| a.eq_ignore_ascii_case(address)) {
-            out.push(address.to_string());
-        }
-    }
-    Ok(out)
+    // A separator inside a quoted name ("Lovelace, Ada" <ada@example.org>) is part of the name.
+    azul_pim::mail_address::address_list(text)
+        .map_err(|entry| format!("{entry:?} is not an e-mail address."))
 }
 
 /// A number typed into "Every N" or "After N times": at least 1, at most 999; `None` for no
