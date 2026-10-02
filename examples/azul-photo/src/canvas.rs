@@ -15,7 +15,7 @@ use azul::{
 use crate::{
     codec,
     commands::{self, Command},
-    raster::{IRect, RasterEngine},
+    raster::IRect,
     say,
     state::{Effects, Mods, Tool},
     AppScreen, PhotoApp,

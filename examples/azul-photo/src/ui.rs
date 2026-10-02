@@ -24,7 +24,7 @@ use crate::{
     canvas,
     commands::{self, cmd, field, Command, Field},
     jobs::ExportFormat,
-    raster::{layer, Adjustment, BlendMode, LayerContent, RasterEngine, SelectMode},
+    raster::{layer, Adjustment, BlendMode, LayerContent, SelectMode},
     state::Tool,
     view, AppScreen, PhotoApp, Sheet,
 };

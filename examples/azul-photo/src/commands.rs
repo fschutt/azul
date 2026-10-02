@@ -22,7 +22,7 @@ use crate::{
     new_uuid,
     raster::{
         layer, Adjustment, Affine, BlendMode, Document, Filter, IRect, Interp, Layer, LayerContent, LayerId, Op,
-        Placement, RasterEngine, SelectMode,
+        Placement, SelectMode,
     },
     sample_document, say,
     state::{Effects, Tool},
