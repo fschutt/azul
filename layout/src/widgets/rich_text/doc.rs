@@ -1668,4 +1668,451 @@ impl RichTextDoc {
     }
 }
 
-// RTE-DOC-TESTS: the model's tests follow (next commit).
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn plain(text: &str) -> RichRun {
+        RichRun::plain(text)
+    }
+
+    fn bold(text: &str) -> RichRun {
+        RichRun::plain(text).with_format(RichFormat::Bold)
+    }
+
+    fn para(runs: Vec<RichRun>) -> RichBlock {
+        RichBlock::new(RichBlockKind::Paragraph, runs)
+    }
+
+    fn runs(doc: &RichTextDoc, index: usize) -> Vec<RichRun> {
+        doc.blocks()[index].runs_vec()
+    }
+
+    fn kinds(doc: &RichTextDoc) -> Vec<RichBlockKind> {
+        doc.blocks().iter().map(|b| b.kind.clone()).collect()
+    }
+
+    fn check(indent: u8, checked: bool) -> RichBlockKind {
+        RichBlockKind::Check(RichCheck { indent, checked })
+    }
+
+    #[test]
+    fn typing_inside_a_bold_run_stays_bold_and_elsewhere_keeps_the_formats() {
+        let mut doc =
+            RichTextDoc::from_blocks(vec![para(vec![plain("one "), bold("two"), plain(" three")])]);
+        assert!(doc.sync_block_text(0, "one twXo three", None));
+        assert_eq!(
+            runs(&doc, 0),
+            vec![plain("one "), bold("twXo"), plain(" three")]
+        );
+        assert!(doc.sync_block_text(0, "one twXo thrYee", None));
+        assert_eq!(runs(&doc, 0)[2], plain(" thrYee"));
+        assert!(
+            !doc.sync_block_text(0, "one twXo thrYee", None),
+            "no change, no edit"
+        );
+    }
+
+    #[test]
+    fn typing_into_a_formatted_paragraph_keeps_its_bold_and_its_link() {
+        // AzMail's sync flattened `<p>ab<b>c</b><a>d</a></p>` into one text
+        // node on the first keystroke (DEDUP_EDITORS A3.1).
+        let link = plain("d").with_link(AzString::from("https://example.org"));
+        let mut doc = RichTextDoc::from_blocks(vec![para(vec![plain("ab"), bold("c"), link.clone()])]);
+        assert!(doc.sync_block_text(0, "abXcd", None));
+        assert_eq!(runs(&doc, 0), vec![plain("abX"), bold("c"), link.clone()]);
+        assert!(doc.sync_block_text(0, "abXcdY", None));
+        let linked = plain("dY").with_link(AzString::from("https://example.org"));
+        assert_eq!(
+            runs(&doc, 0),
+            vec![plain("abX"), bold("c"), linked],
+            "typing at a link's end continues the link"
+        );
+    }
+
+    #[test]
+    fn typing_at_the_end_of_a_bold_run_continues_it_and_a_typing_style_wins() {
+        let mut doc = RichTextDoc::from_blocks(vec![para(vec![plain("a"), bold("b")])]);
+        doc.sync_block_text(0, "abc", None);
+        assert_eq!(runs(&doc, 0)[1], bold("bc"));
+        let italic = RichFormats::create().with(RichFormat::Italic);
+        doc.sync_block_text(0, "abcd", Some(italic));
+        assert_eq!(
+            runs(&doc, 0),
+            vec![
+                plain("a"),
+                bold("bc"),
+                plain("d").with_format(RichFormat::Italic)
+            ]
+        );
+    }
+
+    #[test]
+    fn deleting_a_whole_run_and_typing_into_an_empty_block() {
+        let mut doc = RichTextDoc::from_blocks(vec![para(vec![plain("x"), bold("bold")])]);
+        doc.sync_block_text(0, "x", None);
+        assert_eq!(runs(&doc, 0), vec![plain("x")]);
+        doc.sync_block_text(0, "", None);
+        assert!(runs(&doc, 0).is_empty());
+        doc.sync_block_text(0, "hi", None);
+        assert_eq!(runs(&doc, 0), vec![plain("hi")]);
+    }
+
+    #[test]
+    fn multibyte_edits_never_split_a_character() {
+        let mut doc = RichTextDoc::from_blocks(vec![RichBlock::paragraph("gr\u{fc}\u{df}e")]);
+        assert!(doc.sync_block_text(0, "gr\u{fc}\u{df}\u{e9}e", None));
+        assert_eq!(doc.blocks()[0].flat(), "gr\u{fc}\u{df}\u{e9}e");
+        assert!(doc.toggle_format(0, 0, 3, RichFormat::Bold));
+        assert_eq!(runs(&doc, 0)[0], bold("gr"));
+    }
+
+    #[test]
+    fn enter_splits_a_block_and_a_heading_continues_as_a_paragraph() {
+        let mut doc = RichTextDoc::from_blocks(vec![
+            RichBlock::text(RichBlockKind::Heading(1), "Title"),
+            para(vec![plain("ab"), bold("cd")]),
+        ]);
+        assert_eq!(doc.split_block(0, 5), Some(1));
+        assert_eq!(doc.blocks()[1], RichBlock::paragraph(""));
+        assert_eq!(doc.split_block(2, 3), Some(3));
+        assert_eq!(runs(&doc, 2), vec![plain("ab"), bold("c")]);
+        assert_eq!(runs(&doc, 3), vec![bold("d")]);
+        assert_eq!(doc.split_block(0, 2), Some(1));
+        assert_eq!(
+            doc.blocks()[1].kind,
+            RichBlockKind::Heading(1),
+            "mid-heading: both halves headings"
+        );
+    }
+
+    #[test]
+    fn a_split_keeps_the_quote_depth_and_the_alignment() {
+        let mut doc = RichTextDoc::from_blocks(vec![RichBlock::paragraph("quoted words")
+            .with_quote_depth(2)
+            .with_align(RichAlign::Center)]);
+        assert_eq!(doc.split_block(0, 6), Some(1));
+        assert_eq!(doc.blocks()[1].quote_depth, 2);
+        assert_eq!(doc.blocks()[1].align, RichAlign::Center);
+        assert_eq!(doc.blocks()[1].flat(), " words");
+    }
+
+    #[test]
+    fn enter_in_a_check_item_starts_an_unchecked_one() {
+        let mut doc = RichTextDoc::from_blocks(vec![RichBlock::text(check(0, true), "done")]);
+        doc.split_block(0, 4);
+        assert_eq!(doc.blocks()[1].kind, check(0, false));
+    }
+
+    #[test]
+    fn backspace_merges_into_the_previous_block_or_removes_a_rule() {
+        let mut doc = RichTextDoc::from_blocks(vec![
+            RichBlock::paragraph("one"),
+            RichBlock::paragraph("two"),
+            RichBlock::new(RichBlockKind::Rule, vec![]),
+            RichBlock::paragraph("three"),
+        ]);
+        assert_eq!(doc.merge_into_previous(1, true), Some(0));
+        assert_eq!(runs(&doc, 0), vec![plain("onetwo")]);
+        assert_eq!(doc.merge_into_previous(2, false), Some(1), "the rule goes");
+        assert_eq!(doc.block_count(), 2);
+        assert_eq!(doc.blocks()[1].flat(), "three");
+        assert_eq!(doc.merge_into_previous(0, true), None);
+    }
+
+    #[test]
+    fn a_merge_at_a_child_boundary_keeps_the_seam_runs_apart() {
+        let mut doc =
+            RichTextDoc::from_blocks(vec![RichBlock::paragraph("a"), RichBlock::paragraph("b")]);
+        doc.merge_into_previous(1, false);
+        assert_eq!(runs(&doc, 0), vec![plain("a"), plain("b")]);
+        doc.normalize();
+        assert_eq!(runs(&doc, 0), vec![plain("ab")]);
+    }
+
+    #[test]
+    fn a_delete_across_blocks_keeps_both_ends_formats() {
+        let italic = |t: &str| plain(t).with_format(RichFormat::Italic);
+        let mut doc = RichTextDoc::from_blocks(vec![
+            RichBlock::new(RichBlockKind::Heading(2), vec![plain("ab"), italic("cd")]),
+            RichBlock::paragraph("middle"),
+            para(vec![bold("ef"), plain("gh")]),
+        ]);
+        // select "d" .. "e" and type "X"
+        assert!(doc.replace_blocks(0, 3, "abcXfgh"));
+        assert_eq!(doc.block_count(), 1);
+        assert_eq!(doc.blocks()[0].kind, RichBlockKind::Heading(2));
+        assert_eq!(
+            runs(&doc, 0),
+            vec![plain("ab"), italic("cX"), bold("f"), plain("gh")]
+        );
+    }
+
+    #[test]
+    fn a_paste_of_blocks_over_a_selection_keeps_both_ends() {
+        let mut doc = RichTextDoc::from_blocks(vec![
+            para(vec![plain("ab"), bold("cd")]),
+            RichBlock::text(RichBlockKind::Bullet(0), "efgh"),
+        ]);
+        // select "d" .. "e", paste "X" / heading "Y" / "Z"
+        let part = |kind: Option<RichBlockKind>, runs: Vec<RichRun>| PastedBlock {
+            kind,
+            quote_depth: 0,
+            runs,
+        };
+        let parts = vec![
+            part(Some(RichBlockKind::Paragraph), vec![plain("abcX")]),
+            part(Some(RichBlockKind::Heading(2)), vec![plain("Y")]),
+            part(
+                None,
+                vec![plain("Z").with_format(RichFormat::Italic), plain("fgh")],
+            ),
+        ];
+        assert!(doc.replace_with(0, 2, parts));
+        assert_eq!(doc.block_count(), 3);
+        assert_eq!(runs(&doc, 0), vec![plain("ab"), bold("c"), plain("X")]);
+        assert_eq!(doc.blocks()[1].kind, RichBlockKind::Heading(2));
+        assert_eq!(doc.blocks()[2].kind, RichBlockKind::Paragraph);
+        assert_eq!(
+            runs(&doc, 2),
+            vec![plain("Z").with_format(RichFormat::Italic), plain("fgh")]
+        );
+    }
+
+    #[test]
+    fn toggling_bold_over_a_range_splits_and_merges_back() {
+        let mut doc = RichTextDoc::from_blocks(vec![RichBlock::paragraph("hello world")]);
+        assert!(doc.toggle_format(0, 6, 11, RichFormat::Bold));
+        assert_eq!(runs(&doc, 0), vec![plain("hello "), bold("world")]);
+        assert!(doc.has_format(0, 6, 11, RichFormat::Bold));
+        assert!(!doc.has_format(0, 0, 11, RichFormat::Bold));
+        assert!(
+            doc.has_format(0, 11, 11, RichFormat::Bold),
+            "a caret after bold text"
+        );
+        assert!(doc.toggle_format(0, 6, 11, RichFormat::Bold));
+        assert_eq!(runs(&doc, 0), vec![plain("hello world")]);
+    }
+
+    #[test]
+    fn bold_pressed_twice_over_a_selection_is_plain_again() {
+        // AzMail wrapped another <b> on every press (DEDUP_EDITORS A3.4).
+        let mut doc = RichTextDoc::from_blocks(vec![para(vec![plain("a "), bold("b"), plain(" c")])]);
+        assert!(doc.toggle_format(0, 0, 5, RichFormat::Bold), "partly bold: all bold");
+        assert_eq!(runs(&doc, 0), vec![bold("a b c")]);
+        assert!(doc.toggle_format(0, 0, 5, RichFormat::Bold), "all bold: plain");
+        assert_eq!(runs(&doc, 0), vec![plain("a b c")]);
+        assert!(
+            !doc.set_format(0, 0, 5, RichFormat::Bold, false),
+            "clearing what is not there changes nothing"
+        );
+    }
+
+    #[test]
+    fn links_are_set_and_removed_over_a_range() {
+        let mut doc = RichTextDoc::from_blocks(vec![RichBlock::paragraph("see the plan")]);
+        assert!(doc.set_link(0, 4, 12, Some("https://example.org/plan")));
+        assert_eq!(
+            doc.link_at(0, 6).as_deref(),
+            Some("https://example.org/plan")
+        );
+        assert_eq!(doc.link_at(0, 2), None);
+        assert!(doc.set_link(0, 4, 12, None));
+        assert_eq!(runs(&doc, 0), vec![plain("see the plan")]);
+    }
+
+    #[test]
+    fn markdown_shortcuts_fire_once_when_typed() {
+        let p = RichBlockKind::Paragraph;
+        let kind = |s: Option<RichShortcut>| s.and_then(|s| s.kind);
+        assert_eq!(
+            kind(typed_shortcut(&p, "#", "# ")),
+            Some(RichBlockKind::Heading(1))
+        );
+        assert_eq!(
+            typed_shortcut(&p, "##", "## ").map(|s| (s.kind, s.strip)),
+            Some((Some(RichBlockKind::Heading(2)), 3))
+        );
+        assert_eq!(
+            kind(typed_shortcut(&p, "-", "- ")),
+            Some(RichBlockKind::Bullet(0))
+        );
+        assert_eq!(
+            typed_shortcut(&p, "12.", "12. ").map(|s| (s.kind, s.strip)),
+            Some((Some(RichBlockKind::Numbered(0)), 4))
+        );
+        assert_eq!(kind(typed_shortcut(&p, "[ ]", "[ ] ")), Some(check(0, false)));
+        assert_eq!(
+            typed_shortcut(&p, ">", "> "),
+            Some(RichShortcut {
+                kind: None,
+                strip: 2
+            }),
+            "a quote deepens the quote"
+        );
+        assert_eq!(
+            kind(typed_shortcut(&p, "``", "```")),
+            Some(RichBlockKind::Code(AzString::from_const_str("")))
+        );
+        assert_eq!(
+            kind(typed_shortcut(&RichBlockKind::Bullet(1), "[ ]", "[ ] ")),
+            Some(check(1, false)),
+            "- [ ] typed in a row ends a check item"
+        );
+        assert_eq!(
+            typed_shortcut(&p, "# x", "# xy"),
+            None,
+            "an old trigger is text now"
+        );
+        assert_eq!(typed_shortcut(&p, "#tag", "#tags"), None);
+        assert_eq!(typed_shortcut(&RichBlockKind::Heading(1), "", "# "), None);
+    }
+
+    #[test]
+    fn applying_a_shortcut_strips_the_trigger_and_keeps_the_rest() {
+        let mut doc = RichTextDoc::from_blocks(vec![para(vec![plain("- buy "), bold("milk")])]);
+        let flat = doc.blocks()[0].flat();
+        let shortcut = shortcut_in(&RichBlockKind::Paragraph, &flat).expect("a bullet");
+        assert!(doc.apply_shortcut(0, &shortcut));
+        assert_eq!(doc.blocks()[0].kind, RichBlockKind::Bullet(0));
+        assert_eq!(runs(&doc, 0), vec![plain("buy "), bold("milk")]);
+    }
+
+    #[test]
+    fn the_quote_shortcut_deepens_the_quote_and_keeps_the_kind() {
+        let mut doc = RichTextDoc::from_blocks(vec![RichBlock::paragraph("> said")]);
+        let shortcut = shortcut_in(&RichBlockKind::Paragraph, "> said").expect("a quote");
+        assert!(doc.apply_shortcut(0, &shortcut));
+        assert_eq!(doc.blocks()[0].kind, RichBlockKind::Paragraph);
+        assert_eq!(doc.blocks()[0].quote_depth, 1);
+        assert_eq!(doc.blocks()[0].flat(), "said");
+    }
+
+    #[test]
+    fn numbered_items_count_per_level_and_restart_after_a_paragraph() {
+        let doc = RichTextDoc::from_blocks(vec![
+            RichBlock::text(RichBlockKind::Numbered(0), "a"),
+            RichBlock::text(RichBlockKind::Numbered(1), "a.1"),
+            RichBlock::text(RichBlockKind::Numbered(1), "a.2"),
+            RichBlock::text(RichBlockKind::Numbered(0), "b"),
+            RichBlock::paragraph("break"),
+            RichBlock::text(RichBlockKind::Numbered(0), "c"),
+            RichBlock::text(RichBlockKind::Numbered(0), "quoted").with_quote_depth(1),
+        ]);
+        let numbers: Vec<usize> = (0..doc.block_count()).map(|i| doc.number_of(i)).collect();
+        assert_eq!(numbers, vec![1, 1, 2, 2, 1, 1, 1]);
+    }
+
+    #[test]
+    fn indents_are_bounded_by_the_item_before_and_outdent_ends_the_list() {
+        let mut doc = RichTextDoc::from_blocks(vec![
+            RichBlock::text(RichBlockKind::Bullet(0), "a"),
+            RichBlock::text(RichBlockKind::Bullet(0), "b"),
+        ]);
+        assert!(!doc.indent(0, 1), "the first item cannot indent");
+        assert!(doc.indent(1, 1));
+        assert!(!doc.indent(1, 1), "at most one deeper than the item before");
+        assert_eq!(doc.blocks()[1].kind, RichBlockKind::Bullet(1));
+        assert!(doc.indent(1, -1));
+        assert!(doc.indent(1, -1));
+        assert_eq!(doc.blocks()[1].kind, RichBlockKind::Paragraph);
+    }
+
+    #[test]
+    fn normalize_clamps_orphan_indents_and_keeps_one_block() {
+        let mut doc = RichTextDoc {
+            blocks: RichBlockVec::from_vec(Vec::new()),
+        };
+        doc.normalize();
+        assert_eq!(doc, RichTextDoc::create());
+        let doc = RichTextDoc::from_blocks(vec![
+            RichBlock::paragraph("p"),
+            RichBlock::text(RichBlockKind::Bullet(3), "deep"),
+            RichBlock::text(RichBlockKind::Bullet(4), "deeper"),
+        ]);
+        assert_eq!(doc.blocks()[1].kind, RichBlockKind::Bullet(0));
+        assert_eq!(doc.blocks()[2].kind, RichBlockKind::Bullet(1));
+    }
+
+    #[test]
+    fn toggling_a_block_kind_twice_returns_to_a_paragraph() {
+        let mut doc = RichTextDoc::from_blocks(vec![
+            RichBlock::text(RichBlockKind::Bullet(0), "parent"),
+            RichBlock::text(RichBlockKind::Bullet(1), "x"),
+        ]);
+        assert!(doc.toggle_kind(1, RichBlockKind::Numbered(0)));
+        assert_eq!(
+            doc.blocks()[1].kind,
+            RichBlockKind::Numbered(1),
+            "keeps its indent"
+        );
+        assert!(doc.toggle_kind(1, RichBlockKind::Numbered(0)));
+        assert_eq!(doc.blocks()[1].kind, RichBlockKind::Paragraph);
+        assert!(doc.toggle_kind(1, RichBlockKind::Heading(2)));
+        assert!(
+            !doc.toggle_kind(1, RichBlockKind::Rule),
+            "a text block never becomes a rule"
+        );
+    }
+
+    #[test]
+    fn typing_into_a_table_cell_changes_that_cell_only() {
+        let table = RichTable::empty(2, 2);
+        let mut doc = RichTextDoc::from_blocks(vec![
+            RichBlock::new(RichBlockKind::Table(table), vec![]),
+            RichBlock::paragraph("after"),
+        ]);
+        assert!(doc.set_table_cell(0, 1, 0, "Q4"));
+        assert!(!doc.set_table_cell(0, 1, 0, "Q4"), "no change, no edit");
+        let table = doc.blocks()[0].table().expect("a table");
+        assert_eq!(table.rows.as_ref()[1].cell(0), "Q4");
+        assert_eq!(table.rows.as_ref()[0].cell(0), "");
+        assert!(!doc.sync_block_text(0, "text", None), "a table has no runs");
+        assert_eq!(doc.plain_text(), "\t\nQ4\t\nafter");
+    }
+
+    #[test]
+    fn enter_after_a_block_without_text_starts_a_paragraph_and_backspace_removes_it() {
+        let mut doc = RichTextDoc::from_blocks(vec![
+            RichBlock::paragraph("before"),
+            RichBlock::new(RichBlockKind::PageBreak, vec![RichRun::plain("ignored")]),
+        ]);
+        assert!(doc.blocks()[1].is_empty(), "a page break holds no runs");
+        assert_eq!(doc.split_block(1, 0), Some(2));
+        assert_eq!(doc.blocks()[2], RichBlock::paragraph(""));
+        assert_eq!(doc.merge_into_previous(2, false), Some(1), "the page break goes");
+        assert_eq!(kinds(&doc), vec![RichBlockKind::Paragraph, RichBlockKind::Paragraph]);
+    }
+
+    #[test]
+    fn preview_skips_the_title_and_blank_lines_and_counts_words() {
+        let doc = RichTextDoc::from_blocks(vec![
+            RichBlock::text(RichBlockKind::Heading(1), "Offsite agenda"),
+            RichBlock::paragraph(""),
+            RichBlock::paragraph("Bring laptops"),
+            RichBlock::new(
+                RichBlockKind::Image(RichImage {
+                    src: AzString::from("a.png"),
+                    alt: AzString::from("diagram"),
+                }),
+                vec![],
+            ),
+        ]);
+        assert_eq!(doc.preview("Offsite agenda"), "Bring laptops");
+        assert_eq!(doc.word_count(), 5);
+        assert_eq!(doc.image_srcs().as_ref(), &[AzString::from("a.png")]);
+        assert!(!doc.is_blank());
+        assert!(RichTextDoc::create().is_blank());
+    }
+
+    #[test]
+    fn the_checklist_counts_ticked_and_all_items() {
+        let doc = RichTextDoc::from_blocks(vec![
+            RichBlock::text(check(0, true), "a"),
+            RichBlock::text(check(0, false), "b"),
+            RichBlock::paragraph("c"),
+        ]);
+        assert_eq!(doc.checklist(), (1, 2));
+        assert_eq!((doc.checklist_done(), doc.checklist_total()), (1, 2));
+    }
+}
