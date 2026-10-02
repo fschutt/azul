@@ -5076,6 +5076,78 @@ mod tests {
         );
     }
 
+    /// What `get_key_modifiers().shift` returned inside the last
+    /// `record_shift` call: 0 = never called, 1 = no Shift, 2 = Shift.
+    static SHIFT_SEEN: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+    extern "C" fn record_shift(_data: RefAny, info: CallbackInfo) -> Update {
+        let seen = if info.get_key_modifiers().shift { 2 } else { 1 };
+        SHIFT_SEEN.store(seen, std::sync::atomic::Ordering::SeqCst);
+        Update::DoNothing
+    }
+
+    /// AzCalculator E2E (2026-10-02): `7 Shift+8 6 Enter` gave 786, not 42.
+    /// The `key_down` op puts `LShift` into the pressed set, but a callback's
+    /// `get_key_modifiers()` reads the STORED `KeyboardState::modifiers`, which
+    /// every native backend re-derives with `sync_modifiers()` after touching
+    /// the set. `tap_key` syncs on its own, so only the op path shows it.
+    #[test]
+    fn a_key_down_callback_sees_the_shift_the_key_down_op_holds() {
+        let mut runner = editor_runner("ab", false, Some(record_shift));
+        let mut session = E2eSession::new();
+        let mut app_data = RefAny::new(());
+        let component_map = Arc::new(Mutex::new(ComponentMap::with_builtin()));
+        let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
+        let mut op = |runner: &mut Runner, event: DebugEvent| {
+            let (tx, _rx) = std::sync::mpsc::channel();
+            let request = DebugRequest {
+                request_id: 1,
+                event,
+                window_id: None,
+                wait_for_render: false,
+                dom_id: None,
+                response_tx: tx,
+            };
+            let needs_update = runner.with_callback_info(&changes, |ci| {
+                process_debug_event(&request, ci, &mut app_data, &component_map, &mut session)
+            });
+            runner.service(&changes, needs_update);
+        };
+        let shift = super::super::full::Modifiers {
+            shift: true,
+            ..Default::default()
+        };
+
+        op(
+            &mut runner,
+            DebugEvent::KeyDown {
+                key: "8".into(),
+                modifiers: shift,
+                text: None,
+                seat: 0,
+            },
+        );
+        assert_eq!(
+            SHIFT_SEEN.load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "the KeyDown callback must see the Shift the op holds (0 = not called, 1 = no Shift)"
+        );
+        assert!(runner.window_state.keyboard_state.modifiers.shift);
+
+        op(
+            &mut runner,
+            DebugEvent::KeyUp {
+                key: "8".into(),
+                modifiers: Default::default(),
+                seat: 0,
+            },
+        );
+        assert!(
+            !runner.window_state.keyboard_state.modifiers.shift,
+            "a key_up without Shift releases it"
+        );
+    }
+
     #[test]
     fn a_keydown_veto_kills_the_recorded_text() {
         let mut runner = editor_runner("ab", false, Some(veto_key_down));
