@@ -69,6 +69,12 @@ pub(crate) struct Compose {
     /// The Insert Link field is shown, and its text.
     pub(crate) show_link: bool,
     pub(crate) link: String,
+    /// Changed since the window opened or the draft was last saved.
+    pub(crate) edited: bool,
+    /// The window's close was held back: the "Save changes?" bar is shown.
+    pub(crate) asking_close: bool,
+    /// "Save" on that bar: the window closes once the draft is saved.
+    pub(crate) close_after_save: bool,
 }
 
 /// A file to attach, read when the mail is saved or sent (on the thread).
@@ -140,6 +146,12 @@ impl Compose {
             in_reply_to: self.in_reply_to.clone(),
             references: self.references.clone(),
         }
+    }
+
+    /// Closing the window asks "Save changes?": the mail was edited since it opened or was last
+    /// saved, and it is not on its way out (being sent).
+    fn close_asks(&self) -> bool {
+        false
     }
 
     /// Sending, or sent to the Outbox: Send would send it twice.
@@ -227,6 +239,9 @@ pub(crate) fn open_compose(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny
         status: ComposeStatus::Editing,
         show_link: false,
         link: String::new(),
+        edited: false,
+        asking_close: false,
+        close_after_save: false,
     });
     let mut window = WindowCreateOptions::create(layout_compose);
     window.window_state.layout_callback.ctx = OptionRefAny::Some(RefAny::new(ComposeKey(id)));
@@ -1046,4 +1061,53 @@ extern "C" fn on_outgoing_done(mut app: RefAny, mut payload: RefAny, mut info: C
         update
     })
     .unwrap_or(Update::DoNothing)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn compose() -> Compose {
+        Compose {
+            id: 1,
+            window_id: String::from("azmail-compose-1"),
+            kind: ComposeKind::Reply,
+            account_id: String::from("ada"),
+            from: String::from("Ada <ada@example.org>"),
+            to: String::from("ben@example.org"),
+            cc: String::new(),
+            bcc: String::new(),
+            subject: String::from("Re: Garden"),
+            body: Dom::create_div(),
+            in_reply_to: None,
+            references: Vec::new(),
+            attachments: Vec::new(),
+            draft_uid: None,
+            status: ComposeStatus::Editing,
+            show_link: false,
+            link: String::new(),
+            edited: false,
+            asking_close: false,
+            close_after_save: false,
+        }
+    }
+
+    #[test]
+    fn an_edited_message_asks_before_its_window_closes_a_saved_or_sending_one_does_not() {
+        let mut c = compose();
+        assert!(!c.close_asks(), "nothing changed since it opened");
+        c.edited = true;
+        assert!(c.close_asks(), "a typed line would be lost");
+        c.status = ComposeStatus::Saved(String::from("10:42"));
+        assert!(c.close_asks(), "edited again after the save");
+        c.edited = false;
+        assert!(!c.close_asks(), "saved as it is");
+        c.edited = true;
+        c.status = ComposeStatus::Sending;
+        assert!(!c.close_asks(), "on its way out");
+        c.status = ComposeStatus::Queued(String::from("no route"));
+        assert!(!c.close_asks(), "in the Outbox");
+        c.status = ComposeStatus::Failed(String::from("refused"));
+        assert!(c.close_asks(), "not sent: still the only copy");
+    }
 }
