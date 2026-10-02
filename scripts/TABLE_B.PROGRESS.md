@@ -3,12 +3,18 @@
 Task: table parity with Chrome, part B (borders, spans, fixed layout, cell sizing rules).
 Brief: scratchpad `TABLE_B_go.md`; house rules `wave4_common.md`. Nothing is compiled here.
 
-## FIX on merged main (branch `wt/table-b-fix` from `f9aba9e00`) - IN PROGRESS
-Six table failures on main (layout --test all): (1) table_cell_width single/two cells +
-flex_intrinsic_text::table_cell_padding_offsets_text_from_the_cell_top - whole table has no rects;
-(2) real_table_cells_center_their_text_vertically - header baseline 24.8 vs 28.2; (3) fixed table
-first-row percentage - 6300 px differ; (4) prose_cells_wrap_inside_a_220px_table - only 2 lines.
-- NEXT: root-cause (1) from the code.
+## FIX on merged main (branch `wt/table-b-fix` from `f9aba9e00`) - DONE
+Six table failures on main, root-caused from the code and the parent's run log:
+- `0f30d3d08` fix: a fixed table's floor is its own width or its columns' (CSS 2.2 17.5.2.1),
+  not its content's MIN (fixed_column_widths shared by layout and intrinsic pass,
+  fixed_table_content_width, uses_fixed_table_layout) - fixed-table-layout-025, 6300 px.
+- `7d158d4b5` tests: a text node inside an IFC cell has no box (like a paragraph's); the old
+  BFC measurement left one behind. table_cell_width indices fixed (root is node 0, tds 2 / 4);
+  the padding test measures the painted first baseline against a padded block.
+- `4fb2bbbbf` test: a collapsed header cell starts at y=1 with a 1px (half) top border;
+  baseline 1 + 1 + 10 + 12.8 = 24.8 is where the glyphs are.
+- `fa890fe1d` test: Times 16px, Chrome distribution -> each prose cell wraps onto 2 lines.
+- NEXT: nothing; waiting for the parent's run.
 
 ## REPLAY onto TABLE-A (branch `wt/table-b-on-a` from `1964f561e`) - DONE
 All of wt/table-b replayed in order; report section 9 "Replayed onto TABLE-A" written
