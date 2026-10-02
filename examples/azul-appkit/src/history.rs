@@ -84,7 +84,7 @@ impl<T> UndoHistory<T> {
     /// Records `before`, the state an edit named `label` starts from; the
     /// redo branch goes. Ends a coalescing run.
     pub fn checkpoint(&mut self, label: &str, before: T) {
-        todo!("GREEN {label} {}", core::mem::size_of_val(&before))
+        self.checkpoint_with(label, None, || before);
     }
 
     /// [`Self::checkpoint`] with the snapshot built only when it is
@@ -97,75 +97,131 @@ impl<T> UndoHistory<T> {
         coalesce: Option<&str>,
         before: impl FnOnce() -> T,
     ) -> bool {
-        todo!(
-            "GREEN {label} {coalesce:?} {}",
-            core::mem::size_of_val(&before)
-        )
+        if let Some(key) = coalesce {
+            let merges = self.open
+                && self
+                    .undo
+                    .back()
+                    .is_some_and(|top| top.coalesce.as_deref() == Some(key));
+            if merges {
+                return false;
+            }
+        }
+        self.redo.clear();
+        self.undo.push_back(Step {
+            label: label.to_string(),
+            state: before(),
+            coalesce: coalesce.map(str::to_string),
+        });
+        self.open = coalesce.is_some();
+        while self.undo.len() > self.limit {
+            if let Some(oldest) = self.undo.pop_front() {
+                // The oldest state kept is the one that edit made.
+                self.base_label = oldest.label;
+            }
+        }
+        true
     }
 
     /// Ends the coalescing run: the next edit is a step of its own.
     pub fn seal(&mut self) {
-        todo!("GREEN")
+        self.open = false;
     }
 
     /// Whether there is an edit to undo.
     #[must_use]
     pub fn can_undo(&self) -> bool {
-        todo!("GREEN")
+        !self.undo.is_empty()
     }
 
     /// Whether there is an undone edit to redo.
     #[must_use]
     pub fn can_redo(&self) -> bool {
-        todo!("GREEN")
+        !self.redo.is_empty()
     }
 
     /// The name of the edit an undo takes back ("Undo Move").
     #[must_use]
     pub fn undo_label(&self) -> Option<&str> {
-        todo!("GREEN")
+        self.undo.back().map(|s| s.label.as_str())
     }
 
     /// The name of the edit a redo makes again.
     #[must_use]
     pub fn redo_label(&self) -> Option<&str> {
-        todo!("GREEN")
+        self.redo.last().map(|s| s.label.as_str())
     }
 
     /// One edit back: `current` becomes the state before it (the state left
     /// is kept for the redo). `false` when there is nothing to undo.
     pub fn undo(&mut self, current: &mut T) -> bool {
-        todo!("GREEN {}", core::mem::size_of_val(current))
+        let Some(step) = self.undo.pop_back() else {
+            return false;
+        };
+        let after = core::mem::replace(current, step.state);
+        self.redo.push(Step {
+            label: step.label,
+            state: after,
+            coalesce: None,
+        });
+        self.open = false;
+        true
     }
 
     /// One undone edit forward again. `false` when there is nothing to redo.
     pub fn redo(&mut self, current: &mut T) -> bool {
-        todo!("GREEN {}", core::mem::size_of_val(current))
+        let Some(step) = self.redo.pop() else {
+            return false;
+        };
+        let before = core::mem::replace(current, step.state);
+        self.undo.push_back(Step {
+            label: step.label,
+            state: before,
+            coalesce: None,
+        });
+        self.open = false;
+        true
     }
 
     /// Every state's name, oldest first: the History panel's rows.
     #[must_use]
     pub fn labels(&self) -> Vec<String> {
-        todo!("GREEN")
+        let mut labels = Vec::with_capacity(1 + self.undo.len() + self.redo.len());
+        labels.push(self.base_label.clone());
+        labels.extend(self.undo.iter().map(|s| s.label.clone()));
+        labels.extend(self.redo.iter().rev().map(|s| s.label.clone()));
+        labels
     }
 
     /// The row of [`Self::labels`] the current state is.
     #[must_use]
     pub fn current_index(&self) -> usize {
-        todo!("GREEN")
+        self.undo.len()
     }
 
     /// Goes to row `index` of [`Self::labels`] (a click in the History
     /// panel), undoing or redoing the edits between. `false` when there is
     /// no such row.
     pub fn jump(&mut self, index: usize, current: &mut T) -> bool {
-        todo!("GREEN {index} {}", core::mem::size_of_val(current))
+        if index > self.undo.len() + self.redo.len() {
+            return false;
+        }
+        while self.undo.len() > index {
+            self.undo(current);
+        }
+        while self.undo.len() < index {
+            self.redo(current);
+        }
+        true
     }
 
     /// Forgets every step (a document opened anew); the starting state is
     /// named `base_label`.
     pub fn clear(&mut self, base_label: &str) {
-        todo!("GREEN {base_label}")
+        self.undo.clear();
+        self.redo.clear();
+        self.base_label = base_label.to_string();
+        self.open = false;
     }
 }
 
