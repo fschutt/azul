@@ -99,6 +99,23 @@ pub struct Attachment {
     pub size: usize,
 }
 
+/// An attachment with its bytes, as a forward or a reopened draft carries it on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttachmentPart {
+    pub name: String,
+    /// `type/subtype`, lower case; `application/octet-stream` when the part names none.
+    pub mime_type: String,
+    /// Decoded (no base64 / quoted-printable left).
+    pub bytes: Vec<u8>,
+}
+
+/// Every attachment of a message's bytes with its contents, in the order of
+/// [`MessageView::attachments`]; none when the bytes are not a message.
+pub fn attachment_parts(bytes: &[u8]) -> Vec<AttachmentPart> {
+    let _ = bytes;
+    Vec::new()
+}
+
 /// What the message view shows.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MessageView {
@@ -386,6 +403,63 @@ Yes.\r\n";
         assert_eq!(plain.message_id, "plain-1@example.org");
         assert_eq!(plain.reply_to, "");
         assert!(plain.references.is_empty());
+    }
+
+    #[test]
+    fn a_forward_gets_every_attachment_decoded_with_its_type() {
+        const TWO: &[u8] = b"From: ben@example.org\r\n\
+Subject: Photos\r\n\
+MIME-Version: 1.0\r\n\
+Content-Type: multipart/mixed; boundary=\"b\"\r\n\
+\r\n\
+--b\r\n\
+Content-Type: text/plain; charset=utf-8\r\n\
+\r\n\
+Two files.\r\n\
+--b\r\n\
+Content-Type: Image/PNG; name=\"pic.png\"\r\n\
+Content-Disposition: attachment; filename=\"pic.png\"\r\n\
+Content-Transfer-Encoding: base64\r\n\
+\r\n\
+iVBORw==\r\n\
+--b\r\n\
+Content-Disposition: attachment; filename=\"data.bin\"\r\n\
+Content-Type: application/octet-stream\r\n\
+Content-Transfer-Encoding: base64\r\n\
+\r\n\
+AAEC\r\n\
+--b--\r\n";
+        assert_eq!(
+            attachment_parts(TWO),
+            vec![
+                AttachmentPart {
+                    name: String::from("pic.png"),
+                    mime_type: String::from("image/png"),
+                    bytes: vec![0x89, b'P', b'N', b'G'],
+                },
+                AttachmentPart {
+                    name: String::from("data.bin"),
+                    mime_type: String::from("application/octet-stream"),
+                    bytes: vec![0, 1, 2],
+                },
+            ]
+        );
+        let names: Vec<String> = parse_view(TWO)
+            .unwrap()
+            .attachments
+            .into_iter()
+            .map(|a| a.name)
+            .collect();
+        assert_eq!(names, ["pic.png", "data.bin"], "the same order as the view's list");
+        assert_eq!(
+            attachment_parts(ALTERNATIVE),
+            vec![AttachmentPart {
+                name: String::from("notes.txt"),
+                mime_type: String::from("text/plain"),
+                bytes: b"hello".to_vec(),
+            }]
+        );
+        assert!(attachment_parts(PLAIN).is_empty());
     }
 
     #[test]
