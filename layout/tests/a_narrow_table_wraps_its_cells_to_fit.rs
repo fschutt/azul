@@ -110,11 +110,18 @@ fn prose_cells_wrap_inside_a_220px_table() {
             left + width
         );
     }
+    // Unwrapped, each cell is one line and both lines share a baseline. At
+    // the default serif face (Times, 16px) the columns come out as Chrome
+    // makes them - each its min-content plus a share of what its max-content
+    // wants beyond it (CSS Tables 3 3.9.3): ~120.5 and ~93.5px of the 214px
+    // between the spacing - and each cell wraps onto TWO lines ("alpha beta
+    // gamma" / "delta epsilon", "zeta eta theta" / "iota kappa"); a wider
+    // face wraps onto more.
     let mut lines: Vec<i32> = pens.iter().map(|(_, y)| y.round() as i32).collect();
     lines.sort_unstable();
     lines.dedup();
     assert!(
-        lines.len() >= 3,
+        lines.len() >= 2,
         "the prose wraps onto several lines: {lines:?}"
     );
 }
