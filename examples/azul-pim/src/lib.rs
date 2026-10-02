@@ -25,9 +25,11 @@
 
 pub mod content_line;
 pub mod dates;
+pub mod initials;
 pub mod mail_address;
 pub mod repeat;
 pub mod rrule;
+pub mod search;
 pub mod task;
 pub mod task_store;
 
