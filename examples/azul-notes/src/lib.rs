@@ -5,8 +5,8 @@
 //! with the pin as its row mark) shows the scope's notes under "Pinned" /
 //! date sections, searched as you type over title, text, tags and
 //! notebook, sorted by date modified / created / title; the editor pane
-//! holds the title field, the tag chips, the formatting toolbar and the
-//! rich-text editor (`editor.rs`) with Markdown shortcuts. Ctrl/Cmd+K opens
+//! holds the title field, the tag chips, the formatting toolbar and azul's
+//! shared rich-text editor (`editor.rs`) with Markdown shortcuts. Ctrl/Cmd+K opens
 //! the command palette (open a note, new note, move to a notebook, ...).
 //!
 //! Every note is a Markdown file with a small front matter,
@@ -27,7 +27,6 @@
 //! `AZNOTES_SAVED <id> <key>`, `AZNOTES_SCREEN <name>`.
 
 pub mod args;
-pub mod doc;
 pub mod editor;
 mod jobs;
 pub mod look;
@@ -93,10 +92,9 @@ pub enum Overlay {
     Link {
         url: String,
         /// The selection to link, `(block, start, end)`, taken when the
-        /// sheet opened (the field takes the focus from the text).
+        /// sheet opened (the field takes the focus from the text); empty:
+        /// the address goes in at the caret.
         spans: Vec<(usize, usize, usize)>,
-        /// The caret's block, for a link typed where nothing is selected.
-        block: usize,
     },
     /// Delete a trashed note for good.
     ConfirmDelete { id: String },
@@ -254,7 +252,9 @@ pub struct AppState {
     /// The open note's id.
     pub open: Option<String>,
     pub nav: NavState,
-    pub editor: editor::EditorState,
+    /// The open note's editor: its document, its ONE undo history, the
+    /// caret (azul's shared rich-text editor; `editor.rs`).
+    pub editor: azul::widgets::RichTextEditorState,
     pub overlay: Overlay,
     pub palette_query: String,
     pub screen: Screen,
@@ -389,7 +389,7 @@ pub fn start(args: Args) {
         query: Query::default(),
         open: None,
         nav: NavState::default(),
-        editor: editor::EditorState::default(),
+        editor: editor::state_for(&azul::widgets::RichTextDoc::create()),
         overlay,
         palette_query: String::new(),
         screen,

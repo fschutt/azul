@@ -244,7 +244,7 @@ pub fn request_images(info: &mut CallbackInfo, app: &RefAny, state: &mut AppStat
         .doc
         .image_srcs()
         .iter()
-        .filter_map(|src| store::image_key(&note.notebook, src))
+        .filter_map(|src| store::image_key(&note.notebook, src.as_str()))
         .filter(|key| !state.images_requested.contains(key))
         .collect();
     if keys.is_empty() {
@@ -272,7 +272,13 @@ pub fn open_note(info: &mut CallbackInfo, app: &RefAny, state: &mut AppState, id
         info.reset_editor_content(host, false);
     }
     state.open = Some(id.to_string());
-    state.editor = editor::EditorState::default();
+    // The editor starts over on the note's document: its own history, its
+    // caret at the start.
+    let doc = state
+        .library
+        .get(id)
+        .map_or_else(azul::widgets::RichTextDoc::create, |n| n.doc.clone());
+    state.editor = editor::state_for(&doc);
     state.tag_draft.clear();
     if state.screen == Screen::History {
         state.screen = Screen::Notes;
@@ -418,6 +424,7 @@ fn apply(info: &mut CallbackInfo, app: &RefAny, state: &mut AppState, outcome: O
                             if let Some(host) = editor::host_node(info, editor::root_dom()) {
                                 info.reset_editor_content(host, false);
                             }
+                            state.editor = editor::state_for(&note.doc);
                         }
                         state.library.upsert(note);
                         any = true;
@@ -551,16 +558,29 @@ fn apply(info: &mut CallbackInfo, app: &RefAny, state: &mut AppState, outcome: O
                 state.notice = errors.join("; ");
             }
             let now = azul_storage::time::now_unix();
+            let open = state.open.as_deref() == Some(id.as_str());
             if let Some(note) = state.library.get_mut(&id) {
                 let mut after = at.min(note.doc.blocks.len().saturating_sub(1));
                 for (src, alt) in images {
-                    after = note
-                        .doc
-                        .insert_after(after, crate::doc::Block::new(crate::doc::BlockKind::Image { src, alt }, Vec::new()));
+                    let image = azul::widgets::RichImage {
+                        src: src.into(),
+                        alt: alt.into(),
+                    };
+                    let block = azul::widgets::RichBlock::create(
+                        azul::widgets::RichBlockKind::Image(image),
+                        azul::vec::RichRunVec::from_vec(Vec::new()),
+                    );
+                    after = note.doc.insert_after(after, block);
                 }
                 note.touch(now);
                 note.refresh();
                 state.last_edit = Some(std::time::Instant::now());
+            }
+            // The open note's editor takes the pictures as one undoable step.
+            if open {
+                if let Some(doc) = state.library.get(&id).map(|n| n.doc.clone()) {
+                    let _ = state.editor.replace_doc(*info, doc);
+                }
             }
             request_images(info, app, state);
             Update::RefreshDom

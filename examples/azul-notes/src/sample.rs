@@ -119,7 +119,7 @@ pub fn sample_files(now: u64) -> Vec<(String, String)> {
                 modified,
                 extra: Vec::new(),
             };
-            let doc = markdown::markdown_to_doc(s.body);
+            let doc = azul::widgets::RichTextDoc::from_markdown(s.body);
             (model::note_key(s.notebook, &sample_id(s.n)), markdown::note_to_file(&meta, &doc))
         })
         .collect();
@@ -151,6 +151,6 @@ mod tests {
         assert!(lib.notebook_paths().contains(&"Archive".to_string()));
         assert!(lib.notebook_paths().contains(&"Work/Offsite".to_string()));
         let offsite = lib.get(&sample_id(1)).expect("the offsite note");
-        assert_eq!(offsite.doc.checklist(), (1, 3));
+        assert_eq!((offsite.doc.checklist_done(), offsite.doc.checklist_total()), (1, 3));
     }
 }

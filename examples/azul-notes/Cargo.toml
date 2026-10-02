@@ -20,8 +20,6 @@ publish = false
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
 # The storage layer the apps share (AzDrive, AzMail): LocalDrive today, S3Drive later.
 azul-storage = { path = "../azul-storage" }
-# Markdown -> the note's blocks; already in the lock through AzWriter (same version, same features).
-pulldown-cmark = { version = "0.9", default-features = false }
 # The same features azul-layout, AzDrive and AzMail build chrono with: the list's local dates.
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 

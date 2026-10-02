@@ -259,7 +259,7 @@ def first_session(app, data, out):
     # The body, with Markdown shortcuts.
     app.must("focus_node", selector="#note-body")
     app.frame(2)
-    app.click("#nb-0")  # the caret into the note's first (empty) block
+    app.click("#note-body-0")  # the caret into the note's first (empty) block (`<host id>-<index>`)
     app.type("# ")
     app.type("Groceries")
     app.key("return")

@@ -90,7 +90,6 @@ dependencies = [
  "azul-dll",
  "azul-storage",
  "chrono",
- "pulldown-cmark",
 ]
 
 [[package]]
