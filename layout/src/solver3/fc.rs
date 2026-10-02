@@ -6830,23 +6830,22 @@ fn get_caption_side_property<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNodeHot,
 ) -> StyleCaptionSide {
-    if let Some(dom_id) = node.dom_node_id {
-        let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
-        let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    specified_caption_side(ctx, node).unwrap_or(StyleCaptionSide::Top) // Default per CSS 2.2
+}
 
-        if let Some(prop) =
-            ctx.styled_dom
-                .css_property_cache
-                .ptr
-                .get_caption_side(node_data, &dom_id, &node_state)
-        {
-            if let Some(value) = prop.get_property() {
-                return *value;
-            }
-        }
-    }
-
-    StyleCaptionSide::Top // Default per CSS 2.2
+/// The `caption-side` the cascade gives `node`, `None` when nothing set it.
+fn specified_caption_side<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    node: &LayoutNodeHot,
+) -> Option<StyleCaptionSide> {
+    let dom_id = node.dom_node_id?;
+    let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
+    let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    ctx.styled_dom
+        .css_property_cache
+        .ptr
+        .get_caption_side(node_data, &dom_id, &node_state)
+        .and_then(|prop| prop.get_property().copied())
 }
 
 //   removes entire row or column from display; space made available for other content;
@@ -7222,7 +7221,14 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     //
     // "The caption box is a block box that retains its own content,
     // padding, border, and margin areas."
-    let caption_side = get_caption_side_property(ctx, &table_node);
+    // `caption-side` applies to the caption (CSS 2.2 17.4.1; inherited, so
+    // a table's value reaches a caption that sets none): the caption's own
+    // value first, the table's otherwise.
+    let caption_side = table_ctx
+        .caption_index
+        .and_then(|caption_idx| tree.get(LayoutNodeId::new(caption_idx)))
+        .and_then(|caption| specified_caption_side(ctx, caption))
+        .unwrap_or_else(|| get_caption_side_property(ctx, &table_node));
     let mut caption_height = 0.0;
     let mut table_y_offset = 0.0;
 
@@ -7347,15 +7353,45 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     // where the caller treats the bottom content edge as the baseline.
     // TODO(superplan): a rowspan cell that *starts* in row 0 but whose content
     // baseline sits in a later row is approximated by `row_baselines[0]` here.
-    let table_baseline = table_ctx
-        .row_baselines
-        .first()
-        .copied()
-        .and_then(|row0_baseline| {
-            row_tops
-                .first()
-                .map(|top| top + table_y_offset + row0_baseline)
+    //
+    // A first row with no baseline-aligned cell (the HTML default: cells
+    // inherit `vertical-align: middle` from their row) has no baseline of its
+    // own; CSS 2.2 17.5.3 puts it at the bottom content edge of the row's
+    // lowest cell. Left at 0 (the row's top), an inline-table hung a whole
+    // table height below the line it sat on.
+    let row0_baseline = table_ctx.row_baselines.first().copied().map(|baseline| {
+        let row0_cells: Vec<&TableCellInfo> =
+            table_ctx.cells.iter().filter(|c| c.row == 0).collect();
+        let any_baseline_cell = row0_cells.iter().any(|c| {
+            let dom = tree
+                .get(LayoutNodeId::new(c.node_index))
+                .and_then(|n| n.dom_node_id);
+            is_baseline_aligned(cell_vertical_align(ctx.styled_dom, dom))
         });
+        if any_baseline_cell {
+            return baseline;
+        }
+        let row_height = table_ctx.row_heights.first().copied().unwrap_or(0.0);
+        let bottom_extras = row0_cells
+            .iter()
+            .filter(|c| c.rowspan == 1)
+            .filter_map(|c| tree.get(LayoutNodeId::new(c.node_index)))
+            .map(|n| {
+                let bp = n.box_props.unpack();
+                bp.padding.bottom + bp.border.bottom
+            })
+            .fold(f32::INFINITY, f32::min);
+        if bottom_extras.is_finite() {
+            (row_height - bottom_extras).max(0.0)
+        } else {
+            row_height
+        }
+    });
+    let table_baseline = row0_baseline.and_then(|row0_baseline| {
+        row_tops
+            .first()
+            .map(|top| top + table_y_offset + row0_baseline)
+    });
 
     // Create output with the table's final size and cell positions
     // +spec:box-model:52fcfe - overflow_size must include borders that spill into margin in
