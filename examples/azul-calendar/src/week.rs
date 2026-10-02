@@ -37,9 +37,10 @@ const MIN_WHEEL_STEP: f32 = 0.8;
 /// How much a y read back from pixels may fall short of the line it was on, in minutes.
 const LINE_TOLERANCE: f32 = 1e-3;
 
-/// The Monday on or before `day`.
+/// The Monday on or before `day` (`azul_pim::dates::start_of_week`; the calendar's weeks start
+/// on Monday).
 pub fn week_start(day: NaiveDate) -> NaiveDate {
-    day - Duration::days(i64::from(day.weekday().num_days_from_monday()))
+    azul_pim::dates::start_of_week(day, chrono::Weekday::Mon)
 }
 
 /// The Monday `weeks` weeks after (or, negative, before) the week of `day`.

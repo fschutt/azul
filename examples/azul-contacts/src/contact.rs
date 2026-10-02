@@ -310,8 +310,8 @@ impl Contact {
             .join(" \u{b7} ")
     }
 
-    /// What the edit form refuses: no name at all, an email without `@` and
-    /// a dot after it, a birthday that is not a date.
+    /// What the edit form refuses: no name at all, an email that is not one
+    /// (`azul_pim::mail_address::is_email`), a birthday that is not a date.
     #[must_use]
     pub fn problems(&self, birthday_text: Option<&str>) -> Vec<String> {
         let mut out = Vec::new();
@@ -323,14 +323,7 @@ impl Contact {
             if v.is_empty() {
                 continue;
             }
-            let ok = match v.split_once('@') {
-                Some((local, domain)) => {
-                    !local.is_empty() && domain.contains('.') && !domain.starts_with('.') && !domain.ends_with('.')
-                        && !v.contains(char::is_whitespace)
-                }
-                None => false,
-            };
-            if !ok {
+            if !azul_pim::mail_address::is_email(v) {
                 out.push(format!("\"{v}\" is not an email address."));
             }
         }
@@ -803,6 +796,21 @@ mod tests {
         assert_eq!(p.len(), 3, "{p:?}");
         assert!(p[0].contains("not-an-email") && p[1].contains("x@y") && p[2].contains("31.02.1990"));
         assert!(c.problems(Some("")).len() == 2, "an empty birthday is fine");
+    }
+
+    #[test]
+    fn an_email_with_a_second_at_sign_or_brackets_is_refused() {
+        // DEDUP_EDITORS B14: the form split at the first `@`, so `a@b@example.org` passed.
+        let mut c = Contact::default();
+        c.given = "A".into();
+        c.emails = vec![
+            Labeled::new("work", "a@b@example.org"),
+            Labeled::new("home", "<a@example.org>"),
+            Labeled::new("other", "a.b+c@mail.example.org"),
+        ];
+        let p = c.problems(None);
+        assert_eq!(p.len(), 2, "{p:?}");
+        assert!(p[0].contains("a@b@example.org") && p[1].contains("<a@example.org>"), "{p:?}");
     }
 
     #[test]

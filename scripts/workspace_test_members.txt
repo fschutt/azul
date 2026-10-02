@@ -44,6 +44,7 @@ tested: AzShow               # dll_tests (the deck model: layouts, z-order, grou
 tested: AzPhoto              # dll_tests (the raster core: blend modes, tiles, brush, selections, undo; the view, the tools, files, args)
 tested: AzSheets             # dll_tests (the engine trait on a fake, the IronCalc adapter, the worker, the UI model)
 tested: AzTasks              # dll_tests (quick-add parser, repeat rules, smart lists, task files)
+tested: azul-pim             # dll_tests (dates, RRULE, repeats, content lines, addresses, search, initials, the task store)
 
 # ── members with genuinely no tests. The script verifies the claim by grepping
 #    for #[test]; if any of these grows one, it fails until it is moved up and

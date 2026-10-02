@@ -75,6 +75,7 @@
 
 use std::path::{Path, PathBuf};
 
+use azul_pim::mail_address::is_email;
 use chrono::{Duration, NaiveDate, NaiveTime, Timelike};
 use serde::{Deserialize, Serialize};
 
@@ -233,26 +234,6 @@ impl std::fmt::Display for EventError {
 /// The last minute of a day: where an all-day event ends, and the latest an event can end.
 fn last_minute() -> NaiveTime {
     NaiveTime::from_hms_opt(23, 59, 0).unwrap_or(NaiveTime::MIN)
-}
-
-/// Whether `text` reads as an e-mail address: one `@` with something on both sides, a dot in
-/// the domain, no spaces or brackets. Not RFC 5322; what a person types into "To".
-#[must_use]
-pub fn is_email(text: &str) -> bool {
-    let Some((local, domain)) = text.split_once('@') else {
-        return false;
-    };
-    let clean = |s: &str| {
-        !s.is_empty()
-            && !s
-                .chars()
-                .any(|c| c.is_whitespace() || matches!(c, '@' | '<' | '>' | ',' | ';' | '"'))
-    };
-    clean(local)
-        && clean(domain)
-        && domain.contains('.')
-        && !domain.starts_with('.')
-        && !domain.ends_with('.')
 }
 
 impl Event {
@@ -694,33 +675,14 @@ pub fn load_all(data_dir: &Path) -> (Vec<Event>, Vec<Skipped>) {
 /// sequence in every process), fine for DOM markers and wrong for a file
 /// name that other devices and an S3 bucket share. `Uuid::from_seed` is a
 /// pure function of its seed, so the id is exactly as random as the seed.
+///
+/// The seed is `azul_storage::ids::random_seed`, the one every Azlin app mints file ids from
+/// (this file had its own copy, as AzTasks had - DEDUP_EDITORS B1).
 #[must_use]
 pub fn new_event_id() -> String {
-    azul::uuid::Uuid::from_seed(random_seed())
+    azul::uuid::Uuid::from_seed(azul_storage::ids::random_seed())
         .as_str()
         .to_string()
-}
-
-/// 64 random bits: `std`'s `RandomState` (SipHash keys the OS seeds per
-/// thread, stepped on every call) hashed with the time, the process id and a
-/// counter; no extra dependency.
-pub(crate) fn random_seed() -> u64 {
-    use std::{
-        collections::hash_map::RandomState,
-        hash::{BuildHasher, Hasher},
-        sync::atomic::{AtomicU64, Ordering},
-        time::{SystemTime, UNIX_EPOCH},
-    };
-    static MINTED: AtomicU64 = AtomicU64::new(0);
-    let mut h = RandomState::new().build_hasher();
-    h.write_u64(MINTED.fetch_add(1, Ordering::Relaxed));
-    h.write_u128(
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos()),
-    );
-    h.write_u32(std::process::id());
-    h.finish()
 }
 
 #[cfg(test)]
@@ -1261,20 +1223,7 @@ mod tests {
             e.check(),
             Err(EventError::BadCalendar(String::from("../work")))
         );
-        for good in ["ana@example.com", "a.b+c@mail.example.org"] {
-            assert!(is_email(good), "{good}");
-        }
-        for bad in [
-            "",
-            "ana",
-            "ana@",
-            "@example.com",
-            "ana@example",
-            "a na@example.com",
-            "<a@b.c>",
-        ] {
-            assert!(!is_email(bad), "{bad}");
-        }
+        // What an address is: azul_pim::mail_address::is_email and its tests.
     }
 
     #[test]

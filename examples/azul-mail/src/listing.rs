@@ -59,18 +59,8 @@ impl DateGroup {
     }
 }
 
-/// The English name of a day ("Monday").
-fn weekday_name(day: Weekday) -> &'static str {
-    match day {
-        Weekday::Mon => "Monday",
-        Weekday::Tue => "Tuesday",
-        Weekday::Wed => "Wednesday",
-        Weekday::Thu => "Thursday",
-        Weekday::Fri => "Friday",
-        Weekday::Sat => "Saturday",
-        Weekday::Sun => "Sunday",
-    }
-}
+// The English name of a day ("Monday"): the PIM apps' one (DEDUP_EDITORS B5).
+use azul_pim::dates::weekday_name;
 
 /// Whether the server set `flag` (`\Seen`, `\Flagged`) on the message, in any case.
 fn has_flag(entry: &IndexEntry, flag: &str) -> bool {
@@ -200,12 +190,11 @@ pub fn unread_count(entries: &[IndexEntry], flags: &LocalFlags) -> usize {
 }
 
 /// Whether `entry` matches the search box: every word of `query` is in its sender, recipients
-/// or subject, ignoring case. An empty query matches everything.
+/// or subject, ignoring case and diacritics (the PIM apps' rule, `azul_pim::search`). An empty
+/// query matches everything.
 pub fn matches_search(entry: &IndexEntry, query: &str) -> bool {
-    let haystack = format!("{} {} {}", entry.from, entry.to, entry.subject).to_lowercase();
-    query
-        .split_whitespace()
-        .all(|word| haystack.contains(&word.to_lowercase()))
+    azul_pim::search::Query::parse(query)
+        .matches(&format!("{} {} {}", entry.from, entry.to, entry.subject))
 }
 
 /// `entries` by date (RFC 3339 sorts as text), newest first unless `newest_first` is false;
@@ -581,6 +570,21 @@ mod tests {
         assert!(matches_search(&e, "OKAFOR october"));
         assert!(matches_search(&e, "ada@"));
         assert!(!matches_search(&e, "garden november"));
+    }
+
+    #[test]
+    fn the_search_box_ignores_diacritics_as_the_address_book_does() {
+        // DEDUP_EDITORS B16: AzContacts finds "Krüger" for "kruger"; the message list did not.
+        let e = IndexEntry {
+            from: String::from("Jürgen Krüger <jk@example.org>"),
+            to: String::from("ada@example.org"),
+            subject: String::from("Café opening"),
+            ..entry(1, "", &[])
+        };
+        assert!(matches_search(&e, "kruger"));
+        assert!(matches_search(&e, "JURGEN cafe"));
+        assert!(matches_search(&e, "Krüger"));
+        assert!(!matches_search(&e, "kruger closing"));
     }
 
     #[test]

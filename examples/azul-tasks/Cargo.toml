@@ -21,10 +21,16 @@ publish = false
 [dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
 azul-storage = { path = "../azul-storage" }
+# The PIM logic the Azlin apps share: dates, repeats, the task files (plain Rust, no new crates).
+azul-pim = { path = "../azul-pim" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # The same features azul-layout and AzCalendar build chrono with (dates, the local time).
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+
+[dev-dependencies]
+# The shared temporary folder for tests (azul_pim::testing::TempDir).
+azul-pim = { path = "../azul-pim", features = ["test-util"] }
 
 [lib]
 name = "aztasks"

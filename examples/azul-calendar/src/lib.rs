@@ -56,12 +56,13 @@ pub mod editor;
 pub mod event;
 pub mod ics;
 pub mod meeting;
-pub mod rrule;
+pub use azul_pim::rrule;
 pub mod sample;
 pub mod settings;
 pub mod tasks;
+// A temporary folder for tests (the one the PIM apps share).
 #[cfg(test)]
-mod test_dir;
+use azul_pim::testing as test_dir;
 pub mod views;
 pub mod week;
 
@@ -191,6 +192,10 @@ pub(crate) struct CalState {
     /// The calendars "My calendars" does not show, by id.
     pub(crate) hidden: BTreeSet<String>,
     pub(crate) tasks: Vec<Task>,
+    /// The folder of the task store the To-Do bar reads and writes (`tasks::tasks_root`).
+    pub(crate) tasks_root: PathBuf,
+    /// The list a task typed into the To-Do bar goes to (the store's default list).
+    pub(crate) task_list: String,
     /// The To-Do bar's new-task line as typed.
     pub(crate) task_text: String,
     pub(crate) today: NaiveDate,
@@ -467,13 +472,11 @@ pub(crate) fn drop_down(
     .with_css("margin-right: 8px;")
 }
 
-/// Three 64-bit draws of `event::random_seed` for a room id (130 of the bits are used).
+/// Three 64-bit draws of `azul_storage::ids::random_seed` for a room id (130 of the bits are
+/// used).
 pub(crate) fn room_entropy() -> [u64; 3] {
-    [
-        event::random_seed(),
-        event::random_seed(),
-        event::random_seed(),
-    ]
+    use azul_storage::ids::random_seed;
+    [random_seed(), random_seed(), random_seed()]
 }
 
 /// A new meeting link for an event: made here, pending until the meeting server has its room.
@@ -1067,6 +1070,19 @@ pub fn start() {
         Some(dir) => dir.clone(),
         None => event::data_dir(std::env::var(DATA_VAR).ok().as_deref(), user_data_dir()),
     };
+    // The tasks are the store every Azlin app shares: with the calendar's files when a data
+    // folder was named, else in AzTasks' root (DEDUP_EDITORS B12).
+    let named_dir = args.data.clone().or_else(|| {
+        std::env::var(DATA_VAR)
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .map(|v| PathBuf::from(v.trim()))
+    });
+    let tasks_root = tasks::tasks_root(
+        named_dir.as_deref(),
+        std::env::var(tasks::TASKS_DATA_VAR).ok().as_deref(),
+        user_data_dir(),
+    );
     let today = chrono::Local::now().date_naive();
     if args.sample {
         match sample::write_sample(&data_dir, today) {
@@ -1084,7 +1100,16 @@ pub fn start() {
         );
     }
     let calendars = calendars::load_all(&data_dir);
-    let tasks = tasks::load_all(&data_dir);
+    let now = chrono::Local::now().naive_local();
+    match tasks::migrate_old_folder(&data_dir, &tasks_root, now) {
+        Ok(0) => {}
+        Ok(n) => eprintln!(
+            "[azcalendar] {n} task(s) of the old To-Do bar moved into {}",
+            tasks_root.display()
+        ),
+        Err(e) => eprintln!("[azcalendar] the old To-Do bar's tasks could not be moved: {e}"),
+    }
+    let todo = tasks::load(&tasks_root);
     let saved = settings::read_text(&settings::path(&data_dir));
     let text = saved.as_deref().unwrap_or_default();
     let server = meeting::server_setting(
@@ -1129,7 +1154,9 @@ pub fn start() {
         events,
         calendars,
         hidden,
-        tasks,
+        tasks: todo.tasks,
+        tasks_root,
+        task_list: todo.new_task_list,
         task_text: String::new(),
         today,
         view,

@@ -84,72 +84,13 @@ pub fn forward_subject(subject: &str) -> String {
     }
 }
 
-/// The entries of an address line: split at commas and semicolons that are not inside quotes
-/// or angle brackets, trimmed, empty ones left out.
-pub fn split_addresses(line: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut current = String::new();
-    let mut quoted = false;
-    let mut escaped = false;
-    let mut angle = 0usize;
-    for c in line.chars() {
-        if escaped {
-            escaped = false;
-            current.push(c);
-            continue;
-        }
-        match c {
-            '\\' if quoted => {
-                escaped = true;
-                current.push(c);
-            }
-            '"' => {
-                quoted = !quoted;
-                current.push(c);
-            }
-            '<' if !quoted => {
-                angle += 1;
-                current.push(c);
-            }
-            '>' if !quoted => {
-                angle = angle.saturating_sub(1);
-                current.push(c);
-            }
-            ',' | ';' if !quoted && angle == 0 => {
-                let entry = current.trim();
-                if !entry.is_empty() {
-                    out.push(entry.to_string());
-                }
-                current.clear();
-            }
-            _ => current.push(c),
-        }
-    }
-    let entry = current.trim();
-    if !entry.is_empty() {
-        out.push(entry.to_string());
-    }
-    out
-}
-
-/// The address of an entry: `ada@example.org` from `Ada <ada@example.org>`, `"L, Ada"
-/// <ada@example.org>` or `ada@example.org`; `None` when there is no address in it.
-pub fn bare_address(entry: &str) -> Option<String> {
-    let entry = entry.trim();
-    let candidate = match (entry.rfind('<'), entry.rfind('>')) {
-        (Some(open), Some(close)) if open < close => entry[open + 1..close].trim(),
-        _ => entry,
-    };
-    crate::account::is_email(candidate).then(|| candidate.to_string())
-}
-
-/// Whether two entries name the same mailbox (their addresses, ignoring case).
-pub fn same_address(a: &str, b: &str) -> bool {
-    match (bare_address(a), bare_address(b)) {
-        (Some(a), Some(b)) => a.eq_ignore_ascii_case(&b),
-        _ => false,
-    }
-}
+/// The address lines are read by the PIM apps' shared module (DEDUP_EDITORS B14): the entries
+/// of a line split at commas, semicolons and line breaks outside quotes and angle brackets
+/// (`split_addresses`), the address of an entry (`bare_address`), two entries naming one
+/// mailbox (`same_address`).
+pub use azul_pim::mail_address::{
+    bare_address, same_address, split_address_line as split_addresses,
+};
 
 /// The header fields a reply or forward starts with.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
