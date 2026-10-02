@@ -36,11 +36,13 @@ A16; DEDUP_WIDGETS_API F2, F6, F29.
 - 7369b65ff AzPhoto on UndoHistory (raster/history.rs removed) ; 724b9a147 AzVideoCut ; fd3623512 AzShow
 - a94735330 RED pane modules wrap ; f30151254 GREEN ; 24a191049 ModuleSwitcher removed, showcase on the pane
 - f3b516785 RED CloseGuard + prevent_window_close ; b994e2617 GREEN
+- db3bba2bc Document+Pim ; 377d85810 Browser/Developer/Media/Records/Timeline ; 28806100b Canvas+Call office_shell()
+- 15a0ef180 shells fixtures ; bca3dddf0 apps set chrome after office_shell()
 
 ## IN PROGRESS
 
 ## NEXT
-- (A selection model, B undo, C switcher, D close guard: DONE)
-- E presets: drop the chrome copies from the S-shells (office_shell() ones), fix call sites; F report.
+- (A selection model, B undo, C switcher, D close guard, E presets: DONE)
+- F report scripts/BLOCKS_2026_10_02.md (api.json list, least-sure spots, test commands, wave 6).
 
 ## Open questions for the user
