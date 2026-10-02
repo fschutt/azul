@@ -98,13 +98,13 @@ impl RichTextDoc {
     /// Plain text as paragraphs, one per line, `>` quote marks as quote
     /// depth plus `extra_quote` (a reply quotes the original one deeper).
     #[must_use]
-    pub fn from_plain_text(text: AzString, extra_quote: u8) -> Self {
+    pub fn create_from_plain_text(text: AzString, extra_quote: u8) -> Self {
         plain_text_to_doc(text.as_str(), extra_quote)
     }
 
     /// HTML (a mail body, a paste) as a document (see [`html_to_doc`]).
     #[must_use]
-    pub fn from_html(html: AzString) -> Self {
+    pub fn create_from_html(html: AzString) -> Self {
         html_to_doc(html.as_str())
     }
 }

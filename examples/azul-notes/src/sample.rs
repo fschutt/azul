@@ -119,7 +119,7 @@ pub fn sample_files(now: u64) -> Vec<(String, String)> {
                 modified,
                 extra: Vec::new(),
             };
-            let doc = azul::widgets::RichTextDoc::from_markdown(s.body);
+            let doc = azul::widgets::RichTextDoc::create_from_markdown(s.body);
             (model::note_key(s.notebook, &sample_id(s.n)), markdown::note_to_file(&meta, &doc))
         })
         .collect();

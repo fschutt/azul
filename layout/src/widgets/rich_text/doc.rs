@@ -276,7 +276,7 @@ impl RichTableRow {
 
     /// A row of `count` empty cells.
     #[must_use]
-    pub fn empty(count: usize) -> Self {
+    pub fn create_empty(count: usize) -> Self {
         let cells: Vec<AzString> = (0..count).map(|_| AzString::from_const_str("")).collect();
         Self {
             cells: StringVec::from_vec(cells),
@@ -328,8 +328,8 @@ impl RichTable {
 
     /// An empty `rows` x `columns` table.
     #[must_use]
-    pub fn empty(rows: usize, columns: usize) -> Self {
-        let rows: Vec<RichTableRow> = (0..rows).map(|_| RichTableRow::empty(columns)).collect();
+    pub fn create_empty(rows: usize, columns: usize) -> Self {
+        let rows: Vec<RichTableRow> = (0..rows).map(|_| RichTableRow::create_empty(columns)).collect();
         Self {
             rows: RichTableRowVec::from_vec(rows),
             has_header: false,
@@ -2126,7 +2126,7 @@ mod tests {
 
     #[test]
     fn typing_into_a_table_cell_changes_that_cell_only() {
-        let table = RichTable::empty(2, 2);
+        let table = RichTable::create_empty(2, 2);
         let mut doc = RichTextDoc::from_blocks(vec![
             RichBlock::new(RichBlockKind::Table(table), vec![]),
             RichBlock::paragraph("after"),

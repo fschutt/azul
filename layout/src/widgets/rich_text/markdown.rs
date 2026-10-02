@@ -40,7 +40,7 @@ impl RichTextDoc {
     /// output; see the module docs).
     #[cfg(feature = "rich_text_markdown")]
     #[must_use]
-    pub fn from_markdown(markdown: AzString) -> Self {
+    pub fn create_from_markdown(markdown: AzString) -> Self {
         markdown_to_doc(markdown.as_str())
     }
 }
@@ -1051,7 +1051,7 @@ mod tests {
         assert_eq!(table.rows.as_ref().len(), 2);
         assert_eq!(table.rows.as_ref()[1].cell(1), "Ship | launch");
         assert_eq!(doc_to_markdown(&doc), md);
-        let mut headless = RichTable::empty(1, 2);
+        let mut headless = RichTable::create_empty(1, 2);
         headless.rows = RichTableRowVec::from_vec(vec![RichTableRow::create(
             azul_css::StringVec::from(vec![String::from("a"), String::from("b")]),
         )]);
@@ -1078,7 +1078,7 @@ mod tests {
 
     #[test]
     fn the_api_forms_wrap_the_same_conversions() {
-        let doc = RichTextDoc::from_markdown(AzString::from("# T\n\nbody\n"));
+        let doc = RichTextDoc::create_from_markdown(AzString::from("# T\n\nbody\n"));
         assert_eq!(doc.to_markdown().as_str(), "# T\n\nbody\n");
     }
 }

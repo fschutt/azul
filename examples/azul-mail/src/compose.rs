@@ -7,7 +7,7 @@
 //! formatted text and links. Here it becomes the two parts of the mail: `text/plain` with `> `
 //! quoting (`RichTextDoc::to_plain_text`) and `text/html` with the quotes nested as
 //! `<blockquote type="cite">` (`RichTextDoc::to_html`) - the form Gmail and Thunderbird write and
-//! read. A reopened draft reads its HTML part back (`RichTextDoc::from_html`), so its bold,
+//! read. A reopened draft reads its HTML part back (`RichTextDoc::create_from_html`), so its bold,
 //! italic and links come back with it.
 //!
 //! A reply starts with an empty line for the caret, then "On <date>, <sender> wrote:" and the
@@ -259,7 +259,7 @@ fn quoted_blocks(text: &str, extra: u8) -> Vec<RichBlock> {
     if text.strip_suffix('\n').unwrap_or(text).is_empty() {
         return Vec::new();
     }
-    RichTextDoc::from_plain_text(text, extra).blocks.iter().cloned().collect()
+    RichTextDoc::create_from_plain_text(text, extra).blocks.iter().cloned().collect()
 }
 
 /// A body of `blocks`.
@@ -301,8 +301,8 @@ pub fn forward_quote(original: &MessageView, date: &str) -> RichTextDoc {
 /// A reopened draft's body: its HTML part (formats and links kept), else its text.
 pub fn draft_body(draft: &MessageView) -> RichTextDoc {
     match draft.html.as_deref().filter(|h| !h.trim().is_empty()) {
-        Some(html) => RichTextDoc::from_html(html),
-        None => RichTextDoc::from_plain_text(draft.text.as_str(), 0),
+        Some(html) => RichTextDoc::create_from_html(html),
+        None => RichTextDoc::create_from_plain_text(draft.text.as_str(), 0),
     }
 }
 
@@ -746,7 +746,7 @@ mod tests {
 
     /// A body with bold, a link, a list and a quote.
     fn formatted_body() -> RichTextDoc {
-        RichTextDoc::from_html(
+        RichTextDoc::create_from_html(
             "<div>Thanks, <b>bold</b> &amp; <a href=\"https://example.org/plan\">the plan</a></div>\
              <ul><li>bulbs</li></ul><blockquote type=\"cite\"><div>Bring gloves.</div></blockquote>",
         )
@@ -813,7 +813,7 @@ mod tests {
             cc: String::new(),
             bcc: String::from("dan@example.org"),
             subject: String::from("Re: Garden plan"),
-            body: RichTextDoc::from_plain_text("See you.", 0),
+            body: RichTextDoc::create_from_plain_text("See you.", 0),
             in_reply_to: Some(String::from("garden-1@example.org")),
             references: vec![String::from("garden-1@example.org")],
         }

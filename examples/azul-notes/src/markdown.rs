@@ -15,7 +15,7 @@
 //! ```
 //!
 //! The body is the shared rich-text editor's document (azul's
-//! `RichTextDoc`), read with `RichTextDoc::from_markdown` and written with
+//! `RichTextDoc`), read with `RichTextDoc::create_from_markdown` and written with
 //! `to_markdown` - one canonical form, so a body written by AzNotes reads
 //! back to the same document (the round-trip tests live with the editor, in
 //! azul-layout's `widgets::rich_text::markdown`). Front matter keys AzNotes
@@ -291,7 +291,7 @@ pub fn meta_to_front_matter(meta: &Meta) -> String {
 #[must_use]
 pub fn parse_note(text: &str, file_modified: u64) -> (Meta, RichTextDoc) {
     let (front, body) = split_front_matter(text);
-    let doc = RichTextDoc::from_markdown(body);
+    let doc = RichTextDoc::create_from_markdown(body);
     let has_front = front.is_some();
     let mut meta = match front {
         Some(lines) => parse_meta(&lines),
@@ -350,7 +350,7 @@ mod tests {
             modified: 1_790_086_400,
             extra: vec!["aliases:".to_string(), "  - offsite".to_string()],
         };
-        let doc = RichTextDoc::from_markdown("# Goals\n\n- one\n");
+        let doc = RichTextDoc::create_from_markdown("# Goals\n\n- one\n");
         let file = note_to_file(&meta, &doc);
         assert!(file.starts_with("---\ntitle: \"Offsite: agenda #1\"\n"), "{file}");
         assert!(file.contains("tags: [work, q4 plans, \"a,b\"]\n"), "{file}");

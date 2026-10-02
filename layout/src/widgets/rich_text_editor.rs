@@ -232,7 +232,7 @@ pub struct RichTextToolbar {
 impl RichTextToolbar {
     /// No toolbar.
     #[must_use]
-    pub const fn none() -> Self {
+    pub const fn create_none() -> Self {
         Self {
             formats: false,
             headings: false,
@@ -246,17 +246,17 @@ impl RichTextToolbar {
 
     /// Formats and lists: a notes field (a task's notes, a contact's).
     #[must_use]
-    pub const fn minimal() -> Self {
+    pub const fn create_minimal() -> Self {
         Self {
             formats: true,
             lists: true,
-            ..Self::none()
+            ..Self::create_none()
         }
     }
 
     /// Every group.
     #[must_use]
-    pub const fn full() -> Self {
+    pub const fn create_full() -> Self {
         Self {
             formats: true,
             headings: true,
@@ -406,7 +406,7 @@ impl RichTextEditor {
             on_link: OptionRichTextEditorOnLink::None,
             font_size: 14.0,
             paragraph_spacing: 6.0,
-            toolbar: RichTextToolbar::none(),
+            toolbar: RichTextToolbar::create_none(),
             markdown_shortcuts: true,
             read_only: false,
             theme: crate::widgets::themes::OptionUiTheme::None,
@@ -1932,7 +1932,7 @@ impl RichTextEditorState {
                     RichTextCommand::InsertRule => RichBlockKind::Rule,
                     RichTextCommand::InsertPageBreak => RichBlockKind::PageBreak,
                     RichTextCommand::InsertImage(image) => RichBlockKind::Image(image.clone()),
-                    RichTextCommand::InsertTable(size) => RichBlockKind::Table(RichTable::empty(
+                    RichTextCommand::InsertTable(size) => RichBlockKind::Table(RichTable::create_empty(
                         size.rows.max(1),
                         size.columns.max(1),
                     )),
@@ -2391,14 +2391,14 @@ pub(crate) mod fixtures {
             RichBlock::paragraph("Quoted words").with_quote_depth(1),
             RichBlock::text(RichBlockKind::Code(AzString::from("rust")), "let x = 1;"),
             RichBlock::new(RichBlockKind::Rule, vec![]),
-            RichBlock::new(RichBlockKind::Table(RichTable::empty(2, 2)), vec![]),
+            RichBlock::new(RichBlockKind::Table(RichTable::create_empty(2, 2)), vec![]),
         ])
     }
 
     /// The sample note in an editor with every toolbar group.
     pub(crate) fn sample() -> RichTextEditor {
         RichTextEditor::create(RichTextEditorState::create(sample_doc()))
-            .with_toolbar(RichTextToolbar::full())
+            .with_toolbar(RichTextToolbar::create_full())
             .with_accessibility_name(AzString::from("Note text"))
     }
 }
@@ -2537,9 +2537,9 @@ mod tests {
                 .dom();
             clickables(&StyledDom::create_from_dom(dom)).len()
         };
-        assert_eq!(count(RichTextToolbar::none()), 0);
-        assert_eq!(count(RichTextToolbar::minimal()), 5 + 3);
-        assert_eq!(count(RichTextToolbar::full()), 5 + 3 + 3 + 3 + 2 + 4 + 2);
+        assert_eq!(count(RichTextToolbar::create_none()), 0);
+        assert_eq!(count(RichTextToolbar::create_minimal()), 5 + 3);
+        assert_eq!(count(RichTextToolbar::create_full()), 5 + 3 + 3 + 3 + 2 + 4 + 2);
     }
 
     #[test]

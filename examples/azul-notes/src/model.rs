@@ -881,7 +881,7 @@ mod tests {
         let mut offsite = note("a", "Work/Offsite", "Offsite agenda", NOW - 3600);
         offsite.meta.pinned = true;
         offsite.meta.tags = vec!["planning".to_string()];
-        offsite.doc = RichTextDoc::from_markdown("# Offsite agenda\n\n- Bring laptops\n");
+        offsite.doc = RichTextDoc::create_from_markdown("# Offsite agenda\n\n- Bring laptops\n");
         offsite.refresh();
         let mut standup = note("b", "Work/Meetings", "Standup notes", NOW - 600);
         standup.meta.tags = vec!["Planning".to_string(), "daily".to_string()];
@@ -1073,7 +1073,7 @@ mod tests {
     fn a_note_file_reads_back_into_the_same_note() {
         let mut n = note("a", "Work", "Offsite", NOW);
         n.meta.tags = vec!["work".to_string()];
-        n.doc = RichTextDoc::from_markdown("- [ ] book the room\n");
+        n.doc = RichTextDoc::create_from_markdown("- [ ] book the room\n");
         let file = n.to_file();
         let back = Note::from_file("notes/Work/a.md", &file, 0).expect("a note key");
         assert_eq!(back.meta, n.meta);
